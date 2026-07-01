@@ -3,7 +3,7 @@
   <defs><style>
     .win { fill: #0f172a; } .bar { fill: #1e293b; }
     .mono { font-family: 'DejaVu Sans Mono','SFMono-Regular',Consolas,'Liberation Mono',monospace; font-size: 16px; }
-    .prompt { fill: #64748b; } .cmd { fill: #e2e8f0; } .pass { fill: #0d9488; font-weight: 700; }
+    .prompt { fill: #64748b; } .cmd { fill: #e2e8f0; } .pass { fill: #D6248A; font-weight: 700; }
     .txt { fill: #cbd5e1; } .ok { fill: #34d399; font-weight: 700; }
   </style></defs>
   <rect x="0" y="0" width="740" height="270" rx="12" class="win" />

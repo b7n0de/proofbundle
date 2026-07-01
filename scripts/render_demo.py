@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "assets" / "demo.svg"
 EXAMPLE = ROOT / "examples" / "example_bundle.json"
 
-ACCENT = "#0d9488"
+ACCENT = "#D6248A"
 
 
 def _capture_verify() -> list[str]:

@@ -1,23 +1,28 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="proofbundle" width="420">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/b7n0de-logo-dark.svg">
+  <img alt="b7n0de, Verified AI Work" src="assets/b7n0de-logo.svg" height="60">
+</picture>
 
-**Verify, fully offline, that a piece of data was signed and anchored in a
-tamper-evident log — and optionally carries a selectively disclosable
-credential. Pure Python, no server, no daemon, one JSON file.**
+<h1>proofbundle</h1>
+
+**Emit and verify, fully offline, portable evidence that a piece of data was
+signed and anchored in a tamper-evident log — and optionally carries a
+selectively disclosable credential. Pure Python, no server, no daemon, one JSON file.**
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/proofbundle.svg?color=0d9488)](https://pypi.org/project/proofbundle/)
-[![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg?color=0d9488)](https://pypi.org/project/proofbundle/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-0d9488.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/proofbundle.svg?color=D6248A)](https://pypi.org/project/proofbundle/)
+[![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg?color=D6248A)](https://pypi.org/project/proofbundle/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-0d9488.svg)](https://slsa.dev)
+[![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev)
 
 </div>
 
-**At a glance:** one self-contained `bundle.json` → `proofbundle verify` → three
-offline cryptographic checks → `OK` or `FAILED`. No network, no daemon, no own
-crypto. ~600 lines, 21 tests.
+**At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
+verify` checks one self-contained `bundle.json` with three offline cryptographic
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 25 tests.
 
 ## Contents
 
@@ -86,8 +91,8 @@ flowchart LR
     R -->|yes| OK(["=> OK &nbsp; exit 0"])
     R -->|no| FAIL(["=> FAILED &nbsp; exit 1"])
 
-    style V fill:#0d9488,stroke:#0d9488,color:#fff
-    style OK fill:#0d9488,stroke:#0d9488,color:#fff
+    style V fill:#D6248A,stroke:#D6248A,color:#fff
+    style OK fill:#D6248A,stroke:#D6248A,color:#fff
     style FAIL fill:#ef4444,stroke:#ef4444,color:#fff
 ```
 
@@ -219,3 +224,7 @@ The verifier core aims to stay small, dependency-light and correct.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+---
+
+<p align="center"><sub>proofbundle is part of <b>b7n0de</b>, Verified AI Work &middot; <a href="https://b7n0de.com">b7n0de.com</a></sub></p>
