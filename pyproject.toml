@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "0.4.1"
+version = "0.5.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -43,9 +43,14 @@ sdjwt = []
 # path (verify_bundle / decode_eval_claim) never canonicalizes — it checks stored bytes — so the
 # verifier stays dependency-free. `pip install proofbundle[eval]` adds emit-side canonicalization.
 eval = ["rfc8785>=0.1.4"]
-# Framework adapters read exported result JSON only (no framework import) → pure stdlib today.
+# The lm-eval adapter reads exported results.json (no import) → pure stdlib.
 adapters = []
-dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6", "rfc8785>=0.1.4"]
+# The inspect_ai adapter uses the STABLE read_eval_log API (lazy import). Pinned with an UPPER bound:
+# the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
+# test is bound to this range. `pip install "proofbundle[inspect]"`.
+inspect = ["inspect_ai>=0.3.100,<0.4"]
+dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "inspect_ai>=0.3.100,<0.4"]
 
 [project.urls]
 Homepage = "https://b7n0de.com"

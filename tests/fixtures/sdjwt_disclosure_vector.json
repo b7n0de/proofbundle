@@ -1,0 +1,8 @@
+{
+  "source": "RFC 9901 \u00a74.2.4.1 digest byte-chain (b64url(sha256(ASCII of the b64url-encoded disclosure)))",
+  "salt_b64url": "AAECAwQFBgcICQoLDA0ODw",
+  "name": "exact_score",
+  "value": "0.92",
+  "disclosure_b64url": "WyJBQUVDQXdRRkJnY0lDUW9MREEwT0R3IiwgImV4YWN0X3Njb3JlIiwgIjAuOTIiXQ",
+  "expected_digest_b64url": "gtASQ5LreeSRrVydCa6C_tXDU8crronesDu0aN_H7KE"
+}

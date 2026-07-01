@@ -1,5 +1,0 @@
-{
-  "_source": "UKGovernmentBEIS/inspect_ai eval-log JSON shape (2026). Minimal hand-authored fixture; mapping bound to this format.",
-  "eval": {"task": "safety_refusal", "task_version": "1", "model": "acme/model-x", "dataset": {"name": "acme/refusal-set"}},
-  "results": {"total_samples": 500, "scores": [{"name": "accuracy", "metrics": {"accuracy": {"value": 0.92}}}]}
-}

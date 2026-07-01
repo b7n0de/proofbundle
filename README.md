@@ -22,7 +22,7 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 50 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 62 tests.
 
 ## Contents
 
@@ -243,15 +243,34 @@ commitments — it does **not** prove the evaluation was well designed or that t
 itself is correct. Those are human judgements; what it removes is the need to simply
 trust the number.
 
+### Since v0.5: framework adapter, in-toto, selective disclosure
+
+- **inspect_ai adapter** (`pip install "proofbundle[inspect]"`) reads a UK AISI
+  [inspect_ai](https://github.com/UKGovernmentBEIS/inspect_ai) eval log via the stable
+  `read_eval_log` API (lazy import; the core stays dependency-free) and maps it to a claim.
+  `proofbundle.adapters.from_lm_eval_results` reads lm-evaluation-harness `results.json`
+  without importing anything.
+- **in-toto Statement v1** — `proofbundle.intoto.to_intoto_statement(claim, root_b64=…)`
+  emits the receipt as an in-toto statement with a self-hosted predicate type. The subject
+  digest is an *honest salted commitment* under a custom key, never `sha256` (see
+  [PREDICATE.md](PREDICATE.md)).
+- **SD-JWT issuance** (RFC 9901) — `proofbundle.sdjwt_issue.issue_sd_jwt(claim, signer,
+  root_b64=…, exact_score=…)` issues the receipt so a holder can disclose `passed` +
+  `threshold` while **withholding the exact score** and the identifier openings. The signed
+  bundle payload is the source of truth; the SD-JWT is a derived, bundle-bound view, verified
+  by proofbundle's own verifier **and** the `sd-jwt-python` reference.
+
 ## Roadmap
 
 - **v0.1** — the offline verifier plus a real example bundle.
 - **v0.2** — the emitter: `emit_bundle` / `proofbundle emit`.
 - **v0.3** — external RFC 6962 conformance vectors + real Sigstore Rekor interop.
-- **v0.4 (current release)** — the eval-receipt emitter (`emit_eval_receipt` /
-  `proofbundle emit-eval`), salted commitments, issuer binding, file-based adapters.
-- **v0.5** — selective disclosure of the exact score via SD-JWT **issuance** (the issuer
-  reveals identifier + salt on demand) and full SD-JWT VC conformance.
+- **v0.4** — the eval-receipt emitter (`emit_eval_receipt` / `proofbundle emit-eval`),
+  salted commitments, issuer binding.
+- **v0.5 (current release)** — inspect_ai adapter (stable API), in-toto Statement v1 view,
+  and SD-JWT **issuance** per RFC 9901 (selective disclosure of the exact score).
+- **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
+  Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 
 ## Contributing
 

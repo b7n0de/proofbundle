@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-01
+
+### Added
+- **SD-JWT issuance** (RFC 9901) — `proofbundle.sdjwt_issue.issue_sd_jwt`: issue an eval receipt so a
+  holder can disclose `passed`+`threshold` while withholding the exact score and the identifier openings.
+  The signed bundle payload is the **source of truth**; the SD-JWT is a derived view, binds the bundle
+  merkle root (`receipt.root_b64`), and is signed with the same Ed25519 key as `issuer`. Digest byte-chain
+  exactly per RFC 9901 §4.2.4.1 (over the base64url-encoded disclosure string). Verified by proofbundle's
+  own verifier **and** the openwallet-foundation-labs/sd-jwt-python reference; divergence + tamper red-tests.
+- **in-toto Statement v1** view — `proofbundle.intoto.to_intoto_statement`: self-hosted predicate type
+  `https://b7n0de.com/proofbundle/eval-receipt/v0.1`. The subject digest is a salted commitment under a
+  custom key `proofbundleModelCommitV1` (NOT `sha256`, which would imply an artifact hash). Validated
+  against the in-toto Statement-v1 JSON schema via jsonschema. See PREDICATE.md.
+- **inspect_ai adapter** via the stable `read_eval_log(header_only=True)` API (lazy import, optional
+  extra `proofbundle[inspect]` pinned `>=0.3.100,<0.4`), with a real committed `.eval` fixture.
+
+### Changed
+- The inspect_ai adapter now uses the stable API instead of parsing the `.eval` file (robust across
+  versions). The lm-eval adapter still reads `results.json` without importing the framework.
+
+### Deferred (explicitly not in v0.5)
+- SD-JWT VC conformance + `vct` type metadata, Key-Binding JWT, status lists / revocation, an official
+  in-toto/attestation PR, a DSSE envelope or full in-toto verification client.
+
 ## [0.4.1] - 2026-07-01
 
 ### Fixed
