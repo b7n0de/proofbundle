@@ -19,6 +19,8 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev)
 [![PyPI attestations](https://img.shields.io/badge/PyPI-attestations_(PEP_740)-D6248A.svg)](https://pypi.org/project/proofbundle/)
+<!-- DOI badge placeholder: Zenodo is linked and archives each release. Add the Zenodo concept-DOI badge
+     here (and the DOI to CITATION.cff) once Zenodo assigns it — it does not exist at build time. -->
 
 </div>
 
@@ -279,8 +281,10 @@ attestation — see [SECURITY.md](SECURITY.md).
 - **v0.4** — the eval-receipt emitter (`emit_eval_receipt` / `proofbundle emit-eval`),
   salted commitments, issuer binding.
 - **v0.5** — inspect_ai adapter (stable API), in-toto Statement v1 view, SD-JWT **issuance** (RFC 9901).
-- **v0.6 (current release)** — a second eval adapter (lm-evaluation-harness, real format + provenance),
-  INTEROP.md, CITATION.cff, PEP 740 attestations documented.
+- **v0.6** — a second eval adapter (lm-evaluation-harness, real format + provenance), INTEROP.md,
+  CITATION.cff, PEP 740 attestations documented.
+- **v0.7 (current release)** — citability polish: ORCID in CITATION.cff, a Zenodo DOI placeholder
+  (assigned on release), and a draft in-toto ML-eval predicate proposal.
 - **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
   Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 

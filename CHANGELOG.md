@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-01
+
+### Added
+- CITATION.cff now carries the author ORCID (0009-0006-8947-6065); a Zenodo DOI placeholder is marked in
+  the README + CITATION.cff (Zenodo is linked and archives each release — the DOI is added post-release).
+- `docs/in_toto_predicate_proposal.md` — a draft proposing an ML eval-result predicate upstream to
+  in-toto/attestation (no registered ML-eval predicate exists yet); the human decides whether to submit.
+
+### Unchanged (already delivered in v0.6, verified, not rebuilt)
+- inspect_ai adapter (non-deprecated `results.scores[*].metrics[name].value` path), lm-evaluation-harness
+  adapter (real `acc,none` format + provenance), INTEROP.md, PEP 740 attestations + badge fixes. This
+  release re-confirmed each is present and correct rather than duplicating it.
+
 ## [0.6.0] - 2026-07-01
 
 ### Added

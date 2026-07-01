@@ -8,11 +8,13 @@ abstract: >-
 authors:
   - family-names: Gruszka
     given-names: Konrad
+    orcid: "https://orcid.org/0009-0006-8947-6065"
 type: software
 license: MIT
 repository-code: "https://github.com/b7n0de/proofbundle"
 url: "https://github.com/b7n0de/proofbundle"
-version: 0.6.0
+version: 0.7.0
+# doi: added after Zenodo archives this release (Zenodo is linked; the DOI is assigned on release).
 keywords:
   - cryptography
   - merkle

@@ -77,3 +77,26 @@ PyPI before being documented. Downloads badge (pepy), not stars — an honest me
 **Human-only:** connect Zenodo for a citable DOI; decide whether to send `docs/outreach_note.md`; submit
 an in-toto ML-eval predicate proposal upstream; confirm the Trusted Publisher is scoped to the `pypi`
 environment.
+
+---
+
+# v0.7 review protocol (skip-already-done + additive citability)
+
+The v0.7 update repeats the v0.6 lenses with an explicit mandate: **detect what v0.6 already delivered,
+skip it, build only the open points.** State was checked (git log, CHANGELOG, code) before building.
+
+| Lens | Status | Artifact / evidence |
+|---|---|---|
+| 1 inspect_ai | **SKIP** (done v0.6) | non-deprecated `results.scores[*].metrics[name].value` + None-guard, proven under `-W error::DeprecationWarning` |
+| 2 lm-eval adapter | **SKIP** (done v0.6) | real `acc,none` + `acc_stderr,none`, provenance, genuine fixture `tests/fixtures/lm_eval_arc_easy_real.json` |
+| 3 INTEROP.md | **SKIP** (done v0.6) | `INTEROP.md` (OMS/CycloneDX/in-toto test-result/C2PA), honesty verified |
+| 4 PEP 740 + badges | **SKIP** (done v0.6) | attestations verified on PyPI (Integrity API), badge cache-buster + pepy |
+| 5 Citability | **BUILT** | ORCID `0009-0006-8947-6065` in `CITATION.cff`; DOI placeholder (Zenodo assigns on release) marked in README + CITATION.cff — no fake DOI |
+| 6 in-toto proposal | **BUILT** | `docs/in_toto_predicate_proposal.md` — draft ML-eval predicate proposal (human submits) |
+
+**Orthogonal check:** no duplicate/overwrite of correct v0.6 work (each point re-confirmed, not rebuilt);
+no fake DOI (placeholder + human-note, since Zenodo has not archived proofbundle yet — verified via the
+Zenodo API, no proofbundle record exists); no `.zenodo.json` (would shadow CITATION.cff). Version 0.7.0.
+
+**Human-only:** after release, add the Zenodo-assigned DOI to README + CITATION.cff; decide whether to
+send the outreach note; submit the in-toto predicate proposal.
