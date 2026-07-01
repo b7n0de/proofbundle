@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-01
+
+### Fixed
+- Removed a dead v0.3 `emit_eval_receipt` roadmap stub from `emit.py` that contradicted
+  the real emitter now in `evalclaim.py`.
+- Corrected the RFC 9901 publication date to November 2025 (was "December 2025") in the
+  README, `sdjwt.py`, and this changelog.
+- Doc staleness: test count and version wording in the README.
+- Release workflow: the PyPI publish step is now idempotent (`skip-existing`) so a
+  re-tagged release does not fail on an already-uploaded file.
+
 ## [0.4.0] - 2026-07-01
 
 ### Added
@@ -44,7 +55,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - All GitHub Actions pinned to full commit SHAs (post tj-actions incident).
-- SD-JWT docstrings/README cite RFC 9901 (SD-JWT core, Dec 2025); clarify SD-JWT VC
+- SD-JWT docstrings/README cite RFC 9901 (SD-JWT core, November 2025); clarify SD-JWT VC
   is still an IETF draft.
 
 ## [0.2.0] - 2026-07-01

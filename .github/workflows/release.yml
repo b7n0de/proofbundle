@@ -68,3 +68,7 @@ jobs:
 
       - name: Publish to PyPI (Trusted Publishing, OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
+        with:
+          # Idempotent: a re-run of the same tag (e.g. a re-tag) must not fail on an
+          # already-uploaded file — skip it instead of erroring.
+          skip-existing: true

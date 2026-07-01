@@ -22,7 +22,7 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 25 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 50 tests.
 
 ## Contents
 
@@ -202,12 +202,12 @@ string uses base64url as per the spec.
 
 ## Security notes and scope, stated honestly
 
-This is v0.1. It does exactly what it says and no more:
+The scope is deliberately narrow. It does exactly what it says and no more:
 
 - Ed25519 signatures only, for both the payload and the optional SD-JWT issuer
   signature.
 - SD-JWT: the SD-JWT core is now [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/)
-  (Dec 2025); this verifies that every presented disclosure is committed in the
+  (November 2025); this verifies that every presented disclosure is committed in the
   issuer-signed payload, and the issuer signature (EdDSA) if a key is supplied. It
   does **not** verify a Key Binding JWT, an X.509 or trust-list chain, status
   lists, or `vct` type metadata. **SD-JWT VC** (the credential-type profile) is

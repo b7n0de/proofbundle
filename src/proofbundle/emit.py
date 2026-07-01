@@ -5,9 +5,8 @@ Merkle tree, producing a bundle that ``verify_bundle`` accepts. This is the
 counterpart to the verifier: create the evidence here, check it anywhere with
 ``proofbundle verify``, fully offline.
 
-The v0.3 eval-receipt emitter (wrap one evaluation run into a signed,
-selectively disclosable receipt) is still a roadmap stub at the bottom of this
-module.
+The eval-receipt emitter that builds on this (``emit_eval_receipt``) lives in
+:mod:`proofbundle.evalclaim` since v0.4.
 """
 
 from __future__ import annotations
@@ -110,29 +109,3 @@ def emit_bundle(
     if sd_jwt_vc is not None:
         bundle["sd_jwt_vc"] = sd_jwt_vc
     return bundle
-
-
-# --------------------------------------------------------------------------
-# Roadmap stub, v0.3
-# --------------------------------------------------------------------------
-
-
-class NotYetImplemented(NotImplementedError):
-    """Raised by roadmap functions that are planned but not implemented yet."""
-
-
-def emit_eval_receipt(*args, **kwargs):  # pragma: no cover - roadmap stub
-    """v0.3, the core differentiator.
-
-    Wrap one evaluation framework run (Inspect AI, lm-evaluation-harness) into a
-    signed receipt whose payload is a minimal, RFC 8785 canonicalized claim such
-    as ``{"suite": "...", "threshold": 0.8, "passed": true}``, optionally wrapped
-    as an SD-JWT VC so a holder can disclose "passed above threshold" without
-    revealing the model, weights or dataset, carrying a cluster-bootstrap
-    confidence interval, a multiple-testing correction and a preregistration
-    hash. Built on top of :func:`emit_bundle`.
-    """
-    raise NotYetImplemented(
-        "emit_eval_receipt lands in v0.3. Use emit_bundle for a generic signed, "
-        "anchored bundle today."
-    )
