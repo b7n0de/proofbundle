@@ -9,16 +9,19 @@ receipt.
 from __future__ import annotations
 
 from .bundle import SCHEMA, load_bundle, verify_bundle
+from .emit import emit_bundle, generate_signer
 from .errors import Check, ProofBundleError, VerificationResult
 from .merkle import verify_consistency, verify_inclusion
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
     "SCHEMA",
     "verify_bundle",
     "load_bundle",
+    "emit_bundle",
+    "generate_signer",
     "verify_inclusion",
     "verify_consistency",
     "VerificationResult",

@@ -18,3 +18,10 @@ for a suspected vulnerability. We aim to acknowledge within a few days.
 ## Supported versions
 
 During the 0.x phase, only the latest released minor version receives fixes.
+
+## Handling signing keys
+
+`proofbundle emit --new-key` and `save_signer()` write a raw 32-byte Ed25519
+seed. Treat it as a secret: the file is created mode 0600, must stay out of
+version control (see `.gitignore`), and should never be shared. Anyone with the
+seed can forge signatures under your key.

@@ -44,11 +44,12 @@ offline:
 *Were these exact bytes signed by this key, and anchored under this Merkle root,
 yes or no.*
 
-`proofbundle` is that verifier. It is the verification half of a larger idea:
-turning a reproducible result (for example an AI evaluation run) into a signed,
-third-party-verifiable, selectively disclosable receipt. The emitter for that is
-on the roadmap below. The verifier ships first, small and correct, so it can be
-reviewed and trusted on its own.
+`proofbundle` is that verifier — and, since v0.2, the matching emitter. It is
+the verification half of a larger idea: turning a reproducible result (for
+example an AI evaluation run) into a signed, third-party-verifiable, selectively
+disclosable receipt. The verifier shipped first, small and correct, so it could
+be reviewed and trusted on its own; `emit_bundle` now creates bundles that
+`verify_bundle` accepts, fully offline on both sides.
 
 ## What it verifies
 
@@ -120,6 +121,14 @@ Machine-readable output and a non-zero exit code on failure:
 proofbundle verify --json bundle.json   # exit 0 = ok, 1 = failed, 2 = malformed
 ```
 
+Emit a bundle of your own (v0.2): sign a payload with a fresh key and anchor it,
+then verify it anywhere, offline.
+
+```bash
+proofbundle emit --payload-file result.json --new-key signer.key --out bundle.json
+proofbundle verify bundle.json
+```
+
 Library use:
 
 ```python
@@ -182,9 +191,10 @@ If you find a correctness or security issue, please open an issue or see
 
 ## Roadmap
 
-- **v0.1 (this release)** — the offline verifier plus a real example bundle.
-- **v0.2** — an emitter: sign a payload with Ed25519 and anchor it in a local
-  RFC 6962 Merkle log, producing a `verify_bundle`-compatible bundle.
+- **v0.1** — the offline verifier plus a real example bundle.
+- **v0.2 (current release)** — the emitter: `emit_bundle` signs a payload with
+  Ed25519 and anchors it as the last leaf of an RFC 6962 Merkle tree, producing
+  a bundle that `verify_bundle` accepts. Available as `proofbundle emit`.
 - **v0.3** — an eval-receipt emitter: wrap one evaluation framework run
   ([Inspect AI](https://github.com/UKGovernmentBEIS/inspect_ai),
   [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness))

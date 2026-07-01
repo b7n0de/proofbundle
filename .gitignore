@@ -20,3 +20,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Signing keys — never commit raw Ed25519 seeds
+*.key
+signer.key
+*.seed
