@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-01
+
+### Added
+- **Eval-receipt emitter** (`src/proofbundle/evalclaim.py`): turn a reproducible eval
+  run into a signed, Merkle-anchored receipt that proves *suite S `comparator` threshold
+  T, passed* while carrying only **salted commitments** to the model and dataset
+  identifiers (never the weights, data, or plaintext names). Built on `emit_bundle`, so
+  the existing `verify_bundle` verifies a receipt unchanged.
+  - `build_eval_claim` computes `passed` itself; `emit_eval_receipt` binds the receipt to
+    the signer (`issuer` field in the signed payload); `decode_eval_claim` verifies the
+    bundle **and** the issuer binding.
+  - RFC 8785 JCS canonicalization on the **emit path only** (UTF-16 key sort, NFC, duplicate-
+    key + Python-float rejection, safe-int range); the verify path checks stored bytes, so the
+    verifier stays dependency-free.
+- File-based framework adapters (`proofbundle.adapters.from_lm_eval_results`,
+  `from_inspect_ai_log`) that read exported result JSON without importing the framework.
+- CLI: `proofbundle emit-eval` and `proofbundle show-eval`.
+- `EVAL_CLAIM.md` (normative claim spec + data-minimization) and
+  `schemas/eval_claim_v0_1.schema.json` with a validation test.
+- Optional extras: `proofbundle[eval]` (RFC 8785 canonicalizer, emit side), `proofbundle[adapters]`.
+
 ## [0.3.0] - 2026-07-01
 
 ### Added

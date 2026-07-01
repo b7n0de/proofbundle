@@ -1,0 +1,10 @@
+"""Adapters that map an eval framework's EXPORTED result JSON to an eval claim.
+
+Each adapter reads a result file from disk and never imports the framework, so they
+add no runtime dependency. The output-format mapping is bound to a framework version;
+each fixture in tests/fixtures documents its source + version.
+"""
+from .inspect_ai import from_inspect_ai_log
+from .lm_eval import from_lm_eval_results
+
+__all__ = ["from_lm_eval_results", "from_inspect_ai_log"]

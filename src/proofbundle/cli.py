@@ -1,4 +1,4 @@
-"""Command line interface: ``proofbundle verify`` and ``proofbundle emit``."""
+"""Command line interface: ``proofbundle`` verify / emit / emit-eval / show-eval."""
 
 from __future__ import annotations
 
@@ -10,6 +10,58 @@ from . import __version__
 from .bundle import verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
+
+
+def _resolve_signer(args):
+    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error)."""
+    if getattr(args, "new_key", None) and getattr(args, "key", None):
+        print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
+        return None
+    if getattr(args, "new_key", None):
+        signer = generate_signer()
+        save_signer(signer, args.new_key)
+        print(f"wrote new signing key to {args.new_key} (keep this secret)", file=sys.stderr)
+        return signer
+    if getattr(args, "key", None):
+        return load_signer(args.key)
+    print("ERROR: provide --key <file> or --new-key <file>", file=sys.stderr)
+    return None
+
+
+def _cmd_emit_eval(args: argparse.Namespace) -> int:
+    from .evalclaim import EvalClaimError, emit_eval_receipt, load_claim_text  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        with open(args.claim, encoding="utf-8") as handle:
+            claim = load_claim_text(handle.read())
+        bundle = emit_eval_receipt(claim, signer)
+    except (EvalClaimError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(bundle, handle, indent=2)
+        handle.write("\n")
+    print(f"wrote eval receipt {args.out}")
+    return 0
+
+
+def _cmd_show_eval(args: argparse.Namespace) -> int:
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    claim = decode_eval_claim(args.receipt)
+    if claim is None:
+        print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+        return 1
+    print(f"suite      {claim['suite']} ({claim['suite_version']})")
+    print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
+    print(f"passed     {claim['passed']}   (n={claim['n']})")
+    print(f"model      commit {claim['model_id_commit']}")
+    print(f"dataset    commit {claim['dataset_id_commit']}")
+    print(f"issuer     {claim['issuer']}")
+    print(f"timestamp  {claim['timestamp']}")
+    print("=> OK")
+    return 0
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
@@ -32,17 +84,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
-    if args.new_key and args.key:
-        print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
-        return 2
-    if args.new_key:
-        signer = generate_signer()
-        save_signer(signer, args.new_key)
-        print(f"wrote new signing key to {args.new_key} (keep this secret)", file=sys.stderr)
-    elif args.key:
-        signer = load_signer(args.key)
-    else:
-        print("ERROR: provide --key <file> or --new-key <file>", file=sys.stderr)
+    signer = _resolve_signer(args)
+    if signer is None:
         return 2
 
     with open(args.payload_file, "rb") as handle:
@@ -75,6 +118,17 @@ def build_parser() -> argparse.ArgumentParser:
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit.add_argument("--new-key", help="generate a signing key and save it to this file")
     emit.set_defaults(func=_cmd_emit)
+
+    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON")
+    emit_eval.add_argument("--claim", required=True, help="path to the eval-claim JSON")
+    emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
+    emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
+    emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_eval.set_defaults(func=_cmd_emit_eval)
+
+    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
+    show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
+    show_eval.set_defaults(func=_cmd_show_eval)
 
     return parser
 

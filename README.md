@@ -33,6 +33,7 @@ checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 25 tests.
 - [Quickstart](#quickstart)
 - [Interoperability](#interoperability)
 - [Bundle format](#bundle-format-proofbundlev01)
+- [Eval receipts](#eval-receipts)
 - [Security notes and scope](#security-notes-and-scope-stated-honestly)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -220,25 +221,37 @@ This is v0.1. It does exactly what it says and no more:
 If you find a correctness or security issue, please open an issue or see
 [SECURITY.md](SECURITY.md).
 
+## Eval receipts
+
+Since v0.4, proofbundle turns a reproducible eval run into a signed, Merkle-anchored
+**receipt** that proves *suite S `comparator` threshold T, passed* while carrying only
+**salted commitments** to the model and dataset identifiers — never the weights, the
+data, or the plaintext names. A third party verifies the threshold was met, offline,
+from one file, without ever seeing the model or the test set.
+
+```bash
+pip install "proofbundle[eval]"          # emit side needs an RFC 8785 canonicalizer
+proofbundle emit-eval --claim claim.json --out receipt.json --new-key signer.key
+proofbundle verify receipt.json          # a receipt is a normal bundle
+proofbundle show-eval receipt.json       # verify + print the claim (issuer-bound)
+```
+
+The claim format is specified in [EVAL_CLAIM.md](EVAL_CLAIM.md); the emit path uses
+RFC 8785 JCS canonicalization, the verify path stays dependency-free. **Honest scope:**
+a receipt proves `passed` against `threshold` and hides the model/dataset via salted
+commitments — it does **not** prove the evaluation was well designed or that the score
+itself is correct. Those are human judgements; what it removes is the need to simply
+trust the number.
+
 ## Roadmap
 
 - **v0.1** — the offline verifier plus a real example bundle.
-- **v0.2 (current release)** — the emitter: `emit_bundle` signs a payload with
-  Ed25519 and anchors it as the last leaf of an RFC 6962 Merkle tree, producing
-  a bundle that `verify_bundle` accepts. Available as `proofbundle emit`.
-- **v0.3** — an eval-receipt emitter: wrap one evaluation framework run
-  ([Inspect AI](https://github.com/UKGovernmentBEIS/inspect_ai),
-  [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness))
-  into a signed receipt whose payload is a minimal canonical claim, for example
-  `{"suite": "...", "threshold": 0.8, "passed": true}`, optionally wrapped as an
-  SD-JWT VC so a holder can disclose *passed above threshold* without revealing
-  the model, weights or dataset, and carrying a cluster-bootstrap confidence
-  interval, a multiple-testing correction and a preregistration hash.
-
-That last step is the point: today no widely used AI project turns a
-reproducible evaluation result into a signed, third-party-verifiable,
-selectively disclosable receipt. This repository is the trustworthy verification
-core that makes it possible.
+- **v0.2** — the emitter: `emit_bundle` / `proofbundle emit`.
+- **v0.3** — external RFC 6962 conformance vectors + real Sigstore Rekor interop.
+- **v0.4 (current release)** — the eval-receipt emitter (`emit_eval_receipt` /
+  `proofbundle emit-eval`), salted commitments, issuer binding, file-based adapters.
+- **v0.5** — selective disclosure of the exact score via SD-JWT **issuance** (the issuer
+  reveals identifier + salt on demand) and full SD-JWT VC conformance.
 
 ## Contributing
 
