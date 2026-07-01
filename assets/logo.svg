@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="140" viewBox="0 0 520 140" role="img" aria-label="proofbundle">
+  <title>proofbundle</title>
+  <defs>
+    <style>
+      .accent { fill: #0d9488; }
+      .accent-stroke { stroke: #0d9488; }
+      .ink { fill: #0f172a; }
+      .paper { fill: #ffffff; }
+    </style>
+  </defs>
+
+  <!-- Shield: the trust boundary -->
+  <path d="M70 18 L118 34 V74 C118 100 96 118 70 128 C44 118 22 100 22 74 V34 Z"
+        class="accent" />
+  <path d="M70 30 L106 42 V74 C106 93 89 107 70 115 C51 107 34 93 34 74 V42 Z"
+        class="paper" />
+
+  <!-- Checkmark inside the shield -->
+  <path d="M52 74 L65 87 L90 56" fill="none" class="accent-stroke" stroke-width="9"
+        stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Small Merkle tree motif to the right of the shield -->
+  <g class="accent-stroke" stroke-width="2.5" fill="none" opacity="0.9">
+    <line x1="150" y1="40" x2="132" y2="66" />
+    <line x1="150" y1="40" x2="168" y2="66" />
+    <line x1="132" y1="66" x2="122" y2="92" />
+    <line x1="132" y1="66" x2="142" y2="92" />
+    <line x1="168" y1="66" x2="158" y2="92" />
+    <line x1="168" y1="66" x2="178" y2="92" />
+  </g>
+  <g class="accent">
+    <circle cx="150" cy="40" r="6" />
+    <circle cx="132" cy="66" r="5" />
+    <circle cx="168" cy="66" r="5" />
+    <circle cx="122" cy="92" r="4.5" />
+    <circle cx="142" cy="92" r="4.5" />
+    <circle cx="158" cy="92" r="4.5" />
+    <circle cx="178" cy="92" r="4.5" />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="208" y="70" class="ink"
+        font-family="'DejaVu Sans Mono','SFMono-Regular',Consolas,'Liberation Mono',monospace"
+        font-size="42" font-weight="700" letter-spacing="1">proofbundle</text>
+  <text x="210" y="98" class="accent"
+        font-family="'DejaVu Sans Mono','SFMono-Regular',Consolas,'Liberation Mono',monospace"
+        font-size="15" letter-spacing="0.5">signed &#183; anchored &#183; verifiable offline</text>
+</svg>

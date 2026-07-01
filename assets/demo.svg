@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="270" viewBox="0 0 740 270" role="img" aria-label="proofbundle verify terminal demo">
+  <title>proofbundle verify — terminal demo</title>
+  <defs><style>
+    .win { fill: #0f172a; } .bar { fill: #1e293b; }
+    .mono { font-family: 'DejaVu Sans Mono','SFMono-Regular',Consolas,'Liberation Mono',monospace; font-size: 16px; }
+    .prompt { fill: #64748b; } .cmd { fill: #e2e8f0; } .pass { fill: #0d9488; font-weight: 700; }
+    .txt { fill: #cbd5e1; } .ok { fill: #34d399; font-weight: 700; }
+  </style></defs>
+  <rect x="0" y="0" width="740" height="270" rx="12" class="win" />
+  <rect x="0" y="0" width="740" height="34" rx="12" class="bar" />
+  <rect x="0" y="22" width="740" height="12" class="bar" />
+  <circle cx="22" cy="17" r="6" fill="#ef4444" /><circle cx="44" cy="17" r="6" fill="#f59e0b" /><circle cx="66" cy="17" r="6" fill="#22c55e" />
+  <g class="mono">
+    <text x="24" y="70"><tspan class="prompt">$ </tspan><tspan class="cmd">proofbundle verify bundle.json</tspan></text>
+    <text x="24" y="100"><tspan class="pass">[PASS]</tspan><tspan class="txt"> ed25519-signature: payload signed by stated key</tspan></text>
+    <text x="24" y="126"><tspan class="pass">[PASS]</tspan><tspan class="txt"> merkle-inclusion: anchored at index 1 of 4</tspan></text>
+    <text x="24" y="152"><tspan class="pass">[PASS]</tspan><tspan class="txt"> sd-jwt-disclosures: 2 disclosure(s)</tspan></text>
+    <text x="24" y="178"><tspan class="pass">[PASS]</tspan><tspan class="txt"> sd-jwt-issuer-signature: issuer signature valid</tspan></text>
+    <text x="24" y="204"><tspan class="ok">=&gt; OK</tspan></text>
+  </g>
+</svg>
