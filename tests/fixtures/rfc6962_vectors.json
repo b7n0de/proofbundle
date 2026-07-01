@@ -1,0 +1,26 @@
+{
+  "source": "https://github.com/transparency-dev/merkle",
+  "commit": "a1adddb6323b99ddc5907f99e5a7fcf1d7af67c6",
+  "note": "Canonical RFC 6962 8-leaf reference tree (testdata/inclusion/). Leaves given as hex of the raw leaf DATA; proofbundle applies the RFC 6962 leaf hash 0x00||data itself. Proof hashes leaf->root.",
+  "inclusion": [
+    {
+      "leaves_hex": ["", "00", "10", "2021", "3031", "40414243", "5051525354555657", "606162636465666768696a6b6c6d6e6f"],
+      "leaf_index": 0, "tree_size": 8,
+      "root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+      "proof_hex": ["96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7", "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e", "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"]
+    },
+    {
+      "leaves_hex": ["", "00", "10", "2021", "3031", "40414243", "5051525354555657", "606162636465666768696a6b6c6d6e6f"],
+      "leaf_index": 5, "tree_size": 8,
+      "root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+      "proof_hex": ["bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b", "ca854ea128ed050b41b35ffc1b87b8eb2bde461e9e3b5596ece6b9d5975a0ae0", "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7"]
+    },
+    {
+      "leaves_hex": ["", "00", "10"],
+      "leaf_index": 2, "tree_size": 3,
+      "root_hex": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+      "proof_hex": ["fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125"]
+    }
+  ],
+  "consistency": []
+}
