@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/schemas/proofbundle_v0_1.schema.json",
+  "title": "proofbundle v0.1",
+  "description": "A portable cryptographic evidence bundle: an Ed25519-signed, RFC 6962 Merkle-anchored payload, optionally carrying an SD-JWT selective-disclosure credential.",
+  "type": "object",
+  "required": ["schema", "payload_b64", "signature", "merkle"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "proofbundle/v0.1",
+      "description": "Bundle format identifier."
+    },
+    "payload_b64": {
+      "type": "string",
+      "description": "Base64-encoded payload. The verifier treats it as opaque bytes.",
+      "minLength": 1
+    },
+    "signature": {
+      "type": "object",
+      "required": ["alg", "public_key_b64", "sig_b64"],
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "ed25519" },
+        "public_key_b64": { "type": "string", "minLength": 1 },
+        "sig_b64": { "type": "string", "minLength": 1 }
+      }
+    },
+    "merkle": {
+      "type": "object",
+      "required": ["leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"],
+      "additionalProperties": false,
+      "properties": {
+        "hash_alg": {
+          "type": "string",
+          "const": "sha256-rfc6962",
+          "default": "sha256-rfc6962",
+          "description": "RFC 6962 / RFC 9162 SHA-256 tree hashing."
+        },
+        "leaf_index": { "type": "integer", "minimum": 0 },
+        "tree_size": { "type": "integer", "minimum": 1 },
+        "inclusion_proof_b64": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Sibling hashes of the RFC 6962 inclusion proof, base64-encoded, leaf-to-root order."
+        },
+        "root_b64": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sd_jwt_vc": {
+      "type": "object",
+      "description": "Optional embedded SD-JWT selective-disclosure credential.",
+      "required": ["compact"],
+      "additionalProperties": false,
+      "properties": {
+        "compact": {
+          "type": "string",
+          "description": "The SD-JWT in compact serialization (issuer-signed JWT plus ~-separated disclosures).",
+          "minLength": 1
+        },
+        "issuer_public_key_b64": {
+          "type": "string",
+          "description": "Optional issuer Ed25519 public key; if present the verifier checks the issuer signature."
+        }
+      }
+    }
+  }
+}

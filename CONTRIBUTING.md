@@ -13,7 +13,7 @@ and correct. Contributions that keep it that way are very welcome.
 ## Development
 
 ```bash
-git clone https://github.com/OWNER/proofbundle
+git clone https://github.com/b7n0de/proofbundle
 cd proofbundle
 python -m pip install -e ".[dev]"
 
