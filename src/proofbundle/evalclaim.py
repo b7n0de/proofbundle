@@ -37,7 +37,7 @@ _MAX_SAFE_INT = 2 ** 53 - 1
 # The exact key set of an eval claim; decode/validate reject anything else.
 _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "threshold",
              "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp"}
-_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256"}
+_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance"}
 
 __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "canonicalize", "build_eval_claim",
@@ -126,7 +126,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                      threshold: str, score: str, n: int, model_id: str, dataset_id: str,
                      issuer: str, timestamp: str, context_binding: Optional[str] = None,
                      ci95: Optional[Sequence[str]] = None, multiple_testing: Optional[str] = None,
-                     prereg_sha256: Optional[str] = None,
+                     prereg_sha256: Optional[str] = None, provenance: Optional[dict] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Build a valid eval claim from raw values. Computes `passed` ITSELF from the comparator
     (never trusts the caller), creates salted commitments, and returns (claim, salts) with the
@@ -163,6 +163,8 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         claim["multiple_testing"] = multiple_testing
     if prereg_sha256 is not None:
         claim["prereg_sha256"] = prereg_sha256
+    if provenance is not None:
+        claim["provenance"] = provenance
     _reject_non_jcs(claim)
     return claim, {"model_salt": m_salt, "dataset_salt": d_salt}
 

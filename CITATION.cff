@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use proofbundle, please cite it as below."
+title: proofbundle
+abstract: >-
+  Emit and verify, fully offline, portable cryptographic evidence bundles (Ed25519 + RFC 6962
+  Merkle + optional SD-JWT), and eval receipts that prove a model passed a threshold without
+  revealing the model or the data. A verification layer for trustworthy evaluation logs.
+authors:
+  - family-names: Gruszka
+    given-names: Konrad
+type: software
+license: MIT
+repository-code: "https://github.com/b7n0de/proofbundle"
+url: "https://github.com/b7n0de/proofbundle"
+version: 0.6.0
+keywords:
+  - cryptography
+  - merkle
+  - transparency-log
+  - ed25519
+  - sd-jwt
+  - eval
+  - attestation
+  - provenance

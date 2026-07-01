@@ -1,7 +1,0 @@
-{
-  "_source": "EleutherAI/lm-evaluation-harness results.json shape (v0.4.x, 2026). Minimal hand-authored fixture; the mapping is bound to this output format.",
-  "results": {"hellaswag": {"acc": 0.7534, "acc_stderr": 0.0043}},
-  "n-samples": {"hellaswag": {"original": 10042, "effective": 10042}},
-  "model_name": "acme/model-x",
-  "config": {"model": "acme/model-x", "model_source": "hf"}
-}

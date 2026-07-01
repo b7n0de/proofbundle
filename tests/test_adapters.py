@@ -9,15 +9,23 @@ TS = "2026-07-01T12:00:00Z"
 
 
 class TestAdapters(unittest.TestCase):
-    def test_lm_eval(self):
-        claim, salts = from_lm_eval_results(FX / "lm_eval_results.json", "hellaswag", "acc",
-                                            comparator=">=", threshold="0.70", timestamp=TS,
+    def test_lm_eval_real_acc_none_format(self):
+        # REAL lm-evaluation-harness 0.4.12 export: metric key is "acc,none", stderr sibling "acc_stderr,none".
+        claim, salts = from_lm_eval_results(FX / "lm_eval_arc_easy_real.json", "arc_easy", "acc",
+                                            comparator=">=", threshold="0.30", timestamp=TS,
                                             model_salt=b"0" * 16, dataset_salt=b"1" * 16)
-        self.assertEqual(claim["suite"], "hellaswag")
-        self.assertEqual(claim["threshold"], "0.70")
-        self.assertTrue(claim["passed"])              # 0.7534 >= 0.70
-        self.assertNotIn("acme/model-x", str(claim))  # id only as salted commitment
-        self.assertEqual(claim["n"], 10042)
+        self.assertEqual(claim["suite"], "arc_easy")
+        self.assertTrue(claim["passed"])                       # acc 0.5 >= 0.30
+        self.assertEqual(claim["provenance"]["matched_metric_key"], "acc,none")  # suffix handled
+        self.assertIn("git_hash", claim["provenance"])         # provenance captured
+        self.assertEqual(claim["provenance"]["n_shot"], "0")
+        self.assertIn("stderr", claim["provenance"])           # sibling stderr, not nested
+
+    def test_lm_eval_missing_metric_lists_available(self):
+        with self.assertRaises(ValueError):
+            from_lm_eval_results(FX / "lm_eval_arc_easy_real.json", "arc_easy", "nonexistent",
+                                 comparator=">=", threshold="0.5", timestamp=TS,
+                                 model_salt=b"0" * 16, dataset_salt=b"1" * 16)
 
     def test_inspect_ai_stable_api(self):
         # Real .eval log fixture, read via the stable inspect_ai.log.read_eval_log API (proofbundle[inspect]).

@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-01
+
+### Added
+- **Second eval adapter, EleutherAI lm-evaluation-harness** — `proofbundle.adapters.from_lm_eval_results`
+  reads a real `results_*.json` (no `lm_eval` import), handling the genuine 0.4.x format: metric keys with
+  a filter suffix (`acc,none`) and the sibling `acc_stderr,none`. Captures run provenance (git_hash, task
+  version, n-shot, stderr) into the receipt's optional `provenance` field. Validated against a committed
+  real fixture (`tests/fixtures/lm_eval_arc_easy_real.json`, harness 0.4.12) + `examples/lm_eval_receipt.py`.
+- **INTEROP.md** — honest mapping to OpenSSF Model Signing (complement, not eval), CycloneDX ML-BOM v1.6
+  (can reference a receipt), in-toto test-result/v0.1 (the open ML-eval niche), C2PA (out of scope).
+- **CITATION.cff** so the repo shows a "Cite this repository" button.
+- Optional additive `provenance` field on the eval claim (backward-compatible, schema string unchanged).
+
+### Changed
+- inspect_ai adapter confirmed on the non-deprecated `results.scores[*].metrics[name].value` path with a
+  None-guard (already correct since v0.5; documented).
+- README/SPEC positioned as the verification layer for trustworthy eval logs; PEP 740 attestations
+  documented (verified present on PyPI via the Integrity API, publisher = GitHub Trusted Publishing).
+- Badges: python-version badge cache-buster (`?cacheSeconds=3600`) + a pepy downloads badge.
+
+### Deferred (not built)
+- No CycloneDX / C2PA / OMS re-implementation, no `lm_eval` runtime dependency, no `.zenodo.json`
+  (would shadow CITATION.cff), no official in-toto predicate PR (drafted for the human to submit).
+
 ## [0.5.0] - 2026-07-01
 
 ### Added

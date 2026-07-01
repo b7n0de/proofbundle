@@ -54,3 +54,26 @@ proven non-tautological by real mutation (all reverted; work-tree verified prist
 implementation — no off-by-one in the encoding.
 
 **Verdicts:** L1 crypto-correct · L3 honest+narrow (2 doc-staleness items, fixed) · L4 executable+real+interop.
+
+---
+
+# v0.6 review protocol (six lenses + orthogonal check)
+
+| Lens | Finding | Artifact / test |
+|---|---|---|
+| 1 Correctness | inspect_ai adapter already on the non-deprecated `results.scores[*].metrics[name].value` + None-guard | `adapters/inspect_ai.py:44-52`; `tests/test_adapters.py::test_inspect_ai_stable_api` |
+| 2 Interop/adapter | lm-eval adapter reads the REAL `acc,none` suffix + `acc_stderr,none` sibling against a genuine harness 0.4.12 export | `tests/test_adapters.py::test_lm_eval_real_acc_none_format` (fixture `tests/fixtures/lm_eval_arc_easy_real.json`, model=dummy run); `examples/lm_eval_receipt.py` → OK |
+| 3 Standards | INTEROP.md maps OMS / CycloneDX ML-BOM v1.6 / in-toto test-result/v0.1 / C2PA honestly; predicate aligned to test-result form | `INTEROP.md`; `PREDICATE.md` |
+| 4 Distribution | PEP 740 attestations verified present on PyPI (Integrity API, publisher=GitHub) BEFORE documenting; badge cache-buster + pepy | `SECURITY.md` "Release integrity"; README badges (`?cacheSeconds=3600`, pepy) |
+| 5 Format/DX | CITATION.cff added; optional additive `provenance` field, schema string unchanged (no byte-format break) | `CITATION.cff`; `schemas/eval_claim_v0_1.schema.json` (provenance optional); `tests/test_eval_claim_schema.py` |
+| 6 Findability | README/SPEC positioned as the verification layer for trustworthy eval logs (arXiv:2507.06893); integration targets named | README "A verification layer…"; `docs/outreach_note.md` (human decides to send) |
+
+**Orthogonal check (skeptical senior, anti-vanity, anti-over-engineering):** the lm-eval fixture is a
+GENUINE harness run (`model=dummy`, arc_easy, `--limit 2`), not an invented structure — the `acc,none`
+suffix + `acc_stderr,none` sibling are exactly as produced. No CycloneDX/C2PA/OMS re-implementation, no
+`lm_eval` runtime dependency, no `.zenodo.json` (would shadow CITATION.cff). PEP 740 was verified real on
+PyPI before being documented. Downloads badge (pepy), not stars — an honest metric.
+
+**Human-only:** connect Zenodo for a citable DOI; decide whether to send `docs/outreach_note.md`; submit
+an in-toto ML-eval predicate proposal upstream; confirm the Trusted Publisher is scoped to the `pypi`
+environment.

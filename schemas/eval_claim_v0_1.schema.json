@@ -5,24 +5,95 @@
   "description": "The canonical payload of an eval receipt: proves suite S scored comparator threshold T (passed), carrying only salted commitments to model/dataset identifiers.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema","suite","suite_version","metric","comparator","threshold","passed","n","model_id_commit","dataset_id_commit","commit_alg","issuer","timestamp"],
+  "required": [
+    "schema",
+    "suite",
+    "suite_version",
+    "metric",
+    "comparator",
+    "threshold",
+    "passed",
+    "n",
+    "model_id_commit",
+    "dataset_id_commit",
+    "commit_alg",
+    "issuer",
+    "timestamp"
+  ],
   "properties": {
-    "schema": {"const": "proofbundle/eval-claim/v0.1"},
-    "suite": {"type": "string", "minLength": 1},
-    "suite_version": {"type": "string"},
-    "metric": {"type": "string", "minLength": 1},
-    "comparator": {"enum": [">=", ">", "<=", "<"]},
-    "threshold": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$", "description": "decimal STRING, never a JSON float"},
-    "passed": {"type": "boolean"},
-    "n": {"type": "integer", "minimum": 0},
-    "model_id_commit": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "dataset_id_commit": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "commit_alg": {"const": "sha256-salted-v1"},
-    "issuer": {"type": "string", "pattern": "^ed25519:[A-Za-z0-9+/]+=*$"},
-    "timestamp": {"type": "string"},
-    "context_binding": {"type": "string"},
-    "ci95": {"type": "array", "items": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$"}, "minItems": 2, "maxItems": 2},
-    "multiple_testing": {"type": "string"},
-    "prereg_sha256": {"type": "string"}
+    "schema": {
+      "const": "proofbundle/eval-claim/v0.1"
+    },
+    "suite": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suite_version": {
+      "type": "string"
+    },
+    "metric": {
+      "type": "string",
+      "minLength": 1
+    },
+    "comparator": {
+      "enum": [
+        ">=",
+        ">",
+        "<=",
+        "<"
+      ]
+    },
+    "threshold": {
+      "type": "string",
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "description": "decimal STRING, never a JSON float"
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "n": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "model_id_commit": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "dataset_id_commit": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "commit_alg": {
+      "const": "sha256-salted-v1"
+    },
+    "issuer": {
+      "type": "string",
+      "pattern": "^ed25519:[A-Za-z0-9+/]+=*$"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "context_binding": {
+      "type": "string"
+    },
+    "ci95": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "multiple_testing": {
+      "type": "string"
+    },
+    "prereg_sha256": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr) \u2014 additive, backward-compatible"
+    }
   }
 }

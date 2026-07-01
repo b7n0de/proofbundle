@@ -25,3 +25,11 @@ During the 0.x phase, only the latest released minor version receives fixes.
 seed. Treat it as a secret: the file is created mode 0600, must stay out of
 version control (see `.gitignore`), and should never be shared. Anyone with the
 seed can forge signatures under your key.
+
+## Release integrity
+
+Releases are published to PyPI via **Trusted Publishing** (OIDC, no long-lived token) with
+`pypa/gh-action-pypi-publish` (>= v1.11.0), so each release file carries **PEP 740 digital
+attestations** generated automatically. You can verify them on PyPI (the Integrity API exposes the
+attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification. Each release
+also carries an SLSA build-provenance attestation from the GitHub release workflow.
