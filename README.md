@@ -31,6 +31,7 @@ checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 25 tests.
 - [How it fits together](#how-it-fits-together)
 - [Install](#install)
 - [Quickstart](#quickstart)
+- [Interoperability](#interoperability)
 - [Bundle format](#bundle-format-proofbundlev01)
 - [Security notes and scope](#security-notes-and-scope-stated-honestly)
 - [Roadmap](#roadmap)
@@ -106,6 +107,13 @@ Requires Python 3.9+ and [`cryptography`](https://cryptography.io). Signature
 math is delegated to `cryptography`; this project never rolls its own crypto.
 The Merkle and SD-JWT logic is pure standard library.
 
+SD-JWT support is an optional extra (it adds no runtime dependency beyond the
+core `cryptography`, so the trusted core stays lean):
+
+```bash
+pip install "proofbundle[sdjwt]"
+```
+
 ## Quickstart
 
 ```bash
@@ -152,9 +160,24 @@ from proofbundle import verify_consistency
 verify_consistency(first_size, second_size, proof, first_root, second_root)  # -> bool
 ```
 
+## Interoperability
+
+proofbundle uses the same RFC 6962 / RFC 9162 Merkle primitive as
+[Sigstore Rekor](https://docs.sigstore.dev/) and Certificate Transparency, so its
+`verify_inclusion` checks a real proof from a live transparency log, not just its
+own bundles. [`examples/rekor_interop.py`](examples/rekor_interop.py) verifies a
+real Sigstore Rekor inclusion proof (a committed fixture, `logIndex` 25579 in a
+4.16-million-entry tree) **fully offline**, and documents the field mapping from
+the Rekor bundle and its C2SP `tlog-checkpoint` signed note to proofbundle's
+`merkle` object. Correctness is also checked against external RFC 6962 test
+vectors vendored from
+[transparency-dev/merkle](https://github.com/transparency-dev/merkle) (see
+`tests/fixtures/`), plus Hypothesis property tests.
+
 ## Bundle format (`proofbundle/v0.1`)
 
-A machine-readable JSON Schema lives at
+The format is specified normatively in [SPEC.md](SPEC.md) (fields, encodings,
+RFC 6962 hashing, verification order) with a machine-readable JSON Schema at
 [`schemas/proofbundle_v0_1.schema.json`](schemas/proofbundle_v0_1.schema.json).
 
 ```json
@@ -182,10 +205,13 @@ This is v0.1. It does exactly what it says and no more:
 
 - Ed25519 signatures only, for both the payload and the optional SD-JWT issuer
   signature.
-- SD-JWT: verifies that every presented disclosure is committed in the
-  issuer-signed payload, and the issuer signature if a key is supplied. It does
-  **not** verify a Key Binding JWT, an X.509 or trust-list chain, status lists,
-  or `vct` type metadata. Full SD-JWT VC conformance is on the roadmap.
+- SD-JWT: the SD-JWT core is now [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/)
+  (Dec 2025); this verifies that every presented disclosure is committed in the
+  issuer-signed payload, and the issuer signature (EdDSA) if a key is supplied. It
+  does **not** verify a Key Binding JWT, an X.509 or trust-list chain, status
+  lists, or `vct` type metadata. **SD-JWT VC** (the credential-type profile) is
+  still an IETF draft ([draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/));
+  full VC conformance is on the roadmap.
 - The verifier does not fetch anything. Trust anchors (the signer key, the
   expected root) are inputs you supply out of band.
 - No custom cryptography. Ed25519 comes from `cryptography`; Merkle hashing is

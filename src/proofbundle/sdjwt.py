@@ -1,9 +1,14 @@
 """Minimal SD-JWT selective disclosure verification.
 
-This verifies the *heart* of SD-JWT (IETF): that every presented Disclosure
-hashes to a digest that is actually committed in the issuer-signed JWT payload,
-and, if an issuer public key is supplied and the algorithm is EdDSA, that the
-issuer signature over the JWT is valid.
+The SD-JWT *core* is now a published standard, RFC 9901 (December 2025). This
+module verifies the heart of it: that every presented Disclosure hashes to a
+digest that is actually committed in the issuer-signed JWT payload, and, if an
+issuer public key is supplied and the algorithm is EdDSA, that the issuer
+signature over the JWT is valid.
+
+Note the layering: RFC 9901 is the SD-JWT mechanism; **SD-JWT VC** (the
+credential type profile) is still an IETF draft,
+``draft-ietf-oauth-sd-jwt-vc`` — this verifier does not yet do VC-level checks.
 
 Scope of v0.1, stated honestly (see README security notes):
   - EdDSA (Ed25519) issuer signatures only.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "0.2.0"
+version = "0.3.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -35,7 +35,11 @@ classifiers = [
 dependencies = ["cryptography>=42"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1"]
+# SD-JWT support is an optional capability. It adds NO runtime dependency beyond the core
+# `cryptography` (EdDSA + stdlib), so `pip install proofbundle[sdjwt]` keeps the trusted core
+# lean; the extra documents intent and is forward-compatible if SD-JWT ever needs a heavier lib.
+sdjwt = []
+dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6"]
 
 [project.urls]
 Homepage = "https://b7n0de.com"

@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-01
+
+### Added
+- **External RFC 6962 conformance**: verifies canonical inclusion vectors vendored
+  from transparency-dev/merkle (tests/fixtures/rfc6962_vectors.json) — proven
+  RFC-conformant, not merely self-consistent. Plus Hypothesis property tests
+  (inclusion + consistency) for trees up to several hundred leaves.
+- **Sigstore Rekor interop**: `examples/rekor_interop.py` verifies a real Sigstore
+  Rekor inclusion proof (logIndex 25579, tree size 4.16M) fully offline, with a
+  committed fixture and a field-mapping doc (Rekor bundle / C2SP checkpoint).
+- SD-JWT is an optional extra: `pip install "proofbundle[sdjwt]"` (core stays
+  cryptography-only).
+- Normative format specification `SPEC.md` (fields, encodings, RFC 6962 hashing,
+  verification order), consistent with the JSON Schema.
+- `.github/dependabot.yml` (github-actions + pip).
+- PyPI Trusted Publishing (OIDC) publish job in the release workflow.
+
+### Changed
+- All GitHub Actions pinned to full commit SHAs (post tj-actions incident).
+- SD-JWT docstrings/README cite RFC 9901 (SD-JWT core, Dec 2025); clarify SD-JWT VC
+  is still an IETF draft.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added
