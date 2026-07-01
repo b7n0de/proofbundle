@@ -2,11 +2,10 @@
 
 **Verify, fully offline, that a piece of data was signed and anchored in a tamper-evident log, and optionally carries a selectively disclosable credential. In pure Python, no server, no daemon, one JSON file.**
 
-[![CI](https://github.com/OWNER/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/proofbundle/actions/workflows/ci.yml)
+[![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> Replace `OWNER` in the badge links after you create the repository.
 
 ## Why
 
