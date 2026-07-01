@@ -7,9 +7,10 @@
 
 <h1>proofbundle</h1>
 
-**Emit and verify, fully offline, portable evidence that a piece of data was
-signed and anchored in a tamper-evident log — and optionally carries a
-selectively disclosable credential. Pure Python, no server, no daemon, one JSON file.**
+**An offline verifier for AI eval receipts. Standards-native: Ed25519 signature,
+RFC 6962 transparency-log Merkle anchoring, optional SD-JWT (RFC 9901) selective
+disclosure, aligned to the in-toto test-result predicate. One portable JSON file,
+no server, no network.**
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg?color=D6248A&cacheSeconds=3600)](https://pypi.org/project/proofbundle/)
@@ -27,7 +28,7 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 74 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 96 tests.
 
 ## Contents
 
@@ -282,24 +283,46 @@ SD-JWT selective disclosure over one portable file, offline.
 The maintainers of inspect_evals (Arcadia Impact, funded by the UK AI Safety Institute) name an open
 gap ([arXiv:2507.06893](https://arxiv.org/abs/2507.06893)):
 a database of trustworthy evaluation results with proper provenance tracking. proofbundle is the
-missing **signature + selective-disclosure layer** for exactly that — complementary to metadata
-aggregation (Every Eval Ever) and documentation taxonomies (Eval Factsheets), not a competitor.
-See [INTEROP.md](INTEROP.md) for how it maps to OpenSSF Model Signing, CycloneDX ML-BOM, and in-toto.
+missing **signature + selective-disclosure layer** for exactly that.
 
-- **Two framework adapters** — `pip install "proofbundle[inspect]"` reads a UK AISI
+**How it fits — standards-native, and honest about the neighbours.** proofbundle attests that a *claimed*
+evaluation result is authentic, tamper-evident, and selectively disclosable. It does **not** attest that
+the evaluation was computed correctly or that results were not cherry-picked — proving faithful
+computation is the domain of TEE approaches such as
+[Attestable Audits](https://arxiv.org/abs/2506.23706). It is complementary to its neighbours, named
+fairly: [Every Eval Ever](https://github.com/evaleval/every_eval_ever) standardizes eval *metadata* but
+adds no cryptography (proofbundle ships an EEE→receipt converter);
+[OpenSSF Model Signing](https://github.com/ossf/model-signing-spec) signs *model weights*, not eval
+results; [ValiChord](https://github.com/topeuph-ai/ValiChord) provides blind peer consensus and an
+attested log on a Holochain network (its v1 attestation library uses a simple SHA-256 Merkle tree, no
+signature, no SD-JWT, no in-toto). proofbundle is the lightweight, **standards-native** piece between them:
+a portable receipt a third party verifies offline, with selective disclosure so an auditor can prove a
+threshold was met without revealing the model or the data. See [INTEROP.md](INTEROP.md).
+
+- **Three framework bridges** — `pip install "proofbundle[inspect]"` reads a UK AISI
   [inspect_ai](https://github.com/UKGovernmentBEIS/inspect_ai) eval log via the stable `read_eval_log`
   API (lazy import). `proofbundle.adapters.from_lm_eval_results` reads a real EleutherAI
   [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) `results_*.json` (the
-  genuine `acc,none` filter-suffix format) and captures run provenance — no framework import either way.
-- **in-toto Statement v1** — `proofbundle.intoto.to_intoto_statement(claim, root_b64=…)`
-  emits the receipt as an in-toto statement with a self-hosted predicate type. The subject
-  digest is an *honest salted commitment* under a custom key, never `sha256` (see
-  [PREDICATE.md](PREDICATE.md)).
-- **SD-JWT issuance** (RFC 9901) — `proofbundle.sdjwt_issue.issue_sd_jwt(claim, signer,
+  genuine `acc,none` filter-suffix format). **`proofbundle.adapters.from_eee_dataset`** (v0.9) reads an
+  Every Eval Ever v0.2.2 aggregate JSON and builds a signed receipt — validated against the vendored EEE
+  schema, with **no runtime import** of `every_eval_ever` (it needs Python 3.12; proofbundle stays 3.9+).
+- **in-toto test-result export, DSSE-signed** (v0.9) — `proofbundle.intoto.export_intoto_dsse(claim,
+  signer)` emits the receipt as a DSSE-signed in-toto Statement v1 with the **generic
+  `test-result/v0.1` predicate** (result PASSED/FAILED, `configuration` ResourceDescriptors), so a generic
+  in-toto verifier understands it. Alongside the self-hosted-predicate `to_intoto_statement` (see
+  [PREDICATE.md](PREDICATE.md)). Metric details live in `annotations` (test-result has no native metric
+  field); the model/dataset stay salted commitments, never `sha256`.
+- **C2SP tlog-checkpoint** (v0.9) — `proofbundle.checkpoint.sign_checkpoint(origin, tree_size, root, …)`
+  emits a valid [C2SP](https://github.com/C2SP/C2SP/blob/main/tlog-checkpoint.md) signed note over the
+  RFC 6962 Merkle root, making a receipt witness-network / transparency-log compatible. Pure serialization
+  over the Ed25519 key already in use — no new crypto.
+- **SD-JWT issuance** (RFC 9901, verified Nov 2025) — `proofbundle.sdjwt_issue.issue_sd_jwt(claim, signer,
   root_b64=…, exact_score=…)` issues the receipt so a holder can disclose `passed` +
-  `threshold` while **withholding the exact score** and the identifier openings. The signed
-  bundle payload is the source of truth; the SD-JWT is a derived, bundle-bound view, verified
-  by proofbundle's own verifier **and** the `sd-jwt-python` reference.
+  `threshold` while **withholding the exact score** and the identifier openings. The digest mechanic is
+  RFC 9901 §4.2.3 (base64url of SHA-256 over the base64url-encoded Disclosure), cross-checked against the
+  `sd-jwt-python` reference.
+The signed bundle payload is always the source of truth; the SD-JWT and the in-toto export are derived,
+bundle-bound views.
 
 Every release ships **PEP 740 attestations** (Trusted Publishing) + an SLSA build-provenance
 attestation — see [SECURITY.md](SECURITY.md).
@@ -316,8 +339,10 @@ attestation — see [SECURITY.md](SECURITY.md).
   CITATION.cff, PEP 740 attestations documented.
 - **v0.7** — citability polish (ORCID, Zenodo DOI placeholder, in-toto proposal draft); v0.7.1 hardened
   verifier robustness + CI on Python 3.9 after a holistic review.
-- **v0.8 (current release)** — an offline `make demo` (real eval log -> signed receipt -> verified),
+- **v0.8** — an offline `make demo` (real eval log -> signed receipt -> verified),
   a sharpened honesty guardrail (authenticity/integrity, not computation-correctness), and outreach drafts.
+- **v0.9 (current release)** — the standards moat: a DSSE-signed in-toto `test-result` export, a C2SP
+  tlog-checkpoint over the RFC 6962 root, an Every Eval Ever converter, and standards-native repositioning.
 - **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
   Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 

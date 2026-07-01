@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-02
+
+### Added — the standards moat (verified against primary sources)
+- **DSSE-signed in-toto test-result export** (`proofbundle.intoto.export_intoto_dsse` + `verify_intoto_dsse`,
+  new `proofbundle.dsse`): a receipt as a DSSE envelope over the GENERIC in-toto `test-result/v0.1`
+  predicate (result PASSED/FAILED, `configuration` ResourceDescriptors with real digests, metrics in
+  `annotations`). PAE is signed over the RAW Statement bytes (never base64), payloadType is pinned. SPEC §7b.
+- **C2SP tlog-checkpoint** (`proofbundle.checkpoint`): a signed note over the RFC 6962 Merkle root
+  (origin / tree size / standard-base64 root; EM DASH U+2014 signature line; keyID =
+  SHA-256(name‖0x0A‖0x01‖pubkey)[:4]; vkey encoding). Raw note bytes signed, no PAE. SPEC §7c.
+- **Every Eval Ever converter** (`proofbundle.adapters.from_eee_dataset`): reads an EEE v0.2.2 aggregate
+  JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of
+  `every_eval_ever` (it needs Python 3.12; proofbundle stays 3.9+). The EEE `evaluation_id` (which embeds
+  the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment.
+- Examples for all three (`examples/intoto_dsse_export.py`, `checkpoint_example.py`, `eee_receipt.py`).
+
+### Changed — standards-native repositioning
+- README tagline + "How it fits" name the neighbours fairly (Every Eval Ever, OpenSSF Model Signing,
+  ValiChord, Attestable Audits) with the honesty guardrail visible; INTEROP.md gains a ValiChord section.
+- SD-JWT digest mechanic re-verified against RFC 9901 §4.2.3 (Nov 2025) + the sd-jwt-python reference.
+
 ## [0.8.1] - 2026-07-01
 
 ### Fixed

@@ -59,6 +59,10 @@ offers — and out of scope here. proofbundle deliberately targets the lightweig
 portable, tamper-evident, selectively disclosable *result artifact*. The two are complementary trust models
 for different threats (computation-correctness vs. artifact authenticity/integrity + private disclosure).
 
+## ValiChord — an adjacent eval-attestation library
+
+[ValiChord](https://github.com/topeuph-ai/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Named fairly, the v1 library differs in exactly the standards proofbundle leads with: its format v1 carries **no digital signature** (`signatures` is reserved for v2), uses a **simple SHA-256 Merkle tree** (no RFC 6962 domain separation), and has **no SD-JWT, no in-toto, and no Every Eval Ever converter**; blind peer consensus and an attested log live in its Holochain layer (v2 scope). proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
+
 ## Summary
 
 proofbundle is the missing **signature + selective-disclosure layer** for a trustworthy eval log — the

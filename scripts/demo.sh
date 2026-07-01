@@ -20,4 +20,9 @@ b = emit_bundle(b'demo payload', generate_signer()); r = verify_bundle(b); \
 print('\n'.join(f'[{\"PASS\" if c.ok else \"FAIL\"}] {c.name}' for c in r.checks)); \
 print('=> OK' if r.ok else '=> FAILED'); raise SystemExit(0 if r.ok else 1)"
 echo
+echo "-- v0.9 standards moat: in-toto test-result (DSSE) / C2SP checkpoint / EEE converter --"
+"$PY" examples/intoto_dsse_export.py
+"$PY" examples/checkpoint_example.py | tail -2
+"$PY" examples/eee_receipt.py
+echo
 echo "== demo complete: real eval logs turned into signed, offline-verifiable receipts =="

@@ -126,3 +126,18 @@ proof, sd-jwt-python reference interop, independent MTH reimplementation) — no
 were all in **robustness, schema-conformance, CI, and doc-accuracy**. Key lesson (recorded): a green
 RELEASE workflow ≠ a green CI workflow — the 3.9 test job was red for 3 releases while the release
 (build+publish, 3.12 only) was green, and the per-version self-reviews never checked the CI matrix.
+
+---
+
+# v0.9 review (standards moat: in-toto/DSSE, C2SP checkpoint, EEE converter)
+
+Specs verified against primary sources BEFORE building (4 spec lenses): DSSE PAE over raw bytes + in-toto test-result/v0.1 (jsonschema-valid), C2SP signed-note byte format (EM DASH, standard base64, keyID formula), EEE schema v0.2.2 field paths. 3 update-doc corrections caught (C2SP '>=3 lines', EEE dataset_name always present, continuous->min/max). Two real bugs caught by my own smoke tests before review: the C2SP vkey over-split on '+' in standard-base64 key material (fixed to split maxsplit=2, tested with a '+'-bearing key), and an EEE privacy leak (the evaluation_id embeds the model id in cleartext, defeating the salted commitment — removed from provenance). 93 tests, ruff clean.
+| Lens | Evidence |
+|---|---|
+| Correctness | PAE byte-rule + in-toto Statement jsonschema-valid; C2SP round-trip byte-exact; EEE round-trip verifies |
+| Interop | generic test-result predicate (not self-hosted); C2SP witness-compatible; EEE bridge |
+| Standards | in-toto/DSSE/C2SP/RFC 9901 verified against primary sources, 3 doc-drifts corrected |
+| Distribution | vendored EEE schema in package-data; 3.9 floor held (no every_eval_ever import) |
+| Format-contract | SPEC §7b/§7c normative; payloadType pinned; standard base64 not base64url |
+| Supply-chain | no new core runtime dep; neighbours named fairly (ValiChord/EEE/OpenSSF/Attestable Audits) |
+| Orthogonal | anti-vanity: value is in the standards, not novelty prose; honesty guardrail visible; 3.9 floor held |
