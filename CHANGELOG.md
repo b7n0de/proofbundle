@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-01
+
+### Fixed
+- `make demo` / `scripts/demo.sh` / `Makefile` now invoke **`python3`** (overridable via `PYTHON=...`),
+  not a bare `python`, so the documented demo works on systems where only `python3` is on PATH (PEP 394).
+
 ## [0.8.0] - 2026-07-01
 
 ### Added
