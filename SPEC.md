@@ -112,6 +112,13 @@ The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
 supplies out of band; the verifier does not fetch anything.
 
+## 7a. Scope guardrail (honest)
+
+A bundle attests the **authenticity and integrity** of the exact `payload` bytes — signed by the stated
+key, anchored under the stated Merkle root. It does **not** attest the correctness of any computation that
+produced the payload, nor the absence of cherry-picking in an eval it carries. Those are separate concerns
+(e.g. trusted-execution audits) with different trust models.
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).

@@ -13,7 +13,7 @@ from .emit import emit_bundle, generate_signer
 from .errors import Check, ProofBundleError, VerificationResult
 from .merkle import verify_consistency, verify_inclusion
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 __all__ = [
     "__version__",

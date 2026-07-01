@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-01
+
+### Added
+- **Offline demonstrator**: `make demo` / `scripts/demo.sh` + `Makefile` turn genuine eval logs (an
+  inspect_ai `mockllm` `.eval` and an lm-eval `--model dummy` `results.json`, committed fixtures generated
+  offline) into signed, Merkle-anchored receipts and verify them — no network, API key, or GPU.
+  `examples/inspect_receipt.py` added; a "Demo" README section makes it prominent.
+- **Honesty guardrail** (README + SPEC): a receipt attests authenticity + integrity of a *claimed* result,
+  **not** the correctness of the computation nor the absence of cherry-picking (TEE audits target that,
+  different trust model). Demarcated from a bare hash (ref inspect_evals PR #1610) and from TEE approaches.
+- INTEROP.md: Every Eval Ever (integration target, converter bridge) + Attestable Audits (TEE, different
+  trust model) sections; SECURITY.md notes the SLSA v1.2 attestation model.
+- Engagement drafts (`OUTREACH_issue_inspect_evals.md` + updated outreach note) — clearly marked
+  draft-only; the human posts and replies personally per the inspect_evals AI-use policy.
+
+### Note
+- v0.6/v0.7 already delivered the lm-eval + inspect_ai adapters, INTEROP.md, PEP 740 docs and CITATION.cff;
+  this release skipped those and added only the open points (demo, guardrail, outreach), per the update.
+
 ## [0.7.1] - 2026-07-01
 
 ### Fixed

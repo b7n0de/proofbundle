@@ -6,8 +6,8 @@ Subject: a small offline verification layer for trustworthy eval results
 
 Hi,
 
-Your paper (arXiv:2507.06893) notes an open gap: a database of trustworthy evaluation results with
-proper provenance tracking. I built a small, MIT-licensed, pure-Python tool that may be the missing
+Your paper (arXiv:2507.06893) names an open gap — "a collaborative database of trusted evaluation
+results with proper provenance tracking". I built a small, MIT-licensed, pure-Python tool that may be the missing
 verification layer for it: **proofbundle** (github.com/b7n0de/proofbundle).
 
 It turns an eval run into a signed, Merkle-anchored receipt that proves a stated threshold was met —
@@ -22,3 +22,7 @@ designed. It does not compete with metadata aggregation (Every Eval Ever) or doc
 If a verifiable-receipt layer is useful to what you are building, I would welcome pointers on the format.
 
 — Konrad
+
+It runs fully offline — `make demo` turns a real mockllm `.eval` log into a signed receipt and verifies it, no network or GPU. I also saw inspect_evals PR #1610 (a SHA-256 attestation exporter) was closed as belonging a layer above the framework; proofbundle is that standalone layer and adds a signature, a Merkle anchor and selective disclosure over a bare hash.
+
+(Draft — I will post and reply personally per the inspect_evals AI-use policy.)

@@ -32,4 +32,4 @@ Releases are published to PyPI via **Trusted Publishing** (OIDC, no long-lived t
 `pypa/gh-action-pypi-publish` (>= v1.11.0), so each release file carries **PEP 740 digital
 attestations** generated automatically. You can verify them on PyPI (the Integrity API exposes the
 attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification. Each release
-also carries an SLSA build-provenance attestation from the GitHub release workflow.
+also carries an SLSA build-provenance attestation (SLSA v1.2 attestation model) from the GitHub release workflow.

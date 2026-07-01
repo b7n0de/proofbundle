@@ -43,6 +43,22 @@ test-result has no field for) but documents the mapping so a test-result consume
 [C2PA](https://c2pa.org/specifications/) is content provenance for media, **not** evaluation. It is
 **out of scope** for proofbundle, mentioned only because it shares the same signed-provenance narrative.
 
+## Every Eval Ever (EEE)
+
+[Every Eval Ever](https://github.com/evaleval/every_eval_ever) ([arXiv:2606.14516](https://arxiv.org/abs/2606.14516))
+is a schema + Hugging Face datastore for aggregating eval results — **without cryptography**. proofbundle is
+the missing integrity + selective-disclosure layer *underneath* it: an EEE record can reference a
+proofbundle receipt (by `root_b64`), and a small converter from the eval claim to the EEE schema is a
+plausible bridge. Integration target, not a competitor.
+
+## Attestable Audits (TEE) — different trust model
+
+[Attestable Audits](https://arxiv.org/abs/2506.23706) use trusted execution (TEE) to attest the
+**correctness of the computation** itself. That is a stronger, hardware-rooted guarantee than proofbundle
+offers — and out of scope here. proofbundle deliberately targets the lightweight, hardware-free case: a
+portable, tamper-evident, selectively disclosable *result artifact*. The two are complementary trust models
+for different threats (computation-correctness vs. artifact authenticity/integrity + private disclosure).
+
 ## Summary
 
 proofbundle is the missing **signature + selective-disclosure layer** for a trustworthy eval log — the

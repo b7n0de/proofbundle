@@ -27,7 +27,7 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 72 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 74 tests.
 
 ## Contents
 
@@ -36,6 +36,7 @@ checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 72 tests.
 - [How it fits together](#how-it-fits-together)
 - [Install](#install)
 - [Quickstart](#quickstart)
+- [Demo](#demo--a-real-eval-log-to-a-verified-receipt-offline)
 - [Interoperability](#interoperability)
 - [Bundle format](#bundle-format-proofbundlev01)
 - [Eval receipts](#eval-receipts)
@@ -166,6 +167,21 @@ from proofbundle import verify_consistency
 verify_consistency(first_size, second_size, proof, first_root, second_root)  # -> bool
 ```
 
+## Demo — a real eval log to a verified receipt, offline
+
+```bash
+pip install "proofbundle[eval,inspect]"
+make demo          # or: bash scripts/demo.sh
+```
+
+`make demo` runs end-to-end with **no network, no API key, no GPU**: it takes genuine eval logs — an
+inspect_ai `mockllm/model` `.eval` log and an lm-evaluation-harness `--model dummy` `results.json`
+(committed under `tests/fixtures/`, generated offline) — turns each into a signed, Merkle-anchored
+proofbundle receipt, and verifies it to `=> OK`. The scores are random (a dummy model); the point is
+that the *artifact* is signed and offline-verifiable, with model and dataset kept as salted commitments.
+See [`examples/inspect_receipt.py`](examples/inspect_receipt.py) and
+[`examples/lm_eval_receipt.py`](examples/lm_eval_receipt.py).
+
 ## Interoperability
 
 proofbundle uses the same RFC 6962 / RFC 9162 Merkle primitive as
@@ -242,11 +258,24 @@ proofbundle show-eval receipt.json       # verify + print the claim (issuer-boun
 ```
 
 The claim format is specified in [EVAL_CLAIM.md](EVAL_CLAIM.md); the emit path uses
-RFC 8785 JCS canonicalization, the verify path stays dependency-free. **Honest scope:**
-a receipt proves `passed` against `threshold` and hides the model/dataset via salted
-commitments — it does **not** prove the evaluation was well designed or that the score
-itself is correct. Those are human judgements; what it removes is the need to simply
-trust the number.
+RFC 8785 JCS canonicalization, the verify path stays dependency-free.
+
+**Honesty guardrail (the exact scope).** A receipt attests the **authenticity and integrity** of a
+*claimed* result and its context — these exact bytes, signed by this key, anchored under this root, with
+model/dataset kept as salted commitments. It does **not** attest the **correctness of the computation**,
+and it cannot detect **cherry-picking** of the eval. Whether the eval was well designed, whether the
+suite measures what it claims, and whether the number was computed honestly are separate questions.
+Trusted-execution approaches such as [Attestable Audits](https://arxiv.org/abs/2506.23706) target
+computation-correctness with a different (hardware) trust model; proofbundle is the lightweight,
+hardware-free path to a portable, tamper-evident, selectively disclosable *result artifact*.
+
+**How this differs from a bare hash or a TEE.** A plain SHA-256 of a log commits to bytes but carries no
+signature, no tamper-evident anchor, and no selective disclosure (an attestation-exporter idea along
+those lines,
+[inspect_evals PR #1610](https://github.com/UKGovernmentBEIS/inspect_evals/pull/1610), was closed as
+belonging *a layer above* the framework — which is exactly where proofbundle sits). A TEE proves the
+computation ran untampered but needs specific hardware. proofbundle adds Ed25519 + RFC 6962 Merkle +
+SD-JWT selective disclosure over one portable file, offline.
 
 ### A verification layer for trustworthy eval logs
 
@@ -285,8 +314,10 @@ attestation — see [SECURITY.md](SECURITY.md).
 - **v0.5** — inspect_ai adapter (stable API), in-toto Statement v1 view, SD-JWT **issuance** (RFC 9901).
 - **v0.6** — a second eval adapter (lm-evaluation-harness, real format + provenance), INTEROP.md,
   CITATION.cff, PEP 740 attestations documented.
-- **v0.7 (current release)** — citability polish: ORCID in CITATION.cff, a Zenodo DOI placeholder
-  (assigned on release), and a draft in-toto ML-eval predicate proposal.
+- **v0.7** — citability polish (ORCID, Zenodo DOI placeholder, in-toto proposal draft); v0.7.1 hardened
+  verifier robustness + CI on Python 3.9 after a holistic review.
+- **v0.8 (current release)** — an offline `make demo` (real eval log -> signed receipt -> verified),
+  a sharpened honesty guardrail (authenticity/integrity, not computation-correctness), and outreach drafts.
 - **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
   Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 
