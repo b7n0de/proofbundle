@@ -12,7 +12,7 @@ exists (deferred, see the roadmap).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://b7n0de.com/proofbundle/eval-receipt/v0.1"
@@ -37,6 +37,21 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
+    predicate: dict[str, Any] = {
+        "verifier": {"id": VERIFIER_ID},
+        "evaluatedAt": claim["timestamp"],
+        "suite": claim["suite"],
+        "claims": [{
+            "metric": claim["metric"], "comparator": claim["comparator"],
+            "threshold": claim["threshold"], "passed": claim["passed"],
+        }],
+        "datasetCommit": claim.get("dataset_id_commit"),
+        "subject_digest_note": _SUBJECT_DIGEST_NOTE,
+    }
+    if harness:
+        predicate["harness"] = harness
+    if root_b64:
+        predicate["receipt"] = {"schema": "proofbundle/v0.1", "root_b64": root_b64}
     statement = {
         "_type": STATEMENT_TYPE,
         "subject": [{
@@ -44,20 +59,6 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
             "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
         }],
         "predicateType": PREDICATE_TYPE,
-        "predicate": {
-            "verifier": {"id": VERIFIER_ID},
-            "evaluatedAt": claim["timestamp"],
-            "suite": claim["suite"],
-            "claims": [{
-                "metric": claim["metric"], "comparator": claim["comparator"],
-                "threshold": claim["threshold"], "passed": claim["passed"],
-            }],
-            "datasetCommit": claim.get("dataset_id_commit"),
-            "subject_digest_note": _SUBJECT_DIGEST_NOTE,
-        },
+        "predicate": predicate,
     }
-    if harness:
-        statement["predicate"]["harness"] = harness
-    if root_b64:
-        statement["predicate"]["receipt"] = {"schema": "proofbundle/v0.1", "root_b64": root_b64}
     return statement

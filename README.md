@@ -19,14 +19,15 @@ selectively disclosable credential. Pure Python, no server, no daemon, one JSON 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev)
 [![PyPI attestations](https://img.shields.io/badge/PyPI-attestations_(PEP_740)-D6248A.svg)](https://pypi.org/project/proofbundle/)
-<!-- DOI badge placeholder: Zenodo is linked and archives each release. Add the Zenodo concept-DOI badge
-     here (and the DOI to CITATION.cff) once Zenodo assigns it — it does not exist at build time. -->
+<!-- DOI badge placeholder: enable Zenodo archiving for this repo, then add the Zenodo concept-DOI
+     badge here (and the DOI to CITATION.cff) once Zenodo assigns one on the next release. No DOI has
+     been assigned yet (no archived record exists at build time) — tracked in the human checklist. -->
 
 </div>
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 63 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 72 tests.
 
 ## Contents
 
@@ -249,7 +250,8 @@ trust the number.
 
 ### A verification layer for trustworthy eval logs
 
-The UK AISI inspect_ai team names an open gap ([arXiv:2507.06893](https://arxiv.org/abs/2507.06893)):
+The maintainers of inspect_evals (Arcadia Impact, funded by the UK AI Safety Institute) name an open
+gap ([arXiv:2507.06893](https://arxiv.org/abs/2507.06893)):
 a database of trustworthy evaluation results with proper provenance tracking. proofbundle is the
 missing **signature + selective-disclosure layer** for exactly that — complementary to metadata
 aggregation (Every Eval Ever) and documentation taxonomies (Eval Factsheets), not a competitor.

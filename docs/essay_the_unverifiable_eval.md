@@ -8,7 +8,7 @@ Every week a model ships with a number attached. Passed the safety suite. Ninety
 
 Here is the uncomfortable part. You cannot check any of them. The number is asserted, not proven. To recompute it you would need the model weights and the exact dataset, which are usually secret. So the claim rests entirely on trust in whoever published it.
 
-We solved this shape of problem once already, for software builds. Sigstore, SLSA and in-toto let you verify where an artifact came from without trusting the person who handed it to you. But that machinery stops at the build. It says nothing about whether an evaluation result is real. The [OpenSSF Model Signing spec](https://github.com/ossf/model-signing-spec) states plainly that it does not cover quality or evaluation. And the people running frontier evaluations feel the gap: the UK AI Safety Institute has [publicly called](https://arxiv.org/pdf/2507.06893) for a database of trustworthy evaluation results with proper provenance tracking.
+We solved this shape of problem once already, for software builds. Sigstore, SLSA and in-toto let you verify where an artifact came from without trusting the person who handed it to you. But that machinery stops at the build. It says nothing about whether an evaluation result is real. The [OpenSSF Model Signing spec](https://github.com/ossf/model-signing-spec) states plainly that it does not cover quality or evaluation. And the people running frontier evaluations feel the gap: the maintainers of inspect_evals (Arcadia Impact, UK-AISI-funded) have [publicly called](https://arxiv.org/pdf/2507.06893) for a database of trustworthy evaluation results with proper provenance tracking.
 
 So the tooling exists, the demand exists, and nobody has connected them.
 

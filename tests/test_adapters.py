@@ -39,6 +39,8 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(claim["suite"], "safety_refusal_demo")
         self.assertTrue(claim["passed"])                    # accuracy 0.0 >= 0.00
         self.assertNotIn("mockllm/model", str(claim))       # model id only as salted commitment
+        self.assertEqual(claim["provenance"]["harness"], "inspect_ai")  # provenance parity with lm-eval
+        self.assertIn("harness_version", claim["provenance"])
 
     def test_inspect_ai_missing_metric_clear_error(self):
         from proofbundle.adapters.inspect_ai import InspectAdapterError

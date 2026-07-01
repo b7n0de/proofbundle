@@ -57,9 +57,23 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     model_id = str(getattr(ev, "model", "unknown"))
     dataset = getattr(ev, "dataset", None)
     dataset_id = str(getattr(dataset, "name", None) or suite)
+
+    # Provenance parity with the lm-eval adapter: inspect_ai exposes the same run provenance for free.
+    provenance = {"harness": "inspect_ai"}
+    revision = getattr(ev, "revision", None)
+    commit = getattr(revision, "commit", None)
+    if commit:
+        provenance["git_hash"] = str(commit)
+    packages = getattr(ev, "packages", None) or {}
+    if isinstance(packages, dict) and packages.get("inspect_ai"):
+        provenance["harness_version"] = str(packages["inspect_ai"])
+    tv = getattr(ev, "task_version", None)
+    if tv is not None:
+        provenance["task_version"] = str(tv)
+
     return build_eval_claim(
         suite=suite, suite_version=str(getattr(ev, "task_version", "1")),
         metric=metric, comparator=comparator, threshold=threshold, score=repr(value),
         n=int(getattr(results, "total_samples", 0) or 0),
         model_id=model_id, dataset_id=dataset_id, issuer="", timestamp=timestamp,
-        model_salt=model_salt, dataset_salt=dataset_salt)
+        provenance=provenance, model_salt=model_salt, dataset_salt=dataset_salt)

@@ -100,3 +100,29 @@ Zenodo API, no proofbundle record exists); no `.zenodo.json` (would shadow CITAT
 
 **Human-only:** after release, add the Zenodo-assigned DOI to README + CITATION.cff; decide whether to
 send the outreach note; submit the in-toto predicate proposal.
+
+---
+
+# Holistic integration review (v0.1-v0.7) + 0.7.1 hardening
+
+A full 6-lens review of the WHOLE package (5 independent sonnet reviewers + orthogonal synthesis) ran
+against the live PyPI/GitHub state — not one version, the whole integration. It found real defects the
+per-version reviews missed. All fixed in 0.7.1 (72 tests, mypy in CI, ruff clean):
+
+| Lens | Finding | Fix + artifact |
+|---|---|---|
+| 1 Correctness | verifier crashed on malformed input (type-confusion) + accepted unknown fields vs SPEC MUST | `bundle.py` guards + `_reject_unknown`; red-tests `tests/test_bundle_robustness.py` |
+| 1 Correctness | `build_eval_claim` accepted schema-violating values (n<0, `1e2`, `Infinity`) | `_DECIMAL_RE` + n-range check; red-tests `TestEvalClaimSchemaConformance` |
+| 2 Standards | CycloneDX v1.6→**1.7**, C2PA ~v2.3→**~2.4** (out-of-scope mentions) | INTEROP.md |
+| 2 Standards | arXiv:2507.06893 attributed to "UK AISI team" — actually Arcadia Impact (UK-AISI-funded) | README + essay |
+| 3 No-Fake | Zenodo "is linked and archives each release" — present-tense, but 7 tags/0 archived | aspirational wording (README/CITATION/CHANGELOG) |
+| 4 Distribution | **CI RED on Python 3.9 for 3 releases** — `inspect_ai` (needs ≥3.10) in `dev` broke the 3.9 install | `python_version >= "3.10"` marker in `inspect`/`dev` extras |
+| 5 Completeness | inspect_ai adapter never filled `provenance` (data available) | provenance parity (git commit + harness/task version); test |
+| 5 Completeness | mypy declared, never run + 2 real errors in intoto.py | mypy wired into CI + fixed |
+| 3/5 drift | stale CONTRIBUTING good-first-issue, PR/issue templates, bundle.py docstring, rfc8785 lazy error | refreshed / clear error |
+
+**Orthogonal synthesis:** the crypto core is provably correct (RFC 8032/6962/8785 vectors, real Rekor
+proof, sd-jwt-python reference interop, independent MTH reimplementation) — no crypto defect. The gaps
+were all in **robustness, schema-conformance, CI, and doc-accuracy**. Key lesson (recorded): a green
+RELEASE workflow ≠ a green CI workflow — the 3.9 test job was red for 3 releases while the release
+(build+publish, 3.12 only) was green, and the per-version self-reviews never checked the CI matrix.

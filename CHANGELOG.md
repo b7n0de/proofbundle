@@ -4,11 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-01
+
+### Fixed
+A holistic 6-lens review of the whole integration (v0.1-v0.7) found robustness/conformance/CI gaps the
+per-version reviews missed; all fixed here:
+- **Verifier robustness**: `verify_bundle` now rejects malformed input with a `BundleFormatError` (the
+  documented malformed path) instead of a raw traceback - type-confused `leaf_index`/`tree_size`
+  (non-int/float), a non-object `signature`/`merkle`, a missing `inclusion_proof_b64` (required per SPEC),
+  and unknown top-level/nested fields (SPEC additionalProperties:false, previously unenforced).
+- **Eval-claim schema conformance**: `build_eval_claim` rejects values that fail its own published schema -
+  negative `n`, and non-plain-decimal `threshold`/`score` (`1e2`, `Infinity`, `+5`, spaces).
+- **CI on Python 3.9**: `inspect_ai` (requires Python >=3.10) is gated by a `python_version >= "3.10"`
+  marker in the `inspect`/`dev` extras, so `pip install .[dev]`/`[inspect]` no longer fails on 3.9.
+- **inspect_ai provenance parity**: the inspect adapter now captures run provenance (git commit, harness
+  version, task version) into `provenance`, matching the lm-eval adapter.
+- mypy is now run in CI (declared but never enforced); fixed two real mypy errors in `intoto.py`. A clear
+  error names the missing `[eval]` extra if `rfc8785` is absent on the emit path.
+
+### Changed (docs)
+- Zenodo DOI wording made aspirational (no DOI assigned yet). INTEROP.md updated to CycloneDX v1.7 + C2PA
+  ~v2.4. Corrected the arXiv:2507.06893 attribution (inspect_evals maintainers, Arcadia Impact, UK-AISI-
+  funded). Refreshed stale CONTRIBUTING/PR/issue-template wording.
+
 ## [0.7.0] - 2026-07-01
 
 ### Added
 - CITATION.cff now carries the author ORCID (0009-0006-8947-6065); a Zenodo DOI placeholder is marked in
-  the README + CITATION.cff (Zenodo is linked and archives each release — the DOI is added post-release).
+  the README + CITATION.cff (a DOI is assigned once Zenodo archives a release; none exists yet — human checklist).
 - `docs/in_toto_predicate_proposal.md` — a draft proposing an ML eval-result predicate upstream to
   in-toto/attestation (no registered ML-eval predicate exists yet); the human decides whether to submit.
 

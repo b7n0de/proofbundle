@@ -13,6 +13,6 @@ What should it do? Keep in mind the design goal: a small, correct, offline
 verifier with no new runtime dependency beyond `cryptography`.
 
 **Scope check**
-- [ ] This is about verification (not the emitter, which is on the roadmap)
+- [ ] This fits the project scope (offline verification, emitting, and eval receipts)
 - [ ] This does not add a heavy runtime dependency
 - [ ] This does not require its own cryptography implementation

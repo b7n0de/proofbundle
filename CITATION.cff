@@ -14,7 +14,7 @@ license: MIT
 repository-code: "https://github.com/b7n0de/proofbundle"
 url: "https://github.com/b7n0de/proofbundle"
 version: 0.7.0
-# doi: added after Zenodo archives this release (Zenodo is linked; the DOI is assigned on release).
+# doi: add once Zenodo archives a release and assigns a DOI (none assigned yet — see the human checklist).
 keywords:
   - cryptography
   - merkle

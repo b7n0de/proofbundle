@@ -12,7 +12,11 @@ checks, fully offline and without any running log server:
 The verifier treats ``payload`` as opaque bytes: it proves *that these exact
 bytes were signed and anchored*, not what they mean. That keeps v0.1 small and
 correct. Turning a reproducible eval run into such a payload is the job of the
-emitter (see ``emit.py``, roadmap).
+eval-receipt emitter (see :mod:`proofbundle.evalclaim`, since v0.4).
+
+Malformed input (wrong types, missing or unknown fields) is rejected with a
+``BundleFormatError`` — never a raw traceback — so a caller gets the documented
+malformed exit code, not a crash.
 """
 
 from __future__ import annotations
@@ -30,6 +34,13 @@ __all__ = ["SCHEMA", "verify_bundle", "load_bundle"]
 
 SCHEMA = "proofbundle/v0.1"
 
+# Allowed keys per object — SPEC.md §3: a verifier MUST reject unknown fields (schema is
+# additionalProperties: false). Enforced here so the code matches its own normative spec.
+_TOP_KEYS = {"schema", "payload_b64", "signature", "merkle", "sd_jwt_vc"}
+_SIG_KEYS = {"alg", "public_key_b64", "sig_b64"}
+_MERKLE_KEYS = {"hash_alg", "leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"}
+_SD_KEYS = {"compact", "issuer_public_key_b64"}
+
 
 def _b64d(value: str, field: str) -> bytes:
     try:
@@ -42,6 +53,27 @@ def _require(obj: dict, key: str, field: str):
     if key not in obj:
         raise BundleFormatError(f"missing field {field}")
     return obj[key]
+
+
+def _require_dict(obj, field: str) -> dict:
+    """The value must be a JSON object — a string/list/number is malformed, not a crash."""
+    if not isinstance(obj, dict):
+        raise BundleFormatError(f"field {field} must be a JSON object")
+    return obj
+
+
+def _require_int(obj: dict, key: str, field: str) -> int:
+    """The value must be a JSON integer — reject floats (SPEC §2) and non-numeric strings/None."""
+    val = _require(obj, key, field)
+    if isinstance(val, bool) or not isinstance(val, int):   # bool is an int subclass; a float/str/None is not
+        raise BundleFormatError(f"field {field} must be an integer, got {type(val).__name__}")
+    return val
+
+
+def _reject_unknown(obj: dict, allowed: set, field: str) -> None:
+    extra = set(obj) - allowed
+    if extra:
+        raise BundleFormatError(f"unknown field(s) in {field}: {sorted(extra)}")
 
 
 def load_bundle(path: str) -> dict:
@@ -60,12 +92,14 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
     schema = bundle.get("schema")
     if schema != SCHEMA:
         raise UnsupportedError(f"unsupported schema {schema!r}, expected {SCHEMA!r}")
+    _reject_unknown(bundle, _TOP_KEYS, "bundle")
 
     result = VerificationResult()
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
 
     # 1. signature over the payload
-    sig = _require(bundle, "signature", "signature")
+    sig = _require_dict(_require(bundle, "signature", "signature"), "signature")
+    _reject_unknown(sig, _SIG_KEYS, "signature")
     alg = sig.get("alg")
     if alg != "ed25519":
         raise UnsupportedError(f"signature alg {alg!r} not supported in v0.1")
@@ -75,13 +109,17 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
     result.add("ed25519-signature", sig_ok, "payload signed by stated key" if sig_ok else "invalid signature")
 
     # 2. merkle inclusion of the payload
-    mk = _require(bundle, "merkle", "merkle")
+    mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
+    _reject_unknown(mk, _MERKLE_KEYS, "merkle")
     hash_alg = mk.get("hash_alg", "sha256-rfc6962")
     if hash_alg != "sha256-rfc6962":
         raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
-    leaf_index = int(_require(mk, "leaf_index", "merkle.leaf_index"))
-    tree_size = int(_require(mk, "tree_size", "merkle.tree_size"))
-    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in mk.get("inclusion_proof_b64", [])]
+    leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
+    tree_size = _require_int(mk, "tree_size", "merkle.tree_size")
+    proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")   # required per SPEC §5
+    if not isinstance(proof_list, list):
+        raise BundleFormatError("field merkle.inclusion_proof_b64 must be a list")
+    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
     root = _b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")
     incl_ok = merkle.verify_inclusion(payload, leaf_index, tree_size, proof, root)
     result.add(
@@ -93,6 +131,8 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
     # 3. optional SD-JWT selective disclosure credential
     sd = bundle.get("sd_jwt_vc")
     if sd is not None:
+        sd = _require_dict(sd, "sd_jwt_vc")
+        _reject_unknown(sd, _SD_KEYS, "sd_jwt_vc")
         compact = _require(sd, "compact", "sd_jwt_vc.compact")
         issuer_pub = None
         if sd.get("issuer_public_key_b64"):

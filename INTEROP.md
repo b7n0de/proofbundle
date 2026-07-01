@@ -14,7 +14,7 @@ cover quality or evaluation. The two are complementary, not competing:
 
 Together they cover integrity **and** verified performance. That is the cleanest positioning.
 
-## CycloneDX ML-BOM (spec v1.6)
+## CycloneDX ML-BOM (spec v1.7; ML-BOM introduced in v1.6)
 
 CycloneDX [ML-BOM](https://cyclonedx.org/capabilities/mlbom/) can carry performance/quality metrics, but
 they are **unsigned and self-asserted**. A CycloneDX ML-BOM metric field can **reference** a proofbundle
@@ -38,7 +38,7 @@ alignment with test-result/v0.1:
 proofbundle keeps its own predicate (a boolean pass carries a threshold + salted commitments that
 test-result has no field for) but documents the mapping so a test-result consumer can locate the data.
 
-## C2PA (spec ~v2.3)
+## C2PA (spec ~v2.4)
 
 [C2PA](https://c2pa.org/specifications/) is content provenance for media, **not** evaluation. It is
 **out of scope** for proofbundle, mentioned only because it shares the same signed-provenance narrative.

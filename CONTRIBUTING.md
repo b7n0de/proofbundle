@@ -34,7 +34,7 @@ ruff check .
 - Add a `proofbundle consistency` CLI subcommand around `verify_consistency`.
 - Add SHA-384 and SHA-512 Merkle variants behind an explicit `hash_alg`.
 - Add Key Binding JWT verification to the SD-JWT path.
-- Add a JSON Schema for the bundle format under `schemas/`.
+- Add more external RFC 6962 / SD-JWT reference vectors under `tests/fixtures/`.
 
 Open an issue before large changes so we can agree on scope. By contributing you
 agree that your contributions are licensed under the MIT License.

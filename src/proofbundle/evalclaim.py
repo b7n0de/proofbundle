@@ -21,6 +21,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import unicodedata
 from typing import Optional, Sequence
 
@@ -34,6 +35,8 @@ EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
 _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
+# The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
+_DECIMAL_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 # The exact key set of an eval claim; decode/validate reject anything else.
 _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "threshold",
              "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp"}
@@ -103,7 +106,12 @@ def canonicalize(claim: dict) -> bytes:
     for the UTF-16 code-unit key sort + compact UTF-8 serialization.
     """
     _reject_non_jcs(claim)
-    import rfc8785  # noqa: PLC0415 — lazy: only the emit path pulls the JCS dependency
+    try:
+        import rfc8785  # noqa: PLC0415 — lazy: only the emit path pulls the JCS dependency
+    except ImportError as e:
+        raise EvalClaimError(
+            "emitting eval receipts needs an RFC 8785 canonicalizer — install with: "
+            "pip install \"proofbundle[eval]\"") from e
     try:
         return rfc8785.dumps(claim)
     except (rfc8785.FloatDomainError, rfc8785.IntegerDomainError, rfc8785.CanonicalizationError) as e:
@@ -137,14 +145,17 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
     """
     if comparator not in _COMPARATORS:
         raise EvalClaimError(f"comparator must be one of {sorted(_COMPARATORS)}")
+    # threshold/score must match the PUBLISHED schema's decimal pattern exactly — reject "1e2",
+    # "Infinity", "+5", " 5 " etc. that Decimal() would accept but jsonschema rejects (schema-conformance).
     for name, val in (("threshold", threshold), ("score", score)):
         if not isinstance(val, str):
             raise EvalClaimError(f"{name} must be a decimal STRING, not {type(val).__name__}")
-    from decimal import Decimal, InvalidOperation  # noqa: PLC0415
-    try:
-        s, t = Decimal(score), Decimal(threshold)
-    except InvalidOperation as e:
-        raise EvalClaimError(f"threshold/score are not valid decimals: {e}") from e
+        if not _DECIMAL_RE.match(val):
+            raise EvalClaimError(f"{name} must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), got {val!r}")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 0 or n > _MAX_SAFE_INT:
+        raise EvalClaimError(f"n must be a non-negative integer <= 2**53-1, got {n!r}")
+    from decimal import Decimal  # noqa: PLC0415
+    s, t = Decimal(score), Decimal(threshold)
     passed = {">=": s >= t, ">": s > t, "<=": s <= t, "<": s < t}[comparator]
     m_salt = model_salt if model_salt is not None else os.urandom(16)
     d_salt = dataset_salt if dataset_salt is not None else os.urandom(16)
