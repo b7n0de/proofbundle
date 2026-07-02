@@ -91,9 +91,22 @@ presented disclosure is committed (its digest appears in the issuer-signed
 payload's `_sd` array). If `issuer_public_key_b64` is present, additionally check
 **sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under it.
 
-Scope of v0.1 SD-JWT (stated honestly): the SD-JWT *core* is
+Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
+compact serialization carries a trailing Key Binding JWT (a compact form ending
+in `~` carries none). The check is **fail-closed** — a present KB-JWT that cannot
+be verified fails the bundle; it is never silently ignored. The verifier
+requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
+`aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
+presented `<Issuer-signed JWT>~<Disclosure 1>~…~<Disclosure N>~`)) with H the
+SD-JWT's `_sd_alg` hash; and the KB-JWT signature verifies under the holder key
+from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
+binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
+the relying party's (an offline verifier has no trusted clock); the library
+exposes them and accepts `expected_aud`/`expected_nonce` parameters.
+
+Scope of the SD-JWT support (stated honestly): the SD-JWT *core* is
 [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/) (2025); the verifier does
-**not** verify a Key Binding JWT, an X.509 / trust-list chain, status lists, or
+**not** verify an X.509 / trust-list chain, status lists, or
 `vct` type metadata (SD-JWT VC is the IETF draft
 [draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/),
 on the roadmap).
@@ -107,6 +120,8 @@ A conforming verifier MUST perform, in this order, and report each result:
 3. **merkle-inclusion** (§5).
 4. **sd-jwt-disclosures** and **sd-jwt-issuer-signature** — only if `sd_jwt_vc`
    is present (§6).
+5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
+   serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
@@ -157,10 +172,29 @@ U+000A, followed by an empty line and one or more signature lines. A signature l
 signature over the note-text bytes **including the trailing newline** (raw bytes, no PAE). The verifier key
 is distributed as `keyname + "+" + hex8(keyID) + "+" + base64(0x01 ‖ pubkey)`.
 
+## 7d. C2SP tlog-cosignature, Ed25519 cosignature/v1 (normative, v1.2)
+
+A checkpoint (§7c) MAY additionally carry witness **cosignatures** per
+[C2SP tlog-cosignature](https://github.com/C2SP/C2SP/blob/main/tlog-cosignature.md): verifying a quorum of
+cosignatures rules out a split view by the log operator, entirely offline. A cosignature is a note
+signature line (same `U+2014 SP name SP base64(blob)` framing as §7c) where the blob is exactly
+`keyID[4] ‖ timestamp[8, big-endian u64] ‖ ed25519_signature[64]` (76 bytes). The witness
+`keyID` = `SHA-256(witness_name ‖ 0x0A ‖ 0x04 ‖ ed25519_pubkey)[:4]` — algorithm byte **0x04**
+(cosignature/v1), deliberately distinct from the log's 0x01 so a log key can never masquerade as a
+witness. The signed message is `"cosignature/v1\n" ‖ "time <timestamp>\n" ‖ <whole note body including
+the final U+000A, excluding signature lines>`. The timestamp is a POSIX timestamp ≤ 2^63−1; freshness
+policy is the relying party's (offline verifier, no trusted clock). Witness verifier keys use the §7c
+vkey encoding with algorithm byte 0x04. A **witnessed** checkpoint verifies iff the log signature (§7c)
+verifies AND at least `threshold` cosignatures from **distinct witness names** verify — witnesses attest
+consistency, they never replace the log's own signature. Real split-view resistance additionally requires
+the witnesses to be operationally independent, which is a deployment property outside this format.
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).
 - RFC 9162 — Certificate Transparency v2.
 - RFC 8032 — EdDSA / Ed25519.
 - RFC 4648 — Base16/Base32/Base64 encodings.
-- RFC 9901 — Selective Disclosure for JWTs (SD-JWT).
+- RFC 9901 — Selective Disclosure for JWTs (SD-JWT), incl. §4.3 Key Binding JWT.
+- RFC 7800 — Proof-of-Possession Key Semantics for JWTs (`cnf`).
+- C2SP tlog-checkpoint / signed-note / tlog-cosignature — witness ecosystem formats.

@@ -17,6 +17,8 @@ not *correctness of the computation*.)
 | **Filtered disclosure** — hiding claims behind SD-JWT `_sd` digests | `sd_jwt_hidden_count` surfaces the number of withheld fields | omission is visible |
 | **Replay** — presenting an old receipt as new | `check_freshness` reports age; a bound flags stale receipts | not-fresh is visible |
 | **Weak assurance masked by a strong signature** — a self-attested PASS shown as if reproduced | `assurance_level` is signed into the claim (tamper-evident, issuer-declared); `show-eval` displays it; `claim_warnings` warns on self_attested + no pre-registration | a third party cannot alter the level; a dishonest issuer can still self-declare a higher one |
+| **Holder-binding downgrade / replay** — replaying a disclosed SD-JWT that was issued with a `cnf` holder key, with the Key Binding JWT stripped or tampered | `verify_bundle` runs `verify_key_binding` (RFC 9901 §4.3) when a KB-JWT is attached, AND fails when the issuer bound a `cnf` key but no KB-JWT is present (v1.2) | a bearer replay of a proof-of-possession credential FAILs; bundles issued without `cnf` are unaffected |
+| **Split view by the log operator** — a witnessed checkpoint whose quorum is stuffed by one key under many names | `verify_witnessed_checkpoint` counts DISTINCT witness public keys, not names (C2SP cosignature/v1); the log's own signature stays required (v1.2) | one physical key cannot satisfy `threshold>1`; real split-view resistance still needs INDEPENDENT witness operators (a deployment property) |
 
 ## What it structurally does NOT catch
 

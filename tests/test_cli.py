@@ -35,6 +35,57 @@ class TestCli(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_verbose_prints_matching_roots(self):
+        # issue #2: --verbose shows the recomputed root next to the stated root.
+        import contextlib
+        import io
+        bundle = build_bundle()
+        path = self._write(bundle)
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(main(["verify", "--verbose", path]), 0)
+            out = buf.getvalue()
+            self.assertIn("stated root", out)
+            self.assertIn("recomputed root", out)
+            self.assertIn(bundle["merkle"]["root_b64"], out)
+            stated = next(ln for ln in out.splitlines() if "stated root" in ln).split()[-1]
+            recomputed = next(ln for ln in out.splitlines() if "recomputed root" in ln).split()[-1]
+            self.assertEqual(stated, recomputed)
+        finally:
+            os.unlink(path)
+
+    def test_verbose_shows_diverging_root_on_tamper(self):
+        import contextlib
+        import io
+        bundle = build_bundle()
+        bundle["payload_b64"] = "AAAA"                       # tamper: payload no longer anchored
+        path = self._write(bundle)
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(main(["verify", "--verbose", path]), 1)
+            out = buf.getvalue()
+            stated = next(ln for ln in out.splitlines() if "stated root" in ln).split()[-1]
+            recomputed = next(ln for ln in out.splitlines() if "recomputed root" in ln).split()[-1]
+            self.assertNotEqual(stated, recomputed)
+        finally:
+            os.unlink(path)
+
+    def test_verbose_json_contains_roots(self):
+        import contextlib
+        import io
+        path = self._write(build_bundle())
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(main(["verify", "--json", "--verbose", path]), 0)
+            data = json.loads(buf.getvalue())
+            self.assertEqual(data["merkle_root"]["stated_b64"],
+                             data["merkle_root"]["recomputed_b64"])
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

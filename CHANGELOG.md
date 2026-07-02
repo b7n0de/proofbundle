@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-02
+
+### Added — holder binding + witness quorum (verified against primary sources)
+- **Key Binding JWT verification** (`proofbundle.kbjwt`, closes #1): RFC 9901 §4.3, fully offline —
+  header `typ` MUST be `kb+jwt` (alg EdDSA), payload MUST carry `iat`/`aud`/`nonce`/`sd_hash`,
+  `sd_hash` recomputed over the US-ASCII bytes of the presented `JWT~disclosures…~` with the SD-JWT's
+  `_sd_alg` (binds the *presented disclosure set* — dropping or swapping a disclosure after signing is
+  detected), signature verified under the issuer-bound `cnf.jwk` holder key (RFC 7800; a supplied holder
+  key is the fallback, the issuer's binding wins). `expected_aud`/`expected_nonce` for relying-party
+  policy; `iat` freshness stays caller policy (offline verifier, no trusted clock). SPEC §6/§7.
+- **KB-JWT issuance/presentation** (`sdjwt_issue`): `issue_sd_jwt(..., holder_public_key=...)` embeds
+  `cnf.jwk` (OKP/Ed25519); new `present_with_key_binding(compact, holder_signer, aud=, nonce=, iat=)`
+  builds the holder presentation. Explicit `iat` — the library never samples wall clocks for signatures.
+- **New bundle check `sd-jwt-key-binding`** — **fail-closed**: a KB-JWT that is present must verify;
+  previously a trailing KB-JWT was **silently ignored**, a downgrade risk (a bundle carrying holder
+  binding verified `OK` without the binding being checked). Bundles *without* a KB-JWT are untouched —
+  no new check, behavior identical to v1.1. SPEC §7 order gains step 5.
+- **C2SP tlog-cosignature, Ed25519 cosignature/v1** (`proofbundle.checkpoint`): `cosign_checkpoint` /
+  `verify_cosignature` / `verify_witnessed_checkpoint(..., threshold=)` — witness key ID algorithm byte
+  **0x04** (domain-separated from the log's 0x01 by construction), signature blob
+  `keyID[4]‖u64-BE-timestamp‖sig[64]` (exactly 76 bytes), signed message
+  `"cosignature/v1\n" + "time <ts>\n" + note body`. Verifying a witness quorum rules out a split view
+  by the log operator, offline — the pattern Rekor v2 (GA 2025-10) institutionalizes. The log's own
+  signature stays required (witnesses attest consistency, they don't replace the log). SPEC §7d.
+- **CLI `proofbundle verify --verbose`** (closes #2): prints the recomputed Merkle root next to the
+  stated root (also under `--json` as `merkle_root.{stated_b64,recomputed_b64}`), via the new public
+  `recompute_merkle_root_b64`. Debugging inclusion-proof failures no longer needs a REPL.
+
+### Release-review hardening (2026-07-02, 6-lens adversarial review before tag)
+- **CRITICAL — holder-binding downgrade closed.** A credential *issued with* a `cnf` holder key REQUIRES
+  proof-of-possession; before this fix a presentation with the KB-JWT **stripped** (the RFC-9901-legal
+  no-key-binding compact form) still verified OK — anyone who saw the disclosed SD-JWT could replay it as
+  a bearer token. `verify_bundle` now fails when the issuer payload carries a `cnf` key but no KB-JWT is
+  present (bundles with no `cnf` are untouched → v0.9/v1.0/v1.1 stay backward-compatible).
+- **HIGH — witness quorum counts distinct KEY MATERIAL, not names.** `verify_witnessed_checkpoint` used
+  name-only dedup, so one physical Ed25519 key registered under N names satisfied a `threshold=N` quorum
+  with zero independent witnesses. It now dedups by the witness public key (C2SP: operators MUST use
+  distinct keys per cosigner); the witnesses report is keyed by name+keyID (no same-name overwrite).
+- **sd_hash uses the SD-JWT's `_sd_alg`** in `present_with_key_binding` (was a hardcoded sha256), matching
+  the kbjwt verifier for any future non-sha256 `_sd_alg`.
+
+### Verification discipline
+- Green roundtrips plus an adversarial red matrix per feature (disclosure drop/swap after KB signing,
+  `typ`/`alg` confusion, missing required claims, fail-open probes, cosignature timestamp/body tamper,
+  log-vkey-as-witness type confusion, quorum double-count, oversized signature blob), plus the two
+  release-review regressions above (cnf-bound stripped-KB must fail; one-key-under-two-names must not
+  satisfy `threshold=2`). 148 tests total.
+
+### Notes
+- Python floor stays **3.9** in this release (no floor change in a minor); 3.9 is EOL since 2025-10 —
+  bumping to 3.10 is a deliberate follow-up decision.
+- Still deferred, stated honestly: SD-JWT VC conformance / `vct` type metadata
+  (draft-ietf-oauth-sd-jwt-vc-16, RFC expected ~Q4 2026), Token Status List verification (draft-21 in
+  the RFC-Editor queue; frozen bit-array+zlib format — a good candidate as a bundled snapshot),
+  ML-DSA-44 cosignatures (C2SP SHOULD for new deployments; needs an ML-DSA dependency).
+
 ## [1.1.0] - 2026-07-02
 
 ### Added — trust hardening: the honest foundation (authorship + integrity, stated precisely)

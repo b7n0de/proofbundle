@@ -27,10 +27,24 @@ from typing import Union
 
 from . import merkle
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
+from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
 
-__all__ = ["SCHEMA", "verify_bundle", "load_bundle"]
+__all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64"]
+
+
+def _issuer_requires_holder_binding(sd_part: str) -> bool:
+    """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
+    issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
+    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible)."""
+    try:
+        issuer_jwt = sd_part.split("~", 1)[0]
+        payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
+        return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
+    except Exception:
+        return False
 
 SCHEMA = "proofbundle/v0.1"
 
@@ -145,5 +159,55 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
                 sd_res["sig_ok"],
                 "issuer signature valid" if sd_res["sig_ok"] else "issuer signature invalid",
             )
+        # v1.2, fail-closed: a KB-JWT that is PRESENT must verify (RFC 9901 §4.3). Before
+        # v1.2 a trailing KB-JWT was silently ignored — a downgrade risk. Bundles without
+        # a KB-JWT are untouched ONLY when the issuer did NOT bind a holder key: a v0.9/v1.0/
+        # v1.1 bundle with no ``cnf`` verifies exactly as before.
+        # CRITICAL fix (release review 2026-07-02): if the issuer-signed payload DOES carry a
+        # ``cnf`` holder key (proof-of-possession REQUIRED by the issuer), a presentation with
+        # NO Key Binding JWT is a bearer downgrade — anyone who sees the disclosed SD-JWT could
+        # replay it. That MUST fail, not silently pass.
+        if isinstance(compact, str):
+            sd_part, kb = split_key_binding(compact)
+            if kb is not None:
+                kb_res = verify_key_binding(compact)
+                result.add("sd-jwt-key-binding", kb_res["ok"], kb_res["detail"])
+            elif _issuer_requires_holder_binding(sd_part):
+                result.add(
+                    "sd-jwt-key-binding", False,
+                    "issuer bound a holder key (cnf) but the presentation carries NO Key Binding JWT — "
+                    "required proof-of-possession is missing (bearer downgrade, RFC 9901 §4.3)")
 
     return result
+
+
+def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
+    """Recompute the Merkle root from the bundle's own payload + inclusion proof (v1.2, issue #2).
+
+    Debugging aid for ``proofbundle verify --verbose``: returns
+    ``{"stated_b64": ..., "recomputed_b64": ...}`` where ``recomputed_b64`` is None when the
+    proof cannot be evaluated (e.g. index out of range, proof too short/long). Performs the
+    same strict format validation as :func:`verify_bundle` — malformed input raises
+    ``BundleFormatError``, never a raw traceback.
+    """
+    if isinstance(bundle, str):
+        bundle = load_bundle(bundle)
+    if not isinstance(bundle, dict):
+        raise BundleFormatError("bundle must be a JSON object")
+    payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
+    mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
+    leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
+    tree_size = _require_int(mk, "tree_size", "merkle.tree_size")
+    proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")
+    if not isinstance(proof_list, list):
+        raise BundleFormatError("field merkle.inclusion_proof_b64 must be a list")
+    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
+    stated_b64 = _require(mk, "root_b64", "merkle.root_b64")
+    _b64d(stated_b64, "merkle.root_b64")   # validate encoding
+    try:
+        recomputed = merkle.root_from_inclusion(
+            leaf_index, tree_size, merkle.leaf_hash(payload), proof)
+        recomputed_b64 = base64.b64encode(recomputed).decode("ascii")
+    except ValueError as exc:
+        return {"stated_b64": stated_b64, "recomputed_b64": None, "detail": str(exc)}
+    return {"stated_b64": stated_b64, "recomputed_b64": recomputed_b64, "detail": ""}

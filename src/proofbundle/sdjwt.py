@@ -10,9 +10,12 @@ Note the layering: RFC 9901 is the SD-JWT mechanism; **SD-JWT VC** (the
 credential type profile) is still an IETF draft,
 ``draft-ietf-oauth-sd-jwt-vc`` — this verifier does not yet do VC-level checks.
 
-Scope of v0.1, stated honestly (see README security notes):
+Scope, stated honestly (see README security notes):
   - EdDSA (Ed25519) issuer signatures only.
-  - No Key Binding JWT verification (a trailing key-binding token is ignored).
+  - Key Binding JWT verification lives in :mod:`proofbundle.kbjwt` (since
+    v1.2); this module verifies issuer signature + disclosure commitments,
+    and the bundle layer runs the KB check fail-closed whenever a KB-JWT is
+    attached.
   - No X.509 / trust-list / status-list checks, no ``vct`` type-metadata
     resolution. Full SD-JWT VC conformance is on the roadmap.
 """
@@ -95,7 +98,8 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         return result
 
     # Disclosures are the non-empty middle parts; a trailing key-binding token
-    # (which contains dots) is ignored in v0.1.
+    # (which contains dots) is not a disclosure — it is verified separately by
+    # proofbundle.kbjwt (bundle layer, fail-closed) since v1.2.
     disclosures = [p for p in parts[1:] if p and p.count(".") == 0]
 
     committed: Set[str] = set()

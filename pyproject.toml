@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "1.1.0"
+version = "1.2.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.9"

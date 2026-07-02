@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import __version__
-from .bundle import verify_bundle
+from .bundle import recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
 
@@ -78,6 +78,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 def _cmd_verify(args: argparse.Namespace) -> int:
     try:
         result = verify_bundle(args.bundle)
+        roots = recompute_merkle_root_b64(args.bundle) if args.verbose else None
     except ProofBundleError as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
@@ -86,10 +87,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
 
     if args.json:
-        print(json.dumps(result.as_dict(), indent=2))
+        out = result.as_dict()
+        if roots is not None:
+            out["merkle_root"] = roots
+        print(json.dumps(out, indent=2))
     else:
         for check in result.checks:
             print(str(check))
+        if roots is not None:
+            print(f"    stated root      {roots['stated_b64']}")
+            recomputed = roots["recomputed_b64"]
+            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + roots['detail'] + ')'}")
         print("=> OK" if result.ok else "=> FAILED")
     return 0 if result.ok else 1
 
@@ -121,6 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="verify an evidence bundle JSON file")
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
+    verify.add_argument("--verbose", action="store_true",
+                        help="print the recomputed Merkle root next to the stated root")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
