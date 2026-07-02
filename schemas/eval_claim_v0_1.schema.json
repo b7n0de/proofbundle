@@ -18,8 +18,7 @@
     "dataset_id_commit",
     "commit_alg",
     "issuer",
-    "timestamp",
-    "assurance_level"
+    "timestamp"
   ],
   "properties": {
     "schema": {

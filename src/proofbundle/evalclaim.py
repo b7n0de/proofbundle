@@ -1,7 +1,7 @@
 """Eval receipts (v0.4): sign + Merkle-anchor a canonical eval CLAIM.
 
-A receipt proves exactly one thing — *suite S scored `comparator` threshold T,
-passed=…* — carrying only SALTED commitments to the model and dataset identifiers,
+A receipt is tamper-evident signed evidence of exactly one thing — *suite S scored `comparator` threshold
+T, passed=…* — carrying only SALTED commitments to the model and dataset identifiers,
 never the weights, the data, or the plaintext names. A third party verifies the
 threshold was met, offline, from one file, without ever seeing the model or dataset.
 
@@ -37,9 +37,10 @@ _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
 _DECIMAL_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
-# Assurance level (v1.1): how much a PASS is worth. Signed into the claim so a self_attested PASS can never
-# be shown as a reproduced one. Ordered weakest→strongest. Default self_attested — the 1.0 integrations emit
-# self-attested, and claiming more would be dishonest.
+# Assurance level (v1.1): how much a PASS is worth. Signed into the claim (tamper-evident + bound to the
+# issuer, so a third party cannot alter it) — but issuer-DECLARED: a dishonest issuer can sign a higher level,
+# the signature attributes that claim to them, it does not make it true. Ordered weakest→strongest. Default
+# self_attested — the 1.0 integrations emit self-attested, and claiming more would be dishonest.
 ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
 DEFAULT_ASSURANCE = "self_attested"
 # The exact key set of an eval claim; decode/validate reject anything else.
@@ -305,7 +306,9 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     sd = bundle.get("sd_jwt_vc") if isinstance(bundle, dict) else None
     if not sd:
         return None
-    token = sd if isinstance(sd, str) else (sd.get("sd_jwt") or sd.get("token") or "")
+    # the canonical bundle form (the only one verify_bundle accepts) stores the compact SD-JWT under "compact";
+    # sd_jwt/token are accepted as fallbacks for a bare token dict/string.
+    token = sd if isinstance(sd, str) else (sd.get("compact") or sd.get("sd_jwt") or sd.get("token") or "")
     if not isinstance(token, str) or "." not in token:
         return None
     try:
@@ -314,6 +317,8 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         payload_b64 += "=" * (-len(payload_b64) % 4)     # restore base64url padding
         payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
     except (ValueError, KeyError, IndexError):
+        return None
+    if not isinstance(payload, dict):                    # a valid-JSON non-object payload → nothing to count
         return None
     sd_arr = payload.get("_sd")
     return len(sd_arr) if isinstance(sd_arr, list) else None

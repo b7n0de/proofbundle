@@ -73,12 +73,16 @@ not a proof that the number is *true* or that the evaluation was well designed. 
 
 - **It proves:** the payload was signed by the stated issuer (authorship), no byte changed since (integrity,
   Ed25519 + RFC 6962), the model/dataset behind salted commitments, and — since v1.1 — the **assurance level**
-  is signed in, so a self-attested PASS can never be shown as a reproduced one. `verify`/`show-eval` also
-  surface a model-swap (`verify_commitment`), withheld SD-JWT fields, receipt age (replay), and warn on the
-  weakest combination (self_attested with no pre-registration).
-- **It does not prove:** that a *self-attested* issuer is honest, that a result was not cherry-picked from
-  many runs without pre-registration, or that the suite measures what it claims. Those need a higher
-  assurance level or a pre-registered protocol.
+  is signed in — tamper-evident and bound to the issuer, so a third party cannot alter it. `show-eval`
+  displays the level, warns on the weakest combination (self_attested with no pre-registration), and shows
+  withheld SD-JWT fields + receipt age; the `verify_commitment` library call (the holder presents the
+  identifier + salt out of band) makes a model-swap visible.
+- **It does not prove:** that a *self-attested* issuer is honest. The level is issuer-DECLARED: a dishonest
+  issuer can sign `reproduced` on a self-run eval — the signature binds *who claimed it* to them, it does not
+  make the claim true (same as the score). The warning catches the honest self_attested case; a higher level
+  is only as trustworthy as the process behind it.
+- **Also not proven:** that a result was not cherry-picked from many runs without pre-registration, or that
+  the suite measures what it claims. Those need a pre-registered protocol or independent reproduction.
 
 | assurance_level | meaning |
 |---|---|

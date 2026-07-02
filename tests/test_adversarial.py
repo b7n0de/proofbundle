@@ -50,13 +50,25 @@ class TestAdversarial(unittest.TestCase):
         self.assertIsNone(decode_eval_claim(tampered))
 
     def test_c_omitted_sd_jwt_fields_are_counted(self):
-        # Selective disclosure hides claims behind _sd digests; the count makes OMISSION visible.
+        # Selective disclosure hides claims behind _sd digests; the count makes OMISSION visible. This exercises
+        # the CANONICAL bundle form (sd_jwt_vc = {"compact": ...}) — the only form verify_bundle accepts — not a
+        # bare string, so it would catch the "reads sd_jwt/token but the real key is compact" regression.
         hdr = base64.urlsafe_b64encode(b'{"alg":"ES256"}').decode().rstrip("=")
         pl = base64.urlsafe_b64encode(
             json.dumps({"_sd": ["d1", "d2", "d3"], "iss": "x"}).encode()).decode().rstrip("=")
-        bundle = {"sd_jwt_vc": f"{hdr}.{pl}.sig~"}
-        self.assertEqual(sd_jwt_hidden_count(bundle), 3)          # 3 withheld fields surfaced
+        canonical = {"sd_jwt_vc": {"compact": f"{hdr}.{pl}.sig~", "issuer_public_key_b64": "AA=="}}
+        self.assertEqual(sd_jwt_hidden_count(canonical), 3)       # 3 withheld fields surfaced on the REAL form
         self.assertIsNone(sd_jwt_hidden_count({"schema": "x"}))   # no sd-jwt → None (nothing hidden)
+        # a valid-JSON but non-object payload must return None, never crash (defensive contract)
+        bad = base64.urlsafe_b64encode(b'[1,2,3]').decode().rstrip("=")
+        self.assertIsNone(sd_jwt_hidden_count({"sd_jwt_vc": {"compact": f"{hdr}.{bad}.sig~"}}))
+        # and on the shipped REAL bundle (a verify-passing sd_jwt_vc) it must surface a positive count
+        from pathlib import Path
+        ex = Path(__file__).resolve().parent.parent / "examples" / "example_bundle.json"
+        if ex.is_file():
+            n = sd_jwt_hidden_count(json.loads(ex.read_text()))
+            self.assertIsNotNone(n)
+            self.assertGreater(n, 0)
 
     def test_d_model_swap_against_commitment_is_a_mismatch(self):
         bundle, salts = _receipt()

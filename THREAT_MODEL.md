@@ -16,7 +16,7 @@ not *correctness of the computation*.)
 | **Model / dataset swap** — a claim silently attributing a result to a different model | salted commitment + `verify_commitment(identifier, salt, commitment)` | mismatch is visible |
 | **Filtered disclosure** — hiding claims behind SD-JWT `_sd` digests | `sd_jwt_hidden_count` surfaces the number of withheld fields | omission is visible |
 | **Replay** — presenting an old receipt as new | `check_freshness` reports age; a bound flags stale receipts | not-fresh is visible |
-| **Weak assurance masked by a strong signature** — a self-attested PASS shown as if reproduced | `assurance_level` is signed into the claim; `show-eval`/`verify` display it; `claim_warnings` warns on self_attested + no pre-registration | level always shown, weakest combination warned |
+| **Weak assurance masked by a strong signature** — a self-attested PASS shown as if reproduced | `assurance_level` is signed into the claim (tamper-evident, issuer-declared); `show-eval` displays it; `claim_warnings` warns on self_attested + no pre-registration | a third party cannot alter the level; a dishonest issuer can still self-declare a higher one |
 
 ## What it structurally does NOT catch
 
@@ -43,8 +43,10 @@ not *correctness of the computation*.)
 | `reproduced` | The result was independently re-run and matched. |
 | `enclave_attested` | Produced inside an attested trusted execution environment. |
 
-The level is a **signed field** of the claim, so a `self_attested` PASS can never be presented as a
-`reproduced` one. `show-eval` and `verify` always print it.
+The level is a **signed field** of the claim: tamper-evident and bound to the issuer, so a *third party*
+cannot alter it. But it is **issuer-declared** — a dishonest issuer can sign `reproduced` on a self-run eval;
+the signature attributes that claim to them, it does not make it true (exactly like the score). `show-eval`
+always prints the level, and `claim_warnings` flags the honest self_attested-without-pre-registration case.
 
 ## Related work (fair demarcation)
 

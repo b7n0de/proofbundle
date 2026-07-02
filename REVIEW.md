@@ -159,4 +159,18 @@ APIs verified vs primary sources before building (inspect_ai Hooks floor 0.3.112
 
 ---
 
-# v1.1 review (trust hardening) — pending 6-lens + 3 orthogonal iterations
+# v1.1 review (trust hardening) — 6 lenses + 3 orthogonal iterations, No-Fake-PASS
+
+A 6-lens + 3-orthogonal-iteration lane (27 agents) found **13 real defects in the fresh v1.1 work**, each
+adversarially verified; ALL fixed before release. No green was claimed before the counter-check.
+
+| Lens / iteration | Evidence |
+|---|---|
+| L1 Correctness | HIGH: `sd_jwt_hidden_count` read `sd_jwt`/`token` but the canonical bundle stores the token under `compact` → returned None on every real receipt (the omission signal was dead). Fixed: read `compact`; now returns 2 on the shipped example bundle. MEDIUM: it crashed (AttributeError) on a valid-JSON non-object payload → added an `isinstance(payload, dict)` guard (contract: malformed → None). |
+| L2 Primary source | KB-JWT (RFC 9901) is NOT built — verified it is marked roadmap, never claimed done. The one-metric-per-receipt limit is stated honestly. |
+| L3 Currency / L4 Interop | MEDIUM: `assurance_level` was added to the schema `required[]` under an unchanged version const → a v1.0 receipt failed the v1.1 schema (silent backward-incompatible change). Fixed: assurance_level is an OPTIONAL schema property (v1.0 receipts validate again); the code (`_REQUIRED` + emit `setdefault`) still guarantees it in v1.1 receipts. |
+| L5 Product value / L6 Anti-vanity | MEDIUM/HIGH doc overclaims: docs said the CLI `verify` displays the level — only `show-eval` does; `verify_commitment` was presented as a CLI display but is a library call (holder presents identifier + salt out of band). Corrected across README/THREAT_MODEL/EVAL_CLAIM/CHANGELOG. Terminology slip "a receipt proves" → tamper-evident signed evidence. |
+| IT1 Skeptical senior / IT3 Security | HIGH: THREAT_MODEL claimed "a self_attested PASS can never be presented as reproduced" — false: the level is issuer-DECLARED, a dishonest issuer can sign `reproduced` (MEDIUM: the warning is trivially bypassed that way). Corrected everywhere: the level is signed (tamper-evident + attributable, a third party cannot alter it) but binds *who claimed it*, not that it is true — exactly like the score; the warning catches the honest self_attested case. |
+| IT2 User / market | The upgrade path is smooth (integrations stamp self_attested automatically; v1.0 receipts still decode + validate); THREAT_MODEL is linked high in the README. |
+
+Net: the No-Fake lens caught its own trust tool overclaiming its guarantees — the corrections make v1.1 honest about exactly what a signed assurance level does and does not buy. 109 tests, mypy + ruff clean, 3.9 floor, schema backward-compatible.

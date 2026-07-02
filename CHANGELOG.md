@@ -9,8 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added — trust hardening: the honest foundation (authorship + integrity, stated precisely)
 - **Signed `assurance_level`** (required field, enum `self_attested` | `third_party` | `reproduced` |
   `enclave_attested`, default `self_attested`) in the eval claim + schema + EVAL_CLAIM.md. The 1.0
-  integrations emit self_attested. `show-eval`/`verify` always display it — a self_attested PASS can never
-  be shown as a reproduced one. (Pre-1.1 claim JSONs default to self_attested on emit; never silently elevated.)
+  integrations emit self_attested. `show-eval` always displays it; the level is signed (tamper-evident,
+  issuer-declared) — a third party cannot alter it, though a dishonest issuer can self-declare a higher level
+  (the signature binds who claimed it, not that it is true). Schema keeps assurance_level OPTIONAL for v1.0
+  backward-compat; the code always emits it (setdefault). Pre-1.1 claim JSONs default to self_attested.
 - **THREAT_MODEL.md** — what `verify` catches (tampering, issuer swap, model swap, filtered disclosure,
   replay, weak-assurance-masking) and what it structurally cannot (dishonest self-attested issuer,
   publish-best-of-many without pre-registration, suite validity, per-sample sub-sampling = roadmap).
