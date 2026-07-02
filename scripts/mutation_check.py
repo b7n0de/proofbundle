@@ -80,6 +80,43 @@ MUTATIONS = [
      'rate = (Decimal(successes) / Decimal(total)).quantize(Decimal(1).scaleb(-_SCALE))',
      'rate = (Decimal(successes) / Decimal(max(successes, 1))).quantize(Decimal(1).scaleb(-_SCALE))',
      "promptfoo: failures dropped from pass_rate", True),
+    # v1.5 — per-sample tree / audit challenge
+    ("src/proofbundle/persample.py",
+     'if record.get("idx") != index:', "if False:",
+     "persample: replay guard disabled", True),
+    ("src/proofbundle/persample.py",
+     'if not merkle.verify_inclusion(disclosure.encode("ascii"), index, n, proof, root):',
+     "if False:",
+     "persample: inclusion check disabled", True),
+    ("src/proofbundle/persample.py",
+     "if v >= limit:\n        return None", "if False:\n        return None",
+     "challenge: rejection sampling removed", True),
+    ("src/proofbundle/persample.py",
+     '_CHALLENGE_DOMAIN = b"proofbundle/v2/audit-challenge"',
+     '_CHALLENGE_DOMAIN = b"proofbundle/v3/audit-challenge"',
+     "challenge: domain separation changed", True),
+    ("src/proofbundle/persample.py",
+     '_SALT_DOMAIN = b"proofbundle/v2/leaf-salt"',
+     '_SALT_DOMAIN = b"proofbundle/v2/leaf-SALT"',
+     "persample: salt domain changed", True),
+    ("src/proofbundle/evalclaim.py",
+     "if s_n != n:", "if False:",
+     "claim: samples.n == n binding disabled", True),
+    # v1.6 — external-review fixes (each must be killed by its regression test)
+    ("src/proofbundle/bundle.py",
+     "        elif not sd_res.get(\"sig_checked\"):", "        elif False:",
+     "bundle: cnf-without-issuer-key fail-closed removed (P0)", True),
+    ("src/proofbundle/evalclaim.py",
+     "if isinstance(s_n, bool) or not isinstance(s_n, int) or s_n != claim.get(\"n\"):",
+     "if False:",
+     "decode: verify-side samples.n==n binding removed", True),
+    ("src/proofbundle/evalclaim.py",
+     "if expected_context is not None and claim.get(\"context_binding\") != expected_context:",
+     "if False:",
+     "decode: context_binding enforcement removed", True),
+    ("src/proofbundle/statuslist.py",
+     "if exp is None and ttl is None:", "if False:",
+     "statuslist: unbounded-token fresh=None removed", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
     ("src/proofbundle/checkpoint.py",
@@ -89,10 +126,22 @@ MUTATIONS = [
 
 
 def _red_count() -> int:
+    # Stale-bytecode defense (real incident during per-sample development): a same-size
+    # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
+    # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
+    # restricted mounts. The robust invalidation is touching every source mtime, forcing
+    # recompilation regardless of what caches survive.
+    import os  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    for cache in ROOT.rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
+    for src_file in ROOT.glob("src/**/*.py"):
+        os.utime(src_file)
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+        [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"],
         cwd=ROOT, capture_output=True, text=True,
-        env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(Path.home())})
+        env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
+             "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
     f = re.search(r"failures=(\d+)", proc.stderr)
     e = re.search(r"errors=(\d+)", proc.stderr)
     return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)

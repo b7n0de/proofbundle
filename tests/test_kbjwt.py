@@ -252,15 +252,33 @@ class TestBundleIntegration(unittest.TestCase):
         with self.assertRaises(BundleFormatError):
             verify_bundle(b)
 
-    def test_bundle_kb_skipped_when_issuer_unverified(self):
-        # HIGH (release review): the holder-binding check is meaningful only with a VERIFIED issuer signature.
-        # With issuer_public_key_b64 OMITTED, the cnf key is unauthenticated (a forged SD-JWT could declare it),
-        # so NO sd-jwt-key-binding verdict is emitted — it must not read as a valid holder binding.
-        presented, _issuer, _ = _issue_presented()
+    def test_bundle_cnf_bound_no_issuer_key_fails_closed(self):
+        # v1.6 P0 (external review): a cnf-bound SD-JWT presented WITHOUT an issuer key must NOT
+        # pass. Gating holder-binding on issuer verification let an attacker strip the KB-JWT AND
+        # drop issuer_public_key_b64 to downgrade a bound credential to a passing bearer token.
+        # Now the whole bundle FAILS with an explicit sd-jwt-key-binding=False verdict.
+        presented, _issuer, _ = _issue_presented()   # _issue_presented binds a cnf holder key
         b = emit_bundle(b'{"x":1}', generate_signer(), sd_jwt_vc={"compact": presented})  # no issuer key
-        names = [c.name for c in verify_bundle(b).checks]
+        result = verify_bundle(b)
+        kb = [c for c in result.checks if c.name == "sd-jwt-key-binding"]
+        self.assertEqual(len(kb), 1)
+        self.assertFalse(kb[0].ok)
+        self.assertIn("NO issuer key", kb[0].detail)
+        self.assertFalse(result.ok, "cnf-bound SD-JWT without an issuer key must fail the bundle")
+
+    def test_bundle_no_cnf_no_issuer_key_still_backward_compatible(self):
+        # The fix must NOT break plain SD-JWTs that carry no cnf and no KB — they verify as
+        # structure-only exactly as before (no spurious key-binding verdict).
+        issuer = generate_signer()
+        claim = dict(CLAIM)
+        claim["issuer"] = "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")
+        compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.9")  # no holder key
+        b = emit_bundle(b'{"x":1}', generate_signer(), sd_jwt_vc={"compact": compact})  # no issuer key
+        result = verify_bundle(b)
+        names = [c.name for c in result.checks]
         self.assertNotIn("sd-jwt-key-binding", names)
         self.assertNotIn("sd-jwt-issuer-signature", names)
+        self.assertTrue(result.ok)
 
 
 class TestPresentGuards(unittest.TestCase):

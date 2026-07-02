@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.4.0"
+__version__ = "1.7.0"
 
 __all__ = [
     "__version__",
@@ -32,6 +32,10 @@ __all__ = [
     "verify_status_snapshot",
     "receipt_token",
     "verify_receipt_token",
+    "build_sample_tree",
+    "sample_opening",
+    "verify_sample_opening",
+    "audit_challenge",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -51,6 +55,10 @@ _LAZY = {
     "verify_status_snapshot": ".statuslist",
     "receipt_token": ".hf_evals",
     "verify_receipt_token": ".hf_evals",
+    "build_sample_tree": ".persample",
+    "sample_opening": ".persample",
+    "verify_sample_opening": ".persample",
+    "audit_challenge": ".persample",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -60,6 +68,8 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .checkpoint import verify_cosignature, verify_witnessed_checkpoint
     from .kbjwt import verify_key_binding
     from .hf_evals import receipt_token, verify_receipt_token
+    from .persample import (audit_challenge, build_sample_tree, sample_opening,
+                            verify_sample_opening)
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
     from .merkle import verify_consistency, verify_inclusion

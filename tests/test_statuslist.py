@@ -141,3 +141,39 @@ class TestStatusList(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFreshnessAndStrictTypes(unittest.TestCase):
+    """v1.6 external review: unbounded snapshots are not 'fresh forever', and exp/ttl must be typed."""
+
+    def setUp(self):
+        self.signer = generate_signer()
+        self.pub = _raw(self.signer)
+
+    def test_no_exp_no_ttl_fresh_is_none(self):
+        token = issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT)  # no exp/ttl
+        res = verify_status_snapshot(token, expected_uri=URI, index=0, issuer_pubkey=self.pub,
+                                     now=IAT + 10**9)
+        self.assertTrue(res["ok"])
+        self.assertIsNone(res["fresh"], "unbounded token cannot be judged fresh — must be None")
+
+    def test_ttl_bounded_is_judged(self):
+        token = issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT, ttl=3600)
+        self.assertTrue(verify_status_snapshot(token, expected_uri=URI, index=0,
+                                               issuer_pubkey=self.pub, now=IAT + 60)["fresh"])
+        self.assertFalse(verify_status_snapshot(token, expected_uri=URI, index=0,
+                                                issuer_pubkey=self.pub, now=IAT + 7200)["fresh"])
+
+    def test_string_exp_rejected(self):
+        import base64
+        import json
+        # forge a token whose exp is a string that "looks like" an expiry
+        h = base64.urlsafe_b64encode(json.dumps({"alg": "EdDSA", "typ": "statuslist+jwt"}).encode()).rstrip(b"=").decode()
+        import zlib
+        payload = {"sub": URI, "iat": IAT, "exp": "9999999999",
+                   "status_list": {"bits": 1, "lst": base64.urlsafe_b64encode(zlib.compress(bytes(1), 9)).rstrip(b"=").decode()}}
+        p = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        sig = base64.urlsafe_b64encode(self.signer.sign(f"{h}.{p}".encode("ascii"))).rstrip(b"=").decode()
+        res = verify_status_snapshot(f"{h}.{p}.{sig}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("exp", res["detail"])

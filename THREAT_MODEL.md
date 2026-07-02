@@ -34,7 +34,14 @@ not *correctness of the computation*.)
   contamination-free is a human judgement the receipt does not encode.
 - **Forced random sub-sampling of individual samples.** proofbundle binds at the *claim* level (the reported
   metrics + sample count), not per-sample. A verifier-forced random sample check would need a per-sample
-  Merkle binding; that does not exist yet and is on the roadmap — it is **not** claimed as done.
+  Merkle binding: **shipped in v1.5** (``samples`` commitment + opening/audit protocol, SPEC §7g).
+  What v1.5 actually closes and what remains, stated precisely: a signed samples root makes
+  post-hoc sample swaps, count lies (signature binds n) and selective re-reporting DETECTABLE
+  under a k-of-n spot check with soundness 1−(1−m)^k. It does NOT prevent a producer from
+  running many full evals and signing only the best one (pre-registration remains the answer),
+  and self-challenge mode is grindable by re-salting (documented bound; real audits use an
+  auditor nonce or a public beacon). Every opened sample is burned — openings are
+  auditor-directed, never public.
 
 ## Assurance levels (weakest → strongest)
 

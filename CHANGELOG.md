@@ -4,6 +4,156 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-07-02
+
+### Changed — release supply-chain hardening (review P1: attested artifact must equal published artifact)
+- **`release.yml` now builds ONCE and publishes the attested bytes.** Previously the `publish-pypi`
+  job ran `python -m build` a second time, so the SLSA/PEP-740 provenance covered a *different*
+  build than what landed on PyPI. Now `build-and-attest` uploads the exact `dist/` via
+  `actions/upload-artifact`; `publish-pypi` downloads it and a **sha256 gate** fails the upload
+  unless the bytes equal the attested subject digests. A `SHA256SUMS` file is attached to the
+  GitHub Release. This closes the single most important supply-chain gap for a tool whose whole
+  premise is provenance.
+- **`pypi` GitHub Environment** now carries a `url:` and is documented to require reviewer approval
+  (RELEASE.md) so a `v*` tag cannot publish unreviewed; top-level workflow `permissions` reduced to
+  `contents: read` with per-job escalation (least privilege).
+- All new actions SHA-pinned (`upload-artifact` v4.6.2, `download-artifact` v4.3.0).
+
+### Added
+- **RELEASE.md** — one-time setup (Trusted Publishing, `pypi` environment reviewers, branch
+  protection, assets, badge gating) + per-release checklist + a "verify a published release" recipe
+  (`gh attestation verify`).
+- **docs/REVIEWERS.md** — a 30-minute adversarial audit path: the trusted-core map, the two external
+  correctness anchors (RFC 6962 vectors + real Rekor proof), the mutation gate, and an explicit
+  "where the bodies are buried" list of invitations to attack.
+- **CI `crypto-floor` job** — installs `cryptography==42.*` (the declared floor) and runs the suite
+  + `proofbundle demo`, proving the lower bound actually works, not just the latest.
+- **External-review issue template** (`.github/ISSUE_TEMPLATE/external_review.md`).
+
+### Fixed — scope-honesty (review Lens 1)
+- Badges that render broken/false before the first PyPI release (PyPI version/pyversions/downloads,
+  SLSA, PEP 740) are commented out with a note to enable them on first publish (RELEASE.md).
+- SECURITY.md attestation language moved to conditional ("once the first release is published, each
+  release WILL carry…") — no release exists yet, so present-tense claims were premature.
+
+### Notes
+- No library API or wire-format change; verification behavior is byte-identical to v1.6.1. This is a
+  release-engineering + docs release. The `pypi` environment reviewers and branch protection are
+  GitHub settings the maintainer must apply (documented, not code).
+## [1.6.1] - 2026-07-02
+
+### Added — developer experience (review backlog P0-DX; no security or format change)
+- **`proofbundle demo`** — a pip-only, offline, in-memory demo: an honest receipt verifies, six
+  independent tampers (payload rewrite, signature graft, public-key swap, Merkle-root swap,
+  leaf-index shift, dropped `hash_alg`) each verify FAILED, and the per-sample audit catches a
+  swapped sample. Exits non-zero if any guarantee breaks, so it doubles as a fail-closed smoke
+  test. `--json` for machine output. No files, no network, no optional extras. Closes the
+  "quickstart requires a git checkout" gap — the README quickstart now works after a bare
+  `pip install`.
+- **`examples/persample_audit.py`** — the v1.5 per-sample feature finally has a runnable example:
+  build a 1000-sample tree, sign the root into a receipt, auditor challenges 20 random indices
+  with a fresh nonce, all openings verify, a swapped-sample opening is rejected.
+- **`scripts/demo_tamper.sh`** + Makefile targets `demo`, `tamper-demo`, `persample-demo`,
+  `full-demo` (the old real-log demo), `mutation`, `examples`.
+- **docs/DEMO.md** — three tiers (pip-only / checkout / extras), each with expected output and
+  the reviewer forced-random-sample-check CLI recipe.
+
+### Verification discipline
+- 254 tests (was 251): `tests/test_demo.py` pins that all six tampers are caught and none missed,
+  in both text and JSON modes and via the CLI entry point.
+## [1.6.0] - 2026-07-02
+
+### Fixed — external Principal-Security review (6 lenses + orthogonal iterations); every fix
+has a regression test and a mutation operator
+- **CRITICAL (P0) — bearer-downgrade via issuer-key omission** (`bundle.py`): the holder-binding
+  check was gated on issuer-signature verification, so an attacker could strip the KB-JWT AND
+  drop `sd_jwt_vc.issuer_public_key_b64` to silently downgrade a `cnf`-bound credential to a
+  passing bearer token. Now a `cnf`-carrying SD-JWT whose issuer cannot be verified is REFUSED
+  (`sd-jwt-key-binding` = False), fail-closed. Plain SD-JWTs without `cnf`/KB keep the documented
+  no-key path. Proven closed by an executed attack (`test_bundle_cnf_bound_no_issuer_key_fails_closed`)
+  + backward-compat pin.
+- **P1 — verify-side invariants** (`evalclaim.decode_eval_claim`): the `samples.n == n`,
+  `leaf_alg` and 32-byte-root checks (previously only in the emitter) now run on the VERIFY path
+  — a hand-signed claim that lies about the committed tree size is rejected. New
+  `decode_eval_claim(bundle, *, expected_context=...)` enforces the signed `context_binding`
+  (cross-context replay guard); it was signed but never checked.
+- **P1 — status-list freshness** (`statuslist.py`): a token with neither `exp` nor `ttl` is no
+  longer reported "fresh forever" — `fresh` is `None` (cannot judge) so a stale pre-revocation
+  snapshot cannot masquerade as current; `exp`/`ttl` must be integers when present (a string that
+  looks like an expiry but never enforces is rejected, not silently ignored).
+- **P1 — `merkle.hash_alg` is now REQUIRED** (`bundle.py`): a silently-defaulted algorithm
+  contradicted the "reject anything non-canonical" posture and would mask alg-confusion in a
+  future multi-alg version.
+- **Docs/honesty**: softened the Rekor v2 witnessing claim to "is integrating" (matches the
+  Sigstore GA post, which says witnessing is coming, not shipped); quickstart notes that
+  `examples/` ships in the repo, not the wheel; SECURITY.md `0.x`→`1.x`; persample module
+  docstrings de-drifted from "(v2.0)" to "(v1.5)" (wire constants unchanged).
+
+### Changed
+- **Development Status classifier → 4 - Beta** (was Alpha): SemVer-committed, 251 tests, stable
+  lazy public API. COMPLIANCE.md still says do not rely on it as a sole compliance control.
+
+### Verification discipline
+- 251 tests (was 242): +9 for the fixes above (P0 attack + backward-compat, verify-side samples
+  matrix, context_binding enforcement, status freshness/typing). Mutation gate: 26 operators
+  (+4 for the v1.6 fixes), all killed; the one documented-equivalent mutant still survives.
+- A full REVIEW_v1.6.md accompanies this release: executive verdict, top-10 weaknesses, P0/P1/P2
+  plans, README-rewrite proposal, ≥20-row test matrix, 20-issue backlog, outreach pack, pitches.
+
+### Not yet done (tracked in REVIEW_v1.6.md issue backlog, honest)
+- `make tamper-demo` + `proofbundle demo` (pip-only) + a per-sample example are DESIGNED and
+  specified in the review but not yet shipped in this patch (they are P0 DX, not security).
+- Release supply-chain: attested artifact must equal published artifact (`release.yml` rebuilds);
+  `pypi` environment reviewers; badges gated behind first publish. Specified, not yet wired.
+
+## [1.5.0] - 2026-07-02
+
+### Added — per-sample receipts (the THREAT_MODEL's named gap, closed; design verified against
+TRUCE arXiv:2403.00393, RFC 9901, RFC 6962/9162, RFC 3797, PoR literature)
+- **`proofbundle.persample`**: `build_sample_tree` commits every individual sample of a run into
+  an RFC 6962 SHA-256 Merkle tree (leaf = 0x00-domain-separated hash over a base64url disclosure
+  `[salt, record]` — the RFC 9901 digest mechanic, so verification never canonicalizes JSON).
+  Canonical leaf order with the position `idx` embedded INSIDE each committed record; per-leaf
+  ≥128-bit salts derived HMAC-SHA-256-as-PRF from ONE holder-kept `tree_secret` (never in the
+  receipt; one shared salt would be burned by the first opening — eval answer spaces are tiny).
+- **Signed `samples` claim field** `{root_b64, n, leaf_alg}` (schema: additive optional;
+  `samples.n` MUST equal the claim's `n`). **Measured, documented finding:** an RFC 6962
+  inclusion proof binds n only up to path-shape equivalence (index 4 of a 10-leaf tree verifies
+  under any claimed n′ ∈ [9..16]) — the SIGNATURE is the size-truth anchor, and the test suite
+  pins the coincidence window so it stays measured fact, not folklore. SPEC §7g.
+- **Openings + audit protocol**: `sample_opening` / `verify_sample_opening` (inclusion under the
+  signed root, disclosure decode, `record.idx == index` replay guard — the case where the lie
+  sits inside a validly-committed leaf, i.e. a lying PRODUCER, is red-tested);
+  `audit_challenge` derives k distinct indices via SHA-256 domain-separated seed + HMAC counter
+  expansion + rejection sampling (`_map_draw` isolated as a pure function because the rejection
+  branch fires with p≈1e-19 and can only be tested in isolation). Modes: auditor nonce
+  (grinding-impossible), public beacon (RFC 3797-style), self-challenge (sanity only —
+  re-salting grinding bound ≈ g·(1−m/n)^k stated, never hidden; the CLI warns actively).
+  PoR soundness table in docs (k=300 → 95% @ m=1%, k=459 → 99%). CLI: `audit-challenge`,
+  `verify-opening`. The protocol domain strings are pinned at `proofbundle/v2/*` (protocol
+  identifiers, independent of the package version).
+- **Sample extractors** (`adapters.samples`): lm-evaluation-harness `--log_samples` JSONL
+  (consumes its native `doc_hash`/`prompt_hash`/`target_hash` — wrapped INSIDE the salted leaf,
+  since upstream hashes are unsalted and dictionary-attackable alone) and promptfoo v3 rows.
+  Two-layer hiding: leaves carry content hashes/compact results, never benchmark plaintext.
+
+### Verification discipline
+- 33 new tests (209 → 242): byte-exact pins (salt derivation, RFC 6962 leaf prefix, independent
+  challenge re-derivation, rejection sampling in isolation), roundtrips, and an adversarial
+  matrix incl. the lying-producer embedded-idx forgery, disclosure/proof tamper, root/n
+  confusion, and the pinned n′ shape-equivalence window; 6 new mutation operators (22 total,
+  all as expected).
+- **Mutation-gate hardening after a real incident**: a same-size mutation on a coarse-mtime
+  filesystem left a stale `.pyc` that silently survived restoration and skewed three
+  measurements; the runner now purges `__pycache__`, runs with `-B`/PYTHONDONTWRITEBYTECODE,
+  and force-touches source mtimes (existing caches are READ even under `-B`).
+
+### Notes
+- Versioning: per-sample receipts are strictly additive (no API or format break; v1.4 receipts
+  verify unchanged) — hence a MINOR release per SemVer, deliberately NOT a marketing-major.
+- Honest residuals (THREAT_MODEL updated): best-of-many full runs remain undetectable without
+  pre-registration; opened samples are burned (auditor-directed openings only).
+
 ## [1.4.0] - 2026-07-02
 
 ### Added — distribution (formats verified against primary sources, 2026-07-02)

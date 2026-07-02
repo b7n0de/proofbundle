@@ -15,13 +15,16 @@ revocation snapshots, aligned to the in-toto test-result predicate. One portable
 file, no server, no network.**
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+<!-- Badges below are enabled AFTER the first PyPI release (they render broken/false before it,
+     which reads as abandonment). Un-comment on first publish — see RELEASE.md:
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg?color=D6248A&cacheSeconds=3600)](https://pypi.org/project/proofbundle/)
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg?color=D6248A&cacheSeconds=3600)](https://pypi.org/project/proofbundle/)
 [![Downloads](https://static.pepy.tech/badge/proofbundle)](https://pepy.tech/project/proofbundle)
-[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev)
 [![PyPI attestations](https://img.shields.io/badge/PyPI-attestations_(PEP_740)-D6248A.svg)](https://pypi.org/project/proofbundle/)
+-->
 [![Post-quantum witnesses](https://img.shields.io/badge/PQ-ML--DSA--44_cosignatures-D6248A.svg)](https://github.com/C2SP/C2SP/blob/main/tlog-cosignature.md)
 [![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](scripts/mutation_check.py)
 [![C2SP tlog-proof](https://img.shields.io/badge/C2SP-tlog--proof-D6248A.svg)](https://github.com/C2SP/C2SP/blob/main/tlog-proof.md)
@@ -33,7 +36,7 @@ file, no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 209 tests + a CI mutation gate.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 254 tests + a CI mutation gate.
 
 ## Contents
 
@@ -97,6 +100,8 @@ not a proof that the number is *true* or that the evaluation was well designed. 
 | `third_party` | a third party checked before signing |
 | `reproduced` | independently re-run and matched |
 | `enclave_attested` | produced in an attested trusted execution environment |
+
+Since v1.6 `decode_eval_claim(bundle, expected_context=...)` enforces the signed `context_binding` (cross-context replay guard), and verify-side re-checks the `samples.n == n` invariant — guarantees no longer live only in the emitter.
 
 Full detail: **[THREAT_MODEL.md](THREAT_MODEL.md)** — what `verify` catches and what it structurally cannot.
 
@@ -175,7 +180,7 @@ pip install "proofbundle[sdjwt]"
 ## Quickstart
 
 ```bash
-# generate a real example bundle with throwaway keys
+# from a git checkout (examples/ ships in the repo, not the wheel):
 python examples/make_example.py
 
 # verify it
@@ -185,6 +190,15 @@ proofbundle verify examples/example_bundle.json
 <div align="center">
 <img src="assets/demo.svg" alt="proofbundle verify output: PASS checks and OK" width="680">
 </div>
+
+See the whole trust story in five seconds — pip-only, offline, in memory (honest receipt verifies, six tampers fail, a swapped sample is caught):
+
+```bash
+pip install proofbundle
+proofbundle demo
+```
+
+Full walkthrough incl. the forced-random-sample audit: **[docs/DEMO.md](docs/DEMO.md)**.
 
 Machine-readable output and a non-zero exit code on failure:
 
@@ -279,7 +293,7 @@ Since v1.2 proofbundle also speaks the witness layer:
 (Ed25519 cosignature/v1) — `verify_witnessed_checkpoint` checks a checkpoint is
 both log-signed **and** cosigned by a quorum of distinct witnesses, offline,
 which rules out a split view by the log operator. This is the same
-witnessed-checkpoint pattern Rekor v2 (GA October 2025) institutionalizes.
+witnessed-checkpoint pattern Rekor v2 (GA October 2025) is integrating.
 
 Since v1.3 the witness layer is complete: **ML-DSA-44 cosignatures** (C2SP type
 0x06, FIPS 204 — post-quantum, the spec's SHOULD for new witness deployments;
@@ -503,15 +517,17 @@ ISO/IEC DIS 24970), including the anti-patterns no one should claim.
   Status List** snapshot verification (offline revocation), SD-JWT VC markers (`dc+sd-jwt`,
   `vct`, `status`), COMPLIANCE.md (EU AI Act Art. 12 / NIST AI RMF mapping), and the mutation
   suite as a CI gate.
-- **v1.4 (current release)** — distribution: a **promptfoo** adapter (results.json v3 →
+- **v1.4** — distribution: a **promptfoo** adapter (results.json v3 →
   pass_rate receipt), the **Hugging Face Community Evals bridge** (`pb1.` receipt tokens for the
   `.eval_results` `verifyToken` field + a strict YAML entry emitter — proofbundle-verifiable,
   explicitly NOT the HF-internal badge token), `hf-token` CLI, and the **Python 3.10+ floor**
   (3.9 is EOL since 2025-10).
-- **v2.0 (next major, research differentiation)** — **per-sample Merkle receipts**: the payload carries a
-  Merkle root over *individual* sample results, so a verifier can force a random-sample re-check instead of
-  trusting only the reported aggregate. This is the THREAT_MODEL's one named structural gap ("forced random
-  sub-sampling"), and closing it is the road from *authorship* to *sampled correctness*.
+- **v1.5 (current release)** — per-sample receipts: a signed **Merkle commitment over every
+  individual sample** (`samples` claim field, SPEC §7g), salted per-leaf disclosures (RFC 9901
+  mechanic), **sample openings** with replay guards, and a **spot-check audit protocol**
+  (`audit-challenge` / `verify-opening` CLI; auditor-nonce, beacon, and documented-grindable
+  self-challenge modes; PoR soundness 1−(1−m)^k) — closing the THREAT_MODEL's sub-sampling gap.
+  Extractors for lm-eval `--log_samples` JSONL and promptfoo rows.
 - **Deferred** (explicitly not yet built, stated honestly) — full SD-JWT VC conformance + `vct`
   type-metadata resolution (pre-IESG), an official in-toto eval predicate (proposal path via
   OpenSSF/CoSAI), and a full in-toto client.

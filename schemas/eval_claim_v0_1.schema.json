@@ -102,7 +102,33 @@
     },
     "provenance": {
       "type": "object",
-      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr) \u2014 additive, backward-compatible"
+      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr) — additive, backward-compatible"
+    },
+    "samples": {
+      "type": "object",
+      "description": "Optional per-sample Merkle commitment (v1.5): RFC 6962 SHA-256 root over one leaf per sample; leaves are RFC 9901-style salted disclosures. n MUST equal the claim's n.",
+      "required": [
+        "root_b64",
+        "n",
+        "leaf_alg"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "root_b64": {
+          "type": "string",
+          "description": "Standard base64 of the 32-byte samples tree root."
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "leaf_alg": {
+          "type": "string",
+          "enum": [
+            "sha256-rfc6962-sdjwt-v1"
+          ]
+        }
+      }
     }
   }
 }

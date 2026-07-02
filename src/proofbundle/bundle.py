@@ -132,7 +132,9 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     # 2. merkle inclusion of the payload
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     _reject_unknown(mk, _MERKLE_KEYS, "merkle")
-    hash_alg = mk.get("hash_alg", "sha256-rfc6962")
+    # v1.6 (external review): hash_alg is REQUIRED — the emitter always writes it, and a
+    # silent default is exactly where a future multi-alg version would hide an alg-confusion.
+    hash_alg = _require(mk, "hash_alg", "merkle.hash_alg")
     if hash_alg != "sha256-rfc6962":
         raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
     leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
@@ -189,6 +191,20 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "sd-jwt-key-binding", False,
                     "issuer bound a holder key (cnf) but the presentation carries NO Key Binding JWT — "
                     "required proof-of-possession is missing (bearer downgrade, RFC 9901 §4.3)")
+        elif not sd_res.get("sig_checked"):
+            # v1.6 fail-closed (external review, CRITICAL): gating holder-binding on issuer
+            # verification opened a KEY-OMISSION downgrade — strip the KB-JWT AND drop
+            # issuer_public_key_b64, and a cnf-bound credential silently passed as a bearer
+            # token. A `cnf`-carrying SD-JWT whose issuer cannot be verified is REFUSED, never
+            # "structure-only passed". SD-JWTs without `cnf` keep the documented no-key
+            # backward-compat path unchanged.
+            sd_part, _ = split_key_binding(compact)
+            if _issuer_requires_holder_binding(sd_part):
+                result.add(
+                    "sd-jwt-key-binding", False,
+                    "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
+                    "binding is unverifiable, refusing (fail-closed; supply "
+                    "sd_jwt_vc.issuer_public_key_b64)")
 
     return result
 

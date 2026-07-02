@@ -47,7 +47,7 @@ DEFAULT_ASSURANCE = "self_attested"
 _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "threshold",
              "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp",
              "assurance_level"}
-_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance"}
+_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance", "samples"}
 
 __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
@@ -144,6 +144,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                      ci95: Optional[Sequence[str]] = None, multiple_testing: Optional[str] = None,
                      prereg_sha256: Optional[str] = None, provenance: Optional[dict] = None,
                      assurance_level: str = DEFAULT_ASSURANCE,
+                     samples: Optional[dict] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Build a valid eval claim from raw values. Computes `passed` ITSELF from the comparator
     (never trusts the caller), creates salted commitments, and returns (claim, salts) with the
@@ -187,6 +188,31 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         claim["prereg_sha256"] = prereg_sha256
     if provenance is not None:
         claim["provenance"] = provenance
+    if samples is not None:
+        # v1.5 per-sample commitment: {"root_b64", "n", "leaf_alg"} from
+        # proofbundle.persample.build_sample_tree — the samples root is SIGNED with the claim,
+        # so tree-size lies and post-hoc sample swaps are closed at the signature layer
+        # (an RFC 6962 inclusion proof constrains n only up to path-shape equivalence).
+        import base64 as _b64mod  # noqa: PLC0415
+        if not isinstance(samples, dict) or set(samples) - {"root_b64", "n", "leaf_alg"}:
+            raise EvalClaimError("samples must be {root_b64, n, leaf_alg} (see persample module)")
+        try:
+            root_raw = _b64mod.b64decode(samples["root_b64"], validate=True)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise EvalClaimError("samples.root_b64 must be valid base64") from exc
+        if len(root_raw) != 32:
+            raise EvalClaimError("samples.root_b64 must decode to a 32-byte SHA-256 root")
+        s_n = samples.get("n")
+        if isinstance(s_n, bool) or not isinstance(s_n, int) or s_n <= 0:
+            raise EvalClaimError("samples.n must be a positive integer")
+        if s_n != n:
+            raise EvalClaimError(
+                f"samples.n ({s_n}) must equal the claim's n ({n}) — the committed tree covers "
+                "exactly the samples the aggregate was computed over, no more, no fewer")
+        if samples.get("leaf_alg") != "sha256-rfc6962-sdjwt-v1":
+            raise EvalClaimError("samples.leaf_alg must be 'sha256-rfc6962-sdjwt-v1'")
+        claim["samples"] = {"root_b64": samples["root_b64"], "n": s_n,
+                            "leaf_alg": samples["leaf_alg"]}
     _reject_non_jcs(claim)
     return claim, {"model_salt": m_salt, "dataset_salt": d_salt}
 
@@ -215,11 +241,18 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
 
-def decode_eval_claim(bundle) -> Optional[dict]:
+def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Optional[dict]:
     """Verify the bundle, then check the signing key matches the claim's `issuer` field.
 
     Returns the parsed claim on success, None on any failure. Dependency-free (no JCS import):
     it re-reads the exact stored payload bytes that verify_bundle already authenticated.
+
+    v1.6 verify-side invariants (external review: guarantees must hold on the VERIFY path, not
+    only in the blessed emitter): when the claim carries ``samples``, its shape, 32-byte root,
+    ``leaf_alg`` and ``samples.n == n`` are re-validated here — a hand-signed claim that lies
+    about the committed tree size is rejected. ``expected_context`` enforces the signed
+    ``context_binding`` field (cross-context replay guard): if supplied and the claim's binding
+    is absent or different, the claim is rejected.
     """
     result = verify_bundle(bundle)
     if not result.ok:
@@ -236,8 +269,21 @@ def decode_eval_claim(bundle) -> Optional[dict]:
         want = "ed25519:" + base64.b64encode(base64.b64decode(sig_pub_b64)).decode("ascii")
         if claim.get("issuer") != want:
             return None
+        samples = claim.get("samples")
+        if samples is not None:
+            if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:
+                return None
+            if samples.get("leaf_alg") != "sha256-rfc6962-sdjwt-v1":
+                return None
+            s_n = samples.get("n")
+            if isinstance(s_n, bool) or not isinstance(s_n, int) or s_n != claim.get("n"):
+                return None
+            if len(base64.b64decode(samples["root_b64"], validate=True)) != 32:
+                return None
+        if expected_context is not None and claim.get("context_binding") != expected_context:
+            return None
         return claim
-    except (KeyError, ValueError, EvalClaimError):
+    except (KeyError, ValueError, TypeError, EvalClaimError):
         return None
 
 

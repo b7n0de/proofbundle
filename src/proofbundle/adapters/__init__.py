@@ -8,6 +8,8 @@ from .inspect_ai import from_inspect_ai_log
 from .eee import from_eee_dataset
 from .lm_eval import from_lm_eval_results
 from .promptfoo import from_promptfoo_results
+from .samples import samples_from_lm_eval_jsonl, samples_from_promptfoo_results
 
 __all__ = ["from_lm_eval_results", "from_inspect_ai_log", "from_eee_dataset",
-           "from_promptfoo_results"]
+           "from_promptfoo_results",
+           "samples_from_lm_eval_jsonl", "samples_from_promptfoo_results"]

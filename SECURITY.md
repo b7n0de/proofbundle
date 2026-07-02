@@ -17,7 +17,7 @@ for a suspected vulnerability. We aim to acknowledge within a few days.
 
 ## Supported versions
 
-During the 0.x phase, only the latest released minor version receives fixes.
+During the 1.x phase, only the latest released minor version receives fixes.
 
 ## Handling signing keys
 
@@ -29,7 +29,10 @@ seed can forge signatures under your key.
 ## Release integrity
 
 Releases are published to PyPI via **Trusted Publishing** (OIDC, no long-lived token) with
-`pypa/gh-action-pypi-publish` (>= v1.11.0), so each release file carries **PEP 740 digital
-attestations** generated automatically. You can verify them on PyPI (the Integrity API exposes the
-attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification. Each release
-also carries an SLSA build-provenance attestation (SLSA v1.2 attestation model) from the GitHub release workflow.
+`pypa/gh-action-pypi-publish` (>= v1.11.0). Once the first release is published, each release file
+**will carry PEP 740 digital attestations** generated automatically, verifiable on PyPI (the Integrity
+API exposes the attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification,
+plus an SLSA build-provenance attestation (SLSA v1.2 attestation model). The release workflow builds the
+artifact ONCE and gates the PyPI upload on a sha256 match against the attested subject, so the published
+bytes are exactly the attested bytes (see `RELEASE.md`). No release has been published yet — these are
+capabilities of the workflow, not claims about a shipped artifact.

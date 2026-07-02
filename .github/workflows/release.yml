@@ -1,26 +1,33 @@
 name: Release
 
-# Build the distribution, attach a signed SLSA build provenance attestation, cut
-# the GitHub Release, then publish to PyPI via Trusted Publishing (OIDC, no token).
-# This is the same trust-layer idea the library verifies: an artifact you ship
-# should carry a verifiable proof of where it came from.
+# Build the distribution ONCE, attach a signed SLSA build provenance attestation to those exact
+# bytes, then publish *those same bytes* to PyPI via Trusted Publishing (OIDC, no token). The
+# artifact that lands on PyPI is the artifact that was attested — proven by a sha256 gate before
+# upload. This is the same trust-layer idea the library verifies: what you ship must carry a
+# verifiable proof of where it came from, and the proof must cover the shipped bytes, not a rebuild.
 #
-# Supply-chain hardening: all actions are pinned to full commit SHAs (with the
-# version in a comment), not tags — after the tj-actions incident (March 2025) a
-# tag can be silently repointed. Dependabot (.github/dependabot.yml) bumps the pin.
+# Supply-chain hardening: all actions are pinned to full commit SHAs (version in a comment), not
+# tags — after the tj-actions incident (March 2025) a tag can be silently repointed. Dependabot
+# (.github/dependabot.yml) bumps the pin. The `pypi` environment SHOULD have required reviewers
+# configured (repo Settings → Environments → pypi) so a `v*` tag cannot publish unreviewed.
 
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write        # create the GitHub Release
-  id-token: write        # keyless OIDC (attestation + PyPI Trusted Publishing)
-  attestations: write    # record the provenance attestation
+  contents: read
 
 jobs:
   build-and-attest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the GitHub Release
+      id-token: write        # keyless OIDC (build-provenance attestation)
+      attestations: write    # record the provenance attestation
+    outputs:
+      digest-wheel: ${{ steps.digests.outputs.wheel }}
+      digest-sdist: ${{ steps.digests.outputs.sdist }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
@@ -28,47 +35,75 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build sdist and wheel
+      - name: Build sdist and wheel (the ONLY build in this workflow)
         run: |
           python -m pip install --upgrade build
           python -m build
+
+      - name: Record artifact digests (the attested subjects)
+        id: digests
+        run: |
+          echo "wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          sha256sum dist/* | tee dist/SHA256SUMS
 
       - name: Generate SLSA build provenance for the artifacts
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: "dist/*"
+          subject-path: "dist/*.whl,dist/*.tar.gz"
 
-      - name: Create GitHub Release with artifacts
+      - name: Upload the attested dist for the publish job (exact bytes, no rebuild)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: attested-dist
+          path: dist/
+          if-no-files-found: error
+
+      - name: Create GitHub Release with the attested artifacts + SHA256SUMS
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b  # v3.0.1
         with:
-          files: dist/*
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
           generate_release_notes: true
 
   publish-pypi:
-    # Publishes with PyPI Trusted Publishing (OIDC) — no API token. Requires a
-    # one-time human step: configure b7n0de/proofbundle + this workflow as a
-    # trusted publisher on pypi.org (Settings → Publishing) BEFORE the first tag.
-    # Until then this job fails cleanly and the Release above still succeeds.
+    # Publishes with PyPI Trusted Publishing (OIDC) — no API token. Requires a one-time human
+    # step: configure b7n0de/proofbundle + this workflow as a trusted publisher on pypi.org
+    # (Settings → Publishing) BEFORE the first tag. Until then this job fails cleanly and the
+    # Release above still succeeds. The `pypi` environment SHOULD require reviewer approval.
     needs: build-and-attest
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/project/proofbundle/
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+      - name: Download the ATTESTED dist (no rebuild — published == attested)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          python-version: "3.12"
+          name: attested-dist
+          path: dist/
 
-      - name: Build sdist and wheel
+      - name: Gate — published bytes must equal the attested subjects
         run: |
-          python -m pip install --upgrade build
-          python -m build
+          set -euo pipefail
+          rm -f dist/SHA256SUMS   # not a distributable; keep only the wheel + sdist for upload
+          got_wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)
+          got_sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)
+          echo "attested wheel:   ${{ needs.build-and-attest.outputs.digest-wheel }}"
+          echo "downloaded wheel: $got_wheel"
+          test "$got_wheel" = "${{ needs.build-and-attest.outputs.digest-wheel }}"
+          test "$got_sdist" = "${{ needs.build-and-attest.outputs.digest-sdist }}"
+          echo "OK: publishing the exact bytes that were attested."
 
       - name: Publish to PyPI (Trusted Publishing, OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
         with:
-          # Idempotent: a re-run of the same tag (e.g. a re-tag) must not fail on an
-          # already-uploaded file — skip it instead of erroring.
+          # PyPI recomputes and records PEP 740 attestations for these uploaded files; because
+          # they are the attested artifacts (gate above), the PyPI attestation and the SLSA
+          # provenance describe the same bytes. skip-existing keeps a re-tag idempotent.
+          packages-dir: dist/
           skip-existing: true

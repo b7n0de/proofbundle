@@ -177,6 +177,50 @@ def _cmd_hf_token(args: argparse.Namespace) -> int:
         return 2
 
 
+def _cmd_audit_challenge(args: argparse.Namespace) -> int:
+    from .persample import audit_challenge  # noqa: PLC0415
+    try:
+        nonce = bytes.fromhex(args.nonce) if args.nonce else b""
+        indices = audit_challenge(args.root, args.n, args.k, nonce)
+    except (ProofBundleError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps({"indices": indices, "n": args.n, "k": args.k,
+                          "mode": "auditor-nonce" if args.nonce else "self-challenge"}))
+    else:
+        if not args.nonce:
+            print("WARNING: self-challenge mode (no --nonce) is a sanity check only — "
+                  "a producer can grind by re-salting; real audits supply a fresh nonce",
+                  file=sys.stderr)
+        print(" ".join(str(i) for i in indices))
+    return 0
+
+
+def _cmd_verify_opening(args: argparse.Namespace) -> int:
+    from .persample import verify_sample_opening  # noqa: PLC0415
+    try:
+        with open(args.opening, encoding="utf-8") as handle:
+            opening = json.load(handle)
+        res = verify_sample_opening(opening, args.root, args.n)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(res))
+    else:
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] sample-opening: {res['detail']}")
+        if res["ok"]:
+            print(json.dumps(res["record"], indent=2))
+        print("=> OK" if res["ok"] else "=> FAILED")
+    return 0 if res["ok"] else 1
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    from .demo import run_demo  # noqa: PLC0415
+    return run_demo(as_json=args.json)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -237,6 +281,31 @@ def build_parser() -> argparse.ArgumentParser:
     hf_token.add_argument("--verify", action="store_true",
                           help="verify a pb1. token instead of emitting one")
     hf_token.set_defaults(func=_cmd_hf_token)
+
+    challenge = sub.add_parser(
+        "audit-challenge",
+        help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)")
+    challenge.add_argument("root", help="the receipt's samples root (base64)")
+    challenge.add_argument("n", type=int, help="committed sample count")
+    challenge.add_argument("k", type=int, help="number of samples to challenge")
+    challenge.add_argument("--nonce", help="fresh auditor nonce (hex, >=32 hex chars recommended)")
+    challenge.add_argument("--json", action="store_true", help="machine readable output")
+    challenge.set_defaults(func=_cmd_audit_challenge)
+
+    verify_opening = sub.add_parser(
+        "verify-opening", help="verify one sample opening against a samples root (v1.5)")
+    verify_opening.add_argument("opening", help="opening JSON file (index/disclosure/proof_b64)")
+    verify_opening.add_argument("--root", required=True, help="the receipt's samples root (base64)")
+    verify_opening.add_argument("--n", required=True, type=int, help="committed sample count")
+    verify_opening.add_argument("--json", action="store_true", help="machine readable output")
+    verify_opening.set_defaults(func=_cmd_verify_opening)
+
+    demo = sub.add_parser(
+        "demo",
+        help="run the whole trust story in memory (pip-only, offline): honest receipt verifies, "
+             "six tampers fail, a swapped sample is caught")
+    demo.add_argument("--json", action="store_true", help="machine readable output")
+    demo.set_defaults(func=_cmd_demo)
 
     return parser
 

@@ -120,6 +120,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if isinstance(iat, bool) or not isinstance(iat, int):
         result["detail"] = "status list token iat missing or not an integer"
         return result
+    # v1.6 (external review): exp/ttl must be integers OR absent — a string "exp" that LOOKS
+    # like an expiry but silently never enforces is a downgrade vector, not a tolerable input.
+    for _name, _val in (("exp", exp), ("ttl", ttl)):
+        if _val is not None and (isinstance(_val, bool) or not isinstance(_val, int)):
+            result["detail"] = f"status list token {_name} must be an integer when present"
+            return result
 
     sl = payload.get("status_list")
     if not isinstance(sl, dict):
@@ -157,12 +163,18 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     result["status"] = status
     result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
     if now is not None:
-        fresh = iat <= now
-        if isinstance(exp, int) and not isinstance(exp, bool):
-            fresh = fresh and now < exp
-        if isinstance(ttl, int) and not isinstance(ttl, bool):
-            fresh = fresh and now <= iat + ttl
-        result["fresh"] = fresh
+        # v1.6 (external review): a token with NEITHER exp NOR ttl is unbounded — "fresh
+        # forever" was misleading (stale-snapshot replay). Without a bound, freshness CANNOT
+        # be judged: fresh stays None and the relying party must impose its own max age.
+        if exp is None and ttl is None:
+            result["fresh"] = None
+        else:
+            fresh = iat <= now
+            if exp is not None:
+                fresh = fresh and now < exp
+            if ttl is not None:
+                fresh = fresh and now <= iat + ttl
+            result["fresh"] = fresh
     result["detail"] = f"status {result['status_label']} at index {index}"
     return result
 

@@ -231,6 +231,39 @@ The bundle format (§3) is UNCHANGED: the snapshot is a separate verifier input,
 field. The SD-JWT issuer header is `typ: dc+sd-jwt` with a `vct` type URI since v1.3 (SD-JWT VC
 draft markers; full VC conformance remains deferred until that draft is an RFC).
 
+## 7g. Per-sample commitment and audit protocol (normative, v1.5)
+
+An eval claim MAY carry a ``samples`` object ``{root_b64, n, leaf_alg}``: an RFC 6962 SHA-256
+Merkle tree head over ONE leaf per sample, committed in canonical order (sorted by sample
+identity; the 0-based position ``idx`` is embedded INSIDE each leaf record). ``samples.n`` MUST
+equal the claim's ``n`` — **the signature, not the inclusion proof, is the truth anchor for the
+tree size**: an RFC 6962 inclusion proof constrains n only up to path-shape equivalence
+(measured: index 4 of a 10-leaf tree verifies under any claimed n′ ∈ [9..16]).
+
+``leaf_alg`` = ``sha256-rfc6962-sdjwt-v1``: leaf hash = RFC 6962 leaf hash (0x00 domain
+separation) over the US-ASCII bytes of a base64url **disclosure** encoding ``[salt_b64,
+record]`` (RFC 9901 digest mechanic — verification re-hashes the transported string, never
+canonicalizes JSON). Salts are per-leaf, ≥128 bit, derived
+``HMAC-SHA-256(tree_secret, "proofbundle/v2/leaf-salt" ‖ id ‖ 0x00 ‖ epoch)[:16]`` from ONE
+holder-kept secret (never in the receipt); revealing one salt reveals nothing about siblings
+(HMAC-as-PRF). An **opening** = ``{index, disclosure, proof_b64[]}``; verification recomputes
+the leaf hash, checks inclusion at ``index`` under the SIGNED (root, n), decodes the disclosure,
+and enforces ``record.idx == index`` (replay guard against a lying producer — the lie sits
+inside the committed leaf, so only this check catches it).
+
+**Audit challenge** = ``SHA-256("proofbundle/v2/audit-challenge" ‖ root ‖ u64(n) ‖ u64(k) ‖
+nonce)``, expanded by HMAC-SHA-256 counter mode into u64 draws, mapped to [0, n) by rejection
+sampling (accept iff v < ⌊2^64/n⌋·n; zero modulo bias), duplicates skipped until k distinct
+indices. Nonce modes: **auditor nonce** (fresh, supplied after signing — grinding impossible;
+the default for audits), **public beacon** (first pulse after the signed timestamp, RFC
+3797-style, publicly re-verifiable), **self-challenge** (empty nonce; sanity check ONLY — a
+producer can grind by re-salting, escaping with ≈ g·(1−m/n)^k over g attempts). Soundness is
+the proof-of-retrievability bound 1−(1−m)^k, independent of n (k=300 → 95% at m=1%; 459 → 99%).
+Openings are auditor-directed and never part of the public receipt (every opened sample is
+burned for future evals — contamination economics are the relying parties' policy). The domain
+strings are pinned at ``proofbundle/v2/*`` (protocol identifiers, independent of the package
+version).
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).
@@ -242,3 +275,5 @@ draft markers; full VC conformance remains deferred until that draft is an RFC).
 - C2SP tlog-checkpoint / signed-note / tlog-cosignature / tlog-proof — witness ecosystem formats.
 - FIPS 204 — Module-Lattice-Based Digital Signature Standard (ML-DSA).
 - draft-ietf-oauth-status-list — Token Status List (RFC-Editor queue).
+- RFC 3797 — Publicly Verifiable Nominations Committee Random Selection.
+- RFC 2104 / FIPS 198 — HMAC (per-leaf salt PRF).
