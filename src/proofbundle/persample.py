@@ -127,12 +127,16 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
                 "builder from canonical order, never by the caller")
         rec["idx"] = i
         # Enforce the documented canonical (id, epoch) order (release-review #7/#10): the producer has NO ordering
-        # freedom, so reject records that are not already sorted — otherwise the invariant is only a comment. id is
-        # compared as a string (stable across int/str ids), epoch as int; a non-integer epoch is rejected.
-        try:
-            key = (str(rec.get("id", i)), int(rec.get("epoch", 1)))
-        except (TypeError, ValueError) as exc:
-            raise BundleFormatError(f"record {i} has a non-integer epoch") from exc
+        # freedom, so reject records that are not already sorted — otherwise the invariant is only a comment. Compare
+        # id by its NATIVE value (re-review fix: stringifying broke numeric order — "10" < "9" false-rejected every
+        # eval with ≥10 int ids, exactly what the shipped adapters emit via sort by native int id). A type-rank keeps
+        # int/str ids mutually comparable (all ints before all strs) without crashing on mixed types; epoch MUST be a
+        # real int (a float/bool is rejected, not silently truncated — matches derive_leaf_salt's guard).
+        epoch = rec.get("epoch", 1)
+        if isinstance(epoch, bool) or not isinstance(epoch, int):
+            raise BundleFormatError(f"record {i} has a non-integer epoch {epoch!r}")
+        idv = rec.get("id", i)
+        key = (0 if (isinstance(idv, int) and not isinstance(idv, bool)) else 1, idv, epoch)
         if prev_key is not None and key < prev_key:
             raise BundleFormatError(
                 f"record {i} breaks canonical (id, epoch) order — sort records before commitment")

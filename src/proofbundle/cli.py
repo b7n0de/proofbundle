@@ -84,10 +84,14 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
+    from .bundle import load_bundle  # noqa: PLC0415
     try:
-        result = verify_bundle(args.bundle, expected_aud=getattr(args, "aud", None),
+        # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
+        # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
+        bundle = load_bundle(args.bundle)
+        result = verify_bundle(bundle, expected_aud=getattr(args, "aud", None),
                                expected_nonce=getattr(args, "nonce", None))
-        roots = recompute_merkle_root_b64(args.bundle) if args.verbose else None
+        roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError) as exc:   # file/JSON/format errors → clean exit, never a raw traceback
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))

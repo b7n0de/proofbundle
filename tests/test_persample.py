@@ -395,3 +395,24 @@ class TestVerifySideInvariants(unittest.TestCase):
         # absent binding but a context expected → reject (no false assurance)
         bundle2 = self._signed_claim_with(self._base_claim())
         self.assertIsNone(decode_eval_claim(bundle2, expected_context="run-A"))
+
+
+class TestCanonicalOrderEnforcement(unittest.TestCase):
+    """Ordering enforcement — closes the ≥10-id coverage gap (re-review HIGH): string-ordering false-rejected
+    every real eval with ≥10 native-int ids, since "10" < "9". Native-value comparison fixes it."""
+
+    def test_accepts_15_int_ids_no_false_reject(self):
+        recs = [{"id": i, "epoch": 1, "success": True} for i in range(15)]
+        self.assertEqual(build_sample_tree(recs, SECRET)["n"], 15)
+
+    def test_accepts_sorted_string_ids(self):
+        self.assertEqual(build_sample_tree([{"id": "a"}, {"id": "b"}, {"id": "c"}], SECRET)["n"], 3)
+
+    def test_rejects_unsorted_int_ids(self):
+        with self.assertRaises(BundleFormatError):
+            build_sample_tree([{"id": 0}, {"id": 2}, {"id": 1}, {"id": 10}], SECRET)
+
+    def test_rejects_non_int_epoch(self):
+        for bad in (1.5, True, "x", None):
+            with self.assertRaises(BundleFormatError):
+                build_sample_tree([{"id": 0, "epoch": bad}], SECRET)
