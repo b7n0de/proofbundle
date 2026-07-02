@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Set up Python ${{ matrix.python-version }}
@@ -34,3 +34,18 @@ jobs:
         run: |
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
+
+  mutation:
+    # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
+    # Differential vs the baseline; documented-equivalent mutants must keep surviving.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev,pq]"
+      - name: Mutation check
+        run: python scripts/mutation_check.py

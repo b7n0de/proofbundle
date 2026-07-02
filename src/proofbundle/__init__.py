@@ -13,17 +13,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 
 __all__ = [
     "__version__",
     "SCHEMA",
     "verify_bundle",
     "load_bundle",
+    "recompute_merkle_root_b64",
     "emit_bundle",
     "generate_signer",
     "verify_inclusion",
     "verify_consistency",
+    "verify_key_binding",
+    "verify_tlog_proof",
+    "verify_cosignature",
+    "verify_witnessed_checkpoint",
+    "verify_status_snapshot",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -32,15 +38,25 @@ __all__ = [
 # name → backing submodule (relative). Loaded on first attribute access.
 _LAZY = {
     "SCHEMA": ".bundle", "load_bundle": ".bundle", "verify_bundle": ".bundle",
+    "recompute_merkle_root_b64": ".bundle",
     "emit_bundle": ".emit", "generate_signer": ".emit",
     "Check": ".errors", "ProofBundleError": ".errors", "VerificationResult": ".errors",
     "verify_consistency": ".merkle", "verify_inclusion": ".merkle",
+    "verify_key_binding": ".kbjwt",
+    "verify_tlog_proof": ".tlogproof",
+    "verify_cosignature": ".checkpoint",
+    "verify_witnessed_checkpoint": ".checkpoint",
+    "verify_status_snapshot": ".statuslist",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
-    from .bundle import SCHEMA, load_bundle, verify_bundle
+    from .bundle import SCHEMA, load_bundle, recompute_merkle_root_b64, verify_bundle
     from .emit import emit_bundle, generate_signer
     from .errors import Check, ProofBundleError, VerificationResult
+    from .checkpoint import verify_cosignature, verify_witnessed_checkpoint
+    from .kbjwt import verify_key_binding
+    from .statuslist import verify_status_snapshot
+    from .tlogproof import verify_tlog_proof
     from .merkle import verify_consistency, verify_inclusion
 
 

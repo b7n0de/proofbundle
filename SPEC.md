@@ -91,9 +91,22 @@ presented disclosure is committed (its digest appears in the issuer-signed
 payload's `_sd` array). If `issuer_public_key_b64` is present, additionally check
 **sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under it.
 
-Scope of v0.1 SD-JWT (stated honestly): the SD-JWT *core* is
+Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
+compact serialization carries a trailing Key Binding JWT (a compact form ending
+in `~` carries none). The check is **fail-closed** — a present KB-JWT that cannot
+be verified fails the bundle; it is never silently ignored. The verifier
+requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
+`aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
+presented `<Issuer-signed JWT>~<Disclosure 1>~…~<Disclosure N>~`)) with H the
+SD-JWT's `_sd_alg` hash; and the KB-JWT signature verifies under the holder key
+from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
+binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
+the relying party's (an offline verifier has no trusted clock); the library
+exposes them and accepts `expected_aud`/`expected_nonce` parameters.
+
+Scope of the SD-JWT support (stated honestly): the SD-JWT *core* is
 [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/) (2025); the verifier does
-**not** verify a Key Binding JWT, an X.509 / trust-list chain, status lists, or
+**not** verify an X.509 / trust-list chain, status lists, or
 `vct` type metadata (SD-JWT VC is the IETF draft
 [draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/),
 on the roadmap).
@@ -107,6 +120,8 @@ A conforming verifier MUST perform, in this order, and report each result:
 3. **merkle-inclusion** (§5).
 4. **sd-jwt-disclosures** and **sd-jwt-issuer-signature** — only if `sd_jwt_vc`
    is present (§6).
+5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
+   serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
@@ -157,10 +172,73 @@ U+000A, followed by an empty line and one or more signature lines. A signature l
 signature over the note-text bytes **including the trailing newline** (raw bytes, no PAE). The verifier key
 is distributed as `keyname + "+" + hex8(keyID) + "+" + base64(0x01 ‖ pubkey)`.
 
+## 7d. C2SP tlog-cosignature, Ed25519 cosignature/v1 (normative, v1.2)
+
+A checkpoint (§7c) MAY additionally carry witness **cosignatures** per
+[C2SP tlog-cosignature](https://github.com/C2SP/C2SP/blob/main/tlog-cosignature.md): verifying a quorum of
+cosignatures rules out a split view by the log operator, entirely offline. A cosignature is a note
+signature line (same `U+2014 SP name SP base64(blob)` framing as §7c) where the blob is exactly
+`keyID[4] ‖ timestamp[8, big-endian u64] ‖ ed25519_signature[64]` (76 bytes). The witness
+`keyID` = `SHA-256(witness_name ‖ 0x0A ‖ 0x04 ‖ ed25519_pubkey)[:4]` — algorithm byte **0x04**
+(cosignature/v1), deliberately distinct from the log's 0x01 so a log key can never masquerade as a
+witness. The signed message is `"cosignature/v1\n" ‖ "time <timestamp>\n" ‖ <whole note body including
+the final U+000A, excluding signature lines>`. The timestamp is a POSIX timestamp ≤ 2^63−1; freshness
+policy is the relying party's (offline verifier, no trusted clock). Witness verifier keys use the §7c
+vkey encoding with algorithm byte 0x04. A **witnessed** checkpoint verifies iff the log signature (§7c)
+verifies AND at least `threshold` cosignatures from **distinct witness names** verify — witnesses attest
+consistency, they never replace the log's own signature. Real split-view resistance additionally requires
+the witnesses to be operationally independent, which is a deployment property outside this format.
+
+Since v1.3 the **ML-DSA-44 cosignature type** (algorithm byte **0x06**, FIPS 204) is also
+verified: witness `keyID` = `SHA-256(witness_name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]`, blob =
+`keyID[4] ‖ u64-BE-timestamp ‖ signature[2420]` (2432 bytes exactly). The signed message is the
+C2SP `cosigned_message` structure (RFC 8446 conventions): fixed 12-byte label `"subtree/v1\n\0"`,
+`opaque<1..2^8-1>` cosigner name, u64 timestamp, `opaque<1..2^8-1>` log origin, u64 start (0 for a
+checkpoint), u64 end (= tree size), 32-byte root. Unlike Ed25519 cosignatures it commits to the
+cosigner NAME and NOT to checkpoint extension lines. Verification requires a cryptography build
+with ML-DSA (`proofbundle[pq]`); a configured ML-DSA witness on a build without it raises
+UnsupportedError — fail-closed, never a silent False. Ed25519 and ML-DSA witnesses mix freely in
+one quorum; the C2SP spec says ML-DSA-44 SHOULD be used for new witness deployments.
+
+## 7e. C2SP tlog-proof (normative, v1.3)
+
+A receipt's inclusion evidence MAY be carried as a
+[C2SP tlog-proof](https://github.com/C2SP/C2SP/blob/main/tlog-proof.md) file (extension
+`.tlog-proof`): line 1 exactly `c2sp.org/tlog-proof@v1`; an OPTIONAL `extra <base64>` line
+(opaque and **unauthenticated** — a verifier MUST NOT trust it); an `index <decimal>` line
+(zero-based, no leading zeros); zero or more standard-base64 SHA-256 inclusion-proof hashes, one
+per line, leaf-sibling upward (RFC 6962 §2.1.1); one empty line; then a signed tlog-checkpoint
+(§7c/§7d) **verbatim**. The proof/checkpoint split is the FIRST empty line. Verification order:
+(1) recompute the leaf hash from the exact payload bytes (RFC 6962 `leaf_hash`, never taken from
+the file), (2) log signature over an acceptable origin, (3) witness cosignatures against a k-of-n
+policy over DISTINCT witness names, (4) inclusion proof binds the leaf at `index` to the
+checkpoint root at its size. The overall verdict is the CONJUNCTION of all four — each sub-verdict
+is reported. Cosignature timestamps are verified-then-ignored; freshness is relying-party policy.
+Note: the C2SP spec file is on `main` and not yet version-tagged; the format string is pinned.
+
+## 7f. Token Status List snapshot (normative, v1.3)
+
+A receipt SD-JWT MAY carry a `status.status_list.{idx, uri}` claim
+([draft-ietf-oauth-status-list](https://datatracker.ietf.org/doc/draft-ietf-oauth-status-list/),
+in the RFC-Editor queue — wire format frozen at draft-21). Revocation state is checked OFFLINE
+against a supplied **Status List Token snapshot**: a signed JWT with header `typ` =
+`statuslist+jwt` and `alg` = `EdDSA` (this profile), payload `sub` (MUST equal the receipt's
+`uri`), `iat` (REQUIRED), optional `exp`/`ttl`, and `status_list: {bits, lst}` with `bits` ∈
+{1,2,4,8} and `lst` = base64url(zlib(bit-array)), statuses packed LSB-first. Registered values:
+0x00 VALID, 0x01 INVALID, 0x02 SUSPENDED. Freshness is REPORTED (`iat`/`exp`/`ttl`) and only
+JUDGED when the relying party supplies its own clock — an offline verifier has no trusted time.
+The bundle format (§3) is UNCHANGED: the snapshot is a separate verifier input, never a bundle
+field. The SD-JWT issuer header is `typ: dc+sd-jwt` with a `vct` type URI since v1.3 (SD-JWT VC
+draft markers; full VC conformance remains deferred until that draft is an RFC).
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).
 - RFC 9162 — Certificate Transparency v2.
 - RFC 8032 — EdDSA / Ed25519.
 - RFC 4648 — Base16/Base32/Base64 encodings.
-- RFC 9901 — Selective Disclosure for JWTs (SD-JWT).
+- RFC 9901 — Selective Disclosure for JWTs (SD-JWT), incl. §4.3 Key Binding JWT.
+- RFC 7800 — Proof-of-Possession Key Semantics for JWTs (`cnf`).
+- C2SP tlog-checkpoint / signed-note / tlog-cosignature / tlog-proof — witness ecosystem formats.
+- FIPS 204 — Module-Lattice-Based Digital Signature Standard (ML-DSA).
+- draft-ietf-oauth-status-list — Token Status List (RFC-Editor queue).

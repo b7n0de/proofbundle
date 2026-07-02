@@ -50,7 +50,9 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     if value is None:
         raise ValueError(f"metric {metric!r} not found in results[{task!r}] "
                          f"(available: {sorted(k for k in res if ',' in k)})")
-    score = value if isinstance(value, str) else repr(value)
+    # Fixed-point format (never scientific notation, e.g. '1e-05') — build_eval_claim rejects scientific
+    # notation, so repr() silently dropped legitimate small scores (release-review fix, mirrors v0.8.1).
+    score = value if isinstance(value, str) else (format(float(value), ".12f").rstrip("0").rstrip(".") or "0")
 
     n_samples = data.get("n-samples", {}).get(task, {})
     n = int(n_samples.get("effective") or n_samples.get("original") or res.get("sample_len") or 0)

@@ -4,6 +4,129 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-02
+
+### Security & correctness hardening (full 6-lens re-audit of the whole tool before tag, 2026-07-02)
+- **CRITICAL — holder-binding downgrade closed.** A credential issued with a `cnf` holder key now FAILS
+  verification if the KB-JWT is stripped (RFC-9901-legal no-key-binding form) — previously a bearer replay of
+  a proof-of-possession credential verified OK. Bundles without `cnf` stay backward-compatible.
+- **HIGH — RFC 9901 §7.3 audience/replay binding reachable through the public API.** `verify_bundle` (and CLI
+  `verify --aud/--nonce`) now accept and enforce `expected_aud`/`expected_nonce`; before, the aud/nonce
+  enforcement existed only on the internal `verify_key_binding` helper no public caller could reach.
+- **HIGH — holder-binding check requires a verified issuer signature.** The `sd-jwt-key-binding` check now runs
+  only when `sd_jwt_vc.issuer_public_key_b64` was supplied and the issuer signature verified — otherwise the
+  `cnf` holder key (declared inside the issuer-signed JWT) is unauthenticated and a forged SD-JWT could report
+  a valid-looking holder binding.
+- **HIGH — witness quorum counts distinct KEY MATERIAL, not names** in BOTH verifiers. `verify_witnessed_checkpoint`
+  AND `verify_tlog_proof` now share `checkpoint.witness_quorum`, deduping on the DECODED key bytes (Ed25519 +
+  ML-DSA); one physical key under N names no longer satisfies `threshold=N` in either path.
+- **HIGH — no raw tracebacks on malformed input:** a non-string `sd_jwt_vc.compact` now raises `BundleFormatError`
+  (was `AttributeError`); CLI `verify`/`show-eval` catch file/JSON errors cleanly.
+- **MEDIUM:** KB-JWT `aud` restricted to a single string (RFC 9901 §4.3); C2SP tree-size rejects non-ASCII
+  digits; `present_with_key_binding` hashes `sd_hash` with the SD-JWT's OWN declared `_sd_alg` (read from the
+  presented compact, not a module constant); the lm-eval adapter formats scores as fixed-point (no
+  scientific-notation drop); `sign_checkpoint` validates keyname; origin/witness names reject all Unicode
+  whitespace; `recompute_merkle_root_b64` validates `hash_alg` and shows the stated root canonically; the
+  ML-DSA verify path builds its signed message inside the fail-closed guard; the status-list zlib decompression
+  is size-bounded (CWE-409); `verify_tlog_proof` accepts an optional `expected_origin`.
+- 188 tests (adds regressions for every item above, incl. one-key-under-many-names in tlog-proof, and a
+  holder-binding check skipped when the issuer signature is unverified).
+
+### Added — the portable proof (spec-verified against primary sources, 2026-07-02)
+- **C2SP tlog-proof** (`proofbundle.tlogproof`, new CLI `proofbundle verify-proof`): emit and
+  verify `.tlog-proof` files — index + RFC 6962 inclusion proof + verbatim (co)signed checkpoint,
+  the C2SP "transparent signature" envelope (`c2sp.org/tlog-proof@v1`). `tlog_proof_for_bundle`
+  refuses a checkpoint that disagrees with the bundle's root/size (No-Fake at build time); the
+  verifier recomputes the leaf hash from the exact payload bytes, never trusts the file, treats
+  `extra` as unauthenticated, and reports log/witness/inclusion sub-verdicts with a conjunction
+  verdict. Rekor v2 institutionalizes exactly this persist-your-proof model. SPEC §7e.
+- **ML-DSA-44 witness cosignatures** (C2SP type 0x06, FIPS 204 — the spec's SHOULD for new
+  witness deployments): `cosign_checkpoint_mldsa` / `cosign_vkey_mldsa`; `verify_cosignature` now
+  dispatches on the vkey algorithm byte (0x04 Ed25519 / 0x06 ML-DSA-44 — a 0x01 LOG key is still
+  never a witness). Signed message = the C2SP `cosigned_message` struct (label `"subtree/v1\n\0"`,
+  name-committing, RFC 8446 serialization) — pinned byte-exact by a KAT test, not just a
+  roundtrip. Optional extra `proofbundle[pq]` (= `cryptography>=48`, PQ in default wheels since
+  2026-05); on builds without ML-DSA a configured 0x06 witness raises UnsupportedError —
+  fail-closed, never a silent False. Ed25519 stays the default; primary signatures unchanged.
+  SPEC §7d.
+- **Token Status List snapshot** (`proofbundle.statuslist`): offline revocation per
+  draft-ietf-oauth-status-list (RFC-Editor queue, format frozen at -21). `status_claim(uri, idx)`
+  goes into the receipt SD-JWT; `verify_status_snapshot` checks a supplied signed
+  `statuslist+jwt` (EdDSA, `sub`↔`uri` binding, bits ∈ {1,2,4,8}, zlib bit-array) and reads the
+  status. Freshness (`iat`/`exp`/`ttl`) is reported, and judged ONLY when the caller supplies
+  `now` — no wall-clock assumptions in an offline verifier. Bundle format v0.1 unchanged: the
+  snapshot is a separate verifier input. SPEC §7f.
+- **SD-JWT VC markers** (`sdjwt_issue`): issuer header `typ: dc+sd-jwt`, a `vct` type URI
+  (default `https://b7n0de.com/proofbundle/vct/eval-receipt/v1`), optional `status` claim — the
+  four stable interop markers of draft-ietf-oauth-sd-jwt-vc (pre-IESG; full VC conformance stays
+  deferred, type-metadata resolution deliberately not implemented).
+- **COMPLIANCE.md** — an honest, non-legal mapping of receipts onto EU AI Act Article 12
+  record-keeping (applies to high-risk systems from 2026-08-02), the GPAI Code of Practice Model
+  Report evidence, NIST AI RMF MEASURE, and prEN 18229-1 / ISO/IEC DIS 24970 — including the
+  anti-patterns section (what NOT to claim).
+
+### Verification discipline
+- **`scripts/mutation_check.py` + a CI `mutation` job** — the orthogonal mutation suite is now a
+  repeatable repo gate (12 operators across kbjwt/bundle/checkpoint/tlogproof/statuslist/CLI),
+  differential against the baseline; documented-equivalent mutants are asserted to SURVIVE so a
+  stale equivalence argument also fails the gate. The suite immediately earned its keep: the
+  ML-DSA domain-separation-label mutant survived the first run (emit+verify shared the constant —
+  a self-consistency tautology) and is now killed by a byte-exact `cosigned_message` KAT.
+- 44 new tests (133 → 177 in-tree): green roundtrips + red matrices (wrong leaf/log key/index,
+  proof-hash tamper, unauthenticated-extra probes, quorum shortfall, ML-DSA name-commitment
+  forgery, timestamp/body tamper, status-list signature/uri/typ/index attacks, bit-flip
+  needs-resign) + the ML-DSA KAT pins.
+- CI matrix extended to Python 3.13 / 3.14.
+
+### Notes
+- Still deferred, stated honestly: full SD-JWT VC conformance + `vct` type metadata (pre-IESG),
+  per-sample Merkle receipts (v2.0 direction, THREAT_MODEL's named gap), an official in-toto
+  eval predicate (proposal path via OpenSSF/CoSAI), Python-3.10 floor.
+
+## [1.2.0] - 2026-07-02
+
+### Added — holder binding + witness quorum (verified against primary sources)
+- **Key Binding JWT verification** (`proofbundle.kbjwt`, closes #1): RFC 9901 §4.3, fully offline —
+  header `typ` MUST be `kb+jwt` (alg EdDSA), payload MUST carry `iat`/`aud`/`nonce`/`sd_hash`,
+  `sd_hash` recomputed over the US-ASCII bytes of the presented `JWT~disclosures…~` with the SD-JWT's
+  `_sd_alg` (binds the *presented disclosure set* — dropping or swapping a disclosure after signing is
+  detected), signature verified under the issuer-bound `cnf.jwk` holder key (RFC 7800; a supplied holder
+  key is the fallback, the issuer's binding wins). `expected_aud`/`expected_nonce` for relying-party
+  policy; `iat` freshness stays caller policy (offline verifier, no trusted clock). SPEC §6/§7.
+- **KB-JWT issuance/presentation** (`sdjwt_issue`): `issue_sd_jwt(..., holder_public_key=...)` embeds
+  `cnf.jwk` (OKP/Ed25519); new `present_with_key_binding(compact, holder_signer, aud=, nonce=, iat=)`
+  builds the holder presentation. Explicit `iat` — the library never samples wall clocks for signatures.
+- **New bundle check `sd-jwt-key-binding`** — **fail-closed**: a KB-JWT that is present must verify;
+  previously a trailing KB-JWT was **silently ignored**, a downgrade risk (a bundle carrying holder
+  binding verified `OK` without the binding being checked). Bundles *without* a KB-JWT are untouched —
+  no new check, behavior identical to v1.1. SPEC §7 order gains step 5.
+- **C2SP tlog-cosignature, Ed25519 cosignature/v1** (`proofbundle.checkpoint`): `cosign_checkpoint` /
+  `verify_cosignature` / `verify_witnessed_checkpoint(..., threshold=)` — witness key ID algorithm byte
+  **0x04** (domain-separated from the log's 0x01 by construction), signature blob
+  `keyID[4]‖u64-BE-timestamp‖sig[64]` (exactly 76 bytes), signed message
+  `"cosignature/v1\n" + "time <ts>\n" + note body`. Verifying a witness quorum rules out a split view
+  by the log operator, offline — the pattern Rekor v2 (GA 2025-10) institutionalizes. The log's own
+  signature stays required (witnesses attest consistency, they don't replace the log). SPEC §7d.
+- **CLI `proofbundle verify --verbose`** (closes #2): prints the recomputed Merkle root next to the
+  stated root (also under `--json` as `merkle_root.{stated_b64,recomputed_b64}`), via the new public
+  `recompute_merkle_root_b64`. Debugging inclusion-proof failures no longer needs a REPL.
+
+### Verification discipline
+- 37 new tests: green roundtrips plus an adversarial red matrix per feature (disclosure drop/swap after
+  KB signing, `typ`/`alg` confusion, missing required claims, fail-open probes, cosignature
+  timestamp/body tamper, log-vkey-as-witness type confusion, quorum double-count, oversized signature
+  blob). An orthogonal mutation suite (9 operators across kbjwt/bundle/checkpoint/CLI) kills 8/9
+  mutants; the survivor is provably equivalent (oversized blobs already die at `verify_ed25519`'s hard
+  64-byte signature length check).
+
+### Notes
+- Python floor stays **3.9** in this release (no floor change in a minor); 3.9 is EOL since 2025-10 —
+  bumping to 3.10 is a deliberate follow-up decision.
+- Still deferred, stated honestly: SD-JWT VC conformance / `vct` type metadata
+  (draft-ietf-oauth-sd-jwt-vc-16, RFC expected ~Q4 2026), Token Status List verification (draft-21 in
+  the RFC-Editor queue; frozen bit-array+zlib format — a good candidate as a bundled snapshot),
+  ML-DSA-44 cosignatures (C2SP SHOULD for new deployments; needs an ML-DSA dependency).
+
 ## [1.1.0] - 2026-07-02
 
 ### Added — trust hardening: the honest foundation (authorship + integrity, stated precisely)

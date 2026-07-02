@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import __version__
-from .bundle import verify_bundle
+from .bundle import recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
 
@@ -51,7 +51,11 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .evalclaim import (  # noqa: PLC0415
         DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, sd_jwt_hidden_count,
     )
-    claim = decode_eval_claim(args.receipt)
+    try:
+        claim = decode_eval_claim(args.receipt)
+    except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
         return 1
@@ -77,8 +81,10 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     try:
-        result = verify_bundle(args.bundle)
-    except ProofBundleError as exc:
+        result = verify_bundle(args.bundle, expected_aud=getattr(args, "aud", None),
+                               expected_nonce=getattr(args, "nonce", None))
+        roots = recompute_merkle_root_b64(args.bundle) if args.verbose else None
+    except (ProofBundleError, OSError, ValueError) as exc:   # file/JSON/format errors → clean exit, never a raw traceback
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
@@ -86,10 +92,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
 
     if args.json:
-        print(json.dumps(result.as_dict(), indent=2))
+        out = result.as_dict()
+        if roots is not None:
+            out["merkle_root"] = roots
+        print(json.dumps(out, indent=2))
     else:
         for check in result.checks:
             print(str(check))
+        if roots is not None:
+            print(f"    stated root      {roots['stated_b64']}")
+            recomputed = roots["recomputed_b64"]
+            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + roots['detail'] + ')'}")
         print("=> OK" if result.ok else "=> FAILED")
     return 0 if result.ok else 1
 
@@ -110,6 +123,38 @@ def _cmd_emit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify_proof(args: argparse.Namespace) -> int:
+    from .tlogproof import verify_tlog_proof  # noqa: PLC0415
+    try:
+        with open(args.proof, encoding="utf-8") as handle:
+            text = handle.read()
+        with open(args.payload_file, "rb") as handle:
+            leaf = handle.read()
+        res = verify_tlog_proof(text, leaf, args.log_vkey,
+                                args.witness_vkey or (), threshold=args.threshold)
+    except (ProofBundleError, OSError) as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
+                                   "origin", "tree_size", "index")}
+        out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
+                            for n, w in res["witnesses"].items()}
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
+        n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
+        print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
+              f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
+        print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
+              f"index {res['index']} of {res['tree_size']}")
+        print("=> OK" if res["ok"] else "=> FAILED")
+    return 0 if res["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -121,6 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="verify an evidence bundle JSON file")
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
+    verify.add_argument("--verbose", action="store_true",
+                        help="print the recomputed Merkle root next to the stated root")
+    verify.add_argument("--aud", default=None,
+                        help="expected KB-JWT audience (RFC 9901 §7.3 replay/audience binding); required to "
+                             "bind a Key Binding JWT presentation to this verifier")
+    verify.add_argument("--nonce", default=None,
+                        help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
@@ -140,6 +192,20 @@ def build_parser() -> argparse.ArgumentParser:
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
     show_eval.set_defaults(func=_cmd_show_eval)
+
+    verify_proof = sub.add_parser(
+        "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")
+    verify_proof.add_argument("proof", help="path to the .tlog-proof file")
+    verify_proof.add_argument("--payload-file", required=True,
+                              help="file with the exact logged leaf bytes (the bundle payload)")
+    verify_proof.add_argument("--log-vkey", required=True,
+                              help="the log's verifier key (0x01 vkey)")
+    verify_proof.add_argument("--witness-vkey", action="append",
+                              help="a witness verifier key (0x04 Ed25519 or 0x06 ML-DSA-44); repeatable")
+    verify_proof.add_argument("--threshold", type=int, default=0,
+                              help="required number of distinct valid witnesses (default 0)")
+    verify_proof.add_argument("--json", action="store_true", help="machine readable output")
+    verify_proof.set_defaults(func=_cmd_verify_proof)
 
     return parser
 

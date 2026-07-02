@@ -1,0 +1,143 @@
+"""Token Status List snapshot (draft-ietf-oauth-status-list) — green + red matrix (v1.3)."""
+import unittest
+
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+from proofbundle import generate_signer
+from proofbundle.errors import BundleFormatError
+from proofbundle.statuslist import (issue_status_list_token, status_claim,
+                                    verify_status_snapshot)
+
+URI = "https://issuer.example/statuslists/1"
+IAT = 1_780_000_000
+
+
+def _raw(key):
+    return key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+
+class TestStatusList(unittest.TestCase):
+    def setUp(self):
+        self.signer = generate_signer()
+        self.pub = _raw(self.signer)
+        # spec example shape: 1-bit statuses; index 1 and 4 revoked
+        self.token = issue_status_list_token([0, 1, 0, 0, 1, 0], uri=URI,
+                                             signer=self.signer, iat=IAT)
+
+    def test_green_valid_and_invalid(self):
+        ok = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=self.pub)
+        self.assertTrue(ok["ok"])
+        self.assertEqual(ok["status_label"], "VALID")
+        rev = verify_status_snapshot(self.token, expected_uri=URI, index=4, issuer_pubkey=self.pub)
+        self.assertTrue(rev["ok"])
+        self.assertEqual(rev["status_label"], "INVALID")
+
+    def test_green_2bit_suspended(self):
+        token = issue_status_list_token([0, 2, 1, 3], uri=URI, signer=self.signer, iat=IAT, bits=2)
+        res = verify_status_snapshot(token, expected_uri=URI, index=1, issuer_pubkey=self.pub)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["status_label"], "SUSPENDED")
+
+    def test_freshness_reported_not_assumed(self):
+        token = issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT, ttl=3600)
+        res = verify_status_snapshot(token, expected_uri=URI, index=0, issuer_pubkey=self.pub)
+        self.assertIsNone(res["fresh"])                          # no clock supplied → no judgement
+        fresh = verify_status_snapshot(token, expected_uri=URI, index=0, issuer_pubkey=self.pub,
+                                       now=IAT + 60)
+        self.assertTrue(fresh["fresh"])
+        stale = verify_status_snapshot(token, expected_uri=URI, index=0, issuer_pubkey=self.pub,
+                                       now=IAT + 7200)
+        self.assertTrue(stale["ok"])                             # crypto still fine
+        self.assertFalse(stale["fresh"])                         # but not fresh — caller decides
+
+    def test_expiry(self):
+        token = issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT, exp=IAT + 100)
+        self.assertFalse(verify_status_snapshot(token, expected_uri=URI, index=0,
+                                                issuer_pubkey=self.pub, now=IAT + 101)["fresh"])
+
+    def test_red_wrong_issuer_key(self):
+        stranger = generate_signer()
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=0,
+                                     issuer_pubkey=_raw(stranger))
+        self.assertFalse(res["ok"])
+        self.assertIn("signature", res["detail"])
+
+    def test_red_uri_mismatch(self):
+        res = verify_status_snapshot(self.token, expected_uri="https://other.example/list",
+                                     index=0, issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("sub", res["detail"])
+
+    def test_red_wrong_typ(self):
+        import base64
+        import json
+        h, p, s = self.token.split(".")
+        header = json.loads(base64.urlsafe_b64decode(h + "=" * (-len(h) % 4)))
+        header["typ"] = "jwt"
+        h2 = base64.urlsafe_b64encode(json.dumps(header).encode()).rstrip(b"=").decode()
+        sig2 = base64.urlsafe_b64encode(
+            self.signer.sign(f"{h2}.{p}".encode("ascii"))).rstrip(b"=").decode()
+        res = verify_status_snapshot(f"{h2}.{p}.{sig2}", expected_uri=URI, index=0,
+                                     issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("typ", res["detail"])
+
+    def test_red_index_out_of_range(self):
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=999,
+                                     issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+
+    def test_red_status_flip_needs_resign(self):
+        # Flipping a bit in lst breaks the signature — a snapshot is tamper-evident.
+        import base64
+        import json
+        h, p, s = self.token.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        import zlib
+        arr = bytearray(zlib.decompress(base64.urlsafe_b64decode(
+            payload["status_list"]["lst"] + "==")))
+        arr[0] ^= 0b00000001                                     # revoke index 0
+        payload["status_list"]["lst"] = base64.urlsafe_b64encode(
+            zlib.compress(bytes(arr), 9)).rstrip(b"=").decode()
+        p2 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        res = verify_status_snapshot(f"{h}.{p2}.{s}", expected_uri=URI, index=0,
+                                     issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+
+    def test_red_issue_guards(self):
+        with self.assertRaises(BundleFormatError):
+            issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT, bits=3)
+        with self.assertRaises(BundleFormatError):
+            issue_status_list_token([2], uri=URI, signer=self.signer, iat=IAT, bits=1)
+        with self.assertRaises(BundleFormatError):
+            status_claim("", 0)
+        with self.assertRaises(BundleFormatError):
+            status_claim(URI, -1)
+
+    def test_sdjwt_carries_status_and_vct(self):
+        import base64
+        import json
+        from proofbundle.sdjwt_issue import DEFAULT_VCT, SD_JWT_TYP, issue_sd_jwt
+        issuer = generate_signer()
+        claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "s",
+                 "issuer": "ed25519:" + base64.b64encode(_raw(issuer)).decode()}
+        compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==",
+                               status=status_claim(URI, 4))
+        jwt = compact.split("~", 1)[0]
+        h, p, _ = jwt.split(".")
+        header = json.loads(base64.urlsafe_b64decode(h + "=" * (-len(h) % 4)))
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        self.assertEqual(header["typ"], SD_JWT_TYP)              # dc+sd-jwt marker
+        self.assertEqual(payload["vct"], DEFAULT_VCT)
+        self.assertEqual(payload["status"]["status_list"], {"idx": 4, "uri": URI})
+        # end-to-end: the pointed-at snapshot says INVALID for this receipt
+        res = verify_status_snapshot(self.token,
+                                     expected_uri=payload["status"]["status_list"]["uri"],
+                                     index=payload["status"]["status_list"]["idx"],
+                                     issuer_pubkey=self.pub)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["status_label"], "INVALID")
+
+
+if __name__ == "__main__":
+    unittest.main()

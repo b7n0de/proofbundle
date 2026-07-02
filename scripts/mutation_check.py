@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Orthogonal mutation suite — proves the tests still KILL broken implementations (v1.3).
+
+Anti-Goodhart guard: a green test suite only means something if it goes red when the code is
+broken. Each operator below mutates ONE independent fault dimension (binding, framing, key
+domain separation, quorum counting, fail-open, output truthfulness); the suite passes iff every
+non-equivalent mutant is KILLED (strictly more red than the unmutated baseline — the baseline may
+carry environment-only failures, so the comparison is differential, never absolute).
+
+Documented-equivalent mutants are asserted to SURVIVE — if one starts getting killed, the
+equivalence argument is stale and must be revisited (that is a failure too: honesty both ways).
+
+Usage:  python3 scripts/mutation_check.py            # exit 0 = all as expected, 1 = gap found
+CI:     runs in the mutation job (see .github/workflows/ci.yml).
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# (relative file, exact old text, new text, label, expect_killed)
+MUTATIONS = [
+    # v1.2 — KB-JWT / bundle / cosignature / CLI
+    ("src/proofbundle/kbjwt.py",
+     "if _b64url_nopad(h.digest()) != sd_hash:", "if False:",
+     "kbjwt: sd_hash binding disabled", True),
+    ("src/proofbundle/kbjwt.py",
+     'if kb_header.get("typ") != "kb+jwt":', "if False:",
+     "kbjwt: typ check disabled", True),
+    ("src/proofbundle/bundle.py",
+     "if kb is not None:", "if False:",
+     "bundle: KB check unwired", True),
+    ("src/proofbundle/checkpoint.py",
+     "_COSIG_V1_SIG_TYPE = 0x04", "_COSIG_V1_SIG_TYPE = 0x01",
+     "cosign: keyID domain separation removed", True),
+    ("src/proofbundle/checkpoint.py",
+     'return (_COSIG_V1_PREFIX + f"time {timestamp}\\n" + note_text).encode("utf-8")',
+     'return (_COSIG_V1_PREFIX + "time 0\\n" + note_text).encode("utf-8")',
+     "cosign: timestamp unbound from signature", True),
+    ("src/proofbundle/bundle.py",
+     'recomputed_b64 = base64.b64encode(recomputed).decode("ascii")',
+     "recomputed_b64 = stated_b64",
+     "cli --verbose: fake recomputed root", True),
+    # v1.3 — tlog-proof / ML-DSA / status list
+    ("src/proofbundle/tlogproof.py",
+     'inclusion_ok = hmac.compare_digest(computed, log_res["root"])',
+     "inclusion_ok = True",
+     "tlogproof: inclusion check disabled", True),
+    ("src/proofbundle/tlogproof.py",
+     'return {"ok": log_ok and witnesses_ok and inclusion_ok,',
+     'return {"ok": log_ok or witnesses_ok or inclusion_ok,',
+     "tlogproof: verdict conjunction -> disjunction", True),
+    ("src/proofbundle/checkpoint.py",
+     "_MLDSA_LABEL = b\"subtree/v1\\n\\x00\"", "_MLDSA_LABEL = b\"subtree/v2\\n\\x00\"",
+     "mldsa: domain separation label changed", True),
+    ("src/proofbundle/statuslist.py",
+     'if payload.get("sub") != expected_uri:', "if False:",
+     "statuslist: sub/uri binding disabled", True),
+    ("src/proofbundle/statuslist.py",
+     "return (bit_array[byte_i] >> (slot * bits)) & ((1 << bits) - 1)",
+     "return 0",
+     "statuslist: every status reads VALID", True),
+    # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
+    # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
+    ("src/proofbundle/checkpoint.py",
+     "if len(payload) != blob_len:", "if len(payload) < blob_len:",
+     "cosign: blob length exact -> lax (EQUIVALENT)", False),
+]
+
+
+def _red_count() -> int:
+    proc = subprocess.run(
+        [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+        cwd=ROOT, capture_output=True, text=True,
+        env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(Path.home())})
+    f = re.search(r"failures=(\d+)", proc.stderr)
+    e = re.search(r"errors=(\d+)", proc.stderr)
+    return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+
+
+def main() -> int:
+    baseline = _red_count()
+    print(f"baseline red (environment-only failures allowed): {baseline}")
+    gaps = 0
+    for rel, old, new, label, expect_killed in MUTATIONS:
+        path = ROOT / rel
+        src = path.read_text(encoding="utf-8")
+        if old not in src:
+            print(f"  GAP  [{label}] pattern not found — operator is stale")
+            gaps += 1
+            continue
+        backup = path.with_suffix(path.suffix + ".mutbak")
+        shutil.copy(path, backup)
+        try:
+            path.write_text(src.replace(old, new, 1), encoding="utf-8")
+            red = _red_count()
+            killed = red > baseline
+            ok = killed == expect_killed
+            verdict = "KILLED" if killed else "SURVIVED"
+            expected = "expected" if ok else "*** UNEXPECTED ***"
+            print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} (red={red}) {expected}")
+            if not ok:
+                gaps += 1
+        finally:
+            shutil.move(backup, path)
+    final = _red_count()
+    if final != baseline:
+        print(f"GAP: baseline not restored ({final} != {baseline})")
+        gaps += 1
+    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({len(MUTATIONS)} operators, {gaps} gap(s))")
+    return 0 if gaps == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

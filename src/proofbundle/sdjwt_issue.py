@@ -30,7 +30,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 SD_ALG = "sha-256"
+# sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
+# issuer payload, so the presenter MUST hash with the same algorithm (not a hardcoded sha256). Release-review fix.
+_HASH_BY_SD_ALG = {"sha-256": hashlib.sha256, "sha-384": hashlib.sha384, "sha-512": hashlib.sha512}
 _SALT_BYTES = 16  # 128 bit
+
+# SD-JWT VC syntactic markers (v1.3). draft-ietf-oauth-sd-jwt-vc is pre-IESG (draft-15) — we
+# adopt ONLY its four stable interop markers: header `typ: dc+sd-jwt` (media type
+# application/dc+sd-jwt; stable since the vc+sd-jwt rename), a `vct` type URI, the optional
+# `status` claim (Token Status List), and `cnf` (already present since v1.2). The type-metadata
+# resolution machinery is deliberately NOT implemented (network-bound, still churning).
+SD_JWT_TYP = "dc+sd-jwt"
+DEFAULT_VCT = "https://b7n0de.com/proofbundle/vct/eval-receipt/v1"
 
 
 def _b64url(data: bytes) -> str:
@@ -50,17 +61,39 @@ def _make_disclosure(name: str, value, salt_b64: str) -> tuple[str, str]:
 def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                  exact_score: Optional[str] = None, ci95: Optional[Sequence[str]] = None,
                  model_id_opening: Optional[Sequence] = None,
-                 dataset_id_opening: Optional[Sequence] = None) -> str:
+                 dataset_id_opening: Optional[Sequence] = None,
+                 holder_public_key: Optional[bytes] = None,
+                 vct: str = DEFAULT_VCT,
+                 status: Optional[dict] = None) -> str:
     """Issue a compact SD-JWT for the eval claim, signed with `signer` (must match claim['issuer']).
 
     Openings are (identifier, salt_hex) pairs the issuer may later reveal; `exact_score`/`ci95` are the
     withheld numeric detail. All extras are selectively-disclosable; the pass/threshold facts are open.
+
+    `holder_public_key` (raw 32-byte Ed25519, v1.2) binds a holder key via the `cnf.jwk` claim
+    (RFC 7800), enabling Key Binding JWT presentations verified by :mod:`proofbundle.kbjwt`.
+
+    v1.3 (SD-JWT VC markers): the header `typ` is ``dc+sd-jwt`` and the payload carries a `vct`
+    type URI (override per profile). `status` (build via
+    :func:`proofbundle.statuslist.status_claim`) points the receipt into a Token Status List;
+    verifying a bundled list snapshot lives in :mod:`proofbundle.statuslist`.
     """
     always_open = {
         "passed": claim["passed"], "threshold": claim["threshold"],
         "comparator": claim["comparator"], "suite": claim["suite"],
         "issuer": claim["issuer"], "receipt": {"root_b64": root_b64},
+        "vct": vct,
     }
+    if status is not None:
+        if not isinstance(status, dict) or "status_list" not in status:
+            raise ValueError("status must be a dict with a status_list member "
+                             "(use proofbundle.statuslist.status_claim)")
+        always_open["status"] = status
+    if holder_public_key is not None:
+        if len(holder_public_key) != 32:
+            raise ValueError("holder_public_key must be a raw 32-byte Ed25519 public key")
+        always_open["cnf"] = {"jwk": {"kty": "OKP", "crv": "Ed25519",
+                                      "x": _b64url(holder_public_key)}}
     disclosures: list[str] = []
     sd_digests: list[str] = []
 
@@ -83,13 +116,40 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         payload["_sd"] = sd_digests
         payload["_sd_alg"] = SD_ALG
 
-    header = {"alg": "EdDSA", "typ": "sd-jwt"}
+    header = {"alg": "EdDSA", "typ": SD_JWT_TYP}
     signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(json.dumps(payload).encode("utf-8"))
     signature = signer.sign(signing_input.encode("ascii"))
     jwt = signing_input + "." + _b64url(signature)
 
     # compact: JWT ~ disclosure1 ~ ... ~ (trailing tilde, no key-binding JWT in v0.5)
     return "~".join([jwt, *disclosures]) + "~"
+
+
+def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
+                             aud: str, nonce: str, iat: int) -> str:
+    """Append a Key Binding JWT to a compact SD-JWT presentation (RFC 9901 §4.3, v1.2).
+
+    ``compact`` must end with ``~`` (no KB yet); the holder signs over its own header/payload,
+    where ``sd_hash`` commits to the exact presented ``JWT~disclosures...~`` ASCII bytes with the
+    SD-JWT's ``_sd_alg`` hash — so dropping or swapping a disclosure after signing is detectable.
+    ``iat`` is the POSIX issuance time chosen by the holder (explicit, not sampled here, so
+    presentations are reproducible in tests).
+    """
+    if not compact.endswith("~"):
+        raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")
+    if isinstance(iat, bool) or not isinstance(iat, int):
+        raise ValueError("iat must be a POSIX timestamp integer")
+    # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
+    # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).
+    sd_alg = _jwt_payload(compact).get("_sd_alg", SD_ALG)
+    if sd_alg not in _HASH_BY_SD_ALG:
+        raise ValueError(f"unsupported _sd_alg {sd_alg!r} in the presented SD-JWT")
+    sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
+    header = {"alg": "EdDSA", "typ": "kb+jwt"}
+    payload = {"iat": iat, "aud": aud, "nonce": nonce, "sd_hash": sd_hash}
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(json.dumps(payload).encode("utf-8"))
+    signature = holder_signer.sign(signing_input.encode("ascii"))
+    return compact + signing_input + "." + _b64url(signature)
 
 
 def issuer_matches(claim: dict, signer: Ed25519PrivateKey) -> bool:

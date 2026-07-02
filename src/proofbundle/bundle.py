@@ -27,10 +27,24 @@ from typing import Union
 
 from . import merkle
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
+from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
 
-__all__ = ["SCHEMA", "verify_bundle", "load_bundle"]
+__all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64"]
+
+
+def _issuer_requires_holder_binding(sd_part: str) -> bool:
+    """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
+    issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
+    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible)."""
+    try:
+        issuer_jwt = sd_part.split("~", 1)[0]
+        payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
+        return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
+    except Exception:
+        return False
 
 SCHEMA = "proofbundle/v0.1"
 
@@ -82,8 +96,15 @@ def load_bundle(path: str) -> dict:
         return json.load(handle)
 
 
-def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
-    """Verify an evidence bundle (a dict or a path to a JSON file)."""
+def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None) -> VerificationResult:
+    """Verify an evidence bundle (a dict or a path to a JSON file).
+
+    ``expected_aud`` / ``expected_nonce`` (v1.3): when the bundle carries a Key Binding JWT, these enforce
+    RFC 9901 §7.3 replay/audience binding — the KB-JWT's ``aud`` MUST match ``expected_aud`` and its
+    ``nonce`` MUST match ``expected_nonce``. If omitted, the KB-JWT signature + disclosure binding are still
+    checked, but the relying party has NOT bound the presentation to itself/this transaction — a stale or
+    cross-audience replay would still verify. A relying party doing challenge-response MUST pass both.
+    """
     if isinstance(bundle, str):
         bundle = load_bundle(bundle)
     if not isinstance(bundle, dict):
@@ -134,6 +155,8 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
         sd = _require_dict(sd, "sd_jwt_vc")
         _reject_unknown(sd, _SD_KEYS, "sd_jwt_vc")
         compact = _require(sd, "compact", "sd_jwt_vc.compact")
+        if not isinstance(compact, str):   # malformed input → BundleFormatError, never a raw traceback
+            raise BundleFormatError("field sd_jwt_vc.compact must be a string")
         issuer_pub = None
         if sd.get("issuer_public_key_b64"):
             issuer_pub = _b64d(sd["issuer_public_key_b64"], "sd_jwt_vc.issuer_public_key_b64")
@@ -145,5 +168,64 @@ def verify_bundle(bundle: Union[dict, str]) -> VerificationResult:
                 sd_res["sig_ok"],
                 "issuer signature valid" if sd_res["sig_ok"] else "issuer signature invalid",
             )
+        # v1.2/v1.3, fail-closed: a KB-JWT that is PRESENT must verify (RFC 9901 §4.3), AND if the issuer
+        # bound a `cnf` holder key (proof-of-possession REQUIRED) a presentation with NO KB-JWT is a bearer
+        # downgrade — anyone who sees the disclosed SD-JWT could replay it — so that MUST fail. expected_aud/
+        # expected_nonce (v1.3) enforce RFC 9901 §7.3 replay/audience binding when the relying party supplies
+        # them. Bundles issued without `cnf` and with no KB-JWT verify exactly as before (backward-compatible).
+        #
+        # The holder-binding check is only MEANINGFUL when the issuer signature was actually verified: the `cnf`
+        # holder key is declared INSIDE the issuer-signed JWT, so without a checked issuer signature an attacker
+        # could forge the whole SD-JWT (issuer JWT + cnf + matching KB-JWT). Only run it when the issuer
+        # public key was supplied AND its signature verified (release-review HIGH fix) — otherwise the SD-JWT is
+        # unauthenticated and no holder-binding claim over it can be trusted.
+        if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
+            sd_part, kb = split_key_binding(compact)
+            if kb is not None:
+                kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce)
+                result.add("sd-jwt-key-binding", kb_res["ok"], kb_res["detail"])
+            elif _issuer_requires_holder_binding(sd_part):
+                result.add(
+                    "sd-jwt-key-binding", False,
+                    "issuer bound a holder key (cnf) but the presentation carries NO Key Binding JWT — "
+                    "required proof-of-possession is missing (bearer downgrade, RFC 9901 §4.3)")
 
     return result
+
+
+def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
+    """Recompute the Merkle root from the bundle's own payload + inclusion proof (v1.2, issue #2).
+
+    Debugging aid for ``proofbundle verify --verbose``: returns
+    ``{"stated_b64": ..., "recomputed_b64": ...}`` where ``recomputed_b64`` is None when the
+    proof cannot be evaluated (e.g. index out of range, proof too short/long). Performs the
+    same strict format validation as :func:`verify_bundle` — malformed input raises
+    ``BundleFormatError``, never a raw traceback.
+    """
+    if isinstance(bundle, str):
+        bundle = load_bundle(bundle)
+    if not isinstance(bundle, dict):
+        raise BundleFormatError("bundle must be a JSON object")
+    payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
+    mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
+    # Validate hash_alg the same way verify_bundle does — recompute must not apply SHA-256/RFC-6962 primitives
+    # to a bundle that declares a different algorithm (audit LOW #11/#14).
+    hash_alg = mk.get("hash_alg", "sha256-rfc6962")
+    if hash_alg != "sha256-rfc6962":
+        raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
+    leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
+    tree_size = _require_int(mk, "tree_size", "merkle.tree_size")
+    proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")
+    if not isinstance(proof_list, list):
+        raise BundleFormatError("field merkle.inclusion_proof_b64 must be a list")
+    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
+    # Display the stated root in CANONICAL base64 (re-encode from the decoded bytes), so a non-canonical but
+    # byte-equal stated root does not read as a spurious mismatch next to the canonical recomputed root (LOW #10/#15).
+    stated_b64 = base64.b64encode(_b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")).decode("ascii")
+    try:
+        recomputed = merkle.root_from_inclusion(
+            leaf_index, tree_size, merkle.leaf_hash(payload), proof)
+        recomputed_b64 = base64.b64encode(recomputed).decode("ascii")
+    except ValueError as exc:
+        return {"stated_b64": stated_b64, "recomputed_b64": None, "detail": str(exc)}
+    return {"stated_b64": stated_b64, "recomputed_b64": recomputed_b64, "detail": ""}

@@ -8,9 +8,11 @@
 <h1>proofbundle</h1>
 
 **An offline verifier for AI eval receipts. Standards-native: Ed25519 signature,
-RFC 6962 transparency-log Merkle anchoring, optional SD-JWT (RFC 9901) selective
-disclosure, aligned to the in-toto test-result predicate. One portable JSON file,
-no server, no network.**
+RFC 6962 transparency-log Merkle anchoring, C2SP witnessed checkpoints and
+`.tlog-proof` transparent signatures (post-quantum-ready witnesses, ML-DSA-44),
+SD-JWT (RFC 9901) selective disclosure with Key Binding, Token-Status-List
+revocation snapshots, aligned to the in-toto test-result predicate. One portable
+file, no server, no network.**
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg?color=D6248A&cacheSeconds=3600)](https://pypi.org/project/proofbundle/)
@@ -20,6 +22,9 @@ no server, no network.**
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![SLSA build provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev)
 [![PyPI attestations](https://img.shields.io/badge/PyPI-attestations_(PEP_740)-D6248A.svg)](https://pypi.org/project/proofbundle/)
+[![Post-quantum witnesses](https://img.shields.io/badge/PQ-ML--DSA--44_cosignatures-D6248A.svg)](https://github.com/C2SP/C2SP/blob/main/tlog-cosignature.md)
+[![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](scripts/mutation_check.py)
+[![C2SP tlog-proof](https://img.shields.io/badge/C2SP-tlog--proof-D6248A.svg)](https://github.com/C2SP/C2SP/blob/main/tlog-proof.md)
 <!-- DOI badge placeholder: enable Zenodo archiving for this repo, then add the Zenodo concept-DOI
      badge here (and the DOI to CITATION.cff) once Zenodo assigns one on the next release. No DOI has
      been assigned yet (no archived record exists at build time) — tracked in the human checklist. -->
@@ -28,11 +33,12 @@ no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 102 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 188 tests + a CI mutation gate.
 
 ## Contents
 
 - [Why](#why)
+- [What a receipt proves](#what-a-receipt-proves-and-what-it-does-not)
 - [What it verifies](#what-it-verifies)
 - [How it fits together](#how-it-fits-together)
 - [Install](#install)
@@ -43,6 +49,7 @@ checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 102 tests.
 - [Bundle format](#bundle-format-proofbundlev01)
 - [Eval receipts](#eval-receipts)
 - [Security notes and scope](#security-notes-and-scope-stated-honestly)
+- [Compliance](#compliance)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -103,6 +110,12 @@ A bundle is a single JSON document. `proofbundle` checks, offline:
    Certificate Transparency)
 3. **sd-jwt** (optional) — an embedded SD-JWT selective-disclosure credential is
    well formed, and if an issuer key is given, correctly issuer-signed
+4. **sd-jwt-key-binding** (optional, v1.2) — if the SD-JWT carries a Key Binding
+   JWT (RFC 9901 §4.3), it is verified **fail-closed**: `typ` is `kb+jwt`,
+   `iat`/`aud`/`nonce`/`sd_hash` are present, `sd_hash` binds the exact presented
+   disclosure set, and the signature verifies under the issuer-bound `cnf.jwk`
+   holder key. A present-but-broken KB-JWT fails the bundle — it is never
+   silently ignored.
 
 The verifier treats the payload as opaque bytes. It proves that these exact
 bytes were signed and anchored, not what they mean. That is on purpose: it keeps
@@ -115,16 +128,18 @@ flowchart LR
     P["payload bytes"]
     P -->|"Ed25519 sign"| S["signature"]
     P -->|"RFC 6962 anchor"| M["Merkle inclusion proof"]
-    SD["SD-JWT VC (optional)"] -.-> B
+    SD["SD-JWT VC + KB-JWT (optional)"] -.-> B
     S --> B["bundle.json"]
     M --> B
     B --> V{{"proofbundle verify"}}
     V --> C1["ed25519-signature"]
     V --> C2["merkle-inclusion"]
     V --> C3["sd-jwt (optional)"]
+    V --> C4["key binding (optional)"]
     C1 --> R{"all checks pass?"}
     C2 --> R
     C3 --> R
+    C4 --> R
     R -->|yes| OK(["=> OK &nbsp; exit 0"])
     R -->|no| FAIL(["=> FAILED &nbsp; exit 1"])
 
@@ -161,13 +176,21 @@ proofbundle verify examples/example_bundle.json
 ```
 
 <div align="center">
-<img src="assets/demo.svg" alt="proofbundle verify output: four PASS checks and OK" width="680">
+<img src="assets/demo.svg" alt="proofbundle verify output: PASS checks and OK" width="680">
 </div>
 
 Machine-readable output and a non-zero exit code on failure:
 
 ```bash
 proofbundle verify --json bundle.json   # exit 0 = ok, 1 = failed, 2 = malformed
+```
+
+Debugging an inclusion proof (v1.2): `--verbose` prints the recomputed Merkle
+root next to the stated root, so a `FAIL` shows *which* root your payload
+actually anchors to:
+
+```bash
+proofbundle verify --verbose bundle.json
 ```
 
 Emit a bundle of your own (v0.2): sign a payload with a fresh key and anchor it,
@@ -244,6 +267,48 @@ vectors vendored from
 [transparency-dev/merkle](https://github.com/transparency-dev/merkle) (see
 `tests/fixtures/`), plus Hypothesis property tests.
 
+Since v1.2 proofbundle also speaks the witness layer:
+[C2SP tlog-cosignature](https://github.com/C2SP/C2SP/blob/main/tlog-cosignature.md)
+(Ed25519 cosignature/v1) — `verify_witnessed_checkpoint` checks a checkpoint is
+both log-signed **and** cosigned by a quorum of distinct witnesses, offline,
+which rules out a split view by the log operator. This is the same
+witnessed-checkpoint pattern Rekor v2 (GA October 2025) institutionalizes.
+
+Since v1.3 the witness layer is complete: **ML-DSA-44 cosignatures** (C2SP type
+0x06, FIPS 204 — post-quantum, the spec's SHOULD for new witness deployments;
+optional `proofbundle[pq]` extra, Ed25519 stays the default) and the
+**[C2SP tlog-proof](https://github.com/C2SP/C2SP/blob/main/tlog-proof.md)** file
+format (`.tlog-proof`) — index + inclusion proof + (co)signed checkpoint in one
+portable, offline-verifiable "transparent signature":
+
+```bash
+proofbundle verify-proof receipt.tlog-proof --payload-file result.json \
+    --log-vkey <log-vkey> --witness-vkey <w1> --witness-vkey <w2> --threshold 2
+```
+
+Revocation joins the offline model too: a receipt SD-JWT can carry a Token
+Status List `status` claim, checked against a signed, **bundled list snapshot**
+(`proofbundle.statuslist`) — staleness is reported explicitly instead of
+assumed away.
+
+```mermaid
+flowchart LR
+    B["bundle.json<br/>(signed + anchored receipt)"] --> CK["tlog-checkpoint<br/>(signed note over the root)"]
+    CK --> W1["witness cosignature<br/>Ed25519 · 0x04"]
+    CK --> W2["witness cosignature<br/>ML-DSA-44 · 0x06 · PQ"]
+    B -->|"index + inclusion proof"| TP[".tlog-proof<br/>transparent signature"]
+    W1 --> TP
+    W2 --> TP
+    TP --> V{{"proofbundle verify-proof<br/>offline · k-of-n policy"}}
+    V --> R1["log signature"]
+    V --> R2["witness quorum"]
+    V --> R3["merkle inclusion"]
+
+    style V fill:#D6248A,stroke:#D6248A,color:#fff
+    style W2 fill:#1e2327,stroke:#D6248A,color:#fff
+    style TP fill:#1e2327,stroke:#D6248A,color:#fff
+```
+
 ## Bundle format (`proofbundle/v0.1`)
 
 The format is specified normatively in [SPEC.md](SPEC.md) (fields, encodings,
@@ -267,23 +332,37 @@ RFC 6962 hashing, verification order) with a machine-readable JSON Schema at
 ```
 
 `sd_jwt_vc` is optional. Base64 fields are standard base64; the SD-JWT compact
-string uses base64url as per the spec.
+string uses base64url as per the spec. The compact string MAY end in a Key
+Binding JWT (instead of the trailing `~`), which is then verified (v1.2).
 
 ## Security notes and scope, stated honestly
 
 The scope is deliberately narrow. It does exactly what it says and no more:
 
-- Ed25519 signatures only, for both the payload and the optional SD-JWT issuer
-  signature.
+- Ed25519 signatures only, for the payload, the optional SD-JWT issuer
+  signature, and the optional KB-JWT holder signature.
 - SD-JWT: the SD-JWT core is now [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/)
   (November 2025); this verifies that every presented disclosure is committed in the
-  issuer-signed payload, and the issuer signature (EdDSA) if a key is supplied. It
-  does **not** verify a Key Binding JWT, an X.509 or trust-list chain, status
-  lists, or `vct` type metadata. **SD-JWT VC** (the credential-type profile) is
-  still an IETF draft ([draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/));
+  issuer-signed payload, the issuer signature (EdDSA) if a key is supplied, and — since
+  v1.2, fail-closed — a Key Binding JWT if one is attached (RFC 9901 §4.3: `kb+jwt`
+  typ, required `iat`/`aud`/`nonce`/`sd_hash`, `sd_hash` over the presented disclosure
+  set, holder signature under the issuer-bound `cnf.jwk`). `aud`/`nonce` *values* and
+  `iat` freshness are relying-party policy (an offline verifier has no trusted clock);
+  pass `expected_aud`/`expected_nonce` to `verify_key_binding` to enforce them. It does
+  **not** verify an X.509 or trust-list chain, status lists, or `vct` type metadata.
+  **SD-JWT VC** (the credential-type profile) is still an IETF draft
+  ([draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/));
   full VC conformance is on the roadmap.
+- Witness cosignatures (v1.2) prove consistency *observations* by the listed
+  witnesses; real split-view resistance additionally requires the witnesses to be
+  operationally independent — a deployment property no file format can supply.
+- Post-quantum: witness **cosignatures** may be ML-DSA-44 (v1.3, `[pq]` extra) — the layer where
+  the ecosystem (C2SP, Sigstore) is deploying PQ first. Primary signatures stay Ed25519 until the
+  ecosystem moves; a configured ML-DSA witness on a build without PQ support fails closed.
+- Revocation (v1.3) is checked against a SIGNED status-list snapshot the relying party supplies;
+  its freshness is reported and only judged against the caller's clock — never assumed.
 - The verifier does not fetch anything. Trust anchors (the signer key, the
-  expected root) are inputs you supply out of band.
+  expected root, witness keys) are inputs you supply out of band.
 - No custom cryptography. Ed25519 comes from `cryptography`; Merkle hashing is
   RFC 6962.
 
@@ -359,13 +438,17 @@ threshold was met without revealing the model or the data. See [INTEROP.md](INTE
   in-toto verifier understands it. Alongside the self-hosted-predicate `to_intoto_statement` (see
   [PREDICATE.md](PREDICATE.md)). Metric details live in `annotations` (test-result has no native metric
   field); the model/dataset stay salted commitments, never `sha256`.
-- **C2SP tlog-checkpoint** (v0.9) — `proofbundle.checkpoint.sign_checkpoint(origin, tree_size, root, …)`
-  emits a valid [C2SP](https://github.com/C2SP/C2SP/blob/main/tlog-checkpoint.md) signed note over the
-  RFC 6962 Merkle root, making a receipt witness-network / transparency-log compatible. Pure serialization
-  over the Ed25519 key already in use — no new crypto.
-- **SD-JWT issuance** (RFC 9901, verified Nov 2025) — `proofbundle.sdjwt_issue.issue_sd_jwt(claim, signer,
-  root_b64=…, exact_score=…)` issues the receipt so a holder can disclose `passed` +
-  `threshold` while **withholding the exact score** and the identifier openings. The digest mechanic is
+- **C2SP tlog-checkpoint + cosignatures** (v0.9/v1.2) — `proofbundle.checkpoint.sign_checkpoint(origin,
+  tree_size, root, …)` emits a valid [C2SP](https://github.com/C2SP/C2SP/blob/main/tlog-checkpoint.md)
+  signed note over the RFC 6962 Merkle root; `cosign_checkpoint` / `verify_witnessed_checkpoint` add and
+  check Ed25519 cosignature/v1 witness cosignatures with a quorum threshold, making a receipt
+  witness-network / transparency-log compatible. Pure serialization over the Ed25519 keys already in use
+  — no new crypto.
+- **SD-JWT issuance + Key Binding** (RFC 9901) — `proofbundle.sdjwt_issue.issue_sd_jwt(claim, signer,
+  root_b64=…, exact_score=…, holder_public_key=…)` issues the receipt so a holder can disclose `passed` +
+  `threshold` while **withholding the exact score** and the identifier openings, optionally binding a
+  holder key via `cnf.jwk`; `present_with_key_binding` builds the holder presentation and
+  `proofbundle.kbjwt.verify_key_binding` verifies it (v1.2). The digest mechanic is
   RFC 9901 §4.2.3 (base64url of SHA-256 over the base64url-encoded Disclosure), cross-checked against the
   `sd-jwt-python` reference.
 The signed bundle payload is always the source of truth; the SD-JWT and the in-toto export are derived,
@@ -373,6 +456,16 @@ bundle-bound views.
 
 Every release ships **PEP 740 attestations** (Trusted Publishing) + an SLSA build-provenance
 attestation — see [SECURITY.md](SECURITY.md).
+
+## Compliance
+
+The EU AI Act's record-keeping duty for high-risk systems (Article 12 — automatic,
+tamper-evident, independently verifiable logs) applies from **August 2, 2026**;
+the GPAI Code of Practice expects documented, credible model evaluations.
+**[COMPLIANCE.md](COMPLIANCE.md)** maps — honestly, and without claiming more
+than the cryptography supports — what a verified receipt covers under Article 12,
+NIST AI RMF MEASURE, and the logging standards in flight (prEN 18229-1,
+ISO/IEC DIS 24970), including the anti-patterns no one should claim.
 
 ## Roadmap
 
@@ -392,10 +485,21 @@ attestation — see [SECURITY.md](SECURITY.md).
   the RFC 6962 root, an Every Eval Ever converter, and standards-native repositioning.
 - **v1.0** — distribution: opt-in framework integrations that auto-emit a signed receipt of an inspect_ai
   eval (end-of-task hook) or a pytest run (pytest11 plugin), plus a composite GitHub Action.
-- **v1.1 (current release)** — trust hardening: a signed `assurance_level`, a THREAT_MODEL, a self_attested-
+- **v1.1** — trust hardening: a signed `assurance_level`, a THREAT_MODEL, a self_attested-
   without-prereg warning, model-swap + replay + withheld-field checks, and an adversarial No-Fake-PASS suite.
-- **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
-  Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
+- **v1.2** — holder binding + witness quorum: **Key Binding JWT** verification
+  (RFC 9901 §4.3, fail-closed; closes #1) with `cnf.jwk` issuance and holder presentation, **C2SP
+  tlog-cosignature** verification (Ed25519 cosignature/v1, witness quorum, split-view resistance), and
+  `verify --verbose` with the recomputed Merkle root (closes #2).
+- **v1.3 (current release)** — the portable proof: **C2SP tlog-proof** emit/verify (+
+  `verify-proof` CLI), **ML-DSA-44** witness cosignatures (post-quantum, `[pq]` extra), **Token
+  Status List** snapshot verification (offline revocation), SD-JWT VC markers (`dc+sd-jwt`,
+  `vct`, `status`), COMPLIANCE.md (EU AI Act Art. 12 / NIST AI RMF mapping), and the mutation
+  suite as a CI gate.
+- **Deferred** (explicitly not yet built) — full SD-JWT VC conformance + `vct` type-metadata
+  resolution (pre-IESG), per-sample Merkle receipts (the THREAT_MODEL's named gap; v2.0
+  direction), an official in-toto eval predicate (proposal path via OpenSSF/CoSAI), a full
+  in-toto client, a Python-3.10 floor.
 
 ## Contributing
 
