@@ -224,9 +224,9 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
         raise BundleFormatError("bundle must be a JSON object")
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
-    # Validate hash_alg the same way verify_bundle does — recompute must not apply SHA-256/RFC-6962 primitives
-    # to a bundle that declares a different algorithm (audit LOW #11/#14).
-    hash_alg = mk.get("hash_alg", "sha256-rfc6962")
+    # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted (release-review #13:
+    # the docstring claimed strict-as-verify_bundle but this defaulted a missing hash_alg; verify_bundle _require's it).
+    hash_alg = _require(mk, "hash_alg", "merkle.hash_alg")
     if hash_alg != "sha256-rfc6962":
         raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
     leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")

@@ -245,7 +245,12 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     """Verify the bundle, then check the signing key matches the claim's `issuer` field.
 
     Returns the parsed claim on success, None on any failure. Dependency-free (no JCS import):
-    it re-reads the exact stored payload bytes that verify_bundle already authenticated.
+    it parses the exact in-memory payload bytes that verify_bundle already authenticated.
+
+    A str ``bundle`` is a PATH. It is resolved to a dict EXACTLY ONCE, before verification, and the
+    same object is both verified and parsed — a second re-read of the path would be a TOCTOU (CWE-367)
+    file-race window (a swap between the two reads could return content whose signature was never
+    checked). Release-review fix 2026-07-02.
 
     v1.6 verify-side invariants (external review: guarantees must hold on the VERIFY path, not
     only in the blessed emitter): when the claim carries ``samples``, its shape, 32-byte root,
@@ -254,11 +259,11 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     ``context_binding`` field (cross-context replay guard): if supplied and the claim's binding
     is absent or different, the claim is rejected.
     """
+    if isinstance(bundle, str):
+        bundle = load_bundle(bundle)   # resolve the PATH to a dict ONCE — verify + parse the SAME bytes (no TOCTOU re-read)
     result = verify_bundle(bundle)
     if not result.ok:
         return None
-    if isinstance(bundle, str):
-        bundle = load_bundle(bundle)   # a str is a PATH (consistent with verify_bundle)
     try:
         payload = base64.b64decode(bundle["payload_b64"])
         claim = load_claim_text(payload.decode("utf-8"))
@@ -276,7 +281,10 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             if samples.get("leaf_alg") != "sha256-rfc6962-sdjwt-v1":
                 return None
             s_n = samples.get("n")
-            if isinstance(s_n, bool) or not isinstance(s_n, int) or s_n != claim.get("n"):
+            c_n = claim.get("n")
+            # type-check BOTH sides (release-review #8): a bool/non-int claim.n must not slip through the equality
+            if (isinstance(s_n, bool) or not isinstance(s_n, int)
+                    or isinstance(c_n, bool) or not isinstance(c_n, int) or s_n != c_n):
                 return None
             if len(base64.b64decode(samples["root_b64"], validate=True)) != 32:
                 return None

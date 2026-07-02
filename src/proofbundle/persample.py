@@ -116,6 +116,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
         raise BundleFormatError("cannot commit an empty sample set")
     disclosures: List[str] = []
     leaves: List[bytes] = []
+    prev_key = None
     for i, rec in enumerate(records):
         if not isinstance(rec, dict):
             raise BundleFormatError(f"record {i} is not a JSON object")
@@ -125,6 +126,17 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
                 f"record {i} carries idx={rec['idx']!r} — indices are assigned by the tree "
                 "builder from canonical order, never by the caller")
         rec["idx"] = i
+        # Enforce the documented canonical (id, epoch) order (release-review #7/#10): the producer has NO ordering
+        # freedom, so reject records that are not already sorted — otherwise the invariant is only a comment. id is
+        # compared as a string (stable across int/str ids), epoch as int; a non-integer epoch is rejected.
+        try:
+            key = (str(rec.get("id", i)), int(rec.get("epoch", 1)))
+        except (TypeError, ValueError) as exc:
+            raise BundleFormatError(f"record {i} has a non-integer epoch") from exc
+        if prev_key is not None and key < prev_key:
+            raise BundleFormatError(
+                f"record {i} breaks canonical (id, epoch) order — sort records before commitment")
+        prev_key = key
         salt = derive_leaf_salt(tree_secret, rec.get("id", i), int(rec.get("epoch", 1)))
         d = make_disclosure(rec, salt)
         disclosures.append(d)

@@ -36,12 +36,13 @@ not *correctness of the computation*.)
   metrics + sample count), not per-sample. A verifier-forced random sample check would need a per-sample
   Merkle binding: **shipped in v1.5** (``samples`` commitment + opening/audit protocol, SPEC §7g).
   What v1.5 actually closes and what remains, stated precisely: a signed samples root makes
-  post-hoc sample swaps, count lies (signature binds n) and selective re-reporting DETECTABLE
-  under a k-of-n spot check with soundness 1−(1−m)^k. It does NOT prevent a producer from
-  running many full evals and signing only the best one (pre-registration remains the answer),
-  and self-challenge mode is grindable by re-salting (documented bound; real audits use an
-  auditor nonce or a public beacon). Every opened sample is burned — openings are
-  auditor-directed, never public.
+  **post-hoc sample swaps** and **count lies** (the signature binds n, so claiming n while committing
+  fewer is caught) DETECTABLE under a k-of-n spot check with soundness 1−(1−m)^k. It does NOT detect a
+  producer who **drops unfavorable samples BEFORE committing** and honestly signs the truthfully-smaller
+  n — those samples leave no trace in the root; that is the same trust class as running many full evals
+  and signing only the best one, and **pre-registration remains the only answer** to both. Self-challenge
+  mode is grindable by re-salting (documented bound; real audits use an auditor nonce or a public
+  beacon). Every opened sample is burned — openings are auditor-directed, never public.
 
 ## Assurance levels (weakest → strongest)
 

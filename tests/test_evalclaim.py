@@ -39,6 +39,36 @@ class TestEvalClaim(unittest.TestCase):
         self.assertEqual(decoded["suite"], "safety-refusal")
         self.assertTrue(decoded["passed"])
 
+    def test_decode_reads_path_once_no_toctou(self):
+        # CRITICAL (release review): decode_eval_claim(path) must resolve the path to a dict EXACTLY ONCE and
+        # verify + parse the SAME object. A second re-read is a TOCTOU (CWE-367) file-race window that could return
+        # content whose signature was never checked. Pin the read count so the double-read cannot silently return.
+        import os
+        import tempfile
+        from unittest import mock
+
+        import proofbundle.evalclaim as ec
+        signer = generate_signer()
+        claim, _ = _claim(signer)
+        bundle = emit_eval_receipt(claim, signer)
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(bundle, fh)
+        try:
+            real = ec.load_bundle
+            calls = {"n": 0}
+
+            def _counting(p):
+                calls["n"] += 1
+                return real(p)
+            with mock.patch.object(ec, "load_bundle", _counting):
+                decoded = ec.decode_eval_claim(path)
+            self.assertIsNotNone(decoded)
+            self.assertEqual(calls["n"], 1, "decode_eval_claim must read the path exactly once (no TOCTOU re-read)")
+        finally:
+            os.unlink(path)
+
     def test_determinism_emoji_and_nfc(self):
         # A key beyond the BMP + NFC content must canonicalize identically twice.
         c = {"schema": "x", "\U0001F600z": "café"}  # NFD 'é'

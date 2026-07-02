@@ -5,7 +5,7 @@ it has no cryptography. This converter is strictly additive: it reads an EEE agg
 signed, selectively-disclosable proofbundle receipt from it.
 
 IMPORTANT: `every_eval_ever` is NOT imported at runtime — it requires Python 3.12+ (pydantic/numpy/pandas/
-duckdb), while proofbundle stays 3.9+. We parse the EEE JSON directly and OPTIONALLY validate it against the
+duckdb), while proofbundle stays 3.10+. We parse the EEE JSON directly and OPTIONALLY validate it against the
 vendored `eee_eval_schema.json` (schema version 0.2.2, MIT) using `jsonschema` if available.
 
 Field mapping (verified 2026-07 against schemas/eval.schema.json v0.2.2):

@@ -36,7 +36,7 @@ file, no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 254 tests + a CI mutation gate.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 257 tests + a CI mutation gate.
 
 ## Contents
 
@@ -522,12 +522,20 @@ ISO/IEC DIS 24970), including the anti-patterns no one should claim.
   `.eval_results` `verifyToken` field + a strict YAML entry emitter — proofbundle-verifiable,
   explicitly NOT the HF-internal badge token), `hf-token` CLI, and the **Python 3.10+ floor**
   (3.9 is EOL since 2025-10).
-- **v1.5 (current release)** — per-sample receipts: a signed **Merkle commitment over every
+- **v1.5** — per-sample receipts: a signed **Merkle commitment over every
   individual sample** (`samples` claim field, SPEC §7g), salted per-leaf disclosures (RFC 9901
   mechanic), **sample openings** with replay guards, and a **spot-check audit protocol**
   (`audit-challenge` / `verify-opening` CLI; auditor-nonce, beacon, and documented-grindable
-  self-challenge modes; PoR soundness 1−(1−m)^k) — closing the THREAT_MODEL's sub-sampling gap.
+  self-challenge modes; PoR soundness 1−(1−m)^k) — narrowing the THREAT_MODEL's sub-sampling gap.
   Extractors for lm-eval `--log_samples` JSONL and promptfoo rows.
+- **v1.6** — external principal-security review fixes: verify-side sample/`leaf_alg`/root invariants
+  and signed `context_binding` enforcement (was signed but unchecked), status-list freshness
+  (`exp`/`ttl` None-safe), `merkle.hash_alg` now required; Beta classifier; 26-operator mutation gate.
+- **v1.6.1** — developer experience: `proofbundle demo` (pip-only, fail-closed tamper smoke test), a
+  runnable per-sample example, `docs/DEMO.md`.
+- **v1.7 (current release)** — release supply-chain hardening: `release.yml` builds once and
+  publishes the **attested** bytes (sha256 gate: attested == published), a reviewer-gated `pypi`
+  environment, least-privilege permissions, SHA-pinned actions, `RELEASE.md` + `docs/REVIEWERS.md`.
 - **Deferred** (explicitly not yet built, stated honestly) — full SD-JWT VC conformance + `vct`
   type-metadata resolution (pre-IESG), an official in-toto eval predicate (proposal path via
   OpenSSF/CoSAI), and a full in-toto client.

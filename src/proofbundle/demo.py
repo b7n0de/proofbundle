@@ -39,7 +39,10 @@ def _honest_receipt() -> Tuple[dict, object]:
         comparator=">=", threshold="0.80", score="0.91", n=250,
         model_id="demo-model-v3", dataset_id="demo-benchmark",
         issuer="", timestamp="2026-07-02T12:00:00Z", prereg_sha256="a" * 64)
-    return emit_eval_receipt(claim, signer), signer
+    # Anchor in a MULTI-leaf tree (release-review #9): with prior leaves the tree_size > 1, so the
+    # `leaf-index shift` tamper lands on an IN-RANGE slot and is caught by genuine RFC 6962 hash-path
+    # recomputation (a recomputed root that no longer matches), not merely by the out-of-range guard.
+    return emit_eval_receipt(claim, signer, prior_leaves=[b"prior-a", b"prior-b", b"prior-c"]), signer
 
 
 def _tampers() -> List[Tuple[str, Callable[[dict], dict]]]:

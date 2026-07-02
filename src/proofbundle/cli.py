@@ -48,11 +48,15 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 
 
 def _cmd_show_eval(args: argparse.Namespace) -> int:
+    from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
         DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, sd_jwt_hidden_count,
     )
     try:
-        claim = decode_eval_claim(args.receipt)
+        # Resolve the path to a dict ONCE and pass that object to every reader — a second per-function re-read of
+        # the same path would reopen a TOCTOU window (CWE-367) between the reads. Release-review fix 2026-07-02.
+        bundle = load_bundle(args.receipt)
+        claim = decode_eval_claim(bundle, expected_context=getattr(args, "context", None))
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -67,7 +71,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     print(f"dataset    commit {claim['dataset_id_commit']}")
     print(f"issuer     {claim['issuer']}")
     print(f"timestamp  {claim['timestamp']}")
-    hidden = sd_jwt_hidden_count(args.receipt)
+    hidden = sd_jwt_hidden_count(bundle)
     if hidden is not None:
         print(f"sd-jwt     {hidden} field(s) withheld (selective disclosure)")
     fresh = check_freshness(claim)
@@ -257,6 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
+    show_eval.add_argument("--context", dest="context", default=None,
+                           help="require the receipt's signed context_binding to equal this (cross-context replay guard)")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(

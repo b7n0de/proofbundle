@@ -37,6 +37,18 @@ class TestDemo(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["demo", "--json"]), 0)
 
+    def test_demo_is_not_tautological(self):
+        # Anti-tautology (release review #4): if the underlying verifier regressed to accept EVERYTHING, the demo
+        # MUST fail (rc != 0). This proves the green run is real — the tamper matrix depends on genuine verification,
+        # not a rigged always-pass. Without a check like this, a broken verify_bundle could still make the demo "pass".
+        from unittest import mock
+
+        import proofbundle.demo as demo
+        with mock.patch.object(demo, "_verifies", lambda b: True):   # broken verifier: every tamper "verifies OK"
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = demo.run_demo()
+        self.assertNotEqual(rc, 0, "a broken always-accept verifier must make the demo FAIL (non-tautological)")
+
 
 if __name__ == "__main__":
     unittest.main()
