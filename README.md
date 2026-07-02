@@ -28,7 +28,7 @@ no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 96 tests.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 102 tests.
 
 ## Contents
 
@@ -38,6 +38,7 @@ checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 96 tests.
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Demo](#demo--a-real-eval-log-to-a-verified-receipt-offline)
+- [Integrations](#integrations--a-signed-receipt-of-your-eval-or-test-run-automatically-v10)
 - [Interoperability](#interoperability)
 - [Bundle format](#bundle-format-proofbundlev01)
 - [Eval receipts](#eval-receipts)
@@ -183,6 +184,25 @@ that the *artifact* is signed and offline-verifiable, with model and dataset kep
 See [`examples/inspect_receipt.py`](examples/inspect_receipt.py) and
 [`examples/lm_eval_receipt.py`](examples/lm_eval_receipt.py).
 
+## Integrations — a signed receipt of your eval or test run, automatically (v1.0)
+
+Since v1.0, proofbundle can **auto-emit** a signed receipt of an **inspect_ai eval** or a **pytest run** via
+each framework's native plugin API — installed and ready, but strictly **opt-in** (it emits only when you set
+`PROOFBUNDLE_EMIT=1` or pass a flag; never silently, never failing your run):
+
+```bash
+pip install "proofbundle[inspect,eval]" && PROOFBUNDLE_EMIT=1 inspect eval task.py --model mockllm/model
+pip install "proofbundle[pytest,eval]"  && PROOFBUNDLE_EMIT=1 pytest
+```
+
+The distinguishing angle is exactly this opt-in **auto-emit of an Ed25519-signed receipt via the framework's
+own plugin** (an inspect_ai end-of-task hook + a pytest11 plugin), on top of the standards stack. Named
+fairly: [ai-audit-trail](https://pypi.org/project/ai-audit-trail/) records *runtime* agent Decision Receipts
+(FastAPI/LangChain, ISO 42001), a different layer; [ValiChord](https://github.com/topeuph-ai/ValiChord)
+builds attestation bundles from inspect_ai logs *post-hoc* (its v1 library is JCS + SHA-256 Merkle + HMAC
+challenge-response, **not digitally signed** — signatures are v2 scope). See
+[INTEGRATIONS.md](INTEGRATIONS.md) (+ a prepared composite GitHub Action under [`action/`](action/action.yml)).
+
 ## Interoperability
 
 proofbundle uses the same RFC 6962 / RFC 9162 Merkle primitive as
@@ -293,9 +313,9 @@ computation is the domain of TEE approaches such as
 fairly: [Every Eval Ever](https://github.com/evaleval/every_eval_ever) standardizes eval *metadata* but
 adds no cryptography (proofbundle ships an EEE→receipt converter);
 [OpenSSF Model Signing](https://github.com/ossf/model-signing-spec) signs *model weights*, not eval
-results; [ValiChord](https://github.com/topeuph-ai/ValiChord) provides blind peer consensus and an
-attested log on a Holochain network (its v1 attestation library uses a simple SHA-256 Merkle tree, no
-signature, no SD-JWT, no in-toto). proofbundle is the lightweight, **standards-native** piece between them:
+results; [ValiChord](https://github.com/topeuph-ai/ValiChord) plans blind peer consensus and a
+Holochain attested log (v2 scope); its current v1 attestation library uses a simple SHA-256 Merkle tree with
+no digital signature, no SD-JWT, no in-toto. proofbundle is the lightweight, **standards-native** piece between them:
 a portable receipt a third party verifies offline, with selective disclosure so an auditor can prove a
 threshold was met without revealing the model or the data. See [INTEROP.md](INTEROP.md).
 
@@ -341,8 +361,10 @@ attestation — see [SECURITY.md](SECURITY.md).
   verifier robustness + CI on Python 3.9 after a holistic review.
 - **v0.8** — an offline `make demo` (real eval log -> signed receipt -> verified),
   a sharpened honesty guardrail (authenticity/integrity, not computation-correctness), and outreach drafts.
-- **v0.9 (current release)** — the standards moat: a DSSE-signed in-toto `test-result` export, a C2SP
-  tlog-checkpoint over the RFC 6962 root, an Every Eval Ever converter, and standards-native repositioning.
+- **v0.9** — the standards moat: a DSSE-signed in-toto `test-result` export, a C2SP tlog-checkpoint over
+  the RFC 6962 root, an Every Eval Ever converter, and standards-native repositioning.
+- **v1.0 (current release)** — distribution: opt-in framework integrations that auto-emit a signed receipt
+  of an inspect_ai eval (end-of-task hook) or a pytest run (pytest11 plugin), plus a composite GitHub Action.
 - **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
   Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 

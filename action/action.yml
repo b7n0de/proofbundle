@@ -1,0 +1,44 @@
+name: "proofbundle"
+description: "Install proofbundle and run it in CI (e.g. verify a receipt, or emit one from a test run)."
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  command:
+    description: "proofbundle subcommand + args to run (e.g. 'verify receipt.json'). Empty = just install."
+    required: false
+    default: ""
+  version:
+    description: "proofbundle version specifier to install (e.g. '==1.0.0'). Empty = latest."
+    required: false
+    default: ""
+  extras:
+    description: "optional extras, e.g. 'eval' or 'eval,inspect'."
+    required: false
+    default: ""
+  python-version:
+    description: "Python version to set up."
+    required: false
+    default: "3.12"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install proofbundle
+      shell: bash
+      run: |
+        spec="proofbundle${{ inputs.version }}"
+        if [ -n "${{ inputs.extras }}" ]; then spec="proofbundle[${{ inputs.extras }}]${{ inputs.version }}"; fi
+        python -m pip install --upgrade pip
+        python -m pip install "$spec"
+    - name: Run proofbundle
+      if: ${{ inputs.command != '' }}
+      shell: bash
+      env:
+        PB_COMMAND: ${{ inputs.command }}
+      run: proofbundle $PB_COMMAND   # via env (not direct ${{ }} interpolation) to avoid script injection

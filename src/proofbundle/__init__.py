@@ -1,19 +1,19 @@
-"""proofbundle, an offline verifier for portable cryptographic evidence bundles.
+"""proofbundle — emit and verify portable, offline cryptographic evidence bundles for AI eval receipts.
 
-Verify, fully offline and in pure Python, that a payload was Ed25519 signed and
-anchored under an RFC 6962 Merkle root, with optional SD-JWT selective
-disclosure. The verification half of a signed, third-party-verifiable evidence
-receipt.
+Verify, fully offline and in pure Python, that a payload was Ed25519 signed and anchored under an RFC 6962
+Merkle root, with optional SD-JWT selective disclosure — plus opt-in framework integrations that auto-emit a
+signed receipt of an inspect_ai eval or a pytest run.
+
+The public API is loaded LAZILY (PEP 562): ``import proofbundle`` — and, via the entry points, loading the
+pytest plugin / inspect_ai hook — does NOT pull the crypto core until a name like ``verify_bundle`` is
+actually used. ``from proofbundle import verify_bundle`` works exactly as before; it just imports the backing
+module on first access. This keeps the framework integrations light at startup.
 """
-
 from __future__ import annotations
 
-from .bundle import SCHEMA, load_bundle, verify_bundle
-from .emit import emit_bundle, generate_signer
-from .errors import Check, ProofBundleError, VerificationResult
-from .merkle import verify_consistency, verify_inclusion
+from typing import TYPE_CHECKING
 
-__version__ = "0.9.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "__version__",
@@ -28,3 +28,29 @@ __all__ = [
     "Check",
     "ProofBundleError",
 ]
+
+# name → backing submodule (relative). Loaded on first attribute access.
+_LAZY = {
+    "SCHEMA": ".bundle", "load_bundle": ".bundle", "verify_bundle": ".bundle",
+    "emit_bundle": ".emit", "generate_signer": ".emit",
+    "Check": ".errors", "ProofBundleError": ".errors", "VerificationResult": ".errors",
+    "verify_consistency": ".merkle", "verify_inclusion": ".merkle",
+}
+
+if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
+    from .bundle import SCHEMA, load_bundle, verify_bundle
+    from .emit import emit_bundle, generate_signer
+    from .errors import Check, ProofBundleError, VerificationResult
+    from .merkle import verify_consistency, verify_inclusion
+
+
+def __getattr__(name: str):
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib  # noqa: PLC0415
+    return getattr(importlib.import_module(module, __name__), name)
+
+
+def __dir__():
+    return sorted(__all__)

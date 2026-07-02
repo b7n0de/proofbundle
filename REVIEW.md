@@ -141,3 +141,18 @@ Specs verified against primary sources BEFORE building (4 spec lenses): DSSE PAE
 | Format-contract | SPEC §7b/§7c normative; payloadType pinned; standard base64 not base64url |
 | Supply-chain | no new core runtime dep; neighbours named fairly (ValiChord/EEE/OpenSSF/Attestable Audits) |
 | Orthogonal | anti-vanity: value is in the standards, not novelty prose; honesty guardrail visible; 3.9 floor held |
+
+---
+
+# v1.0 review (distribution: inspect_ai hook + pytest plugin + GitHub Action)
+
+APIs verified vs primary sources before building (inspect_ai Hooks floor 0.3.112, data.log=EvalLog, header-only eval_set fallback; pytest terminalreporter.stats; gh-action composite). A 6-lens review + adversarial verify found 7 real defects in the fresh work — all fixed: score=repr→fixed-point (tiny/large metric values no longer fail the claim); pytest ran double-counted teardown-error tests → count UNIQUE nodeids (the signed pass_rate/n is now honest); action.yml command interpolation → env indirection; the emit_enabled gate is wired; and — the important one — ValiChord was MIS-stated as 'signing' inspect logs (its v1 is unsigned), which undersold the real, honest novelty: proofbundle is (as far as documented) the first to auto-emit an Ed25519-SIGNED receipt via the native framework plugin. Both plugins tested end-to-end (opt-in safety holds; receipts verify; model stays a salted commitment). 102 tests.
+| Lens | Evidence |
+|---|---|
+| Correctness | fixed score formatting + unique-test counting; both drive real receipts that verify |
+| Interop | native entry-points (inspect_ai + pytest11) registered (importlib.metadata) |
+| Standards | receipt format unchanged; APIs verified vs inspect/pytest/gh-action primary sources |
+| Distribution | opt-in, light (no crypto at plugin load), pytest/inspect optional, 3.9 floor held |
+| Format-contract | INTEGRATIONS.md quickstart per integration; action.yml SHA-pinned + env-indirect |
+| Supply-chain | no new core dep; opt-in safety = never silent write, never fail host run |
+| Orthogonal | novelty corrected + honestly stated (first SIGNED auto-emit; ValiChord post-hoc + unsigned-v1) |

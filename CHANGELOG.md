@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-02
+
+### Added — distribution: opt-in framework integrations (the 1.0 milestone: usable with zero third-party wiring)
+- **inspect_ai end-of-task hook** (`proofbundle._inspect_registry` via the `inspect_ai` entry-point): auto-
+  emits a signed receipt from the eval log at task end. Requires `inspect_ai>=0.3.112`. `data.log` is the
+  EvalLog (no re-read for a normal `eval()`; header-only `eval_set()` falls back to reading the log).
+- **pytest plugin** (`proofbundle.pytest_plugin` via the `pytest11` entry-point): auto-emits a signed
+  receipt of the run (metric `pass_rate` over UNIQUE tests, per-outcome counts + exit status in provenance)
+  from `terminalreporter.stats`. New optional `[pytest]` extra.
+- **OPT-IN SAFETY** (the top rule): both integrations emit ONLY when explicitly enabled (`PROOFBUNDLE_EMIT=1`
+  or `pytest --proofbundle`) — never silently write a file, never fail the host run, crypto imported lazily.
+- Composite **GitHub Action** prepared under `action/action.yml` (SHA-pinned, env-indirect command) +
+  `INTEGRATIONS.md` with a complementary `attest-build-provenance` recipe.
+- The package `__init__` is now lazy (PEP 562): loading the plugin/hook no longer pulls the crypto core until
+  a public name is actually used, keeping framework startup light.
+
+### Changed
+- README leads with the integration story; fair demarcation from ai-audit-trail (runtime agent Decision
+  Receipts) and ValiChord (which builds attestation bundles from inspect_ai logs *post-hoc* — its v1 library
+  is unsigned; signatures are v2 scope). Honest novelty: as far as documented, proofbundle is the first to
+  auto-emit an **Ed25519-signed** receipt of an inspect_ai eval / pytest run via the framework's native plugin.
+- The inspect_ai adapter renders metric scores as fixed-point decimals (not `repr`), so tiny/large values
+  (e.g. `1e-05`) no longer fail the claim's decimal format.
+
 ## [0.9.0] - 2026-07-02
 
 ### Added — the standards moat (verified against primary sources)

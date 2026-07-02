@@ -21,23 +21,42 @@ class InspectAdapterError(RuntimeError):
     """Raised when inspect_ai is missing or the log lacks the expected structure (no bare AttributeError)."""
 
 
+def _score_str(value) -> str:
+    """Render a metric value as a PLAIN decimal string (no scientific notation) that build_eval_claim
+    accepts. ``repr(float)`` emits '1e-05'/'1e+20' for very small/large values, which the claim's decimal
+    pattern rejects — so numbers are formatted fixed-point (like the pytest plugin's ``_fmt``)."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise InspectAdapterError("metric value must be finite")
+        return format(value, ".12f").rstrip("0").rstrip(".") or "0"
+    return str(value)
+
+
 def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, timestamp: str,
                         model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Read an inspect_ai eval log via the stable API and build an eval claim for `metric`.
 
-    Returns (claim, salts). Raises InspectAdapterError if inspect_ai is unavailable or the log is
-    missing the expected attributes — a clear error instead of an opaque AttributeError.
+    ``path`` may be a path/str to a ``.eval`` log OR an already-loaded EvalLog object (e.g. the inspect_ai
+    hook's ``data.log``). Returns (claim, salts). Raises InspectAdapterError if inspect_ai is unavailable
+    or the log is missing the expected attributes — a clear error instead of an opaque AttributeError.
     """
-    try:
-        from inspect_ai.log import read_eval_log  # noqa: PLC0415 — lazy: keeps the core dependency-free
-    except ImportError as e:
-        raise InspectAdapterError(
-            "inspect_ai is required for this adapter — install with: pip install \"proofbundle[inspect]\"") from e
-
-    try:
-        log = read_eval_log(str(path), header_only=True)
-    except Exception as e:  # noqa: BLE001 — surface any read/parse failure as a clear adapter error
-        raise InspectAdapterError(f"could not read inspect_ai log {path!r}: {e}") from e
+    # An already-loaded EvalLog (has .eval + .results) is used directly — no re-read from disk.
+    if hasattr(path, "eval") and hasattr(path, "results"):
+        log = path
+    else:
+        try:
+            from inspect_ai.log import read_eval_log  # noqa: PLC0415 — lazy: keeps the core dependency-free
+        except ImportError as e:
+            raise InspectAdapterError(
+                "inspect_ai is required for this adapter — install with: pip install \"proofbundle[inspect]\"") from e
+        try:
+            log = read_eval_log(str(path), header_only=True)
+        except Exception as e:  # noqa: BLE001 — surface any read/parse failure as a clear adapter error
+            raise InspectAdapterError(f"could not read inspect_ai log {path!r}: {e}") from e
 
     ev = getattr(log, "eval", None)
     results = getattr(log, "results", None)
@@ -73,7 +92,7 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
 
     return build_eval_claim(
         suite=suite, suite_version=str(getattr(ev, "task_version", "1")),
-        metric=metric, comparator=comparator, threshold=threshold, score=repr(value),
+        metric=metric, comparator=comparator, threshold=threshold, score=_score_str(value),
         n=int(getattr(results, "total_samples", 0) or 0),
         model_id=model_id, dataset_id=dataset_id, issuer="", timestamp=timestamp,
         provenance=provenance, model_salt=model_salt, dataset_salt=dataset_salt)

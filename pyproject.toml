@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "0.9.0"
+version = "1.0.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -45,13 +45,16 @@ sdjwt = []
 eval = ["rfc8785>=0.1.4"]
 # The lm-eval adapter reads exported results.json (no import) → pure stdlib.
 adapters = []
+# The pytest plugin (opt-in test-run receipt via the pytest11 entry-point) — pytest is an optional extra,
+# never a core dependency. Floor 7.0: the hooks/stats API is signature-stable across pytest 7/8/9.
+pytest = ["pytest>=7"]
 # The inspect_ai adapter uses the STABLE read_eval_log API (lazy import). Pinned with an UPPER bound:
 # the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
 # test is bound to this range. inspect_ai requires Python >= 3.10, so the marker gates it out on 3.9
 # (base + [eval]/[sdjwt] still work on 3.9; the inspect adapter test skips there). Fixes the red 3.9 CI.
-inspect = ['inspect_ai>=0.3.100,<0.4; python_version >= "3.10"']
+inspect = ['inspect_ai>=0.3.112,<0.4; python_version >= "3.10"']
 dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", 'inspect_ai>=0.3.100,<0.4; python_version >= "3.10"']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", 'inspect_ai>=0.3.112,<0.4; python_version >= "3.10"']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
@@ -62,6 +65,12 @@ Documentation = "https://github.com/b7n0de/proofbundle#readme"
 
 [project.scripts]
 proofbundle = "proofbundle.cli:main"
+
+# Framework integrations (opt-in auto-emit; gated on PROOFBUNDLE_EMIT / a flag, never silent).
+[project.entry-points.inspect_ai]
+proofbundle = "proofbundle._inspect_registry"
+[project.entry-points.pytest11]
+proofbundle = "proofbundle.pytest_plugin"
 
 [tool.setuptools.packages.find]
 where = ["src"]
