@@ -1,0 +1,32 @@
+name: CodeQL
+
+# Static analysis (SAST) for the Python core. Advanced setup (a committed workflow) is used
+# rather than GitHub "default setup" precisely because default setup cannot be SHA-pinned, and
+# this repo pins every action to a full commit SHA. Pure Python needs no build step.
+# Re-pin the codeql-action SHA when v4 advances (Dependabot bumps the pin + comment).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"   # weekly, catches newly-published queries
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # upload SARIF alerts
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c10b8064de6f491fea524254123dbe5e09572f13  # v4.35.1
+        with:
+          languages: python
+          queries: security-extended
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@c10b8064de6f491fea524254123dbe5e09572f13  # v4.35.1

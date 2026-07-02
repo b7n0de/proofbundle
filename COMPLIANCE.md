@@ -48,6 +48,54 @@ but no cryptographic integrity. The opt-in Inspect hook (`PROOFBUNDLE_EMIT=1`) t
 run's result into a signed receipt at task end — an integrity layer the log format itself does
 not provide.
 
+## Regulatory-safe wording (use these, not stronger)
+
+- "proofbundle supports **evidence retention**, not compliance by itself."
+- "proofbundle helps with **eval-record integrity**, not full operational logging."
+- "proofbundle can support **Article-12-style traceability**, but does not satisfy Article 12 alone."
+- "proofbundle maps to **NIST AI RMF MEASURE** evidence, but does not define risk metrics."
+- "proofbundle can **complement** Inspect logs, not replace Inspect."
+
+## Claims that must NEVER be made
+
+1. **Never** "EU AI Act compliant" / "Article 12 compliant" / "makes your system compliant" —
+   compliance is a whole-system, provider-level conformity assessment; a receipt is at most one input.
+2. **Never** "required by Article 12" for cryptographic/tamper-evident signing — Art. 12 mandates
+   *automatic recording* + *traceability*, and does **not** contain the words "cryptographic",
+   "signed", "tamper-evident" or "immutable". Tamper-evidence is proofbundle's value-add, not a legal
+   requirement.
+3. **Never** "NIST AI RMF certified/compliant" — the RMF is voluntary and non-certifiable.
+4. **Never** "conforms to the AI-eval attestation standard" — **no such standard exists** as of 2026
+   (OpenSSF Model Signing / CoSAI WS1 cover models and datasets, not eval receipts).
+5. **Never** "OMS/CoSAI/in-toto compliant" unless the on-disk bytes literally are that format.
+6. **Never** "certified", "qualified trust service", "legally binding", or "audit-grade" without an
+   actual accreditation.
+7. **Never** "guarantees the integrity/authenticity of the eval" — a signature proves the artifact
+   was not altered after signing; it says nothing about whether the eval was correct or honest.
+8. **Never** imply conformance to prEN 18229 / ISO-IEC 24970 — those harmonized standards are
+   **unpublished drafts** in 2026 (ISO/IEC DIS 24970 ballot closed Feb 2026; not yet published).
+
+## Honest mapping (capability → concept → honest gap)
+
+| proofbundle capability | Maps to | Does NOT satisfy / must not claim |
+|---|---|---|
+| Offline signed eval receipts | Traceability spirit of **EU AI Act Art. 12/19**; **MEASURE** documentation | System-level Art. 12 compliance; the automatic lifetime event-logging Art. 12(1) mandates; a conformity assessment |
+| Tamper-evidence via Ed25519 + Merkle | in-toto / OMS / Sigstore attestation approach | "Required by Art. 12" — the law says recording + traceability, not signatures |
+| Eval results as verifiable artifacts | **NIST AI RMF MEASURE** evidence | Defining risk metrics/thresholds; GOVERN/MAP/MANAGE |
+| Signed bundles of eval artifacts | Parallel to **OpenSSF OMS / CoSAI WS1** signing | OMS conformance (unless byte-for-byte the OMS format); no eval-specific standard to conform to |
+
+**Defensible framing (copy this):** "proofbundle produces offline, cryptographically signed,
+tamper-evident receipts for AI-eval artifacts. This can serve as *supporting evidence* toward
+record-keeping / traceability goals (cf. EU AI Act Art. 12/19) and as *documentation evidence*
+under NIST AI RMF MEASURE. It does not by itself establish regulatory compliance, define risk
+metrics, or conform to any AI-eval attestation standard (none is standardized as of 2026)."
+
+**Legal/governance FAQ.** *Does deploying proofbundle make us Art. 12 compliant?* No — it is one
+possible evidence input. *Can we say it's NIST-certified?* No — the RMF cannot be certified against.
+*Can we cite it in a Model Report / conformity file?* Yes, as tamper-evident evidence of specific
+eval results, with the scope stated. *Is the `assurance_level` legally meaningful?* It is
+issuer-declared and signed; it records who claimed what level, not an accredited attestation.
+
 ## Anti-patterns (do not claim these)
 
 - "proofbundle makes us Article 12 compliant" — no single artifact does; it covers the
@@ -56,3 +104,7 @@ not provide.
   exists precisely so that this distinction survives transport.
 - Treating a receipt as proof the evaluation was well designed or honestly selected — that
   requires pre-registration (`prereg_sha256`) and/or independent reproduction.
+
+_Standards status verified 2026-07-02 against primary sources: EU AI Act Art. 12 (in force for
+high-risk from 2026-08-02), Art. 53 GPAI (applied 2025-08-02), NIST AI RMF 1.0 + GenAI Profile
+AI 600-1, OpenSSF Model Signing + CoSAI WS1, ISO/IEC DIS 24970 (ballot closed, unpublished)._

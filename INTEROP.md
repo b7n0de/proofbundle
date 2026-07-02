@@ -63,8 +63,56 @@ for different threats (computation-correctness vs. artifact authenticity/integri
 
 [ValiChord](https://github.com/topeuph-ai/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Named fairly, the v1 library differs in exactly the standards proofbundle leads with: its format v1 carries **no digital signature** (`signatures` is reserved for v2), uses a **simple SHA-256 Merkle tree** (no RFC 6962 domain separation), and has **no SD-JWT, no in-toto, and no Every Eval Ever converter**; blind peer consensus and an attested log live in its Holochain layer (v2 scope). proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
 
+## Comparison tables (fair, at-a-glance)
+
+### vs Sigstore Rekor / Rekor v2
+| | Rekor / Rekor v2 | proofbundle |
+|---|---|---|
+| What it is | Operated public transparency-log **service** (v2: tile-backed, C2SP-aligned) | A **file format + offline verifier/emitter library** |
+| Trust model | Log operator + witnesses + monitors; keys via TUF | Anchors the relying party supplies out of band (see docs/TRUST_ANCHORS.md) |
+| Online / offline | Sign/upload online; offline verify of persisted proofs | Fully offline both directions |
+| Proves | Public append-only *existence* at time T | These bytes signed by this key, anchored under this root — same RFC 6962 math (verifies a real Rekor proof offline) |
+| Does NOT | Anything eval-specific; no selective disclosure | Global append-only guarantee — a lone `emit_bundle` tree is issuer-local |
+| Use when | You want public discoverability / non-equivocation | You want a portable, private, eval-shaped receipt (anchor it INTO Rekor for the log properties) |
+
+### vs Inspect AI logs (.eval)
+| | inspect_ai `.eval` log | proofbundle receipt |
+|---|---|---|
+| What it is | Full mutable run record (samples, messages, scores) | Minimal signed claim derived from it |
+| Trust model | None — bytes on disk | Ed25519 + Merkle + optional witnesses |
+| Proves | Nothing cryptographic; full transparency | Integrity/authorship of the extracted claim; can hide model/dataset |
+| Use when | Debugging, reanalysis with a trusted channel | Publishing/attesting a result across a trust boundary — keep the log, ship the receipt |
+
+### vs in-toto test-result predicate (+ DSSE)
+| | in-toto test-result/v0.1 (DSSE) | proofbundle eval receipt |
+|---|---|---|
+| What it is | Generic "tests PASSED/FAILED" statement | Eval-specific: metric ⋈ threshold, n, salted commitments, assurance level, samples root |
+| Proves | Which tests passed, config descriptors | Threshold verdict without revealing model/dataset; per-sample auditability |
+| Does NOT | Carry metric/threshold/commitment fields | Bring a policy-verifier ecosystem (predicate self-hosted, unregistered) |
+| Interop | — | proofbundle **exports** a DSSE-signed test-result view (`export_intoto_dsse`) |
+
+### vs ValiChord (per its docs; not independently re-verified here)
+| | ValiChord v1 | proofbundle |
+|---|---|---|
+| Crypto today | JCS + plain SHA-256 Merkle + HMAC; **no signature** (v2 scope) | Ed25519 + RFC 6962 domain-separated Merkle + SD-JWT/KB + C2SP |
+| Offline | Yes | Yes |
+| Proves | Integrity vs a shared secret / future Holochain net | Third-party-verifiable public-key authorship |
+
+**One-line positionings:** DSSE = the signing *envelope* (proofbundle emits into it). C2SP =
+transparency-log *wire formats* (proofbundle verifies them, incl. real Rekor artifacts). SD-JWT VC
+= the credential *profile* on RFC 9901 (proofbundle does SD-JWT core + KB; full VC deferred). Token
+Status List = offline *revocation snapshots* (proofbundle verifies a bundled snapshot).
+
 ## Summary
 
 proofbundle is the missing **signature + selective-disclosure layer** for a trustworthy eval log — the
 provenance/verification piece that OMS (artifacts), CycloneDX (unsigned metrics) and in-toto (generic
 test results) each leave open for ML evaluation. It implements none of them; it maps to them.
+
+**The niche in ≤25 words:** offline, standards-native signed receipts for AI eval results —
+threshold verdicts with salted model/dataset commitments and per-sample audit hooks, verifiable
+from one file. **The bound:** it attests who claimed what and that nothing changed since — never
+that the eval was honest, well-designed, or the only run performed.
+
+_Neighbour claims about ValiChord / ai-audit-trail here are sourced to their own docs; standards
+versions verified 2026-07 (Rekor v2 GA Oct 2025; RFC 9901 Nov 2025; in-toto test-result v0.1)._

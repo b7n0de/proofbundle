@@ -85,7 +85,8 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                           date: Optional[str] = None, source_url: Optional[str] = None,
                           source_name: Optional[str] = None, source_user: Optional[str] = None,
                           notes: Optional[str] = None, include_token: bool = True,
-                          require_verified: bool = True) -> dict:
+                          require_verified: bool = True,
+                          allow_value_mismatch: bool = False) -> dict:
     """Build one HF `.eval_results/*.yaml` entry for a receipt.
 
     ``dataset_id``/``task_id`` name the Hub benchmark (per its `eval.yaml`); ``value`` is the
@@ -96,6 +97,11 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     is never generated from a broken receipt. ``include_token=True`` puts the ``pb1.`` token in
     ``verifyToken`` (schema-valid, proofbundle-verifiable; NOT the HF-internal badge token — HF's
     "verified" badge is HF's server-side decision, and this module makes no claim about it).
+
+    v1.8 (external review): if the bundle is an eval receipt whose claim discloses a ``score``,
+    the published ``value`` MUST match it (a Hub reader sees the value, not the token) — a
+    mismatch raises unless ``allow_value_mismatch=True``. This stops a receipt saying 0.60 from
+    being published next to a displayed 0.99.
     """
     if require_verified:
         result = verify_bundle(bundle)
@@ -117,6 +123,28 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     if not math.isfinite(numeric):
         raise BundleFormatError(
             "value must be a finite number — inf/-inf/nan cannot be represented in eval_results.yaml")
+
+    # v1.8 (external review): if the receipt is an eval claim, the published value must be
+    # CONSISTENT with the signed pass/fail verdict — a Hub reader sees the value, not the token,
+    # so publishing a value that contradicts the receipt is exactly the honesty gap to close.
+    # The claim minimizes data (it carries threshold/comparator/passed, not the exact score), so
+    # we check the strongest thing available: value <comparator> threshold must equal passed.
+    if not allow_value_mismatch:
+        from .evalclaim import decode_eval_claim  # noqa: PLC0415
+        claim = decode_eval_claim(bundle)
+        if isinstance(claim, dict) and {"threshold", "comparator", "passed"} <= set(claim):
+            try:
+                thr = float(claim["threshold"])
+                cmp_ok = {">=": numeric >= thr, ">": numeric > thr,
+                          "<=": numeric <= thr, "<": numeric < thr}.get(claim["comparator"])
+            except (ValueError, TypeError, KeyError):
+                cmp_ok = None
+            if cmp_ok is not None and cmp_ok != bool(claim["passed"]):
+                raise BundleFormatError(
+                    f"published value {numeric} is inconsistent with the receipt: the signed claim "
+                    f"says passed={claim['passed']} for {claim['comparator']} {claim['threshold']}, "
+                    f"but {numeric} {claim['comparator']} {claim['threshold']} is {cmp_ok} — "
+                    "pass allow_value_mismatch=True only if this is intentional")
 
     entry: dict = {"dataset": {"id": dataset_id, "task_id": task_id},
                    "value": numeric if isinstance(value, str) else value}

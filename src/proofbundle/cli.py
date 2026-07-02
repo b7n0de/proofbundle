@@ -229,6 +229,33 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     return run_demo(as_json=args.json)
 
 
+def _cmd_prereg(args: argparse.Namespace) -> int:
+    from .prereg import prereg_hash, verify_prereg  # noqa: PLC0415
+    try:
+        if args.check is not None:
+            from .bundle import load_bundle  # noqa: PLC0415
+            import base64 as _b64  # noqa: PLC0415
+            b = load_bundle(args.check)
+            claim = json.loads(_b64.b64decode(b["payload_b64"]).decode("utf-8"))
+            res = verify_prereg(args.protocol, claim)
+            if args.json:
+                print(json.dumps(res))
+            else:
+                print(f"[{'PASS' if res['ok'] else 'FAIL'}] prereg: {res['detail']}")
+            return 0 if res["ok"] else 1
+        h = prereg_hash(args.protocol)
+        if args.json:
+            print(json.dumps({"prereg_sha256": h}))
+        else:
+            print(h)
+            print("place this in the eval claim's prereg_sha256 BEFORE running the eval",
+                  file=sys.stderr)
+        return 0
+    except (ProofBundleError, OSError, ValueError, KeyError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -316,6 +343,15 @@ def build_parser() -> argparse.ArgumentParser:
              "six tampers fail, a swapped sample is caught")
     demo.add_argument("--json", action="store_true", help="machine readable output")
     demo.set_defaults(func=_cmd_demo)
+
+    prereg = sub.add_parser(
+        "prereg",
+        help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)")
+    prereg.add_argument("protocol", help="path to the protocol/plan file to hash")
+    prereg.add_argument("--check", metavar="RECEIPT",
+                        help="verify the protocol matches a receipt's prereg_sha256 instead of hashing")
+    prereg.add_argument("--json", action="store_true", help="machine readable output")
+    prereg.set_defaults(func=_cmd_prereg)
 
     return parser
 

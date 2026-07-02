@@ -71,6 +71,16 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     if stderr is not None:
         provenance["stderr"] = repr(stderr) if not isinstance(stderr, str) else stderr
 
+    # v1.8 (external review): config-hash + LOG-NATIVE timestamp. lm-eval has no dedicated run-id;
+    # its `date` is a Unix float (distinct from the ISO filename stamp). `config` is the run config
+    # block (model/args/seeds/gen_kwargs); no native hash exists, so we compute one.
+    from ._provenance import add_provenance  # noqa: PLC0415
+    add_provenance(provenance, config=cfg if isinstance(cfg, dict) and cfg else None,
+                   log_timestamp=data.get("date"))
+    task_hashes = data.get("task_hashes", {})
+    if isinstance(task_hashes, dict) and task_hashes.get(task):
+        provenance["task_hash"] = str(task_hashes[task])   # lm-eval's native per-task sample hash
+
     return build_eval_claim(
         suite=task, suite_version=str(data.get("versions", {}).get(task, "lm-eval")),
         metric=metric, comparator=comparator, threshold=threshold, score=str(score), n=n,

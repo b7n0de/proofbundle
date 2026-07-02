@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-02
+
+### Added — provenance, pre-registration, and credibility (external-review backlog P1/P2)
+- **Adapter provenance hardening** (`adapters/_provenance.py`): inspect_ai, lm-eval and promptfoo
+  claims now record, where the framework exposes it, a stable **run-id**, a **config-hash**
+  (`<alg>:<hex>` over canonical config JSON — RFC 8785 JCS when available, deterministic
+  sort-keys fallback, labeled either way), and the **log-native timestamp** (inspect
+  `eval.created`, lm-eval's Unix-float `date`, promptfoo `evaluationCreatedAt`) instead of only
+  the caller's timestamp — closing the review's "a self-attesting issuer can backdate" gap. lm-eval
+  also carries its native `task_hash`.
+- **`proofbundle prereg <protocol>`** (`prereg.py`, CLI): commit to an eval protocol BEFORE the
+  run — sha256 over the RAW file bytes (the accepted document-commitment convention: git blob,
+  RFC 6962 leaf, in-toto DigestSet all hash raw bytes) → goes in the claim's `prereg_sha256`.
+  `--check <receipt>` verifies a disclosed protocol matches. This is the anti-cherry-picking
+  mitigation for best-of-many runs (per-sample audit covers within-run doctoring).
+- **HF value-consistency guard** (`hf_evals.to_eval_results_entry`): a published `value` that
+  contradicts the receipt's signed pass/fail verdict (value `<comparator>` threshold ≠ `passed`)
+  is refused unless `allow_value_mismatch=True` — a Hub reader sees the value, not the token.
+
+### Added — security tooling & credibility docs
+- **CodeQL** workflow (advanced setup, SHA-pinned to codeql-action v4.35.1 — default setup can't
+  be pinned) and **OpenSSF Scorecard** workflow (scorecard-action v2.4.3, publishes results).
+- **Property-based parser fuzzing** (`tests/test_fuzz_parsers.py`, Hypothesis): every
+  attacker-controlled parser (tlog-proof, checkpoint, cosignature, SD-JWT, KB-JWT, status-list)
+  must return-or-raise-a-proofbundle-error on ANY input, never an uncaught crash. (Manually
+  smoke-tested over ~16k hostile inputs where Hypothesis was unavailable.)
+- **docs/FAQ.md** (skeptics), **docs/TRUST_ANCHORS.md** (where every anchor comes from),
+  **docs/PROJECT_BRIEF.md** (funding one-pager + 3 grant-abstract seeds), **examples/README.md**.
+- **COMPLIANCE.md**: regulatory-safe wording, an 8-item "claims that must NEVER be made" list, an
+  honest capability→concept→gap mapping, and a legal/governance FAQ — standards status verified
+  2026-07 (EU AI Act Art. 12 in force 2026-08-02; NIST AI RMF 1.0 + GenAI Profile; no eval-attestation
+  standard exists).
+- **INTEROP.md**: at-a-glance comparison tables vs Sigstore Rekor, Inspect logs, in-toto
+  test-result, ValiChord, plus the ≤25-word niche + its explicit bound.
+- **EVAL_CLAIM.md**: field table gains `provenance` and `samples` rows; stale "3.9-safe" comment removed.
+
+### Verification discipline
+- 270 tests (was 254): +provenance (config-hash determinism, log-native timestamp, run-id per
+  adapter), +prereg (raw-bytes hash, match/mismatch, CLI roundtrip, trailing-byte tamper),
+  +HF value-consistency (consistent ok / inconsistent refused / override / non-eval skip),
+  +parser fuzz module. Mutation gate: 28 operators (+2 for prereg + HF checks), all killed.
+
+### Notes
+- No wire-format or verify-behavior change; `provenance`/`samples` are additive optional claim
+  fields (already schema-additive since v1.4/v1.5). CodeQL/Scorecard SHAs are current as of
+  2026-07-02 — re-verify before relying on them (RELEASE.md).
 ## [1.7.0] - 2026-07-02
 
 ### Changed — release supply-chain hardening (review P1: attested artifact must equal published artifact)

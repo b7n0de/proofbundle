@@ -124,6 +124,13 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
     if summary.get("timestamp"):
         provenance["run_timestamp"] = str(summary["timestamp"])
 
+    # v1.8 (external review): a uniform run_id key across adapters + a config-hash over the FULL
+    # resolved suite config (providers/prompts/tests/…), not just the tests-derived dataset id.
+    from ._provenance import add_provenance  # noqa: PLC0415
+    add_provenance(provenance, run_id=eval_id,
+                   config=config if isinstance(config, dict) and config else None,
+                   log_timestamp=metadata.get("evaluationCreatedAt"))
+
     return build_eval_claim(
         suite=suite, suite_version=f"promptfoo-summary-v{version}",
         metric="pass_rate", comparator=comparator, threshold=threshold, score=score, n=n,

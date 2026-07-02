@@ -1,0 +1,36 @@
+name: Scorecard
+
+# OpenSSF Scorecard — supply-chain posture (pinned deps, token permissions, branch protection,
+# dangerous workflows, SAST, fuzzing, signed releases). Publishes results so the badge works.
+# The high-leverage checks this repo already maxes: Pinned-Dependencies (all actions SHA-pinned),
+# Token-Permissions (read-all top-level, per-job escalation), SAST (CodeQL), Fuzzing (Hypothesis).
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "0 7 * * 1"
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # upload SARIF
+      id-token: write          # required by publish_results from scorecard-action v2+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Run Scorecard analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13  # v4.35.1
+        with:
+          sarif_file: results.sarif

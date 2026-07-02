@@ -45,7 +45,9 @@ that is the path for selective disclosure in v0.5.
 | `context_binding` | no | string | hash of an external context (e.g. a request id), against reuse in a foreign context |
 | `ci95` | no | array | exactly two decimal strings |
 | `multiple_testing` | no | string | e.g. `holm` |
-| `prereg_sha256` | no | string | preregistration hash |
+| `prereg_sha256` | no | string | sha256 (hex) over the RAW bytes of the eval protocol file, committed BEFORE the run (`proofbundle prereg`); a verifier re-hashes the disclosed protocol and checks it |
+| `provenance` | no | object | traceability metadata (not a security commitment): `harness`, `git_hash`, `harness_version`, `run_id`, `run_timestamp` (log-native), `config_hash` (`<alg>:<hex>` over canonical config JSON), plus adapter-specific keys (e.g. `task_hash`, `stderr`) |
+| `samples` | no | object | per-sample Merkle commitment `{root_b64, n, leaf_alg}` — SIGNED; `samples.n` MUST equal `n`; enables the forced-random-sample audit (SPEC §7g, `proofbundle audit-challenge` / `verify-opening`) |
 
 Machine-readable: [`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json).
 

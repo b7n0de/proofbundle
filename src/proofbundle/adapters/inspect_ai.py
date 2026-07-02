@@ -90,6 +90,15 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     if tv is not None:
         provenance["task_version"] = str(tv)
 
+    # v1.8 (external review): run-id + config-hash + LOG-NATIVE timestamp so a receipt traces back
+    # to the exact run. inspect_ai: eval.run_id (unique run id), eval.created (UTC datetime string),
+    # eval.task_args (the config material — no native config hash exists, so we compute one).
+    from ._provenance import add_provenance  # noqa: PLC0415
+    task_args = getattr(ev, "task_args", None)
+    add_provenance(provenance, run_id=getattr(ev, "run_id", None),
+                   config=task_args if isinstance(task_args, dict) else None,
+                   log_timestamp=getattr(ev, "created", None))
+
     return build_eval_claim(
         suite=suite, suite_version=str(getattr(ev, "task_version", "1")),
         metric=metric, comparator=comparator, threshold=threshold, score=_score_str(value),

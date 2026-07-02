@@ -150,3 +150,38 @@ class TestEvalResultsEntry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestValueConsistency(unittest.TestCase):
+    """v1.8: a published value that contradicts the signed pass/fail verdict is refused."""
+
+    def _receipt(self, threshold, comparator, score):
+        from proofbundle import generate_signer
+        from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
+        claim, _ = build_eval_claim(
+            suite="s", suite_version="1", metric="acc", comparator=comparator,
+            threshold=threshold, score=score, n=10, model_id="m", dataset_id="d",
+            issuer="", timestamp="2026-07-02T00:00:00Z")
+        return emit_eval_receipt(claim, generate_signer())
+
+    def test_consistent_value_ok(self):
+        r = self._receipt("0.80", ">=", "0.91")   # passed=True
+        entry = to_eval_results_entry(r, dataset_id="d/x", task_id="t", value=0.91)
+        self.assertEqual(entry["value"], 0.91)
+
+    def test_inconsistent_value_refused(self):
+        r = self._receipt("0.80", ">=", "0.60")   # passed=False (0.60 < 0.80)
+        with self.assertRaises(BundleFormatError) as ctx:
+            to_eval_results_entry(r, dataset_id="d/x", task_id="t", value=0.99)  # 0.99>=0.80 → True, but claim says False
+        self.assertIn("inconsistent", str(ctx.exception))
+
+    def test_override_allows_mismatch(self):
+        r = self._receipt("0.80", ">=", "0.60")
+        entry = to_eval_results_entry(r, dataset_id="d/x", task_id="t", value=0.99,
+                                      allow_value_mismatch=True)
+        self.assertEqual(entry["value"], 0.99)
+
+    def test_non_eval_bundle_skips_check(self):
+        # a plain emit_bundle (not an eval receipt) has no claim → no cross-check, value accepted
+        entry = to_eval_results_entry(_bundle(), dataset_id="d/x", task_id="t", value=0.5)
+        self.assertEqual(entry["value"], 0.5)
