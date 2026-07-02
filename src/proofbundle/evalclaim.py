@@ -37,14 +37,21 @@ _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
 _DECIMAL_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+# Assurance level (v1.1): how much a PASS is worth. Signed into the claim so a self_attested PASS can never
+# be shown as a reproduced one. Ordered weakest→strongest. Default self_attested — the 1.0 integrations emit
+# self-attested, and claiming more would be dishonest.
+ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
+DEFAULT_ASSURANCE = "self_attested"
 # The exact key set of an eval claim; decode/validate reject anything else.
 _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "threshold",
-             "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp"}
+             "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp",
+             "assurance_level"}
 _OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance"}
 
 __all__ = [
-    "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "canonicalize", "build_eval_claim",
+    "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
     "emit_eval_receipt", "decode_eval_claim", "salted_commit", "issuer_fingerprint",
+    "claim_warnings", "verify_commitment", "check_freshness", "sd_jwt_hidden_count",
 ]
 
 
@@ -135,6 +142,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                      issuer: str, timestamp: str, context_binding: Optional[str] = None,
                      ci95: Optional[Sequence[str]] = None, multiple_testing: Optional[str] = None,
                      prereg_sha256: Optional[str] = None, provenance: Optional[dict] = None,
+                     assurance_level: str = DEFAULT_ASSURANCE,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Build a valid eval claim from raw values. Computes `passed` ITSELF from the comparator
     (never trusts the caller), creates salted commitments, and returns (claim, salts) with the
@@ -145,6 +153,8 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
     """
     if comparator not in _COMPARATORS:
         raise EvalClaimError(f"comparator must be one of {sorted(_COMPARATORS)}")
+    if assurance_level not in ASSURANCE_LEVELS:
+        raise EvalClaimError(f"assurance_level must be one of {list(ASSURANCE_LEVELS)}")
     # threshold/score must match the PUBLISHED schema's decimal pattern exactly — reject "1e2",
     # "Infinity", "+5", " 5 " etc. that Decimal() would accept but jsonschema rejects (schema-conformance).
     for name, val in (("threshold", threshold), ("score", score)):
@@ -164,7 +174,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         "metric": metric, "comparator": comparator, "threshold": threshold, "passed": passed,
         "n": n, "model_id_commit": salted_commit(model_id, m_salt),
         "dataset_id_commit": salted_commit(dataset_id, d_salt), "commit_alg": COMMIT_ALG,
-        "issuer": issuer, "timestamp": timestamp,
+        "issuer": issuer, "timestamp": timestamp, "assurance_level": assurance_level,
     }
     if context_binding is not None:
         claim["context_binding"] = context_binding
@@ -189,6 +199,11 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     """
     claim = dict(claim)
     claim["issuer"] = issuer_fingerprint(signer)
+    # A claim without an explicit assurance_level is self_attested — the weakest, safest default; never
+    # silently elevate. (v1.1: keeps pre-1.1 claim JSONs emittable while binding the honest level.)
+    claim.setdefault("assurance_level", DEFAULT_ASSURANCE)
+    if claim["assurance_level"] not in ASSURANCE_LEVELS:
+        raise EvalClaimError(f"assurance_level must be one of {list(ASSURANCE_LEVELS)}")
     missing = _REQUIRED - set(claim)
     if missing:
         raise EvalClaimError(f"claim missing required fields: {sorted(missing)}")
@@ -223,3 +238,82 @@ def decode_eval_claim(bundle) -> Optional[dict]:
         return claim
     except (KeyError, ValueError, EvalClaimError):
         return None
+
+
+def claim_warnings(claim: dict) -> list:
+    """Honest trust warnings for an already-verified claim (v1.1). A verified signature proves authorship +
+    integrity, NOT that the number is true or the study was pre-registered. The weakest combination —
+    self_attested with no pre-registration — is where an issuer could publish the best of many runs; surface
+    it so a strong signature never masks a weak assurance. Returns a list of human-readable strings."""
+    out = []
+    level = claim.get("assurance_level", DEFAULT_ASSURANCE)
+    if level == "self_attested" and not claim.get("prereg_sha256"):
+        out.append("self_attested with no prereg_sha256 — the weakest assurance: trust rests entirely on the "
+                   "issuer, who could publish the best of many runs. Pre-register (prereg_sha256) or use a "
+                   "higher assurance_level (reproduced / enclave_attested) to strengthen it.")
+    return out
+
+
+def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
+    """Check that a PRESENTED identifier (+ its salt) matches a salted commitment in a claim
+    (``model_id_commit`` / ``dataset_id_commit``). Makes a model-swap visible: a claim that silently swapped
+    the model cannot produce a matching (identifier, salt). Constant-time compare; the salt stays outside the
+    payload (the holder presents it to a verifier out of band)."""
+    try:
+        expected = salted_commit(identifier, salt)
+    except EvalClaimError:
+        return False
+    import hmac  # noqa: PLC0415
+    return hmac.compare_digest(expected, str(commitment))
+
+
+def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None) -> dict:
+    """Replay check (v1.1): parse the claim's timestamp and report its age. A receipt carries a timestamp but
+    verify never judged it — an old receipt could be replayed as new. Returns
+    {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
+    ``max_age_seconds`` bound is given (age reported, not judged). 3.9-safe ISO parsing (normalizes a 'Z')."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+    ts = claim.get("timestamp")
+    if not isinstance(ts, str):
+        return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "no timestamp"}
+    raw = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return {"parsed": False, "age_seconds": None, "fresh": None, "reason": f"unparseable timestamp {ts!r}"}
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    ref = now or datetime.now(timezone.utc)
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=timezone.utc)
+    age = int((ref - dt).total_seconds())
+    if max_age_seconds is None:
+        return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
+    fresh = 0 <= age <= max_age_seconds
+    return {"parsed": True, "age_seconds": age, "fresh": fresh,
+            "reason": (f"age {age}s within {max_age_seconds}s" if fresh
+                       else f"age {age}s outside [0, {max_age_seconds}]s — possible replay or clock skew")}
+
+
+def sd_jwt_hidden_count(bundle) -> Optional[int]:
+    """Number of selectively-disclosable (currently withheld) SD-JWT fields in a bundle, so that OMISSION is
+    visible: a receipt can hide claims behind the SD-JWT ``_sd`` digests. Returns the count, or None if the
+    bundle carries no SD-JWT. Reads the issuer JWT payload's ``_sd`` array without verifying the SD-JWT
+    (that is the holder/verifier's job); purely a disclosure-transparency signal."""
+    if isinstance(bundle, str):
+        bundle = load_bundle(bundle)
+    sd = bundle.get("sd_jwt_vc") if isinstance(bundle, dict) else None
+    if not sd:
+        return None
+    token = sd if isinstance(sd, str) else (sd.get("sd_jwt") or sd.get("token") or "")
+    if not isinstance(token, str) or "." not in token:
+        return None
+    try:
+        jwt = token.split("~", 1)[0]                     # issuer JWT, before any disclosures
+        payload_b64 = jwt.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)     # restore base64url padding
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+    except (ValueError, KeyError, IndexError):
+        return None
+    sd_arr = payload.get("_sd")
+    return len(sd_arr) if isinstance(sd_arr, list) else None

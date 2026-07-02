@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-02
+
+### Added — trust hardening: the honest foundation (authorship + integrity, stated precisely)
+- **Signed `assurance_level`** (required field, enum `self_attested` | `third_party` | `reproduced` |
+  `enclave_attested`, default `self_attested`) in the eval claim + schema + EVAL_CLAIM.md. The 1.0
+  integrations emit self_attested. `show-eval`/`verify` always display it — a self_attested PASS can never
+  be shown as a reproduced one. (Pre-1.1 claim JSONs default to self_attested on emit; never silently elevated.)
+- **THREAT_MODEL.md** — what `verify` catches (tampering, issuer swap, model swap, filtered disclosure,
+  replay, weak-assurance-masking) and what it structurally cannot (dishonest self-attested issuer,
+  publish-best-of-many without pre-registration, suite validity, per-sample sub-sampling = roadmap).
+- **`claim_warnings`** — warns on the weakest combination (self_attested with no `prereg_sha256`); shown by
+  `show-eval`.
+- **`verify_commitment(identifier, salt, commitment)`** — checks a presented model/dataset identifier against
+  the salted commitment, so a model swap is visible.
+- **`check_freshness(claim, max_age_seconds)`** — reports receipt age (replay protection); the timestamp was
+  carried but never judged before.
+- **`sd_jwt_hidden_count`** — surfaces the number of withheld SD-JWT fields, so omission is visible.
+- **`tests/test_adversarial.py`** — actively forges receipts: invented-numbers-with-valid-signature (PASS is
+  EXPECTED + warned — binds authorship not truth), tampered payload (FAIL), withheld-field count, model swap
+  (mismatch), replay (detectable), honest receipt still verifies.
+- A consolidated **"What a receipt proves (and what it does not)"** section high in the README + assurance table.
+
+### Note
+- Terminology hygiene throughout: *tamper-evident signed evidence*, not *proof*; *authenticity and
+  integrity*, not *correctness of the computation*.
+
 ## [1.0.0] - 2026-07-02
 
 ### Added — distribution: opt-in framework integrations (the 1.0 milestone: usable with zero third-party wiring)

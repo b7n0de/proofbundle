@@ -66,6 +66,29 @@ disclosable receipt. The verifier shipped first, small and correct, so it could
 be reviewed and trusted on its own; `emit_bundle` now creates bundles that
 `verify_bundle` accepts, fully offline on both sides.
 
+## What a receipt proves (and what it does not)
+
+A receipt is a **tamper-evident, signed statement of authorship and integrity** over an eval or test result —
+not a proof that the number is *true* or that the evaluation was well designed. Hold these apart:
+
+- **It proves:** the payload was signed by the stated issuer (authorship), no byte changed since (integrity,
+  Ed25519 + RFC 6962), the model/dataset behind salted commitments, and — since v1.1 — the **assurance level**
+  is signed in, so a self-attested PASS can never be shown as a reproduced one. `verify`/`show-eval` also
+  surface a model-swap (`verify_commitment`), withheld SD-JWT fields, receipt age (replay), and warn on the
+  weakest combination (self_attested with no pre-registration).
+- **It does not prove:** that a *self-attested* issuer is honest, that a result was not cherry-picked from
+  many runs without pre-registration, or that the suite measures what it claims. Those need a higher
+  assurance level or a pre-registered protocol.
+
+| assurance_level | meaning |
+|---|---|
+| `self_attested` | issuer ran + signed it (default); trust rests on the issuer |
+| `third_party` | a third party checked before signing |
+| `reproduced` | independently re-run and matched |
+| `enclave_attested` | produced in an attested trusted execution environment |
+
+Full detail: **[THREAT_MODEL.md](THREAT_MODEL.md)** — what `verify` catches and what it structurally cannot.
+
 ## What it verifies
 
 A bundle is a single JSON document. `proofbundle` checks, offline:
@@ -363,8 +386,10 @@ attestation — see [SECURITY.md](SECURITY.md).
   a sharpened honesty guardrail (authenticity/integrity, not computation-correctness), and outreach drafts.
 - **v0.9** — the standards moat: a DSSE-signed in-toto `test-result` export, a C2SP tlog-checkpoint over
   the RFC 6962 root, an Every Eval Ever converter, and standards-native repositioning.
-- **v1.0 (current release)** — distribution: opt-in framework integrations that auto-emit a signed receipt
-  of an inspect_ai eval (end-of-task hook) or a pytest run (pytest11 plugin), plus a composite GitHub Action.
+- **v1.0** — distribution: opt-in framework integrations that auto-emit a signed receipt of an inspect_ai
+  eval (end-of-task hook) or a pytest run (pytest11 plugin), plus a composite GitHub Action.
+- **v1.1 (current release)** — trust hardening: a signed `assurance_level`, a THREAT_MODEL, a self_attested-
+  without-prereg warning, model-swap + replay + withheld-field checks, and an adversarial No-Fake-PASS suite.
 - **Deferred** (explicitly not yet built) — SD-JWT VC conformance + `vct` metadata,
   Key-Binding JWT, status lists / revocation, an official in-toto PR, DSSE / a full in-toto client.
 

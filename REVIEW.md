@@ -156,3 +156,7 @@ APIs verified vs primary sources before building (inspect_ai Hooks floor 0.3.112
 | Format-contract | INTEGRATIONS.md quickstart per integration; action.yml SHA-pinned + env-indirect |
 | Supply-chain | no new core dep; opt-in safety = never silent write, never fail host run |
 | Orthogonal | novelty corrected + honestly stated (first SIGNED auto-emit; ValiChord post-hoc + unsigned-v1) |
+
+---
+
+# v1.1 review (trust hardening) — pending 6-lens + 3 orthogonal iterations

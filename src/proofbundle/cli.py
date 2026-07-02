@@ -48,7 +48,9 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 
 
 def _cmd_show_eval(args: argparse.Namespace) -> int:
-    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    from .evalclaim import (  # noqa: PLC0415
+        DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, sd_jwt_hidden_count,
+    )
     claim = decode_eval_claim(args.receipt)
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
@@ -56,10 +58,19 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     print(f"suite      {claim['suite']} ({claim['suite_version']})")
     print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
     print(f"passed     {claim['passed']}   (n={claim['n']})")
+    print(f"assurance  {claim.get('assurance_level', DEFAULT_ASSURANCE)}")
     print(f"model      commit {claim['model_id_commit']}")
     print(f"dataset    commit {claim['dataset_id_commit']}")
     print(f"issuer     {claim['issuer']}")
     print(f"timestamp  {claim['timestamp']}")
+    hidden = sd_jwt_hidden_count(args.receipt)
+    if hidden is not None:
+        print(f"sd-jwt     {hidden} field(s) withheld (selective disclosure)")
+    fresh = check_freshness(claim)
+    if fresh["parsed"]:
+        print(f"age        {fresh['age_seconds']}s")
+    for w in claim_warnings(claim):
+        print(f"WARNING    {w}")
     print("=> OK")
     return 0
 

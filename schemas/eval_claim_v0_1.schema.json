@@ -18,7 +18,8 @@
     "dataset_id_commit",
     "commit_alg",
     "issuer",
-    "timestamp"
+    "timestamp",
+    "assurance_level"
   ],
   "properties": {
     "schema": {
@@ -72,6 +73,15 @@
     },
     "timestamp": {
       "type": "string"
+    },
+    "assurance_level": {
+      "enum": [
+        "self_attested",
+        "third_party",
+        "reproduced",
+        "enclave_attested"
+      ],
+      "description": "how much a PASS is worth: self-attested by the issuer, third-party checked, independently reproduced, or produced in an attested enclave. Signed into the claim."
     },
     "context_binding": {
       "type": "string"

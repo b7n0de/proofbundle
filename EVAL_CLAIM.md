@@ -41,6 +41,7 @@ that is the path for selective disclosure in v0.5.
 | `commit_alg` | yes | string | const `sha256-salted-v1` |
 | `issuer` | yes | string | `ed25519:<base64 of the 32-byte public key>` — part of the SIGNED payload; binds the receipt to the issuer |
 | `timestamp` | yes | string | RFC 3339 |
+| `assurance_level` | yes | enum | `self_attested` (default) · `third_party` · `reproduced` · `enclave_attested` — how much a PASS is worth; SIGNED, always shown by `verify`/`show-eval`. See THREAT_MODEL.md |
 | `context_binding` | no | string | hash of an external context (e.g. a request id), against reuse in a foreign context |
 | `ci95` | no | array | exactly two decimal strings |
 | `multiple_testing` | no | string | e.g. `holm` |
