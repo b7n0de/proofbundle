@@ -97,19 +97,26 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
     dataset_id = ("promptfoo-tests-sha256:"
                   + hashlib.sha256(tests_canonical.encode("utf-8")).hexdigest())
     # HONESTY (release-review): the commitment is over `config.tests` AS RECORDED in results.json. When tests are
-    # INLINE, that is the content (the suite IS the dataset). When they are a `file://`/glob REFERENCE, promptfoo
-    # records the unresolved reference — the commitment then binds the reference, NOT the file content (an offline
-    # reader cannot resolve external files). We flag that so a verifier is not misled that it binds content.
+    # INLINE, that is the content (the suite IS the dataset). When they are a `file://`/glob REFERENCE — whether a
+    # top-level string, a list containing a string, OR a `file://` nested inside an inline test's vars/assert —
+    # promptfoo records the unresolved reference, so the commitment binds the reference, NOT the file content
+    # (an offline reader cannot resolve external files). When there are NO tests at all the commitment is over the
+    # empty string and binds nothing. We label each case so a verifier is never misled that content was bound.
     tests_by_reference = isinstance(tests, str) or (
-        isinstance(tests, list) and any(isinstance(t, str) for t in tests))
+        isinstance(tests, list) and any(isinstance(t, str) for t in tests)) or ("file://" in tests_canonical)
+    if not tests:
+        commitment_scope = "config.tests_absent"
+    elif tests_by_reference:
+        commitment_scope = "config.tests_reference_only"
+    else:
+        commitment_scope = "config.tests_inline_content"
 
     metadata = data.get("metadata") or {}
     provenance = {"harness": "promptfoo",
                   "successes": str(counts["successes"]), "failures": str(counts["failures"]),
                   "errors": str(counts["errors"]),
                   "pass_rate_formula": "successes/(successes+failures+errors)",
-                  "dataset_commitment_scope": ("config.tests_reference_only" if tests_by_reference
-                                               else "config.tests_inline_content")}
+                  "dataset_commitment_scope": commitment_scope}
     if eval_id:
         provenance["eval_id"] = str(eval_id)
     if metadata.get("promptfooVersion"):

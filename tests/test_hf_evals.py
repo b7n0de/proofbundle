@@ -131,6 +131,22 @@ class TestEvalResultsEntry(unittest.TestCase):
         with self.assertRaises(BundleFormatError):
             eval_results_yaml([{"dataset": {"id": "d", "task_id": "t", "sneaky": "x"}, "value": 1}])
 
+    def test_red_huge_int_value_rejected(self):
+        # re-review regression: an int beyond float range must raise BundleFormatError, not OverflowError.
+        with self.assertRaises(BundleFormatError):
+            to_eval_results_entry(_bundle(), dataset_id="d/x", task_id="t", value=10**400)
+
+    def test_red_non_dict_jwt_in_token_no_crash(self):
+        # re-review MED: a token whose SD-JWT header/payload decodes to a non-object (e.g. int 5) must NOT
+        # crash with AttributeError — it fails verification cleanly (the "never a crash" contract).
+        def _b(obj):
+            return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode("ascii")
+        bundle = _bundle()
+        bad_jwt = f"{_b(5)}.{_b({'x': 1})}.{_b('sig')}"   # header decodes to the int 5, not a dict
+        bundle["sd_jwt_vc"] = {"compact": bad_jwt + "~"}
+        result, _ = verify_receipt_token(receipt_token(bundle))   # must not raise
+        self.assertFalse(result.ok)
+
 
 if __name__ == "__main__":
     unittest.main()

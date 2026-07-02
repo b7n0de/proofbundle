@@ -112,8 +112,8 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     # neither valid JSON nor unambiguous YAML — so an eval_results.yaml value must be a FINITE number.
     try:
         numeric = float(value)
-    except (ValueError, TypeError) as exc:
-        raise BundleFormatError(f"value {value!r} is not a number") from exc
+    except (ValueError, TypeError, OverflowError) as exc:   # OverflowError: an int beyond float range
+        raise BundleFormatError(f"value {value!r} is not a representable finite number") from exc
     if not math.isfinite(numeric):
         raise BundleFormatError(
             "value must be a finite number — inf/-inf/nan cannot be represented in eval_results.yaml")

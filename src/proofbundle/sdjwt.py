@@ -89,6 +89,11 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     except (ValueError, json.JSONDecodeError):
         result["detail"] = "malformed JWT header or payload"
         return result
+    if not isinstance(header, dict) or not isinstance(payload, dict):
+        # a JWT header/payload that decodes to a non-object (e.g. the integer 5) must fail cleanly, not
+        # crash later on .get(...) — keeps verify_bundle/verify_receipt_token's "never a crash" contract.
+        result["detail"] = "malformed JWT header or payload (not a JSON object)"
+        return result
 
     alg = header.get("alg")
     result["alg"] = alg

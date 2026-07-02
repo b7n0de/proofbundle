@@ -79,6 +79,19 @@ class TestPromptfooAdapter(unittest.TestCase):
         self.assertEqual(claim_ref["provenance"]["dataset_commitment_scope"],
                          "config.tests_reference_only")
 
+        # re-review follow-up: absent/empty tests must NOT be labeled inline_content (nothing is bound), and a
+        # file:// nested inside an inline test dict is a reference too (the external data is not bound).
+        for tests_value, expected in ((None, "config.tests_absent"), ([], "config.tests_absent"),
+                                      ([{"vars": {"data": "file://d.csv"}}], "config.tests_reference_only")):
+            data = json.loads(FIXTURE.read_text())
+            data["config"]["tests"] = tests_value
+            path = _write(data)
+            try:
+                claim, _ = from_promptfoo_results(path, **KW)
+            finally:
+                os.unlink(path)
+            self.assertEqual(claim["provenance"]["dataset_commitment_scope"], expected, repr(tests_value))
+
     def test_model_commitment_uses_observed_providers(self):
         # #6: a config-only provider that produced no result must not enter the commitment set. Fixed salt so
         # the commitments are comparable (same observed provider set → identical commit input → identical commit).
