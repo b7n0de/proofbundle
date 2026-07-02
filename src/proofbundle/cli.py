@@ -233,10 +233,14 @@ def _cmd_prereg(args: argparse.Namespace) -> int:
     from .prereg import prereg_hash, verify_prereg  # noqa: PLC0415
     try:
         if args.check is not None:
-            from .bundle import load_bundle  # noqa: PLC0415
-            import base64 as _b64  # noqa: PLC0415
-            b = load_bundle(args.check)
-            claim = json.loads(_b64.b64decode(b["payload_b64"]).decode("utf-8"))
+            from .evalclaim import decode_eval_claim  # noqa: PLC0415
+            # Release-review CRITICAL: --check MUST verify the receipt (Ed25519 + Merkle) BEFORE trusting its
+            # prereg_sha256 — the old load_bundle+manual-decode read an UNAUTHENTICATED claim, so a forged/unsigned
+            # bundle with a doctored prereg_sha256 got a false PASS (the exact anti-cherry-picking bypass this guards).
+            claim = decode_eval_claim(args.check)
+            if claim is None:
+                print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+                return 1
             res = verify_prereg(args.protocol, claim)
             if args.json:
                 print(json.dumps(res))

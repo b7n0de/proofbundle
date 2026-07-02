@@ -122,7 +122,7 @@ MUTATIONS = [
      "if actual == expected:", "if True:",
      "prereg: hash match check bypassed", True),
     ("src/proofbundle/hf_evals.py",
-     "if cmp_ok is not None and cmp_ok != bool(claim[\"passed\"]):", "if False:",
+     "if cmp_ok != bool(claim[\"passed\"]):", "if False:",
      "hf: value-vs-verdict consistency check removed", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.

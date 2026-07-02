@@ -1,9 +1,13 @@
 """v1.8 pre-registration helper: commit to a protocol before the run, verify after."""
 import hashlib
+import json
 import os
 import tempfile
 import unittest
 
+from proofbundle.cli import main
+from proofbundle.emit import generate_signer
+from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
 from proofbundle.prereg import prereg_hash, verify_prereg
 
 
@@ -88,6 +92,30 @@ class TestPrereg(unittest.TestCase):
             os.unlink(other)
         finally:
             os.unlink(proto)
+
+
+class TestPreregCheckVerifies(unittest.TestCase):
+    def test_check_rejects_forged_unsigned_bundle(self):
+        # release-review CRITICAL: prereg --check MUST verify the receipt's signature before trusting its
+        # prereg_sha256 — a forged/unsigned bundle with a doctored prereg_sha256 must NOT get a PASS.
+        with tempfile.TemporaryDirectory() as d:
+            proto = os.path.join(d, "protocol.md")
+            with open(proto, "wb") as f:
+                f.write(b"pre-registered analysis plan v1")
+            h = prereg_hash(proto)
+            signer = generate_signer()
+            claim, _ = build_eval_claim(
+                suite="s", suite_version="v1", metric="m", comparator=">=", threshold="0.80",
+                score="0.92", n=10, model_id="a/b", dataset_id="c/d",
+                issuer=issuer_fingerprint(signer), timestamp="2026-07-01T12:00:00Z",
+                model_salt=b"0" * 16, dataset_salt=b"1" * 16, prereg_sha256=h)
+            bundle = emit_eval_receipt(claim, signer)
+            bundle["signature"]["signature_b64"] = "AA==" * 22    # corrupt the Ed25519 signature
+            fp = os.path.join(d, "forged.json")
+            with open(fp, "w", encoding="utf-8") as f:
+                json.dump(bundle, f)
+            rc = main(["prereg", proto, "--check", fp])
+            self.assertNotEqual(rc, 0, "a forged/unsigned receipt must FAIL prereg --check")
 
 
 if __name__ == "__main__":

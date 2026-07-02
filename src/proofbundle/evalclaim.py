@@ -274,6 +274,15 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         want = "ed25519:" + base64.b64encode(base64.b64decode(sig_pub_b64)).decode("ascii")
         if claim.get("issuer") != want:
             return None
+        # Verify-boundary schema invariants (release-review CRITICAL): emit_eval_receipt signs a hand-built claim
+        # WITHOUT build_eval_claim's checks, so a signed claim could carry an out-of-enum comparator or a
+        # non-decimal/non-finite threshold ("inf") — either silently collapses a downstream verdict check (e.g. the
+        # HF value-vs-verdict guard) into a tautology. Enforce them here, fail-closed, so every decoded claim is sane.
+        if claim.get("comparator") not in _COMPARATORS:
+            return None
+        _thr = claim.get("threshold")
+        if not (isinstance(_thr, str) and _DECIMAL_RE.match(_thr)):
+            return None
         samples = claim.get("samples")
         if samples is not None:
             if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:

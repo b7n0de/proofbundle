@@ -12,7 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`<alg>:<hex>` over canonical config JSON — RFC 8785 JCS when available, deterministic
   sort-keys fallback, labeled either way), and the **log-native timestamp** (inspect
   `eval.created`, lm-eval's Unix-float `date`, promptfoo `evaluationCreatedAt`) instead of only
-  the caller's timestamp — closing the review's "a self-attesting issuer can backdate" gap. lm-eval
+  the caller's timestamp — this ties the receipt's descriptive run_timestamp to the value the harness's
+  own log recorded, narrowing (not eliminating) the "a self-attesting issuer can backdate" gap: a dishonest issuer
+  who controls the log can still forge the log-native field. lm-eval
   also carries its native `task_hash`.
 - **`proofbundle prereg <protocol>`** (`prereg.py`, CLI): commit to an eval protocol BEFORE the
   run — sha256 over the RAW file bytes (the accepted document-commitment convention: git blob,
@@ -41,7 +43,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **EVAL_CLAIM.md**: field table gains `provenance` and `samples` rows; stale "3.9-safe" comment removed.
 
 ### Verification discipline
-- 270 tests (was 254): +provenance (config-hash determinism, log-native timestamp, run-id per
+- 289 tests (was 263): +provenance (config-hash determinism, log-native timestamp, run-id per
   adapter), +prereg (raw-bytes hash, match/mismatch, CLI roundtrip, trailing-byte tamper),
   +HF value-consistency (consistent ok / inconsistent refused / override / non-eval skip),
   +parser fuzz module. Mutation gate: 28 operators (+2 for prereg + HF checks), all killed.
@@ -83,7 +85,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   release WILL carry…") — no release exists yet, so present-tense claims were premature.
 
 ### Notes
-- No library API or wire-format change; verification behavior is byte-identical to v1.6.1. This is a
+- No wire-format change. NOTE: the released v1.7.0 additionally carried pre-release-review security fixes
+  (decode_eval_claim TOCTOU single-read, verify-side comparator/threshold validation, persample native-id ordering)
+  that DO change verify-path behavior vs v1.6.1 — see the v1.8.0 section and commits. This is a
   release-engineering + docs release. The `pypi` environment reviewers and branch protection are
   GitHub settings the maintainer must apply (documented, not code).
 ## [1.6.1] - 2026-07-02

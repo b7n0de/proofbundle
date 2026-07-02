@@ -36,7 +36,7 @@ file, no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 287 tests + a CI mutation gate.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 289 tests + a CI mutation gate.
 
 ## Contents
 

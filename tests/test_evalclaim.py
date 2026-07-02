@@ -39,6 +39,19 @@ class TestEvalClaim(unittest.TestCase):
         self.assertEqual(decoded["suite"], "safety-refusal")
         self.assertTrue(decoded["passed"])
 
+    def test_decode_rejects_bad_comparator_and_threshold(self):
+        # release-review CRITICAL: emit_eval_receipt signs a hand-built claim WITHOUT build_eval_claim's checks,
+        # so decode_eval_claim must enforce comparator-enum + decimal-threshold at the verify boundary — else a
+        # downstream value-consistency check silently no-ops on comparator "==" / non-finite threshold "inf".
+        signer = generate_signer()
+        for key, bad in (("comparator", "=="), ("comparator", "~="),
+                         ("threshold", "inf"), ("threshold", "nan"), ("threshold", "1e5")):
+            claim, _ = _claim(signer)
+            claim[key] = bad
+            bundle = emit_eval_receipt(claim, signer)
+            self.assertTrue(verify_bundle(bundle).ok, f"{key}={bad}: bundle still signs/verifies")
+            self.assertIsNone(decode_eval_claim(bundle), f"{key}={bad}: claim must NOT decode")
+
     def test_decode_reads_path_once_no_toctou(self):
         # CRITICAL (release review): decode_eval_claim(path) must resolve the path to a dict EXACTLY ONCE and
         # verify + parse the SAME object. A second re-read is a TOCTOU (CWE-367) file-race window that could return

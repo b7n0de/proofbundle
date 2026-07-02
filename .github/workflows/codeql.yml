@@ -20,6 +20,7 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     permissions:
+      contents: read            # checkout the repo (a job-level permissions block REPLACES top-level)
       security-events: write   # upload SARIF alerts
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0

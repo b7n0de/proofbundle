@@ -97,7 +97,9 @@ def parse_tlog_proof(text: str) -> dict:
     if pos >= len(lines) or not lines[pos].startswith("index "):
         raise BundleFormatError("tlog-proof is missing the index line")
     index_s = lines[pos][len("index "):]
-    if not index_s.isdigit() or (index_s != "0" and index_s.startswith("0")):
+    # isascii() before isdigit() (release-review #7): str.isdigit() is True for Unicode digits (e.g. '²' U+00B2,
+    # Arabic-Indic), which int() would then reject or mis-parse — mirror checkpoint.py's ASCII-only guard.
+    if not (index_s.isascii() and index_s.isdigit()) or (index_s != "0" and index_s.startswith("0")):
         raise BundleFormatError("tlog-proof index must be ASCII decimal with no leading zeros")
     pos += 1
     proof = []

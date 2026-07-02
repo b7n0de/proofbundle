@@ -130,21 +130,35 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     # The claim minimizes data (it carries threshold/comparator/passed, not the exact score), so
     # we check the strongest thing available: value <comparator> threshold must equal passed.
     if not allow_value_mismatch:
-        from .evalclaim import decode_eval_claim  # noqa: PLC0415
+        from .evalclaim import EVAL_CLAIM_SCHEMA, decode_eval_claim  # noqa: PLC0415
         claim = decode_eval_claim(bundle)
-        if isinstance(claim, dict) and {"threshold", "comparator", "passed"} <= set(claim):
-            try:
+        if claim is not None:
+            # decode_eval_claim now guarantees comparator ∈ the 4-value enum and a decimal (finite) threshold, so the
+            # lookup below is total and thr is finite — no "=="/"inf" tautology can silently no-op the check.
+            if {"threshold", "comparator", "passed"} <= set(claim):
                 thr = float(claim["threshold"])
                 cmp_ok = {">=": numeric >= thr, ">": numeric > thr,
-                          "<=": numeric <= thr, "<": numeric < thr}.get(claim["comparator"])
+                          "<=": numeric <= thr, "<": numeric < thr}[claim["comparator"]]
+                if cmp_ok != bool(claim["passed"]):
+                    raise BundleFormatError(
+                        f"published value {numeric} is inconsistent with the receipt: the signed claim "
+                        f"says passed={claim['passed']} for {claim['comparator']} {claim['threshold']}, "
+                        f"but {numeric} {claim['comparator']} {claim['threshold']} is {cmp_ok} — "
+                        "pass allow_value_mismatch=True only if this is intentional")
+        else:
+            # decode failed. FAIL-CLOSED (release-review CRITICAL) if the payload IS an eval claim but did not decode
+            # (e.g. out-of-enum comparator / non-decimal threshold) — refusing to publish an unchecked value. A
+            # genuinely NON-eval bundle (different/absent schema) has no verdict to check → skip. The bundle's signature
+            # was already verified above (require_verified), so reading the raw payload's schema label is authentic.
+            try:
+                _raw = json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
-                cmp_ok = None
-            if cmp_ok is not None and cmp_ok != bool(claim["passed"]):
+                _is_eval = False
+            if _is_eval:
                 raise BundleFormatError(
-                    f"published value {numeric} is inconsistent with the receipt: the signed claim "
-                    f"says passed={claim['passed']} for {claim['comparator']} {claim['threshold']}, "
-                    f"but {numeric} {claim['comparator']} {claim['threshold']} is {cmp_ok} — "
-                    "pass allow_value_mismatch=True only if this is intentional")
+                    "cannot verify the published value against the receipt — the eval claim did not decode "
+                    "(invalid comparator/threshold?); pass allow_value_mismatch=True only if intentional")
 
     entry: dict = {"dataset": {"id": dataset_id, "task_id": task_id},
                    "value": numeric if isinstance(value, str) else value}
