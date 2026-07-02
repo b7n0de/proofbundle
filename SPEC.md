@@ -255,10 +255,14 @@ inside the committed leaf, so only this check catches it).
 nonce)``, expanded by HMAC-SHA-256 counter mode into u64 draws, mapped to [0, n) by rejection
 sampling (accept iff v < ⌊2^64/n⌋·n; zero modulo bias), duplicates skipped until k distinct
 indices. Nonce modes: **auditor nonce** (fresh, supplied after signing — grinding impossible;
-the default for audits), **public beacon** (first pulse after the signed timestamp, RFC
-3797-style, publicly re-verifiable), **self-challenge** (empty nonce; sanity check ONLY — a
-producer can grind by re-salting, escaping with ≈ g·(1−m/n)^k over g attempts). Soundness is
-the proof-of-retrievability bound 1−(1−m)^k, independent of n (k=300 → 95% at m=1%; 459 → 99%).
+the default for audits), **public beacon** (a pulse from a round emitting AFTER the signed
+timestamp, RFC 3797-style, publicly re-verifiable — since v1.9 formalized as
+``nonce = SHA-256("proofbundle/v1.9/beacon-nonce" ‖ 0x00 ‖ beacon_id ‖ 0x00 ‖ u64(round) ‖
+pulse_randomness)`` binding a drand/NIST beacon id + round, so any third party re-derives the
+same indices; the relying party validates the beacon's own signature and the round's emission
+time out of band), **self-challenge** (empty nonce; sanity check ONLY — a producer can grind by
+re-salting, escaping with ≈ g·(1−m/n)^k over g attempts). Soundness is the proof-of-retrievability
+bound 1−(1−m)^k, independent of n (k=300 → 95% at m=1%; 459 → 99%).
 Openings are auditor-directed and never part of the public receipt (every opened sample is
 burned for future evals — contamination economics are the relying parties' policy). The domain
 strings are pinned at ``proofbundle/v2/*`` (protocol identifiers, independent of the package

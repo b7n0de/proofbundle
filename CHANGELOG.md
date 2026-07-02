@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-07-02
+
+### Added — public-beacon audit mode + a rewritten README
+- **Public-randomness beacon audits** (`proofbundle.beacon`, CLI `audit-challenge
+  --beacon-randomness/--beacon/--round`): the third per-sample challenge mode (after auditor-nonce
+  and self-challenge) is now formalized. Derive the challenge from a drand / NIST beacon pulse —
+  `nonce = SHA-256("proofbundle/v1.9/beacon-nonce" ‖ beacon_id ‖ round ‖ pulse)` — so the audit is
+  **non-interactive** (no live auditor) and **publicly re-derivable** (anyone re-fetches the same
+  pulse and gets the same indices). A pulse from a round emitting after the receipt's signed
+  timestamp cannot have been ground against (RFC 3797 pattern). `AuditRequest.as_dict()` publishes
+  the beacon id + round + indices alongside the receipt. Offline-first: the relying party supplies
+  the pulse bytes and validates the beacon's own signature + round timing out of band (stated
+  honestly — this module does not verify the BLS/RSA beacon signature). `examples/persample_audit.py`
+  gains a beacon variant. SPEC §7g.
+- **README rewritten for humans** (556 → ~130 lines): problem-first, a 60-second offline try, the
+  "what it proves / does not prove" table up top, one architecture diagram, a features-at-a-glance
+  list, and a docs table — the exhaustive standards enumeration and deep-dives moved to the linked
+  SPEC/EVAL_CLAIM/INTEROP/FAQ docs. Closes the review's "a fresh reviewer gets lost / quickstart
+  needs a checkout" finding.
+
+### Verification discipline
+- 299 tests (was 289 test-methods upstream; +10 beacon, roundtrip/binding/red-matrix + CLI mode +
+  a pinned nonce-construction KAT). Mutation gate: 29 operators (+1 beacon round-binding), all
+  killed; the documented-equivalent survivor still survives.
+
+### Notes
+- Built on the byte-exact upstream **v1.8.0** tag (which carried release-review hardening — verify-
+  path TOCTOU single-read, `merkle.hash_alg` required, comparator/threshold enforcement in
+  `decode_eval_claim`, HF value-check fail-closed, per-sample canonical-order with native-int
+  compare, `prereg --check` authenticated, tlog-proof ASCII-digit guard). No wire-format change;
+  the beacon mode is a new way to *derive* an existing challenge, not a format change.
 ## [1.8.0] - 2026-07-02
 
 ### Added — provenance, pre-registration, and credibility (external-review backlog P1/P2)

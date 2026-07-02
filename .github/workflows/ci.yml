@@ -47,11 +47,13 @@ jobs:
           python-version: "3.10"
       - name: Install with the cryptography floor
         run: |
-          python -m pip install -e .
+          python -m pip install -e ".[eval]"
           python -m pip install "cryptography==42.*"
       - name: Core test suite on the floor
         run: python -m unittest discover -s tests
-      - name: Offline tamper demo must hold on the floor
+      - name: Dependency-free verify must hold on the floor (trusted-core verify path)
+        run: python -m proofbundle.cli verify examples/example_bundle.json
+      - name: Offline tamper demo must hold on the floor (needs the [eval] JCS canonicalizer)
         run: python -m proofbundle.cli demo
 
   mutation:

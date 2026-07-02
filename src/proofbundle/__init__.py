@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 __all__ = [
     "__version__",
@@ -38,6 +38,7 @@ __all__ = [
     "audit_challenge",
     "prereg_hash",
     "verify_prereg",
+    "beacon_audit_challenge",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -63,6 +64,7 @@ _LAZY = {
     "audit_challenge": ".persample",
     "prereg_hash": ".prereg",
     "verify_prereg": ".prereg",
+    "beacon_audit_challenge": ".beacon",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -74,6 +76,7 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .hf_evals import receipt_token, verify_receipt_token
     from .persample import (audit_challenge, build_sample_tree, sample_opening,
                             verify_sample_opening)
+    from .beacon import beacon_audit_challenge
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof

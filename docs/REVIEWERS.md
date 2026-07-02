@@ -20,7 +20,7 @@ an afternoon and treat the rest as "does not weaken the core if ignored."
 
 ## The 30-minute path
 
-1. **Run it, then break it (5 min).** `pip install -e . && proofbundle demo` — an honest receipt
+1. **Run it, then break it (5 min).** `pip install -e ".[eval]" && proofbundle demo` — an honest receipt
    verifies, six tampers each verify FAILED, a swapped sample is caught. The command exits
    non-zero if any tamper verifies; if you can make it exit 0 with a real tamper, that is a break.
 2. **Full suite (5 min).** `make test` → 257 tests. Without optional dev extras you will see a few

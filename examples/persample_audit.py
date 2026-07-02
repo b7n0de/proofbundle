@@ -67,7 +67,20 @@ def main() -> int:
     swap_caught = not verify_sample_opening(forged, root_b64, n)["ok"]
     print(f"[{'PASS' if swap_caught else 'FAIL'}] swapped-sample opening is rejected")
 
-    ok = all_ok and swap_caught
+    # ---- non-interactive variant: a PUBLIC BEACON instead of a live auditor (v1.9) -------
+    from proofbundle.beacon import beacon_audit_challenge
+    # In a real audit `pulse` is a drand/NIST pulse from a round emitting AFTER the receipt was
+    # signed (so the producer couldn't grind), fetched out of band. Its randomness bytes go here;
+    # anyone can re-fetch the same pulse and re-derive the identical indices.
+    pulse = secrets.token_bytes(32)   # stand-in for a real beacon pulse's randomness
+    req = beacon_audit_challenge(root_b64, n, k, pulse_randomness=pulse,
+                                 beacon="drand:demo-chain", round_=4815162)
+    beacon_ok = all(verify_sample_opening(sample_opening(tree["disclosures"], i),
+                                          root_b64, n)["ok"] for i in req.indices)
+    print(f"[{'PASS' if beacon_ok else 'FAIL'}] beacon audit (round {req.round}): "
+          f"{k} openings verify, indices publicly re-derivable")
+
+    ok = all_ok and swap_caught and beacon_ok
     print("\n=> OK" if ok else "\n=> FAILED")
     return 0 if ok else 1
 

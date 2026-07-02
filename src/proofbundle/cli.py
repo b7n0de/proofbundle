@@ -187,20 +187,43 @@ def _cmd_hf_token(args: argparse.Namespace) -> int:
 
 def _cmd_audit_challenge(args: argparse.Namespace) -> int:
     from .persample import audit_challenge  # noqa: PLC0415
+    # No silent downgrade: partial beacon flags must not fall through to the weakest self-challenge mode, and the
+    # two strong modes (auditor nonce vs beacon) must not be silently mixed with beacon quietly winning.
+    _beacon_flags = (args.beacon_randomness, args.beacon, args.round)
+    if any(f is not None for f in _beacon_flags) and not all(f is not None for f in _beacon_flags):
+        print("ERROR: beacon mode needs --beacon-randomness, --beacon and --round together "
+              "(partial flags would silently downgrade to the grindable self-challenge mode)", file=sys.stderr)
+        return 2
+    if args.beacon_randomness is not None and args.nonce is not None:
+        print("ERROR: --nonce and --beacon-randomness are mutually exclusive — pick one challenge mode",
+              file=sys.stderr)
+        return 2
     try:
-        nonce = bytes.fromhex(args.nonce) if args.nonce else b""
-        indices = audit_challenge(args.root, args.n, args.k, nonce)
+        if args.beacon_randomness is not None:
+            from .beacon import beacon_audit_challenge  # noqa: PLC0415
+            req = beacon_audit_challenge(
+                args.root, args.n, args.k,
+                pulse_randomness=bytes.fromhex(args.beacon_randomness),
+                beacon=args.beacon, round_=args.round)
+            indices, mode = req.indices, "beacon"
+        else:
+            nonce = bytes.fromhex(args.nonce) if args.nonce else b""
+            indices = audit_challenge(args.root, args.n, args.k, nonce)
+            mode = "auditor-nonce" if args.nonce else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
-        print(json.dumps({"indices": indices, "n": args.n, "k": args.k,
-                          "mode": "auditor-nonce" if args.nonce else "self-challenge"}))
+        out = {"indices": indices, "n": args.n, "k": args.k, "mode": mode}
+        if mode == "beacon":
+            out["beacon"] = args.beacon
+            out["round"] = args.round
+        print(json.dumps(out))
     else:
-        if not args.nonce:
-            print("WARNING: self-challenge mode (no --nonce) is a sanity check only — "
-                  "a producer can grind by re-salting; real audits supply a fresh nonce",
-                  file=sys.stderr)
+        if mode == "self-challenge":
+            print("WARNING: self-challenge mode (no --nonce/--beacon) is a sanity check only — "
+                  "a producer can grind by re-salting; real audits supply a fresh nonce or a "
+                  "public beacon pulse from a round AFTER the receipt timestamp", file=sys.stderr)
         print(" ".join(str(i) for i in indices))
     return 0
 
@@ -330,6 +353,11 @@ def build_parser() -> argparse.ArgumentParser:
     challenge.add_argument("n", type=int, help="committed sample count")
     challenge.add_argument("k", type=int, help="number of samples to challenge")
     challenge.add_argument("--nonce", help="fresh auditor nonce (hex, >=32 hex chars recommended)")
+    challenge.add_argument("--beacon-randomness",
+                           help="raw randomness (hex) of a public beacon pulse — non-interactive, "
+                                "publicly re-derivable (use a round AFTER the receipt timestamp)")
+    challenge.add_argument("--beacon", help="beacon id (e.g. 'drand:<chain-hash>' or 'nist')")
+    challenge.add_argument("--round", type=int, help="the beacon round/pulse index")
     challenge.add_argument("--json", action="store_true", help="machine readable output")
     challenge.set_defaults(func=_cmd_audit_challenge)
 

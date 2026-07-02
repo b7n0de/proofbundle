@@ -65,3 +65,7 @@ SD-JWT / in-toto). [ai-audit-trail](https://pypi.org/project/ai-audit-trail/) re
 Decision Receipts (a different layer). [ValiChord](https://github.com/topeuph-ai/ValiChord) builds
 attestation bundles from inspect_ai logs post-hoc (its v1 library is unsigned — signatures are v2 scope).
 Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (SD-JWT Key Binding).
+
+## Beacon audit mode (v1.9) — residual grinding
+
+The beacon per-sample challenge resists grinding ONLY when the round is pre-committed (a future round) and the receipt's commit-time is corroborated from an INDEPENDENT source. It relies on the self-declared `timestamp` the issuer signs but that `verify` does not prove true — a dishonest issuer can backdate it and grind against an already-public round, so without independent corroboration it is no stronger than the self-challenge mode.

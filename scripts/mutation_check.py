@@ -124,6 +124,11 @@ MUTATIONS = [
     ("src/proofbundle/hf_evals.py",
      "if cmp_ok != bool(claim[\"passed\"]):", "if False:",
      "hf: value-vs-verdict consistency check removed", True),
+    # v1.9 — public beacon audit binding
+    ("src/proofbundle/beacon.py",
+     "+ round_.to_bytes(8, \"big\") + bytes(pulse_randomness)).digest()",
+     "+ bytes(pulse_randomness)).digest()",
+     "beacon: round no longer bound into the nonce", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
     ("src/proofbundle/checkpoint.py",
