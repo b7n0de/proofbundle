@@ -55,8 +55,8 @@ pq = ["cryptography>=48"]
 pytest = ["pytest>=7"]
 # The inspect_ai adapter uses the STABLE read_eval_log API (lazy import). Pinned with an UPPER bound:
 # the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
-# test is bound to this range. inspect_ai requires Python >= 3.10, so the marker gates it out on 3.9
-# (base + [eval]/[sdjwt] still work on 3.9; the inspect adapter test skips there). Fixes the red 3.9 CI.
+# test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
+# marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
 inspect = ['inspect_ai>=0.3.112,<0.4']
 dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", 'inspect_ai>=0.3.112,<0.4']

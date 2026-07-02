@@ -43,9 +43,10 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
     - suite = `config.description` when present, else the `evalId` (the run's identity).
     - model_id = the sorted, de-duplicated provider ids of the run (a promptfoo eval may span
       several providers; the salted commitment pins the exact set).
-    - dataset_id = sha256 over the canonical JSON of `config.tests` (the test suite IS the
-      dataset; promptfoo's internal datasetId is not exported) — prefixed so the derivation is
-      explicit and reproducible.
+    - dataset_id = sha256 over the canonical JSON of `config.tests` AS RECORDED in results.json.
+      Inline tests bind the actual content (the suite IS the dataset); a `file://`/glob reference binds
+      the reference, not the resolved file content (an offline reader cannot resolve it) — provenance
+      records which case applies (`dataset_commitment_scope`) so the binding is never overstated.
     - provenance: promptfooVersion, evalId, summary timestamp, per-outcome counts.
     """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -73,6 +74,9 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
     eval_id = data.get("evalId")
     suite = str(config.get("description") or eval_id or "promptfoo-run")
 
+    # Commit to the providers that ACTUALLY produced a result in this run — not config.providers, which can
+    # list providers that never ran (e.g. --filter-providers). Only fall back to config.providers if the
+    # summary recorded no per-result provider at all (release-review fix).
     providers = set()
     for res in summary.get("results", []):
         prov = (res or {}).get("provider")
@@ -80,22 +84,32 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
             providers.add(str(prov["id"]))
         elif isinstance(prov, str):
             providers.add(prov)
-    for prov in config.get("providers") or []:
-        if isinstance(prov, str):
-            providers.add(prov)
-        elif isinstance(prov, dict) and prov.get("id"):
-            providers.add(str(prov["id"]))
+    if not providers:
+        for prov in config.get("providers") or []:
+            if isinstance(prov, str):
+                providers.add(prov)
+            elif isinstance(prov, dict) and prov.get("id"):
+                providers.add(str(prov["id"]))
     model_id = "+".join(sorted(providers)) if providers else "unknown:promptfoo-provider"
 
     tests = config.get("tests")
     tests_canonical = json.dumps(tests, sort_keys=True, separators=(",", ":")) if tests else ""
     dataset_id = ("promptfoo-tests-sha256:"
                   + hashlib.sha256(tests_canonical.encode("utf-8")).hexdigest())
+    # HONESTY (release-review): the commitment is over `config.tests` AS RECORDED in results.json. When tests are
+    # INLINE, that is the content (the suite IS the dataset). When they are a `file://`/glob REFERENCE, promptfoo
+    # records the unresolved reference — the commitment then binds the reference, NOT the file content (an offline
+    # reader cannot resolve external files). We flag that so a verifier is not misled that it binds content.
+    tests_by_reference = isinstance(tests, str) or (
+        isinstance(tests, list) and any(isinstance(t, str) for t in tests))
 
     metadata = data.get("metadata") or {}
     provenance = {"harness": "promptfoo",
                   "successes": str(counts["successes"]), "failures": str(counts["failures"]),
-                  "errors": str(counts["errors"])}
+                  "errors": str(counts["errors"]),
+                  "pass_rate_formula": "successes/(successes+failures+errors)",
+                  "dataset_commitment_scope": ("config.tests_reference_only" if tests_by_reference
+                                               else "config.tests_inline_content")}
     if eval_id:
         provenance["eval_id"] = str(eval_id)
     if metadata.get("promptfooVersion"):

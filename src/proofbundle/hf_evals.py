@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import zlib
 from typing import Optional, Tuple
 
 from .bundle import verify_bundle
-from .errors import BundleFormatError, VerificationResult
+from .errors import BundleFormatError, UnsupportedError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
            "to_eval_results_entry", "eval_results_yaml"]
@@ -72,7 +73,12 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         raise BundleFormatError("receipt token is not valid base64url(zlib(JSON))") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("receipt token does not contain a bundle object")
-    return verify_bundle(bundle), bundle
+    # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
+    # token never escapes as a different exception type (release-review fix).
+    try:
+        return verify_bundle(bundle), bundle
+    except UnsupportedError as exc:
+        raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
 
 
 def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
@@ -101,9 +107,19 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
         raise BundleFormatError("dataset_id and task_id are required (the Hub benchmark identity)")
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise BundleFormatError("value must be a number (or numeric string)")
+    # Reject non-numeric strings AND non-finite values (release-review fix): inf/-inf/nan (whether a float or a
+    # string like '1e400'/'nan' that float() accepts) would serialize to the non-standard tokens Infinity/NaN —
+    # neither valid JSON nor unambiguous YAML — so an eval_results.yaml value must be a FINITE number.
+    try:
+        numeric = float(value)
+    except (ValueError, TypeError) as exc:
+        raise BundleFormatError(f"value {value!r} is not a number") from exc
+    if not math.isfinite(numeric):
+        raise BundleFormatError(
+            "value must be a finite number — inf/-inf/nan cannot be represented in eval_results.yaml")
 
-    entry = {"dataset": {"id": dataset_id, "task_id": task_id},
-             "value": float(value) if isinstance(value, str) else value}
+    entry: dict = {"dataset": {"id": dataset_id, "task_id": task_id},
+                   "value": numeric if isinstance(value, str) else value}
     if include_token:
         entry["verifyToken"] = receipt_token(bundle)
     if date is not None:
@@ -140,7 +156,7 @@ def eval_results_yaml(entries) -> str:
     purpose-built serializer, not a general YAML writer."""
     order = ("dataset", "value", "verifyToken", "date", "source", "notes")
     dataset_order = ("id", "task_id", "revision")
-    source_order = ("url", "name", "user", "org")
+    source_order = ("url", "name", "user")   # HF hub-docs spec fields (no 'org' — 'user' covers the HF org/user)
     lines = []
     for entry in entries:
         unknown = set(entry) - set(order)
@@ -155,6 +171,11 @@ def eval_results_yaml(entries) -> str:
             val = entry[key]
             if key in ("dataset", "source"):
                 sub_order = dataset_order if key == "dataset" else source_order
+                # fail-loud on unknown nested keys too (symmetric with the top-level check) — a dropped field
+                # would silently omit data from the published entry (release-review fix).
+                sub_unknown = set(val) - set(sub_order)
+                if sub_unknown:
+                    raise BundleFormatError(f"unknown {key} field(s): {sorted(sub_unknown)}")
                 lines.append(f"{prefix}{key}:")
                 for sub in sub_order:
                     if sub in val:

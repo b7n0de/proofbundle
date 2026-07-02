@@ -114,6 +114,23 @@ class TestEvalResultsEntry(unittest.TestCase):
             eval_results_yaml([{"dataset": {"id": "d", "task_id": "t"}, "value": 1,
                                 "injected": "x"}])
 
+    def test_red_non_finite_value_rejected(self):
+        # HIGH (release review): inf/-inf/nan (as float OR as a string float() overflows/parses) would
+        # serialize to Infinity/NaN — invalid JSON and ambiguous YAML — so they must be rejected at build.
+        for bad in (float("inf"), float("-inf"), float("nan"), "1e400", "inf", "nan", "-inf"):
+            with self.assertRaises(BundleFormatError, msg=repr(bad)):
+                to_eval_results_entry(_bundle(), dataset_id="d/x", task_id="t", value=bad)
+
+    def test_red_non_numeric_string_value_rejected(self):
+        # A non-numeric string must be a clean BundleFormatError, never a raw ValueError from float().
+        with self.assertRaises(BundleFormatError):
+            to_eval_results_entry(_bundle(), dataset_id="d/x", task_id="t", value="not-a-number")
+
+    def test_red_unknown_nested_dataset_field(self):
+        # #8/#10: unknown keys inside the nested dataset/source dict must fail loud, not be silently dropped.
+        with self.assertRaises(BundleFormatError):
+            eval_results_yaml([{"dataset": {"id": "d", "task_id": "t", "sneaky": "x"}, "value": 1}])
+
 
 if __name__ == "__main__":
     unittest.main()

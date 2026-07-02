@@ -38,7 +38,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   3.9-clean, the floor change is packaging metadata + CI.
 
 ### Verification discipline
-- 23 new tests (177 → 200): promptfoo green fixture → verified receipt, data-minimization pin
+- 21 new tests (188 → 209): promptfoo green fixture → verified receipt, data-minimization pin
   (no exact score in the claim), dataset-commitment sensitivity, version-gate red tests,
   zero/negative/bool count guards; `pb1.` token roundtrip, tamper-inside-token, garbage/zip-bomb/
   non-dict red matrix, YAML structure + JSON-scalar parseability pins, broken-receipt refusal.

@@ -61,6 +61,39 @@ class TestPromptfooAdapter(unittest.TestCase):
         self.assertNotEqual(claim_a["dataset_id_commit"], claim_b["dataset_id_commit"],
                             "changing the test suite must change the dataset commitment")
 
+    def test_dataset_commitment_scope_is_honest(self):
+        # HIGH (release review): inline tests bind content; a file:// reference binds only the reference —
+        # provenance must state which, so the binding is never overstated. Fixture uses inline tests.
+        claim_inline, _ = from_promptfoo_results(FIXTURE, **KW)
+        self.assertEqual(claim_inline["provenance"]["dataset_commitment_scope"],
+                         "config.tests_inline_content")
+        self.assertEqual(claim_inline["provenance"]["pass_rate_formula"],
+                         "successes/(successes+failures+errors)")
+        data = json.loads(FIXTURE.read_text())
+        data["config"]["tests"] = "file://tests.yaml"   # the documented file-reference pattern
+        path = _write(data)
+        try:
+            claim_ref, _ = from_promptfoo_results(path, **KW)
+        finally:
+            os.unlink(path)
+        self.assertEqual(claim_ref["provenance"]["dataset_commitment_scope"],
+                         "config.tests_reference_only")
+
+    def test_model_commitment_uses_observed_providers(self):
+        # #6: a config-only provider that produced no result must not enter the commitment set. Fixed salt so
+        # the commitments are comparable (same observed provider set → identical commit input → identical commit).
+        salt = b"\x11" * 16
+        data = json.loads(FIXTURE.read_text())
+        data.setdefault("config", {})["providers"] = ["openai:gpt-4o", "phantom:never-ran"]
+        base, _ = from_promptfoo_results(FIXTURE, model_salt=salt, **KW)
+        path = _write(data)
+        try:
+            with_phantom, _ = from_promptfoo_results(path, model_salt=salt, **KW)
+        finally:
+            os.unlink(path)
+        # the phantom provider changes config.providers but NOT the observed results → same commitment input
+        self.assertEqual(base["model_id_commit"], with_phantom["model_id_commit"])
+
     def test_red_version_2_rejected_with_clear_message(self):
         data = json.loads(FIXTURE.read_text())
         data["results"]["version"] = 2
