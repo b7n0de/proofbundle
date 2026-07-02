@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-02
+
+### Added — distribution (formats verified against primary sources, 2026-07-02)
+- **promptfoo adapter** (`proofbundle.adapters.from_promptfoo_results`): reads a promptfoo
+  `eval -o results.json` (summary **version 3**, verified against promptfoo main
+  `src/types/index.ts` OutputFile/EvaluateSummaryV3/EvaluateStats) into a `pass_rate` receipt —
+  successes/(successes+failures+errors) as a fixed-point decimal, model commitment over the
+  sorted provider-id set, dataset commitment over canonical `config.tests` JSON (the test suite
+  IS the dataset; promptfoo's internal datasetId is not exported). File-based, no promptfoo
+  import. Legacy v1/v2 summaries (a different `table` shape) are REJECTED with a clear message —
+  never half-parsed; "v4" is promptfoo's storage version and never appears in output files.
+  Committed realistic fixture.
+- **Hugging Face Community Evals bridge** (`proofbundle.hf_evals`, CLI `proofbundle hf-token`):
+  `receipt_token(bundle)` packs a receipt as `pb1.` + base64url(zlib(bundle JSON)) — the token
+  IS the receipt, verified offline by `verify_receipt_token` (zip-bomb-capped, fail-closed);
+  `to_eval_results_entry` + `eval_results_yaml` emit schema-faithful `.eval_results/*.yaml`
+  entries (spec: hub-docs eval_results.yaml), refusing non-verifying receipts, with a strict
+  purpose-built YAML serializer (JSON-escaped scalars — dates and tokens cannot be misparsed).
+  **Honesty boundary, stated in code and docs:** HF's *verified badge* is decided server-side by
+  HF (HF Jobs + inspect-ai); its token format is not public. The `pb1.` token is
+  proofbundle-verifiable and schema-valid in the `verifyToken` field — it is NOT presented as
+  HF-endorsed, and the receipt link belongs in `source.url`/`notes` either way.
+- **INTEGRATIONS.md**: promptfoo + HF sections; `OUTREACH_pr_every_eval_ever.md` — a draft
+  upstream PR description offering the EEE→receipt converter (shipped since v0.9) to
+  evaleval/every_eval_ever (the human submits, per that project's contribution norms).
+
+### Changed — BREAKING (deliberate, roadmap item)
+- **Python floor is now 3.10** (`requires-python >= 3.10`): Python 3.9 reached end-of-life
+  2025-10-31; the ecosystem (NumPy, inspect_ai, current cryptography features) has moved. The
+  redundant `python_version >= "3.10"` markers on the inspect extras are gone; CI drops the 3.9
+  lane (matrix is now 3.10–3.14). Code changes: none required — the codebase was already
+  3.9-clean, the floor change is packaging metadata + CI.
+
+### Verification discipline
+- 23 new tests (177 → 200): promptfoo green fixture → verified receipt, data-minimization pin
+  (no exact score in the claim), dataset-commitment sensitivity, version-gate red tests,
+  zero/negative/bool count guards; `pb1.` token roundtrip, tamper-inside-token, garbage/zip-bomb/
+  non-dict red matrix, YAML structure + JSON-scalar parseability pins, broken-receipt refusal.
+- 4 new mutation operators (16 total, all as expected): HF broken-receipt guard off, token-verify
+  fake OK, promptfoo version gate off, failures dropped from pass_rate.
+
 ## [1.3.0] - 2026-07-02
 
 ### Security & correctness hardening (full 6-lens re-audit of the whole tool before tag, 2026-07-02)

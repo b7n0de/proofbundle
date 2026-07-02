@@ -155,6 +155,28 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _cmd_hf_token(args: argparse.Namespace) -> int:
+    from .bundle import load_bundle  # noqa: PLC0415
+    from .hf_evals import receipt_token, verify_receipt_token  # noqa: PLC0415
+    try:
+        if args.verify:
+            token = args.bundle_or_token
+            if token.endswith(".txt") or "/" in token:
+                with open(token, encoding="utf-8") as handle:
+                    token = handle.read().strip()
+            result, _bundle = verify_receipt_token(token)
+            for check in result.checks:
+                print(str(check))
+            print("=> OK" if result.ok else "=> FAILED")
+            return 0 if result.ok else 1
+        token = receipt_token(load_bundle(args.bundle_or_token))
+        print(token)
+        return 0
+    except (ProofBundleError, OSError, ValueError) as exc:   # file/JSON/format errors → clean exit
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -206,6 +228,15 @@ def build_parser() -> argparse.ArgumentParser:
                               help="required number of distinct valid witnesses (default 0)")
     verify_proof.add_argument("--json", action="store_true", help="machine readable output")
     verify_proof.set_defaults(func=_cmd_verify_proof)
+
+    hf_token = sub.add_parser(
+        "hf-token",
+        help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)")
+    hf_token.add_argument("bundle_or_token",
+                          help="bundle JSON path (emit) or pb1. token / token file (--verify)")
+    hf_token.add_argument("--verify", action="store_true",
+                          help="verify a pb1. token instead of emitting one")
+    hf_token.set_defaults(func=_cmd_hf_token)
 
     return parser
 

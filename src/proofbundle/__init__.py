@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     "__version__",
@@ -30,6 +30,8 @@ __all__ = [
     "verify_cosignature",
     "verify_witnessed_checkpoint",
     "verify_status_snapshot",
+    "receipt_token",
+    "verify_receipt_token",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -47,6 +49,8 @@ _LAZY = {
     "verify_cosignature": ".checkpoint",
     "verify_witnessed_checkpoint": ".checkpoint",
     "verify_status_snapshot": ".statuslist",
+    "receipt_token": ".hf_evals",
+    "verify_receipt_token": ".hf_evals",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -55,6 +59,7 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .errors import Check, ProofBundleError, VerificationResult
     from .checkpoint import verify_cosignature, verify_witnessed_checkpoint
     from .kbjwt import verify_key_binding
+    from .hf_evals import receipt_token, verify_receipt_token
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
     from .merkle import verify_consistency, verify_inclusion

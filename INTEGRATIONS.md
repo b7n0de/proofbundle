@@ -51,6 +51,53 @@ steps:
     with: { name: proofbundle-receipt, path: receipt.json }
 ```
 
+## promptfoo (results.json adapter, v1.4)
+
+promptfoo already exports one JSON per run (`promptfoo eval -o results.json`, summary version 3).
+The adapter is file-based — no promptfoo dependency:
+
+```python
+from proofbundle.adapters import from_promptfoo_results
+from proofbundle.evalclaim import emit_eval_receipt
+from proofbundle import generate_signer
+
+claim, salts = from_promptfoo_results("results.json", comparator=">=",
+                                      threshold="0.900000", timestamp="2026-07-02T14:00:00Z")
+receipt = emit_eval_receipt(claim, generate_signer())
+```
+
+Metric: `pass_rate` = successes / (successes + failures + errors) from `results.stats`, as a
+fixed-point decimal. The model commitment pins the sorted provider-id set; the dataset commitment
+derives from the canonical `config.tests` JSON (the test suite IS the dataset). Legacy summary
+v1/v2 files are rejected with a clear message — re-export with a current promptfoo. In CI this
+composes with the GitHub Action: run promptfoo, emit the receipt, attach both to the run.
+
+## Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4)
+
+HF's Community Evals accept per-benchmark result entries with an optional string `verifyToken`
+("a signature that can be used to prove that evaluation is provably auditable and reproducible").
+**Honest boundary:** the Hub's *verified badge* is granted server-side by HF (currently HF Jobs +
+inspect-ai); that token format is not public, and proofbundle does not imitate it. What
+proofbundle provides is a *self-contained, offline-verifiable* token — `pb1.` +
+base64url(zlib(receipt JSON)) — that anyone can check without trusting the submitter:
+
+```python
+from proofbundle.hf_evals import to_eval_results_entry, eval_results_yaml, verify_receipt_token
+
+entry = to_eval_results_entry(receipt, dataset_id="Idavidrein/gpqa", task_id="gpqa_diamond",
+                              value=0.412, date="2026-07-02",
+                              source_url="https://example.com/my-eval-traces")
+open(".eval_results/proofbundle.yaml", "w").write(eval_results_yaml([entry]))
+
+result, bundle = verify_receipt_token(entry["verifyToken"])   # offline, exit-code style .ok
+```
+
+CLI: `proofbundle hf-token receipt.json` emits the token; `proofbundle hf-token --verify <token>`
+checks one. The entry builder is fail-closed (a non-verifying receipt is refused) and the YAML
+emitter is a strict, purpose-built serializer (JSON-escaped scalars — a valid-YAML subset — so
+dates and tokens can never be misparsed). Publishing a `value` is a disclosure decision the
+caller makes; a receipt may withhold the exact score via SD-JWT.
+
 ## Where proofbundle sits (fairly)
 
 proofbundle is the **standards-native, offline receipt** of an eval or test *run*, auto-emitted via the

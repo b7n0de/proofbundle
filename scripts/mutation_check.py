@@ -65,6 +65,21 @@ MUTATIONS = [
      "return (bit_array[byte_i] >> (slot * bits)) & ((1 << bits) - 1)",
      "return 0",
      "statuslist: every status reads VALID", True),
+    # v1.4 — HF token / promptfoo adapter
+    ("src/proofbundle/hf_evals.py",
+     'if require_verified:', 'if False:',
+     "hf: broken-receipt guard disabled", True),
+    ("src/proofbundle/hf_evals.py",
+     'return verify_bundle(bundle), bundle',
+     'from .errors import VerificationResult as _VR; r=_VR(); r.add("x", True, ""); return r, bundle',
+     "hf: token verify returns fake OK", True),
+    ("src/proofbundle/adapters/promptfoo.py",
+     'if version != 3:', 'if False:',
+     "promptfoo: version gate disabled", True),
+    ("src/proofbundle/adapters/promptfoo.py",
+     'rate = (Decimal(successes) / Decimal(total)).quantize(Decimal(1).scaleb(-_SCALE))',
+     'rate = (Decimal(successes) / Decimal(max(successes, 1))).quantize(Decimal(1).scaleb(-_SCALE))',
+     "promptfoo: failures dropped from pass_rate", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
     ("src/proofbundle/checkpoint.py",
