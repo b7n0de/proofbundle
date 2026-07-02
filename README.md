@@ -97,6 +97,7 @@ flowchart LR
 | For… | Read |
 |---|---|
 | Skeptics (why not SHA-256 / Sigstore / trust the issuer) | [docs/FAQ.md](docs/FAQ.md) |
+| New to this? plain-terms glossary | [docs/GLOSSARY.md](docs/GLOSSARY.md) |
 | Reviewers (30-minute adversarial audit path) | [docs/REVIEWERS.md](docs/REVIEWERS.md) |
 | Where every trust anchor comes from | [docs/TRUST_ANCHORS.md](docs/TRUST_ANCHORS.md) |
 | The demos, tier by tier | [docs/DEMO.md](docs/DEMO.md) |
@@ -109,8 +110,7 @@ flowchart LR
 
 ```bash
 pip install proofbundle                 # core: offline verify + plain emit (dependency-free)
-pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (adds rfc8785 JCS)
-pip install "proofbundle[eval]"         # emit eval receipts (adds an RFC 8785 canonicalizer)
+pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (adds an RFC 8785 JCS canonicalizer)
 pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
 pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
 ```
@@ -120,7 +120,7 @@ Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 co
 
 ## Status & scope
 
-Beta, SemVer-committed, 299 tests + a CI mutation gate + property-based parser fuzzing. Correctness
+Beta, SemVer-committed, 303 tests + a CI mutation gate + property-based parser fuzzing. Correctness
 is anchored to external RFC 6962 vectors and a real Rekor proof, not just its own bundles. It is
 **not** a log service, a full in-toto client, a TEE, a consensus network, or a compliance product
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:

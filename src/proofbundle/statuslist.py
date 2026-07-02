@@ -70,7 +70,8 @@ def _status_at(bit_array: bytes, bits: int, idx: int) -> int:
 
 
 def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: int,
-                           issuer_pubkey: bytes, now: Optional[int] = None) -> dict:
+                           issuer_pubkey: bytes, now: Optional[int] = None,
+                           receipt_issuer_pubkey: Optional[bytes] = None) -> dict:
     """Verify a Status List Token snapshot and read one token's status, fully offline.
 
     Checks, fail-closed: compact-JWS shape, `typ` == ``statuslist+jwt``, EdDSA signature under
@@ -78,11 +79,33 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     `bits` ∈ {1,2,4,8}, zlib decode, index in range. Freshness: `iat`/`exp`/`ttl` are returned;
     `fresh` is None unless ``now`` (POSIX seconds) is supplied, then it is
     ``iat <= now`` AND ``now < exp`` (if exp) AND ``now <= iat + ttl`` (if ttl).
-    Returns ``{ok, status, status_label, fresh, iat, exp, ttl, detail}`` — ``ok`` covers
-    signature + structure + lookup; combining ``ok`` with ``fresh`` is the caller's policy.
+
+    **Trust-anchor separation (v1.9.1, external review #8/#12):** a status list signed by the
+    SAME key that signed the receipt carries no *independent* revocation assurance — the issuer
+    simply attests its own "still valid" state, and can flip it at will. Pass
+    ``receipt_issuer_pubkey`` (the bundle's signing key) and the result reports
+    ``self_issued=True`` when the status issuer key equals it. This is REPORTED, not fatal — the
+    relying party decides whether self-issued revocation is acceptable for its threat model (it
+    often is not; a distinct, independently-operated status authority is the stronger anchor).
+
+    Returns ``{ok, status, status_label, fresh, self_issued, iat, exp, ttl, detail}`` — ``ok``
+    covers signature + structure + lookup; combining ``ok`` with ``fresh``/``self_issued`` is the
+    caller's policy.
     """
     result = {"ok": False, "status": None, "status_label": None, "fresh": None,
-              "iat": None, "exp": None, "ttl": None, "detail": ""}
+              "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
+    if receipt_issuer_pubkey is not None:
+        # hmac.compare_digest for a constant-time compare of the two public keys (defensive; the
+        # values are public, but consistent with the codebase's compare discipline).
+        import hmac as _hmac  # noqa: PLC0415
+        # SYMMETRISCHER Typ-Guard: beide MUESSEN bytes/bytearray sein, sonst crasht bytes(str) mit TypeError
+        # statt fail-closed (verify_status_snapshot deklariert 'never crashes'). Non-bytes receipt_issuer_pubkey
+        # (str/int/list) → self_issued bleibt False (kein Crash, kein Fake-True).
+        result["self_issued"] = (isinstance(issuer_pubkey, (bytes, bytearray))
+                                 and isinstance(receipt_issuer_pubkey, (bytes, bytearray))
+                                 and len(issuer_pubkey) == len(receipt_issuer_pubkey)
+                                 and _hmac.compare_digest(bytes(issuer_pubkey),
+                                                          bytes(receipt_issuer_pubkey)))
     if status_list_token.count(".") != 2:
         result["detail"] = "not a compact JWS"
         return result

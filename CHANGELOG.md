@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-07-02
+
+### Added — closing the last small review-backlog items
+- **Status-list trust-anchor separation** (external review #8/#12): `verify_status_snapshot` gains
+  an optional `receipt_issuer_pubkey` and reports `self_issued=True` when the status list is signed
+  by the SAME key as the receipt — an issuer attesting its own "still valid" state carries no
+  independent revocation assurance. Reported, not fatal (the relying party decides); a distinct,
+  independently-operated status authority is the stronger anchor. New THREAT_MODEL row + statuslist
+  docstring + tests + mutation operator.
+- **`make coverage`** target (line coverage of the core over the suite; needs `coverage`).
+- **docs/GLOSSARY.md** — proofbundle in plain terms for a developer without a crypto background
+  (the review's Iteration-2 request): the 30-second picture, five steps in order, and a term list,
+  plus "what `=> OK` means and doesn't". Linked from the README docs table.
+
+### Verification discipline
+- 303 tests (was 299): +3 self-issued separation (not-asked → None, same-key → True, distinct-key →
+  False). Mutation gate: 30 operators (+1 self_issued compare), all killed.
+
+### Notes
+- No wire-format or verify-behavior change for existing callers — `self_issued` is a new optional
+  report; omitting `receipt_issuer_pubkey` behaves exactly as before.
+- Remaining backlog is now owner-only (a binary inspect_ai `.eval` fixture for `make full-demo`,
+  README design assets, GitHub branch-protection / `pypi` reviewer settings) or human actions
+  (outreach, external audit, JOSS paper) — all tracked in REVIEW_v1.6.md and RELEASE.md.
+
 ## [1.9.0] - 2026-07-02
 
 ### Added — public-beacon audit mode + a rewritten README

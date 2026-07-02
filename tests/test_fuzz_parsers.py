@@ -83,6 +83,15 @@ if given is not None:
             _must_not_crash(verify_status_snapshot, token, expected_uri="u", index=0,
                             issuer_pubkey=b"\x00" * 32)
 
+        @settings(max_examples=200, deadline=None)
+        @given(_texts, st.one_of(st.text(min_size=32, max_size=32), st.integers(),
+                                 st.lists(st.integers()), st.none(), st.binary(max_size=64)))
+        def test_verify_status_snapshot_never_crashes_on_malformed_receipt_key(self, token, rk):
+            # v1.9.1 self_issued: receipt_issuer_pubkey darf JEDEN Typ tragen ohne die 'never crashes'-Zusage
+            # zu brechen (der symmetrische Typ-Guard fängt non-bytes → self_issued=False statt TypeError).
+            _must_not_crash(verify_status_snapshot, token, expected_uri="u", index=0,
+                            issuer_pubkey=b"\x00" * 32, receipt_issuer_pubkey=rk)
+
 
 if __name__ == "__main__":
     unittest.main()

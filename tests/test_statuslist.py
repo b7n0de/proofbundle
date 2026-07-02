@@ -177,3 +177,35 @@ class TestFreshnessAndStrictTypes(unittest.TestCase):
         res = verify_status_snapshot(f"{h}.{p}.{sig}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
         self.assertFalse(res["ok"])
         self.assertIn("exp", res["detail"])
+
+
+class TestSelfIssuedSeparation(unittest.TestCase):
+    """v1.9.1 (#8/#12): a status list signed by the receipt key has no independent revocation
+    assurance — verify_status_snapshot reports self_issued so the relying party can refuse it."""
+
+    def setUp(self):
+        self.status_signer = generate_signer()
+        self.status_pub = _raw(self.status_signer)
+        self.token = issue_status_list_token([0, 1], uri=URI, signer=self.status_signer, iat=IAT)
+
+    def test_self_issued_none_when_not_asked(self):
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=0,
+                                     issuer_pubkey=self.status_pub)
+        self.assertTrue(res["ok"])
+        self.assertIsNone(res["self_issued"])          # not requested → not judged
+
+    def test_self_issued_true_when_same_key(self):
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=0,
+                                     issuer_pubkey=self.status_pub,
+                                     receipt_issuer_pubkey=self.status_pub)
+        self.assertTrue(res["ok"])                      # still valid crypto
+        self.assertTrue(res["self_issued"])             # but flagged as self-issued
+
+    def test_self_issued_false_when_distinct_key(self):
+        receipt_pub = _raw(generate_signer())           # an independent receipt issuer
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=1,
+                                     issuer_pubkey=self.status_pub,
+                                     receipt_issuer_pubkey=receipt_pub)
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["self_issued"])            # distinct anchor → not self-issued
+        self.assertEqual(res["status_label"], "INVALID")

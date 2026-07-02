@@ -26,6 +26,10 @@ full-demo:  ## real eval logs -> signed receipts -> verified OK (needs [eval,ins
 mutation:  ## anti-Goodhart gate: the tests must KILL broken implementations
 	$(PYTHON) scripts/mutation_check.py
 
+coverage:  ## line coverage of the core over the test suite (needs `pip install coverage`)
+	$(PYTHON) -m coverage run -m unittest discover -s tests
+	$(PYTHON) -m coverage report -m --include="src/proofbundle/*"
+
 examples:  ## run every offline example (those without optional extras)
 	@for f in examples/make_example.py examples/lm_eval_receipt.py examples/eee_receipt.py \
 	          examples/intoto_dsse_export.py examples/checkpoint_example.py \

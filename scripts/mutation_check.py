@@ -129,6 +129,10 @@ MUTATIONS = [
      "+ round_.to_bytes(8, \"big\") + bytes(pulse_randomness)).digest()",
      "+ bytes(pulse_randomness)).digest()",
      "beacon: round no longer bound into the nonce", True),
+    # v1.9.1 — status-list self-issued trust-anchor separation
+    ("src/proofbundle/statuslist.py",
+     "_hmac.compare_digest(bytes(issuer_pubkey),", "_hmac.compare_digest(b\"\", ",
+     "statuslist: self_issued compare defeated", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
     ("src/proofbundle/checkpoint.py",
