@@ -33,7 +33,7 @@ file, no server, no network.**
 
 **At a glance:** `proofbundle emit` signs and anchors a payload; `proofbundle
 verify` checks one self-contained `bundle.json` with three offline cryptographic
-checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 188 tests + a CI mutation gate.
+checks → `OK` or `FAILED`. No network, no daemon, no own crypto. 209 tests + a CI mutation gate.
 
 ## Contents
 
@@ -110,12 +110,19 @@ A bundle is a single JSON document. `proofbundle` checks, offline:
    Certificate Transparency)
 3. **sd-jwt** (optional) — an embedded SD-JWT selective-disclosure credential is
    well formed, and if an issuer key is given, correctly issuer-signed
-4. **sd-jwt-key-binding** (optional, v1.2) — if the SD-JWT carries a Key Binding
-   JWT (RFC 9901 §4.3), it is verified **fail-closed**: `typ` is `kb+jwt`,
-   `iat`/`aud`/`nonce`/`sd_hash` are present, `sd_hash` binds the exact presented
-   disclosure set, and the signature verifies under the issuer-bound `cnf.jwk`
-   holder key. A present-but-broken KB-JWT fails the bundle — it is never
-   silently ignored.
+4. **sd-jwt-key-binding** (optional, v1.2; hardened v1.3) — proof-of-possession, **fail-closed**.
+   The check runs only once the issuer signature itself verified (an unauthenticated SD-JWT can
+   never report a valid holder binding). Then: `typ` is `kb+jwt`, `iat`/`aud`/`nonce`/`sd_hash` are
+   present, `sd_hash` binds the exact presented disclosure set, and the signature verifies under the
+   issuer-bound `cnf.jwk` holder key. A present-but-broken KB-JWT fails the bundle; and if the issuer
+   **bound** a `cnf` holder key but the presentation carries **no** KB-JWT, that fails too — stripping
+   the binding is a bearer downgrade, not a valid receipt. `verify --aud/--nonce` enforce RFC 9901
+   §7.3 audience/replay binding when the relying party supplies them.
+
+Beyond the single-file bundle, the library also verifies, all offline: a **witnessed C2SP checkpoint**
+(`verify_witnessed_checkpoint`, Ed25519 + post-quantum ML-DSA-44 cosignatures — the quorum counts distinct
+witness **keys**, not names, so one key under many names can never stuff a threshold), a **C2SP
+`.tlog-proof`** (`proofbundle verify-proof`), and a **Token Status List** revocation snapshot.
 
 The verifier treats the payload as opaque bytes. It proves that these exact
 bytes were signed and anchored, not what they mean. That is on purpose: it keeps
@@ -154,7 +161,7 @@ flowchart LR
 pip install proofbundle
 ```
 
-Requires Python 3.9+ and [`cryptography`](https://cryptography.io). Signature
+Requires Python 3.10+ and [`cryptography`](https://cryptography.io). Signature
 math is delegated to `cryptography`; this project never rolls its own crypto.
 The Merkle and SD-JWT logic is pure standard library.
 
@@ -431,7 +438,7 @@ threshold was met without revealing the model or the data. See [INTEROP.md](INTE
   [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) `results_*.json` (the
   genuine `acc,none` filter-suffix format). **`proofbundle.adapters.from_eee_dataset`** (v0.9) reads an
   Every Eval Ever v0.2.2 aggregate JSON and builds a signed receipt — validated against the vendored EEE
-  schema, with **no runtime import** of `every_eval_ever` (it needs Python 3.12; proofbundle stays 3.9+).
+  schema, with **no runtime import** of `every_eval_ever` (it needs Python 3.12; proofbundle stays 3.10+).
 - **in-toto test-result export, DSSE-signed** (v0.9) — `proofbundle.intoto.export_intoto_dsse(claim,
   signer)` emits the receipt as a DSSE-signed in-toto Statement v1 with the **generic
   `test-result/v0.1` predicate** (result PASSED/FAILED, `configuration` ResourceDescriptors), so a generic
@@ -491,15 +498,23 @@ ISO/IEC DIS 24970), including the anti-patterns no one should claim.
   (RFC 9901 §4.3, fail-closed; closes #1) with `cnf.jwk` issuance and holder presentation, **C2SP
   tlog-cosignature** verification (Ed25519 cosignature/v1, witness quorum, split-view resistance), and
   `verify --verbose` with the recomputed Merkle root (closes #2).
-- **v1.3 (current release)** — the portable proof: **C2SP tlog-proof** emit/verify (+
+- **v1.3** — the portable proof: **C2SP tlog-proof** emit/verify (+
   `verify-proof` CLI), **ML-DSA-44** witness cosignatures (post-quantum, `[pq]` extra), **Token
   Status List** snapshot verification (offline revocation), SD-JWT VC markers (`dc+sd-jwt`,
   `vct`, `status`), COMPLIANCE.md (EU AI Act Art. 12 / NIST AI RMF mapping), and the mutation
   suite as a CI gate.
-- **Deferred** (explicitly not yet built) — full SD-JWT VC conformance + `vct` type-metadata
-  resolution (pre-IESG), per-sample Merkle receipts (the THREAT_MODEL's named gap; v2.0
-  direction), an official in-toto eval predicate (proposal path via OpenSSF/CoSAI), a full
-  in-toto client, a Python-3.10 floor.
+- **v1.4 (current release)** — distribution: a **promptfoo** adapter (results.json v3 →
+  pass_rate receipt), the **Hugging Face Community Evals bridge** (`pb1.` receipt tokens for the
+  `.eval_results` `verifyToken` field + a strict YAML entry emitter — proofbundle-verifiable,
+  explicitly NOT the HF-internal badge token), `hf-token` CLI, and the **Python 3.10+ floor**
+  (3.9 is EOL since 2025-10).
+- **v2.0 (next major, research differentiation)** — **per-sample Merkle receipts**: the payload carries a
+  Merkle root over *individual* sample results, so a verifier can force a random-sample re-check instead of
+  trusting only the reported aggregate. This is the THREAT_MODEL's one named structural gap ("forced random
+  sub-sampling"), and closing it is the road from *authorship* to *sampled correctness*.
+- **Deferred** (explicitly not yet built, stated honestly) — full SD-JWT VC conformance + `vct`
+  type-metadata resolution (pre-IESG), an official in-toto eval predicate (proposal path via
+  OpenSSF/CoSAI), and a full in-toto client.
 
 ## Contributing
 
