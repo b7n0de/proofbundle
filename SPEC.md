@@ -268,6 +268,21 @@ burned for future evals — contamination economics are the relying parties' pol
 strings are pinned at ``proofbundle/v2/*`` (protocol identifiers, independent of the package
 version).
 
+## 7h. TEE-attestation bridge — enclave_attested (EXPERIMENTAL, v2.0 preview)
+
+A receipt MAY carry ``assurance_level = enclave_attested`` and be accompanied by a TEE Attestation
+Result that a relying party verifies offline. This is a **preview** (``proofbundle.experimental``,
+``[experimental]`` extra; API/wire-format unstable). Model: IETF RATS Passport (RFC 9334). The
+enclave places ``enclave_binding_for(receipt)`` = base64url(SHA-256("proofbundle/v2/enclave-binding"
+‖ payload)) into its hardware quote user-data (Intel TDX ``REPORTDATA`` / NVIDIA GPU report nonce);
+a RATS **Verifier** appraises the raw evidence out of band and issues a signed **EAT** (RFC 9711,
+JSON/JWS, EdDSA) whose ``eat_nonce`` equals that binding. proofbundle verifies, offline: the EAT
+signature under the Verifier key (a supplied trust anchor), ``typ`` = ``eat+jwt``, ``alg`` = EdDSA,
+``eat_nonce`` == the binding, and optionally ``eat_profile``. It reports the ``tier`` (this
+preview's stand-in for the still-draft AR4SI/EAR trustworthiness tier) VERBATIM. proofbundle does
+NOT parse or appraise raw hardware evidence — that is the Verifier's role. See
+docs/EXPERIMENTAL_ENCLAVE.md.
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).
@@ -281,3 +296,5 @@ version).
 - draft-ietf-oauth-status-list — Token Status List (RFC-Editor queue).
 - RFC 3797 — Publicly Verifiable Nominations Committee Random Selection.
 - RFC 2104 / FIPS 198 — HMAC (per-leaf salt PRF).
+- RFC 9334 — RATS Architecture (Passport model).
+- RFC 9711 — Entity Attestation Token (EAT).

@@ -18,6 +18,21 @@ a sha256 match. This checklist covers the human steps around that.
 - [ ] Turn the aspirational badges (PyPI version, Python versions, Downloads, SLSA, PEP 740) live
       only AFTER the first successful publish (they render broken/false before that).
 
+## Beta / pre-release (v2.0 line)
+
+The v2.0 line ships as a PEP 440 pre-release while the experimental TEE-attestation bridge
+stabilizes. `pip install proofbundle` never pulls a pre-release, so v1.x stays the default.
+
+- [ ] Version string is the **PyPI** form, never the SemVer hyphen form: publish `2.0.0b1`
+      (alpha `2.0.0a1`, rc `2.0.0rc1`) — `2.0.0-beta.1` is invalid on PyPI (PEP 440).
+- [ ] The experimental bridge is behind the `[experimental]` extra AND under
+      `proofbundle.experimental` (import-warns) — double-gated.
+- [ ] Rehearse on TestPyPI, then `git tag v2.0.0b1 && git push --tags` (the hardened release
+      workflow builds once + attests == publishes, same as stable).
+- [ ] Announce as a preview; invite the external audit before promoting toward `2.0.0`.
+- [ ] `pip install --pre "proofbundle[experimental]==2.0.0b1" && python examples/experimental_enclave.py`
+      from a clean env → exit 0.
+
 ## Per release
 
 - [ ] Bump `version` in `pyproject.toml` **and** `__version__` in `src/proofbundle/__init__.py`

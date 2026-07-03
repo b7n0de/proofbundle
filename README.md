@@ -105,6 +105,7 @@ flowchart LR
 | Honest comparison to Rekor / in-toto / OMS / ValiChord | [INTEROP.md](INTEROP.md) |
 | Regulatory mapping (and what to never claim) | [COMPLIANCE.md](COMPLIANCE.md) |
 | Funders / role fit | [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) |
+| **Preview:** TEE-attestation bridge (v2.0 beta) | [docs/EXPERIMENTAL_ENCLAVE.md](docs/EXPERIMENTAL_ENCLAVE.md) |
 
 ## Install
 

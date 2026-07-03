@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.9.1"
+__version__ = "2.0.0b1"
 
 __all__ = [
     "__version__",

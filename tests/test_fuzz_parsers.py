@@ -24,6 +24,7 @@ from proofbundle.checkpoint import verify_checkpoint, verify_cosignature
 from proofbundle.statuslist import verify_status_snapshot
 from proofbundle.kbjwt import split_key_binding, verify_key_binding
 from proofbundle.sdjwt import verify_sd_jwt
+from proofbundle.experimental.enclave import verify_enclave_attestation
 
 _ALLOWED = (ProofBundleError, ValueError)   # the documented "malformed input" surface
 
@@ -76,6 +77,12 @@ if given is not None:
         @given(_texts)
         def test_verify_sd_jwt_never_crashes(self, compact):
             _must_not_crash(verify_sd_jwt, compact)
+
+        @settings(max_examples=200, deadline=None)
+        @given(_texts)
+        def test_verify_enclave_attestation_never_crashes(self, eat):
+            _must_not_crash(verify_enclave_attestation, eat, verifier_pubkey=b"\x00" * 32,
+                            expected_binding="x")
 
         @settings(max_examples=200, deadline=None)
         @given(_texts)

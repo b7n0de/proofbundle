@@ -133,6 +133,10 @@ MUTATIONS = [
     ("src/proofbundle/statuslist.py",
      "_hmac.compare_digest(bytes(issuer_pubkey),", "_hmac.compare_digest(b\"\", ",
      "statuslist: self_issued compare defeated", True),
+    # v2.0 preview — TEE-attestation binding
+    ("src/proofbundle/experimental/enclave.py",
+     "if not _match_nonce(claims.get(\"eat_nonce\"), expected_binding):", "if False:",
+     "enclave: receipt-binding check disabled", True),
     # Documented-equivalent mutant (v1.2 report): oversized cosignature blobs already die at
     # verify_ed25519's hard 64-byte signature length check — must keep SURVIVING.
     ("src/proofbundle/checkpoint.py",
