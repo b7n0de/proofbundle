@@ -1,0 +1,38 @@
+{
+  "version": "v1",
+  "entity": {
+    "type": "individual",
+    "role": "maintainer",
+    "name": "Konrad Gruszka",
+    "email": "konradsmail@me.com",
+    "description": "Author and maintainer of proofbundle — open-source, offline-verifiable receipts for AI evaluation results (Ed25519 + RFC 6962 Merkle, SD-JWT RFC 9901).",
+    "webpageUrl": { "url": "https://b7n0de.com" }
+  },
+  "projects": [{
+    "guid": "proofbundle",
+    "name": "proofbundle",
+    "description": "Turn an AI eval result into one signed, tamper-evident, offline-verifiable receipt. Proves authorship and integrity — never truth. One JSON file, no server.",
+    "webpageUrl": { "url": "https://github.com/b7n0de/proofbundle" },
+    "repositoryUrl": { "url": "https://github.com/b7n0de/proofbundle" },
+    "licenses": ["spdx:MIT"],
+    "tags": ["cryptography", "ai-evaluation", "security", "python", "supply-chain-security"]
+  }],
+  "funding": {
+    "channels": [{
+      "guid": "github-sponsors",
+      "type": "payment-provider",
+      "address": "https://github.com/sponsors/b7n0de",
+      "description": "GitHub Sponsors"
+    }],
+    "plans": [{
+      "guid": "maintenance",
+      "status": "active",
+      "name": "Maintenance & external security review",
+      "description": "Funds ongoing maintenance, an external review of the ~600-LOC trusted core, and the Inspect AI integration.",
+      "amount": 0,
+      "currency": "USD",
+      "frequency": "monthly",
+      "channels": ["github-sponsors"]
+    }]
+  }
+}
