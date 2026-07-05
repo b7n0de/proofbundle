@@ -159,6 +159,10 @@ MUTATIONS = [
     ("src/proofbundle/intoto.py",
      'if not claim.get("passed"):', "if False:",
      "intoto: SVR passing-only guard disabled", True),
+    # anchors (experimental) — the canonicalRoot↔target binding must fail closed (cross-target safety).
+    ("src/proofbundle/anchors.py",
+     "if canonical_root != expected_root:", "if False:",
+     "anchors: canonicalRoot/target binding disabled (cross-target)", True),
 ]
 
 
