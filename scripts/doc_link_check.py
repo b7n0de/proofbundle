@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_SKIP = (".git", "node_modules", ".venv")
+_SKIP = (".git", "node_modules", ".venv", "archive")   # docs/archive/ is frozen history, not live truth
 
 
 def _iter_md():

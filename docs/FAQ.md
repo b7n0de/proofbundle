@@ -70,8 +70,8 @@ standard — because none exists yet.
 It's young and honest about it. The trusted core is ~600 LOC of `signature.py` + `merkle.py` +
 `bundle.py`, depends only on `cryptography`, is checked against external RFC 6962 vectors and a
 real Rekor proof (so correctness isn't self-referential), and gates its tests with a mutation
-suite. `docs/REVIEWERS.md` is a 30-minute path to try to break it. An external audit is exactly
-what we're asking for — see the outreach in REVIEW_v1.6.md.
+suite. `docs/REVIEWERS.md` is a 30-minute path to try to break it, and SECURITY.md has the private
+channel for what you find. An external audit is exactly what we're asking for.
 
 ### What's real cryptography here and what's just packaging?
 Real: Ed25519 (via `cryptography`), RFC 6962 Merkle inclusion/consistency (domain-separated,
