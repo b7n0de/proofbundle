@@ -12,6 +12,24 @@ from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
 
 
+# The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
+# `verify --json`. Verification proves authenticity + integrity of the bytes, never the truth of the
+# result (see docs/NON_CLAIMS.md). Kept as data so the human text and the JSON say exactly the same thing.
+VERIFY_MEANING = (
+    "these exact bytes were signed by the stated Ed25519 key and are anchored unchanged in an "
+    "RFC 6962 Merkle tree — authenticity and integrity of the claim")
+VERIFY_NON_MEANING = (
+    "NOT that the result is true, the eval well designed, the model safe/fair, or that the score "
+    "generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present")
+
+
+def _check_matrix(result) -> list:
+    """Per-check status rows for the verify matrix. Core verify produces PASS/FAIL; WARN/SKIP are
+    surfaced by the optional anchor layer (proofbundle.anchors), never faked here."""
+    return [{"check": c.name, "status": "PASS" if c.ok else "FAIL", "detail": c.detail}
+            for c in result.checks]
+
+
 def _resolve_signer(args):
     """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error)."""
     if getattr(args, "new_key", None) and getattr(args, "key", None):
@@ -103,6 +121,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         out = result.as_dict()
         if roots is not None:
             out["merkle_root"] = roots
+        # additive, non-breaking: existing keys (ok/checks) unchanged; new honest meaning block + matrix.
+        out["matrix"] = _check_matrix(result)
+        out["meaning"] = VERIFY_MEANING
+        out["nonMeaning"] = VERIFY_NON_MEANING
         print(json.dumps(out, indent=2))
     else:
         for check in result.checks:
@@ -111,6 +133,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"    stated root      {roots['stated_b64']}")
             recomputed = roots["recomputed_b64"]
             print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + roots['detail'] + ')'}")
+        if getattr(args, "matrix", False):
+            print("  ── check matrix ──")
+            for row in _check_matrix(result):
+                print(f"    [{row['status']:<4}] {row['check']}")
+            print(f"  proves      {VERIFY_MEANING}")
+            print(f"  proves NOT  {VERIFY_NON_MEANING}")
         print("=> OK" if result.ok else "=> FAILED")
     return 0 if result.ok else 1
 
@@ -411,6 +439,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="verify an evidence bundle JSON file")
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
+    verify.add_argument("--matrix", action="store_true",
+                        help="print the per-check status matrix + the honest 'what => OK proves / does "
+                             "not prove' block (always present in --json)")
     verify.add_argument("--verbose", action="store_true",
                         help="print the recomputed Merkle root next to the stated root")
     verify.add_argument("--aud", default=None,

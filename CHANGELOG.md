@@ -51,6 +51,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Extension mechanism** (`register_anchor_type`) for third-party anchor types with a fail-closed
   verify callable. `docs/ANCHORS.md`. A dedicated CI `anchors` job exercises the TSA + OTS tests.
 
+### Added — verify check matrix + honest meaning block
+- **`proofbundle verify --matrix`** prints the per-check status matrix plus an explicit "what `=> OK`
+  proves / does NOT prove" block (authenticity + integrity of the bytes, never the truth of the result —
+  see `NON_CLAIMS.md`). The same `meaning` / `nonMeaning` fields and a `matrix` array are ALWAYS present
+  in `verify --json`. Additive and non-breaking: the existing `ok` / `checks` keys are unchanged and the
+  default human output is identical unless `--matrix` is passed.
 ## [1.9.2] - 2026-07-05
 
 Verify-path hardening from an independent six-lens review, plus a public-trust documentation pass.
