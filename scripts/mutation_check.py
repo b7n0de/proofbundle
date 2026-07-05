@@ -146,6 +146,10 @@ MUTATIONS = [
     ("src/proofbundle/evalclaim.py",
      "if (_REQUIRED - set(claim)) or (set(claim) - _REQUIRED - _OPTIONAL):", "if False:",
      "evalclaim: verify-path required/unknown-field enforcement (F3) disabled", True),
+    # v1.9.2 — F4: expected_aud/nonce with no verifiable KB-JWT must fail closed (downgrade trap)
+    ("src/proofbundle/bundle.py",
+     "if (expected_aud is not None or expected_nonce is not None) and not kb_binding_checked:", "if False:",
+     "bundle: expected_aud/nonce downgrade-trap enforcement (F4) disabled", True),
 ]
 
 
