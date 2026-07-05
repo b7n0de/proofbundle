@@ -150,6 +150,10 @@ MUTATIONS = [
     ("src/proofbundle/bundle.py",
      "if (expected_aud is not None or expected_nonce is not None) and not kb_binding_checked:", "if False:",
      "bundle: expected_aud/nonce downgrade-trap enforcement (F4) disabled", True),
+    # anchors (experimental) — the canonicalRoot↔target binding must fail closed (cross-target safety).
+    ("src/proofbundle/anchors.py",
+     "if canonical_root != expected_root:", "if False:",
+     "anchors: canonicalRoot/target binding disabled (cross-target)", True),
 ]
 
 
