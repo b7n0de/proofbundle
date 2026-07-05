@@ -15,12 +15,15 @@ optional selective disclosure (SD-JWT, RFC 9901, with holder binding), and optio
 state via a Token Status List snapshot. See [THREAT_MODEL.md](THREAT_MODEL.md) for what it does
 **not** establish (truth of the number, absence of cherry-picking without pre-registration).
 
-## EU AI Act — Article 12 record-keeping (applies to high-risk systems from 2026-08-02)
+## EU AI Act — Article 12 record-keeping (high-risk obligations apply from 2027-12-02 / 2028-08-02)
 
 Article 12 requires automatic recording of events ("logs") over the system lifetime, such that
 operation is traceable and records cannot be altered in a way that would affect subsequent
 evaluation. proofbundle is a **record-integrity layer** for the evaluation-related subset of that
-duty — it does not generate operational event logs.
+duty — it does not generate operational event logs. Note the timeline: the Digital Omnibus
+(adopted 2025-11-19) postponed the high-risk obligations from the original 2026-08-02 to
+**2 December 2027** for standalone Annex III systems and **2 August 2028** for AI embedded in
+regulated products under Annex I.
 
 | Art. 12 concept | receipt mechanism | honest gap |
 |---|---|---|
@@ -105,6 +108,8 @@ issuer-declared and signed; it records who claimed what level, not an accredited
 - Treating a receipt as proof the evaluation was well designed or honestly selected — that
   requires pre-registration (`prereg_sha256`) and/or independent reproduction.
 
-_Standards status verified 2026-07-02 against primary sources: EU AI Act Art. 12 (in force for
-high-risk from 2026-08-02), Art. 53 GPAI (applied 2025-08-02), NIST AI RMF 1.0 + GenAI Profile
-AI 600-1, OpenSSF Model Signing + CoSAI WS1, ISO/IEC DIS 24970 (ballot closed, unpublished)._
+_Standards status verified 2026-07-05 against primary sources: EU AI Act Art. 12 high-risk
+obligations postponed by the Digital Omnibus (adopted 2025-11-19) to 2027-12-02 (standalone
+Annex III) and 2028-08-02 (AI embedded in Annex I regulated products), from the original
+2026-08-02; Art. 53 GPAI (applied 2025-08-02), NIST AI RMF 1.0 + GenAI Profile AI 600-1, OpenSSF
+Model Signing + CoSAI WS1, ISO/IEC DIS 24970 (ballot closed, unpublished)._
