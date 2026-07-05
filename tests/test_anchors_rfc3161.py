@@ -84,6 +84,32 @@ class TestRfc3161Anchor(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("rootCertsDerB64", res["detail"])
 
+    def test_create_anchor_freezes_chain_and_self_verifies(self):
+        # create_rfc3161_anchor does the network POST, freezes the supplied chain, and refuses to return
+        # an anchor whose fresh token does not verify. Mock the TSA response with the captured token
+        # (same canonical root) so this stays offline and deterministic.
+        import contextlib
+        import io
+        import unittest.mock
+
+        from proofbundle.anchors_rfc3161 import create_rfc3161_anchor
+        anchor, roots = _load_fixture()
+        token = base64.b64decode(anchor["proof"])
+        canonical_root = base64.b64decode(anchor["canonicalRoot"])
+        root_der = base64.b64decode(anchor["frozen"]["rootCertsDerB64"][0])
+        tsa_der = base64.b64decode(anchor["frozen"]["tsaCertDerB64"])
+
+        fake_resp = contextlib.closing(io.BytesIO(token))
+        fake_resp.read = io.BytesIO(token).read   # urlopen(...).read()
+        with unittest.mock.patch("urllib.request.urlopen", return_value=fake_resp):
+            built = create_rfc3161_anchor(canonical_root, "receipt", tsa_url="https://freetsa.org/tsr",
+                                          root_certs_der=[root_der], tsa_cert_der=tsa_der,
+                                          anchored_at="2026-07-05T00:00:00Z")
+        self.assertEqual(built["type"], "rfc3161-tsa")
+        self.assertEqual(built["target"], "receipt")
+        # the built anchor must verify through the generic layer
+        self.assertEqual(anchors.verify_anchors([built], target_roots=roots)["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()
