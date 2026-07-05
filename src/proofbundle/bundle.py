@@ -153,6 +153,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
 
     # 3. optional SD-JWT selective disclosure credential
     sd = bundle.get("sd_jwt_vc")
+    kb_binding_checked = False   # F4: did a KB-JWT (the aud/nonce carrier) actually get verified?
     if sd is not None:
         sd = _require_dict(sd, "sd_jwt_vc")
         _reject_unknown(sd, _SD_KEYS, "sd_jwt_vc")
@@ -186,6 +187,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             if kb is not None:
                 kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce)
                 result.add("sd-jwt-key-binding", kb_res["ok"], kb_res["detail"])
+                kb_binding_checked = True
             elif _issuer_requires_holder_binding(sd_part):
                 result.add(
                     "sd-jwt-key-binding", False,
@@ -205,6 +207,18 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
                     "binding is unverifiable, refusing (fail-closed; supply "
                     "sd_jwt_vc.issuer_public_key_b64)")
+
+    # F4 (v1.9.2, fail-closed): supplying expected_aud/expected_nonce asks for RFC 9901 §7.3
+    # replay/audience binding. A bundle with no verifiable KB-JWT (no sd_jwt_vc at all, or an
+    # sd_jwt_vc without a Key Binding JWT) carries nothing to bind to — returning OK anyway is a
+    # downgrade trap: the verifier believes the presentation was bound to its aud/nonce when it was
+    # not. Refuse the binding it asked for but cannot be enforced. Verifiers that pass no expected_*
+    # are unaffected (backward-compatible: the check only fires when a binding was actually requested).
+    if (expected_aud is not None or expected_nonce is not None) and not kb_binding_checked:
+        result.add(
+            "sd-jwt-key-binding", False,
+            "expected_aud/expected_nonce were supplied but the bundle carries no verifiable Key "
+            "Binding JWT — the requested replay/audience binding cannot be enforced (fail-closed)")
 
     return result
 

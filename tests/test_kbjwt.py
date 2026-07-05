@@ -266,6 +266,22 @@ class TestBundleIntegration(unittest.TestCase):
         self.assertIn("NO issuer key", kb[0].detail)
         self.assertFalse(result.ok, "cnf-bound SD-JWT without an issuer key must fail the bundle")
 
+    def test_f4_expected_binding_without_kb_jwt_fails_closed(self):
+        # F4 (v1.9.2): supplying expected_aud/expected_nonce requests RFC 9901 §7.3 replay/audience
+        # binding. A bundle with NO verifiable KB-JWT (here: no sd_jwt_vc at all) carries nothing to
+        # bind to — verify must FAIL closed instead of silently returning OK (the downgrade trap: the
+        # verifier believes the presentation was bound to its aud/nonce when nothing bound it). A
+        # verifier that supplies no expected_* is unaffected (backward-compatible).
+        b = emit_bundle(b'{"x":1}', generate_signer())   # plain bundle, no sd_jwt_vc
+        self.assertTrue(verify_bundle(b).ok, "no expected_* → OK (backward-compatible)")
+        for kwargs in ({"expected_aud": "verifier.example"}, {"expected_nonce": "n-1"},
+                       {"expected_aud": "v", "expected_nonce": "n"}):
+            res = verify_bundle(b, **kwargs)
+            self.assertFalse(res.ok, f"{kwargs}: no KB-JWT → must fail closed")
+            kb = [c for c in res.checks if c.name == "sd-jwt-key-binding"]
+            self.assertEqual(len(kb), 1, f"{kwargs}: must record exactly one refused binding check")
+            self.assertFalse(kb[0].ok)
+
     def test_bundle_no_cnf_no_issuer_key_still_backward_compatible(self):
         # The fix must NOT break plain SD-JWTs that carry no cnf and no KB — they verify as
         # structure-only exactly as before (no spurious key-binding verdict).
