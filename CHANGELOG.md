@@ -57,6 +57,39 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   see `NON_CLAIMS.md`). The same `meaning` / `nonMeaning` fields and a `matrix` array are ALWAYS present
   in `verify --json`. Additive and non-breaking: the existing `ok` / `checks` keys are unchanged and the
   default human output is identical unless `--matrix` is passed.
+## [1.9.2] - 2026-07-05
+
+Verify-path hardening from an independent six-lens review, plus a public-trust documentation pass.
+No wire-format change; no new features.
+
+### Fixed — verify-path completeness (both are stricter, never looser)
+- **Eval-claim field set enforced on the VERIFY path** (`decode_eval_claim`, review F3). The exact
+  key set (`_REQUIRED` present, no unknown fields) was enforced only when emitting; a hand-signed
+  claim missing a required field or carrying an unknown one decoded fine. It is now rejected
+  fail-closed. **SemVer note:** claims that were previously *accepted* on decode despite a missing
+  or unknown field are now *rejected* — this matches the documented `_REQUIRED` contract, and every
+  claim `emit_eval_receipt` produces still decodes unchanged. New regression test + mutation operator.
+- **Downgrade trap closed** (`verify_bundle`, review F4): when a relying party passes
+  `expected_aud`/`expected_nonce` (CLI `--aud`/`--nonce`) but the bundle carries no verifiable Key
+  Binding JWT, verification now FAILs closed with an `sd-jwt-key-binding` check instead of returning
+  `=> OK` — the requested RFC 9901 §7.3 replay/audience binding could not be enforced. Backward
+  compatible: verifiers that pass no `expected_*` are unaffected. Test + mutation operator.
+- **`show-eval`** no longer risks a raw traceback on a malformed claim (the F3 fix makes decode
+  reject it first); regression test pins the "never a raw traceback" contract.
+
+### Added — CI gates
+- **Claims-hygiene gate** (`scripts/claims_hygiene_check.py`): fails when a forbidden marketing
+  overclaim appears in the docs outside a negation (the exact phrase list lives in the script).
+- **Doc-link gate** (`scripts/doc_link_check.py`): fails on a broken internal Markdown link.
+
+### Changed — public-trust documentation (truth pass)
+- README leads with the receipt kernsatz + a plain-language section; the stale hardcoded test count
+  is gone (guarded). New `docs/INSPECT_HAPPY_PATH.md` — the one Inspect-to-receipt walkthrough,
+  every command verified against the real API. CITATION version synced + abstract bounded (with a
+  version==pyproject test). SECURITY gains a coordinated-disclosure window. COMPLIANCE EU AI Act
+  high-risk timeline updated for the Digital Omnibus (2027-12-02 / 2028-08-02). The 95% detection
+  claim now states its externally-sourced-challenge condition. Internal review/outreach drafts
+  archived out of the repo root.
 
 ## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
@@ -96,7 +129,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   symmetric `self_issued` type-guard, beacon flag mutual-exclusion + u64 round bound).
 - Preview roadmap: migrate `tier` to AR4SI/EAR when they become RFCs; optional CWT/COSE encoding;
   reference Verifier profiles for TDX + GPU (kept out of the core — they pull vendor tooling).
-
 ## [1.9.1] - 2026-07-02
 
 ### Added — closing the last small review-backlog items

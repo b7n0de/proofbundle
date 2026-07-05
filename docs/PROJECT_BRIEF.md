@@ -8,7 +8,8 @@ it claims. Model signing (OpenSSF OMS, CoSAI) covers *model weights and datasets
 logs (Sigstore/Rekor) cover *existence*; eval frameworks (Inspect, lm-eval, promptfoo) produce
 *mutable logs*. **No shipped tool occupies "signed, offline-verifiable, eval-shaped receipt with
 per-sample auditability."** As the EU AI Act's Article 12 record-keeping duty for high-risk systems
-takes effect (2026-08-02) and leaderboard-gaming controversies mount, that gap is now load-bearing.
+takes effect (2027-12-02 for standalone high-risk systems, postponed from 2026-08-02 by the Digital
+Omnibus) and leaderboard-gaming controversies mount, that gap is now load-bearing.
 
 ## What proofbundle is
 A small (~600-LOC trusted core, `cryptography` + stdlib only), MIT-licensed Python tool that turns
@@ -26,7 +27,7 @@ not eval quality, not anti-cherry-picking without pre-registration or reproducti
   competitor for signed eval receipts (2026).
 - **Standards-native, not NIH**: reuses RFC 6962/9162, RFC 9901, C2SP, DSSE/in-toto, RFC 8785 —
   it composes accepted primitives rather than inventing crypto.
-- **Regulatory tailwind**: Art. 12 (2026-08), GPAI Model Reports, NIST AI RMF MEASURE evidence.
+- **Regulatory tailwind**: Art. 12 (high-risk from 2027-12-02), GPAI Model Reports, NIST AI RMF MEASURE evidence.
 - **Reviewable now**: external RFC 6962 vectors + a real Rekor proof (correctness not
   self-referential), a mutation-gated test suite, property-based parser fuzzing, a 30-minute
   reviewer path, and a supply-chain-hardened release (attested == published).

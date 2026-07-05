@@ -1,0 +1,33 @@
+from rfc3161_client.tsp import TimeStampRequest, TimeStampResponse
+from rfc3161_client.base import HashAlgorithm
+
+class PyMessageImprint: ...
+
+class TimeStampReq: ...
+
+class TimeStampResp: ...
+
+class SignedData: ...
+
+class PyTSTInfo: ...
+
+class Accuracy: ...
+
+class SignerInfo: ...
+
+def create_timestamp_request(
+    data: bytes,
+    nonce: bool,
+    cert: bool,
+    hash_algorithm: HashAlgorithm | None = None,
+) -> TimeStampRequest: ...
+
+
+def parse_timestamp_response(
+    data: bytes,
+) -> TimeStampResponse: ...
+
+
+def parse_timestamp_request(
+    data: bytes,
+) -> TimeStampRequest: ...

@@ -10,10 +10,15 @@ limitations.
 
 ## Reporting a vulnerability
 
-Please report suspected correctness or security issues privately by opening a
+Please report suspected correctness or security issues **privately** — do not open a public issue.
+The preferred, tracked channel is a
 [GitHub security advisory](https://github.com/b7n0de/proofbundle/security/advisories/new)
-or by email to the address in the repository profile. Do not open a public issue
-for a suspected vulnerability. We aim to acknowledge within a few days.
+(private to the maintainers); the repository profile also lists a contact email as a fallback.
+
+Coordinated disclosure: we aim to **acknowledge within 3 business days**, agree a fix and a public
+disclosure timeline, and disclose **within 90 days** of a valid report. If a fix needs longer we
+will say so and coordinate a date with you rather than let it slip silently. Reporters who want
+credit are named in the advisory and CHANGELOG.
 
 ## Supported versions
 
@@ -34,5 +39,5 @@ Releases are published to PyPI via **Trusted Publishing** (OIDC, no long-lived t
 API exposes the attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification,
 plus an SLSA build-provenance attestation (SLSA v1.2 attestation model). The release workflow builds the
 artifact ONCE and gates the PyPI upload on a sha256 match against the attested subject, so the published
-bytes are exactly the attested bytes (see `RELEASE.md`). No release has been published yet — these are
-capabilities of the workflow, not claims about a shipped artifact.
+bytes are exactly the attested bytes (see `RELEASE.md`). proofbundle is published on PyPI; whether a
+given release file carries the PEP 740 attestations is verifiable on PyPI's Integrity API.
