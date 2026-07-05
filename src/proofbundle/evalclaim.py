@@ -269,6 +269,14 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         claim = load_claim_text(payload.decode("utf-8"))
         if claim.get("schema") != EVAL_CLAIM_SCHEMA:
             return None
+        # F3 (v1.9.2): the exact key set is a VERIFY-path invariant, not only an emit-side one.
+        # emit_eval_receipt enforces _REQUIRED/_OPTIONAL at emit, but a hand-signed claim bypasses
+        # that path — a decoded claim missing a required field or carrying an unknown one was
+        # previously ACCEPTED here (the emit-vs-verify asymmetry class this project documents; the
+        # module comment on _REQUIRED, "decode/validate reject anything else", was aspirational on
+        # this path). Reject fail-closed, mirroring the emit-side check.
+        if (_REQUIRED - set(claim)) or (set(claim) - _REQUIRED - _OPTIONAL):
+            return None
         # Issuer binding: the claim's issuer must be the key that signed the bundle.
         sig_pub_b64 = bundle["signature"]["public_key_b64"]
         want = "ed25519:" + base64.b64encode(base64.b64decode(sig_pub_b64)).decode("ascii")

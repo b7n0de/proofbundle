@@ -142,6 +142,10 @@ MUTATIONS = [
     ("src/proofbundle/checkpoint.py",
      "if len(payload) != blob_len:", "if len(payload) < blob_len:",
      "cosign: blob length exact -> lax (EQUIVALENT)", False),
+    # v1.9.2 — F3: verify-path field-set enforcement (required-presence + unknown-rejection)
+    ("src/proofbundle/evalclaim.py",
+     "if (_REQUIRED - set(claim)) or (set(claim) - _REQUIRED - _OPTIONAL):", "if False:",
+     "evalclaim: verify-path required/unknown-field enforcement (F3) disabled", True),
 ]
 
 
