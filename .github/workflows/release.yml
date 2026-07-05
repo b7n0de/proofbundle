@@ -59,6 +59,19 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+      - name: Classify the tag (PEP 440 pre-release → GitHub pre-release, not Latest)
+        id: relmeta
+        run: |
+          # vX.Y.ZaN / bN / rcN is a PEP 440 pre-release (beta 2.0.0b2 etc.). Such a release must NOT
+          # become the GitHub "Latest" (that would shadow the stable line). 2026-07-05: v2.0.0b2 was
+          # wrongly published as Latest because this step did not exist.
+          if [[ "${GITHUB_REF_NAME}" =~ (a|b|rc)[0-9]+$ ]]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true"  >> "$GITHUB_OUTPUT"
+          fi
       - name: Create GitHub Release with the attested artifacts + SHA256SUMS
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b  # v3.0.1
         with:
@@ -67,6 +80,8 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           generate_release_notes: true
+          prerelease: ${{ steps.relmeta.outputs.prerelease }}
+          make_latest: ${{ steps.relmeta.outputs.make_latest }}
 
   publish-pypi:
     # Publishes with PyPI Trusted Publishing (OIDC) — no API token. Requires a one-time human

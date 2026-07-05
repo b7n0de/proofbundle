@@ -25,12 +25,23 @@ class TestBranchBaseCheck(unittest.TestCase):
         # A branch whose head IS a release-tag commit forks from that tag → WARN, but exit 0.
         tag = subprocess.run(["git", "-C", str(ROOT), "tag", "--list", "v*"],
                              capture_output=True, text=True).stdout.split()
-        if not tag:
-            self.skipTest("no release tags present")
-        tag = sorted(tag)[-1]
-        head = subprocess.run(["git", "-C", str(ROOT), "rev-list", "-n1", tag],
-                              capture_output=True, text=True).stdout.strip()
-        r = _run({"BRANCH_BASE_REF": "main", "BRANCH_HEAD_SHA": head})
+        # Pick a tag that is BEHIND main (a proper ancestor, not the current tip) — only a behind
+        # branch re-conflicts, so only a behind tag warns. The newest tag can sit at main's tip right
+        # after a release (no warning, correctly), so this test must not depend on 'newest'.
+        main_tip = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "origin/main"],
+                                  capture_output=True, text=True).stdout.strip()
+        behind = None
+        for t in sorted(tag):
+            c = subprocess.run(["git", "-C", str(ROOT), "rev-list", "-n1", t],
+                               capture_output=True, text=True).stdout.strip()
+            is_anc = subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", c, main_tip],
+                                    capture_output=True).returncode == 0
+            if c and c != main_tip and is_anc:
+                behind = c
+                break
+        if not behind:
+            self.skipTest("no release tag that is behind main (e.g. shallow checkout)")
+        r = _run({"BRANCH_BASE_REF": "main", "BRANCH_HEAD_SHA": behind})
         self.assertEqual(r.returncode, 0, "advisory check must never fail the build")
         self.assertIn("::warning", r.stdout)
         self.assertIn("release tag", r.stdout)
