@@ -39,6 +39,18 @@ class TestBranchBaseCheck(unittest.TestCase):
         r = _run({"BRANCH_BASE_REF": "does-not-exist-ref"})
         self.assertEqual(r.returncode, 0)
 
+    def test_up_to_date_branch_at_base_tip_does_not_warn(self):
+        # 6-lens L1: a branch whose fork point IS the current base tip is up to date → NO warning,
+        # even if that commit carries a release tag (no CHANGELOG re-conflict when up to date).
+        tip = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "origin/main"],
+                             capture_output=True, text=True).stdout.strip()
+        if not tip:
+            self.skipTest("no origin/main")
+        r = _run({"BRANCH_BASE_REF": "main", "BRANCH_HEAD_SHA": tip})
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("::warning", r.stdout)
+        self.assertIn("up to date", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

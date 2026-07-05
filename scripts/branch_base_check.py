@@ -39,38 +39,49 @@ def _warn(msg: str) -> None:
             pass
 
 
-def main() -> int:
+def _run() -> None:
     base_ref = os.environ.get("BRANCH_BASE_REF", "main")
     head = os.environ.get("BRANCH_HEAD_SHA") or _git("rev-parse", "HEAD")
     if not head:
         print("[branch-base] no HEAD sha available — skipping (advisory)")
-        return 0
+        return
 
     # The fork point of the PR branch off its base.
     fork = _git("merge-base", f"origin/{base_ref}", head)
     if not fork:
         print(f"[branch-base] cannot compute merge-base with origin/{base_ref} — skipping (advisory)")
-        return 0
+        return
+
+    # Is the branch behind base? If the fork point IS the current base tip, the branch is up to date
+    # and there is NO CHANGELOG re-conflict — even if that commit happens to carry a release tag (right
+    # after a release, main's tip == the release-tag commit). Only a BEHIND branch re-conflicts, so we
+    # never warn about a tag on an up-to-date branch (6-lens review L1: avoid the false positive).
+    base_tip = _git("rev-parse", f"origin/{base_ref}")
+    behind = bool(base_tip) and fork != base_tip
 
     tags_at_fork = [t for t in _git("tag", "--points-at", fork).splitlines() if _TAG_RE.match(t)]
-    if tags_at_fork:
+    if tags_at_fork and behind:
         _warn(
-            f"this PR branch forks from release tag {tags_at_fork} at {fork[:12]}; branch from "
-            f"'{base_ref}' instead. Fix: git rebase --onto origin/{base_ref} {tags_at_fork[0]} "
-            f"<branch>. Forking from a tag re-conflicts on CHANGELOG.md every PR (FEHLER D).")
-        return 0
-
-    # Not tag-based, but far behind base → a softer heads-up (still advisory, still exit 0).
-    behind = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", f"origin/{base_ref}", head],
-        capture_output=True, timeout=15).returncode != 0
+            f"this PR branch forks from release tag {tags_at_fork} at {fork[:12]} and is behind "
+            f"'{base_ref}'; branch from '{base_ref}' instead. Fix: git rebase --onto origin/{base_ref} "
+            f"{tags_at_fork[0]} <branch>. Forking from a tag re-conflicts on CHANGELOG.md every PR (FEHLER D).")
+        return
     if behind:
         n = _git("rev-list", "--count", f"{fork}..origin/{base_ref}") or "?"
         _warn(f"this PR branch is behind origin/{base_ref} by {n} commit(s) since {fork[:12]}; "
               f"consider merging/rebasing onto '{base_ref}' to avoid CHANGELOG.md conflicts.")
-        return 0
+        return
 
-    print(f"[branch-base] OK — forked from '{base_ref}' at {fork[:12]}, no release tag at the fork point.")
+    print(f"[branch-base] OK — up to date with '{base_ref}' at {fork[:12]} (no re-conflict risk).")
+
+
+def main() -> int:
+    # ADVISORY contract: ALWAYS exit 0 as a property of the SCRIPT itself, not only of the workflow's
+    # continue-on-error. Any error (git timeout, subprocess failure) → advisory note + exit 0.
+    try:
+        _run()
+    except Exception as exc:  # noqa: BLE001 — advisory must never fail the build
+        print(f"[branch-base] advisory check errored ({exc!r}) — treating as OK (exit 0)")
     return 0
 
 
