@@ -35,6 +35,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   optional v0.1 extension field. WATCH: in-toto/attestation#551 (verifier.policies as required) is an open
   SVR-v0.2 risk. New adversarial tests + an SVR-passing-only mutation operator.
 
+### Added — external time-anchor layer (EXPERIMENTAL; the `[anchors]` extra)
+- **`proofbundle.anchors`** — a generic, fail-closed layer for external time anchors on a receipt. Two
+  targets, never mixed: `preRegistration` (the commitment existed before the run — the in-toto#565
+  backdating point) and `receipt` (existed from time T). Missing anchors → SKIP; present → a root
+  mismatch, unknown type, or broken proof is a FAIL, never silent; `--require-anchor <type|any>`. The
+  base install stays anchor-free (only `cryptography`); a receipt with no anchors verifies unchanged.
+- **RFC 3161 TSA anchor** (`anchors_rfc3161`): offline verify (`rfc3161-client`) against the TSA chain
+  **frozen into the anchor at emit time** (a TSA can rotate — FreeTSA rotated March 2026). Proven
+  against a real captured FreeTSA token fixture incl. the frozen-chain rotation test.
+- **OpenTimestamps anchor** (`anchors_ots`): honest lifecycle — a PENDING proof is a **WARN**, never a
+  full anchor; an upgraded proof needs a Bitcoin block header (a local pruned node) to verify offline,
+  and without one it is reported as upgraded-unverified, never a silent pass. Pending vs upgraded are
+  distinguished.
+- **Extension mechanism** (`register_anchor_type`) for third-party anchor types with a fail-closed
+  verify callable. `docs/ANCHORS.md`. A dedicated CI `anchors` job exercises the TSA + OTS tests.
+
 ## [1.9.2] - 2026-07-05
 
 Verify-path hardening from an independent six-lens review, plus a public-trust documentation pass.

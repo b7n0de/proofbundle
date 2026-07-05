@@ -74,3 +74,19 @@ jobs:
         run: python -m pip install -e ".[dev,pq]"
       - name: Mutation check
         run: python scripts/mutation_check.py
+
+  anchors:
+    # EXPERIMENTAL [anchors] extra (v2.0 preview): exercises the RFC 3161 TSA verifier against a real
+    # captured FreeTSA token + the frozen-chain rotation test — these SKIP in the base job (no
+    # rfc3161-client), so this job installs the extra and actually runs them. Offline: the fixture is
+    # committed, no live TSA call in CI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install with the anchors extra
+        run: python -m pip install -e ".[dev,anchors]"
+      - name: Anchor tests (generic + rfc3161-tsa + opentimestamps, run not skipped)
+        run: python -m unittest tests.test_anchors_generic tests.test_anchors_rfc3161 tests.test_anchors_ots -v
