@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Claims-hygiene gate — fail CI if a forbidden overclaim appears in the docs outside a negation.
+
+proofbundle's product IS the boundary "authorship + integrity, never truth". An unqualified
+"proves correctness", "compliance ready" or "quantum-safe" in its own docs is the single bug it
+cannot ship. This gate greps the user-facing docs for the forbidden phrasings from the six-lens
+review (2026-07-04, §15) and fails on any occurrence that is NOT negated.
+
+A match is ALLOWED when its sentence carries a negation marker — the docs legitimately say
+"does not prove ... is true" and "not quantum-safe". A match with no negation in its sentence is a
+VIOLATION. Code fences (``` ... ```) and inline `code` spans are skipped (CLI/JSON output is not
+prose). Read-only; exit 0 clean, exit 1 on any violation.
+
+CLI: [--json] [paths...]  (default: the canonical user-facing doc set)
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+
+# Default scan set: the docs a stranger or a citation actually reads. CHANGELOG/SPEC/THREAT_MODEL
+# included on purpose — an honest claim must hold everywhere, not only above the fold.
+_DEFAULT_DOCS = [
+    "README.md", "CITATION.cff", "COMPLIANCE.md", "INTEROP.md", "SECURITY.md", "PREDICATE.md",
+    "THREAT_MODEL.md", "SPEC.md", "FAQ.md", "GLOSSARY.md", "TRUST_ANCHORS.md", "PROJECT_BRIEF.md",
+    "CHANGELOG.md", "docs/INSPECT_HAPPY_PATH.md", "docs/MATURITY.md", "docs/MIGRATION_2.0.md",
+]
+
+# Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.
+_FORBIDDEN = [
+    (r"proves?\s+(?:the\s+)?(?:truth|correctness)", "proves truth/correctness"),
+    (r"proves?\s+(?:the\s+number\s+is\s+)?true", "proves the number is true"),
+    (r"compliance[- ]ready", "compliance ready"),
+    (r"satisfies\s+article\s+12", "satisfies Article 12"),
+    (r"audit[- ]proof", "audit-proof"),
+    (r"certifies\s+safety", "certifies safety"),
+    (r"quantum[- ]safe", "quantum-safe"),
+    (r"post[- ]quantum\s+secure", "post-quantum secure"),
+    (r"industry\s+standard", "industry standard"),
+    (r"TEE\s+proves\s+(?:the\s+)?computation", "TEE proves computation"),
+    (r"prevents?\s+cherry[- ]picking", "prevents cherry-picking (needs a mode qualifier)"),
+]
+_FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
+
+# A negation anywhere in the same sentence exonerates the match (the docs say "does not prove ...").
+_NEGATION_RE = re.compile(
+    r"\b(?:not|never|no|cannot|can't|isn't|aren't|doesn't|don't|won't|without|"
+    r"neither|nor|deliberately\s+not|does\s+not|do\s+not)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_code(text: str) -> str:
+    """Blank out fenced code blocks and inline `code` so CLI/JSON samples are not scanned as prose
+    (keeps line count stable by preserving newlines)."""
+    def _blank(m: re.Match) -> str:
+        return re.sub(r"[^\n]", " ", m.group(0))
+    text = re.sub(r"```.*?```", _blank, text, flags=re.DOTALL)
+    text = re.sub(r"`[^`\n]*`", _blank, text)
+    return text
+
+
+def _sentence_around(text: str, start: int, end: int) -> str:
+    """The sentence containing [start,end): from the previous .!?/newline boundary to the next one."""
+    left = max(text.rfind(".", 0, start), text.rfind("!", 0, start),
+               text.rfind("?", 0, start), text.rfind("\n", 0, start))
+    right_candidates = [i for i in (text.find(".", end), text.find("!", end),
+                                    text.find("?", end), text.find("\n", end)) if i != -1]
+    right = min(right_candidates) if right_candidates else len(text)
+    return text[left + 1:right]
+
+
+def scan_file(path: Path) -> list[dict]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    text = _strip_code(raw)
+    violations = []
+    for rx, label in _FORBIDDEN_RE:
+        for m in rx.finditer(text):
+            sentence = _sentence_around(text, m.start(), m.end())
+            if _NEGATION_RE.search(sentence):
+                continue   # negated → allowed
+            line = raw.count("\n", 0, m.start()) + 1
+            try:
+                rel = str(path.relative_to(REPO))
+            except ValueError:
+                rel = path.name
+            violations.append({"file": rel, "line": line,
+                               "phrase": label, "match": m.group(0),
+                               "sentence": sentence.strip()[:120]})
+    return violations
+
+
+def main(argv=None) -> int:
+    args = list(argv if argv is not None else sys.argv[1:])
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
+    rels = args or _DEFAULT_DOCS
+    violations = []
+    scanned = []
+    for rel in rels:
+        p = REPO / rel
+        if p.is_file():
+            scanned.append(rel)
+            violations.extend(scan_file(p))
+    out = {
+        "schema": "proofbundle.claims_hygiene.v1",
+        "verdict": "FAIL" if violations else "PASS",
+        "scanned": len(scanned),
+        "violations": violations,
+        "note": ("A forbidden phrasing appeared outside a negation. Reword to the boundary language "
+                 "(authorship/integrity/tamper-evident/offline-verifiable) or negate it explicitly."
+                 if violations else "no un-negated forbidden claims"),
+    }
+    if as_json:
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+    else:
+        print(f"[claims-hygiene] {out['verdict']} · {len(scanned)} docs scanned · {len(violations)} violation(s)")
+        for v in violations:
+            print(f"  {v['file']}:{v['line']}  '{v['match']}' ({v['phrase']})  — {v['sentence']}")
+    return 1 if violations else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

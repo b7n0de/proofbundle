@@ -28,6 +28,8 @@ jobs:
         run: ruff check .
       - name: Type check
         run: mypy src
+      - name: Claims hygiene (no un-negated overclaims in docs)
+        run: python scripts/claims_hygiene_check.py
       - name: Test
         run: python -m unittest discover -s tests -v
       - name: Verify the example bundle end to end
