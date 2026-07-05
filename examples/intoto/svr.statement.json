@@ -1,0 +1,23 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "properties": [
+      "PROOFBUNDLE_SIGNATURE_VALID",
+      "PROOFBUNDLE_RECEIPT_UNCHANGED",
+      "PROOFBUNDLE_THRESHOLD_MET"
+    ],
+    "timeCreated": "2026-07-05T12:34:56Z",
+    "verifier": {
+      "id": "https://b7n0de.com/proofbundle"
+    }
+  },
+  "predicateType": "https://in-toto.io/attestation/svr/v0.1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "010fa33a63b7b987e14821f6967670b814e1f0bdc8d5d2048ecb97f32b58aaa9"
+      },
+      "name": "eval-receipt"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "assuranceLevel": "self_attested",
+    "claims": [
+      {
+        "comparator": ">=",
+        "metric": "refusal_rate",
+        "passed": true,
+        "threshold": "0.98"
+      }
+    ],
+    "commitments": {
+      "dataset": {
+        "alg": "sha256-salted-v1",
+        "salted": true,
+        "value": "80ee4dd57b460449cf4898a56c588c6eb64bda56511f492f50ceb70d9f4c2a2b"
+      },
+      "model": {
+        "alg": "sha256-salted-v1",
+        "salted": true,
+        "value": "2d6df1fdf7ab871a0c7b0bac0c3219455097cfcf2b948eb108283ed2d71e82e2"
+      }
+    },
+    "evaluatedAt": "2026-07-05T12:00:00Z",
+    "receipt": {
+      "merkleRootB64": "cmVjZWlwdC1tZXJrbGUtcm9vdA==",
+      "schema": "proofbundle/v0.1"
+    },
+    "sampleSize": 500,
+    "subjectProfile": "public-model",
+    "suite": {
+      "name": "safety-refusals",
+      "version": "1.2.0"
+    },
+    "verifier": {
+      "id": "https://b7n0de.com/proofbundle"
+    }
+  },
+  "predicateType": "https://b7n0de.com/attestation/eval-result/v0.1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "acme/open-model-7b"
+    }
+  ]
+}
