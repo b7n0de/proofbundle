@@ -17,6 +17,19 @@ class TestDocsTruth(unittest.TestCase):
         hits = re.findall(r"\b\d+\s+tests?\b", prose, flags=re.IGNORECASE)
         self.assertEqual(hits, [], f"README carries a hardcoded, stale-prone test count: {hits}")
 
+    def test_citation_version_matches_pyproject(self):
+        # F6/SH4: CITATION.cff stated version 0.7.0 while pyproject shipped 1.9.1 — a stale version
+        # travels into every citation. Pin them together so a release bump cannot drift them apart
+        # (the RELEASE.md checklist requires bumping both).
+        cff = (REPO / "CITATION.cff").read_text(encoding="utf-8")
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        cff_v = re.search(r"(?m)^version:\s*([^\s#]+)", cff)
+        py_v = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+        self.assertIsNotNone(cff_v, "CITATION.cff has no version")
+        self.assertIsNotNone(py_v, "pyproject.toml has no version")
+        self.assertEqual(cff_v.group(1).strip('"'), py_v.group(1),
+                         "CITATION.cff version must equal pyproject version (bump both together)")
+
 
 if __name__ == "__main__":
     unittest.main()

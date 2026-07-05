@@ -2,9 +2,11 @@ cff-version: 1.2.0
 message: "If you use proofbundle, please cite it as below."
 title: proofbundle
 abstract: >-
-  Emit and verify, fully offline, portable cryptographic evidence bundles (Ed25519 + RFC 6962
-  Merkle + optional SD-JWT), and eval receipts that prove a model passed a threshold without
-  revealing the model or the data. A verification layer for trustworthy evaluation logs.
+  Emit and verify, fully offline, portable cryptographic receipts for AI evaluation results
+  (Ed25519 + RFC 6962 Merkle + optional SD-JWT selective disclosure). A receipt proves authorship
+  and integrity — that these exact bytes were signed by the stated key and are unchanged since —
+  and can show a threshold was met without revealing the model or the data. It does not establish
+  that the result is true, that the evaluation was well designed, or that the issuer is honest.
 authors:
   - family-names: Gruszka
     given-names: Konrad
@@ -13,7 +15,7 @@ type: software
 license: MIT
 repository-code: "https://github.com/b7n0de/proofbundle"
 url: "https://github.com/b7n0de/proofbundle"
-version: 0.7.0
+version: 1.9.1
 # doi: add once Zenodo archives a release and assigns a DOI (none assigned yet — see the human checklist).
 keywords:
   - cryptography
