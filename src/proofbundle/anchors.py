@@ -122,7 +122,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         raise BundleFormatError(f"anchor has unknown field(s) {sorted(unknown)}")
     atype = anchor.get("type")
     target = anchor.get("target")
-    out = {"ok": False, "type": atype, "target": target, "detail": ""}
+    out = {"ok": False, "warn": False, "status": "fail", "type": atype, "target": target, "detail": ""}
     if target not in ANCHOR_TARGETS:
         out["detail"] = f"anchor target must be one of {ANCHOR_TARGETS}"
         return out
@@ -147,6 +147,8 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
     out["ok"] = bool(res.get("ok"))
+    out["warn"] = bool(res.get("warn"))
+    out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
     out["detail"] = res.get("detail", "")
     return out
 
@@ -165,14 +167,19 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     if not isinstance(anchors, list):
         raise BundleFormatError("anchors must be a list")
     results = [verify_anchor(a, target_roots=target_roots, now=now) for a in anchors]
-    all_ok = all(r["ok"] for r in results)
-    if require:
+    if require:   # a warn/pending anchor never SATISFIES a requirement — only a real verified one
         want = None if require == "any" else require
         matched = [r for r in results if r["ok"] and (want is None or r["type"] == want)]
         if not matched:
             return {"status": "FAIL",
                     "detail": f"--require-anchor {require}: no verifying anchor of that type",
                     "results": results}
-    status = "PASS" if all_ok else "FAIL"
+    hard_fail = any(not r["ok"] and not r["warn"] for r in results)
+    if hard_fail:
+        status = "FAIL"                       # a broken/unbound/unknown anchor is never silent
+    elif any(r["warn"] for r in results):
+        status = "WARN"                       # e.g. a PENDING OpenTimestamps proof — not a full anchor yet
+    else:
+        status = "PASS"
     detail = f"{sum(r['ok'] for r in results)}/{len(results)} anchor(s) verified"
     return {"status": status, "detail": detail, "results": results}
