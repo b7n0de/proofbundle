@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (2.0.0b2 line — BETA)
+## [2.0.0b2] - 2026-07-05  (BETA / pre-release)
 
 ### Added — in-toto eval-result attestation export (PROPOSED; under discussion in-toto/attestation#565)
 - **`proofbundle intoto <receipt>`** exports an eval receipt as a DSSE-signed in-toto Statement v1 with
