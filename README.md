@@ -84,8 +84,10 @@ flowchart LR
 - **Transparency-log interop** — C2SP `tlog-checkpoint` / cosignature / `.tlog-proof`, with
   post-quantum **ML-DSA-44** witness cosignatures. Optional Token-Status-List revocation snapshots.
 - **Per-sample audit** — commit to every sample; an auditor challenges random indices (with a fresh
-  nonce or a **public randomness beacon**, v1.9) and openings must bind to the signed root. Catches
-  1% sample-doctoring with 95% confidence at 300 samples, regardless of run size.
+  nonce or a **public randomness beacon**, v1.9) and openings must bind to the signed root. With
+  such an auditor-supplied or beacon-bound challenge, 300 samples catch 1% sample-doctoring with 95%
+  confidence, regardless of run size — a challenge the issuer chose itself does not give this
+  guarantee.
 - **Pre-registration** — `proofbundle prereg <plan>` commits to the protocol before the run, so
   best-of-many publishing becomes visible.
 - **Integrations** — opt-in inspect_ai end-of-task hook and pytest plugin (emit only when
