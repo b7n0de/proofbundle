@@ -23,6 +23,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Status is **PROPOSED, not standardized** — see docs and the homepage label. No new runtime dependency;
   the export stays in the pure-Python DSSE path.
 
+### Added — in-toto SVR export (Summary Verification Result, svr/v0.1)
+- **`proofbundle svr <receipt>`** emits an in-toto **SVR** (`https://in-toto.io/attestation/svr/v0.1`) for a
+  receipt — but ONLY after a real, passing verification. It carries only PASSING property strings
+  (`PROOFBUNDLE_SIGNATURE_VALID`, `PROOFBUNDLE_RECEIPT_UNCHANGED`, `PROOFBUNDLE_THRESHOLD_MET`, and, when
+  genuinely verified, `PROOFBUNDLE_SAMPLE_ROOT_VALID` / `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID`)
+  — type-generic, never a vendor/service name. A missing check produces NO property.
+- **No SVR on FAIL**: the export refuses (fail-closed) if the receipt is not a valid eval receipt, does not
+  cryptographically verify, or did not pass its threshold. SVR has no FAILED form — a PASSED|FAILED verdict
+  would be a VSA, deliberately not implemented here (documented). `verifier.policy` ({uri, digest}) is the
+  optional v0.1 extension field. WATCH: in-toto/attestation#551 (verifier.policies as required) is an open
+  SVR-v0.2 risk. New adversarial tests + an SVR-passing-only mutation operator.
+
 ## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
 ### Added — TEE-attestation bridge (EXPERIMENTAL v2.0 preview; opt-in, unstable)

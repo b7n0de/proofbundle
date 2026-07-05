@@ -363,3 +363,106 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     return {"ok": bool(ok), "statement": statement,
             "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# SVR export — the in-toto Summary Verification Result (svr/v0.1). A verifier's summary; passing only.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+# predicateType is EXACT (in-toto/attestation SVR predicate, PR #470). Property strings are type-generic
+# with a PROOFBUNDLE_ prefix (never a vendor/service name), per the SVR property-string convention.
+SVR_PREDICATE_TYPE = "https://in-toto.io/attestation/svr/v0.1"
+
+# WATCH: in-toto/attestation#551 proposes making `verifier.policies` a REQUIRED field for SVR v0.2. It is
+# open and uncommented as of 2026-07-05. If it lands, this export must add a policies array — tracked in
+# the report. `policy` here is the OPTIONAL v0.1 extension field ({uri, digest}), not the #551 change.
+
+
+def _now_rfc3339z() -> str:
+    from datetime import datetime, timezone  # noqa: PLC0415
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
+                   anchor_verified: bool = False) -> list:
+    """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
+    passed. A missing optional check produces NO property (never a placeholder). PROOFBUNDLE_PREREG_BOUND
+    and PROOFBUNDLE_ANCHOR_VALID are asserted ONLY when the caller confirms that verification actually
+    ran offline (a present prereg hash or an anchors[] block alone is NOT a verified binding)."""
+    checks = {c.name: c.ok for c in result.checks}
+    props = []
+    if checks.get("ed25519-signature"):
+        props.append("PROOFBUNDLE_SIGNATURE_VALID")
+    if checks.get("merkle-inclusion"):
+        props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
+    if claim.get("passed"):
+        props.append("PROOFBUNDLE_THRESHOLD_MET")
+    if claim.get("samples"):
+        props.append("PROOFBUNDLE_SAMPLE_ROOT_VALID")
+    if prereg_verified and claim.get("prereg_sha256"):
+        props.append("PROOFBUNDLE_PREREG_BOUND")
+    if anchor_verified:
+        props.append("PROOFBUNDLE_ANCHOR_VALID")
+    return props
+
+
+def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
+                    policy: Optional[dict] = None, prereg_verified: bool = False,
+                    anchor_verified: bool = False, keyid: Optional[str] = None) -> dict:
+    """Emit an in-toto SVR (svr/v0.1) for a receipt — ONLY after a real, passing verification.
+
+    Refuses (fail-closed) if the receipt is not a valid eval receipt, does not cryptographically verify,
+    OR did not pass its threshold. SVR carries only PASSING property strings; there is no FAILED form
+    (that would be a VSA with a PASSED|FAILED verdict — deliberately NOT implemented here, see docs). The
+    subject is the receipt digest; no secrets ever enter the statement."""
+    from . import dsse  # noqa: PLC0415
+    from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+
+    try:
+        claim = decode_eval_claim(bundle)
+    except ProofBundleError as exc:   # a non-receipt / malformed bundle → clean fail-closed, not a raw error
+        raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
+    if claim is None:
+        raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
+    result = verify_bundle(bundle)
+    if not result.ok:
+        raise BundleFormatError(
+            "refusing to emit SVR: the receipt does not verify — an SVR carries only passing properties "
+            "and has no FAILED form (a VSA would be the PASSED|FAILED format)")
+    if not claim.get("passed"):
+        raise BundleFormatError(
+            "refusing to emit SVR: the eval did not pass its threshold — SVR summarizes a PASS, a failed "
+            "eval has no positive summary")
+    props = svr_properties(result, claim, prereg_verified=prereg_verified, anchor_verified=anchor_verified)
+    subject = resolve_subject("receipt", claim, root_b64=recompute_merkle_root_b64(bundle).get("stated_b64"))
+    verifier: dict[str, Any] = {"id": VERIFIER_ID}
+    if policy:
+        verifier["policy"] = policy
+    statement = {
+        "_type": STATEMENT_TYPE,
+        "subject": subject,
+        "predicateType": SVR_PREDICATE_TYPE,
+        "predicate": {
+            "verifier": verifier,
+            "timeCreated": time_created or _now_rfc3339z(),
+            "properties": props,
+        },
+    }
+    body = _canonical_body(statement)
+    return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
+    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type}."""
+    from . import dsse  # noqa: PLC0415
+
+    ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    body = dsse.load_payload(envelope)
+    try:
+        statement = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    return {"ok": bool(ok), "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}

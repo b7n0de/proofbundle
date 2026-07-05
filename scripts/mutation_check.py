@@ -155,6 +155,10 @@ MUTATIONS = [
     ("src/proofbundle/intoto.py",
      "    if leaked:", "    if False:",
      "intoto: eval-result export salt-leak guard disabled", True),
+    # SVR export — passing-only: a receipt that did NOT pass its threshold must get no SVR (Paket 3 test 11/14).
+    ("src/proofbundle/intoto.py",
+     'if not claim.get("passed"):', "if False:",
+     "intoto: SVR passing-only guard disabled", True),
 ]
 
 
