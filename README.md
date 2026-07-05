@@ -7,9 +7,11 @@
 
 <h1>proofbundle</h1>
 
-**Turn an AI eval result into one portable, offline-verifiable receipt.**
-It proves *who signed these exact bytes* and *that nothing changed since* — not that the number is
-true. Ed25519 + RFC 6962 Merkle, one file, no server, no network.
+**AI eval results need receipts.**
+
+Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
+these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
+Merkle, one file, no server, no network.
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
@@ -59,6 +61,13 @@ proofbundle verify receipt.json        # exit 0 = OK, 1 = failed, 2 = malformed
 This boundary is the point, not a weakness. A receipt makes a claim **attributable, tamper-evident,
 and — with pre-registration and per-sample auditing — bounded and spot-checkable**. Full detail:
 **[THREAT_MODEL.md](THREAT_MODEL.md)**.
+
+## In plain language
+
+A proofbundle receipt is the cash-register receipt of an AI test result: it shows who claimed the
+number and that nobody quietly changed it afterwards. It does not show the test was good — the way a
+cash-register receipt does not show the meal was good — but without a receipt there is nothing to
+check at all.
 
 ## How it fits together
 
