@@ -15,7 +15,7 @@ type: software
 license: MIT
 repository-code: "https://github.com/b7n0de/proofbundle"
 url: "https://github.com/b7n0de/proofbundle"
-version: 1.9.1
+version: 1.9.2
 # doi: add once Zenodo archives a release and assigns a DOI (none assigned yet — see the human checklist).
 keywords:
   - cryptography
