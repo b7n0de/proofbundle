@@ -184,8 +184,10 @@ class TestExperimentalGating(unittest.TestCase):
         from proofbundle.cli import main
         bundle, binding, verifier, eat = _setup()
         d = tempfile.mkdtemp()
-        rp = os.path.join(d, "receipt.json"); json.dump(bundle, open(rp, "w"))
-        ep = os.path.join(d, "att.eat"); open(ep, "w").write(eat)
+        rp = os.path.join(d, "receipt.json")
+        json.dump(bundle, open(rp, "w"))
+        ep = os.path.join(d, "att.eat")
+        open(ep, "w").write(eat)
         vkey = base64.b64encode(_raw(verifier)).decode()
         with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
             warnings.simplefilter("ignore")
