@@ -120,7 +120,7 @@ Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 co
 
 ## Status & scope
 
-Beta, SemVer-committed, 303 tests + a CI mutation gate + property-based parser fuzzing. Correctness
+Beta, SemVer-committed, with a CI test suite behind a mutation gate + property-based parser fuzzing. Correctness
 is anchored to external RFC 6962 vectors and a real Rekor proof, not just its own bundles. It is
 **not** a log service, a full in-toto client, a TEE, a consensus network, or a compliance product
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:
