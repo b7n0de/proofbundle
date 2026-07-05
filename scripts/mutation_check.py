@@ -150,6 +150,11 @@ MUTATIONS = [
     ("src/proofbundle/bundle.py",
      "if (expected_aud is not None or expected_nonce is not None) and not kb_binding_checked:", "if False:",
      "bundle: expected_aud/nonce downgrade-trap enforcement (F4) disabled", True),
+    # in-toto eval-result export — the commitment-only salt-leak guard must refuse a claim that still
+    # carries a plaintext identifier / raw salt (Paket 2 test 1/14).
+    ("src/proofbundle/intoto.py",
+     "    if leaked:", "    if False:",
+     "intoto: eval-result export salt-leak guard disabled", True),
 ]
 
 

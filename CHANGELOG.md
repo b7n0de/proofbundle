@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (2.0.0b2 line — BETA)
+
+### Added — in-toto eval-result attestation export (PROPOSED; under discussion in-toto/attestation#565)
+- **`proofbundle intoto <receipt>`** exports an eval receipt as a DSSE-signed in-toto Statement v1 with
+  the dedicated **`eval-result/v0.1`** predicate (vendor namespace `https://b7n0de.com/attestation/eval-result/v0.1`
+  for now — the migration path to an `in-toto.io` namespace is documented and needs a redirect PR only
+  there). The predicate extends the community `test-result` shape with a threshold-based `claims[]`,
+  privacy-preserving **salted-commitment** subjects, and an optional binding to the external signed
+  receipt. DSSE `payloadType` is the canonical `application/vnd.in-toto+json`; verification accepts
+  standard and url-safe base64.
+- **Subject profiles** (`--subject-profile`): `receipt` (default — binds without revealing the model),
+  `public-model` and `release-gate` (a disclosed artifact via `--subject-name`/`--subject-sha256`, the
+  SLSA "deploy only if the eval passed" hook). Each profile documents what the subject IS.
+- **Commitment-only guarantee**: the export refuses a claim that still carries a plaintext identifier or a
+  raw salt (fail-closed), is deterministic (byte-identical statement for identical input), and refuses an
+  incomplete receipt. New adversarial tests + a salt-leak mutation operator.
+- Status is **PROPOSED, not standardized** — see docs and the homepage label. No new runtime dependency;
+  the export stays in the pure-Python DSSE path.
+
 ## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
 ### Added — TEE-attestation bridge (EXPERIMENTAL v2.0 preview; opt-in, unstable)
