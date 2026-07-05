@@ -12,7 +12,11 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 1. **Land the code first.** Feature/fix branch → PR → **the Owner merges** to `main`. For a stable
    patch on an older line, merge to `release/v1.9.x` first, then merge that branch back into `main`
-   so the two never diverge.
+   so the two never diverge. **Fork the branch from `main` (or `release/v1.9.x`), never from a release
+   tag** — a tag-based branch predates every later `## [Unreleased]` CHANGELOG section and re-conflicts
+   on `CHANGELOG.md` on every PR (this happened twice on 2026-07-05 with branches cut from `v1.9.1`).
+   A non-blocking CI check (`scripts/branch_base_check.py`) warns when a PR forks from a tag. See
+   [CONTRIBUTING.md](CONTRIBUTING.md#branch-base-fork-from-main-never-from-a-release-tag).
 2. **Tag the merged commit on the target branch — never the open feature branch.** Check out the
    merged `main` (or `release/*`) HEAD, confirm its CI is green, then `git tag vX.Y.Z` there and
    push the tag. Tagging an unmerged feature branch opens a window in which the release workflow
