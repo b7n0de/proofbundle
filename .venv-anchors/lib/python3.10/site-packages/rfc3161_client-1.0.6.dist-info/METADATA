@@ -1,0 +1,153 @@
+Metadata-Version: 2.4
+Name: rfc3161-client
+Version: 1.0.6
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Programming Language :: Rust
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Programming Language :: Python :: Implementation :: PyPy
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Typing :: Typed
+Requires-Dist: cryptography>=43
+License-File: LICENSE
+Author-email: Trail of Bits <opensource@trailofbits.com>
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown; charset=UTF-8; variant=GFM
+Project-URL: Documentation, https://trailofbits.github.io/rfc3161-client/
+Project-URL: Homepage, https://pypi.org/project/rfc3161-client
+Project-URL: Issues, https://github.com/trailofbits/rfc3161-client/issues
+Project-URL: Source, https://github.com/trailofbits/rfc3161-client
+
+# `rfc3161-client`
+
+`rfc3161-client` is a Python library implementing the Time-Stamp Protocol (TSP)
+described in [RFC 3161](https://www.ietf.org/rfc/rfc3161.txt).
+
+It is composed of three subprojects:
+
+- [:crab: tsp-asn1](./rust/tsp-asn1/Cargo.toml): A Rust crate using
+  [`rust-asn1`](https://docs.rs/asn1/latest/asn1/index.html) to create the
+  types used by the Time-Stamp protocol. This crate depends on `rust-asn1`
+  and `cryptography` to minimize the amount of duplicated code. While
+  it is usable as a standalone crate, this is not officially supported. Drop
+  us a message if you are interested in using it.
+- [:crab: rfc3161-client](./rust/Cargo.toml): Another Rust crate that
+  provides Python bindings to the `tsp-asn1` crate using PyO3.
+- [:snake: rfc3161-client](./pyproject.toml) A Python library using the
+  crate above to provide a usable API to create Timestamp Request and read
+  Timestamp Response.
+
+# Goals and anti-goals
+
+- This library should be correct and provide an accurate implementation of
+  protocol described in the RFC 3161.
+- This library does not perform any network activity, it simply provides
+  primitive to build and verify objects. Network activity must be handled
+  separately.
+
+# Usage
+
+There are two parts to timestamping: retrieving + verifying the timestamp.
+
+### 1. Retrieving a timestamp
+
+The below code uses `requests` to get the timestamp from the Identrust TSA server:
+
+```python
+# /// script
+# dependencies = [
+#   "requests",
+#   "rfc3161-client",
+# ]
+# ///
+import requests
+from rfc3161_client import (
+    decode_timestamp_response,
+    TimestampRequestBuilder,
+    VerifierBuilder,
+    VerificationError,
+)
+
+# the data to sign. Could be a hash or any message. Should be bytes
+message = b"Hello, World!"
+
+# build the timestamp request
+timestamp_request = (
+    TimestampRequestBuilder().data(message).build()
+    # Note: you could also add .hash_algorithm(XXX) to specify a specific hash algorithm
+)
+
+# TSA servers must be RFC 3161 compliant (see https://github.com/trailofbits/rfc3161-client/issues/46
+# for a list of working servers)
+tsa_server = "http://timestamp.identrust.com"
+
+# make the request, remember to set content-type headers appropriately
+response = requests.post(
+    tsa_server,
+    data=timestamp_request.as_bytes(),
+    headers={"Content-Type": "application/timestamp-query"},
+)
+response.raise_for_status()
+
+# if successful, should give a valid TimeStampResponse object
+timestamp_response = decode_timestamp_response(response.content)
+
+```
+
+### Verifying a timestamp
+
+The second part is to verify the timestamp, this is done against a set of
+root certificates. In this example, we'll Mozilla's list of root certs
+provided in the  `certifi` package:
+
+```python
+
+import certifi
+from cryptography import x509
+import hashlib
+
+
+# get trusted root certs from certifi
+with open(certifi.where(), "rb") as f:
+    cert_authorities = x509.load_pem_x509_certificates(f.read())
+
+# for each of the root certs we have, try to verify the TSR with it
+root_cert = None
+for certificate in cert_authorities:
+    verifier = VerifierBuilder().add_root_certificate(certificate).build()
+    try:
+        verifier.verify_message(timestamp_response, message)
+        root_cert = certificate
+        break
+    except VerificationError:
+        continue
+
+# if successful, the TSR was verified and we should have the root cert that signed this TSR :)
+print("Here's the root cert that signed your TSR:")
+print(root_cert)
+
+```
+
+# License
+
+```
+Copyright 2024 Trail of Bits
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+# Authors
+
+Trail of Bits
+

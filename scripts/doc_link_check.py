@@ -19,7 +19,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_SKIP = (".git", "node_modules", ".venv", "archive")   # docs/archive/ is frozen history, not live truth
+_SKIP = (".git", "node_modules", ".venv", "archive", "upstream")   # docs/archive/ is frozen history;
+# docs/upstream/ is ready-to-submit in-toto material whose relative links resolve in the in-toto repo tree, not ours
 
 
 def _iter_md():

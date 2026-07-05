@@ -1,0 +1,57 @@
+Metadata-Version: 2.1
+Name: opentimestamps
+Version: 0.4.5
+Summary: Create and verify OpenTimestamps proofs
+Home-page: https://github.com/opentimestamps/python-opentimestamps
+Author: Peter Todd
+Author-email: pete@petertodd.org
+License: LGPL3
+Keywords: cryptography timestamping bitcoin
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Security :: Cryptography
+Classifier: License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)
+Classifier: Programming Language :: Python :: 3 :: Only
+Description-Content-Type: text/markdown
+Requires-Dist: pycryptodomex (>=3.3.1)
+Requires-Dist: python-bitcoinlib (<0.13.0,>=0.9.0)
+
+# python-opentimestamps
+
+Python3 library for creating and verifying OpenTimestamps proofs.
+
+## Installation
+
+From the PyPi repository:
+
+    pip3 install opentimestamps
+
+## Structure
+
+Similar to the author's `python-bitcoinlib`, the codebase is split between the
+consensus-critical `opentimestamps.core.*` modules, and the
+non-consensus-critical `opentimestamps.*` modules. The distinction between the
+two is whether or not changes to that code are likely to lead to permanent
+incompatibilities between versions that could lead to timestamp validation
+returning inconsistent results between versions.
+
+## Unit tests
+
+    python3 -m unittest discover -v
+
+Additionally Travis is supported.
+
+## SSL Root Certificates
+
+On some MacOS setups SSL certificates may be missing. The following commands
+could be of use to resolve this error (the below example assumes a user is
+running Python "3.7", and is using Certifi package):
+
+```
+cd /Applications/Python\ 3.7
+Install\ Certificates.command
+```
+
+
+

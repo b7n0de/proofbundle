@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (2.0.0b2 line — BETA)
+
+### Added — in-toto eval-result attestation export (PROPOSED; under discussion in-toto/attestation#565)
+- **`proofbundle intoto <receipt>`** exports an eval receipt as a DSSE-signed in-toto Statement v1 with
+  the dedicated **`eval-result/v0.1`** predicate (vendor namespace `https://b7n0de.com/attestation/eval-result/v0.1`
+  for now — the migration path to an `in-toto.io` namespace is documented and needs a redirect PR only
+  there). The predicate extends the community `test-result` shape with a threshold-based `claims[]`,
+  privacy-preserving **salted-commitment** subjects, and an optional binding to the external signed
+  receipt. DSSE `payloadType` is the canonical `application/vnd.in-toto+json`; verification accepts
+  standard and url-safe base64.
+- **Subject profiles** (`--subject-profile`): `receipt` (default — binds without revealing the model),
+  `public-model` and `release-gate` (a disclosed artifact via `--subject-name`/`--subject-sha256`, the
+  SLSA "deploy only if the eval passed" hook). Each profile documents what the subject IS.
+- **Commitment-only guarantee**: the export refuses a claim that still carries a plaintext identifier or a
+  raw salt (fail-closed), is deterministic (byte-identical statement for identical input), and refuses an
+  incomplete receipt. New adversarial tests + a salt-leak mutation operator.
+- Status is **PROPOSED, not standardized** — see docs and the homepage label. No new runtime dependency;
+  the export stays in the pure-Python DSSE path.
+
+### Added — in-toto SVR export (Summary Verification Result, svr/v0.1)
+- **`proofbundle svr <receipt>`** emits an in-toto **SVR** (`https://in-toto.io/attestation/svr/v0.1`) for a
+  receipt — but ONLY after a real, passing verification. It carries only PASSING property strings
+  (`PROOFBUNDLE_SIGNATURE_VALID`, `PROOFBUNDLE_RECEIPT_UNCHANGED`, `PROOFBUNDLE_THRESHOLD_MET`, and, when
+  genuinely verified, `PROOFBUNDLE_SAMPLE_ROOT_VALID` / `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID`)
+  — type-generic, never a vendor/service name. A missing check produces NO property.
+- **No SVR on FAIL**: the export refuses (fail-closed) if the receipt is not a valid eval receipt, does not
+  cryptographically verify, or did not pass its threshold. SVR has no FAILED form — a PASSED|FAILED verdict
+  would be a VSA, deliberately not implemented here (documented). `verifier.policy` ({uri, digest}) is the
+  optional v0.1 extension field. WATCH: in-toto/attestation#551 (verifier.policies as required) is an open
+  SVR-v0.2 risk. New adversarial tests + an SVR-passing-only mutation operator.
+
 ## [1.9.2] - 2026-07-05
 
 Verify-path hardening from an independent six-lens review, plus a public-trust documentation pass.
@@ -37,6 +68,7 @@ No wire-format change; no new features.
   high-risk timeline updated for the Digital Omnibus (2027-12-02 / 2028-08-02). The 95% detection
   claim now states its externally-sourced-challenge condition. Internal review/outreach drafts
   archived out of the repo root.
+
 ## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
 ### Added — TEE-attestation bridge (EXPERIMENTAL v2.0 preview; opt-in, unstable)

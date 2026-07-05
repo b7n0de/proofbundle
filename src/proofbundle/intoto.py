@@ -16,11 +16,39 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from .errors import BundleFormatError
+
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://b7n0de.com/proofbundle/eval-receipt/v0.1"
 VERIFIER_ID = "https://b7n0de.com/proofbundle"
 MODEL_COMMIT_DIGEST_KEY = "proofbundleModelCommitV1"
 DATASET_COMMIT_DIGEST_KEY = "proofbundleDatasetCommitV1"
+
+# The dedicated eval-result predicate (the shape proposed upstream in in-toto/attestation#565). Distinct
+# from the self-hosted eval-receipt view above and from the community test-result mapping below: it
+# extends the test-result shape with a threshold-based `claims[]`, privacy-preserving salted-commitment
+# subjects, and an optional binding to the external signed receipt. predicateType is a VENDOR namespace
+# for now (common practice, cf. cosign.sigstore.dev/…, apko.dev/…); the migration path to an in-toto.io
+# namespace is documented in docs/IN_TOTO_PROFILE.md and needs a redirect PR only there. Status: PROPOSED
+# — under discussion at in-toto/attestation#565, NOT standardized.
+EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
+# DSSE payloadType for an in-toto Statement is the canonical Statement media type (in-toto spec v1
+# envelope.md), NOT a predicate-specific subtype. Pinned so sign and verify agree.
+INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
+
+# Subject profiles (what the Statement's `subject` IS). Documented per profile in docs/IN_TOTO_PROFILE.md.
+#   receipt      — the eval receipt itself (a binder digest; reveals nothing about the model). DEFAULT.
+#   public-model — a disclosed public model artifact (caller supplies its real sha256).
+#   release-gate — a release artifact gated on a passed eval ("deploy only if the eval passed"; SLSA hook).
+SUBJECT_PROFILES = ("receipt", "public-model", "release-gate")
+
+# An export is commitment-only. If a caller hands us an enriched claim that still carries a plaintext
+# identifier or a raw salt, we REFUSE to export rather than risk leaking it into a portable attestation.
+_FORBIDDEN_PLAINTEXT_KEYS = (
+    "model_id", "dataset_id", "model_name", "dataset_name", "model_salt", "dataset_salt", "salt", "salts")
+# The minimal claim fields the eval-result predicate needs; export refuses a claim missing any of them.
+_EXPORT_REQUIRED = ("suite", "metric", "comparator", "threshold", "passed", "n", "model_id_commit",
+                    "dataset_id_commit", "timestamp")
 
 # in-toto test-result predicate v0.1 (verified 2026-07 against in-toto/attestation spec/predicates/
 # test-result.md). result ∈ {PASSED, WARNED, FAILED} (uppercase); configuration is a required list of
@@ -177,6 +205,264 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes) -> dict:
     try:
         statement = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:   # valid base64 but not a JSON Statement → malformed
+        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    return {"ok": bool(ok), "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# eval-result predicate (in-toto/attestation#565 proposal) — subject profiles, salted commitments.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+def _is_sha256_hex(value: Any) -> bool:
+    """True iff `value` is a 64-char lowercase hex string (a DigestSet sha256, per in-toto DigestSet rules)."""
+    return (isinstance(value, str) and len(value) == 64
+            and all(c in "0123456789abcdef" for c in value))
+
+
+def _commitment(commit: Optional[str], alg: Optional[str]) -> Optional[dict]:
+    """A salted-commitment digest object `{alg, value, salted}` — never a plain artifact hash. `commit` is
+    the receipt's `sha256:<hex>` form; the `salted:true` flag makes the privacy semantics explicit so a
+    generic verifier never mistakes it for a content digest."""
+    if not commit:
+        return None
+    return {"alg": alg or "sha256-salted-v1", "value": _commit_hex(commit), "salted": True}
+
+
+def _forbid_plaintext_in_export(claim: dict) -> None:
+    """Fail closed if the claim carries a plaintext identifier or a raw salt. An export must stay
+    commitment-only — leaking a secret into a portable attestation is the one thing this path must never
+    do (Paket 2 test 1). This guard is what the salt-leak mutation operator targets."""
+    leaked = [k for k in _FORBIDDEN_PLAINTEXT_KEYS if k in claim]
+    if leaked:
+        raise BundleFormatError(
+            f"refusing to export: claim carries plaintext/secret field(s) {leaked}; the in-toto export is "
+            "commitment-only and must never carry a model/dataset name or a salt")
+
+
+def _require_export_fields(claim: dict) -> None:
+    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3)."""
+    if not isinstance(claim, dict):
+        raise BundleFormatError("eval-result export needs a claim object")
+    missing = [k for k in _EXPORT_REQUIRED if claim.get(k) in (None, "")]
+    if missing:
+        raise BundleFormatError(f"refusing to export: claim is missing required field(s) {missing}")
+
+
+def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
+                    subject_name: Optional[str] = None, subject_sha256: Optional[str] = None) -> list:
+    """Build the Statement `subject` for a subject profile. Every subject carries a real `digest` (in-toto
+    matches on the digest alone). See SUBJECT_PROFILES for what each subject IS.
+
+    * ``receipt`` (default): the subject is the receipt; the digest is the sha256 of a stable binder over
+      the model+dataset commitments, the merkle root, and the timestamp — a real hex digest that binds the
+      attestation to the receipt WITHOUT revealing the model.
+    * ``public-model`` / ``release-gate``: the subject is a disclosed artifact; the caller supplies its real
+      lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
+    """
+    if profile == "receipt":
+        if not claim.get("model_id_commit") or not claim.get("timestamp"):
+            raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
+        binder = json.dumps({
+            "model_id_commit": claim["model_id_commit"],
+            "dataset_id_commit": claim.get("dataset_id_commit"),
+            "root_b64": root_b64,
+            "timestamp": claim["timestamp"],
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return [{"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(binder).hexdigest()}}]
+    if profile in ("public-model", "release-gate"):
+        sha = (subject_sha256 or "").lower()
+        if not subject_name or not _is_sha256_hex(sha):
+            raise BundleFormatError(
+                f"subject profile '{profile}' requires --subject-name and a 64-char hex --subject-sha256")
+        return [{"name": subject_name, "digest": {"sha256": sha}}]
+    raise BundleFormatError(f"unknown subject profile '{profile}' (one of {', '.join(SUBJECT_PROFILES)})")
+
+
+def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
+                             harness: Optional[dict] = None, anchors: Optional[list] = None,
+                             subject_profile: str = "receipt") -> dict:
+    """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
+    commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
+    fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
+    _require_export_fields(claim)
+    _forbid_plaintext_in_export(claim)
+    predicate: dict[str, Any] = {
+        "verifier": {"id": VERIFIER_ID},
+        "evaluatedAt": claim["timestamp"],
+        "suite": {"name": claim["suite"], "version": claim.get("suite_version")},
+        "claims": [{
+            "metric": claim["metric"], "comparator": claim["comparator"],
+            "threshold": claim["threshold"], "passed": bool(claim["passed"]),
+        }],
+        "sampleSize": claim["n"],
+        "commitments": {
+            "model": _commitment(claim["model_id_commit"], claim.get("commit_alg")),
+            "dataset": _commitment(claim.get("dataset_id_commit"), claim.get("commit_alg")),
+        },
+        "assuranceLevel": claim.get("assurance_level", "self_attested"),
+        "subjectProfile": subject_profile,
+    }
+    if subject_profile == "receipt":
+        predicate["subjectDigestNote"] = (
+            "subject.digest is a binder over the receipt commitments+root, not an artifact hash")
+    prereg = claim.get("prereg_sha256")
+    if prereg:
+        predicate["preRegistration"] = {"alg": "sha256", "value": prereg}
+    if root_b64:
+        predicate["receipt"] = {"schema": "proofbundle/v0.1", "merkleRootB64": root_b64}
+    if harness:
+        predicate["harness"] = harness
+    if anchors:
+        predicate["anchors"] = anchors
+    return predicate
+
+
+def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[str] = None,
+                             harness: Optional[dict] = None, anchors: Optional[list] = None,
+                             subject_profile: str = "receipt") -> dict:
+    """A STANDARD in-toto Statement v1 carrying the eval-result predicate."""
+    return {
+        "_type": STATEMENT_TYPE,
+        "subject": subject,
+        "predicateType": EVAL_RESULT_PREDICATE_TYPE,
+        "predicate": to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
+                                              anchors=anchors, subject_profile=subject_profile),
+    }
+
+
+def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
+                            subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
+                            root_b64: Optional[str] = None, harness: Optional[dict] = None,
+                            anchors: Optional[list] = None, keyid: Optional[str] = None) -> dict:
+    """Export a receipt as a DSSE-signed in-toto Statement with the eval-result predicate. Deterministic:
+    identical inputs produce byte-identical statement bytes (sorted canonical dump)."""
+    from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
+
+    _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
+    _forbid_plaintext_in_export(claim)
+    subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
+                              subject_name=subject_name, subject_sha256=subject_sha256)
+    statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
+                                         anchors=anchors, subject_profile=subject_profile)
+    body = _canonical_body(statement)
+    return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
+    """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type}. `ok` is True
+    iff the Ed25519 signature over the DSSE PAE verifies AND payloadType is the pinned in-toto Statement
+    media type."""
+    from . import dsse  # noqa: PLC0415
+
+    ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    body = dsse.load_payload(envelope)
+    try:
+        statement = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    return {"ok": bool(ok), "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# SVR export — the in-toto Summary Verification Result (svr/v0.1). A verifier's summary; passing only.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+# predicateType is EXACT (in-toto/attestation SVR predicate, PR #470). Property strings are type-generic
+# with a PROOFBUNDLE_ prefix (never a vendor/service name), per the SVR property-string convention.
+SVR_PREDICATE_TYPE = "https://in-toto.io/attestation/svr/v0.1"
+
+# WATCH: in-toto/attestation#551 proposes making `verifier.policies` a REQUIRED field for SVR v0.2. It is
+# open and uncommented as of 2026-07-05. If it lands, this export must add a policies array — tracked in
+# the report. `policy` here is the OPTIONAL v0.1 extension field ({uri, digest}), not the #551 change.
+
+
+def _now_rfc3339z() -> str:
+    from datetime import datetime, timezone  # noqa: PLC0415
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
+                   anchor_verified: bool = False) -> list:
+    """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
+    passed. A missing optional check produces NO property (never a placeholder). PROOFBUNDLE_PREREG_BOUND
+    and PROOFBUNDLE_ANCHOR_VALID are asserted ONLY when the caller confirms that verification actually
+    ran offline (a present prereg hash or an anchors[] block alone is NOT a verified binding)."""
+    checks = {c.name: c.ok for c in result.checks}
+    props = []
+    if checks.get("ed25519-signature"):
+        props.append("PROOFBUNDLE_SIGNATURE_VALID")
+    if checks.get("merkle-inclusion"):
+        props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
+    if claim.get("passed"):
+        props.append("PROOFBUNDLE_THRESHOLD_MET")
+    if claim.get("samples"):
+        props.append("PROOFBUNDLE_SAMPLE_ROOT_VALID")
+    if prereg_verified and claim.get("prereg_sha256"):
+        props.append("PROOFBUNDLE_PREREG_BOUND")
+    if anchor_verified:
+        props.append("PROOFBUNDLE_ANCHOR_VALID")
+    return props
+
+
+def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
+                    policy: Optional[dict] = None, prereg_verified: bool = False,
+                    anchor_verified: bool = False, keyid: Optional[str] = None) -> dict:
+    """Emit an in-toto SVR (svr/v0.1) for a receipt — ONLY after a real, passing verification.
+
+    Refuses (fail-closed) if the receipt is not a valid eval receipt, does not cryptographically verify,
+    OR did not pass its threshold. SVR carries only PASSING property strings; there is no FAILED form
+    (that would be a VSA with a PASSED|FAILED verdict — deliberately NOT implemented here, see docs). The
+    subject is the receipt digest; no secrets ever enter the statement."""
+    from . import dsse  # noqa: PLC0415
+    from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+
+    try:
+        claim = decode_eval_claim(bundle)
+    except ProofBundleError as exc:   # a non-receipt / malformed bundle → clean fail-closed, not a raw error
+        raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
+    if claim is None:
+        raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
+    result = verify_bundle(bundle)
+    if not result.ok:
+        raise BundleFormatError(
+            "refusing to emit SVR: the receipt does not verify — an SVR carries only passing properties "
+            "and has no FAILED form (a VSA would be the PASSED|FAILED format)")
+    if not claim.get("passed"):
+        raise BundleFormatError(
+            "refusing to emit SVR: the eval did not pass its threshold — SVR summarizes a PASS, a failed "
+            "eval has no positive summary")
+    props = svr_properties(result, claim, prereg_verified=prereg_verified, anchor_verified=anchor_verified)
+    subject = resolve_subject("receipt", claim, root_b64=recompute_merkle_root_b64(bundle).get("stated_b64"))
+    verifier: dict[str, Any] = {"id": VERIFIER_ID}
+    if policy:
+        verifier["policy"] = policy
+    statement = {
+        "_type": STATEMENT_TYPE,
+        "subject": subject,
+        "predicateType": SVR_PREDICATE_TYPE,
+        "predicate": {
+            "verifier": verifier,
+            "timeCreated": time_created or _now_rfc3339z(),
+            "properties": props,
+        },
+    }
+    body = _canonical_body(statement)
+    return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
+    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type}."""
+    from . import dsse  # noqa: PLC0415
+
+    ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    body = dsse.load_payload(envelope)
+    try:
+        statement = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     return {"ok": bool(ok), "statement": statement,
             "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
