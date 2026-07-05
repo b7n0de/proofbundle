@@ -92,7 +92,8 @@ flowchart LR
   best-of-many publishing becomes visible.
 - **Integrations** — opt-in inspect_ai end-of-task hook and pytest plugin (emit only when
   `PROOFBUNDLE_EMIT=1` / `--proofbundle`), plus a Hugging Face Community Evals bridge. See
-  [INTEGRATIONS.md](INTEGRATIONS.md).
+  [INTEGRATIONS.md](INTEGRATIONS.md), or the end-to-end walkthrough
+  [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
 
 ## Docs
 
