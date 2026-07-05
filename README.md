@@ -7,9 +7,11 @@
 
 <h1>proofbundle</h1>
 
-**Turn an AI eval result into one portable, offline-verifiable receipt.**
-It proves *who signed these exact bytes* and *that nothing changed since* — not that the number is
-true. Ed25519 + RFC 6962 Merkle, one file, no server, no network.
+**AI eval results need receipts.**
+
+Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
+these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
+Merkle, one file, no server, no network.
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
@@ -60,6 +62,13 @@ This boundary is the point, not a weakness. A receipt makes a claim **attributab
 and — with pre-registration and per-sample auditing — bounded and spot-checkable**. Full detail:
 **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
+## In plain language
+
+A proofbundle receipt is the cash-register receipt of an AI test result: it shows who claimed the
+number and that nobody quietly changed it afterwards. It does not show the test was good — the way a
+cash-register receipt does not show the meal was good — but without a receipt there is nothing to
+check at all.
+
 ## How it fits together
 
 ```mermaid
@@ -84,13 +93,16 @@ flowchart LR
 - **Transparency-log interop** — C2SP `tlog-checkpoint` / cosignature / `.tlog-proof`, with
   post-quantum **ML-DSA-44** witness cosignatures. Optional Token-Status-List revocation snapshots.
 - **Per-sample audit** — commit to every sample; an auditor challenges random indices (with a fresh
-  nonce or a **public randomness beacon**, v1.9) and openings must bind to the signed root. Catches
-  1% sample-doctoring with 95% confidence at 300 samples, regardless of run size.
+  nonce or a **public randomness beacon**, v1.9) and openings must bind to the signed root. With
+  such an auditor-supplied or beacon-bound challenge, 300 samples catch 1% sample-doctoring with 95%
+  confidence, regardless of run size — a challenge the issuer chose itself does not give this
+  guarantee.
 - **Pre-registration** — `proofbundle prereg <plan>` commits to the protocol before the run, so
   best-of-many publishing becomes visible.
 - **Integrations** — opt-in inspect_ai end-of-task hook and pytest plugin (emit only when
   `PROOFBUNDLE_EMIT=1` / `--proofbundle`), plus a Hugging Face Community Evals bridge. See
-  [INTEGRATIONS.md](INTEGRATIONS.md).
+  [INTEGRATIONS.md](INTEGRATIONS.md), or the end-to-end walkthrough
+  [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
 
 ## Docs
 
@@ -121,7 +133,7 @@ Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 co
 
 ## Status & scope
 
-Beta, SemVer-committed, 303 tests + a CI mutation gate + property-based parser fuzzing. Correctness
+Beta, SemVer-committed, with a CI test suite behind a mutation gate + property-based parser fuzzing. Correctness
 is anchored to external RFC 6962 vectors and a real Rekor proof, not just its own bundles. It is
 **not** a log service, a full in-toto client, a TEE, a consensus network, or a compliance product
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:
