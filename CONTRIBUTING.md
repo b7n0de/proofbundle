@@ -29,6 +29,31 @@ python examples/make_example.py
 ruff check .
 ```
 
+## Branch base (fork from `main`, never from a release tag)
+
+Fork every feature/fix branch from the current `main` HEAD:
+
+```bash
+git switch -c <type>/<scope>/<slug> main      # e.g. fix/verify/kb-jwt
+```
+
+For a stable patch to an older line, fork from the corresponding `release/v1.9.x`
+branch instead, then merge that branch back into `main`.
+
+**Never branch from a release tag (`vX.Y.Z`).** A tag-based branch predates the
+`## [Unreleased]` section that every later release adds to `CHANGELOG.md`, so it
+re-conflicts on `CHANGELOG.md` on every single PR. `CHANGELOG.md` is structured
+newest-first: `## [Unreleased]` at the top, then released versions in descending
+order — a branch cut from an old tag always collides there.
+
+A non-blocking CI check (`scripts/branch_base_check.py`) warns if a PR branch was
+forked from a release tag; it is advisory only and never fails the build. To fix a
+branch that was cut from a tag:
+
+```bash
+git rebase --onto origin/main <tag-it-was-cut-from> <your-branch>
+```
+
 ## Good first issues
 
 - Add a `proofbundle consistency` CLI subcommand around `verify_consistency`.

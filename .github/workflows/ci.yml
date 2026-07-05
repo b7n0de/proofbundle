@@ -10,6 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  branch-base:
+    # ADVISORY only (FEHLER D, 2026-07-05): warns if a PR branch forks from a release tag instead of
+    # main — a tag-based branch re-conflicts on CHANGELOG.md every PR. Never blocks the build
+    # (branch_base_check.py always exits 0); continue-on-error is belt-and-suspenders.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Fetch tags and base branch
+        run: git fetch --tags --force origin "${{ github.event.pull_request.base.ref }}"
+      - name: Branch-base advisory
+        env:
+          BRANCH_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/branch_base_check.py
+
   test:
     runs-on: ubuntu-latest
     strategy:
