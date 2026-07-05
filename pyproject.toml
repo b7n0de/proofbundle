@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "1.9.2"
+version = "2.0.0b1"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,6 +46,11 @@ sdjwt = []
 eval = ["rfc8785>=0.1.4"]
 # The lm-eval adapter reads exported results.json (no import) → pure stdlib.
 adapters = []
+# EXPERIMENTAL (v2.0 preview): the TEE-attestation bridge (proofbundle.experimental.enclave).
+# Opt-in and clearly unstable — API/wire-format may change or be removed without deprecation.
+# No new runtime dependency (pure stdlib + the core `cryptography`); the extra exists to signal
+# intent and gate the preview, mirroring the `sdjwt` extra. `pip install "proofbundle[experimental]"`.
+experimental = []
 # ML-DSA-44 (FIPS 204) cosignature verification (C2SP tlog-cosignature type 0x06). Needs a
 # cryptography build with OpenSSL 3.5+ (default PyPI wheels since 48.0.0). Verify-only by default;
 # the emit helper needs the same. Ed25519 paths never require this.

@@ -1,4 +1,2 @@
-# Fill in your handles before publishing, then remove the comments.
-# github: [your-github-username]        # enables the GitHub Sponsors button
-# open_collective: proofbundle          # if you set up an Open Collective
-custom: ["https://b7n0de.com"]
+github: [b7n0de]
+custom: ["https://pypi.org/project/proofbundle/", "https://b7n0de.com"]

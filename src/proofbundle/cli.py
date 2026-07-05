@@ -283,6 +283,34 @@ def _cmd_prereg(args: argparse.Namespace) -> int:
         return 2
 
 
+def _cmd_verify_enclave(args: argparse.Namespace) -> int:
+    import base64 as _b64  # noqa: PLC0415
+    from .bundle import load_bundle  # noqa: PLC0415
+    from .experimental.enclave import (enclave_binding_for,  # noqa: PLC0415
+                                       verify_enclave_attestation)
+    try:
+        bundle = load_bundle(args.receipt)
+        with open(args.eat, encoding="utf-8") as handle:
+            eat = handle.read().strip()
+        verifier_pub = _b64.b64decode(args.verifier_key, validate=True)
+        res = verify_enclave_attestation(
+            eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),
+            expected_profile=args.profile)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
+                                              "fresh", "detail")}))
+    else:
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] enclave-attestation: {res['detail']}")
+        if res["ok"]:
+            print(f"    tier    {res['tier']}")
+            print(f"    profile {res['profile']}")
+        print("=> OK" if res["ok"] else "=> FAILED")
+    return 0 if res["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -368,6 +396,17 @@ def build_parser() -> argparse.ArgumentParser:
     verify_opening.add_argument("--n", required=True, type=int, help="committed sample count")
     verify_opening.add_argument("--json", action="store_true", help="machine readable output")
     verify_opening.set_defaults(func=_cmd_verify_opening)
+
+    verify_enclave = sub.add_parser(
+        "verify-enclave",
+        help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt")
+    verify_enclave.add_argument("eat", help="path to the EAT (compact JWS) file")
+    verify_enclave.add_argument("--receipt", required=True, help="the receipt bundle JSON the EAT must bind")
+    verify_enclave.add_argument("--verifier-key", required=True,
+                                help="the RATS Verifier's Ed25519 public key (base64)")
+    verify_enclave.add_argument("--profile", help="pin an expected eat_profile URI (optional)")
+    verify_enclave.add_argument("--json", action="store_true", help="machine readable output")
+    verify_enclave.set_defaults(func=_cmd_verify_enclave)
 
     demo = sub.add_parser(
         "demo",

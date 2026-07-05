@@ -37,7 +37,44 @@ No wire-format change; no new features.
   high-risk timeline updated for the Digital Omnibus (2027-12-02 / 2028-08-02). The 95% detection
   claim now states its externally-sourced-challenge condition. Internal review/outreach drafts
   archived out of the repo root.
+## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
+### Added — TEE-attestation bridge (EXPERIMENTAL v2.0 preview; opt-in, unstable)
+- **`proofbundle.experimental.enclave`** (install extra `[experimental]`): make
+  `assurance_level = enclave_attested` verifiable. Following the IETF RATS Passport model
+  (RFC 9334), a Verifier appraises raw TEE evidence (Intel TDX / NVIDIA GPU) out of band and signs
+  an **EAT** (RFC 9711, JSON/JWS, EdDSA); `verify_enclave_attestation` checks it OFFLINE — signature
+  under the Verifier key (a supplied trust anchor), `typ`/`alg`, and `eat_nonce ==
+  enclave_binding_for(receipt)` (the binding = base64url SHA-256 over the receipt's exact signed
+  payload, which the enclave places in its quote user-data / TDX `REPORTDATA` / GPU report nonce).
+  The trustworthiness `tier` is REPORTED verbatim (stand-in for the still-draft AR4SI/EAR), never
+  interpreted. **Honest scope:** proofbundle does not parse or appraise raw hardware evidence — that
+  is the Verifier's role; it verifies the Verifier's signed result + the receipt binding. Standards-
+  native (RFC 9334 + 9711), offline, vendor-neutral — vs proprietary certificate + ledger approaches.
+  CLI `proofbundle verify-enclave`; `docs/EXPERIMENTAL_ENCLAVE.md`; `examples/experimental_enclave.py`.
+
+### Experimental gating (so nothing depends on a preview by accident)
+- Everything lives under `proofbundle.experimental`, is NOT re-exported from the top-level package
+  (must be imported explicitly), and emits an `ExperimentalWarning` once on import. The stable v1.x
+  trusted core imports none of it.
+
+### Beta-release discipline
+- Version `2.0.0b1` (PEP 440 pre-release — `pip install proofbundle` will NOT pull it; use `--pre`
+  or an exact pin). The stable **v1.x line remains the default**; the experimental bridge is doubly
+  gated (pre-release channel + `[experimental]` extra). No wire-format or behavior change to any v1
+  path. Promote toward `2.0.0` only after the preview stabilizes and, ideally, an external audit.
+
+### Verification discipline
+- 320 tests (303 on the v1.9.1 base; +16 enclave and +1 EAT-verifier fuzz case: binding, verify roundtrip, freshness,
+  and an adversarial red matrix — wrong verifier key, cross-receipt binding, typ/alg confusion,
+  profile mismatch, claim tamper, garbage, string-exp — plus the experimental-gating pins). Mutation
+  gate: 31 operators (+1 receipt-binding), all killed. Parser fuzz extended to the EAT verifier.
+
+### Notes
+- Built on the byte-exact upstream **v1.9.1** tag (which carried extra release-review hardening:
+  symmetric `self_issued` type-guard, beacon flag mutual-exclusion + u64 round bound).
+- Preview roadmap: migrate `tier` to AR4SI/EAR when they become RFCs; optional CWT/COSE encoding;
+  reference Verifier profiles for TDX + GPU (kept out of the core — they pull vendor tooling).
 ## [1.9.1] - 2026-07-02
 
 ### Added — closing the last small review-backlog items

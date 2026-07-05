@@ -92,8 +92,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     covers signature + structure + lookup; combining ``ok`` with ``fresh``/``self_issued`` is the
     caller's policy.
     """
-    result: dict[str, object] = {"ok": False, "status": None, "status_label": None, "fresh": None,
-              "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
+    # explizite Annotation: der Result-Dict traegt bool (ok/self_issued), str (status_label/detail), int
+    # (status/iat/exp/ttl) und None gemischt — ohne Annotation inferiert mypy nur 'str|bool|None' aus den
+    # Init-Werten und lehnt die spaeteren int-Zuweisungen ab (CI-mypy-Fehler, kein Runtime-Bug).
+    result: dict[str, str | bool | int | None] = {
+        "ok": False, "status": None, "status_label": None, "fresh": None,
+        "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
     if receipt_issuer_pubkey is not None:
         # hmac.compare_digest for a constant-time compare of the two public keys (defensive; the
         # values are public, but consistent with the codebase's compare discipline).
