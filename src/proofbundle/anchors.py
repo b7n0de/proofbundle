@@ -58,7 +58,26 @@ def register_anchor_type(type_name: str, verifier: Callable) -> None:
 
 
 def registered_anchor_types() -> tuple:
+    _ensure_builtin_types()
     return tuple(sorted(_VERIFIERS))
+
+
+def _ensure_builtin_types() -> None:
+    """Lazily register the built-in anchor verifiers (rfc3161-tsa, opentimestamps). Each needs the
+    ``[anchors]`` extra; if a library is absent the type stays UNREGISTERED — which the verify path
+    treats as an unknown type → FAIL (fail-closed), exactly the behaviour we want without the extra."""
+    if "rfc3161-tsa" not in _VERIFIERS:
+        try:
+            from . import anchors_rfc3161  # noqa: PLC0415
+            _VERIFIERS["rfc3161-tsa"] = anchors_rfc3161.verify_rfc3161
+        except Exception:   # extra missing / import failure → leave unregistered (fail-closed)
+            pass
+    if "opentimestamps" not in _VERIFIERS:
+        try:
+            from . import anchors_ots  # noqa: PLC0415
+            _VERIFIERS["opentimestamps"] = anchors_ots.verify_opentimestamps
+        except Exception:
+            pass
 
 
 def _b64d(value, field: str) -> bytes:
@@ -95,6 +114,7 @@ def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
 def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None) -> dict:
     """Verify ONE anchor entry, fail-closed. ``target_roots`` maps a target name to its canonical root
     bytes (only the targets that exist for this receipt). Returns ``{ok, type, target, detail}``."""
+    _ensure_builtin_types()
     if not isinstance(anchor, dict):
         raise BundleFormatError("each anchor must be a JSON object")
     unknown = set(anchor) - _ANCHOR_KEYS

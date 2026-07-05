@@ -69,7 +69,7 @@ def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
     with urllib.request.urlopen(http, timeout=timeout) as resp:
         token = resp.read()
     # sanity: the response must be granted and verify against the supplied chain before we freeze it
-    frozen = {
+    frozen: dict = {
         "rootCertsDerB64": [base64.b64encode(c).decode("ascii") for c in root_certs_der],
     }
     if tsa_cert_der:
