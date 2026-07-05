@@ -62,23 +62,30 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                               "run `ots upgrade`; not a full anchor yet"}
         return {"ok": False, "warn": False, "status": "empty",
                 "detail": "OTS proof has no Bitcoin or pending attestation"}
-    # upgraded: need the block header (Merkle root) for the attested height to verify offline
+    # upgraded: to verify offline we need the block's Merkle root for the attested height, supplied by a
+    # trusted (local pruned) Bitcoin node — proofbundle never fetches it. BitcoinBlockHeaderAttestation's
+    # own check is exactly `attestation_message == block_header.hashMerkleRoot`; we do that comparison
+    # directly against the supplied root (equivalent, and avoids reconstructing a full CBlockHeader).
     headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
-    for height in heights:
+    for msg, att in dtf.timestamp.all_attestations():
+        height = getattr(att, "height", None)
+        if height is None:
+            continue
         merkle_root_hex = headers.get(str(height))
         if not merkle_root_hex:
             continue
         try:
-            for _msg, att in dtf.timestamp.all_attestations():
-                if getattr(att, "height", None) == height:
-                    # att.verify_against_blockheader raises on mismatch; the caller supplies the header's
-                    # Merkle root (from a trusted Bitcoin node) — proofbundle does not fetch it.
-                    att.verify_against_blockheader(bytes.fromhex(merkle_root_hex), None)
-                    return {"ok": True, "warn": False, "status": "confirmed",
-                            "detail": f"OTS proof confirmed against Bitcoin block {height}"}
-        except Exception as exc:
-            return {"ok": False, "warn": False, "status": "block_mismatch",
-                    "detail": f"OTS Bitcoin attestation did not match the supplied block header: {exc}"}
+            expected = bytes.fromhex(merkle_root_hex)
+        except ValueError:
+            return {"ok": False, "warn": False, "status": "bad_header",
+                    "detail": f"supplied Bitcoin block merkle root for height {height} is not valid hex"}
+        if msg == expected:
+            return {"ok": True, "warn": False, "status": "confirmed",
+                    "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
+                              "(merkle root supplied by a trusted node)"}
+        return {"ok": False, "warn": False, "status": "block_mismatch",
+                "detail": f"OTS Bitcoin attestation at height {height} does not match the supplied "
+                          "block merkle root"}
     return {"ok": False, "warn": False, "status": "upgraded_unverified",
             "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but no block header was supplied "
                       "— offline verification needs a local (pruned) Bitcoin node; not claiming a pass"}

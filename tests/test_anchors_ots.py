@@ -57,6 +57,23 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
         self.assertEqual(res["status"], "upgraded_unverified")
         self.assertIn("Bitcoin node", res["detail"])
 
+    def test_confirmed_when_supplied_block_merkle_root_matches(self):
+        # An upgraded proof + the block's Merkle root (from a trusted node) whose value matches the
+        # attestation message → confirmed. Here the attestation sits directly on the root, so the
+        # supplied merkle root IS the root.
+        from proofbundle.anchors_ots import verify_opentimestamps
+        frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": _ROOT.hex()}}
+        res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
+        self.assertTrue(res["ok"], res["detail"])
+        self.assertEqual(res["status"], "confirmed")
+
+    def test_block_mismatch_when_supplied_root_is_wrong(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": ("00" * 32)}}
+        res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "block_mismatch")
+
     def test_pending_and_upgraded_are_distinguished(self):
         # Paket 1 test 7: the two states must be told apart, never collapsed.
         from proofbundle.anchors_ots import verify_opentimestamps
