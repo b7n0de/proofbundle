@@ -311,6 +311,95 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _cmd_intoto(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+
+    from .bundle import load_bundle  # noqa: PLC0415
+    from .intoto import (  # noqa: PLC0415
+        EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
+    )
+    if args.verify:
+        try:
+            with open(args.receipt, encoding="utf-8") as handle:
+                envelope = json.load(handle)
+            pub = base64.b64decode(args.pub)
+            res = verify_eval_result_dsse(envelope, pub)
+        except (OSError, ValueError, ProofBundleError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        pt = res.get("predicate_type")
+        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {pt!r})"
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] eval-result attestation{note}")
+        print("=> OK" if res["ok"] else "=> FAILED")
+        return 0 if res["ok"] else 1
+
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        bundle = load_bundle(args.receipt)
+        claim = decode_eval_claim(bundle)
+        if claim is None:
+            print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+            return 1
+        roots = recompute_merkle_root_b64(bundle)
+        envelope = export_eval_result_dsse(
+            claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+            subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
+    except (OSError, ValueError, ProofBundleError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(envelope, handle, indent=2)
+        handle.write("\n")
+    print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+    return 0
+
+
+def _cmd_svr(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+
+    from .intoto import SVR_PREDICATE_TYPE, export_svr_dsse, verify_svr_dsse  # noqa: PLC0415
+    if args.verify:
+        try:
+            with open(args.receipt, encoding="utf-8") as handle:
+                envelope = json.load(handle)
+            res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
+        except (OSError, ValueError, ProofBundleError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        pt = res.get("predicate_type")
+        note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res["ok"]:
+            for p in res["statement"].get("predicate", {}).get("properties", []):
+                print(f"    {p}")
+        print("=> OK" if res["ok"] else "=> FAILED")
+        return 0 if res["ok"] else 1
+
+    from .bundle import load_bundle  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    policy = None
+    if args.policy_uri:
+        policy = {"uri": args.policy_uri}
+        if args.policy_sha256:
+            policy["digest"] = {"sha256": args.policy_sha256}
+    try:
+        bundle = load_bundle(args.receipt)
+        envelope = export_svr_dsse(bundle, signer, policy=policy)
+    except (OSError, ValueError, ProofBundleError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(envelope, handle, indent=2)
+        handle.write("\n")
+    print(f"wrote in-toto SVR attestation {args.out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -414,6 +503,39 @@ def build_parser() -> argparse.ArgumentParser:
              "six tampers fail, a swapped sample is caught")
     demo.add_argument("--json", action="store_true", help="machine readable output")
     demo.set_defaults(func=_cmd_demo)
+
+    intoto = sub.add_parser(
+        "intoto",
+        help="[PROPOSED] export an eval receipt as a DSSE-signed in-toto eval-result attestation "
+             "(in-toto/attestation#565), or verify one with --verify")
+    intoto.add_argument("receipt", help="the eval receipt bundle JSON (export) or the attestation JSON (--verify)")
+    intoto.add_argument("--out", help="path to write the DSSE attestation JSON (export)")
+    intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
+    intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
+    intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
+                        default="receipt",
+                        help="what the Statement subject IS (default: receipt — binds without revealing the model)")
+    intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
+    intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
+                                                 "(required for public-model / release-gate)")
+    intoto.add_argument("--verify", action="store_true",
+                        help="verify an exported attestation instead of emitting one (needs --pub)")
+    intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
+    intoto.set_defaults(func=_cmd_intoto)
+
+    svr = sub.add_parser(
+        "svr",
+        help="[PROPOSED] emit an in-toto Summary Verification Result (svr/v0.1) for a PASSING receipt, "
+             "or verify one with --verify")
+    svr.add_argument("receipt", help="the eval receipt bundle JSON (emit) or the SVR JSON (--verify)")
+    svr.add_argument("--out", help="path to write the SVR attestation JSON (emit)")
+    svr.add_argument("--key", help="the verifier's 32 byte raw Ed25519 seed file to sign the SVR")
+    svr.add_argument("--new-key", help="generate a signing key and save it to this file")
+    svr.add_argument("--policy-uri", help="optional verifier.policy URI (SVR v0.1 extension field)")
+    svr.add_argument("--policy-sha256", help="optional verifier.policy digest (sha256 hex)")
+    svr.add_argument("--verify", action="store_true", help="verify an SVR instead of emitting one (needs --pub)")
+    svr.add_argument("--pub", help="verifier Ed25519 public key (base64) to verify against")
+    svr.set_defaults(func=_cmd_svr)
 
     prereg = sub.add_parser(
         "prereg",
