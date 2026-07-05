@@ -52,6 +52,29 @@ class TestEvalClaim(unittest.TestCase):
             self.assertTrue(verify_bundle(bundle).ok, f"{key}={bad}: bundle still signs/verifies")
             self.assertIsNone(decode_eval_claim(bundle), f"{key}={bad}: claim must NOT decode")
 
+    def test_decode_enforces_required_and_unknown_fields(self):
+        # F3 (v1.9.2): the exact key set is a VERIFY-path invariant, not only an emit-side one.
+        # emit_eval_receipt enforces _REQUIRED/_OPTIONAL, but a hand-signed claim (emit_bundle over a
+        # canonicalized dict) bypasses that path — previously such a claim decoded fine (the emit-vs-
+        # verify asymmetry class the project documents). The signature stays valid; only decode rejects.
+        from proofbundle.emit import emit_bundle
+        signer = generate_signer()
+        claim, _ = _claim(signer)
+        good = decode_eval_claim(emit_eval_receipt(claim, signer))
+        self.assertIsNotNone(good)
+        # (a) a claim missing a required field must NOT decode (issuer is checked separately, exclude it)
+        for drop in ("timestamp", "suite", "assurance_level", "n", "comparator"):
+            c = {k: v for k, v in good.items() if k != drop}
+            bundle = emit_bundle(canonicalize(c), signer)
+            self.assertTrue(verify_bundle(bundle).ok, f"drop {drop}: signature must still verify")
+            self.assertIsNone(decode_eval_claim(bundle), f"missing {drop}: claim must NOT decode")
+        # (b) a claim carrying an unknown field must NOT decode
+        c = dict(good)
+        c["totally_unknown_field"] = "x"
+        bundle = emit_bundle(canonicalize(c), signer)
+        self.assertTrue(verify_bundle(bundle).ok, "unknown field: signature must still verify")
+        self.assertIsNone(decode_eval_claim(bundle), "unknown field: claim must NOT decode")
+
     def test_decode_reads_path_once_no_toctou(self):
         # CRITICAL (release review): decode_eval_claim(path) must resolve the path to a dict EXACTLY ONCE and
         # verify + parse the SAME object. A second re-read is a TOCTOU (CWE-367) file-race window that could return
