@@ -35,6 +35,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   optional v0.1 extension field. WATCH: in-toto/attestation#551 (verifier.policies as required) is an open
   SVR-v0.2 risk. New adversarial tests + an SVR-passing-only mutation operator.
 
+### Added — verify check matrix + honest meaning block
+- **`proofbundle verify --matrix`** prints the per-check status matrix plus an explicit "what `=> OK`
+  proves / does NOT prove" block (authenticity + integrity of the bytes, never the truth of the result —
+  see `NON_CLAIMS.md`). The same `meaning` / `nonMeaning` fields and a `matrix` array are ALWAYS present
+  in `verify --json`. Additive and non-breaking: the existing `ok` / `checks` keys are unchanged and the
+  default human output is identical unless `--matrix` is passed.
+
 ## [2.0.0b1] - 2026-07-02  (BETA / pre-release)
 
 ### Added — TEE-attestation bridge (EXPERIMENTAL v2.0 preview; opt-in, unstable)
