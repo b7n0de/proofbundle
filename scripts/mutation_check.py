@@ -163,6 +163,13 @@ MUTATIONS = [
     ("src/proofbundle/anchors.py",
      "if canonical_root != expected_root:", "if False:",
      "anchors: canonicalRoot/target binding disabled (cross-target)", True),
+    # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
+    ("src/proofbundle/anchors_chia.py",
+     "if root != published_root:", "if False:",
+     "chia-datalayer: Merkle inclusion (root) check disabled", True),
+    ("src/proofbundle/anchors_chia.py",
+     "if value_digest != canonical_root:", "if False:",
+     "chia-datalayer: value_digest/canonicalRoot binding disabled", True),
 ]
 
 

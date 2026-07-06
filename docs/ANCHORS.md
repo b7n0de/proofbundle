@@ -88,3 +88,43 @@ register_anchor_type("my-org/timebeacon/v1", verify_my_anchor)
 The contract: a namespaced `type` (`<org>/<name>/vN`), a fail-closed verify callable, and the
 canonicalRoot ↔ target binding enforced by the layer for you. Third-party types are welcome as
 extensions with credit — see in-toto/attestation#565 and the reference-implementation tracking issue.
+
+## First-party extension — `chia-datalayer/v1` (EXPERIMENTAL, the `[chia]` extra)
+
+The first anchor type we ship as a first-party extension, to dogfood the interface above. It is
+**experimental, optional, never a default**, and never part of the in-toto proposal narrative. It anchors a
+canonical root as a key in a public Chia DataLayer store whose root is published on-chain.
+
+**Three-level honesty — read this before trusting a `chia-datalayer` anchor.** The three levels prove
+strictly different things; the word "offline verifiable" applies to **level i only**:
+
+- **Level i — `merkle` (offline, no Chia software).** Pure SHA-256 recomputes the leaf
+  `sha256(0x02 ‖ key_clvm_hash ‖ value_clvm_hash)`, ascends `inclusion_layers` to the `published_root`
+  (each layer's `combined_hash` must be self-consistent), and checks `value_digest == canonicalRoot`. This
+  proves **only** "this key/value is included under `published_root`, and it stamps exactly the target
+  root". It does **NOT** prove the chain binding. This is the level `proofbundle verify` runs; `=> OK` here
+  means Merkle-consistent, nothing more. Registered verifier: `anchors_chia.verify_chia_datalayer`.
+- **Level ii — `chain-binding (light)` (needs a Chia light wallet).** Confirms `coin_id` exists with the
+  expected singleton puzzle hash and that `published_root` is the current (unspent) root, plus its block
+  height and timestamp. Requires Chia software → **SKIP** with a clear reason when unavailable, never FAIL,
+  never a silent PASS.
+- **Level iii — `chain-binding (own full node)`.** Full guarantee against your own node.
+
+**Forbidden claims** (enforced by claims-hygiene): "trustless" or "on-chain proven" for level i/ii without
+the node-trust caveat; any "greener chain" comparison; any XCH price/cost claim in shipped docs. Root-update
+cost is an observation (~0–0.001 XCH), never a price claim.
+
+**Writing** an anchor (`anchors_chia_add.anchor_add` / `export_anchor`) needs the `[chia]` extra + a
+reachable, cert-authed **local** DataLayer node (never expose the RPC); a network/node failure raises
+cleanly and writes nothing partial. **Verifying** offline needs neither — the honesty of the extension must
+never depend on the extra. The anchor is versioned (`chia-datalayer/v1`); a wire change becomes `v2`.
+
+**Hard limit (documented, not hidden).** There is no per-tooling-exportable weight proof and no per-coin
+Merkle-against-header via RPC, so a fully trustless "this root-coin was in the heaviest chain at height H"
+proof from a file alone is **not producible with standard tooling** — the practical trust anchor is a full
+node (your own = trustless). Closing that gap with a standalone weight-proof verifier is **Paket 4**, a
+separate, grant-eligible work package ("to our knowledge no such tool exists"), tracked as a roadmap issue,
+deliberately not built in this pass.
+
+**Chia 3.0 hard fork (~Nov 2026, 256-day plot phase-out)** affects farming; by our reading it does not
+invalidate historical blocks (marked INFERENCE), to be empirically confirmed before any mainnet showcase.

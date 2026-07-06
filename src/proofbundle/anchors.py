@@ -78,6 +78,15 @@ def _ensure_builtin_types() -> None:
             _VERIFIERS["opentimestamps"] = anchors_ots.verify_opentimestamps
         except Exception:
             pass
+    # chia-datalayer/v1: the first FIRST-PARTY extension anchor. Its offline Merkle verifier (level i) is
+    # PURE SHA-256 — no Chia software, no extra — so it always registers (writing an anchor via anchor-add
+    # needs the [chia] extra + a node, but VERIFYING one offline does not).
+    if "chia-datalayer/v1" not in _VERIFIERS:
+        try:
+            from . import anchors_chia  # noqa: PLC0415
+            _VERIFIERS[anchors_chia.ANCHOR_TYPE] = anchors_chia.verify_chia_datalayer
+        except Exception:   # pragma: no cover - pure module, import should not fail
+            pass
 
 
 def _b64d(value, field: str) -> bytes:
