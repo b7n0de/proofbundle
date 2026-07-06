@@ -75,6 +75,8 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
                       ("merkle_root", merkle_root), ("ots", ots_b64)):
         if not isinstance(val, str) or not val:
             return _fail("bad_fields", f"markovian envelope field {name!r} missing or not a string")
+    # the loop above guarantees these are non-empty str; narrow explicitly so the type checker follows
+    assert isinstance(data_hash, str) and isinstance(ots_b64, str)
 
     # 3. binding: the stamp must commit to EXACTLY the target canonical root
     try:
