@@ -52,6 +52,11 @@ eval = ["rfc8785>=0.1.4"]
 anchors = ["rfc3161-client>=1.0.6", "opentimestamps>=0.4.5", "rfc8785>=0.1.4"]
 # The lm-eval adapter reads exported results.json (no import) → pure stdlib.
 adapters = []
+# chia-datalayer/v1 anchor WRITER (anchors_chia_add). Needs no extra Python package — it drives the
+# stable `chia rpc data_layer|full_node` CLI of a locally installed, cert-authed Chia node (the DataLayer
+# node is the real dependency, not a wheel). Declared so `pip install proofbundle[chia]` is a documented,
+# discoverable install target. VERIFYING an anchor offline (anchors_chia) needs neither this nor a node.
+chia = []
 # EXPERIMENTAL (v2.0 preview): the TEE-attestation bridge (proofbundle.experimental.enclave).
 # Opt-in and clearly unstable — API/wire-format may change or be removed without deprecation.
 # No new runtime dependency (pure stdlib + the core `cryptography`); the extra exists to signal
