@@ -185,5 +185,12 @@ def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Option
         res = verify_offline_merkle(proof_obj, bytes(canonical_root))
     except Exception as exc:   # noqa: BLE001 - deliberate fail-closed backstop for ANY hostile input
         return {"ok": False, "warn": False, "status": "fail", "detail": f"chia-datalayer proof rejected (fail-closed): {type(exc).__name__}"}
-    ok = bool(res.get("ok"))
-    return {"ok": ok, "warn": False, "status": "pass" if ok else "fail", "detail": res.get("detail", "")}
+    if not bool(res.get("ok")):
+        return {"ok": False, "warn": False, "status": "fail", "detail": res.get("detail", "")}
+    # LEVEL i is proven (offline Merkle inclusion) → ok=True. But level i is NOT external time / chain-binding
+    # evidence: a self-fabricated tree with a never-on-chain published_root passes here (the documented
+    # boundary). So this is marked warn=True (status 'warn'), exactly like an un-upgraded OpenTimestamps
+    # PENDING proof — it must NOT satisfy --require-anchor and it aggregates as WARN, never a clean PASS that
+    # would read as a full external-time anchor. A relying party who needs the chain binding runs level
+    # ii/iii with Chia software (see docs/ANCHORS.md); the require-matcher gates on ok AND NOT warn.
+    return {"ok": True, "warn": True, "status": "warn", "detail": res.get("detail", "")}

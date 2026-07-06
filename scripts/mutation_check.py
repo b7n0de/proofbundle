@@ -170,6 +170,9 @@ MUTATIONS = [
     ("src/proofbundle/anchors_chia.py",
      "if key_bytes != canonical_root:", "if False:",
      "chia-datalayer: key/canonicalRoot binding disabled", True),
+    ("src/proofbundle/anchors_chia.py",
+     "if clvm_atom_hash(key_bytes) != key_clvm:", "if False:",
+     "chia-datalayer: key_clvm_hash binding disabled (relabel forgery)", True),
 ]
 
 

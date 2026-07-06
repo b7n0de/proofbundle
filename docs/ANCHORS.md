@@ -106,7 +106,11 @@ strictly different things; the word "offline verifiable" applies to **level i on
   `published_root` is on-chain (a self-fabricated tree passes level i — that is what levels ii/iii are for).
   Because the key carries the binding, an unrelated (even genuine) proof for a different key cannot be
   relabelled to this target. This is the level `proofbundle verify` runs; `=> OK` here means Merkle-consistent,
-  nothing more. Registered verifier: `anchors_chia.verify_chia_datalayer`.
+  nothing more. Registered verifier: `anchors_chia.verify_chia_datalayer`. Because level i is not external
+  time evidence, the verifier reports it as **`warn`** (`ok=True, warn=True`), the same way an un-upgraded
+  OpenTimestamps proof reports PENDING: it aggregates as WARN, never a clean PASS, and it does **not**
+  satisfy `--require-anchor` (which demands a full anchor, gated on `ok and not warn`). A relying party who
+  needs the chain binding runs level ii/iii.
 - **Level ii — `chain-binding (light)` (needs a Chia light wallet).** Confirms `coin_id` exists with the
   expected singleton puzzle hash and that `published_root` is the current (unspent) root, plus its block
   height and timestamp. Requires Chia software → **SKIP** with a clear reason when unavailable, never FAIL,
@@ -121,6 +125,11 @@ cost is an observation (~0–0.001 XCH), never a price claim.
 reachable, cert-authed **local** DataLayer node (never expose the RPC); a network/node failure raises
 cleanly and writes nothing partial. **Verifying** offline needs neither — the honesty of the extension must
 never depend on the extra. The anchor is versioned (`chia-datalayer/v1`); a wire change becomes `v2`.
+
+**Worked examples** (pinned by a verdict regression test in `tests/test_anchors_chia.py`, so a wire change
+that flips them turns CI red): `examples/anchors/chia-datalayer-valid.json` (a real DataLayer proof that
+verifies at level i) and `examples/anchors/chia-datalayer-invalid-root.json` (the same proof with a tampered
+`published_root`, which MUST reject).
 
 **Hard limit (documented, not hidden).** There is no per-tooling-exportable weight proof and no per-coin
 Merkle-against-header via RPC, so a fully trustless "this root-coin was in the heaviest chain at height H"

@@ -176,9 +176,9 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     if not isinstance(anchors, list):
         raise BundleFormatError("anchors must be a list")
     results = [verify_anchor(a, target_roots=target_roots, now=now) for a in anchors]
-    if require:   # a warn/pending anchor never SATISFIES a requirement — only a real verified one
+    if require:   # a warn/pending/inclusion-only anchor never SATISFIES a requirement — only a full one
         want = None if require == "any" else require
-        matched = [r for r in results if r["ok"] and (want is None or r["type"] == want)]
+        matched = [r for r in results if r["ok"] and not r["warn"] and (want is None or r["type"] == want)]
         if not matched:
             return {"status": "FAIL",
                     "detail": f"--require-anchor {require}: no verifying anchor of that type",
