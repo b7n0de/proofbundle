@@ -105,6 +105,14 @@ flowchart LR
   `PROOFBUNDLE_EMIT=1` / `--proofbundle`), plus a Hugging Face Community Evals bridge. See
   [INTEGRATIONS.md](INTEGRATIONS.md), or the end-to-end walkthrough
   [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
+- **External time anchors** *(v2.0 beta, the `[anchors]` extra)* — an optional `anchors[]` layer that
+  attaches external evidence of *when* a commitment or receipt existed, from a party the producer does not
+  control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a frozen cert chain) and
+  **OpenTimestamps** Bitcoin proofs (honest pending → confirmed lifecycle). A `register_anchor_type`
+  extension interface lets a third party ship its own fail-closed type; two worked examples ship — a
+  first-party **`chia-datalayer/v1`** (offline Merkle inclusion of a canonical root under a published Chia
+  DataLayer root) and a third-party **`markovian-provenance/v1`** (a wallet-attributable, Bitcoin-anchored
+  stamp). See [docs/ANCHORS.md](docs/ANCHORS.md).
 
 ## Docs
 
@@ -119,6 +127,7 @@ flowchart LR
 | Honest comparison to Rekor / in-toto / OMS / ValiChord | [INTEROP.md](INTEROP.md) |
 | Regulatory mapping (and what to never claim) | [COMPLIANCE.md](COMPLIANCE.md) |
 | Funders / role fit | [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) |
+| External time anchors + the bring-your-own-type extension interface (v2.0 beta) | [docs/ANCHORS.md](docs/ANCHORS.md) |
 | **Preview:** TEE-attestation bridge (v2.0 beta) | [docs/EXPERIMENTAL_ENCLAVE.md](docs/EXPERIMENTAL_ENCLAVE.md) |
 
 ## Install
