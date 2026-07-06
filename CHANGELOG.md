@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0b3] - 2026-07-06  (BETA / pre-release)
+
+### Added — external time / provenance anchors (the `anchors[]` layer, EXPERIMENTAL)
+- **`chia-datalayer/v1`** (first-party): a fail-closed offline verifier for a canonical root proven included
+  under a published Chia DataLayer store root via a level-i Merkle inclusion path. Ships as a built-in anchor
+  type; a level-i-only proof reports `warn` (does not satisfy `--require-anchor`). See `docs/ANCHORS.md`.
+- **`markovian-provenance/v1`** (third-party worked example, external contributor MarkovianProtocol, #18):
+  a wallet-attributable, Bitcoin-anchored stamp registered through `register_anchor_type`. It binds the
+  committed data to a wallet (`merkle_root = sha256(data_hash:salt:wallet)`) and delegates the Bitcoin time
+  proof verbatim to the built-in OpenTimestamps verifier (compose, not reinvent). Opt-in via `register()`;
+  not wired into the built-in set by design.
+- README now documents the `anchors[]` extension layer and the `register_anchor_type` bring-your-own-type
+  interface (the `[anchors]` extra), with an honest "v2.0 beta" label.
+
+### Changed
+- **Repo hygiene**: removed a committed `.venv-anchors/` tree from tracking (cleared 59 OSSF-Scorecard HIGH
+  alerts); enabled auto-delete-head-branches, Dependabot alerts/updates, and secret-scanning push protection.
+- Type checker (`mypy src`) is clean again after the third-party anchor addition (narrowed envelope fields).
+
 ## [2.0.0b2] - 2026-07-05  (BETA / pre-release)
 
 ### Added — in-toto eval-result attestation export (PROPOSED; under discussion in-toto/attestation#565)
