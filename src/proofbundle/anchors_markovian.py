@@ -71,10 +71,11 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     wallet = env.get("wallet")
     merkle_root = env.get("merkle_root")
     ots_b64 = env.get("ots")
-    for name, val in (("data_hash", data_hash), ("salt", salt), ("wallet", wallet),
-                      ("merkle_root", merkle_root), ("ots", ots_b64)):
-        if not isinstance(val, str) or not val:
-            return _fail("bad_fields", f"markovian envelope field {name!r} missing or not a string")
+    if not (isinstance(data_hash, str) and isinstance(salt, str) and isinstance(wallet, str)
+            and isinstance(merkle_root, str) and isinstance(ots_b64, str)):
+        return _fail("bad_fields", "markovian envelope has a missing or non-string field")
+    if not (data_hash and salt and wallet and merkle_root and ots_b64):
+        return _fail("bad_fields", "markovian envelope has an empty required field")
 
     # 3. binding: the stamp must commit to EXACTLY the target canonical root
     try:
