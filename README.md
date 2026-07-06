@@ -14,10 +14,12 @@ these exact bytes* and *that nothing changed since* — not that the number is t
 Merkle, one file, no server, no network.
 
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
+[![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](scripts/mutation_check.py)
-<!-- PyPI / Downloads / SLSA / PEP 740 badges are enabled on the first PyPI release — see RELEASE.md. -->
+<!-- SLSA / PEP 740 attestation badges follow once the first attested release lands, see RELEASE.md. -->
 
 </div>
 
