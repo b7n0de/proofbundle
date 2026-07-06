@@ -98,19 +98,22 @@ canonical root as a key in a public Chia DataLayer store whose root is published
 **Three-level honesty — read this before trusting a `chia-datalayer` anchor.** The three levels prove
 strictly different things; the word "offline verifiable" applies to **level i only**:
 
-- **Level i — `merkle` (offline, no Chia software).** Pure SHA-256 recomputes the leaf
-  `sha256(0x02 ‖ key_clvm_hash ‖ value_clvm_hash)`, ascends `inclusion_layers` to the `published_root`
-  (each layer's `combined_hash` must be self-consistent), and checks `value_digest == canonicalRoot`. This
-  proves **only** "this key/value is included under `published_root`, and it stamps exactly the target
-  root". It does **NOT** prove the chain binding. This is the level `proofbundle verify` runs; `=> OK` here
-  means Merkle-consistent, nothing more. Registered verifier: `anchors_chia.verify_chia_datalayer`.
+- **Level i — `merkle` (offline, no Chia software).** The anchor's `canonicalRoot` IS the DataLayer key.
+  Pure SHA-256 checks the raw key equals `canonicalRoot` and hashes (`sha256(0x01‖key)`) to `key_clvm_hash`,
+  recomputes the leaf `sha256(0x02 ‖ key_clvm_hash ‖ value_clvm_hash)`, and ascends `inclusion_layers` to the
+  `published_root` (each layer's `combined_hash` must be self-consistent). This proves **only** "`canonicalRoot`
+  is a key included under `published_root`". It does **NOT** prove the chain binding, and it does **NOT** prove
+  `published_root` is on-chain (a self-fabricated tree passes level i — that is what levels ii/iii are for).
+  Because the key carries the binding, an unrelated (even genuine) proof for a different key cannot be
+  relabelled to this target. This is the level `proofbundle verify` runs; `=> OK` here means Merkle-consistent,
+  nothing more. Registered verifier: `anchors_chia.verify_chia_datalayer`.
 - **Level ii — `chain-binding (light)` (needs a Chia light wallet).** Confirms `coin_id` exists with the
   expected singleton puzzle hash and that `published_root` is the current (unspent) root, plus its block
   height and timestamp. Requires Chia software → **SKIP** with a clear reason when unavailable, never FAIL,
   never a silent PASS.
 - **Level iii — `chain-binding (own full node)`.** Full guarantee against your own node.
 
-**Forbidden claims** (enforced by claims-hygiene): "trustless" or "on-chain proven" for level i/ii without
+**Forbidden claims** (enforced by `tests/test_anchors_chia_claims.py`): "trustless" or "on-chain proven" for level i/ii without
 the node-trust caveat; any "greener chain" comparison; any XCH price/cost claim in shipped docs. Root-update
 cost is an observation (~0–0.001 XCH), never a price claim.
 

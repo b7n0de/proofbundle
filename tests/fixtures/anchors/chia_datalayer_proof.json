@@ -1,39 +1,23 @@
 {
  "store_id": "05f7c6f179a32e6f450ff1940235550a641fa8d9f478c409f3980b981dd3529e",
- "key": "0x72e20fa3b8d55fbd626e3ec1ef742f948207d7233d4cadacd784fb586dc8f7a4",
- "value": "0x472ee4ae338947a35002b12c25b89dae279ad59f24ee5da61992421f0b7b6cb8",
- "key_clvm_hash": "0x37ffad9fd3ab518b97216d046dfe3038ee5ef58cab6d13137b0e1d36c8020102",
- "value_clvm_hash": "0x3ff45804d13dd374fdf4afaeaaae861861993f536d1ce1a2e9bacf5717a5f6d6",
- "node_hash": "0xd1c377b501d85efbaf742d39c7fef81c11bf84da00c52b5caf6fbe12ad08f8cc",
+ "key": "0xc6f7605643528698396abf876a7b751df8789d48e4af5883efe034604249633f",
+ "value": "0xc6f7605643528698396abf876a7b751df8789d48e4af5883efe034604249633f",
+ "key_clvm_hash": "0x8546c181ae687ff696a81f5087d03a3893c0cc1a76c747c2c3af8bb0b761c1c4",
+ "value_clvm_hash": "0x8546c181ae687ff696a81f5087d03a3893c0cc1a76c747c2c3af8bb0b761c1c4",
+ "node_hash": "0x00851254b401fd25d4033de296f66f7b50e5d89a655a18852efe0e4c44379c5a",
  "inclusion_layers": [
   {
-   "combined_hash": "0x9c6a118eff3b6a87d4801faa372350617813b10c5860adac7e60ae8fdea34f0e",
-   "other_hash": "0x7451966773f8fe76f3dca5da824d94135f49502a37e095b4abe96c783a31695f",
-   "other_hash_side": 1
-  },
-  {
-   "combined_hash": "0x0dd6306bec8f456096db450fa38f88aa97d6541ee1810509593165845f92a92a",
-   "other_hash": "0x2c45bf5ff4eec8fd82888daf93aad6eeeb76f40ce13f5eb8e3c6ab8a4bd998e9",
-   "other_hash_side": 1
-  },
-  {
-   "combined_hash": "0x4d9c8faed5bc2c3cc490ce18ec9cf3fd3b4cb131b94d21ffe2dc5b02c36c5709",
-   "other_hash": "0x5cbe2f93a31cd9b58ea50939706d916b29ac3eafa634e268e8c76b2f437e9f9f",
-   "other_hash_side": 1
-  },
-  {
-   "combined_hash": "0x59970cea367c53f3dcc0517722d5149add2a463f279c496a6a2c7497d5a55074",
-   "other_hash": "0x2b966d633527510f3c7001ba80956fbe1f926d485879e057e31b3ba30e1dd8b2",
-   "other_hash_side": 1
-  },
-  {
-   "combined_hash": "0x84228d28a4b37b7271c66b81ffb4518534a78cf7aec2225c73023cf1941fd644",
+   "combined_hash": "0xe7f0c2e3927306527d46c7552e0f24153db95777295c3940658720fe25906a1a",
    "other_hash": "0x98780e6f118b4dc3cd89096fcb31e018e9a7c78ec3326fef93674612139d38ee",
    "other_hash_side": 1
+  },
+  {
+   "combined_hash": "0xc974b003e8976eb7e4f75ad6ada67e7678a8478fdf7f0e025aee5f165efbe9b0",
+   "other_hash": "0x59970cea367c53f3dcc0517722d5149add2a463f279c496a6a2c7497d5a55074",
+   "other_hash_side": 0
   }
  ],
- "published_root": "0x84228d28a4b37b7271c66b81ffb4518534a78cf7aec2225c73023cf1941fd644",
- "value_digest": "0x472ee4ae338947a35002b12c25b89dae279ad59f24ee5da61992421f0b7b6cb8",
+ "published_root": "0xc974b003e8976eb7e4f75ad6ada67e7678a8478fdf7f0e025aee5f165efbe9b0",
  "network": "mainnet",
- "_note": "Real DataLayer get_proof (5-level tree) from store 05f7c6f1..., verifiable offline with pure SHA-256. No secrets."
+ "_note": "Real DataLayer get_proof; key==value==canonicalRoot; offline-verifiable pure SHA-256; no secrets."
 }

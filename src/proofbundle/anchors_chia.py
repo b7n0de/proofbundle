@@ -37,6 +37,7 @@ _NODE_PREFIX = b"\x02"   # sha256(0x02 ‖ left ‖ right) = internal/leaf node 
 
 _HASH_LEN = 32           # sha256 digest length
 _MAX_LAYERS = 256        # a DataLayer tree of 2**256 leaves is absurd; bound the ascent (DoS guard)
+_MAX_PROOF_BYTES = 131072  # real chia-datalayer proofs are ~2.5 KB; cap the input before json.loads (DoS guard)
 
 
 def _h(*parts: bytes) -> bytes:
@@ -106,49 +107,58 @@ def merkle_root_from_layers(node_hash: bytes, inclusion_layers: list) -> bytes:
 def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     """Pure offline verification (level i). ``proof_obj`` is the decoded chia-datalayer proof dict.
 
-    Checks, all fail-closed:
-      1. leaf node_hash == sha256(0x02 ‖ key_clvm_hash ‖ value_clvm_hash), and matches the declared node_hash
-      2. ascending inclusion_layers reproduces published_root (each layer's combined_hash is self-consistent)
-      3. the stamped value_digest == canonical_root (the anchor's canonicalRoot) — binds the anchor to the target
-      4. (when the raw key/value are present) key_clvm_hash/value_clvm_hash == sha256(0x01 ‖ atom)
+    The BINDING to the target is via the DataLayer KEY: the anchor's ``canonicalRoot`` IS the key stored in
+    the store (``key = canonicalRoot``), so the proof must carry the raw ``key``, it must EQUAL
+    ``canonical_root``, and it must be the atom that hashes (``sha256(0x01‖key)``) to ``key_clvm_hash`` — whose
+    leaf ascends through ``inclusion_layers`` to ``published_root``. This ties ``canonical_root``
+    cryptographically to the Merkle path; an unrelated (even genuine) proof for a DIFFERENT key can no longer
+    be relabelled to this target by swapping a decoupled digest field.
 
-    Returns ``{"ok": bool, "detail": str}``. Proves ONLY k/v → published_root consistency, NOT chain binding.
+    Checks, all fail-closed:
+      1. raw ``key`` present AND == ``canonical_root`` AND ``sha256(0x01‖key) == key_clvm_hash``
+      2. (optional) raw ``value`` → ``sha256(0x01‖value) == value_clvm_hash``
+      3. leaf ``node_hash == sha256(0x02‖key_clvm‖value_clvm)`` (when declared)
+      4. ascending ``inclusion_layers`` reproduces ``published_root`` (each layer's combined_hash self-consistent)
+
+    Proves ONLY that ``canonical_root`` is a key included under ``published_root``; NOT that ``published_root``
+    is on-chain (that is level ii/iii, needs Chia software — see docs/ANCHORS.md).
     """
     try:
         key_clvm = _hexbytes(proof_obj.get("key_clvm_hash"), "key_clvm_hash")
         value_clvm = _hexbytes(proof_obj.get("value_clvm_hash"), "value_clvm_hash")
         published_root = _hexbytes(proof_obj.get("published_root"), "published_root")
-        value_digest = _hexbytes(proof_obj.get("value_digest"), "value_digest")
         layers = proof_obj.get("inclusion_layers")
 
-        # (4) optional: raw key/value atoms (ANY length) → CLVM hashes must match the declared ones
+        # (1) BINDING — the raw DataLayer key IS the target canonicalRoot, and it is the atom under key_clvm_hash.
         raw_key = proof_obj.get("key")
-        if isinstance(raw_key, str) and raw_key:
-            if clvm_atom_hash(_hexatom(raw_key, "key")) != key_clvm:
-                return {"ok": False, "detail": "key_clvm_hash does not match sha256(0x01 || key)"}
+        if not isinstance(raw_key, str) or not raw_key:
+            return {"ok": False, "detail": "proof missing the raw key (required to bind canonicalRoot to the leaf)"}
+        key_bytes = _hexatom(raw_key, "key")
+        if key_bytes != canonical_root:
+            return {"ok": False, "detail": "the anchored DataLayer key does not equal the target canonicalRoot (cross-target/tampered/forged)"}
+        if clvm_atom_hash(key_bytes) != key_clvm:
+            return {"ok": False, "detail": "key_clvm_hash does not match sha256(0x01 || key)"}
+
+        # (2) optional: raw value atom (ANY length) → value_clvm_hash
         raw_value = proof_obj.get("value")
         if isinstance(raw_value, str) and raw_value:
             if clvm_atom_hash(_hexatom(raw_value, "value")) != value_clvm:
                 return {"ok": False, "detail": "value_clvm_hash does not match sha256(0x01 || value)"}
 
-        # (1) leaf hash
+        # (3) leaf hash
         leaf = leaf_node_hash(key_clvm, value_clvm)
         declared_node = proof_obj.get("node_hash")
         if declared_node is not None and _hexbytes(declared_node, "node_hash") != leaf:
             return {"ok": False, "detail": "node_hash does not match sha256(0x02 || key_clvm || value_clvm)"}
 
-        # (2) ascend to the root
+        # (4) ascend to the root
         root = merkle_root_from_layers(leaf, layers if layers is not None else [])
         if root != published_root:
             return {"ok": False, "detail": "inclusion_layers do not reproduce published_root (not included)"}
 
-        # (3) value_digest binds the anchor to the receipt's canonical root
-        if value_digest != canonical_root:
-            return {"ok": False, "detail": "value_digest does not match the anchor canonicalRoot (cross-target/tampered)"}
-
     except ValueError as exc:
         return {"ok": False, "detail": f"malformed chia-datalayer proof: {exc}"}
-    return {"ok": True, "detail": "chia-datalayer merkle: k/v -> published_root consistent (level i, offline; chain binding NOT checked here)"}
+    return {"ok": True, "detail": "chia-datalayer merkle: canonicalRoot (as DataLayer key) included under published_root (level i, offline; chain binding NOT checked here)"}
 
 
 def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Optional[dict] = None,
@@ -163,13 +173,17 @@ def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Option
     """
     if not isinstance(proof, (bytes, bytearray)):
         return {"ok": False, "warn": False, "status": "fail", "detail": "chia-datalayer proof must be bytes"}
+    if len(proof) > _MAX_PROOF_BYTES:
+        return {"ok": False, "warn": False, "status": "fail", "detail": f"chia-datalayer proof too large (> {_MAX_PROOF_BYTES} bytes)"}
+    # Unconditional fail-closed backstop: a verifier must NEVER crash its caller on a hostile proof. Enumerating
+    # exception types (ValueError, ...) misses RecursionError (deeply nested JSON), MemoryError, or a TypeError
+    # from a non-bytes canonical_root — all of which a caller-controlled proof could trigger. Catch everything.
     try:
         proof_obj = json.loads(bytes(proof).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as exc:
-        return {"ok": False, "warn": False, "status": "fail", "detail": f"chia-datalayer proof is not valid JSON: {exc}"}
-    if not isinstance(proof_obj, dict):
-        return {"ok": False, "warn": False, "status": "fail", "detail": "chia-datalayer proof JSON must be an object"}
-
-    res = verify_offline_merkle(proof_obj, bytes(canonical_root))
+        if not isinstance(proof_obj, dict):
+            return {"ok": False, "warn": False, "status": "fail", "detail": "chia-datalayer proof JSON must be an object"}
+        res = verify_offline_merkle(proof_obj, bytes(canonical_root))
+    except Exception as exc:   # noqa: BLE001 - deliberate fail-closed backstop for ANY hostile input
+        return {"ok": False, "warn": False, "status": "fail", "detail": f"chia-datalayer proof rejected (fail-closed): {type(exc).__name__}"}
     ok = bool(res.get("ok"))
     return {"ok": ok, "warn": False, "status": "pass" if ok else "fail", "detail": res.get("detail", "")}

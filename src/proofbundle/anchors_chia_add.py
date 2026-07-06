@@ -57,13 +57,14 @@ def _hx(b: bytes) -> str:
     return "0x" + b.hex()
 
 
-def export_anchor(store_id: str, key: str, *, canonical_root: bytes, target: str = "receipt",
+def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receipt",
                   network: str = "mainnet", value: Optional[str] = None) -> dict:
-    """Build a ``chia-datalayer/v1`` anchor for an EXISTING (store, key) from live ``get_proof`` +
-    ``get_root`` (+ best-effort ``get_coin_record`` for height/timestamp). ``canonical_root`` is the target's
-    root bytes (== the stamped value_digest). Returns the anchor dict (self-verifying offline). Fail-closed.
+    """Build a ``chia-datalayer/v1`` anchor from live ``get_proof`` + ``get_root`` (+ best-effort
+    ``get_coin_record`` for height/timestamp). The DataLayer KEY IS the target's ``canonical_root`` (that is
+    the whole binding — see anchors_chia.verify_offline_merkle), so the key is derived here, never passed in
+    independently. Returns the anchor dict (self-verifying offline before emit). Fail-closed.
     """
-    key = key if key.startswith(("0x", "0X")) else "0x" + key
+    key = _hx(bytes(canonical_root))   # key == canonicalRoot: the binding the verifier enforces
     gp = _rpc("data_layer", "get_proof", {"store_id": store_id, "keys": [key]})
     proofs = ((gp.get("proof") or {}).get("store_proofs") or {}).get("proofs") or []
     if not proofs:
@@ -88,10 +89,10 @@ def export_anchor(store_id: str, key: str, *, canonical_root: bytes, target: str
             pass                                  # height/timestamp are Stufe-iii extras; absence is not fatal
 
     proof_obj = {
-        "store_id": store_id, "key": key,
+        "store_id": store_id, "key": key,   # key == canonicalRoot (the binding)
         "key_clvm_hash": pr["key_clvm_hash"], "value_clvm_hash": pr["value_clvm_hash"],
         "node_hash": pr["node_hash"], "inclusion_layers": pr.get("layers", []),
-        "published_root": published_root, "value_digest": _hx(canonical_root),
+        "published_root": published_root,
         "coin_id": coin_id, "inner_puzzle_hash": inner_puzzle_hash,
         "block_height": block_height, "root_timestamp": root_timestamp, "network": network,
     }
@@ -149,5 +150,5 @@ def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Opti
             raise                                 # any other failure → clean abort, nothing written
     if wait and not already:
         _wait_confirmed(store_id, prev_root)
-    return export_anchor(store_id, canonical_root_hex, canonical_root=canonical_root,
+    return export_anchor(store_id, canonical_root=canonical_root,
                          target=target, network=network, value=value_hex)

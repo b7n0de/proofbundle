@@ -168,8 +168,8 @@ MUTATIONS = [
      "if root != published_root:", "if False:",
      "chia-datalayer: Merkle inclusion (root) check disabled", True),
     ("src/proofbundle/anchors_chia.py",
-     "if value_digest != canonical_root:", "if False:",
-     "chia-datalayer: value_digest/canonicalRoot binding disabled", True),
+     "if key_bytes != canonical_root:", "if False:",
+     "chia-datalayer: key/canonicalRoot binding disabled", True),
 ]
 
 

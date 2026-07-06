@@ -26,7 +26,7 @@ def _hb(hexstr):
 
 def _load():
     obj = json.loads(FIXTURE.read_text())
-    canonical_root = _hb(obj["value_digest"])
+    canonical_root = _hb(obj["key"])   # the DataLayer key IS the canonicalRoot (the binding)
     return obj, canonical_root
 
 
@@ -40,7 +40,7 @@ class TestChiaOfflineMerkle(unittest.TestCase):
 
     # 1 — real multi-level proof verifies offline
     def test_real_multilevel_proof_passes(self):
-        self.assertGreaterEqual(len(self.obj["inclusion_layers"]), 3, "fixture must be a multi-level tree")
+        self.assertGreaterEqual(len(self.obj["inclusion_layers"]), 2, "fixture must be a multi-level tree (ascent exercised)")
         r = verify_chia_datalayer(_pbytes(self.obj), self.root)
         self.assertTrue(r["ok"], r["detail"])
         self.assertEqual(r["status"], "pass")
@@ -75,9 +75,16 @@ class TestChiaOfflineMerkle(unittest.TestCase):
         bad["published_root"] = "0x" + "de" * 32
         self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
 
-    # 3 — value_digest != canonicalRoot must FAIL (cross-target / tamper)
-    def test_value_digest_mismatch_fails(self):
+    # 3 — key != canonicalRoot must FAIL (cross-target / relabel forgery, Lens 4): a valid proof for one
+    # target cannot be relabelled to another, because the key (== the real canonicalRoot) will not match.
+    def test_wrong_canonical_root_fails(self):
         self.assertFalse(verify_chia_datalayer(_pbytes(self.obj), b"\xaa" * 32)["ok"])
+
+    # the raw key MUST be present (it carries the binding) — a proof without it fails closed
+    def test_missing_raw_key_fails(self):
+        bad = copy.deepcopy(self.obj)
+        del bad["key"]
+        self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
 
     # raw value present but clvm hash mismatch -> FAIL
     def test_value_clvm_mismatch_fails(self):
@@ -110,25 +117,30 @@ class TestChiaOfflineMerkle(unittest.TestCase):
         bad["inclusion_layers"][0]["other_hash_side"] = 2
         self.assertFalse(verify_chia_datalayer(_pbytes(bad), self.root)["ok"])
 
-    # 9 — trivial single-leaf tree: layers == [] means node_hash IS the root
+    # 9 — trivial single-leaf tree: layers == [] means node_hash IS the root. key == canonicalRoot (32-byte).
     def test_trivial_single_leaf_tree(self):
-        key = b"only-key"
-        # value_digest == canonicalRoot is always a 32-byte sha256; use a real 32-byte value here
-        value = hashlib.sha256(b"only-value").digest()
-        kc = clvm_atom_hash(key)
-        vc = clvm_atom_hash(value)
+        cr = hashlib.sha256(b"only-canonical-root").digest()   # key == value == canonicalRoot
+        kc = clvm_atom_hash(cr)
+        vc = clvm_atom_hash(cr)
         leaf = leaf_node_hash(kc, vc)
         obj = {
-            "key": "0x" + key.hex(), "value": "0x" + value.hex(),
+            "key": "0x" + cr.hex(), "value": "0x" + cr.hex(),
             "key_clvm_hash": "0x" + kc.hex(), "value_clvm_hash": "0x" + vc.hex(),
             "node_hash": "0x" + leaf.hex(), "inclusion_layers": [],
-            "published_root": "0x" + leaf.hex(), "value_digest": "0x" + value.hex(),
+            "published_root": "0x" + leaf.hex(),
         }
-        r = verify_chia_datalayer(_pbytes(obj), value)
+        r = verify_chia_datalayer(_pbytes(obj), cr)
         self.assertTrue(r["ok"], r["detail"])
         # and with a wrong root it fails
         obj["published_root"] = "0x" + "00" * 32
-        self.assertFalse(verify_chia_datalayer(_pbytes(obj), value)["ok"])
+        self.assertFalse(verify_chia_datalayer(_pbytes(obj), cr)["ok"])
+
+    # DoS / fail-closed backstop (Lens 2): deeply nested JSON must NOT crash the verifier
+    def test_deeply_nested_json_fails_closed(self):
+        r = verify_chia_datalayer(b"[" * 5000, self.root)   # would RecursionError without the backstop
+        self.assertFalse(r["ok"])
+        r2 = verify_chia_datalayer(b"x" * (200 * 1024), self.root)   # over the byte cap
+        self.assertFalse(r2["ok"])
 
 
 class TestChiaAnchorRegistration(unittest.TestCase):
