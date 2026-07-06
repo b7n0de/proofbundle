@@ -64,6 +64,30 @@ This boundary is the point, not a weakness. A receipt makes a claim **attributab
 and — with pre-registration and per-sample auditing — bounded and spot-checkable**. Full detail:
 **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
+## Post-quantum posture (honest, two layers)
+
+proofbundle is **not** "quantum-proof" or "quantum-safe" as a whole. It combines two cryptographic layers
+with very different quantum exposure, and it is honest about both:
+
+- **Quantum-robust (hash-based)** — SHA-256, RFC 6962 / 9162 Merkle inclusion, RFC 8785 canonicalization,
+  and, among the external time anchors, the OpenTimestamps (Bitcoin hash-chain) and `chia-datalayer/v1`
+  (Merkle inclusion) types. Grover only halves the effective bit-strength (SHA-256 keeps a ~128-bit quantum
+  margin, which NIST currently treats as adequate), so these stay secure.
+- **Quantum-vulnerable (elliptic-curve / classical PKI, Shor)** — the Ed25519 receipt signature; for the
+  `chia-datalayer` anchor, Chia's BLS12-381 wallet layer; and, for the RFC 3161 anchor, the TSA's own
+  classical (RSA/ECDSA) certificate-chain signature. A large enough quantum computer could forge any of these.
+
+The attack that matters is not decryption but **back-dated forgery**: an attacker with a quantum computer
+could mint a fake signature on a tampered receipt. The defense — **when a receipt carries a hash-based time
+anchor** (optional, the `[anchors]` beta extra: OpenTimestamps or `chia-datalayer`) — is that the anchor
+proves the original receipt existed *before* that capability, so a forged receipt has no matching anchor.
+That protects the evidence long-term even if the signature layer later breaks. A plain receipt with no anchor
+does not carry this property.
+
+On the witness side, C2SP checkpoints already carry post-quantum **ML-DSA-44** (FIPS 204) cosignatures
+(`proofbundle[pq]`); a post-quantum *payload* signature — crypto-agility for the receipt itself — is on the
+roadmap.
+
 ## In plain language
 
 A proofbundle receipt is the cash-register receipt of an AI test result: it shows who claimed the
