@@ -22,6 +22,8 @@ Merkle, one file, no server, no network.
 [![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/scripts/mutation_check.py)
 <!-- SLSA / PEP 740 attestation badges follow once the first attested release lands, see RELEASE.md. -->
 
+**Reviewing this for adoption?** Start with the 30-minute adversarial audit path: **[docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md)**.
+
 </div>
 
 ## The problem
@@ -50,6 +52,22 @@ so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/
 proofbundle emit --payload-file result.json --new-key signer.key --out receipt.json
 proofbundle verify receipt.json        # exit 0 = OK, 1 = failed, 2 = malformed
 ```
+
+## Inspect-native? (METR Task Standard / UK-AISI ecosystem)
+
+The receipt layer runs directly on [Inspect AI](https://inspect.aisi.org.uk/) — and the proof is
+reproducible offline in minutes:
+
+```bash
+git clone https://github.com/b7n0de/proofbundle && cd proofbundle
+pip install -e ".[eval,inspect]"
+make full-demo   # a genuine inspect_ai eval log (mockllm: offline, no API key, no GPU)
+                 # -> signed receipt next to the log -> proofbundle verify => OK
+```
+
+In your own pipeline the end-of-task hook signs every run automatically. Walkthrough:
+**[docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md)** · worked example:
+**[examples/inspect_receipt.py](https://github.com/b7n0de/proofbundle/blob/main/examples/inspect_receipt.py)**.
 
 ## What a receipt proves — and what it doesn't
 
