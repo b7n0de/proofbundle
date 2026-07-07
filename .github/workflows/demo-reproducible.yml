@@ -1,0 +1,72 @@
+name: demo-reproducible
+
+# Block C of the pre-outreach checklist (2026-07-07): prove, continuously, that a STRANGER's
+# 60-second try works — fresh venv, install from PyPI (not this checkout), run the demo,
+# verify the committed receipt, and hold the orthogonal failure matrix:
+#   tampered payload   -> verify FAILED (exit 1)
+#   foreign/attacker key -> verify FAILED (exit 1)
+#   no network         -> verify still OK (offline-by-design, proven via unshare -rn)
+# Every fixture below was proven against the real verifier before this workflow landed
+# (tamper_rc=1, foreign_rc=1, offline_rc=0). Honest scope: this exercises the RELEASED
+# package (what a reader installs today), while ci.yml covers the checkout. A red run here
+# means the public 60-second try is broken right now.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 5 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  pypi-sixty-second-try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Fresh venv, install from PyPI (the stranger's path — NOT this checkout)
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install --quiet "proofbundle[eval]"
+          /tmp/fresh/bin/proofbundle --help >/dev/null
+      - name: 60-second try — demo must exit 0 (honest OK, six tampers caught, sample swap caught)
+        run: /tmp/fresh/bin/proofbundle demo
+      - name: Committed receipt verifies from the released package
+        run: /tmp/fresh/bin/proofbundle verify examples/example_bundle.json
+      - name: Build the tamper fixtures (payload bit-flip + attacker key swap)
+        run: |
+          python - <<'PY'
+          import json, base64
+          b = json.load(open("examples/example_bundle.json"))
+          raw = base64.b64decode(b["payload_b64"])
+          b["payload_b64"] = base64.b64encode(raw[:-1] + bytes([raw[-1] ^ 0x01])).decode()
+          json.dump(b, open("/tmp/tampered.json", "w"))
+          b2 = json.load(open("examples/example_bundle.json"))
+          assert "public_key_b64" in b2["signature"], "receipt layout changed — update this matrix"
+          b2["signature"]["public_key_b64"] = "A" * 43 + "="
+          json.dump(b2, open("/tmp/foreignkey.json", "w"))
+          PY
+      - name: Orthogonal matrix — tampered payload MUST fail
+        run: |
+          if /tmp/fresh/bin/proofbundle verify /tmp/tampered.json; then
+            echo "::error::tampered receipt verified OK — the public package is broken"
+            exit 1
+          fi
+          echo "tampered receipt correctly FAILED"
+      - name: Orthogonal matrix — foreign key MUST fail
+        run: |
+          if /tmp/fresh/bin/proofbundle verify /tmp/foreignkey.json; then
+            echo "::error::foreign-key receipt verified OK — the public package is broken"
+            exit 1
+          fi
+          echo "foreign-key receipt correctly FAILED"
+      - name: Orthogonal matrix — verify with the network namespace REMOVED (offline-by-design)
+        run: |
+          unshare -rn /tmp/fresh/bin/proofbundle verify examples/example_bundle.json
+          echo "offline verify OK (no network namespace)"
