@@ -49,6 +49,10 @@ a swapped sample get caught — all in memory. The command exits non-zero if any
 so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)**.
 
 ```bash
+# verify a real hosted receipt without writing any code:
+curl -fsSL https://raw.githubusercontent.com/b7n0de/proofbundle/main/examples/example_bundle.json -o receipt.json
+proofbundle verify receipt.json        # => OK (the verify itself runs fully offline)
+
 # your own receipt, from a signed payload:
 proofbundle emit --payload-file result.json --new-key signer.key --out receipt.json
 proofbundle verify receipt.json        # exit 0 = OK, 1 = failed, 2 = malformed
