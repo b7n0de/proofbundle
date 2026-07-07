@@ -68,5 +68,6 @@ jobs:
           echo "foreign-key receipt correctly FAILED"
       - name: Orthogonal matrix — verify with the network namespace REMOVED (offline-by-design)
         run: |
-          unshare -rn /tmp/fresh/bin/proofbundle verify examples/example_bundle.json
+          # GH runners forbid unprivileged userns (uid_map EPERM); sudo is passwordless there.
+          sudo unshare -n /tmp/fresh/bin/proofbundle verify examples/example_bundle.json
           echo "offline verify OK (no network namespace)"
