@@ -27,6 +27,16 @@ Merkle, one file, no server, no network.
 
 </div>
 
+## 60-second try (offline, no setup)
+
+```bash
+pip install "proofbundle[eval]"
+proofbundle demo   # honest receipt => OK, six tampers each => FAILED, sample swap caught
+# Inspect-native (METR Task Standard / UK-AISI ecosystem, mockllm, no API key):
+git clone https://github.com/b7n0de/proofbundle && cd proofbundle
+pip install -e ".[eval,inspect]" && make demo   # or `make full-demo` for log -> receipt -> verify
+```
+
 ## The problem
 
 Every AI eval number you read — a safety benchmark, a capability score, a leaderboard entry — is an
@@ -37,12 +47,7 @@ proofbundle is that check. It's a small MIT-licensed Python tool (a compact, aud
 depends only on [`cryptography`](https://cryptography.io)) that turns a result into a signed
 receipt anyone can verify from a single file — and it's honest about the line it does not cross.
 
-## 60-second try (offline, no setup)
-
-```bash
-pip install "proofbundle[eval]"
-proofbundle demo
-```
+## What the demo shows
 
 You'll see an honest receipt verify `=> OK`, then six independent tampers each verify `FAILED`, then
 a swapped sample get caught — all in memory. The command exits non-zero if any tamper slips through,
