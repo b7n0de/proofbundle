@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/b7n0de-logo-dark.svg">
-  <img alt="b7n0de, Verified AI Work" src="assets/b7n0de-logo.svg" height="60">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-logo-dark.svg">
+  <img alt="b7n0de, Verified AI Work" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-logo.svg" height="60">
 </picture>
 
 <h1>proofbundle</h1>
@@ -16,9 +16,10 @@ Merkle, one file, no server, no network.
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21230467.svg)](https://doi.org/10.5281/zenodo.21230467)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](scripts/mutation_check.py)
+[![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/scripts/mutation_check.py)
 <!-- SLSA / PEP 740 attestation badges follow once the first attested release lands, see RELEASE.md. -->
 
 </div>
@@ -42,7 +43,7 @@ proofbundle demo
 
 You'll see an honest receipt verify `=> OK`, then six independent tampers each verify `FAILED`, then
 a swapped sample get caught — all in memory. The command exits non-zero if any tamper slips through,
-so it's also a self-test. Full walkthrough: **[docs/DEMO.md](docs/DEMO.md)**.
+so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)**.
 
 ```bash
 # your own receipt, from a signed payload:
@@ -62,7 +63,7 @@ proofbundle verify receipt.json        # exit 0 = OK, 1 = failed, 2 = malformed
 
 This boundary is the point, not a weakness. A receipt makes a claim **attributable, tamper-evident,
 and — with pre-registration and per-sample auditing — bounded and spot-checkable**. Full detail:
-**[THREAT_MODEL.md](THREAT_MODEL.md)**.
+**[THREAT_MODEL.md](https://github.com/b7n0de/proofbundle/blob/main/THREAT_MODEL.md)**.
 
 ## Post-quantum posture (honest, two layers)
 
@@ -97,6 +98,8 @@ check at all.
 
 ## How it fits together
 
+*(diagram renders on GitHub — [view it there](https://github.com/b7n0de/proofbundle#how-it-fits-together); PyPI shows the source)*
+
 ```mermaid
 flowchart LR
     H["eval harness<br/>inspect_ai · lm-eval · promptfoo · pytest"] --> A["adapter → signed claim<br/>salted commitments · provenance · samples root"]
@@ -113,7 +116,7 @@ flowchart LR
 - **Core** — Ed25519 signature + RFC 6962 / 9162 Merkle inclusion, verified fully offline. Checks a
   real [Sigstore Rekor](https://docs.sigstore.dev/) proof, so correctness isn't self-referential.
 - **Eval receipts** — a signed claim (`metric ⋈ threshold`, `n`, salted model/dataset commitments,
-  assurance level, provenance) from your run. See [EVAL_CLAIM.md](EVAL_CLAIM.md).
+  assurance level, provenance) from your run. See [EVAL_CLAIM.md](https://github.com/b7n0de/proofbundle/blob/main/EVAL_CLAIM.md).
 - **Selective disclosure** — SD-JWT ([RFC 9901](https://datatracker.ietf.org/doc/rfc9901/)) with Key
   Binding: prove a threshold while withholding the exact score.
 - **Transparency-log interop** — C2SP `tlog-checkpoint` / cosignature / `.tlog-proof`, with
@@ -127,8 +130,8 @@ flowchart LR
   best-of-many publishing becomes visible.
 - **Integrations** — opt-in inspect_ai end-of-task hook and pytest plugin (emit only when
   `PROOFBUNDLE_EMIT=1` / `--proofbundle`), plus a Hugging Face Community Evals bridge. See
-  [INTEGRATIONS.md](INTEGRATIONS.md), or the end-to-end walkthrough
-  [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
+  [INTEGRATIONS.md](https://github.com/b7n0de/proofbundle/blob/main/INTEGRATIONS.md), or the end-to-end walkthrough
+  [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
 - **External time anchors** *(v2.0 beta, the `[anchors]` extra)* — an optional `anchors[]` layer that
   attaches external evidence of *when* a commitment or receipt existed, from a party the producer does not
   control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a frozen cert chain) and
@@ -136,23 +139,23 @@ flowchart LR
   extension interface lets a third party ship its own fail-closed type; two worked examples ship — a
   first-party **`chia-datalayer/v1`** (offline Merkle inclusion of a canonical root under a published Chia
   DataLayer root) and a third-party **`markovian-provenance/v1`** (a wallet-attributable, Bitcoin-anchored
-  stamp). See [docs/ANCHORS.md](docs/ANCHORS.md).
+  stamp). See [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 
 ## Docs
 
 | For… | Read |
 |---|---|
-| Skeptics (why not SHA-256 / Sigstore / trust the issuer) | [docs/FAQ.md](docs/FAQ.md) |
-| New to this? plain-terms glossary | [docs/GLOSSARY.md](docs/GLOSSARY.md) |
-| Reviewers (30-minute adversarial audit path) | [docs/REVIEWERS.md](docs/REVIEWERS.md) |
-| Where every trust anchor comes from | [docs/TRUST_ANCHORS.md](docs/TRUST_ANCHORS.md) |
-| The demos, tier by tier | [docs/DEMO.md](docs/DEMO.md) |
-| The normative format + verification order | [SPEC.md](SPEC.md) |
-| Honest comparison to Rekor / in-toto / OMS / ValiChord | [INTEROP.md](INTEROP.md) |
-| Regulatory mapping (and what to never claim) | [COMPLIANCE.md](COMPLIANCE.md) |
-| Funders / role fit | [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) |
-| External time anchors + the bring-your-own-type extension interface (v2.0 beta) | [docs/ANCHORS.md](docs/ANCHORS.md) |
-| **Preview:** TEE-attestation bridge (v2.0 beta) | [docs/EXPERIMENTAL_ENCLAVE.md](docs/EXPERIMENTAL_ENCLAVE.md) |
+| Skeptics (why not SHA-256 / Sigstore / trust the issuer) | [docs/FAQ.md](https://github.com/b7n0de/proofbundle/blob/main/docs/FAQ.md) |
+| New to this? plain-terms glossary | [docs/GLOSSARY.md](https://github.com/b7n0de/proofbundle/blob/main/docs/GLOSSARY.md) |
+| Reviewers (30-minute adversarial audit path) | [docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) |
+| Where every trust anchor comes from | [docs/TRUST_ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/TRUST_ANCHORS.md) |
+| The demos, tier by tier | [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md) |
+| The normative format + verification order | [SPEC.md](https://github.com/b7n0de/proofbundle/blob/main/SPEC.md) |
+| Honest comparison to Rekor / in-toto / OMS / ValiChord | [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) |
+| Regulatory mapping (and what to never claim) | [COMPLIANCE.md](https://github.com/b7n0de/proofbundle/blob/main/COMPLIANCE.md) |
+| Funders / role fit | [docs/PROJECT_BRIEF.md](https://github.com/b7n0de/proofbundle/blob/main/docs/PROJECT_BRIEF.md) |
+| External time anchors + the bring-your-own-type extension interface (v2.0 beta) | [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md) |
+| **Preview:** TEE-attestation bridge (v2.0 beta) | [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md) |
 
 ## Install
 
@@ -172,18 +175,18 @@ Beta, SemVer-committed, with a CI test suite behind a mutation gate + property-b
 is anchored to external RFC 6962 vectors and a real Rekor proof, not just its own bundles. It is
 **not** a log service, a full in-toto client, a TEE, a consensus network, or a compliance product
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:
-[SECURITY.md](SECURITY.md).
+[SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Good first
+See [CONTRIBUTING.md](https://github.com/b7n0de/proofbundle/blob/main/CONTRIBUTING.md) and the [Code of Conduct](https://github.com/b7n0de/proofbundle/blob/main/CODE_OF_CONDUCT.md). Good first
 issues are labeled [`good-first-issue`](https://github.com/b7n0de/proofbundle/labels/good-first-issue);
-security findings go through [SECURITY.md](SECURITY.md). The verifier core aims to stay small,
+security findings go through [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md). The verifier core aims to stay small,
 dependency-light, and correct.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/b7n0de/proofbundle/blob/main/LICENSE).
 
 ---
 
