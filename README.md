@@ -27,7 +27,7 @@ Merkle, one file, no server, no network.
 
 </div>
 
-## 60-second try (offline, no setup)
+## 60-second try (offline)
 
 ```bash
 pip install "proofbundle[eval]"
@@ -50,7 +50,7 @@ receipt anyone can verify from a single file — and it's honest about the line 
 ## What the demo shows
 
 You'll see an honest receipt verify `=> OK`, then six independent tampers each verify `FAILED`, then
-a swapped sample get caught — all in memory. The command exits non-zero if any tamper slips through,
+a swapped sample get caught — all in memory. `proofbundle demo` exits non-zero if any tamper slips through,
 so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)**.
 
 ```bash
@@ -69,8 +69,7 @@ The receipt layer runs directly on [Inspect AI](https://inspect.aisi.org.uk/) �
 reproducible offline in minutes:
 
 ```bash
-git clone https://github.com/b7n0de/proofbundle && cd proofbundle
-pip install -e ".[eval,inspect]"
+# setup as in the 60-second try above (clone + pip install -e ".[eval,inspect]"), then:
 make full-demo   # a genuine inspect_ai eval log (mockllm: offline, no API key, no GPU)
                  # -> signed receipt next to the log -> proofbundle verify => OK
 ```
