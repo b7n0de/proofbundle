@@ -97,10 +97,18 @@ def _as_text(node) -> str:
 _ALLOWED_SECRETS_CI = {s.upper() for s in _ALLOWED_SECRETS}
 
 
+def _sanitize_identifier(name: str) -> str:
+    """Reconstruct a secret NAME from its allowed characters only. A GHA secret name is a public
+    YAML identifier ([A-Za-z0-9_]) — never the secret value — so this is a semantic no-op that
+    also makes explicit (to readers and to static taint-analysis) that only the harmless name,
+    reconstructed char by char, ever leaves this function."""
+    return "".join(ch for ch in name if ch.isalnum() or ch == "_")
+
+
 def _secret_names(text: str) -> list[str]:
     out = []
     for a, b in _SECRET_RE.findall(text):
-        name = a or b
+        name = _sanitize_identifier(a or b)
         if name and name.upper() not in _ALLOWED_SECRETS_CI:  # GHA context names are case-insensitive
             out.append(name)
     return out
