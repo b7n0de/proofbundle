@@ -32,6 +32,30 @@ Sustained, high-quality contributions (reviews, verified bug reports, features w
 path. The bar for co-maintainership of a verification tool is deliberately high: the trusted core
 asks for demonstrated care with cryptographic code and with the project's honest-scope discipline.
 
+Trust is granted **gradually**, never in one step:
+
+- **Contributor** — opens issues/PRs; every change goes through review and CI like anyone's.
+- **Triager / reviewer** — after a track record of useful triage or review, may be invited to help
+  label and review. This grants *cockpit-internal* rights only (comment, label-suggest); it never
+  grants merge, release, or secret access.
+- **Co-maintainer** — after sustained trusted work, may be invited. Merge and release rights are a
+  **separate, explicit grant per person**, not automatic with the role, and default to off.
+
+Roles are recorded in `office/governance/oss_maintainer_roles.json` (DEFAULT DENY: no delegated
+right without an explicit entry). The Owner remains the highest authority; the Fork-PR CI
+secret-isolation guard and branch protection apply to everyone unchanged — **more eyes, not weaker
+gates**.
+
+A note on caution (the XZ-utils lesson): a pattern of helpful contributions combined with pressure
+for rights or merge speed is a red flag, not a reason to accelerate. The real gate is diff review
+and build isolation, not rapport. New-contributor activity is screened the same way for everyone
+(see the contributor-vetting process); this protects the project without discouraging honest
+first-time contributors.
+
+**Removing rights.** A role or a granted right can be withdrawn at any time by the Owner — for
+inactivity, on request, or on any concern — by removing the entry from the roles registry. No
+process is owed for revocation of a delegated right; the default state is no rights.
+
 ## Provenance and AI assistance
 
 Parts of this codebase are developed with AI assistance under continuous human review. The design
