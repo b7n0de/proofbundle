@@ -385,6 +385,9 @@ def main(argv=None) -> int:
                                 "GITHUB_TOKEN, (c) the fork-PR approval gate, and (d) actions/checkout v7's "
                                 "server-side head-checkout hardening — not by pattern-matching alone."),
            "invariant": "no fork-reachable job reaches a secret / write-token / self-hosted / unpinned action / pwn-request / artifact-injection"}
+    # codeql[py/clear-text-logging]: findings carry secret NAMES parsed from the workflow YAML
+    # (e.g. "PYPI_TOKEN" — already public in the file), never secret VALUES. This guard is a static
+    # analyser that never has access to a secret's value; reporting the offending name is its purpose.
     print(json.dumps(out, indent=2))
     return 0 if result == "PASS" else 1
 
