@@ -258,5 +258,26 @@ class ForkPrIsolationGuard(unittest.TestCase):
             shutil.rmtree(d)
 
 
+    # ---- Final verify (V4→V5): GHA context names are case-insensitive ----
+    def test_bypass_uppercase_secrets(self):
+        wf = {"on": {"pull_request_target": None}, "permissions": {"contents": "read"},
+              "jobs": {"j": {"runs-on": "ubuntu-latest", "steps": [{"run": "echo ${{ Secrets.PYPI_TOKEN }}"}]}}}
+        self.assertTrue(any("PYPI_TOKEN" in x for x in _analyze(wf)))
+
+    def test_bypass_uppercase_head_checkout(self):
+        wf = {"on": {"pull_request_target": None}, "permissions": {"contents": "read"},
+              "jobs": {"j": {"runs-on": "ubuntu-latest",
+                             "steps": [{"uses": "actions/checkout@" + "a" * 40,
+                                        "with": {"ref": "${{ GitHub.Event.Pull_Request.Head.Sha }}"}}]}}}
+        self.assertTrue(any("pwn-request" in x for x in _analyze(wf)))
+
+    def test_github_token_lowercase_still_allowed(self):
+        """The GITHUB_TOKEN exemption is case-insensitive too — `secrets.github_token` is fine."""
+        wf = {"on": {"pull_request": None},
+              "jobs": {"j": {"runs-on": "ubuntu-latest",
+                             "steps": [{"env": {"T": "${{ secrets.github_token }}"}, "run": "true"}]}}}
+        self.assertEqual([x for x in _analyze(wf) if "secret" in x], [])
+
+
 if __name__ == "__main__":
     unittest.main()

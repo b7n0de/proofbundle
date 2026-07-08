@@ -55,15 +55,18 @@ except ImportError:  # pragma: no cover - CI installs pyyaml for the guard job
     sys.exit(2)
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-# secrets.NAME  OR  secrets['NAME'] / secrets["NAME"]  (both are valid GHA expression syntax)
-_SECRET_RE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)|secrets\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]")
+# secrets.NAME  OR  secrets['NAME'] / secrets["NAME"]  (both are valid GHA expression syntax).
+# IGNORECASE: GHA context names are case-insensitive — `${{ Secrets.X }}` resolves the same as
+# `${{ secrets.x }}`, so a one-letter uppercase must not evade detection (final-verify bypass).
+_SECRET_RE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)|secrets\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]",
+                        re.IGNORECASE)
 # PR-head checkout in all its common shapes (pwn-request when the trigger is privileged).
 # Kept broad because GitHub itself (actions/checkout v7, June 2026) had to harden the same set
 # server-side — merge_commit_sha and head.repo.full_name are canonical bypass shapes.
 _HEAD_REF_RE = re.compile(
     r"pull_request\.head\.(ref|sha)|pull_request\.merge_commit_sha|"
     r"pull_request\.head\.repo\.full_name|github\.head_ref|gh\s+pr\s+checkout|"
-    r"refs/pull/[^/\s]+/(merge|head)|pull/\$\{\{[^}]*\}\}/(merge|head)")
+    r"refs/pull/[^/\s]+/(merge|head)|pull/\$\{\{[^}]*\}\}/(merge|head)", re.IGNORECASE)
 # Triggers a fork contributor (read access only) can cause. The privileged ones run WITH secrets.
 # issues/discussion/discussion_comment: any user can open these on a public repo with zero perms.
 _SAFE_FORK_TRIGGERS = {"pull_request"}
@@ -91,11 +94,14 @@ def _as_text(node) -> str:
     return json.dumps(node, ensure_ascii=False, default=str)
 
 
+_ALLOWED_SECRETS_CI = {s.upper() for s in _ALLOWED_SECRETS}
+
+
 def _secret_names(text: str) -> list[str]:
     out = []
     for a, b in _SECRET_RE.findall(text):
         name = a or b
-        if name and name not in _ALLOWED_SECRETS:
+        if name and name.upper() not in _ALLOWED_SECRETS_CI:  # GHA context names are case-insensitive
             out.append(name)
     return out
 
@@ -103,7 +109,7 @@ def _secret_names(text: str) -> list[str]:
 def _has_secrets_inherit(node) -> bool:
     """`secrets: inherit` on a job that calls a reusable workflow forwards ALL repo secrets."""
     if isinstance(node, dict):
-        if str(node.get("secrets")).strip() == "inherit":
+        if str(node.get("secrets")).strip().lower() == "inherit":
             return True
         return any(_has_secrets_inherit(v) for v in node.values())
     if isinstance(node, list):
@@ -157,7 +163,7 @@ def _runs_on_self_hosted(job: dict) -> bool:
 def _computed_secret_access(text: str) -> bool:
     """``secrets[<expr>]`` with a non-literal index (format(), matrix.x, env.X) — a documented
     per-environment secret-lookup idiom that literal-name matching misses (re-review bypass #4)."""
-    for m in re.finditer(r"secrets\[\s*([^\]]+?)\s*\]", text):
+    for m in re.finditer(r"secrets\[\s*([^\]]+?)\s*\]", text, re.IGNORECASE):
         idx = m.group(1).strip()
         if not (idx.startswith("'") or idx.startswith('"')):  # a quoted literal is already caught by _SECRET_RE
             return True
