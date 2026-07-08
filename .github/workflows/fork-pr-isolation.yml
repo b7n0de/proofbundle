@@ -1,0 +1,36 @@
+name: fork-pr-isolation
+
+# Blue-team guard: prove that a fork PR can never reach a secret / writable token /
+# self-hosted runner / unpinned action / pull_request_target-pwn-request / workflow_run
+# artifact-injection. Runs on every PR and push to main so a workflow change that opens a
+# fork-exfiltration vector fails here before it lands.
+# The guard runs its own anti-tautology selfcheck first: a broken guard can't pass silently.
+#
+# NOTE (honest, 2026-07-08): this check is NOT yet a required status check — the main ruleset
+# currently enforces only deletion + non-fast-forward, so a red run here does not block a
+# merge today. Making it required (repo Settings → Branches / ruleset required_status_checks)
+# is an Owner action tracked in the runbook. Until then this guard is advisory-but-loud.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML (guard dependency)
+        run: python -m pip install "pyyaml>=6"
+      - name: Detector self-check (anti-tautology — must have teeth)
+        run: python scripts/fork_pr_secret_isolation.py --selfcheck
+      - name: Fork-PR secret-isolation invariant
+        run: python scripts/fork_pr_secret_isolation.py --dir .github/workflows
