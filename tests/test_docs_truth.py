@@ -36,6 +36,22 @@ class TestDocsTruth(unittest.TestCase):
         self.assertEqual(cff_v.group(1).strip('"'), py_v.group(1),
                          "CITATION.cff version must equal pyproject version (bump both together)")
 
+    def test_init_version_matches_pyproject(self):
+        # 2026-07-09 release incident: `__init__.py::__version__` was bumped to 2.0.0 for the tag, but
+        # `pyproject.toml::version` (the value the WHEEL is built from) was left at 2.0.0b3. The build
+        # therefore produced proofbundle-2.0.0b3, `skip-existing` skipped it, and 2.0.0 never reached
+        # PyPI while every other check went green. This pins the runtime `--version` string to the
+        # built distribution version so that drift is a red test, not a silent failed release.
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        init_py = (REPO / "src" / "proofbundle" / "__init__.py").read_text(encoding="utf-8")
+        py_v = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+        init_v = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"', init_py)
+        self.assertIsNotNone(py_v, "pyproject.toml has no version")
+        self.assertIsNotNone(init_v, "__init__.py has no __version__")
+        self.assertEqual(init_v.group(1), py_v.group(1),
+                         "__init__.py __version__ must equal pyproject version (the wheel is built "
+                         "from pyproject; a drift ships the wrong version to PyPI)")
+
     def test_spec_revision_matches_spec_md(self):
         # WP-B1 (closes #28): `proofbundle --version` reports SPEC_REVISION as the pinned SPEC.md
         # revision it implements. If the two drift apart, --version would silently lie about which
