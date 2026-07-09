@@ -73,6 +73,20 @@ class TestBundleRobustness(unittest.TestCase):
         with self.assertRaises(UnsupportedError):
             verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "sha512-not-a-thing")))
 
+    def test_null_hash_alg_value_rejected_both_call_sites(self):   # LOW fix: shared value-check helper
+        # `hash_alg` is PRESENT (as null) so this exercises the VALUE check, not the presence check —
+        # and the shared `_require_hash_alg` helper must reject it identically at both call sites.
+        with self.assertRaises(UnsupportedError):
+            verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", None)))
+        with self.assertRaises(UnsupportedError):
+            recompute_merkle_root_b64(_mut(lambda b: b["merkle"].__setitem__("hash_alg", None)))
+
+    def test_empty_string_hash_alg_value_rejected_both_call_sites(self):   # LOW fix
+        with self.assertRaises(UnsupportedError):
+            verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "")))
+        with self.assertRaises(UnsupportedError):
+            recompute_merkle_root_b64(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "")))
+
 
 class TestEvalClaimSchemaConformance(unittest.TestCase):
     def _build(self, **kw):
