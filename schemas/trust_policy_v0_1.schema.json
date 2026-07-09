@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://b7n0de.github.io/proofbundle/schemas/trust_policy_v0_1.schema.json",
+  "title": "proofbundle trust policy v0.1",
+  "description": "A relying party's machine-readable, fail-closed trust decision, applied OVER a completed crypto verification. snake_case, offline, versioned. Unknown fields are a parse error (additionalProperties: false) so a typo silently weakening a policy is impossible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy_id"],
+  "properties": {
+    "schema": {
+      "const": "proofbundle/trust-policy/v0.1",
+      "description": "Policy format version. The version field lets a future v0.2 add sections without breaking v0.1 policies."
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A stable human-readable identifier for this policy, echoed in verify output so a logged decision names the policy it applied."
+    },
+    "allowed_schema_versions": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Bundle schema versions this policy accepts (e.g. [\"proofbundle/v0.1\"]). Empty/absent = do not constrain the schema version."
+    },
+    "allowed_issuers": {
+      "type": "array",
+      "description": "The set of signing keys the relying party trusts. The signer is matched by PUBLIC KEY (kid is a display hint only). Empty/absent = do not constrain the issuer (verify still proves internal consistency, but attributes to nobody in particular).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["public_key_b64"],
+        "properties": {
+          "issuer": {"type": "string", "description": "Human-readable label for logs; NOT used for matching."},
+          "public_key_b64": {"type": "string", "minLength": 1, "description": "Base64 raw Ed25519 public key the signer must match."},
+          "kid": {"type": "string", "description": "Optional key id hint; display only."}
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_algs": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Signature algorithms this policy accepts (e.g. [\"ed25519\"]). Empty/absent = do not constrain the alg."
+        },
+        "require_expected_signer": {
+          "type": "boolean",
+          "description": "If true, the bundle signer MUST appear in allowed_issuers (fail if allowed_issuers is empty). Default false."
+        }
+      }
+    },
+    "merkle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_hash_alg": {
+          "type": "string",
+          "description": "If set, merkle.hash_alg MUST equal this (e.g. \"sha256-rfc6962\")."
+        }
+      }
+    },
+    "sd_jwt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_key_binding_when_cnf_present": {
+          "type": "boolean",
+          "description": "If true, an SD-JWT that bound a cnf holder key MUST present a valid Key Binding JWT (the verifier already fails closed on this; the policy makes the requirement explicit). Default false."
+        },
+        "expected_aud": {
+          "type": ["string", "null"],
+          "description": "If set, the KB-JWT aud MUST equal this (RFC 9901 audience binding). null = do not constrain."
+        },
+        "require_nonce": {
+          "type": "boolean",
+          "description": "If true, the presentation MUST carry a KB-JWT nonce (replay binding). Default false."
+        },
+        "max_iat_age_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "If set, the eval claim's signed timestamp MUST be at most this many seconds old at verify time. null = do not judge freshness."
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Revocation policy. NOTE: verify --policy v0.1 has no status-snapshot input, so a policy that ENABLES a status requirement (reject_self_issued=true or a non-empty allowed_status_authorities) fails closed with a clear reason — evaluate status separately with verify_status_snapshot. The section is accepted so a policy can declare its intent forward-compatibly.",
+      "properties": {
+        "reject_self_issued": {
+          "type": "boolean",
+          "description": "If true, a status list signed by the receipt's own key is not acceptable revocation evidence."
+        },
+        "allowed_status_authorities": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Base64 public keys of accepted status authorities."
+        }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum_level": {
+          "type": ["string", "null"],
+          "enum": ["self_attested", "third_party", "reproduced", "enclave_attested", null],
+          "description": "If set, the eval claim's assurance_level MUST be at least this (ordered weakest→strongest). null = do not constrain."
+        },
+        "reject_self_attested_without_prereg": {
+          "type": "boolean",
+          "description": "If true, a self_attested claim with no prereg_sha256 (the weakest, publish-best-of-many combination) is rejected. Default false."
+        }
+      }
+    }
+  }
+}

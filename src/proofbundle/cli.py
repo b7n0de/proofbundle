@@ -326,18 +326,36 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
+    from .policy import evaluate_policy, load_policy, policy_expected_aud  # noqa: PLC0415
+
+    flag_aud = getattr(args, "aud", None)
+    flag_nonce = getattr(args, "nonce", None)
+    policy = None
     try:
         # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
         # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
         bundle = load_bundle(args.bundle)
-        result = verify_bundle(bundle, expected_aud=getattr(args, "aud", None),
-                               expected_nonce=getattr(args, "nonce", None))
+        # WP-B3: crypto FIRST, policy over the crypto result. Load + structurally validate the policy
+        # (fail-closed) before verifying, and reconcile the aud VALUE: if BOTH --aud and the policy's
+        # expected_aud are set and DIFFER, that is ambiguous → exit 2 (never a silent override).
+        effective_aud = flag_aud
+        if getattr(args, "policy", None):
+            policy = load_policy(args.policy)
+            pol_aud = policy_expected_aud(policy)
+            if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
+                from .policy import PolicyError  # noqa: PLC0415
+                raise PolicyError(
+                    f"--aud {flag_aud!r} conflicts with the policy's sd_jwt.expected_aud {pol_aud!r} "
+                    "— ambiguous; supply only one, or make them equal")
+            effective_aud = flag_aud if flag_aud is not None else pol_aud
+        result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
-    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format errors → clean exit, never a raw traceback
+    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
         # maps to the documented exit 2, never a raw traceback (verify-lens L3; load_bundle also guards
-        # it centrally). The error JSON carries the full field contract so an integrator can always
-        # read crypto_ok without a KeyError on the error path (verify-lens L2).
+        # it centrally). PolicyError (a ProofBundleError) — malformed policy or aud ambiguity — also
+        # exits 2. The error JSON carries the full field contract so an integrator can always read
+        # crypto_ok without a KeyError on the error path (verify-lens L2).
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc), **_error_verify_fields(str(exc))}))
         else:
@@ -345,16 +363,26 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
 
     crypto_ok = result.ok
-    # WP-B2: `verify` has no --policy path yet (WP-B3 adds it), so POLICY is always NOT_EVALUATED here.
+    # WP-B3: evaluate the policy OVER the crypto result — but ONLY when crypto passed. A policy is
+    # never a reason to trust bytes whose signature/merkle failed (fail-closed): policy_ok stays None
+    # (NOT_EVALUATED) and exit 1 dominates.
     policy_ok = None
+    policy_result = None
+    if policy is not None and crypto_ok:
+        policy_result = evaluate_policy(bundle, result, policy)
+        policy_ok = policy_result["policy_ok"]
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
     assurance = _assurance_from_bundle(bundle) if crypto_ok else None
     fields = _derive_verify_fields(
         result,
-        aud_requested=getattr(args, "aud", None) is not None,
-        nonce_requested=getattr(args, "nonce", None) is not None,
+        aud_requested=effective_aud is not None,
+        nonce_requested=flag_nonce is not None,
         assurance=assurance, policy_ok=policy_ok)
+    if policy is not None:
+        fields["policy_id"] = policy.get("policy_id")
+    if policy_result is not None:
+        fields["policy_checks"] = policy_result["checks"]
 
     if args.json:
         out = result.as_dict()
@@ -391,7 +419,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         else:
             assurance_line = "n/a (not an eval receipt)"    # a well-verified bundle that is not an eval receipt
         print(f"CRYPTO: {'OK' if crypto_ok else 'FAILED'}")
-        print(f"POLICY: {_policy_line(policy_ok)}")
+        if policy is not None and not crypto_ok:
+            print("POLICY: NOT_EVALUATED (crypto failed — policy not checked)")
+        else:
+            reason = _safe_line(policy_result["reason"]) if policy_result else ""
+            print(f"POLICY: {_policy_line(policy_ok, reason)}")
         print(f"ASSURANCE: {assurance_line}")
         print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
     return _verify_exit_code(crypto_ok, policy_ok)
@@ -696,9 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Exit codes (verify contract):\n"
                "  0  CRYPTO OK, and the trust policy was satisfied or none was supplied\n"
                "  1  crypto / verification failure (a signature, merkle or key-binding check FAILED)\n"
-               "  2  malformed input (unreadable file, bad JSON, unknown/failed schema)\n"
+               "  2  malformed input (unreadable file, bad JSON, malformed policy, or aud/policy ambiguity)\n"
                "  3  CRYPTO OK but a supplied --policy was NOT satisfied\n"
-               "     (--policy is NOT yet available — it lands with WP-B3; until then exit 3 cannot occur)\n"
                "Without --policy the output shows 'POLICY: NOT_EVALUATED' and never exits 3 —\n"
                "verify makes NO trust decision on its own.")
     verify.add_argument("bundle", help="path to the bundle JSON file")
@@ -713,6 +744,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "bind a Key Binding JWT presentation to this verifier")
     verify.add_argument("--nonce", default=None,
                         help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
+    verify.add_argument("--policy", default=None,
+                        help="path to a trust-policy JSON (proofbundle/trust-policy/v0.1). Applies a "
+                             "fail-closed, offline trust decision OVER the crypto result: without it "
+                             "POLICY reads NOT_EVALUATED; a policy failure is exit 3, distinct from a "
+                             "crypto failure (exit 1)")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")

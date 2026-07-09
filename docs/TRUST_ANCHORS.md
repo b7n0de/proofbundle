@@ -21,3 +21,35 @@ Rule of thumb: **in-band, self-asserting anchors (the bundle/SD-JWT issuer key, 
 prove internal consistency; out-of-band anchors (log, witness, status keys, the protocol file) are
 where *your* trust decision actually lives.** The signature binds who claimed what; pinning the
 right keys is what makes "who" mean someone you trust.
+
+## Making the pinning machine-readable — a trust policy (v0.1)
+
+The table above is the trust surface; a **trust policy** is where a relying party writes that pinning
+down as a file `verify` can enforce, instead of remembering to pass the right flags by hand. Without
+a policy, `verify` makes NO trust decision and says so (`POLICY: NOT_EVALUATED`); with one
+(`verify receipt.json --policy trust_policy.json`) the policy is evaluated OVER the crypto result and
+its outcome is a separate `POLICY:` line, a separate `policy_ok` JSON field, and exit code **3** on
+failure — distinct from a crypto failure (exit 1), so "crypto fine but not the signer/level I trust"
+is never conflated with "crypto broken".
+
+The policy format (`schema: proofbundle/trust-policy/v0.1`, `schemas/trust_policy_v0_1.schema.json`)
+is snake_case, versioned, **fail-closed** (an unknown field is a parse error — a typo cannot silently
+weaken a policy) and **offline** (trust comes only from the file; no key is ever fetched). A worked
+example is `examples/trust_policy_strict.json`. What it can pin today, mapping onto the anchors above:
+
+| Policy field | Pins | Maps to anchor |
+|---|---|---|
+| `allowed_issuers[].public_key_b64` + `signature.require_expected_signer` | the bundle issuer key — matched by **public key** (kid is a display hint only) | Bundle issuer key |
+| `signature.allowed_algs` | the signature algorithm (e.g. `ed25519`) | Bundle issuer key |
+| `allowed_schema_versions` | the bundle `schema` version | — |
+| `merkle.required_hash_alg` | the Merkle hashing algorithm (anti-alg-confusion) | Samples/Merkle |
+| `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` | RFC 9901 audience / replay / holder binding on the KB-JWT | Holder key |
+| `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
+| `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
+
+**Honest boundary (v0.1):** the `status` section (`reject_self_issued`, `allowed_status_authorities`)
+is accepted so a policy can declare its revocation intent, but `verify --policy` has **no status
+snapshot input** in v0.1 — a policy that ENABLES a status requirement fails closed with a clear
+reason rather than silently passing. Evaluate revocation separately with `verify_status_snapshot`
+until a later phase wires a snapshot input. If `--aud` and the policy's `sd_jwt.expected_aud` are both
+set and differ, that is an ambiguity, not a silent override: `verify` exits 2.
