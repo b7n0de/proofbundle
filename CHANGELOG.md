@@ -6,6 +6,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### BREAKING — `verify` output separates CRYPTO / POLICY / ASSURANCE, and a new exit code 3 (WP-B2)
+- **The human `verify` output no longer prints a bare `=> OK` / `=> FAILED`.** It now prints a
+  context-labelled block so a crypto success can never be read as a policy pass or a truth verdict:
+  `CRYPTO: OK|FAILED` (the only thing the offline core proves), `POLICY: NOT_EVALUATED (no trust
+  policy supplied)`, `ASSURANCE: <issuer's verbatim self-declared level> | n/a`, and `LIMITATIONS:`
+  (the honest "what a signature does NOT mean" line). **A script that greps `verify`'s stdout for
+  `=> OK` must switch to `CRYPTO: OK`** (other subcommands — `verify-proof`, `show-eval`, etc. — keep
+  their existing `=> OK` for now).
+- **New exit code 3.** The `verify` exit-code contract is now `0` = crypto OK (and policy satisfied
+  or none supplied), `1` = crypto/verification failure, `2` = malformed input, `3` = crypto OK but a
+  supplied `--policy` was NOT satisfied. `--policy` itself lands with WP-B3; until then exit 3 cannot
+  occur and `POLICY:` always reads `NOT_EVALUATED`. Documented in `proofbundle verify --help`.
+- **`verify --json` gains a stable single-field contract** (additive; the existing `ok`/`checks`/
+  `matrix`/`meaning` keys are unchanged): `schema_ok`, `signature_ok`, `merkle_ok`, `sd_jwt_ok`,
+  `sd_jwt_issuer_verified`, `key_binding_ok`, `audience_ok`, `nonce_ok`, `freshness_ok`, `anchor_ok`,
+  `witness_ok`, `status_ok`, `assurance_policy_ok`, `crypto_ok`, `policy_ok`, `assurance`,
+  `warnings[]`, `limitations[]`. A check that did not run in the offline core path is `null` (not
+  applicable), **never silently `true`** — in particular `sd_jwt_ok` is `null`, not `true`, when an
+  SD-JWT's issuer signature was not checked (no issuer key supplied), with a warning saying so.
+- **Hardening (verify-lens review):** `decode_eval_claim` now rejects an out-of-enum `assurance_level`
+  on the verify path (closing an ASSURANCE-line injection where a hand-signed claim could embed
+  newlines to forge fake `CRYPTO:`/`POLICY:` lines); deeply-nested JSON maps to the documented
+  malformed exit (2) instead of a raw `RecursionError`; the error-path JSON carries the full field
+  contract so integrators can always read `crypto_ok`.
+- **Migration**: replace any `verify`-stdout `=> OK` grep with `CRYPTO: OK`; treat exit 3 as a new
+  (policy) outcome distinct from 1 (crypto failure). No bundle format change.
+
 ### BREAKING — `merkle.hash_alg` is now a REQUIRED field in SPEC.md and the JSON Schema (WP-B1)
 - **The verifier already rejected a missing `hash_alg`** since v1.6 (`bundle.py` `_require`d it) — this
   closes the documentation/schema half of that gap. `SPEC.md` §5 now states `hash_alg` as `required: yes`

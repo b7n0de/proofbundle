@@ -60,8 +60,8 @@ proofbundle verify receipt.json        # CRYPTO: OK  (the verify itself runs ful
 
 # your own receipt, from a signed payload:
 proofbundle emit --payload-file result.json --new-key signer.key --out receipt.json
-proofbundle verify receipt.json        # exit 0 = crypto OK, 1 = crypto/verification failure,
-                                       #        2 = malformed, 3 = crypto OK but --policy not met
+proofbundle verify receipt.json        # exit 0 = crypto OK, 1 = crypto/verification failure, 2 = malformed
+                                       #   (3 = crypto OK but --policy unmet — --policy lands with WP-B3)
 ```
 
 ## Inspect-native? (METR Task Standard / UK-AISI ecosystem)
@@ -134,7 +134,7 @@ flowchart LR
     A --> R["receipt<br/>one portable file"]
     R --> V{{"proofbundle verify — offline"}}
     V --> C["signature · Merkle inclusion · SD-JWT/KB ·<br/>witness quorum · status list · sample openings"]
-    C --> OK(["=> OK / FAILED"])
+    C --> OK(["CRYPTO: OK / FAILED"])
     style V fill:#D6248A,stroke:#D6248A,color:#fff
     style OK fill:#D6248A,stroke:#D6248A,color:#fff
 ```
