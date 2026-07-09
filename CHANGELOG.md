@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-09
+
+First **2.0.0 final**. Consolidates the 2.0.0b1–b3 pre-release line (below) with the Phase B P0-core
+hardening. **Breaking changes**, each with migration notes in its entry below: `merkle.hash_alg` is now
+REQUIRED; `verify`'s human output replaces the bare `=> OK` with a labelled `CRYPTO:` / `POLICY:` /
+`ASSURANCE:` / `LIMITATIONS:` block; exit code **3** is new (crypto OK but a supplied `--policy` was not
+satisfied, distinct from a crypto failure). New: a machine-readable, fail-closed, offline **trust
+policy** (`verify --policy`); an extended `--version`; a stable `verify --json` single-field contract.
+The experimental TEE-attestation bridge and `anchors[]` stay experimental-gated as in the betas.
+
 ### Added — trust policy v0.1 + `verify --policy` (WP-B3)
 - A relying party's trust decision is now first-class and machine-readable. `verify receipt.json
   --policy trust_policy.json` applies a fail-closed, offline trust decision OVER the crypto result:
