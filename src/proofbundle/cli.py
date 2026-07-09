@@ -6,8 +6,8 @@ import argparse
 import json
 import sys
 
-from . import __version__
-from .bundle import recompute_merkle_root_b64, verify_bundle
+from . import SPEC_REVISION, __version__
+from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
 
@@ -21,6 +21,83 @@ VERIFY_MEANING = (
 VERIFY_NON_MEANING = (
     "NOT that the result is true, the eval well designed, the model safe/fair, or that the score "
     "generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present")
+
+
+# WP-B1 (closes #28): `--version` additionally reports the pinned SPEC.md revision (SPEC_REVISION,
+# kept in sync by tests/test_docs_truth.py) and which optional extras are actually usable in THIS
+# install. Detection is best-effort and fail-safe: a missing/broken extra is silently omitted, never
+# a traceback — this is informational output, not a capability gate. `proofbundle.experimental` warns
+# once on import (by design, so nobody depends on the preview by accident); that warning is suppressed
+# here since merely probing availability for --version is not "using" the preview.
+def _detect_features() -> list:
+    features = []
+    try:
+        import rfc8785  # noqa: F401,PLC0415
+        features.append("eval")
+    except ImportError:
+        pass
+    try:
+        from . import sdjwt as _sdjwt  # noqa: F401,PLC0415
+        features.append("sdjwt")
+    except ImportError:
+        pass
+    try:
+        import opentimestamps  # noqa: F401,PLC0415
+        import rfc3161_client  # noqa: F401,PLC0415
+        import rfc8785  # noqa: F401,PLC0415
+        features.append("anchors[beta]")
+    except ImportError:
+        pass
+    try:
+        # Same probe shape as checkpoint._mldsa_module(): import + touch the class. A
+        # cryptography>=48 build WITHOUT a PQ-capable backend has the `mldsa` module but not the
+        # class — that's an AttributeError, not ImportError (checkpoint.py catches both; mirrored
+        # here, otherwise this specific, real, documented case would crash --version outright).
+        from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: PLC0415
+        mldsa.MLDSA44PublicKey  # noqa: B018
+        features.append("pq")
+    except (ImportError, AttributeError):
+        pass
+    try:
+        import inspect_ai  # noqa: F401,PLC0415
+        features.append("inspect")
+    except ImportError:
+        pass
+    try:
+        import warnings  # noqa: PLC0415
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from .experimental import enclave as _enclave  # noqa: F401,PLC0415
+        features.append("experimental")
+    except ImportError:
+        pass
+    return features
+
+
+def _version_string() -> str:
+    feature_line = ", ".join(_detect_features()) or "(none detected)"
+    return (
+        f"proofbundle {__version__}\n"
+        f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
+        f"schema: proofbundle_v0_1\n"
+        f"features: {feature_line}"
+    )
+
+
+class _VersionAction(argparse.Action):
+    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    The built-in action runs the string through HelpFormatter, which collapses embedded newlines
+    into a single space-joined line — wrong for this multi-line output. Same external contract:
+    ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
+    required subcommand, so ``proofbundle --version`` keeps working with no subcommand given."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS,
+                help="show the package version, spec revision, and detected optional features"):
+        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(_version_string())
+        parser.exit()
 
 
 def _check_matrix(result) -> list:
@@ -433,7 +510,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
     )
-    parser.add_argument("--version", action="version", version=f"proofbundle {__version__}")
+    parser.add_argument("--version", action=_VersionAction)
     sub = parser.add_subparsers(dest="command", required=True)
 
     verify = sub.add_parser("verify", help="verify an evidence bundle JSON file")
