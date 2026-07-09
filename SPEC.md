@@ -1,5 +1,7 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
+Revision: 2026-07-09
+
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
 `proofbundle verify`. The machine-readable companion is
@@ -61,7 +63,7 @@ payload bytes — no pre-hashing, no domain separation.
 
 | field | required | type | meaning |
 |---|---|---|---|
-| `hash_alg` | no | string | If present MUST be `"sha256-rfc6962"` (the default). |
+| `hash_alg` | yes | string | MUST be present and MUST equal `"sha256-rfc6962"` in this schema version (REQUIRED since v1.6; SPEC.md corrected to match the verifier in this revision). A future hashing algorithm MUST register its own distinct `hash_alg` value — a verifier MUST NOT silently default a missing value to `"sha256-rfc6962"`, which is exactly where an algorithm-confusion attack would hide. |
 | `leaf_index` | yes | integer ≥ 0 | 0-based index of the payload leaf in the tree. |
 | `tree_size` | yes | integer ≥ 1 | Number of leaves in the tree. |
 | `inclusion_proof_b64` | yes | array of string | The RFC 6962 inclusion proof: sibling hashes, Base64, leaf-to-root order. |

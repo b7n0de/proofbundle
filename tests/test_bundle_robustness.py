@@ -5,9 +5,9 @@ receipt that fails its own published schema. One red-test per finding."""
 import copy
 import unittest
 
-from proofbundle import verify_bundle
+from proofbundle import recompute_merkle_root_b64, verify_bundle
 from proofbundle.emit import emit_bundle, generate_signer
-from proofbundle.errors import BundleFormatError
+from proofbundle.errors import BundleFormatError, UnsupportedError
 from proofbundle.evalclaim import EvalClaimError, build_eval_claim
 
 
@@ -50,6 +50,42 @@ class TestBundleRobustness(unittest.TestCase):
 
     def test_well_formed_still_ok(self):                         # no false positive
         self.assertTrue(verify_bundle(_bundle()).ok)
+
+    def test_missing_hash_alg_rejected_with_migration_hint(self):   # WP-B1, closes #28
+        # SPEC.md §5 makes merkle.hash_alg REQUIRED (the verifier already enforced this since
+        # v1.6; SPEC.md was the drift). The error must name the missing field AND the fix, since
+        # the realistic cause is a pre-v1.6 hand-authored or archived bundle, not a bug.
+        with self.assertRaises(BundleFormatError) as ctx:
+            verify_bundle(_mut(lambda b: b["merkle"].pop("hash_alg")))
+        msg = str(ctx.exception)
+        self.assertIn("merkle.hash_alg", msg)
+        self.assertIn("sha256-rfc6962", msg)          # migration hint names the concrete fix
+        self.assertIn("REQUIRED", msg)
+
+    def test_missing_hash_alg_rejected_same_way_in_recompute(self):   # WP-B1
+        # recompute_merkle_root_b64 validates hash_alg the SAME way verify_bundle does (bundle.py
+        # comment) — pin both call sites to the shared helper so they cannot drift apart again.
+        with self.assertRaises(BundleFormatError) as ctx:
+            recompute_merkle_root_b64(_mut(lambda b: b["merkle"].pop("hash_alg")))
+        self.assertIn("merkle.hash_alg", str(ctx.exception))
+
+    def test_unsupported_hash_alg_value_rejected(self):           # WP-B1
+        with self.assertRaises(UnsupportedError):
+            verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "sha512-not-a-thing")))
+
+    def test_null_hash_alg_value_rejected_both_call_sites(self):   # LOW fix: shared value-check helper
+        # `hash_alg` is PRESENT (as null) so this exercises the VALUE check, not the presence check —
+        # and the shared `_require_hash_alg` helper must reject it identically at both call sites.
+        with self.assertRaises(UnsupportedError):
+            verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", None)))
+        with self.assertRaises(UnsupportedError):
+            recompute_merkle_root_b64(_mut(lambda b: b["merkle"].__setitem__("hash_alg", None)))
+
+    def test_empty_string_hash_alg_value_rejected_both_call_sites(self):   # LOW fix
+        with self.assertRaises(UnsupportedError):
+            verify_bundle(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "")))
+        with self.assertRaises(UnsupportedError):
+            recompute_merkle_root_b64(_mut(lambda b: b["merkle"].__setitem__("hash_alg", "")))
 
 
 class TestEvalClaimSchemaConformance(unittest.TestCase):

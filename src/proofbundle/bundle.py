@@ -90,6 +90,26 @@ def _reject_unknown(obj: dict, allowed: set, field: str) -> None:
         raise BundleFormatError(f"unknown field(s) in {field}: {sorted(extra)}")
 
 
+def _require_hash_alg(mk: dict) -> str:
+    """``merkle.hash_alg`` is REQUIRED (v1.6+, SPEC.md §5) and its value MUST be the one supported
+    algorithm: a silently-defaulted OR silently-accepted-arbitrary value is exactly where a future
+    multi-alg version would hide an alg-confusion attack. The only realistic way to hit the
+    missing-field case is a bundle emitted before v1.6 — every emitter since then always writes the
+    field — so that error carries a migration hint rather than a bare "missing field". Shared by
+    :func:`verify_bundle` and :func:`recompute_merkle_root_b64` so neither the presence check NOR
+    the value check can drift apart between the two call sites (LOW finding, 2026-07-09: the value
+    check used to be duplicated separately in each function)."""
+    if "hash_alg" not in mk:
+        raise BundleFormatError(
+            "missing field merkle.hash_alg — REQUIRED since v1.6 (SPEC.md §5). Migrate a "
+            'pre-v1.6 bundle by adding "hash_alg": "sha256-rfc6962" to its merkle object; '
+            "every proofbundle emitter since v1.6 writes this field automatically.")
+    hash_alg = mk["hash_alg"]
+    if hash_alg != "sha256-rfc6962":
+        raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
+    return hash_alg
+
+
 def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file."""
     with open(path, "r", encoding="utf-8") as handle:
@@ -132,11 +152,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     # 2. merkle inclusion of the payload
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     _reject_unknown(mk, _MERKLE_KEYS, "merkle")
-    # v1.6 (external review): hash_alg is REQUIRED — the emitter always writes it, and a
-    # silent default is exactly where a future multi-alg version would hide an alg-confusion.
-    hash_alg = _require(mk, "hash_alg", "merkle.hash_alg")
-    if hash_alg != "sha256-rfc6962":
-        raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
+    _require_hash_alg(mk)   # presence + value both enforced by the shared helper
     leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
     tree_size = _require_int(mk, "tree_size", "merkle.tree_size")
     proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")   # required per SPEC §5
@@ -238,11 +254,11 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
         raise BundleFormatError("bundle must be a JSON object")
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
-    # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted (release-review #13:
-    # the docstring claimed strict-as-verify_bundle but this defaulted a missing hash_alg; verify_bundle _require's it).
-    hash_alg = _require(mk, "hash_alg", "merkle.hash_alg")
-    if hash_alg != "sha256-rfc6962":
-        raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
+    # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value
+    # checked (release-review #13: the docstring claimed strict-as-verify_bundle but this defaulted a
+    # missing hash_alg; the shared `_require_hash_alg` helper above keeps both call sites' presence AND
+    # value checks from drifting apart).
+    _require_hash_alg(mk)
     leaf_index = _require_int(mk, "leaf_index", "merkle.leaf_index")
     tree_size = _require_int(mk, "tree_size", "merkle.tree_size")
     proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")

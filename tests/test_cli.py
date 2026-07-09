@@ -1,14 +1,20 @@
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 
 from make_example import build_bundle  # noqa: E402
 
+from proofbundle import SPEC_REVISION, __version__  # noqa: E402
+from proofbundle.bundle import SCHEMA  # noqa: E402
 from proofbundle.cli import main  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 class TestCli(unittest.TestCase):
@@ -85,6 +91,91 @@ class TestCli(unittest.TestCase):
                              data["merkle_root"]["recomputed_b64"])
         finally:
             os.unlink(path)
+
+    def test_version_prints_version_spec_revision_schema_and_features(self):   # WP-B1, closes #28
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        lines = buf.getvalue().rstrip("\n").splitlines()
+        self.assertEqual(lines[0], f"proofbundle {__version__}")
+        self.assertEqual(lines[1], f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})")
+        self.assertEqual(lines[2], "schema: proofbundle_v0_1")
+        self.assertTrue(lines[3].startswith("features:"))
+
+    def test_version_works_with_no_subcommand_given(self):   # unchanged contract of the old
+        # action="version": --version must short-circuit BEFORE argparse's "command required" check.
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_version_end_to_end_via_process_boundary(self):   # WP-B1: the real console-script path
+        result = subprocess.run(
+            [sys.executable, "-m", "proofbundle.cli", "--version"],
+            capture_output=True, text=True, cwd=REPO,
+            env={"PYTHONPATH": str(REPO / "src")})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")   # no stray ExperimentalWarning or similar noise
+        lines = result.stdout.rstrip("\n").splitlines()
+        self.assertEqual(lines[0], f"proofbundle {__version__}")
+        self.assertIn(f"rev {SPEC_REVISION}", lines[1])
+        self.assertEqual(lines[2], "schema: proofbundle_v0_1")
+
+    def test_feature_probes_swallow_import_attribute_and_generic_exceptions(self):
+        # Verify-Linse 2 (2026-07-09): _detect_features()'s "never a traceback" contract must hold
+        # for EVERY realistic broken-extra failure mode, not just ImportError. In a .venv with all
+        # extras installed none of the real except-branches ever fire, so this test forces each of
+        # the three shapes seen in the wild deterministically via a targeted `builtins.__import__`
+        # patch (delegating everything else to the real import machinery):
+        #   1. ImportError      — a plain missing extra (`rfc8785`, backs the "eval" probe).
+        #   2. AttributeError   — a present-but-incomplete extra: the documented
+        #                         cryptography>=48-without-PQ-backend case, where the `mldsa` module
+        #                         exists but `MLDSA44PublicKey` does not. Regression test for the
+        #                         pq-AttributeError fix.
+        #   3. generic Exception — an ABI-mismatch/partial-install crash mid-import (`inspect_ai`).
+        import builtins
+        import types
+        from unittest import mock
+
+        from proofbundle.cli import _detect_features
+
+        real_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if level == 0 and name == "rfc8785":                       # Case 1: ImportError
+                raise ImportError("simulated: rfc8785 not installed")
+            if (level == 0 and name == "cryptography.hazmat.primitives.asymmetric"
+                    and fromlist and "mldsa" in fromlist):              # Case 2: AttributeError (pq)
+                fake_asym = types.ModuleType("cryptography.hazmat.primitives.asymmetric")
+                fake_asym.mldsa = types.ModuleType(
+                    "cryptography.hazmat.primitives.asymmetric.mldsa")  # no MLDSA44PublicKey attribute
+                return fake_asym
+            if level == 0 and name == "inspect_ai":                     # Case 3: generic Exception
+                raise RuntimeError("simulated: ABI-mismatch/partial-install crash")
+            return real_import(name, globals, locals, fromlist, level)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            features = _detect_features()   # must not raise — this IS the assertion for all 3 cases
+
+        self.assertNotIn("eval", features)      # Case 1 fired: the probe swallowed ImportError
+        self.assertNotIn("pq", features)        # Case 2 fired: the probe swallowed AttributeError
+        self.assertNotIn("inspect", features)   # Case 3 fired: the probe swallowed RuntimeError
+
+        # Regression pin at the real call site: --version itself must survive all three too.
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            with contextlib.redirect_stdout(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        lines = buf.getvalue().rstrip("\n").splitlines()
+        self.assertTrue(lines[3].startswith("features:"))
+        self.assertNotIn("eval", lines[3])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ import re
 import unittest
 from pathlib import Path
 
+from proofbundle import SPEC_REVISION
+
 REPO = Path(__file__).resolve().parents[1]
 _dl_spec = importlib.util.spec_from_file_location("doc_link_check", REPO / "scripts" / "doc_link_check.py")
 doc_link_check = importlib.util.module_from_spec(_dl_spec)
@@ -33,6 +35,16 @@ class TestDocsTruth(unittest.TestCase):
         self.assertIsNotNone(py_v, "pyproject.toml has no version")
         self.assertEqual(cff_v.group(1).strip('"'), py_v.group(1),
                          "CITATION.cff version must equal pyproject version (bump both together)")
+
+    def test_spec_revision_matches_spec_md(self):
+        # WP-B1 (closes #28): `proofbundle --version` reports SPEC_REVISION as the pinned SPEC.md
+        # revision it implements. If the two drift apart, --version would silently lie about which
+        # spec text this build actually matches — pin them together like CITATION.cff/pyproject above.
+        spec_md = (REPO / "SPEC.md").read_text(encoding="utf-8")
+        m = re.search(r"(?m)^Revision:\s*(\S+)", spec_md)
+        self.assertIsNotNone(m, "SPEC.md has no top-of-file 'Revision:' line")
+        self.assertEqual(SPEC_REVISION, m.group(1),
+                         "SPEC_REVISION (src/proofbundle/__init__.py) must equal SPEC.md's Revision: line")
 
     def test_no_broken_internal_doc_links(self):
         # SH5: a Markdown link to a local file that 404s reads as abandonment for a tool that sells
