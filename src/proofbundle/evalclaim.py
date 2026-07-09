@@ -291,6 +291,13 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         _thr = claim.get("threshold")
         if not (isinstance(_thr, str) and _DECIMAL_RE.match(_thr)):
             return None
+        # assurance_level is issuer-declared and (since WP-B2) printed VERBATIM on the CLI's ASSURANCE
+        # line. A value outside the enum — e.g. one carrying embedded newlines to forge extra fake
+        # CRYPTO:/POLICY: lines (verify-lens L3, 2026-07-09) — must be rejected on the VERIFY path too:
+        # the blessed emit path already enforces the enum (build_eval_claim, emit_eval_receipt), so a
+        # hand-signed claim must not bypass it (the emit-vs-verify asymmetry class this module guards).
+        if claim.get("assurance_level") not in ASSURANCE_LEVELS:
+            return None
         samples = claim.get("samples")
         if samples is not None:
             if not isinstance(samples, dict) or set(samples) != {"root_b64", "n", "leaf_alg"}:

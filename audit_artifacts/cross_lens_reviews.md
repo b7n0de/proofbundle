@@ -100,3 +100,69 @@ schema's stale `default`. Both are included in this commit set, not left as foll
     GitHub. This WP closes it from the owner's side; the maintainer should acknowledge/re-triage
     the assignment when merging (attribution courtesy), which is outside what a branch commit can
     do. Flagged, not something this change can resolve.
+
+---
+
+# Cross-lens review — WP-B2: CRYPTO/POLICY/ASSURANCE separation + exit-code 3 + stable JSON fields
+
+Six-lens adversarial pre-land review (Claude sonnet subagents), per the WP-B2 matrix row (patch
+cross-checked by the Crypto + Ecosystem lenses; typical conflict: "label suggests more than crypto
+proves; JSON contract unstable"). Build commit `d602802`, fixes commit `3d299f5`.
+
+## A — Evidence (what proves conformance)
+- `verify` human output relabelled `CRYPTO:` / `POLICY:` / `ASSURANCE:` / `LIMITATIONS:`; the bare
+  `=> OK` marker removed for `verify` (test asserts `assertNotIn("=> OK")`).
+- `verify --json` stable single-field contract (`schema_ok … crypto_ok policy_ok assurance
+  sd_jwt_issuer_verified warnings[] limitations[]`); a check that did not run in the offline core
+  path is `null`, never silently `true`; existing keys (`ok`/`checks`/`matrix`/`meaning`) untouched.
+- Exit-code contract 0/1/2/3 via pure `_verify_exit_code`; documented in `verify --help` + README.
+- `THREAT_MODEL.md` "Misuse: reading OK as truth" (three operator-error examples).
+
+## B — Break (the ten findings the lenses surfaced)
+- **[HIGH] sd_jwt_ok silently true without an issuer key** (L1+L2, convergent): `sd_jwt_vc` is
+  outside `payload_b64` (Ed25519 does not cover it); with no `issuer_public_key_b64` the issuer
+  signature is never checked, yet the `else True` ternary read the missing check as a pass — a
+  self-consistent unsigned SD-JWT reported `sd_jwt_ok: true`.
+- **[HIGH] ASSURANCE-line injection** (L3): `decode_eval_claim` did not enum-validate
+  `assurance_level` (the emit path does), so a hand-signed claim could embed newlines to print
+  forged `CRYPTO:`/`POLICY:` lines in the human output.
+- **[MED] Exit-2 error JSON carried no contract fields** (L2) → integrator KeyError on `crypto_ok`.
+- **[MED] "not an eval receipt" false when a real receipt's crypto fails** (L3+L4).
+- **[MED] Deeply-nested JSON → raw RecursionError + exit 1** instead of malformed exit 2 (L3).
+- **[MED] `--policy`/exit-3 documented as if already working** in epilog + README (L6).
+- **[MED] CHANGELOG missing a WP-B2 BREAKING entry** for the `=> OK` removal + new exit 3 (L6).
+- **[MED] True path of `sd_jwt_ok`/`key_binding_ok`/`audience_ok`/`nonce_ok` untested** — L5's
+  mutation (force them to null) stayed green.
+- **[LOW] "§1.4" phantom citation** (from the prompt, no such published doc) in docstrings/tests (L6).
+- **[LOW] Mermaid diagram still showed `=> OK`** for the verify flow (L6).
+
+## C — Fix (all ten, commit `3d299f5`)
+- `sd_jwt_ok` fail-closed: `null` when structure ok but issuer sig unchecked, `False` when structure
+  broken, `True` only when structure + issuer sig both pass; new granular `sd_jwt_issuer_verified`
+  field + a warning.
+- `decode_eval_claim` rejects out-of-enum `assurance_level` (closes the emit-vs-verify asymmetry);
+  `_safe_line` neutralises control chars as defense-in-depth (also for WP-B3's `_policy_line`).
+- Error-path JSON emits the full field contract (`crypto_ok=false`, checks `null`).
+- ASSURANCE `n/a` distinguishes "crypto verification failed" vs "not an eval receipt".
+- `load_bundle` maps `RecursionError` → `BundleFormatError` (exit 2) for all consumers.
+- Epilog + README mark `--policy`/exit-3 as "lands with WP-B3"; CHANGELOG WP-B2 BREAKING entry added.
+- New tests exercise the real key-bound SD-JWT presentation (green + red counter-tests); "§1.4" →
+  `verify --help`; Mermaid `=> OK` → `CRYPTO: OK / FAILED`.
+
+## D — Cross-review (Crypto + Ecosystem lenses)
+- **Crypto (L1)**: confirmed `verify_bundle`/crypto core UNTOUCHED; the change is presentation-only.
+  `crypto_ok == result.ok`; 0-check bypass unreachable (ed25519 + merkle always added). After the
+  fix, `sd_jwt_ok` no longer overclaims an unsigned SD-JWT.
+- **Ecosystem (L2/L6)**: JSON contract additive — no key collision (23 keys with `--verbose`),
+  error path now field-complete; `--policy`/exit-3 honestly WP-B3-pending; CHANGELOG BREAKING entry
+  covers the `=> OK` grep break.
+- **No-fake (L4)**: zero overclaims; ASSURANCE confirmed verbatim; commit numbers (511 tests, ruff,
+  mypy) independently re-verified.
+
+## Residual risk (honest)
+- Other verify subcommands (`verify-proof`/`show-eval`/`verify-enclave`/…) keep their bare `=> OK`.
+  They carry per-check `[PASS]` context lines (not "context-free"), but are not yet under the
+  CRYPTO/POLICY split. Deferred — WP-B2 scope is the core `verify` + meaning-block path. Documented.
+- `audience_ok`/`nonce_ok` mirror `key_binding_ok` when requested (the aud/nonce equality IS inside
+  that check); a nonce-only mismatch shows both False (conservative/fail-closed, not a security gap).
+- The exit-3 CLI trigger (`--policy`) lands with WP-B3; here it is unit-tested as a pure function.
