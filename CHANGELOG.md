@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### BREAKING — `merkle.hash_alg` is now a REQUIRED field in SPEC.md and the JSON Schema (WP-B1, closes #28)
+### BREAKING — `merkle.hash_alg` is now a REQUIRED field in SPEC.md and the JSON Schema (WP-B1)
 - **The verifier already rejected a missing `hash_alg`** since v1.6 (`bundle.py` `_require`d it) — this
   closes the documentation/schema half of that gap. `SPEC.md` §5 now states `hash_alg` as `required: yes`
   (was `no`, contradicting the code) with an explicit anti-algorithm-confusion MUST: a verifier MUST NOT
@@ -20,6 +20,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Migration**: add `"hash_alg": "sha256-rfc6962"` to the bundle's `merkle` object. The verifier's error
   message for a missing field now states this explicitly (`bundle.py::_require_hash_alg`, shared by
   `verify_bundle` and `recompute_merkle_root_b64` so the two call sites cannot drift apart again).
+- **Attribution correction**: this entry is a SEPARATE breaking fix and does not close any tracked
+  issue. Issue #28 is scoped exclusively to `--version` printing the pinned spec revision — see the
+  entry directly below, which is the one that actually closes it.
 
 ### BREAKING — `proofbundle --version` output is now multi-line (closes #28)
 - Was a single line (`proofbundle <version>`). Now four lines: package version, the pinned `SPEC.md`
