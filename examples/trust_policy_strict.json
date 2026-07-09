@@ -1,0 +1,18 @@
+{
+  "schema": "proofbundle/trust-policy/v0.1",
+  "policy_id": "example-strict-eval-policy",
+  "allowed_schema_versions": ["proofbundle/v0.1"],
+  "allowed_issuers": [
+    {"issuer": "Example Auditor", "public_key_b64": "REPLACE_WITH_THE_EXPECTED_ISSUER_PUBLIC_KEY_BASE64", "kid": "example-2026"}
+  ],
+  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": true},
+  "merkle": {"required_hash_alg": "sha256-rfc6962"},
+  "sd_jwt": {
+    "require_key_binding_when_cnf_present": true,
+    "expected_aud": null,
+    "require_nonce": false,
+    "max_iat_age_seconds": null
+  },
+  "status": {"reject_self_issued": false, "allowed_status_authorities": []},
+  "assurance": {"minimum_level": "reproduced", "reject_self_attested_without_prereg": true}
+}

@@ -61,7 +61,9 @@ proofbundle verify receipt.json        # CRYPTO: OK  (the verify itself runs ful
 # your own receipt, from a signed payload:
 proofbundle emit --payload-file result.json --new-key signer.key --out receipt.json
 proofbundle verify receipt.json        # exit 0 = crypto OK, 1 = crypto/verification failure, 2 = malformed
-                                       #   (3 = crypto OK but --policy unmet — --policy lands with WP-B3)
+
+# apply YOUR trust decision — verify makes NO trust decision on its own:
+proofbundle verify receipt.json --policy trust_policy.json   # POLICY: OK | FAIL (exit 3) | NOT_EVALUATED
 ```
 
 ## Inspect-native? (METR Task Standard / UK-AISI ecosystem)

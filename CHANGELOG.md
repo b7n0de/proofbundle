@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — trust policy v0.1 + `verify --policy` (WP-B3)
+- A relying party's trust decision is now first-class and machine-readable. `verify receipt.json
+  --policy trust_policy.json` applies a fail-closed, offline trust decision OVER the crypto result:
+  the signer (matched by **public key**, kid is a hint only), signature alg, bundle schema, Merkle
+  hash alg, SD-JWT audience/nonce/key-binding, eval-claim freshness, and assurance level /
+  pre-registration. Without a policy `verify` makes NO trust decision (`POLICY: NOT_EVALUATED`); a
+  policy failure is the new exit **3** (crypto OK but policy unmet), distinct from a crypto failure
+  (exit 1). A policy is never evaluated on bytes whose crypto failed.
+- Policy format `proofbundle/trust-policy/v0.1` (`schemas/trust_policy_v0_1.schema.json`): snake_case,
+  versioned, **fail-closed** (an unknown field is a parse error — a typo cannot silently weaken a
+  policy), **offline** (no key is ever fetched). Worked example: `examples/trust_policy_strict.json`.
+  `verify --json` gains `policy_ok`, `policy_id`, `policy_checks[]`.
+- Honest v0.1 boundary: the `status` section is accepted so a policy can declare revocation intent,
+  but `verify --policy` has no status-snapshot input in v0.1 — an ENABLED status requirement fails
+  closed with a clear reason (evaluate revocation separately with `verify_status_snapshot`). A `--aud`
+  flag that conflicts with the policy's `sd_jwt.expected_aud` is exit 2 (ambiguity, never a silent
+  override).
+- Docs: `docs/TRUST_ANCHORS.md` gains the machine-readable policy profile; the README quickstart shows
+  a policy example with the explicit note that verify makes no trust decision without one.
+
 ### BREAKING — `verify` output separates CRYPTO / POLICY / ASSURANCE, and a new exit code 3 (WP-B2)
 - **The human `verify` output no longer prints a bare `=> OK` / `=> FAILED`.** It now prints a
   context-labelled block so a crypto success can never be read as a policy pass or a truth verdict:

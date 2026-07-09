@@ -166,3 +166,60 @@ proves; JSON contract unstable"). Build commit `d602802`, fixes commit `3d299f5`
 - `audience_ok`/`nonce_ok` mirror `key_binding_ok` when requested (the aud/nonce equality IS inside
   that check); a nonce-only mismatch shows both False (conservative/fail-closed, not a security gap).
 - The exit-3 CLI trigger (`--policy`) lands with WP-B3; here it is unit-tested as a pure function.
+
+---
+
+# Cross-lens review — WP-B3: trust policy v0.1 + `verify --policy`
+
+Six-lens adversarial pre-land review (Claude sonnet subagents) per the WP-B3 matrix row (cross-checked
+by the SD-JWT + Governance lenses; typical conflict: "policy demands fields a profile can't supply;
+fail-open on partial config"). Build commit `e93620c`, fixes commit follows.
+
+## A — Evidence
+- `schemas/trust_policy_v0_1.schema.json`, `src/proofbundle/policy.py` (`load_policy` fail-closed
+  parse + `evaluate_policy` over the crypto result), `verify --policy` (crypto-first), example + docs.
+
+## B — Break (findings; the SD-JWT section carried the two most serious)
+- **[HIGH] `require_nonce` fail-OPEN** (L1 F1 + L2 F1, convergent): `evaluate_policy` re-derived the
+  nonce from a standalone `verify_key_binding()` and checked only presence, never the crypto verdict —
+  an unsigned/unauthenticated KB-JWT with an attacker-picked nonce gave `POLICY: OK`, exit 0. The
+  sibling `expected_aud` is safe because it routes through `verify_bundle`.
+- **[MED] `require_key_binding_when_cnf_present` missing `else`** (L1 F2): an attached-but-unverified
+  KB segment fell through both branches → the declared requirement produced zero audit entries.
+- **[MED] `evaluate_policy` did not enforce `result.ok` itself** (L2 F2): a public-API consumer that
+  didn't replicate the CLI's `crypto_ok` gate could get `policy_ok=True` on tampered bytes.
+- **[MED] type-confusion — `signature.allowed_algs` as a string** (L1 F3 + L3 F1 + L4 F1, convergent):
+  no list-check → Python `in` degraded to substring match (`"ed25519" in "xed25519y"`). All other
+  declared field types were unchecked too (L4 F2).
+- **[MED] the JSON Schema was never applied/tested** (L4 F3): pure documentation, drift-prone.
+- **[MED] `load_policy` not fail-closed on `RecursionError`** (L3 F2): deep JSON escaped as a raw
+  traceback, against the module's own contract.
+- **[MED] freshness only stale-tested; `all()`→`any()` and schema/alg checks untested; policy-only
+  `expected_aud` fallback untested** (L5 F1–F4): mutations stayed green.
+- **[LOW] no defensive copy on dict input** (L4 F4); **[LOW] no TUF-like key rotation, undocumented in
+  the new policy chapter** (L6).
+- L3 confirmed injection is already hardened (`_safe_line` + `repr`); L6 found the artifacts otherwise
+  fully consistent + live-verified.
+
+## C — Fix (all fixed)
+- `require_nonce` now gates on the authoritative `sd-jwt-key-binding` check's `.ok` — no verified KB →
+  fail closed (an unauthenticated nonce provides no replay protection). `require_key_binding` gains the
+  else-branch (unverified attached KB → fail closed). `evaluate_policy` returns `policy_ok=None` on
+  `not result.ok` itself. `load_policy` type-checks every declared field (list-of-str / bool / str),
+  catches `RecursionError`→`PolicyError`, and deep-copies a dict input. `TestSchemaConsistency` +
+  `TestVerifyLensFixes` (schema↔example↔parser, the substring red-test, all-vs-any, freshness-fresh,
+  require_nonce fail-closed + real-True path, policy-only aud). TRUST_ANCHORS.md documents the
+  require_nonce value-binding boundary + the no-key-rotation limit.
+
+## D — Cross-review (SD-JWT + Governance lenses)
+- **SD-JWT (L2)**: after the fix, the nonce/key-binding checks route through the crypto layer's
+  authoritative verdict, matching `expected_aud`; assurance ordering + freshness confirmed correct.
+- **Governance (L6)**: v0.1 policy = static pinned-key authority (like a sigstore
+  `ClusterImagePolicy.authorities[].key` or an in-toto functionary pin); no signature threshold (a
+  bundle carries one signer) and no key rotation — now stated in TRUST_ANCHORS.md, no hidden overclaim.
+
+## Residual risk (honest)
+- `require_nonce` binds nonce PRESENCE in a verified KB; binding the nonce VALUE still needs `--nonce`
+  (documented), and a policy-only `expected_nonce` field (symmetric to `expected_aud`) is a
+  forward-compatible follow-up, not in v0.1.
+- `status` remains fail-closed-when-enabled (no snapshot input in v0.1).
