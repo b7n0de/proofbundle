@@ -28,14 +28,13 @@
     },
     "merkle": {
       "type": "object",
-      "required": ["leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"],
+      "required": ["hash_alg", "leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"],
       "additionalProperties": false,
       "properties": {
         "hash_alg": {
           "type": "string",
           "const": "sha256-rfc6962",
-          "default": "sha256-rfc6962",
-          "description": "RFC 6962 / RFC 9162 SHA-256 tree hashing."
+          "description": "RFC 6962 / RFC 9162 SHA-256 tree hashing. REQUIRED (SPEC.md §5) — no `default`: a verifier MUST NOT silently supply this value when the field is absent."
         },
         "leaf_index": { "type": "integer", "minimum": 0 },
         "tree_size": { "type": "integer", "minimum": 1 },
