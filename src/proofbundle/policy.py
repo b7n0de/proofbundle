@@ -18,6 +18,7 @@ Design invariants:
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import Union
 
@@ -57,6 +58,28 @@ def _require_dict(value, where: str) -> dict:
     return value
 
 
+def _require_bool(obj: dict, key: str, where: str) -> None:
+    """A present flag MUST be a real JSON boolean — a string like "false" is truthy and would
+    silently flip a fail-closed toggle (the schema declares these boolean)."""
+    if key in obj and not isinstance(obj[key], bool):
+        raise PolicyError(f"{where}.{key} must be a boolean (true/false)")
+
+
+def _require_str_or_null(obj: dict, key: str, where: str) -> None:
+    if key in obj and obj[key] is not None and not isinstance(obj[key], str):
+        raise PolicyError(f"{where}.{key} must be a string or null")
+
+
+def _require_list_of_str(obj: dict, key: str, where: str) -> None:
+    """A present list field MUST be a JSON array of strings — a bare string would degrade Python's
+    ``in`` from set-membership to SUBSTRING matching in evaluate_policy, a real bypass (verify-lens
+    L1/L3/L4, 2026-07-09: allowed_algs="xed25519y" matched "ed25519")."""
+    if key in obj:
+        val = obj[key]
+        if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+            raise PolicyError(f"{where}.{key} must be a list of strings")
+
+
 def load_policy(source: Union[str, dict]) -> dict:
     """Parse and structurally validate a trust policy, fail-closed. ``source`` is a path or a dict.
 
@@ -67,10 +90,12 @@ def load_policy(source: Union[str, dict]) -> dict:
         try:
             with open(source, encoding="utf-8") as handle:
                 policy = json.load(handle)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:   # RecursionError: deeply-nested JSON → fail-closed, not a raw traceback (verify-lens L3)
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
-        policy = source
+        # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object
+        # before evaluate_policy must not be able to bypass these checks — evaluate the copy.
+        policy = copy.deepcopy(source)
     policy = _require_dict(policy, "trust policy")
 
     if policy.get("schema") != POLICY_SCHEMA:
@@ -80,31 +105,49 @@ def load_policy(source: Union[str, dict]) -> dict:
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
 
-    if "allowed_schema_versions" in policy and not isinstance(policy["allowed_schema_versions"], list):
-        raise PolicyError("allowed_schema_versions must be a list")
+    # Every declared field's TYPE is enforced (verify-lens L4/L3), not just its presence — the schema
+    # declares these types and the hand-rolled parser must match it, or a mistyped field silently
+    # weakens the policy (the substring-match bug for a string-not-list allowed_algs).
+    _require_list_of_str(policy, "allowed_schema_versions", "trust policy")
+    if "allowed_issuers" in policy and not isinstance(policy["allowed_issuers"], list):
+        raise PolicyError("allowed_issuers must be a list")
     for issuer in policy.get("allowed_issuers", []) or []:
         issuer = _require_dict(issuer, "allowed_issuers[]")
         _reject_unknown(issuer, _ISSUER_KEYS, "allowed_issuers[]")
         if not (isinstance(issuer.get("public_key_b64"), str) and issuer["public_key_b64"]):
             raise PolicyError("each allowed_issuers[] entry needs a non-empty public_key_b64")
+        _require_str_or_null(issuer, "issuer", "allowed_issuers[]")
+        _require_str_or_null(issuer, "kid", "allowed_issuers[]")
     if "signature" in policy:
-        _reject_unknown(_require_dict(policy["signature"], "signature"), _SIG_KEYS, "signature")
+        sig = _require_dict(policy["signature"], "signature")
+        _reject_unknown(sig, _SIG_KEYS, "signature")
+        _require_list_of_str(sig, "allowed_algs", "signature")
+        _require_bool(sig, "require_expected_signer", "signature")
     if "merkle" in policy:
-        _reject_unknown(_require_dict(policy["merkle"], "merkle"), _MERKLE_KEYS, "merkle")
+        mk = _require_dict(policy["merkle"], "merkle")
+        _reject_unknown(mk, _MERKLE_KEYS, "merkle")
+        _require_str_or_null(mk, "required_hash_alg", "merkle")
     if "sd_jwt" in policy:
         sdj = _require_dict(policy["sd_jwt"], "sd_jwt")
         _reject_unknown(sdj, _SDJWT_KEYS, "sd_jwt")
+        _require_bool(sdj, "require_key_binding_when_cnf_present", "sd_jwt")
+        _require_str_or_null(sdj, "expected_aud", "sd_jwt")
+        _require_bool(sdj, "require_nonce", "sd_jwt")
         mia = sdj.get("max_iat_age_seconds")
         if mia is not None and (isinstance(mia, bool) or not isinstance(mia, int) or mia < 0):
             raise PolicyError("sd_jwt.max_iat_age_seconds must be a non-negative integer or null")
     if "status" in policy:
-        _reject_unknown(_require_dict(policy["status"], "status"), _STATUS_KEYS, "status")
+        st = _require_dict(policy["status"], "status")
+        _reject_unknown(st, _STATUS_KEYS, "status")
+        _require_bool(st, "reject_self_issued", "status")
+        _require_list_of_str(st, "allowed_status_authorities", "status")
     if "assurance" in policy:
         asr = _require_dict(policy["assurance"], "assurance")
         _reject_unknown(asr, _ASSURANCE_KEYS, "assurance")
         lvl = asr.get("minimum_level")
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
+        _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
     return policy
 
 
@@ -128,6 +171,12 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     def add(name: str, ok: bool, detail: str = "") -> None:
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+    # A policy is NEVER evaluated on unverified bytes (verify-lens L2): enforce the module invariant
+    # HERE, not only in the CLI caller, so any public-API consumer of evaluate_policy is safe too.
+    if not getattr(result, "ok", False):
+        return {"policy_ok": None, "checks": [],
+                "reason": "crypto verification did not pass — policy not evaluated"}
 
     sig = bundle.get("signature") or {}
 
@@ -179,21 +228,35 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
     if sdj.get("require_key_binding_when_cnf_present"):
         # verify_bundle already fails closed on a cnf-bound SD-JWT without a KB-JWT; reflect it here so
-        # the policy states the requirement explicitly. If the crypto result carries the key-binding
-        # check, its outcome is authoritative.
+        # the policy states the requirement explicitly. The crypto result's sd-jwt-key-binding check is
+        # authoritative when present.
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
         if kb_check is not None:
             add("policy:key_binding_present", kb_check.ok,
                 "key binding verified" if kb_check.ok else f"key binding failed: {kb_check.detail}")
-        elif kb is None or not kb.get("present"):
-            # no SD-JWT / no KB-JWT and the verifier did not require one (no cnf) — the policy asked for
-            # a KB when cnf is present; with no cnf there is nothing to require, so this passes vacuously.
+        elif kb is not None and kb.get("present"):
+            # a KB-shaped segment IS attached but no crypto verdict exists for it (no cnf AND no issuer
+            # key → sd-jwt-key-binding was never run). An UNVERIFIED KB is not an acceptable "key
+            # binding present" → fail closed (verify-lens L1, the previously missing else branch).
+            add("policy:key_binding_present", False,
+                "a KB-JWT segment is attached but its issuer signature was never verified — cannot "
+                "confirm key binding (fail-closed; supply sd_jwt_vc.issuer_public_key_b64)")
+        else:
+            # genuinely no cnf holder key bound and no KB attached → nothing to require, vacuous pass.
             add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
     if sdj.get("require_nonce"):
-        has_nonce = bool(kb and kb.get("present") and kb.get("nonce"))
-        add("policy:nonce_present", has_nonce,
-            "KB-JWT carries a nonce" if has_nonce
-            else "policy requires a KB-JWT nonce but none is present")
+        # A nonce only means anything when it comes from a VERIFIED key binding (verify-lens L1/L2,
+        # HIGH): reading kb["nonce"] straight from an unauthenticated/unsigned KB-JWT was a false PASS.
+        # Gate on the authoritative crypto verdict (the sd-jwt-key-binding check's .ok); no verified KB
+        # → fail closed (an unauthenticated nonce provides no replay protection). This enforces the
+        # PRESENCE of a nonce in a verified KB-JWT; binding the nonce VALUE to this transaction still
+        # requires --nonce (RFC 9901 challenge, exactly like --aud) — see docs/TRUST_ANCHORS.md.
+        kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
+        verified_nonce = bool(kb_check is not None and kb_check.ok and kb and kb.get("nonce"))
+        add("policy:nonce_present", verified_nonce,
+            "verified KB-JWT carries a nonce" if verified_nonce
+            else "policy requires a nonce from a VERIFIED key binding, but none is present "
+                 "(fail-closed: an unauthenticated nonce provides no replay protection)")
 
     # 6. status — verify --policy v0.1 has NO status-snapshot input, so an ENABLED status requirement
     #    cannot be evaluated here. Fail closed rather than silently pass (the honest boundary).

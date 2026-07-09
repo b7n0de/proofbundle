@@ -47,9 +47,19 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
 
-**Honest boundary (v0.1):** the `status` section (`reject_self_issued`, `allowed_status_authorities`)
-is accepted so a policy can declare its revocation intent, but `verify --policy` has **no status
-snapshot input** in v0.1 — a policy that ENABLES a status requirement fails closed with a clear
-reason rather than silently passing. Evaluate revocation separately with `verify_status_snapshot`
-until a later phase wires a snapshot input. If `--aud` and the policy's `sd_jwt.expected_aud` are both
-set and differ, that is an ambiguity, not a silent override: `verify` exits 2.
+**Honest boundaries (v0.1):**
+
+- The `status` section (`reject_self_issued`, `allowed_status_authorities`) is accepted so a policy
+  can declare its revocation intent, but `verify --policy` has **no status snapshot input** in v0.1 —
+  a policy that ENABLES a status requirement fails closed with a clear reason rather than silently
+  passing. Evaluate revocation separately with `verify_status_snapshot` until a later phase wires a
+  snapshot input.
+- `sd_jwt.require_nonce` enforces that a nonce is present in a **verified** Key Binding JWT (an
+  unauthenticated nonce is refused, fail-closed). It does NOT by itself bind the nonce *value* to your
+  transaction — that is a challenge you supply with `--nonce`, exactly as `sd_jwt.expected_aud` /
+  `--aud` bind the audience. Use `--nonce` for real challenge-response.
+- If `--aud` and the policy's `sd_jwt.expected_aud` are both set and differ, that is an ambiguity, not
+  a silent override: `verify` exits 2.
+- There is **no key-rotation or root-of-trust delegation** (no TUF-like signed root/targets roles with
+  `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list; rotating a signer means
+  re-distributing the policy file. A trust policy pins keys; it does not manage their lifecycle.
