@@ -278,6 +278,30 @@ class ForkPrIsolationGuard(unittest.TestCase):
                              "steps": [{"env": {"T": "${{ secrets.github_token }}"}, "run": "true"}]}}}
         self.assertEqual([x for x in _analyze(wf) if "secret" in x], [])
 
+    def test_no_secret_value_ever_reaches_output(self):
+        """Reachability proof (CodeQL clear-text-logging triage): the guard reports secret NAMES
+        (public YAML identifiers) but a secret VALUE can never reach the output — the guard is a
+        static text analyser and never has a value. A workflow carrying BOTH a `secrets.NAME`
+        reference AND a marked plaintext value must yield the NAME and never the VALUE."""
+        import json as _json
+        import os
+        import shutil
+        import tempfile
+        d = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(d, ".github/workflows"))
+            with open(os.path.join(d, ".github/workflows/probe.yml"), "w") as fh:
+                fh.write("on:\n  pull_request_target:\n    branches: [main]\npermissions:\n"
+                         "  contents: read\nenv:\n  LEAK: \"CANARY_VALUE_sk_live_MUSTNOTLEAK\"\n"
+                         "jobs:\n  j:\n    runs-on: ubuntu-latest\n"
+                         "    steps:\n      - run: echo ${{ secrets.CANARY_NAME_public }}\n")
+            findings, _ = fpi.scan(os.path.join(d, ".github/workflows"))
+            blob = _json.dumps(findings)
+            self.assertIn("CANARY_NAME_public", blob)          # the public name is reported (its purpose)
+            self.assertNotIn("CANARY_VALUE", blob)             # a value never reaches the output — FP proven
+        finally:
+            shutil.rmtree(d)
+
 
 if __name__ == "__main__":
     unittest.main()
