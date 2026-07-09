@@ -22,6 +22,99 @@ VERIFY_NON_MEANING = (
     "NOT that the result is true, the eval well designed, the model safe/fair, or that the score "
     "generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present")
 
+# WP-B2: the LIMITATIONS surfaced in the labelled verify block and the `limitations[]` JSON field.
+# A list so 2.1 can append without breaking the single-string field; today it is the one meaning line.
+VERIFY_LIMITATIONS = [VERIFY_NON_MEANING]
+
+
+def _policy_line(policy_ok, reason: str = "") -> str:
+    """The POLICY: … line / JSON reason (WP-B2). Without a supplied trust policy `verify` makes NO
+    trust decision, so the human output MUST say so explicitly (NOT_EVALUATED) — never a bare OK that
+    could be logged as a passed policy check. WP-B3 fills the OK / FAIL(<reason>) branches."""
+    if policy_ok is None:
+        return "NOT_EVALUATED (no trust policy supplied)"
+    if policy_ok:
+        return "OK"
+    return f"FAIL ({reason})" if reason else "FAIL"
+
+
+def _verify_exit_code(crypto_ok: bool, policy_ok) -> int:
+    """verify's exit-code contract (§1.4, WP-B2): 0 = crypto OK and (policy satisfied OR none
+    supplied); 1 = crypto/verification failure; 3 = crypto OK but a supplied trust policy was NOT
+    satisfied. Malformed input (2) is returned earlier, before this is reached. `policy_ok` is None
+    when no --policy was given — WP-B3 wires the real Exit-3 trigger via the policy layer; this pure
+    function already encodes all four codes so the contract is tested independently of that wiring."""
+    if not crypto_ok:
+        return 1
+    if policy_ok is False:
+        return 3
+    return 0
+
+
+def _assurance_from_bundle(bundle) -> str | None:
+    """Best-effort, VERBATIM read of an eval receipt's signed `assurance_level` for the ASSURANCE line
+    (WP-B2) — displayed as-is, never interpreted, never a trust decision. Only attempted for a bundle
+    that cryptographically decodes as an issuer-bound eval receipt (`decode_eval_claim` re-checks the
+    Ed25519 + issuer binding); a plain emit bundle or anything undecodable yields None → the CLI shows
+    `ASSURANCE: n/a`. Fail-safe: any error returns None, never a traceback (this is display, not a
+    verification step — the crypto verdict already came from verify_bundle)."""
+    try:
+        from .evalclaim import DEFAULT_ASSURANCE, decode_eval_claim  # noqa: PLC0415
+        claim = decode_eval_claim(bundle)
+        if claim is None:
+            return None
+        return claim.get("assurance_level", DEFAULT_ASSURANCE)
+    except Exception:  # noqa: BLE001 — display best-effort, never fatal
+        return None
+
+
+def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
+                          assurance, policy_ok) -> dict:
+    """Derive the stable, machine-readable single-field contract (WP-B2) from the core
+    VerificationResult. A field for a check that did NOT run in the offline core `verify` path
+    (freshness/anchor/witness/status/assurance-policy — those live in separate subcommands or the
+    WP-B3 policy layer) is `None` (not applicable), NEVER silently `True`. Field names mirror the
+    SPEC/CLI vocabulary so integrators can key off them stably across releases."""
+    by_name = {c.name: c.ok for c in result.checks}
+
+    sd_disc = by_name.get("sd-jwt-disclosures")
+    sd_iss = by_name.get("sd-jwt-issuer-signature")   # only present when an issuer key was supplied
+    if sd_disc is None:
+        sd_jwt_ok = None                               # no SD-JWT in this bundle → not applicable
+    else:
+        sd_jwt_ok = bool(sd_disc and (sd_iss if sd_iss is not None else True))
+
+    key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
+
+    # audience_ok / nonce_ok: the aud/nonce EQUALITY is enforced INSIDE the key-binding check
+    # (kbjwt.verify_key_binding), and bundle.verify_bundle fails closed (F4) when aud/nonce were
+    # requested but no verifiable KB-JWT exists. We surface them as separate fields only when the
+    # relying party actually requested that binding (--aud/--nonce); the outcome then equals the
+    # key-binding result. None when not requested (never silently True).
+    audience_ok = key_binding_ok if aud_requested else None
+    nonce_ok = key_binding_ok if nonce_requested else None
+
+    fields = {
+        "schema_ok": True,             # reaching here means schema == SCHEMA passed (else exit 2)
+        "signature_ok": by_name.get("ed25519-signature"),
+        "merkle_ok": by_name.get("merkle-inclusion"),
+        "sd_jwt_ok": sd_jwt_ok,
+        "key_binding_ok": key_binding_ok,
+        "audience_ok": audience_ok,
+        "nonce_ok": nonce_ok,
+        "freshness_ok": None,          # core verify is payload-agnostic; freshness lives in show-eval
+        "anchor_ok": None,             # anchors[] is a separate (experimental) verification path
+        "witness_ok": None,            # witness quorum lives in verify-proof
+        "status_ok": None,             # status snapshots live in verify_status_snapshot
+        "assurance_policy_ok": None,   # assurance-vs-policy is evaluated in the WP-B3 policy layer
+        "crypto_ok": result.ok,
+        "policy_ok": policy_ok,        # None unless a trust policy was supplied (WP-B3)
+        "assurance": assurance,        # verbatim eval-claim level, or None (not an eval receipt)
+        "warnings": [f"{c.name}: {c.detail}" for c in result.checks if not c.ok],
+        "limitations": list(VERIFY_LIMITATIONS),
+    }
+    return fields
+
 
 # WP-B1 (closes #28): `--version` additionally reports the pinned SPEC.md revision (SPEC_REVISION,
 # kept in sync by tests/test_docs_truth.py) and which optional extras are actually usable in THIS
@@ -199,6 +292,18 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
+    crypto_ok = result.ok
+    # WP-B2: `verify` has no --policy path yet (WP-B3 adds it), so POLICY is always NOT_EVALUATED here.
+    policy_ok = None
+    # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
+    # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
+    assurance = _assurance_from_bundle(bundle) if crypto_ok else None
+    fields = _derive_verify_fields(
+        result,
+        aud_requested=getattr(args, "aud", None) is not None,
+        nonce_requested=getattr(args, "nonce", None) is not None,
+        assurance=assurance, policy_ok=policy_ok)
+
     if args.json:
         out = result.as_dict()
         if roots is not None:
@@ -207,6 +312,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         out["matrix"] = _check_matrix(result)
         out["meaning"] = VERIFY_MEANING
         out["nonMeaning"] = VERIFY_NON_MEANING
+        out.update(fields)   # WP-B2 stable single-field contract (additive; existing keys untouched)
         print(json.dumps(out, indent=2))
     else:
         for check in result.checks:
@@ -221,8 +327,16 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 print(f"    [{row['status']:<4}] {row['check']}")
             print(f"  proves      {VERIFY_MEANING}")
             print(f"  proves NOT  {VERIFY_NON_MEANING}")
-        print("=> OK" if result.ok else "=> FAILED")
-    return 0 if result.ok else 1
+        # WP-B2 labelled result block. The bare `=> OK` is gone: every line is context-labelled so a
+        # crypto success can never be read as a policy pass or a truth verdict. CRYPTO is the only
+        # thing the offline core proves; POLICY says NOT_EVALUATED until a trust policy is supplied
+        # (WP-B3); ASSURANCE is the issuer's own verbatim self-declared level; LIMITATIONS restates
+        # what a valid signature does NOT mean.
+        print(f"CRYPTO: {'OK' if crypto_ok else 'FAILED'}")
+        print(f"POLICY: {_policy_line(policy_ok)}")
+        print(f"ASSURANCE: {assurance if assurance is not None else 'n/a (not an eval receipt)'}")
+        print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
+    return _verify_exit_code(crypto_ok, policy_ok)
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
@@ -518,7 +632,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action=_VersionAction)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    verify = sub.add_parser("verify", help="verify an evidence bundle JSON file")
+    verify = sub.add_parser(
+        "verify", help="verify an evidence bundle JSON file",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes (WP-B2 contract):\n"
+               "  0  CRYPTO OK, and the trust policy was satisfied or none was supplied\n"
+               "  1  crypto / verification failure (a signature, merkle or key-binding check FAILED)\n"
+               "  2  malformed input (unreadable file, bad JSON, unknown/failed schema)\n"
+               "  3  CRYPTO OK but a supplied --policy was NOT satisfied\n"
+               "Without --policy the output shows 'POLICY: NOT_EVALUATED' and never exits 3 —\n"
+               "verify makes NO trust decision on its own.")
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
     verify.add_argument("--matrix", action="store_true",

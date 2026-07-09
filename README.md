@@ -56,11 +56,12 @@ so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/
 ```bash
 # verify a real hosted receipt without writing any code:
 curl -fsSL https://raw.githubusercontent.com/b7n0de/proofbundle/main/examples/example_bundle.json -o receipt.json
-proofbundle verify receipt.json        # => OK (the verify itself runs fully offline)
+proofbundle verify receipt.json        # CRYPTO: OK  (the verify itself runs fully offline)
 
 # your own receipt, from a signed payload:
 proofbundle emit --payload-file result.json --new-key signer.key --out receipt.json
-proofbundle verify receipt.json        # exit 0 = OK, 1 = failed, 2 = malformed
+proofbundle verify receipt.json        # exit 0 = crypto OK, 1 = crypto/verification failure,
+                                       #        2 = malformed, 3 = crypto OK but --policy not met
 ```
 
 ## Inspect-native? (METR Task Standard / UK-AISI ecosystem)

@@ -75,7 +75,11 @@ class TestVerifyMatrixHuman(unittest.TestCase):
             os.unlink(path)
         self.assertEqual(rc, 0)
         self.assertNotIn("check matrix", out)   # default output stays clean (backward-compatible)
-        self.assertIn("=> OK", out)
+        # WP-B2: the bare `=> OK` is replaced by the context-labelled block. Crypto success is now
+        # explicitly a CRYPTO result, and POLICY says it was not evaluated (no policy supplied).
+        self.assertIn("CRYPTO: OK", out)
+        self.assertNotIn("=> OK", out)
+        self.assertIn("POLICY: NOT_EVALUATED", out)
 
 
 if __name__ == "__main__":

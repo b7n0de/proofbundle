@@ -60,6 +60,36 @@ cannot alter it. But it is **issuer-declared** — a dishonest issuer can sign `
 the signature attributes that claim to them, it does not make it true (exactly like the score). `show-eval`
 always prints the level, and `claim_warnings` flags the honest self_attested-without-pre-registration case.
 
+## Misuse: reading `OK` as truth
+
+The single most likely *operator* error is treating a passing `verify` as a verdict it does not make.
+The exit code and the output are deliberately split so this cannot happen silently (WP-B2): `verify`
+prints `CRYPTO: OK` (the only thing the offline core proves), a separate `POLICY:` line, a verbatim
+`ASSURANCE:` line, and a `LIMITATIONS:` line — and `--json` exposes each check as its own field. A
+crypto success is never a bare `OK`. Three concrete ways the boundary still gets misread, and what
+actually holds:
+
+- **"`verify` exited 0, therefore the eval passed / the model is safe."** No. Exit 0 means the bytes
+  are authentic and integral — `CRYPTO: OK`. It says nothing about whether the number is true, the
+  suite well designed, or the model safe (those are the `LIMITATIONS`). A gate that blocks a deploy
+  on `verify` exit-0 alone is gating on *authorship*, not on *result quality*.
+- **"We logged `verify` output as a passed compliance / trust check."** Without `--policy`, `verify`
+  makes NO trust decision and says so: `POLICY: NOT_EVALUATED`. Logging that as a satisfied policy is
+  the misuse this line exists to stop. A real trust decision needs a supplied trust policy
+  (`--policy`, WP-B3); its result is the separate `policy_ok` field and exit code `3` on failure —
+  distinct from `1` (crypto failure), so "crypto fine but policy unmet" is never conflated with
+  "crypto broken".
+- **"`ASSURANCE: reproduced`, so an independent party reproduced it."** The `ASSURANCE:` line is the
+  issuer's own signed, verbatim self-declaration — tamper-evident and bound to the issuer, but
+  issuer-*declared*. A dishonest issuer can sign `reproduced` on a self-run eval (see "A dishonest
+  self-attested issuer" above). Treat `ASSURANCE` as *what the issuer claims about rigour*, corroborated
+  only by whatever out-of-band anchor (pre-registration, a third-party key, an enclave verifier key)
+  you actually pinned.
+
+Rule of thumb: **`CRYPTO: OK` answers "are these the bytes that issuer signed?" — nothing else on the
+line answers "should I believe them?".** That second question is a `POLICY` decision you must supply
+and an `ASSURANCE` claim you must corroborate.
+
 ## Related work (fair demarcation)
 
 proofbundle attests eval/test *run* results, offline, via the standards stack (Ed25519 + RFC 6962 + optional
