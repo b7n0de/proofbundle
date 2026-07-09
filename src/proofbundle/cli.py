@@ -30,38 +30,43 @@ VERIFY_NON_MEANING = (
 # once on import (by design, so nobody depends on the preview by accident); that warning is suppressed
 # here since merely probing availability for --version is not "using" the preview.
 def _detect_features() -> list:
+    # Jede probe ist fail-safe: ein fehlendes ODER kaputtes Extra darf NIE einen Traceback in
+    # `--version` ausloesen (informational output, kein capability gate). Ein present-but-broken
+    # Extra kann mehr als ImportError werfen — AttributeError (mldsa-Modul da, MLDSA44PublicKey-
+    # Klasse fehlt bei cryptography>=48 ohne PQ-Backend) oder RuntimeError/andere aus einem
+    # ABI-Mismatch/partiellen Install — daher faengt JEDE probe breit `Exception` (Verify-Linse 2,
+    # 2026-07-09: vorher fingen 5 der 6 probes nur ImportError, exakt die Crash-Klasse die fuer `pq`
+    # bereits gefixt war).
     features = []
     try:
         import rfc8785  # noqa: F401,PLC0415
         features.append("eval")
-    except ImportError:
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     try:
         from . import sdjwt as _sdjwt  # noqa: F401,PLC0415
         features.append("sdjwt")
-    except ImportError:
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     try:
         import opentimestamps  # noqa: F401,PLC0415
         import rfc3161_client  # noqa: F401,PLC0415
         import rfc8785  # noqa: F401,PLC0415
         features.append("anchors[beta]")
-    except ImportError:
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     try:
-        # Same probe shape as checkpoint._mldsa_module(): import + touch the class. A
-        # cryptography>=48 build WITHOUT a PQ-capable backend has the `mldsa` module but not the
-        # class — that's an AttributeError, not ImportError (checkpoint.py catches both; mirrored
-        # here, otherwise this specific, real, documented case would crash --version outright).
+        # cryptography>=48 ohne PQ-Backend hat das `mldsa`-Modul, aber nicht die Klasse
+        # (AttributeError, nicht ImportError) — dokumentierter realer Fall.
         from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: PLC0415
         mldsa.MLDSA44PublicKey  # noqa: B018
         features.append("pq")
-    except (ImportError, AttributeError):
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     try:
         import inspect_ai  # noqa: F401,PLC0415
         features.append("inspect")
-    except ImportError:
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     try:
         import warnings  # noqa: PLC0415
@@ -69,7 +74,7 @@ def _detect_features() -> list:
             warnings.simplefilter("ignore")
             from .experimental import enclave as _enclave  # noqa: F401,PLC0415
         features.append("experimental")
-    except ImportError:
+    except Exception:  # noqa: BLE001 — fail-safe by design
         pass
     return features
 
