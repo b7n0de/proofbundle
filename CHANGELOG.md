@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### BREAKING — `merkle.hash_alg` is now a REQUIRED field in SPEC.md and the JSON Schema (WP-B1, closes #28)
+- **The verifier already rejected a missing `hash_alg`** since v1.6 (`bundle.py` `_require`d it) — this
+  closes the documentation/schema half of that gap. `SPEC.md` §5 now states `hash_alg` as `required: yes`
+  (was `no`, contradicting the code) with an explicit anti-algorithm-confusion MUST: a verifier MUST NOT
+  silently default a missing value, and a future hashing algorithm MUST register its own distinct value.
+  `schemas/proofbundle_v0_1.schema.json` adds `hash_alg` to `merkle.required` to match.
+- **Who this actually breaks:** any consumer that validated bundles against the **JSON Schema only**
+  (not `proofbundle verify`) previously accepted a pre-v1.6 bundle missing `hash_alg` that the real
+  verifier already rejected — that schema-only path is now correctly stricter, matching the code.
+  Every bundle any proofbundle emitter has ever produced since v1.6 already carries `hash_alg`, so this
+  affects only hand-authored or archived pre-v1.6 bundles.
+- **Migration**: add `"hash_alg": "sha256-rfc6962"` to the bundle's `merkle` object. The verifier's error
+  message for a missing field now states this explicitly (`bundle.py::_require_hash_alg`, shared by
+  `verify_bundle` and `recompute_merkle_root_b64` so the two call sites cannot drift apart again).
+
+### BREAKING — `proofbundle --version` output is now multi-line (closes #28)
+- Was a single line (`proofbundle <version>`). Now four lines: package version, the pinned `SPEC.md`
+  revision (new `SPEC_REVISION` constant next to `__version__`, kept in sync with SPEC.md's own
+  `Revision:` header by a doc-truth test), the JSON Schema id, and a best-effort, fail-safe list of
+  optional extras actually usable in this install (`eval`/`sdjwt`/`anchors[beta]`/`pq`/`inspect`/
+  `experimental` — a missing/broken extra is silently omitted, never a traceback). **A script that
+  parsed `--version`'s stdout expecting exactly one line must be updated**; the exit code (0) and the
+  first line's `proofbundle <version>` prefix are unchanged.
+
 ## [2.0.0b3] - 2026-07-06  (BETA / pre-release)
 
 ### Added — external time / provenance anchors (the `anchors[]` layer, EXPERIMENTAL)
