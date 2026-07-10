@@ -88,6 +88,14 @@ additive over 2.0.0; no released receipt is invalidated.
   `frozen.policyOid`, in which case a token whose `TSTInfo.policy` differs fails closed. New tests:
   `tests/test_cli_require_anchor.py`, `tests/test_anchors_rfc3161.py`, `tests/test_anchors_generic.py`.
 
+### Verification discipline
+- 683 tests (was 550 at 2.0.0): the decision-receipt suite (emit/verify/inspect, the tamper/replay/fuzz
+  matrix in `tests/test_decision_fuzz.py` / `tests/test_decision_hardening.py`, `anchors[]` composition),
+  the universal content-root migration pins (`tests/test_intoto_content_root_migration.py`: `jcs-sha256-v1`
+  vs `legacy-sortkeys-json-v0`, the algorithm-confusion red matrix), and the anchors v0.1 relying-party gate
+  (`tests/test_cli_require_anchor.py`, RFC 3161 policy-OID / certificate-expiry). Mutation gate: 39
+  operators, all killed; the one documented-equivalent mutant still survives.
+
 ## [2.0.0] - 2026-07-09
 
 First **2.0.0 final**. Consolidates the 2.0.0b1–b3 pre-release line (below) with the Phase B P0-core
