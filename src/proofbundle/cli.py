@@ -758,7 +758,16 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
-        print(json.dumps(result, indent=2))
+        # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
+        # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
+        # opaque verify object verbatim, so a public-key value cannot flow into a clear-text log (CodeQL
+        # py/clear-text-logging-sensitive-data).
+        report = {k: result[k] for k in (
+            "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
+            "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
+            "action_outcome_proven", "warnings", "errors",
+        )}
+        print(json.dumps(report, indent=2))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         if result["policy_ok"] is None:
