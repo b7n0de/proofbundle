@@ -8,17 +8,19 @@ A receipt's own Ed25519 signature and RFC 6962 Merkle structure prove *who signe
 producer-clock testimony. An **anchor** adds external evidence of time, from a party the producer does
 not control.
 
-## Two targets, never mixed
+## Three targets, never mixed
 
 | target | claim | why |
 |---|---|---|
 | `preRegistration` | the commitment existed **before** the run | backdating protection (the point raised in in-toto/attestation#565) |
 | `receipt` | the receipt existed **from** time T | publication proof |
+| `statement` | this in-toto Statement's content existed **from** time T | the content root of a DSSE Statement (used by decision receipts); kept **detached** — an anchor cannot live inside the signed bytes whose hash it commits (proofbundle#7 consensus, 2026-07-10) |
 
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
 (JCS) sha256 of the receipt bundle, for `preRegistration` the sha256 of the raw protocol bytes (the
-receipt's `prereg_sha256`). A `preRegistration` anchor can therefore never validate a `receipt` target,
-and vice versa: the roots differ, and a mismatch is a FAIL.
+receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload bytes (the
+`statement_content_root`). A `preRegistration` anchor can therefore never validate a `receipt` or
+`statement` target, and vice versa: the roots differ, and a mismatch is a FAIL.
 
 ## Schema
 
@@ -27,7 +29,7 @@ Each `anchors[]` entry:
 ```jsonc
 {
   "type": "rfc3161-tsa" | "opentimestamps" | "<extension>/vN",
-  "target": "receipt" | "preRegistration",
+  "target": "receipt" | "preRegistration" | "statement",
   "canonicalRoot": "<base64 of the target's canonical root>",
   "proof": "<base64 of the type-specific proof>",
   "anchoredAt": "<RFC 3339 Z, INFORMATIVE only>",
@@ -36,6 +38,11 @@ Each `anchors[]` entry:
 ```
 
 `anchoredAt` is informative — the trusted time comes from the proof, never from this field.
+
+**Privacy.** An anchor publishes only a **digest / Merkle root** (the `canonicalRoot`) and its
+type-specific `proof` — never the target's payload. A `statement` anchor timestamps the SHA-256 of the
+signed payload bytes, so a decision predicate's contents (input digests, policy id, verdict, the
+not-checked set) are committed-to without the anchor itself revealing any of them.
 
 ## Verify contract (fail-closed)
 
