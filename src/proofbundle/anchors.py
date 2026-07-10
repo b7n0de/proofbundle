@@ -163,11 +163,18 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
 
 
 def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None,
-                   now: Optional[int] = None) -> dict:
+                   allow_pending: bool = False, now: Optional[int] = None) -> dict:
     """Verify a receipt's ``anchors``. Missing/empty → SKIP (unless ``require`` is set → FAIL). Present →
     fail-closed PASS/FAIL over every entry. ``require`` is ``None`` | ``'any'`` | a type string; when set,
     at least one anchor of that type (or any) must verify. Returns ``{status, detail, results}`` with
-    ``status`` in {PASS, FAIL, SKIP}."""
+    ``status`` in {PASS, FAIL, WARN, SKIP}.
+
+    ``allow_pending`` (default ``False``) only changes what SATISFIES a ``require``: normally a
+    PENDING/WARN anchor (e.g. an un-upgraded OpenTimestamps proof, or a level-i chia anchor) does NOT
+    count as a verifying anchor, so ``--require-anchor`` demands a full external-time proof. With
+    ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
+    the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
+    anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
     if not anchors:
         if require:
             return {"status": "FAIL", "detail": f"--require-anchor {require} set but the receipt has no anchors",
@@ -178,11 +185,17 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     results = [verify_anchor(a, target_roots=target_roots, now=now) for a in anchors]
     if require:   # a warn/pending/inclusion-only anchor never SATISFIES a requirement — only a full one
         want = None if require == "any" else require
-        matched = [r for r in results if r["ok"] and not r["warn"] and (want is None or r["type"] == want)]
+        if allow_pending:
+            matched = [r for r in results
+                       if (r["ok"] or r["warn"]) and (want is None or r["type"] == want)]
+        else:
+            matched = [r for r in results
+                       if r["ok"] and not r["warn"] and (want is None or r["type"] == want)]
         if not matched:
-            return {"status": "FAIL",
-                    "detail": f"--require-anchor {require}: no verifying anchor of that type",
-                    "results": results}
+            detail = (f"--require-anchor {require} (--allow-pending): no verifying or pending anchor of that type"
+                      if allow_pending else
+                      f"--require-anchor {require}: no verifying anchor of that type")
+            return {"status": "FAIL", "detail": detail, "results": results}
     hard_fail = any(not r["ok"] and not r["warn"] for r in results)
     if hard_fail:
         status = "FAIL"                       # a broken/unbound/unknown anchor is never silent
