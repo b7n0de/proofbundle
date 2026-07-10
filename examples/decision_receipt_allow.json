@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "0.1.0",
+  "decisionId": "urn:uuid:1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+  "decisionType": "preActionAuthorization",
+  "decidedAt": "2026-07-09T11:15:00Z",
+  "decisionMaker": {
+    "id": "https://example.org/decision-platform/proofbundle-gate/v1",
+    "version": {
+      "proofbundle": "2.1.0"
+    }
+  },
+  "agent": {
+    "id": "agent://example/release-bot",
+    "version": "2026.07.09",
+    "configurationDigest": {
+      "sha256": "9b74c9897bac770ffc029102a200c5de0000000000000000000000000000abcd"
+    }
+  },
+  "principal": {
+    "id": "workload://example/ci-release"
+  },
+  "proposedAction": {
+    "actionType": "tool.call",
+    "target": {
+      "name": "mcp://ci/publishArtifact",
+      "uri": "mcp://ci/publishArtifact"
+    },
+    "method": "POST",
+    "parametersDigest": {
+      "sha256": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752"
+    }
+  },
+  "inputSnapshot": [
+    {
+      "name": "release manifest digest",
+      "uri": "urn:proofbundle:input-snapshot:release-4471",
+      "digest": {
+        "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+      },
+      "mediaType": "application/json"
+    }
+  ],
+  "policyBoundary": {
+    "policyEngine": "opa",
+    "policyId": "https://example.org/policies/ci-publish/v2",
+    "policyDigest": {
+      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35"
+    },
+    "decisionPath": "data.ci.publish.allow"
+  },
+  "evidenceRefs": [
+    {
+      "relation": "evalResult",
+      "uri": "urn:proofbundle:eval-receipt:release-gates",
+      "digest": {
+        "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+      },
+      "predicateType": "https://b7n0de.com/proofbundle/predicates/eval-result/v0.1"
+    }
+  ],
+  "decision": {
+    "verdict": "ALLOW",
+    "reasonCodes": [
+      "policy.satisfied"
+    ],
+    "humanReadableSummary": "Publish allowed: all release gates passed and the request is within the policy boundary.",
+    "obligations": [
+      "emit post-publish audit receipt"
+    ],
+    "allowedScope": [
+      "artifact:release-4471"
+    ]
+  },
+  "notChecked": [
+    {
+      "field": "downstreamConsumerCompatibility",
+      "reason": "outOfScope",
+      "impact": "Decision does not assert that downstream consumers remain compatible."
+    }
+  ],
+  "decisionChangeConditions": [
+    {
+      "conditionType": "policyChange",
+      "description": "A stricter publish policy revision requiring manual sign-off would move this to ESCALATE.",
+      "requiredEvidenceType": "operatorApproval"
+    }
+  ],
+  "actionOutcome": {
+    "status": "executed",
+    "performedAt": "2026-07-09T11:15:04Z",
+    "outcomeRef": {
+      "uri": "urn:proofbundle:tool-outcome:publish-4471",
+      "digest": {
+        "sha256": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d"
+      }
+    }
+  },
+  "privacy": {
+    "rawInputsIncluded": false,
+    "redactionProfile": "https://example.org/redaction/profile/v1",
+    "erased": [],
+    "masked": []
+  }
+}
