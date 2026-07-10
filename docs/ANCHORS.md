@@ -16,6 +16,13 @@ not control.
 | `receipt` | the receipt existed **from** time T | publication proof |
 | `statement` | this in-toto Statement's content existed **from** time T | the content root of a DSSE Statement (used by decision receipts); kept **detached** — an anchor cannot live inside the signed bytes whose hash it commits (proofbundle#7 consensus, 2026-07-10) |
 
+> **Note — `statement` is NOT a valid target inside a `proofbundle/v0.1` bundle's own `anchors[]`.** The
+> bundle schema's `target` enum is `receipt` | `preRegistration` only (`schemas/proofbundle_v0_1.schema.json`;
+> SPEC §7i lists `statement` as RESERVED there). The `statement` target applies exclusively to **decision
+> receipts**, supplied as DETACHED evidence via `decision verify --anchors <file>` — never in a bundle's
+> `anchors[]`. A bundle carrying `target: "statement"` is rejected as malformed (exit 2). The schema example
+> and targets below therefore describe the anchor **layer**; a v0.1 bundle may only use `receipt` / `preRegistration`.
+
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
 (JCS) sha256 of the receipt bundle **excluding its own `anchors` field** (the anchors are detached
 evidence; an anchor cannot attest a root that already contains itself, so a verifier recomputing the

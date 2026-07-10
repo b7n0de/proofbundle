@@ -330,10 +330,14 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool) -> dict:
     """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
     ``proofbundle.anchors`` layer — never a parallel reimplementation. Returns
-    ``{ok, status, detail, results}`` where ``ok`` is True iff the requirement is met (the anchor layer
-    did NOT return FAIL: at least one anchor of the required type verified — or, with ``allow_pending``,
-    is pending — and no anchor hard-failed). A receipt with no ``anchors`` → the layer FAILs the
-    requirement (``ok=False``), which maps to exit 3, exactly like an unsatisfied trust policy.
+    ``{ok, status, detail, results}`` where ``ok`` is the anchor layer's ``require_met`` verdict: True
+    iff at least one anchor of the required type actually verifies (or, with ``allow_pending``, is
+    pending). This is deliberately SEPARATE from the aggregate ``status``: an UNRELATED broken /
+    unregistered anchor makes ``status`` FAIL (surfaced in ``anchor_status`` / ``anchor_results``) but
+    does NOT fail a requirement a DIFFERENT anchor satisfies — exactly as anchors are advisory-only when
+    no ``--require-anchor`` is given (deriving ``ok`` from ``status != FAIL`` was the WP4 aggregation
+    bug). A receipt with no ``anchors`` → the layer reports the requirement unmet (``ok=False``), which
+    maps to exit 3, exactly like an unsatisfied trust policy.
 
     Target roots are computed ONLY when anchors are actually present (so the common no-anchor case needs
     no extra dependency): the ``receipt`` root is the canonical root of the bundle WITHOUT its own
@@ -364,7 +368,11 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
                              allow_pending=allow_pending)
     except ProofBundleError as exc:   # malformed anchors[] → fail-closed (never a silent pass)
         return {"ok": False, "status": "FAIL", "detail": str(exc), "results": []}
-    return {"ok": res["status"] != "FAIL", "status": res["status"], "detail": res["detail"],
+    # WP4 fix (aggregation bug): the requirement verdict follows the anchor layer's `require_met` signal
+    # ("at least one anchor of the required type verifies"), NOT the global `status`. An unrelated broken
+    # anchor makes `status` FAIL (still reported in anchor_status / anchor_results) but must not fail a
+    # requirement a different anchor satisfies. Fail-closed: a missing signal defaults to not-met.
+    return {"ok": bool(res.get("require_met", False)), "status": res["status"], "detail": res["detail"],
             "results": res.get("results", [])}
 
 

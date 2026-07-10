@@ -191,7 +191,17 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     """Verify a receipt's ``anchors``. Missing/empty → SKIP (unless ``require`` is set → FAIL). Present →
     fail-closed PASS/FAIL over every entry. ``require`` is ``None`` | ``'any'`` | a type string; when set,
     at least one anchor of that type (or any) must verify. Returns ``{status, detail, results}`` with
-    ``status`` in {PASS, FAIL, WARN, SKIP}.
+    ``status`` in {PASS, FAIL, WARN, SKIP}; when ``require`` is set the return ALSO carries
+    ``require_met`` (bool) — the requirement verdict, kept SEPARATE from the aggregate ``status``.
+
+    ``status`` is the INFORMATIVE aggregate over EVERY entry (a broken/unknown/unbound anchor makes it
+    FAIL, never silent). ``require_met`` is the relying-party gate the CLI maps to the exit code: it is
+    True iff at least one anchor of the required type actually verifies (``matched`` below). The two are
+    deliberately distinct — an UNRELATED broken anchor must NOT fail a requirement that a DIFFERENT
+    anchor satisfies, exactly as anchors are advisory-only when no requirement is set. So a receipt with
+    a verifying required anchor AND an unrelated broken one reports ``require_met=True`` (→ exit 0) while
+    ``status`` stays FAIL (the broken anchor is still surfaced). Basing the gate on the global ``status``
+    was the WP4 aggregation bug this fixes.
 
     ``allow_pending`` (default ``False``) only changes what SATISFIES a ``require``: normally a
     PENDING/WARN anchor (e.g. an un-upgraded OpenTimestamps proof, or a level-i chia anchor) does NOT
@@ -201,7 +211,8 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
     if not anchors:
         if require:
-            return {"status": "FAIL", "detail": f"--require-anchor {require} set but the receipt has no anchors",
+            return {"status": "FAIL", "require_met": False,
+                    "detail": f"--require-anchor {require} set but the receipt has no anchors",
                     "results": []}
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
     if not isinstance(anchors, list):
@@ -219,7 +230,7 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
             detail = (f"--require-anchor {require} (--allow-pending): no verifying or pending anchor of that type"
                       if allow_pending else
                       f"--require-anchor {require}: no verifying anchor of that type")
-            return {"status": "FAIL", "detail": detail, "results": results}
+            return {"status": "FAIL", "require_met": False, "detail": detail, "results": results}
     hard_fail = any(not r["ok"] and not r["warn"] for r in results)
     if hard_fail:
         status = "FAIL"                       # a broken/unbound/unknown anchor is never silent
@@ -228,4 +239,7 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     else:
         status = "PASS"
     detail = f"{sum(r['ok'] for r in results)}/{len(results)} anchor(s) verified"
-    return {"status": status, "detail": detail, "results": results}
+    out: dict = {"status": status, "detail": detail, "results": results}
+    if require:   # reached here → `matched` is non-empty → the requirement IS met, regardless of an
+        out["require_met"] = True   # UNRELATED anchor hard-failing (that stays advisory in `status`)
+    return out

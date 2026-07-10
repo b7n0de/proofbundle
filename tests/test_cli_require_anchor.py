@@ -59,6 +59,24 @@ def _receipt_with_anchor(anchor_type: str, proof: bytes, *, prereg=b"my eval pro
     return _write(receipt)
 
 
+def _receipt_with_anchors(specs, *, prereg=b"my eval protocol\n") -> str:
+    """An eval receipt carrying MULTIPLE preRegistration-target anchors — one per ``(type, proof)`` in
+    ``specs`` — over its own prereg root. Mirrors ``_receipt_with_anchor`` (the signed prereg_sha256 is
+    the canonical root, so no RFC 8785 canonicalizer is needed) but lets a test mix a required verifying
+    anchor with an unrelated one."""
+    h = hashlib.sha256(prereg).hexdigest()
+    claim, _salts = build_eval_claim(
+        suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
+        score="0.9", n=10, model_id="m", dataset_id="d", issuer="Lab",
+        timestamp="2026-07-02T00:00:00Z", prereg_sha256=h)
+    receipt = emit_eval_receipt(claim, generate_signer())
+    receipt["anchors"] = [
+        {"type": atype, "target": "preRegistration",
+         "canonicalRoot": _b64(bytes.fromhex(h)), "proof": _b64(proof), "anchoredAt": None}
+        for atype, proof in specs]
+    return _write(receipt)
+
+
 class _AnchorRegistryFixture(unittest.TestCase):
     """Register deterministic dummy verifiers (confirmed / pending) for the CLI to drive; restore after."""
 
@@ -118,6 +136,42 @@ class TestRequireAnchorCli(_AnchorRegistryFixture):
         self.assertEqual(_run(["verify", "--anchor-type", "test-confirmed", path])[0], 0)
         # a DIFFERENT required type is not present → unmet → exit 3
         self.assertEqual(_run(["verify", "--anchor-type", "rfc3161-tsa", path])[0], 3)
+
+    def test_required_type_verifies_despite_unrelated_broken_anchor_exit_0(self):
+        # THE WP4 AGGREGATION-BUG FIX: a receipt carrying the REQUIRED verifying anchor AND an unrelated
+        # broken/unregistered one must still SATISFY --anchor-type <required> (exit 0). The broken anchor
+        # stays advisory — it makes the aggregate status FAIL (still reported) but must NOT fail a
+        # requirement that a different anchor meets, exactly as anchors are advisory-only without the flag.
+        path = self._track(_receipt_with_anchors([
+            ("test-confirmed", b"good"),          # the required, VERIFYING anchor
+            ("mystery/v9-unregistered", b"x"),    # unrelated + unregistered type → hard-fails on its own
+        ]))
+        rc, out = _run(["verify", "--anchor-type", "test-confirmed", path])
+        self.assertEqual(rc, 0, out)              # requirement met → exit 0 (was exit 3 before the fix)
+        self.assertIn("ANCHOR: OK", out)
+        # the exit code follows the requirement, but the report stays honest: anchor_ok True while the
+        # aggregate anchor_status is FAIL (the broken anchor is still surfaced in anchor_results).
+        rcj, outj = _run(["verify", "--json", "--anchor-type", "test-confirmed", path])
+        self.assertEqual(rcj, 0, outj)
+        data = json.loads(outj)
+        self.assertIs(data["anchor_ok"], True)             # requirement met
+        self.assertEqual(data["anchor_status"], "FAIL")    # aggregate still FAILs (broken anchor reported)
+        self.assertEqual(len(data["anchor_results"]), 2)   # both anchors surfaced, incl. the broken one
+
+    def test_required_type_not_verifying_only_unrelated_verifies_exit_3(self):
+        # Symmetric fail-closed guard: the fix keys on the REQUIRED type's own verifying instance, never
+        # on "some anchor verified". An unrelated anchor that DOES verify must NOT satisfy a type-specific
+        # requirement whose own anchor is broken → exit 3 (REQUIRED_NOT_MET), not a false pass.
+        anchors.register_anchor_type(  # an unrelated type that always verifies
+            "other-confirmed",
+            lambda proof, root, *, frozen, now: {"ok": True, "detail": "unrelated ok"})
+        path = self._track(_receipt_with_anchors([
+            ("test-confirmed", b"bad"),           # the REQUIRED type — present but does NOT verify
+            ("other-confirmed", b"whatever"),     # an unrelated anchor that DOES verify
+        ]))
+        rc, out = _run(["verify", "--anchor-type", "test-confirmed", path])
+        self.assertEqual(rc, 3, out)              # required type has no verifying anchor → exit 3
+        self.assertIn("ANCHOR: REQUIRED_NOT_MET", out)
 
     def test_pending_anchor_does_not_satisfy_by_default_exit_3(self):
         path = self._track(_receipt_with_anchor("test-pending", b"x"))

@@ -305,6 +305,15 @@ canonical root of the receipt **without its own `anchors` field** (an anchor
 cannot attest a root that already contains itself); a verifier computing that
 root MUST exclude `anchors`. Anchor bytes are never part of any signed payload.
 
+**Producer rollout — one-way compatibility.** Emitting `anchors[]` is a one-way
+compatibility step. `anchors` became a KNOWN top-level field only in this
+revision (2026-07-10); a verifier built against an earlier SPEC revision does not
+list it, so — because the bundle schema is `additionalProperties: false` (§3) —
+it rejects an anchored bundle as **malformed (exit 2)** rather than ignoring the
+field. This is not a security bug (a fail-closed verifier erring toward rejection
+is correct), but a producer that starts adding `anchors[]` SHOULD know that older
+verifiers will refuse the bundle until they are updated to this revision.
+
 ### Anchor entry
 
 Each `anchors[]` entry is a JSON object:
