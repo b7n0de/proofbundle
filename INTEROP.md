@@ -116,3 +116,23 @@ that the eval was honest, well-designed, or the only run performed.
 
 _Neighbour claims about ValiChord / ai-audit-trail here are sourced to their own docs; standards
 versions verified 2026-07 (Rekor v2 GA Oct 2025; RFC 9901 Nov 2025; in-toto test-result v0.1)._
+
+## Decision receipts (`decision-receipt/v0.1`)
+
+A Decision Receipt is a *separate* vendored predicate for a signed agent-decision claim; it references
+eval receipts by content-root digest and never mixes metric evidence into the decision. It maps to
+neighbouring systems as reference fields, never as a hard dependency:
+
+| System | Mapping in a Decision Receipt |
+|---|---|
+| in-toto / DSSE | Own `predicateType` in a Statement/v1, DSSE-signed; verified over the exact bytes. |
+| SLSA VSA | `decisionMaker` ~ `verifier`; `policyBoundary.policyDigest` ~ policy; `evidenceRefs` ~ `inputAttestations` (each pinned by content-root digest). |
+| OPA decision logs | `decision_id`→`decisionId`, `path`→`policyBoundary.decisionPath`, `result`→`decision.verdict`, `bundles.revision`→`policyBoundary.bundleRevision`, `erased`/`masked`→`privacy`. |
+| OpenTelemetry / OpenInference | `traceContext.traceparent` correlates to spans (correlation only, never an integrity proof). |
+| CloudEvents | may wrap a receipt as an event payload; not the core format. |
+| MCP | `proposedAction.target` = tool URI + `digest`; a schema-digest change after approval is a tool-poisoning signal (§THREAT_MODEL). |
+| A2A | `agent` / `principal` / `delegationRefs` carry delegation and skill/authorization context. |
+| Sigstore / Rekor · SCITT | optional public anchoring / transparent-statement profile via the detached anchors layer (`target: statement`). |
+| EEE / ValiChord / OMS | referenced as an `evidenceRefs[]` content root (eval run / model artifact), never re-implemented. |
+
+The reference is one-directional and content-root bound: the decision cites evidence, never the reverse.

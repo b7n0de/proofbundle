@@ -113,3 +113,23 @@ obligations postponed by the Digital Omnibus (adopted 2025-11-19) to 2027-12-02 
 Annex III) and 2028-08-02 (AI embedded in Annex I regulated products), from the original
 2026-08-02; Art. 53 GPAI (applied 2025-08-02), NIST AI RMF 1.0 + GenAI Profile AI 600-1, OpenSSF
 Model Signing + CoSAI WS1, ISO/IEC DIS 24970 (ballot closed, unpublished)._
+
+## Decision receipts (`decision-receipt/v0.1`)
+
+A Decision Receipt records a signed agent-decision claim bound to an input snapshot, policy boundary,
+digest-bound evidence, explicitly not-checked fields and decision-change conditions. What it can and
+cannot support, stated honestly:
+
+- **Supports** evidence-record *integrity* and *traceability*: a tamper-evident, offline-verifiable log
+  entry that a specific decision maker recorded a specific verdict over specific bound context at a
+  specific time. That is the same narrow slice the eval receipt provides, extended to decisions.
+- **Does NOT** make any framework satisfied. It does not by itself meet EU AI Act, NIST AI RMF, ISO/IEC,
+  SOC 2 or any legal record-keeping obligation, and it does not prove the decision was correct, legal,
+  safe, complete, unbiased, or that an external action actually happened (unless a trusted tool/mediator
+  outcome is separately bound and verified — `actionOutcome.status = executed` is otherwise self-asserted).
+- **Article-12-style logging** needs the full system context — retention, access control, incident
+  processes, the surrounding pipeline and independent legal review — of which a Decision Receipt is one
+  integrity primitive, never the whole obligation.
+
+Regulatory-safe wording: "provides tamper-evident, offline-verifiable decision records" — never
+"makes the agent's decisions compliant / correct / authorized."

@@ -3,6 +3,14 @@
 Status: draft for proofbundle 2.1.0. Vendored predicate under the b7n0de namespace. Design of record:
 [`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
 
+**Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
+is the consensus reached with an external collaborator on
+[proofbundle#7](https://github.com/b7n0de/proofbundle/issues/7): the
+[anchor-binding rationale](https://github.com/b7n0de/proofbundle/issues/7#issuecomment-4931914705) and the
+maintainer [confirmation](https://github.com/b7n0de/proofbundle/issues/7#issuecomment-4932813354) ("converging
+on the same bytes"). The upstream in-toto/attestation#565 thread and the #7 iteration are archived verbatim at
+`audit_artifacts/thread_565_snapshot.md`.
+
 ## 1. Purpose
 
 A Decision Receipt is a signed, offline-verifiable record that a specific decision maker (an agent gate, a
@@ -27,18 +35,33 @@ signed claim type), so its verify path and non-claims are as explicit as the eva
 
 ## 3. Information architecture
 
-One-directional, digest-bound coupling (ADR §3):
+One-directional, **content-root** coupling (ADR §3):
 
 ```
-eval-result statement  (metric/benchmark evidence, its own anchors[])
+eval-result statement  (metric/benchmark evidence; own detached anchors)
         ^
-        | digest-bound evidenceRef  (decision references evidence, never the reverse)
+        | evidenceRef.digest = content root of the evidence statement
+        | (decision references evidence, never the reverse)
         |
-decision-receipt statement  (verdict + boundary + notChecked, its own anchors[])
+decision-receipt statement  (verdict + boundary + notChecked; own detached anchors)
 ```
 
-The evidence is anchored independently of the decision that cites it. Neither predicate semantically mixes
-into the other.
+`evidenceRefs[].digest` is the **content root** of the referenced evidence statement — SHA-256 over its
+RFC-8785 canonical Statement bytes, the same rule an anchor root uses — not an envelope/file hash and not the
+bare predicate hash. Binding the content root binds the claim's identity (including its `subject` and
+`predicateType`) and survives counter-signing / key rotation of the evidence; WHO signed it is a separate
+Trust-Policy question. An optional `artifactDigest` pins an exact stored blob for retrieval. The evidence is
+anchored independently of the decision that cites it (both sides on content roots), so a reviewer can
+reconstruct the temporal order of evidence and decision without trusting issuer clocks. Neither predicate
+semantically mixes into the other.
+
+> Interop caveat (No-Overclaim): the content root is SHA-256 over the *exact transmitted* payload bytes and is
+> never recomputed by re-canonicalizing. For the eval-result ⇄ decision-receipt composition to match
+> byte-for-byte, the evidence side must emit its Statement in the same RFC-8785 canonical form. The current
+> eval-result in-toto export path canonicalizes with `json.dumps(sort_keys=True)`, which is **not** full
+> RFC-8785 (it diverges on number formatting and non-ASCII / mixed-case keys). Unifying both predicates on one
+> `statement_content_root` primitive is a tracked follow-up; until then a cross-predicate content-root match is
+> only guaranteed when the evidence was itself emitted RFC-8785-canonically.
 
 ## 4. Predicate type and payload
 
@@ -107,25 +130,49 @@ So `hash(exact bytes) == hash(RFC-8785 form)`, consistent with the enclave bindi
 floated in in-toto/attestation#565 (ambiguity risk on extension); this deviation is publicly announced and
 tracked on proofbundle#7.
 
-## 8. Anchors (optional, composition)
+## 8. Anchors (optional, DETACHED, composition)
 
-Decision anchors reuse the existing proofbundle anchors architecture (`register_anchor_type`, rfc3161,
-opentimestamps, chia-datalayer/v1, markovian-provenance/v1). A decision receipt anchors its **own** canonical
-root; the eval-result it cites anchors its own root independently. A `pending` anchor (e.g. OTS calendar-only)
-does **not** satisfy the anchor obligation in strict mode: pending is the absence of a timestamp, not a weaker
-one. Anchor-type neutrality: no de-facto coupling of the Decision Receipt to a single anchor type. Honest
-limit: an anchor proves existence-until-T and non-alteration, not that the decision was made *after* reading
-the inputs or *before* the action.
+An anchor commits the decision statement's **content root** = SHA-256 over the exact RFC-8785 canonical
+Statement bytes (identical to the DSSE payload bytes; **signature bytes are never part of the anchored
+preimage**). An anchor for the statement's OWN root therefore cannot live *inside* the signed predicate: it
+would be part of the bytes whose hash it commits, resolvable only by the forbidden subset canonicalization
+(a chicken-and-egg self-reference). So anchor evidence for the own root is kept **detached** — a sibling of
+the DSSE envelope, `target: "statement"` — exactly as the eval path keeps anchors outside the signed bytes.
+An in-predicate `anchors` field is a fail-closed error. The emission order is: emit canonically → sign →
+compute the content root → submit to the anchor → attach the anchor evidence detached. A FOREIGN anchor (for
+example the pre-registration anchor of a cited evidence statement) may be referenced indirectly via
+`evidenceRefs`, because that evidence does not commit *this* statement's root.
+
+Detached anchors reuse the existing proofbundle anchors architecture (`register_anchor_type`, rfc3161,
+opentimestamps, chia-datalayer/v1, markovian-provenance/v1) and are verified against the recomputed content
+root (result field `anchors_ok`). A `pending` anchor (e.g. OTS calendar-only) does **not** satisfy the anchor
+obligation in strict mode: pending is the absence of a timestamp, not a weaker one (`require_external_anchor`
+with the default `allow_pending: false`). Anchor-type neutrality: no de-facto coupling to a single anchor type.
+Honest limit: an anchor proves existence-until-T and non-alteration, not that the decision was made *after*
+reading the inputs or *before* the action. Ed25519 payload signatures are deterministic, so the "two proofs,
+one content" case arises from counter-signing, key rotation or multi-signature envelopes, not from re-signing
+with the same key; the enclave binding (`eat_nonce`) stays a separate exact-blob binding, never fused with the
+content root.
 
 ## 9. Trust policy (v0.2)
 
 The Phase B trust policy (`proofbundle/trust-policy/v0.1`, snake_case, fail-closed) is extended **additively**
-to `v0.2` with a `decision_receipt` section (`trusted_decision_makers`, `allowed_decision_types`,
-`allowed_verdicts`, `required_evidence_relations`, `require_policy_digest`, `accepted_predicate_types`,
-`require_external_anchor`, `allow_pending` (default `false`), …). A v0.1 policy stays valid under the v0.2
-parser (only additive). `decisionMaker.id` is never believed on the JSON claim alone: it is matched against the
-DSSE signer key via `trusted_decision_makers`. A `predicateType` confusion attack (a decision receipt presented
-as an eval-result, or vice versa) fails via the `predicate_type_ok` check plus `accepted_predicate_types`.
+to `v0.2` with a `decision_receipt` section. A v0.1 policy stays valid unchanged under the v0.2 parser (only
+additive; fail-closed preserved). Knobs:
+
+- identity + shape: `accepted_predicate_types`, `trusted_decision_makers` (signer key ↔ `decisionMaker.id`),
+  `allowed_decision_types`, `allowed_verdicts`, `required_evidence_relations`, `require_policy_digest`;
+- presence requirements: `require_audience`, `require_nonce`, `require_not_checked`,
+  `require_decision_change_conditions`, `require_trace_context`;
+- `allow_raw_inputs` (default `false`: a receipt with `privacy.rawInputsIncluded: true` is rejected unless
+  the relying party opts in);
+- `require_external_anchor` + `allow_pending` (default `false`): gated on the REAL detached-anchor
+  verification result, never on a claimed in-predicate field — a `pending` anchor does not satisfy.
+
+`decisionMaker.id` is never believed on the JSON claim alone: it is matched against the DSSE signer key via
+`trusted_decision_makers`. A `predicateType` confusion attack (a decision receipt presented as an eval-result,
+or vice versa) fails via the `predicate_type_ok` check plus `accepted_predicate_types`. Without a policy,
+`verify` reports `POLICY: NOT_EVALUATED`; a policy violation over crypto-OK bytes is exit code 3.
 
 ## 10. Privacy
 

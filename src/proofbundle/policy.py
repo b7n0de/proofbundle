@@ -44,7 +44,14 @@ _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers"
              "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
-                  "require_external_anchor", "allow_pending"}
+                  "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
+                  "require_not_checked", "require_decision_change_conditions", "require_trace_context",
+                  "allow_raw_inputs"}
+# The decision_receipt boolean knobs (§7.5 / addendum §2.2). allow_raw_inputs defaults FALSE (fail-closed:
+# a receipt with privacy.rawInputsIncluded=true is rejected unless the relying party opts in).
+_DECISION_BOOL_KEYS = ("require_policy_digest", "require_external_anchor", "allow_pending", "require_audience",
+                       "require_nonce", "require_not_checked", "require_decision_change_conditions",
+                       "require_trace_context", "allow_raw_inputs")
 _DECISION_MAKER_KEYS = {"id", "public_key_b64", "kid"}
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
@@ -178,18 +185,22 @@ def load_policy(source: Union[str, dict]) -> dict:
                     "accepted_predicate_types"):
             if key in dr:
                 _require_list_of_str(dr, key, "decision_receipt")
-        for key in ("require_policy_digest", "require_external_anchor", "allow_pending"):
+        for key in _DECISION_BOOL_KEYS:
             if key in dr:
                 _require_bool(dr, key, "decision_receipt")
     return policy
 
 
 def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
-                             signer_public_key_b64: str) -> dict:
+                             signer_public_key_b64: str, anchor_status: str | None = None) -> dict:
     """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
     ``{"policy_ok": bool|None, "signer_trusted": bool|None, "errors": [...]}``. Never trusts decisionMaker.id on
     the JSON claim alone: the signer key (that verified the DSSE) is matched against trusted_decision_makers.
-    policy_ok is None when the policy carries no decision_receipt section (nothing decision-specific to check)."""
+    policy_ok is None when the policy carries no decision_receipt section (nothing decision-specific to check).
+
+    ``anchor_status`` is the PASS/WARN/FAIL/SKIP verdict from the DETACHED anchor verification done in
+    verify_decision_receipt (anchors are not in the signed predicate; Fix 2). require_external_anchor gates on
+    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object)."""
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
@@ -235,13 +246,43 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         if not (isinstance(pd, dict) and isinstance(pd.get("sha256"), str)):
             errors.append("policy requires policyBoundary.policyDigest but it is absent")
 
+    # validity presence knobs (§7.5): the VALUE binding is still --aud/--nonce; these require the fields be
+    # PRESENT so a receipt cannot silently drop replay protection.
+    _vraw = predicate.get("validity")
+    validity = _vraw if isinstance(_vraw, dict) else {}
+    if section.get("require_audience") and not (isinstance(validity.get("audience"), list) and validity.get("audience")):
+        errors.append("policy requires validity.audience but it is absent or empty")
+    if section.get("require_nonce") and not (isinstance(validity.get("nonce"), str) and validity.get("nonce")):
+        errors.append("policy requires validity.nonce but it is absent")
+
+    # reviewability knobs (§5.5): notChecked / decisionChangeConditions must be present, non-empty lists.
+    if section.get("require_not_checked") and not (
+            isinstance(predicate.get("notChecked"), list) and predicate.get("notChecked")):
+        errors.append("policy requires a non-empty notChecked[] but it is absent or empty")
+    if section.get("require_decision_change_conditions") and not (
+            isinstance(predicate.get("decisionChangeConditions"), list) and predicate.get("decisionChangeConditions")):
+        errors.append("policy requires a non-empty decisionChangeConditions[] but it is absent or empty")
+    if section.get("require_trace_context") and not isinstance(predicate.get("traceContext"), dict):
+        errors.append("policy requires traceContext but it is absent")
+
+    # privacy: allow_raw_inputs defaults FALSE — a receipt carrying raw inputs is rejected unless opted in.
+    if not section.get("allow_raw_inputs"):
+        _praw = predicate.get("privacy")
+        priv = _praw if isinstance(_praw, dict) else {}
+        if priv.get("rawInputsIncluded") is True:
+            errors.append("privacy.rawInputsIncluded=true but the policy does not allow raw inputs (allow_raw_inputs)")
+
     if section.get("require_external_anchor"):
-        anchors = predicate.get("anchors")
         allow_pending = bool(section.get("allow_pending"))
-        # WP6 wires real anchor verification; here we require presence + (unless allow_pending) a non-pending anchor.
-        usable = [a for a in (anchors or []) if isinstance(a, dict) and (allow_pending or a.get("status") != "pending")]
-        if not usable:
-            errors.append("policy requires an external anchor but none satisfies it (pending excluded unless allow_pending)")
+        # Anchors are DETACHED (Fix 2): the real anchor verification ran in verify_decision_receipt and its
+        # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
+        # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
+        # pending is the ABSENCE of a time anchor, not a weaker one). SKIP (no anchors) and FAIL never satisfy.
+        satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
+        if not satisfied:
+            errors.append(
+                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
 
     policy_ok = (not errors) and (signer_trusted is not False)
     return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}

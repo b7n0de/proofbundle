@@ -748,12 +748,20 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
+    anchors = None
+    if getattr(args, "anchors", None):
+        try:
+            with open(args.anchors, encoding="utf-8") as handle:
+                anchors = json.load(handle)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
+            return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
             env = json.load(handle)
         pub = base64.b64decode(args.pub)
-        result = verify_decision_receipt(env, pub, strict=args.strict,
-                                         expected_audience=args.aud, expected_nonce=args.nonce, policy=policy)
+        result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
+                                         expected_nonce=args.nonce, policy=policy, anchors=anchors)
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -775,12 +783,17 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         else:
             print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
+        if result["anchors_ok"] is not None:
+            print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
             print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
         for e in result["errors"]:
             print(f"  - {e}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {w}", file=sys.stderr)
+        # No-Overclaim (§7.4 / lens 1): the verify verdict never means the decision was right/legal/safe.
+        print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
+              "was correct, legal, safe, or that the action was executed.")
     # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
     if not result["crypto_ok"]:
         return 1
@@ -1025,6 +1038,9 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
     d_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
     d_verify.add_argument("--nonce", default=None, help="expected nonce (checks validity.nonce against replay)")
+    d_verify.add_argument("--anchors", default=None,
+                          help="path to a JSON array of DETACHED anchor evidence for the statement's own "
+                               "content root (anchors are never inside the signed predicate)")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")

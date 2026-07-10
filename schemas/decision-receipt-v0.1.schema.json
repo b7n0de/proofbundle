@@ -45,7 +45,17 @@
     },
     "evidenceRefs": {
       "type": "array",
-      "items": {"type": "object", "required": ["relation", "digest"], "properties": {"relation": {"type": "string"}, "digest": {"$ref": "#/$defs/sha256Digest"}}}
+      "items": {
+        "type": "object",
+        "required": ["relation", "digest"],
+        "properties": {
+          "relation": {"type": "string"},
+          "digest": {"$ref": "#/$defs/sha256Digest", "description": "content root: sha256 over the RFC-8785 canonical Statement bytes of the referenced evidence (not an envelope/file hash)"},
+          "artifactDigest": {"$ref": "#/$defs/sha256Digest", "description": "optional: sha256 of a concrete stored blob/envelope for exact retrieval pinning"},
+          "uri": {"type": "string"},
+          "predicateType": {"type": "string"}
+        }
+      }
     },
     "decision": {
       "type": "object",
@@ -63,7 +73,6 @@
     },
     "traceContext": {"type": "object"},
     "privacy": {"type": "object", "properties": {"rawInputsIncluded": {"type": "boolean"}}},
-    "validity": {"type": "object", "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}},
-    "anchors": {"type": "array"}
+    "validity": {"type": "object", "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}}
   }
 }

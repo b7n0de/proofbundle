@@ -39,7 +39,14 @@ _REQUIRED_ALWAYS = (
 # Additionally required in strict mode (§5.5: notChecked / decisionChangeConditions / privacy).
 _REQUIRED_STRICT = _REQUIRED_ALWAYS + ("notChecked", "decisionChangeConditions", "privacy")
 # Everything else that MAY appear (additionalProperties:false is enforced against this union).
-_OPTIONAL = ("recordedAt", "delegationRefs", "actionOutcome", "traceContext", "validity", "anchors",
+# NOTE (Fix 2, proofbundle#7 self-reference resolution): `anchors` is DELIBERATELY NOT a predicate field.
+# A decision anchor commits the content root = sha256 over the canonical Statement bytes — which would
+# CONTAIN an in-predicate `anchors` field (chicken-and-egg, only resolvable by forbidden subset
+# canonicalization). Anchor evidence for the statement's OWN root is carried DETACHED (a sibling of the
+# DSSE envelope), verified against the content root. FOREIGN anchors (e.g. an evidence statement's own
+# prereg anchor) are referenced indirectly via `evidenceRefs`. An `anchors` field inside the predicate is
+# therefore a fail-closed unknown-field error.
+_OPTIONAL = ("recordedAt", "delegationRefs", "actionOutcome", "traceContext", "validity",
              "notChecked", "decisionChangeConditions", "privacy")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
@@ -116,12 +123,48 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     elif "policyBoundary" in predicate:
         errors.append("policyBoundary must be a JSON object")
 
-    # evidenceRefs list (may be empty; each ref digest-bound)
+    # proposedAction inner shape (§6.2): actionType required + a digest OR a ref for the parameters.
+    pa = predicate.get("proposedAction")
+    if isinstance(pa, dict):
+        if not isinstance(pa.get("actionType"), str) or not pa.get("actionType"):
+            errors.append("proposedAction.actionType must be a non-empty string")
+        if not (_is_digest(pa.get("parametersDigest")) or isinstance(pa.get("parametersRef"), dict)):
+            errors.append("proposedAction needs a sha256 parametersDigest or a parametersRef")
+    elif "proposedAction" in predicate:
+        errors.append("proposedAction must be a JSON object")
+
+    # identity fields carry an id string each (matched to the DSSE signer via Trust Policy, never trusted
+    # on the JSON claim alone — see policy.evaluate_decision_policy).
+    for fld in ("decisionMaker", "agent", "principal"):
+        obj = predicate.get(fld)
+        if isinstance(obj, dict):
+            if not isinstance(obj.get("id"), str) or not obj.get("id"):
+                errors.append(f"{fld}.id must be a non-empty string")
+        elif fld in predicate:
+            errors.append(f"{fld} must be a JSON object")
+
+    # inputSnapshot: a list of descriptors, each digest-bound (may also carry a uri/name/mediaType).
+    isnap = predicate.get("inputSnapshot")
+    if isinstance(isnap, list):
+        for i, item in enumerate(isnap):
+            if not isinstance(item, dict) or not _is_digest(item.get("digest")):
+                errors.append(f"inputSnapshot[{i}] needs a sha256 'digest'")
+    elif "inputSnapshot" in predicate:
+        errors.append("inputSnapshot must be a list")
+
+    # evidenceRefs (may be empty). Each ref is CONTENT-bound: `digest` is the content root of the referenced
+    # evidence STATEMENT — sha256 over its RFC-8785 canonical statement bytes (the same rule as an anchor
+    # root), NOT the enclosing envelope/file hash and NOT the bare predicate hash. Binding the content root
+    # binds the claim's identity (incl. its subject + predicateType) and survives counter-signing / key
+    # rotation of the evidence; WHO signed the evidence is a separate Trust-Policy question. Optional
+    # `artifactDigest` pins an exact stored blob/envelope for retrieval. (proofbundle#7 consensus 2026-07-10.)
     ev = predicate.get("evidenceRefs")
     if isinstance(ev, list):
         for i, ref in enumerate(ev):
             if not isinstance(ref, dict) or not isinstance(ref.get("relation"), str) or not _is_digest(ref.get("digest")):
-                errors.append(f"evidenceRefs[{i}] needs a string 'relation' and a sha256 'digest'")
+                errors.append(f"evidenceRefs[{i}] needs a string 'relation' and a sha256 content-root 'digest'")
+            elif "artifactDigest" in ref and not _is_digest(ref.get("artifactDigest")):
+                errors.append(f"evidenceRefs[{i}].artifactDigest, when present, must be a sha256 digest")
     elif "evidenceRefs" in predicate:
         errors.append("evidenceRefs must be a list")
 
@@ -155,12 +198,48 @@ def action_outcome_proven(predicate: Any) -> bool | None:
     return isinstance(ref, dict) and _is_digest(ref.get("digest"))
 
 
+def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
+                         artifact_bytes: bytes | None = None) -> dict:
+    """Offline check of one ``evidenceRefs[]`` entry against resolved evidence (no network).
+
+    ``evidence_payload`` is the EXACT DSSE payload bytes of the referenced evidence Statement — its content
+    root is ``sha256`` over exactly these bytes, so the check is invariant under counter-signing / key
+    rotation of the evidence (the payload does not change) and fails only when the evidence CONTENT changes.
+    ``artifact_bytes`` is a fetched blob checked against the optional ``artifactDigest`` (exact retrieval
+    pinning, a DIFFERENT question from claim identity). Returns ``{content_root_ok, artifact_ok, detail}``;
+    a check that was not requested is ``None``. WHO signed the evidence is a Trust-Policy question, not this."""
+    from . import anchors as _anchors_mod  # noqa: PLC0415
+    out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
+    want = (ref.get("digest") or {}).get("sha256") if isinstance(ref, dict) else None
+    if evidence_payload is not None:
+        got = _anchors_mod.statement_content_root(evidence_payload).hex()
+        out["content_root_ok"] = (got == want)
+        if out["content_root_ok"] is False:
+            out["detail"] = "evidence content root != evidenceRefs[].digest (evidence content changed?)"
+    if artifact_bytes is not None and isinstance(ref, dict) and "artifactDigest" in ref:
+        got_a = hashlib.sha256(artifact_bytes).hexdigest()
+        out["artifact_ok"] = (got_a == (ref.get("artifactDigest") or {}).get("sha256"))
+        if out["artifact_ok"] is False:
+            out["detail"] = (out["detail"] + "; " if out["detail"] else "") + "artifactDigest != fetched blob"
+    return out
+
+
 # ── Emit / verify (DSSE in-toto Statement) ──────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
-    """RFC-8785 (JCS) canonical bytes. Addendum §2.2: decision receipts emit in RFC-8785 canonical form (the
-    eval-result path uses sort_keys; decision emit deliberately diverges). rfc8785 lives in the `[eval]` extra,
-    so this is imported lazily — the plain verify core stays dependency-free."""
-    import rfc8785  # noqa: PLC0415
+    """RFC-8785 (JCS) canonical bytes of an in-toto Statement / predicate.
+
+    A decision receipt's *content root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 /
+    proofbundle#7 consensus), so both emit and the hash_binding check use a REAL JCS canonicalizer rather
+    than the bundle path's ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize
+    number formatting or string escaping) and so cannot carry a stable content root. ``rfc8785`` already
+    ships in the ``[eval]`` extra (it is the canonicalizer behind the eval receipt root), so no new core
+    dependency is added; it is imported lazily so the base install and the plain no-anchor verify path
+    stay dependency-free. A missing extra is a clear fail-closed error, never a raw ImportError."""
+    try:
+        import rfc8785  # noqa: PLC0415
+    except ImportError as exc:
+        raise DecisionReceiptError(
+            "decision receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
     return rfc8785.dumps(obj)
 
 
@@ -214,13 +293,19 @@ def _empty_result() -> dict:
 
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
-                            policy: dict | None = None) -> dict:
+                            policy: dict | None = None, anchors: list | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
     fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
-    Policy evaluation is not done here (WP5: `policy.evaluate_decision_policy`)."""
+
+    Detached anchors (Fix 2 / proofbundle#7): `anchors` is the DETACHED anchor evidence for the decision
+    statement's OWN content root (sha256 over the exact signed payload bytes). It is NOT part of the signed
+    predicate — an anchor cannot live inside the bytes whose hash it commits. It is verified against the
+    content root via the shared anchors layer; `anchors_ok` is True (a full verifying anchor), False (a
+    broken / root-mismatched / unknown-type anchor), or None (none supplied, pending-only, or crypto not
+    established). Policy evaluation itself is `policy.evaluate_decision_policy` (WP5)."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
 
@@ -243,6 +328,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["errors"].extend(struct_errs)
 
     # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
+    # Canonicality IS the core guarantee behind the content root, so in strict mode an absent canonicalizer is
+    # fail-closed (structure_ok=False) — never a silent pass over possibly non-canonical bytes (the research
+    # gap: without the extra the whole content-root invariant would be unenforced).
     canonical_ok = None
     if _rfc8785_available():
         try:
@@ -251,10 +339,14 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+    elif strict:
+        r["errors"].append(
+            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
         r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
 
-    r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and (canonical_ok is not False)
+    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if isinstance(predicate, dict):
         ev = predicate.get("evidenceRefs")
@@ -274,12 +366,37 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 if not r["nonce_ok"]:
                     r["errors"].append("nonce mismatch (replay?)")
 
+    # Detached anchors (Fix 2): verify anchor evidence for the statement's OWN content root — sha256 over the
+    # EXACT signed payload bytes (never re-canonicalized), computed only once the bytes are authentic+canonical.
+    _dr_section = policy.get("decision_receipt") if isinstance(policy, dict) else None
+    _wants_anchor = isinstance(_dr_section, dict) and bool(_dr_section.get("require_external_anchor"))
+    anchor_status = None
+    if anchors is not None or _wants_anchor:
+        if not (r["crypto_ok"] and canonical_ok is not False):
+            anchor_status = "FAIL"
+            r["anchors_ok"] = False
+            r["errors"].append(
+                "cannot verify anchors: payload is not authentic + RFC-8785 canonical (fail-closed)")
+        else:
+            from . import anchors as _anchors_mod  # noqa: PLC0415
+            content_root = _anchors_mod.statement_content_root(body)
+            ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root})
+            anchor_status = ar["status"]
+            r["anchors_ok"] = (True if anchor_status == "PASS"
+                               else False if anchor_status == "FAIL" else None)
+            if anchor_status == "WARN":
+                r["warnings"].append(
+                    f"anchor(s) pending / inclusion-only — not a full time anchor: {ar['detail']}")
+            elif anchor_status == "FAIL":
+                r["errors"].append(f"anchor verification failed: {ar['detail']}")
+
     # Trust policy (v0.2 decision_receipt section) over the crypto-verified statement. WP5.
     if policy is not None and isinstance(predicate, dict):
         import base64  # noqa: PLC0415
         from .policy import evaluate_decision_policy  # noqa: PLC0415
         pe = evaluate_decision_policy(statement, r, policy,
-                                      signer_public_key_b64=base64.b64encode(public_key).decode())
+                                      signer_public_key_b64=base64.b64encode(public_key).decode(),
+                                      anchor_status=anchor_status)
         r["policy_ok"] = pe["policy_ok"]
         r["signer_trusted"] = pe["signer_trusted"]
         r["errors"].extend(pe["errors"])
