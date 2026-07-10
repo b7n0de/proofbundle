@@ -4,9 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-07-10
 
-### Added — Decision Receipt predicate `decision-receipt/v0.1` (Phase D, target 2.1.0)
+First release on the 2.x line after **2.0.0 final**: a new vendored **decision-receipt/v0.1** predicate for
+agent decisions; a shared **universal content root** (`jcs-sha256-v1`) that the eval-result / test-result / SVR
+export paths now adopt with an explicit declared legacy mode (every already-signed 2.0.0 receipt keeps
+verifying byte-for-byte); and **anchors v0.1** — a `verify --require-anchor` relying-party gate plus RFC 3161
+policy-OID / certificate-expiry hardening over the experimental external-time-anchor layer. All three are
+additive over 2.0.0; no released receipt is invalidated.
+
+### Added — Decision Receipt predicate `decision-receipt/v0.1` (Phase D)
 - A new **vendored** in-toto predicate for agent decisions:
   `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` (ADR 0001). A Decision Receipt records
   *who decided, what action was proposed, against which policy boundary, on which digest-bound evidence, what
@@ -37,6 +44,49 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gating (`tests/test_decision_hardening.py`, `tests/test_decision_verify.py`).
 - Still deferred (not in this core): independent cross-implementation worked vectors over a decision object
   (MarkovianProtocol's reference anchor), iterated on proofbundle#7.
+
+### Added — universal Statement content root `jcs-sha256-v1`, with a declared legacy mode (WP2, ADR 0002)
+- A single shared content-root primitive now underlies both the decision-receipt path and the in-toto
+  eval-result / test-result / SVR export paths: `statement_content_root` = SHA-256 over the **RFC-8785 (JCS)**
+  canonical bytes of the **full** pre-signature Statement (`_type`, `subject`, `predicateType`, `predicate`).
+  Signature/envelope bytes are never in the preimage, so a content root survives counter-signing and key
+  rotation and a decision receipt composes byte-for-byte with an eval-result statement it cites. Exposed as the
+  public `proofbundle.canonicalize_statement` / `proofbundle.statement_content_root` (shared `canonical.py`).
+- The algorithm is a first-class **versioned** id (`contentRootAlg`, default `jcs-sha256-v1`), declared inside
+  the signed payload so it cannot be flipped after signing. A verifier re-serializes with **exactly** the
+  declared algorithm to confirm the payload is its own canonical form (fail-closed), never re-canonicalizes to
+  compute a root, and never falls back between algorithms. An unknown algorithm fails closed — the
+  anti-algorithm-confusion rule already applied to `merkle.hash_alg`.
+- **Migration is a compatible evolution, not a cutover.** The historic `json.dumps(sort_keys=True)` wire is
+  retained as an explicitly declared named mode `legacy-sortkeys-json-v0`. **Absent `contentRootAlg` ⇒ legacy**
+  (never silently JCS), so every already-signed **2.0.0** eval-result / test-result / SVR receipt keeps
+  verifying byte-for-byte; legacy verification is stdlib-only, so those receipts still verify on a base
+  install. New receipts default to `jcs-sha256-v1`; verifying JCS canonicality needs the emit-side `[eval]`
+  extra and is fail-closed without it.
+- **Honest scope (No-Overclaim):** this is **not** a "universal migration complete." The eval-result /
+  test-result / SVR producers now default to the new algorithm and a P0 activation test pins the boundary
+  (`tests/test_intoto_content_root_migration.py`: a `sort_keys` root offered *as* `jcs-sha256-v1` is rejected;
+  genuine JCS bytes declared legacy are rejected; an unknown algorithm fails closed). Still deferred: a CLI
+  flag to select the content-root algorithm from the command line, and independent cross-implementation
+  (MarkovianProtocol) worked interop vectors.
+
+### Added — anchors v0.1: a `verify --require-anchor` relying-party gate + RFC 3161 hardening (WP4)
+- The experimental external-time-anchor layer (`anchors[]`, shipped experimental-gated in 2.0.0) gains a
+  relying-party gate: **`verify --require-anchor`** (optionally narrowed by `--anchor-type <type>`) turns "no
+  verifying anchor (of that type)" into a failure — a gate layered OVER the crypto result, **exit 3 when
+  unmet** (distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending** anchor (an
+  un-upgraded OpenTimestamps proof, a Merkle-only chia-datalayer level-i anchor) does NOT satisfy the gate
+  unless `--allow-pending` is given; the gate follows the matched anchor's own status, not the global aggregate.
+- **`anchors` is now a KNOWN top-level bundle field** (SPEC §7i, JSON Schema): formalized as EXPERIMENTAL and
+  **detached** from the content root (an anchor attests *about* a receipt, never part of what it attests; the
+  `receipt` target stamps the canonical root computed with `anchors` excluded). One-way compatibility is
+  documented: a verifier built against an earlier revision lists no `anchors` field and, under
+  `additionalProperties: false`, rejects an anchored bundle as malformed (exit 2) rather than ignoring it.
+- **RFC 3161 TSA hardening:** the frozen TSA certificate chain is validated at the token's own `gen_time` (not
+  the current wall clock), so a frozen token stays verifiable after the TSA certificate expires or rotates, and
+  a certificate not valid at `gen_time` fails closed; a relying party MAY pin the TSA **policy OID** via
+  `frozen.policyOid`, in which case a token whose `TSTInfo.policy` differs fails closed. New tests:
+  `tests/test_cli_require_anchor.py`, `tests/test_anchors_rfc3161.py`, `tests/test_anchors_generic.py`.
 
 ## [2.0.0] - 2026-07-09
 
