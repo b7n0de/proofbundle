@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -91,6 +92,53 @@ class TestDecisionCli(unittest.TestCase):
         env = json.loads(receipt.read_text())
         pub = base64.b64decode(self._pub_b64())
         self.assertIs(verify_decision_receipt(env, pub, strict=True)["crypto_ok"], True)
+
+    def _write_decision_policy(self, allow_pending: bool) -> Path:
+        path = self.tmp / f"policy_pending_{allow_pending}.json"
+        path.write_text(json.dumps({
+            "schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
+            "decision_receipt": {"require_external_anchor": True, "allow_pending": allow_pending},
+        }), encoding="utf-8")
+        return path
+
+    def test_pending_anchor_require_external_exits_3(self):
+        """Fix 2 case (d) end-to-end through the CLI: a pending (calendar-only) statement anchor + a policy
+        with require_external_anchor=true and allow_pending=false is crypto-OK but policy-unmet → the CLI
+        exits 3 (the tests above only asserted policy_ok=False at the library level, never rc==3 via the
+        `decision verify` exit path at cli.py::_cmd_decision_verify). allow_pending=true on the SAME
+        receipt+anchor is the counter-case → exit 0, proving the 3 is the policy's verdict, not a
+        structure/anchor error."""
+        from proofbundle import anchors, dsse  # noqa: PLC0415
+
+        def _pending_verifier(proof, canonical_root, *, frozen, now):
+            if proof == b"PENDING":
+                return {"ok": False, "warn": True, "status": "warn", "detail": "calendar-only (pending)"}
+            return {"ok": proof == b"OK", "detail": "test anchor"}
+
+        anchors.register_anchor_type("test-anchor", _pending_verifier)
+        receipt = self._emit("decision_receipt_deny.json")
+        env = json.loads(receipt.read_text())
+        content_root = hashlib.sha256(dsse.load_payload(env)).digest()
+        anchors_file = self.tmp / "anchors.json"
+        anchors_file.write_text(json.dumps([{
+            "type": "test-anchor", "target": "statement",
+            "canonicalRoot": base64.b64encode(content_root).decode(),
+            "proof": base64.b64encode(b"PENDING").decode(),
+            "anchoredAt": "2026-07-10T09:00:00Z",
+        }]), encoding="utf-8")
+
+        pub = self._pub_b64()
+        strict = self._write_decision_policy(allow_pending=False)
+        rc, out = _run(["decision", "verify", str(receipt), "--pub", pub, "--strict",
+                        "--policy", str(strict), "--anchors", str(anchors_file)])
+        self.assertEqual(rc, 3, out)               # crypto OK, but require_external_anchor unmet by a pending anchor
+        self.assertIn("CRYPTO: OK", out)
+        self.assertIn("POLICY: FAIL", out)
+
+        lax = self._write_decision_policy(allow_pending=True)
+        rc2, _ = _run(["decision", "verify", str(receipt), "--pub", pub, "--strict",
+                       "--policy", str(lax), "--anchors", str(anchors_file)])
+        self.assertEqual(rc2, 0)                   # allow_pending accepts the same pending anchor
 
 
 if __name__ == "__main__":
