@@ -236,19 +236,22 @@ def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
 def _rfc8785_bytes(obj: Any) -> bytes:
     """RFC-8785 (JCS) canonical bytes of an in-toto Statement / predicate.
 
-    A decision receipt's *content root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 /
-    proofbundle#7 consensus), so both emit and the hash_binding check use a REAL JCS canonicalizer rather
-    than the bundle path's ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize
-    number formatting or string escaping) and so cannot carry a stable content root. ``rfc8785`` already
-    ships in the ``[eval]`` extra (it is the canonicalizer behind the eval receipt root), so no new core
-    dependency is added; it is imported lazily so the base install and the plain no-anchor verify path
-    stay dependency-free. A missing extra is a clear fail-closed error, never a raw ImportError."""
+    Delegates to the shared ``canonical.canonicalize_statement`` primitive (ADR 0002) so decision.py,
+    anchors.py and canonical.py compute the content root from ONE definition. A decision receipt's *content
+    root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 / proofbundle#7 consensus), so both emit
+    and the hash_binding check use a REAL JCS canonicalizer rather than the bundle path's
+    ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize number formatting or string
+    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``, the ``[eval]`` extra)
+    is imported lazily inside the shared primitive, so the base install and the plain no-anchor verify path
+    stay dependency-free; a missing extra surfaces there as ``CanonicalizerUnavailable`` which we re-raise as
+    the predicate-local ``DecisionReceiptError`` with the SAME message (never a raw ImportError — no
+    behaviour change)."""
+    from . import canonical  # noqa: PLC0415 — lazy: only the canonical/emit path pulls the JCS dependency
     try:
-        import rfc8785  # noqa: PLC0415
-    except ImportError as exc:
+        return canonical.canonicalize_statement(obj)
+    except canonical.CanonicalizerUnavailable as exc:
         raise DecisionReceiptError(
             "decision receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    return rfc8785.dumps(obj)
 
 
 def _rfc8785_available() -> bool:
