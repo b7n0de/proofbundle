@@ -143,9 +143,12 @@ compute the content root → submit to the anchor → attach the anchor evidence
 example the pre-registration anchor of a cited evidence statement) may be referenced indirectly via
 `evidenceRefs`, because that evidence does not commit *this* statement's root.
 
-Detached anchors reuse the existing proofbundle anchors architecture (`register_anchor_type`, rfc3161,
-opentimestamps, chia-datalayer/v1, markovian-provenance/v1) and are verified against the recomputed content
-root (result field `anchors_ok`). A `pending` anchor (e.g. OTS calendar-only) does **not** satisfy the anchor
+Detached anchors reuse the existing proofbundle anchors architecture via `register_anchor_type` and are
+verified against the recomputed content root (result field `anchors_ok`). Built-in verifier types are
+`rfc3161-tsa` and `opentimestamps` (with the `[anchors]` extra) and `chia-datalayer/v1` (pure-offline, always
+registrable). Any other extension type (for example a markovian-provenance verifier) must be registered
+before a decision `verify` can check it — an unregistered anchor type is a fail-closed error, never a silent
+pass. A `pending` anchor (e.g. OTS calendar-only) does **not** satisfy the anchor
 obligation in strict mode: pending is the absence of a timestamp, not a weaker one (`require_external_anchor`
 with the default `allow_pending: false`). Anchor-type neutrality: no de-facto coupling to a single anchor type.
 Honest limit: an anchor proves existence-until-T and non-alteration, not that the decision was made *after*

@@ -29,8 +29,9 @@
     "delegationRefs": {"type": "array"},
     "proposedAction": {
       "type": "object",
-      "required": ["actionType", "target"],
-      "properties": {"actionType": {"type": "string"}, "parametersDigest": {"$ref": "#/$defs/sha256Digest"}}
+      "required": ["actionType"],
+      "properties": {"actionType": {"type": "string"}, "parametersDigest": {"$ref": "#/$defs/sha256Digest"}},
+      "anyOf": [{"required": ["parametersDigest"]}, {"required": ["parametersRef"]}]
     },
     "inputSnapshot": {"type": "array", "items": {"type": "object", "required": ["digest"], "properties": {"digest": {"$ref": "#/$defs/sha256Digest"}}}},
     "policyBoundary": {

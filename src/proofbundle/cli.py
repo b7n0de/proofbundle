@@ -783,6 +783,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         else:
             print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
+        if result["audience_ok"] is not None:
+            print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
+        if result["nonce_ok"] is not None:
+            print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
@@ -791,13 +795,21 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"  - {e}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {w}", file=sys.stderr)
-        # No-Overclaim (§7.4 / lens 1): the verify verdict never means the decision was right/legal/safe.
-        print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
-              "was correct, legal, safe, or that the action was executed.")
+        # No-Overclaim (§7.4 / lens 1): only assert integrity when crypto actually held — on a crypto FAIL
+        # the CRYPTO: FAIL line already says it, and a positive trailer would itself be an overclaim.
+        if result["crypto_ok"]:
+            print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
+                  "was correct, legal, safe, or that the action was executed.")
+        else:
+            print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
     # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
+        return 2
+    # A requested --aud/--nonce binding that does NOT match is a replay / wrong-context failure — fail-closed
+    # like the eval verify path, never a silent exit 0 (lens 3 defect).
+    if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
     if result["policy_ok"] is False:
         return 3

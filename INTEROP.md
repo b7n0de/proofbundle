@@ -132,7 +132,7 @@ neighbouring systems as reference fields, never as a hard dependency:
 | CloudEvents | may wrap a receipt as an event payload; not the core format. |
 | MCP | `proposedAction.target` = tool URI + `digest`; a schema-digest change after approval is a tool-poisoning signal (§THREAT_MODEL). |
 | A2A | `agent` / `principal` / `delegationRefs` carry delegation and skill/authorization context. |
-| Sigstore / Rekor · SCITT | optional public anchoring / transparent-statement profile via the detached anchors layer (`target: statement`). |
+| Sigstore / Rekor · SCITT | a public-anchoring / transparent-statement profile *could* attach via the detached anchors layer (`target: statement`) once such an anchor verifier is registered; none ships by default. |
 | EEE / ValiChord / OMS | referenced as an `evidenceRefs[]` content root (eval run / model artifact), never re-implemented. |
 
 The reference is one-directional and content-root bound: the decision cites evidence, never the reverse.

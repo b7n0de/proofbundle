@@ -183,6 +183,14 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         if not isinstance(val.get("nonce"), str) or not val.get("nonce"):
             errors.append("validity.nonce is required in strict mode when validity is present")
 
+    # privacy inner shape: a bare {} must not pass strict — rawInputsIncluded is the field the policy's
+    # allow_raw_inputs gate reads, so it MUST be an explicit boolean (§5.5 privacy).
+    priv = predicate.get("privacy")
+    if priv is not None and not isinstance(priv, dict):
+        errors.append("privacy must be a JSON object")
+    elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
+        errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
+
     return errors
 
 
@@ -381,7 +389,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             from . import anchors as _anchors_mod  # noqa: PLC0415
             content_root = _anchors_mod.statement_content_root(body)
             ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root})
-            anchor_status = ar["status"]
+            # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but a
+            # FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
+            # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
+            _results = ar.get("results") or []
+            _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
+            _has_full = any(x["ok"] and not x["warn"] for x in _results)
+            _has_pending = any(x["warn"] for x in _results)
+            anchor_status = ("FAIL" if _has_fail else "PASS" if _has_full
+                             else "WARN" if _has_pending else ar["status"])
             r["anchors_ok"] = (True if anchor_status == "PASS"
                                else False if anchor_status == "FAIL" else None)
             if anchor_status == "WARN":
@@ -390,15 +406,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             elif anchor_status == "FAIL":
                 r["errors"].append(f"anchor verification failed: {ar['detail']}")
 
-    # Trust policy (v0.2 decision_receipt section) over the crypto-verified statement. WP5.
+    # Trust policy (v0.2 decision_receipt section) over the CRYPTO-VERIFIED statement. WP5. A policy is NEVER
+    # evaluated on unverified bytes (fail-open fix, mirrors the eval path): if crypto did not pass, policy_ok
+    # and signer_trusted stay None — a policy is never a reason to trust bytes whose signature failed.
     if policy is not None and isinstance(predicate, dict):
-        import base64  # noqa: PLC0415
-        from .policy import evaluate_decision_policy  # noqa: PLC0415
-        pe = evaluate_decision_policy(statement, r, policy,
-                                      signer_public_key_b64=base64.b64encode(public_key).decode(),
-                                      anchor_status=anchor_status)
-        r["policy_ok"] = pe["policy_ok"]
-        r["signer_trusted"] = pe["signer_trusted"]
-        r["errors"].extend(pe["errors"])
+        if not r["crypto_ok"]:
+            r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
+        else:
+            import base64  # noqa: PLC0415
+            from .policy import evaluate_decision_policy  # noqa: PLC0415
+            pe = evaluate_decision_policy(statement, r, policy,
+                                          signer_public_key_b64=base64.b64encode(public_key).decode(),
+                                          anchor_status=anchor_status)
+            r["policy_ok"] = pe["policy_ok"]
+            r["signer_trusted"] = pe["signer_trusted"]
+            r["errors"].extend(pe["errors"])
 
     return r
