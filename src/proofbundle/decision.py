@@ -10,13 +10,17 @@ Field names are lowerCamelCase (ITE-9); only the proofbundle-local trust policy 
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
-from .errors import ProofBundleError
+from .errors import BundleFormatError, ProofBundleError
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
+STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
 # RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms).
 _RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
@@ -146,3 +150,124 @@ def action_outcome_proven(predicate: Any) -> bool | None:
         return None
     ref = ao.get("outcomeRef")
     return isinstance(ref, dict) and _is_digest(ref.get("digest"))
+
+
+# ── Emit / verify (DSSE in-toto Statement) ──────────────────────────────────
+def _rfc8785_bytes(obj: Any) -> bytes:
+    """RFC-8785 (JCS) canonical bytes. Addendum §2.2: decision receipts emit in RFC-8785 canonical form (the
+    eval-result path uses sort_keys; decision emit deliberately diverges). rfc8785 lives in the `[eval]` extra,
+    so this is imported lazily — the plain verify core stays dependency-free."""
+    import rfc8785  # noqa: PLC0415
+    return rfc8785.dumps(obj)
+
+
+def _rfc8785_available() -> bool:
+    try:
+        import rfc8785  # noqa: F401, PLC0415
+        return True
+    except Exception:
+        return False
+
+
+def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
+                             subject_sha256: str | None = None) -> dict:
+    """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
+    commitment to the decision (default: sha256 over the RFC-8785 canonical predicate)."""
+    errs = validate_decision_predicate(predicate, strict=False)
+    if errs:
+        raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
+    name = subject_name or f"decision:{predicate.get('decisionId', '')}"
+    sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
+    return {
+        "_type": STATEMENT_TYPE,
+        "subject": [{"name": name, "digest": {"sha256": sha}}],
+        "predicateType": DECISION_RECEIPT_PREDICATE_TYPE,
+        "predicate": predicate,
+    }
+
+
+def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None = None,
+                          subject_sha256: str | None = None, keyid: str | None = None,
+                          strict: bool = True) -> dict:
+    """Sign a Decision Receipt as a DSSE-signed in-toto Statement. EMISSION is RFC-8785 canonical (Addendum
+    §2.2). Fail-closed: an invalid predicate raises before signing."""
+    from . import dsse  # noqa: PLC0415
+    errs = validate_decision_predicate(predicate, strict=strict)
+    if errs:
+        raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
+    statement = build_decision_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
+    body = _rfc8785_bytes(statement)  # RFC-8785 emission
+    return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def _empty_result() -> dict:
+    return {
+        "structure_ok": None, "crypto_ok": None, "signer_trusted": None, "predicate_type_ok": None,
+        "policy_ok": None, "evidence_bound": None, "audience_ok": None, "nonce_ok": None,
+        "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
+        "warnings": [], "errors": [],
+    }
+
+
+def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
+                            expected_audience: str | None = None, expected_nonce: str | None = None) -> dict:
+    """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
+    re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
+
+    hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
+    fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
+    Policy evaluation is not done here (WP5: `policy.evaluate_decision_policy`)."""
+    from . import dsse  # noqa: PLC0415
+    r = _empty_result()
+
+    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+    body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
+    try:
+        statement = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        r["structure_ok"] = False
+        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
+        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+
+    ptype = statement.get("predicateType") if isinstance(statement, dict) else None
+    r["predicate_type_ok"] = ptype == DECISION_RECEIPT_PREDICATE_TYPE
+    if not r["predicate_type_ok"]:
+        r["errors"].append(f"predicateType is {ptype!r}, expected decision-receipt/v0.1 (confusion attack?)")
+
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    struct_errs = validate_decision_predicate(predicate, strict=strict)
+    r["errors"].extend(struct_errs)
+
+    # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
+    canonical_ok = None
+    if _rfc8785_available():
+        try:
+            canonical_ok = _rfc8785_bytes(statement) == body
+        except Exception:
+            canonical_ok = False
+        if canonical_ok is False:
+            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+    else:
+        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+
+    r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and (canonical_ok is not False)
+
+    if isinstance(predicate, dict):
+        ev = predicate.get("evidenceRefs")
+        r["evidence_bound"] = isinstance(ev, list) and all(
+            isinstance(x, dict) and _is_digest(x.get("digest")) for x in ev)
+        r["action_outcome_proven"] = action_outcome_proven(predicate)
+        if r["action_outcome_proven"] is False:
+            r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
+        val = predicate.get("validity")
+        if isinstance(val, dict):
+            if expected_audience is not None:
+                r["audience_ok"] = expected_audience in (val.get("audience") or [])
+                if not r["audience_ok"]:
+                    r["errors"].append("audience mismatch (cross-audience replay?)")
+            if expected_nonce is not None:
+                r["nonce_ok"] = val.get("nonce") == expected_nonce
+                if not r["nonce_ok"]:
+                    r["errors"].append("nonce mismatch (replay?)")
+
+    return r
