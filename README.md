@@ -170,6 +170,15 @@ flowchart LR
   first-party **`chia-datalayer/v1`** (offline Merkle inclusion of a canonical root under a published Chia
   DataLayer root) and a third-party **`markovian-provenance/v1`** (a wallet-attributable, Bitcoin-anchored
   stamp). See [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
+- **Decision Receipts** *(2.1, vendored `decision-receipt/v0.1` predicate)* — a separate predicate for agent
+  *decisions* (not eval metrics): who decided, the proposed action, the policy boundary, digest-bound evidence,
+  the verdict (`ALLOW`/`DENY`/`REFUSE`/`ESCALATE`/`DEFER`/`OBSERVE`), and explicitly what was *not* checked.
+  `proofbundle decision emit|verify` with a v0.2 trust policy (`trusted_decision_makers`, `accepted_predicate_
+  types`). An eval receipt says *the number is authored and intact*; a Decision Receipt says *this decision was
+  made by this gate over this evidence* — never that the decision was correct. `actionOutcome=executed` without
+  a signed outcome is self-assertion. See
+  [docs/predicates/decision-receipt.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/decision-receipt.md)
+  and [ADR 0001](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0001-decision-receipt-separate-predicate.md).
 
 ## Docs
 
