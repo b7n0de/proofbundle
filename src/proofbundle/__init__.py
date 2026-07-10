@@ -45,6 +45,8 @@ __all__ = [
     "prereg_hash",
     "verify_prereg",
     "beacon_audit_challenge",
+    "canonicalize_statement",
+    "statement_content_root",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -71,6 +73,8 @@ _LAZY = {
     "prereg_hash": ".prereg",
     "verify_prereg": ".prereg",
     "beacon_audit_challenge": ".beacon",
+    "canonicalize_statement": ".canonical",
+    "statement_content_root": ".canonical",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -83,6 +87,7 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .persample import (audit_challenge, build_sample_tree, sample_opening,
                             verify_sample_opening)
     from .beacon import beacon_audit_challenge
+    from .canonical import canonicalize_statement, statement_content_root
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
