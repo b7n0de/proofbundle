@@ -132,10 +132,16 @@ def statement_content_root(payload_bytes: bytes) -> bytes:
     Deliberately hashes the exact transmitted bytes — the verifier NEVER re-canonicalizes (DSSE rule).
     The content root binds the CLAIM CONTENT, never the signature bytes, so it survives counter-signing,
     key rotation and multi-signature envelopes (b7n0de/proofbundle#7 consensus, 2026-07-10). The caller
-    (verify_decision_receipt) has already fail-closed if the payload deviates from its own RFC 8785 form."""
+    (verify_decision_receipt) has already fail-closed if the payload deviates from its own RFC 8785 form.
+
+    Thin wrapper over the shared ``canonical.statement_content_root`` primitive (ADR 0002) so this anchor
+    entry point and decision.py resolve the content root from ONE definition; the type-check stays here to
+    keep the anchor-layer ``BundleFormatError`` contract (a non-bytes target is a fail-closed schema error,
+    not a producer-side canonicalization)."""
     if not isinstance(payload_bytes, (bytes, bytearray)):
         raise BundleFormatError("statement content root needs the raw payload bytes")
-    return hashlib.sha256(bytes(payload_bytes)).digest()
+    from . import canonical  # noqa: PLC0415
+    return canonical.statement_content_root(bytes(payload_bytes))
 
 
 def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None) -> dict:
