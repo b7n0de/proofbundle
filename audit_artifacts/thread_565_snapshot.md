@@ -1,7 +1,7 @@
 # #565 Thread Snapshot — in-toto/attestation
 
 Erstellt: 2026-07-09. Issue: New predicate proposal: eval-result (AI/ML evaluation results).
-Author: b7n0de · Created 2026-07-03 · Updated 2026-07-10 · 8 Kommentare.
+Author: b7n0de · Created 2026-07-03 · Updated 2026-07-09 · 6 Kommentare.
 Maintainer-Reaktionen (in-toto Org): siehe Autoren-Zeilen. NICHT beantwortet (Phase A = nur Snapshot).
 
 ## Issue-Body (verbatim, editiert mit Non-goals)
@@ -147,28 +147,6 @@ Thanks, this boundary is exactly right, and we'll keep it.
 For the agent-decision side we're speccing a separate vendored predicate (`decision-receipt`) in proofbundle that records: input/source snapshot (digests), the policy/risk boundary (policy id + digest + decision path), the proposed action and verdict (allow/deny/refuse/escalate), fields explicitly not checked, and the conditions that would change the decision. It references signed `eval-result` statements via digest-bound evidence refs, so verifiers can distinguish "model cleared threshold X on benchmark Y" from "this agent used that evidence to make/refuse action Z."
 
 I'll update this proposal with an explicit non-goals section to pin that boundary. If a decision-receipt predicate ever seems upstream-worthy, we'd bring it here as a separate discussion rather than widening this one.
-
----
-
-### 2026-07-10T01:17:25Z — MarkovianProtocol
-
-The boundary is right, and the decision receipt is the right place to draw it. The fields listed above (input/source snapshot, policy or risk boundary, action taken or refused, fields explicitly not checked, the condition that would flip it) are what make a decision reviewable at all, and keeping them out of `eval-result` keeps the two claims honest: the eval statement attests a metric, the decision statement attests a choice that used it.
-
-One thing carries over directly from the anchor discussion above. A `decision-receipt` that binds its evidence by digest proves which `eval-result` statements were referenced and what verdict was recorded, but on its own it does not fix when the decision was made relative to those inputs, and that ordering is exactly what a reviewer wants when a decision is later contested. The same `anchors[]` we've been drafting for `eval-result` applies unchanged: take the RFC 8785 canonical form of the decision object (input digests, policy id and digest, action, verdict, the not-checked set), commit it, and attach an OpenTimestamps-to-Bitcoin and/or RFC 3161 anchor over that `canonicalRoot`. That makes "this decision, over these inputs, existed by time T and has not been altered" checkable offline by someone who was not present when it was made.
-
-So the two predicates compose cleanly: `eval-result` (metric evidence) <- digest ref <- `decision-receipt` (the choice), each carrying its own `anchors[]` over its own canonical root. The evidence is anchored independently of the decision that cites it, which is what lets a verifier separate "model cleared threshold X on benchmark Y" from "agent acted on it at time T."
-
-@b7n0de we have this working end to end on our side (canonicalization, Bitcoin-confirmed anchor, offline verify transcript) and are iterating the field on proofbundle#7. Glad to extend the same worked vector to a decision object so the `decision-receipt` spec has a reference implementation the day it lands.
-
----
-
-### 2026-07-10T03:06:39Z — b7n0de
-
-Thanks, agreed on all points, and your composition rule is exactly how we intend to build it: each statement anchors its own canonical root, so evidence and decision get independent existence proofs and a reviewer can order them without trusting either issuer's clock.
-
-One spec detail we'd like to pin precisely: what the decision anchor binds to. Rather than canonicalizing a field subset, we currently lean toward anchoring the RFC 8785 canonical form of the full signed statement payload — that way the verdict, evidence digests, policy digest, not-checked set and decision-change conditions are all inside the anchored bytes, and the binding rule matches how our enclave binding already works (SHA-256 over the signed payload). If you see a reason to anchor the pre-signature object instead, b7n0de/proofbundle#7 is the right place to hash that out.
-
-And we'd gladly take you up on extending the worked vector to a decision object. The ADR just landed (b7n0de/proofbundle#44); the draft spec will follow as decision-receipt/v0.1 under our vendored namespace, and an independent reference anchor implementation from day one is exactly the kind of check that keeps it honest.
 
 ---
 
