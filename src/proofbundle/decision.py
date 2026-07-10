@@ -210,7 +210,8 @@ def _empty_result() -> dict:
 
 
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
-                            expected_audience: str | None = None, expected_nonce: str | None = None) -> dict:
+                            expected_audience: str | None = None, expected_nonce: str | None = None,
+                            policy: dict | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -269,5 +270,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["nonce_ok"] = val.get("nonce") == expected_nonce
                 if not r["nonce_ok"]:
                     r["errors"].append("nonce mismatch (replay?)")
+
+    # Trust policy (v0.2 decision_receipt section) over the crypto-verified statement. WP5.
+    if policy is not None and isinstance(predicate, dict):
+        import base64  # noqa: PLC0415
+        from .policy import evaluate_decision_policy  # noqa: PLC0415
+        pe = evaluate_decision_policy(statement, r, policy,
+                                      signer_public_key_b64=base64.b64encode(public_key).decode())
+        r["policy_ok"] = pe["policy_ok"]
+        r["signer_trusted"] = pe["signer_trusted"]
+        r["errors"].extend(pe["errors"])
 
     return r

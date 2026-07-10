@@ -29,6 +29,11 @@ from .kbjwt import verify_key_binding
 __all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy"]
 
 POLICY_SCHEMA = "proofbundle/trust-policy/v0.1"
+POLICY_SCHEMA_V0_2 = "proofbundle/trust-policy/v0.2"
+# v0.2 adds ONE additive section (decision_receipt) for the decision-receipt/v0.1 predicate. A v0.1 policy is
+# valid unchanged under the v0.2 parser (only additive; fail-closed preserved). The decision_receipt section is
+# accepted ONLY when schema == v0.2 (a decision_receipt under a v0.1 schema is a fail-closed error).
+_SUPPORTED_SCHEMAS = (POLICY_SCHEMA, POLICY_SCHEMA_V0_2)
 
 
 class PolicyError(ProofBundleError):
@@ -36,7 +41,13 @@ class PolicyError(ProofBundleError):
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
+_DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
+                  "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
+                  "require_external_anchor", "allow_pending"}
+_DECISION_MAKER_KEYS = {"id", "public_key_b64", "kid"}
+_DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
+_VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _ISSUER_KEYS = {"issuer", "public_key_b64", "kid"}
 _SIG_KEYS = {"allowed_algs", "require_expected_signer"}
 _MERKLE_KEYS = {"required_hash_alg"}
@@ -98,10 +109,13 @@ def load_policy(source: Union[str, dict]) -> dict:
         policy = copy.deepcopy(source)
     policy = _require_dict(policy, "trust policy")
 
-    if policy.get("schema") != POLICY_SCHEMA:
+    if policy.get("schema") not in _SUPPORTED_SCHEMAS:
         raise PolicyError(
-            f"unsupported trust policy schema {policy.get('schema')!r}, expected {POLICY_SCHEMA!r}")
+            f"unsupported trust policy schema {policy.get('schema')!r}, expected one of {list(_SUPPORTED_SCHEMAS)}")
     _reject_unknown(policy, _TOP_KEYS, "trust policy")
+    # decision_receipt is a v0.2-only additive section; under v0.1 it is a fail-closed error.
+    if "decision_receipt" in policy and policy.get("schema") != POLICY_SCHEMA_V0_2:
+        raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
 
@@ -148,7 +162,89 @@ def load_policy(source: Union[str, dict]) -> dict:
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
         _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
+    if "decision_receipt" in policy:
+        dr = _require_dict(policy["decision_receipt"], "decision_receipt")
+        _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
+        if "trusted_decision_makers" in dr and not isinstance(dr["trusted_decision_makers"], list):
+            raise PolicyError("decision_receipt.trusted_decision_makers must be a list")
+        for dm in dr.get("trusted_decision_makers", []) or []:
+            dm = _require_dict(dm, "trusted_decision_makers[]")
+            _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
+            if not (isinstance(dm.get("public_key_b64"), str) and dm["public_key_b64"]):
+                raise PolicyError("each trusted_decision_makers[] entry needs a non-empty public_key_b64")
+            _require_str_or_null(dm, "id", "trusted_decision_makers[]")
+            _require_str_or_null(dm, "kid", "trusted_decision_makers[]")
+        for key in ("allowed_decision_types", "allowed_verdicts", "required_evidence_relations",
+                    "accepted_predicate_types"):
+            if key in dr:
+                _require_list_of_str(dr, key, "decision_receipt")
+        for key in ("require_policy_digest", "require_external_anchor", "allow_pending"):
+            if key in dr:
+                _require_bool(dr, key, "decision_receipt")
     return policy
+
+
+def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
+                             signer_public_key_b64: str) -> dict:
+    """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
+    ``{"policy_ok": bool|None, "signer_trusted": bool|None, "errors": [...]}``. Never trusts decisionMaker.id on
+    the JSON claim alone: the signer key (that verified the DSSE) is matched against trusted_decision_makers.
+    policy_ok is None when the policy carries no decision_receipt section (nothing decision-specific to check)."""
+    section = policy.get("decision_receipt")
+    if not isinstance(section, dict):
+        return {"policy_ok": None, "signer_trusted": None, "errors": []}
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    if not isinstance(predicate, dict):
+        return {"policy_ok": False, "signer_trusted": False, "errors": ["statement has no predicate object"]}
+    errors: list[str] = []
+
+    # predicateType allow-list (confusion defense at the policy layer)
+    apt = section.get("accepted_predicate_types")
+    if apt and statement.get("predicateType") not in apt:
+        errors.append(f"predicateType {statement.get('predicateType')!r} not in accepted_predicate_types")
+
+    # signer <-> trusted_decision_makers (by public key; decisionMaker.id only as a hint that must not conflict)
+    signer_trusted = None
+    tdm = section.get("trusted_decision_makers")
+    if tdm:
+        claimed_id = (predicate.get("decisionMaker") or {}).get("id")
+        match = next((m for m in tdm if m.get("public_key_b64") == signer_public_key_b64), None)
+        signer_trusted = match is not None
+        if not signer_trusted:
+            errors.append("signer key is not in trusted_decision_makers")
+        elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
+            signer_trusted = False
+            errors.append("decisionMaker.id does not match the trusted entry for this signer key")
+
+    dt = predicate.get("decisionType")
+    if section.get("allowed_decision_types") and dt not in section["allowed_decision_types"]:
+        errors.append(f"decisionType {dt!r} not allowed by policy")
+    verdict = (predicate.get("decision") or {}).get("verdict")
+    if section.get("allowed_verdicts") and verdict not in section["allowed_verdicts"]:
+        errors.append(f"verdict {verdict!r} not allowed by policy")
+
+    req_rel = section.get("required_evidence_relations") or []
+    if req_rel:
+        have = {r.get("relation") for r in predicate.get("evidenceRefs", []) if isinstance(r, dict)}
+        missing = [r for r in req_rel if r not in have]
+        if missing:
+            errors.append(f"required evidence relations missing: {missing}")
+
+    if section.get("require_policy_digest"):
+        pd = (predicate.get("policyBoundary") or {}).get("policyDigest")
+        if not (isinstance(pd, dict) and isinstance(pd.get("sha256"), str)):
+            errors.append("policy requires policyBoundary.policyDigest but it is absent")
+
+    if section.get("require_external_anchor"):
+        anchors = predicate.get("anchors")
+        allow_pending = bool(section.get("allow_pending"))
+        # WP6 wires real anchor verification; here we require presence + (unless allow_pending) a non-pending anchor.
+        usable = [a for a in (anchors or []) if isinstance(a, dict) and (allow_pending or a.get("status") != "pending")]
+        if not usable:
+            errors.append("policy requires an external anchor but none satisfies it (pending excluded unless allow_pending)")
+
+    policy_ok = (not errors) and (signer_trusted is not False)
+    return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}
 
 
 def policy_expected_aud(policy: dict):

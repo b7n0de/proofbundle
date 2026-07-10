@@ -1,0 +1,18 @@
+{
+  "schema": "proofbundle/trust-policy/v0.2",
+  "policy_id": "example-strict-decision-policy",
+  "allowed_schema_versions": ["proofbundle/v0.1"],
+  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": true},
+  "decision_receipt": {
+    "accepted_predicate_types": ["https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"],
+    "trusted_decision_makers": [
+      {"id": "https://example.org/decision-platform/proofbundle-gate/v1", "public_key_b64": "REPLACE_WITH_ISSUER_PUBLIC_KEY_B64"}
+    ],
+    "allowed_decision_types": ["preActionAuthorization", "humanEscalation"],
+    "allowed_verdicts": ["ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"],
+    "required_evidence_relations": ["evalResult"],
+    "require_policy_digest": true,
+    "require_external_anchor": false,
+    "allow_pending": false
+  }
+}

@@ -740,12 +740,20 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
+    policy = None
+    if args.policy:
+        from .policy import PolicyError, load_policy  # noqa: PLC0415
+        try:
+            policy = load_policy(args.policy)
+        except PolicyError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
             env = json.load(handle)
         pub = base64.b64decode(args.pub)
         result = verify_decision_receipt(env, pub, strict=args.strict,
-                                         expected_audience=args.aud, expected_nonce=args.nonce)
+                                         expected_audience=args.aud, expected_nonce=args.nonce, policy=policy)
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -753,7 +761,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
-        print("POLICY: NOT_EVALUATED (no decision policy supplied)")
+        if result["policy_ok"] is None:
+            print("POLICY: NOT_EVALUATED (no decision policy supplied)")
+        else:
+            print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
             print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
@@ -761,11 +772,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"  - {e}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {w}", file=sys.stderr)
-    # Exit contract (identical to Phase B; policy is NOT_EVALUATED here -> never exit 3):
+    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
         return 2
+    if result["policy_ok"] is False:
+        return 3
     return 0
 
 
@@ -997,6 +1010,8 @@ def build_parser() -> argparse.ArgumentParser:
                      "and never exits 3."))
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
+    d_verify.add_argument("--policy", default=None,
+                          help="trust policy JSON (v0.2 decision_receipt section); a policy violation exits 3")
     d_verify.add_argument("--json", action="store_true", help="machine readable output")
     d_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
     d_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
