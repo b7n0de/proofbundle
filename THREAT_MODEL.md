@@ -90,6 +90,27 @@ Rule of thumb: **`CRYPTO: OK` answers "are these the bytes that issuer signed?" 
 line answers "should I believe them?".** That second question is a `POLICY` decision you must supply
 and an `ASSURANCE` claim you must corroborate.
 
+## Misuse: Decision Receipts (`decision-receipt/v0.1`)
+
+The Decision Receipt predicate widens the attestation surface with a new signed claim type, so its boundary is
+as explicit as the eval-result one. What a `decision verify` PASS proves: *this decision maker signed this
+verdict about this proposed action, over these digest-bound inputs and this policy boundary, at this time.*
+What it does not:
+
+- **"The verdict was correct / legal / safe."** No. A Decision Receipt proves *a decision was made and by
+  whom*, not that it was right. `notChecked` is a required field precisely to stop a false completeness
+  assumption.
+- **"`actionOutcome: executed`, so the action ran."** Only if the outcome is separately signed by the
+  tool/mediator boundary or referenced as a digest-bound tool log (`outcomeRef`). Otherwise it is the issuer's
+  self-assertion; verify reports `action_outcome_proven=false` with a warning.
+- **Predicate confusion — "a decision receipt counted as an eval-result (or vice versa)."** Rejected: the
+  `predicate_type_ok` check fails a receipt whose `predicateType` is not `decision-receipt/v0.1`, and a v0.2
+  trust policy's `accepted_predicate_types` is the belt-and-suspenders policy-layer guard.
+- **"`decisionMaker.id` names the gate, so I trust it."** The `id` is a JSON claim. Trust comes from the DSSE
+  signer key matched against `trusted_decision_makers` in the trust policy — never from the `id` string alone.
+- **Cross-audience / replay.** `validity.audience` + `nonce` (strict interactive mode) bind a receipt to its
+  intended relying party and a fresh challenge; verify checks them against `--aud`/`--nonce`.
+
 ## Related work (fair demarcation)
 
 proofbundle attests eval/test *run* results, offline, via the standards stack (Ed25519 + RFC 6962 + optional

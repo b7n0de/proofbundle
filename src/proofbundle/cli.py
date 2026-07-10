@@ -226,7 +226,8 @@ def _version_string() -> str:
         f"proofbundle {__version__}\n"
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
-        f"features: {feature_line}"
+        f"features: {feature_line}\n"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
     )
 
 
@@ -714,6 +715,149 @@ def _cmd_svr(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_decision_emit(args: argparse.Namespace) -> int:
+    from .decision import DecisionReceiptError, emit_decision_receipt  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        with open(args.predicate, encoding="utf-8") as handle:
+            predicate = json.load(handle)
+        env = emit_decision_receipt(predicate, signer, strict=not args.lenient)
+    except (DecisionReceiptError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(env, handle, indent=2)
+        handle.write("\n")
+    print(f"wrote decision receipt {args.out}")
+    return 0
+
+
+def _cmd_decision_verify(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+    from .decision import verify_decision_receipt  # noqa: PLC0415
+    if not args.pub:
+        print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
+        return 2
+    policy = None
+    if args.policy:
+        from .policy import PolicyError, load_policy  # noqa: PLC0415
+        try:
+            policy = load_policy(args.policy)
+        except PolicyError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+    anchors = None
+    if getattr(args, "anchors", None):
+        try:
+            with open(args.anchors, encoding="utf-8") as handle:
+                anchors = json.load(handle)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
+            return 2
+    try:
+        with open(args.envelope, encoding="utf-8") as handle:
+            env = json.load(handle)
+        pub = base64.b64decode(args.pub)
+        result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
+                                         expected_nonce=args.nonce, policy=policy, anchors=anchors)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
+        # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
+        # opaque verify object verbatim, so a public-key value cannot flow into a clear-text log (CodeQL
+        # py/clear-text-logging-sensitive-data).
+        report = {k: result[k] for k in (
+            "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
+            "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
+            "action_outcome_proven", "warnings", "errors",
+        )}
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
+        if result["policy_ok"] is None:
+            print("POLICY: NOT_EVALUATED (no decision policy supplied)")
+        else:
+            print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
+        print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
+        if result["audience_ok"] is not None:
+            print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
+        if result["nonce_ok"] is not None:
+            print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
+        if result["anchors_ok"] is not None:
+            print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
+        if result["action_outcome_proven"] is False:
+            print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
+        for e in result["errors"]:
+            print(f"  - {e}", file=sys.stderr)
+        for w in result["warnings"]:
+            print(f"  ! {w}", file=sys.stderr)
+        # No-Overclaim (§7.4 / lens 1): only assert integrity when crypto actually held — on a crypto FAIL
+        # the CRYPTO: FAIL line already says it, and a positive trailer would itself be an overclaim.
+        if result["crypto_ok"]:
+            print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
+                  "was correct, legal, safe, or that the action was executed.")
+        else:
+            print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
+    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
+    if not result["crypto_ok"]:
+        return 1
+    if not result["structure_ok"]:
+        return 2
+    # A requested --aud/--nonce binding that does NOT match is a replay / wrong-context failure — fail-closed
+    # like the eval verify path, never a silent exit 0 (lens 3 defect).
+    if result["audience_ok"] is False or result["nonce_ok"] is False:
+        return 2
+    if result["policy_ok"] is False:
+        return 3
+    return 0
+
+
+def _cmd_decision_inspect(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+    try:
+        with open(args.receipt, encoding="utf-8") as handle:
+            obj = json.load(handle)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    statement = json.loads(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
+    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _cmd_decision_init(args: argparse.Namespace) -> int:
+    template = {
+        "schemaVersion": "0.1.0",
+        "decisionId": "urn:uuid:00000000-0000-0000-0000-000000000000",
+        "decisionType": "preActionAuthorization",
+        "decidedAt": "2026-01-01T00:00:00Z",
+        "decisionMaker": {"id": "https://example.org/decision-platform/gate/v1", "version": {"proofbundle": __version__}},
+        "agent": {"id": "agent://example/agent", "version": "0"},
+        "principal": {"id": "workload://example/principal"},
+        "proposedAction": {"actionType": "tool.call", "target": {"name": "mcp://example/action", "uri": "mcp://example/action"}, "method": "POST", "parametersDigest": {"sha256": "0" * 64}},
+        "inputSnapshot": [{"name": "input", "uri": "urn:proofbundle:input:0", "digest": {"sha256": "0" * 64}, "mediaType": "application/json"}],
+        "policyBoundary": {"policyEngine": "opa", "policyId": "https://example.org/policy/v1", "policyDigest": {"sha256": "0" * 64}, "decisionPath": "data.example.allow"},
+        "evidenceRefs": [],
+        "decision": {"verdict": "DENY", "reasonCodes": ["example.reason"], "humanReadableSummary": "", "obligations": [], "allowedScope": []},
+        "notChecked": [{"field": "example", "reason": "template", "impact": ""}],
+        "decisionChangeConditions": [{"conditionType": "additionalApproval", "description": "", "requiredEvidenceType": "approvalReceipt"}],
+        "privacy": {"rawInputsIncluded": False, "redactionProfile": "https://example.org/redaction/v1", "erased": [], "masked": []},
+    }
+    out = json.dumps(template, indent=2, ensure_ascii=False)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(out + "\n")
+        print(f"wrote decision predicate template {args.out}")
+    else:
+        print(out)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -876,6 +1020,44 @@ def build_parser() -> argparse.ArgumentParser:
                         help="verify the protocol matches a receipt's prereg_sha256 instead of hashing")
     prereg.add_argument("--json", action="store_true", help="machine readable output")
     prereg.set_defaults(func=_cmd_prereg)
+
+    # decision-receipt/v0.1 predicate (vendored). Nested group: init / emit / verify / inspect.
+    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")
+    dsub = decision.add_subparsers(dest="decision_command", required=True)
+
+    d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')")
+    d_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
+    d_init.set_defaults(func=_cmd_decision_init)
+
+    d_emit = dsub.add_parser("emit", help="sign a decision predicate into a DSSE receipt")
+    d_emit.add_argument("predicate", help="path to the decision predicate JSON")
+    d_emit.add_argument("--out", required=True, help="output path for the signed decision receipt")
+    d_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
+    d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    d_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates (skip strict-mode required fields)")
+    d_emit.set_defaults(func=_cmd_decision_emit)
+
+    d_verify = dsub.add_parser(
+        "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
+        description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input or "
+                     "predicateType confusion. Without a decision policy the output shows POLICY: NOT_EVALUATED "
+                     "and never exits 3."))
+    d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
+    d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
+    d_verify.add_argument("--policy", default=None,
+                          help="trust policy JSON (v0.2 decision_receipt section); a policy violation exits 3")
+    d_verify.add_argument("--json", action="store_true", help="machine readable output")
+    d_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
+    d_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
+    d_verify.add_argument("--nonce", default=None, help="expected nonce (checks validity.nonce against replay)")
+    d_verify.add_argument("--anchors", default=None,
+                          help="path to a JSON array of DETACHED anchor evidence for the statement's own "
+                               "content root (anchors are never inside the signed predicate)")
+    d_verify.set_defaults(func=_cmd_decision_verify)
+
+    d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
+    d_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
+    d_inspect.set_defaults(func=_cmd_decision_inspect)
 
     return parser
 

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "0.1.0",
+  "decisionId": "urn:uuid:7d444840-9dc0-11d1-b245-5ffdce74fad2",
+  "decisionType": "humanEscalation",
+  "decidedAt": "2026-07-09T12:30:00Z",
+  "decisionMaker": {
+    "id": "https://example.org/decision-platform/proofbundle-gate/v1",
+    "version": {
+      "proofbundle": "2.1.0"
+    }
+  },
+  "agent": {
+    "id": "agent://example/finance-agent",
+    "version": "2026.07.09",
+    "configurationDigest": {
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    }
+  },
+  "principal": {
+    "id": "user://example/analyst-42"
+  },
+  "proposedAction": {
+    "actionType": "tool.call",
+    "target": {
+      "name": "mcp://ledger/postTransfer",
+      "uri": "mcp://ledger/postTransfer"
+    },
+    "method": "POST",
+    "parametersDigest": {
+      "sha256": "6b51d431df5d7f141cbececcf79edf3dd861c3b4069f0b11661a3eefacbba918"
+    }
+  },
+  "inputSnapshot": [
+    {
+      "name": "transfer request digest",
+      "uri": "urn:proofbundle:input-snapshot:xfer-991",
+      "digest": {
+        "sha256": "0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f"
+      },
+      "mediaType": "application/json"
+    }
+  ],
+  "policyBoundary": {
+    "policyEngine": "opa",
+    "policyId": "https://example.org/policies/finance-transfer/v3",
+    "policyDigest": {
+      "sha256": "8855508aade16ec573d21e6a485dfd0a7624085c1a14b5ecdd6485de0c6839a4"
+    },
+    "decisionPath": "data.finance.transfer.decision"
+  },
+  "evidenceRefs": [
+    {
+      "relation": "riskSignal",
+      "uri": "urn:proofbundle:eval-receipt:aml-screen",
+      "digest": {
+        "sha256": "e29c9c180c6279b0b02abd6a1801c7c04082cf486ec027aa13515e4f3884bb6b"
+      }
+    }
+  ],
+  "decision": {
+    "verdict": "ESCALATE",
+    "reasonCodes": [
+      "risk.threshold.human_review_required"
+    ],
+    "humanReadableSummary": "Transfer amount exceeds the autonomous threshold; a human approver must decide.",
+    "obligations": [
+      "route to human approver queue"
+    ],
+    "allowedScope": []
+  },
+  "notChecked": [
+    {
+      "field": "counterpartySanctionsStatus",
+      "reason": "deferredToHuman",
+      "impact": "Sanctions screening is delegated to the human approver, not asserted here."
+    }
+  ],
+  "decisionChangeConditions": [
+    {
+      "conditionType": "additionalApproval",
+      "description": "A signed human-approver receipt for this exact transfer digest would move the verdict to ALLOW.",
+      "requiredEvidenceType": "operatorApproval"
+    }
+  ],
+  "actionOutcome": {
+    "status": "notAttempted",
+    "performedAt": null,
+    "outcomeRef": null
+  },
+  "privacy": {
+    "rawInputsIncluded": false,
+    "redactionProfile": "https://example.org/redaction/profile/v1",
+    "erased": [],
+    "masked": [
+      "/input/accountNumber"
+    ]
+  },
+  "validity": {
+    "audience": [
+      "https://example.org/approver-queue/finance"
+    ],
+    "nonce": "a1b2c3d4e5f60718",
+    "expiresAt": "2026-07-09T12:35:00Z"
+  }
+}

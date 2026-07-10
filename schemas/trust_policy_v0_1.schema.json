@@ -8,8 +8,8 @@
   "required": ["schema", "policy_id"],
   "properties": {
     "schema": {
-      "const": "proofbundle/trust-policy/v0.1",
-      "description": "Policy format version. The version field lets a future v0.2 add sections without breaking v0.1 policies."
+      "enum": ["proofbundle/trust-policy/v0.1", "proofbundle/trust-policy/v0.2"],
+      "description": "Policy format version. v0.2 adds the additive decision_receipt section (for the decision-receipt/v0.1 predicate); v0.1 policies stay valid unchanged. The decision_receipt section is accepted ONLY under v0.2 (the parser fails closed on a decision_receipt section declared under v0.1)."
     },
     "policy_id": {
       "type": "string",
@@ -112,6 +112,34 @@
           "type": "boolean",
           "description": "If true, a self_attested claim with no prereg_sha256 (the weakest, publish-best-of-many combination) is rejected. Default false."
         }
+      }
+    },
+    "decision_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v0.2-only. Trust rules for the decision-receipt/v0.1 predicate. Accepted ONLY when schema == proofbundle/trust-policy/v0.2 (the parser fails closed otherwise). The signer is matched to trusted_decision_makers by PUBLIC KEY; decisionMaker.id is only a hint that must not conflict.",
+      "properties": {
+        "trusted_decision_makers": {
+          "type": "array",
+          "description": "Signing keys the relying party trusts as decision makers. Matched by public_key_b64.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["public_key_b64"],
+            "properties": {
+              "id": {"type": "string", "description": "decisionMaker.id this key is trusted for (hint; must not conflict)."},
+              "public_key_b64": {"type": "string", "minLength": 1, "description": "Base64 raw Ed25519 public key."},
+              "kid": {"type": "string", "description": "Optional key id hint; display only."}
+            }
+          }
+        },
+        "accepted_predicate_types": {"type": "array", "items": {"type": "string"}, "description": "Allowed predicateType URIs (confusion defense: a decision receipt presented as another predicate fails)."},
+        "allowed_decision_types": {"type": "array", "items": {"type": "string"}, "description": "Allowed decisionType values."},
+        "allowed_verdicts": {"type": "array", "items": {"type": "string"}, "description": "Allowed decision.verdict values."},
+        "required_evidence_relations": {"type": "array", "items": {"type": "string"}, "description": "evidenceRefs[].relation values that MUST be present."},
+        "require_policy_digest": {"type": "boolean", "description": "If true, policyBoundary.policyDigest MUST be present."},
+        "require_external_anchor": {"type": "boolean", "description": "If true, the receipt MUST carry an external anchor (see allow_pending)."},
+        "allow_pending": {"type": "boolean", "description": "If false (default), a pending anchor does NOT satisfy require_external_anchor."}
       }
     }
   }

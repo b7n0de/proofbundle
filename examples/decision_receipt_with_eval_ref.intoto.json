@@ -1,0 +1,104 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "decision:urn:uuid:6f1c2a94-3e5b-4d21-9a77-8c0b1e2f4a63",
+      "digest": {
+        "sha256": "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447"
+      }
+    }
+  ],
+  "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+  "predicate": {
+    "schemaVersion": "0.1.0",
+    "decisionId": "urn:uuid:6f1c2a94-3e5b-4d21-9a77-8c0b1e2f4a63",
+    "decisionType": "preActionAuthorization",
+    "decidedAt": "2026-07-09T10:00:00Z",
+    "decisionMaker": {
+      "id": "https://example.org/decision-platform/proofbundle-gate/v1",
+      "version": {
+        "proofbundle": "2.1.0"
+      }
+    },
+    "agent": {
+      "id": "agent://example/customer-support-agent",
+      "version": "2026.07.09",
+      "configurationDigest": {
+        "sha256": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b"
+      }
+    },
+    "principal": {
+      "id": "workload://example/support-tier1"
+    },
+    "proposedAction": {
+      "actionType": "tool.call",
+      "target": {
+        "name": "mcp://crm/exportCustomers",
+        "uri": "mcp://crm/exportCustomers"
+      },
+      "method": "POST",
+      "parametersDigest": {
+        "sha256": "dc5614a1c72929a3ef517e9bb388da81ea7cda29e4c7f4e3537c03045ba978e2"
+      }
+    },
+    "inputSnapshot": [
+      {
+        "name": "sanitized export request bundle",
+        "uri": "urn:proofbundle:input-snapshot:req-8842",
+        "digest": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "mediaType": "application/json"
+      }
+    ],
+    "policyBoundary": {
+      "policyEngine": "opa",
+      "policyId": "https://example.org/policies/agent-export/v1",
+      "policyDigest": {
+        "sha256": "8e1e7ef21906719fd84ad1f4f2ae2249421330449a4170cf893abd89dc84b083"
+      },
+      "decisionPath": "data.agent.export.allow"
+    },
+    "evidenceRefs": [
+      {
+        "relation": "evalResult",
+        "uri": "urn:proofbundle:eval-receipt:scope-classification",
+        "digest": {
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        "predicateType": "https://b7n0de.com/proofbundle/predicates/eval-result/v0.1"
+      }
+    ],
+    "decision": {
+      "verdict": "DENY",
+      "reasonCodes": [
+        "risk.boundary.exceeded"
+      ],
+      "humanReadableSummary": "Export refused because requested scope exceeded the policy boundary.",
+      "obligations": [],
+      "allowedScope": []
+    },
+    "notChecked": [
+      {
+        "field": "rawCustomerRecordContents",
+        "reason": "redacted",
+        "impact": "Decision used a data-classification digest, not raw record contents."
+      }
+    ],
+    "decisionChangeConditions": [
+      {
+        "conditionType": "additionalApproval",
+        "description": "A signed approval receipt from the Data Protection Officer for this exact export digest would change the policy result.",
+        "requiredEvidenceType": "approvalReceipt"
+      }
+    ],
+    "privacy": {
+      "rawInputsIncluded": false,
+      "redactionProfile": "https://example.org/redaction/profile/v1",
+      "erased": [
+        "/input/customerEmail"
+      ],
+      "masked": []
+    }
+  }
+}

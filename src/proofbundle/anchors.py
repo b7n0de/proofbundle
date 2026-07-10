@@ -2,19 +2,24 @@
 
 An **anchor** is external evidence that a target existed at (or before) a time — something the receipt's
 own Ed25519 + Merkle structure cannot establish on its own, because a self-emitted timestamp is only
-producer-clock testimony. Two targets, **never mixed**:
+producer-clock testimony. Three targets, **never mixed**:
 
 * ``preRegistration`` — "the commitment existed BEFORE the run" (backdating protection; the point raised
   in in-toto/attestation#565).
 * ``receipt`` — "the receipt existed from time T" (publication proof).
+* ``statement`` — "this in-toto Statement's content existed from time T": the content root of a DSSE
+  Statement (used by decision receipts). Anchor evidence for a statement's OWN content root is kept
+  DETACHED (outside the signed bytes) — an anchor cannot live inside the bytes whose hash it commits
+  without subset canonicalization, which is forbidden (proofbundle#7 consensus, 2026-07-10).
 
 Each ``anchors[]`` entry is ``{type, target, canonicalRoot, proof, anchoredAt}``:
 
 * ``type`` — ``rfc3161-tsa`` | ``opentimestamps`` | ``<extension>/vN``.
-* ``target`` — ``receipt`` | ``preRegistration`` (see above).
+* ``target`` — ``receipt`` | ``preRegistration`` | ``statement`` (see above).
 * ``canonicalRoot`` — base64 of the canonical root of the target: for ``receipt`` the RFC 8785 (JCS)
   sha256 of the receipt bundle; for ``preRegistration`` the sha256 of the raw protocol bytes (the
-  receipt's ``prereg_sha256``). The anchor timestamps THIS root.
+  receipt's ``prereg_sha256``); for ``statement`` the sha256 of the exact DSSE payload bytes
+  (``statement_content_root``). The anchor timestamps THIS root.
 * ``proof`` — base64 of the type-specific proof (an RFC 3161 token, an OpenTimestamps proof, ...).
 * ``anchoredAt`` — RFC 3339 Z, INFORMATIVE only (the trusted time comes from the proof, not this field).
 
@@ -40,7 +45,7 @@ from typing import Callable, Optional
 
 from .errors import BundleFormatError
 
-ANCHOR_TARGETS = ("receipt", "preRegistration")
+ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "frozen"}
 
 # type name -> verifier callable:
@@ -118,6 +123,19 @@ def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
         return bytes.fromhex(prereg_sha256_hex)
     except ValueError as exc:
         raise BundleFormatError("prereg_sha256 is not valid hex") from exc
+
+
+def statement_content_root(payload_bytes: bytes) -> bytes:
+    """The content root a ``statement`` anchor stamps: SHA-256 over the EXACT DSSE payload bytes of an
+    in-toto Statement (for a decision receipt, the RFC 8785 canonical statement bytes as signed).
+
+    Deliberately hashes the exact transmitted bytes — the verifier NEVER re-canonicalizes (DSSE rule).
+    The content root binds the CLAIM CONTENT, never the signature bytes, so it survives counter-signing,
+    key rotation and multi-signature envelopes (b7n0de/proofbundle#7 consensus, 2026-07-10). The caller
+    (verify_decision_receipt) has already fail-closed if the payload deviates from its own RFC 8785 form."""
+    if not isinstance(payload_bytes, (bytes, bytearray)):
+        raise BundleFormatError("statement content root needs the raw payload bytes")
+    return hashlib.sha256(bytes(payload_bytes)).digest()
 
 
 def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None) -> dict:

@@ -29,6 +29,11 @@ from .kbjwt import verify_key_binding
 __all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy"]
 
 POLICY_SCHEMA = "proofbundle/trust-policy/v0.1"
+POLICY_SCHEMA_V0_2 = "proofbundle/trust-policy/v0.2"
+# v0.2 adds ONE additive section (decision_receipt) for the decision-receipt/v0.1 predicate. A v0.1 policy is
+# valid unchanged under the v0.2 parser (only additive; fail-closed preserved). The decision_receipt section is
+# accepted ONLY when schema == v0.2 (a decision_receipt under a v0.1 schema is a fail-closed error).
+_SUPPORTED_SCHEMAS = (POLICY_SCHEMA, POLICY_SCHEMA_V0_2)
 
 
 class PolicyError(ProofBundleError):
@@ -36,7 +41,20 @@ class PolicyError(ProofBundleError):
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
+_DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
+                  "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
+                  "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
+                  "require_not_checked", "require_decision_change_conditions", "require_trace_context",
+                  "allow_raw_inputs"}
+# The decision_receipt boolean knobs (§7.5 / addendum §2.2). allow_raw_inputs defaults FALSE (fail-closed:
+# a receipt with privacy.rawInputsIncluded=true is rejected unless the relying party opts in).
+_DECISION_BOOL_KEYS = ("require_policy_digest", "require_external_anchor", "allow_pending", "require_audience",
+                       "require_nonce", "require_not_checked", "require_decision_change_conditions",
+                       "require_trace_context", "allow_raw_inputs")
+_DECISION_MAKER_KEYS = {"id", "public_key_b64", "kid"}
+_DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
+_VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _ISSUER_KEYS = {"issuer", "public_key_b64", "kid"}
 _SIG_KEYS = {"allowed_algs", "require_expected_signer"}
 _MERKLE_KEYS = {"required_hash_alg"}
@@ -98,10 +116,13 @@ def load_policy(source: Union[str, dict]) -> dict:
         policy = copy.deepcopy(source)
     policy = _require_dict(policy, "trust policy")
 
-    if policy.get("schema") != POLICY_SCHEMA:
+    if policy.get("schema") not in _SUPPORTED_SCHEMAS:
         raise PolicyError(
-            f"unsupported trust policy schema {policy.get('schema')!r}, expected {POLICY_SCHEMA!r}")
+            f"unsupported trust policy schema {policy.get('schema')!r}, expected one of {list(_SUPPORTED_SCHEMAS)}")
     _reject_unknown(policy, _TOP_KEYS, "trust policy")
+    # decision_receipt is a v0.2-only additive section; under v0.1 it is a fail-closed error.
+    if "decision_receipt" in policy and policy.get("schema") != POLICY_SCHEMA_V0_2:
+        raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
 
@@ -148,7 +169,123 @@ def load_policy(source: Union[str, dict]) -> dict:
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
         _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
+    if "decision_receipt" in policy:
+        dr = _require_dict(policy["decision_receipt"], "decision_receipt")
+        _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
+        if "trusted_decision_makers" in dr and not isinstance(dr["trusted_decision_makers"], list):
+            raise PolicyError("decision_receipt.trusted_decision_makers must be a list")
+        for dm in dr.get("trusted_decision_makers", []) or []:
+            dm = _require_dict(dm, "trusted_decision_makers[]")
+            _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
+            if not (isinstance(dm.get("public_key_b64"), str) and dm["public_key_b64"]):
+                raise PolicyError("each trusted_decision_makers[] entry needs a non-empty public_key_b64")
+            _require_str_or_null(dm, "id", "trusted_decision_makers[]")
+            _require_str_or_null(dm, "kid", "trusted_decision_makers[]")
+        for key in ("allowed_decision_types", "allowed_verdicts", "required_evidence_relations",
+                    "accepted_predicate_types"):
+            if key in dr:
+                _require_list_of_str(dr, key, "decision_receipt")
+        for key in _DECISION_BOOL_KEYS:
+            if key in dr:
+                _require_bool(dr, key, "decision_receipt")
     return policy
+
+
+def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
+                             signer_public_key_b64: str, anchor_status: str | None = None) -> dict:
+    """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
+    ``{"policy_ok": bool|None, "signer_trusted": bool|None, "errors": [...]}``. Never trusts decisionMaker.id on
+    the JSON claim alone: the signer key (that verified the DSSE) is matched against trusted_decision_makers.
+    policy_ok is None when the policy carries no decision_receipt section (nothing decision-specific to check).
+
+    ``anchor_status`` is the PASS/WARN/FAIL/SKIP verdict from the DETACHED anchor verification done in
+    verify_decision_receipt (anchors are not in the signed predicate; Fix 2). require_external_anchor gates on
+    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object)."""
+    section = policy.get("decision_receipt")
+    if not isinstance(section, dict):
+        return {"policy_ok": None, "signer_trusted": None, "errors": []}
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    if not isinstance(predicate, dict):
+        return {"policy_ok": False, "signer_trusted": False, "errors": ["statement has no predicate object"]}
+    errors: list[str] = []
+
+    # predicateType allow-list (confusion defense at the policy layer)
+    apt = section.get("accepted_predicate_types")
+    if apt and statement.get("predicateType") not in apt:
+        errors.append(f"predicateType {statement.get('predicateType')!r} not in accepted_predicate_types")
+
+    # signer <-> trusted_decision_makers (by public key; decisionMaker.id only as a hint that must not conflict)
+    signer_trusted = None
+    tdm = section.get("trusted_decision_makers")
+    if tdm:
+        claimed_id = (predicate.get("decisionMaker") or {}).get("id")
+        match = next((m for m in tdm if m.get("public_key_b64") == signer_public_key_b64), None)
+        signer_trusted = match is not None
+        if match is None:
+            errors.append("signer key is not in trusted_decision_makers")
+        elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
+            signer_trusted = False
+            errors.append("decisionMaker.id does not match the trusted entry for this signer key")
+
+    dt = predicate.get("decisionType")
+    if section.get("allowed_decision_types") and dt not in section["allowed_decision_types"]:
+        errors.append(f"decisionType {dt!r} not allowed by policy")
+    verdict = (predicate.get("decision") or {}).get("verdict")
+    if section.get("allowed_verdicts") and verdict not in section["allowed_verdicts"]:
+        errors.append(f"verdict {verdict!r} not allowed by policy")
+
+    req_rel = section.get("required_evidence_relations") or []
+    if req_rel:
+        have = {r.get("relation") for r in predicate.get("evidenceRefs", []) if isinstance(r, dict)}
+        missing = [r for r in req_rel if r not in have]
+        if missing:
+            errors.append(f"required evidence relations missing: {missing}")
+
+    if section.get("require_policy_digest"):
+        pd = (predicate.get("policyBoundary") or {}).get("policyDigest")
+        if not (isinstance(pd, dict) and isinstance(pd.get("sha256"), str)):
+            errors.append("policy requires policyBoundary.policyDigest but it is absent")
+
+    # validity presence knobs (§7.5): the VALUE binding is still --aud/--nonce; these require the fields be
+    # PRESENT so a receipt cannot silently drop replay protection.
+    _vraw = predicate.get("validity")
+    validity = _vraw if isinstance(_vraw, dict) else {}
+    if section.get("require_audience") and not (isinstance(validity.get("audience"), list) and validity.get("audience")):
+        errors.append("policy requires validity.audience but it is absent or empty")
+    if section.get("require_nonce") and not (isinstance(validity.get("nonce"), str) and validity.get("nonce")):
+        errors.append("policy requires validity.nonce but it is absent")
+
+    # reviewability knobs (§5.5): notChecked / decisionChangeConditions must be present, non-empty lists.
+    if section.get("require_not_checked") and not (
+            isinstance(predicate.get("notChecked"), list) and predicate.get("notChecked")):
+        errors.append("policy requires a non-empty notChecked[] but it is absent or empty")
+    if section.get("require_decision_change_conditions") and not (
+            isinstance(predicate.get("decisionChangeConditions"), list) and predicate.get("decisionChangeConditions")):
+        errors.append("policy requires a non-empty decisionChangeConditions[] but it is absent or empty")
+    if section.get("require_trace_context") and not isinstance(predicate.get("traceContext"), dict):
+        errors.append("policy requires traceContext but it is absent")
+
+    # privacy: allow_raw_inputs defaults FALSE — a receipt carrying raw inputs is rejected unless opted in.
+    if not section.get("allow_raw_inputs"):
+        _praw = predicate.get("privacy")
+        priv = _praw if isinstance(_praw, dict) else {}
+        if priv.get("rawInputsIncluded") is True:
+            errors.append("privacy.rawInputsIncluded=true but the policy does not allow raw inputs (allow_raw_inputs)")
+
+    if section.get("require_external_anchor"):
+        allow_pending = bool(section.get("allow_pending"))
+        # Anchors are DETACHED (Fix 2): the real anchor verification ran in verify_decision_receipt and its
+        # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
+        # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
+        # pending is the ABSENCE of a time anchor, not a weaker one). SKIP (no anchors) and FAIL never satisfy.
+        satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
+        if not satisfied:
+            errors.append(
+                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
+
+    policy_ok = (not errors) and (signer_trusted is not False)
+    return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}
 
 
 def policy_expected_aud(policy: dict):

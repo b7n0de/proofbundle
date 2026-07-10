@@ -6,6 +6,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Decision Receipt predicate `decision-receipt/v0.1` (Phase D, target 2.1.0)
+- A new **vendored** in-toto predicate for agent decisions:
+  `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` (ADR 0001). A Decision Receipt records
+  *who decided, what action was proposed, against which policy boundary, on which digest-bound evidence, what
+  the verdict was, and what was explicitly not checked*. It is a DSSE-signed in-toto Statement, verified over
+  the exact signed bytes.
+- **CLI:** `proofbundle decision {init,emit,verify,inspect}`. `verify` follows the Phase B exit contract
+  (0 crypto+structure OK · 1 crypto failure · 2 malformed/predicateType-confusion · 3 crypto OK but a supplied
+  `--policy` was not satisfied). Without `--policy` the output shows `POLICY: NOT_EVALUATED`. `--version` now
+  lists `predicates: eval-result/v0.1 decision-receipt/v0.1`.
+- **Emission is RFC-8785 canonical** (JCS); verify never re-serializes and fails closed if the received payload
+  is not its own canonical form (hash-binding rule).
+- **Trust Policy v0.2** (additive): the v0.1 trust policy gains a `decision_receipt` section
+  (`trusted_decision_makers`, `accepted_predicate_types`, `allowed_decision_types`/`verdicts`,
+  `required_evidence_relations`, `require_policy_digest`, `require_external_anchor`/`allow_pending`). A v0.1
+  policy stays valid unchanged under the v0.2 parser. The signer is matched to `trusted_decision_makers` by
+  public key — `decisionMaker.id` is never believed on the JSON claim alone.
+- **Non-claims (unchanged boundary):** a Decision Receipt does not prove the decision was correct, legal, safe,
+  or fully informed; `actionOutcome=executed` without a separately signed outcome is self-assertion, reported
+  as `action_outcome_proven=false`.
+- **Decision `anchors[]` composition landed.** A `statement`-target anchor binds the SHA-256 content root
+  over the exact signed payload bytes and is kept **detached** (outside the signed predicate — an anchor
+  cannot live inside the bytes whose hash it commits; proofbundle#7 consensus, 2026-07-10). `verify` gains
+  `--anchors`; with a policy's `require_external_anchor`/`allow_pending`, a pending (calendar-only) anchor
+  is the absence of a time anchor → exit 3. See `docs/ANCHORS.md` and `tests/test_decision_anchors.py`.
+- **The tamper / replay / fuzz matrix landed.** A systematic, deterministic sweep
+  (`tests/test_decision_fuzz.py` — every signature byte, spread payload bytes, every required-field deletion,
+  top-level type confusion, ten malformed-envelope classes, a wrong-key batch), plus audience/nonce replay
+  gating (`tests/test_decision_hardening.py`, `tests/test_decision_verify.py`).
+- Still deferred (not in this core): independent cross-implementation worked vectors over a decision object
+  (MarkovianProtocol's reference anchor), iterated on proofbundle#7.
+
 ## [2.0.0] - 2026-07-09
 
 First **2.0.0 final**. Consolidates the 2.0.0b1–b3 pre-release line (below) with the Phase B P0-core
