@@ -38,16 +38,18 @@ def _policy_line(policy_ok, reason: str = "") -> str:
     return f"FAIL ({reason})" if reason else "FAIL"
 
 
-def _verify_exit_code(crypto_ok: bool, policy_ok) -> int:
+def _verify_exit_code(crypto_ok: bool, policy_ok, anchor_required_ok=None) -> int:
     """verify's exit-code contract (WP-B2; see ``proofbundle verify --help``): 0 = crypto OK and
-    (policy satisfied OR none supplied); 1 = crypto/verification failure; 3 = crypto OK but a supplied
-    trust policy was NOT satisfied. Malformed input (2) is returned earlier, before this is reached.
-    `policy_ok` is None when no --policy was given — WP-B3 wires the real Exit-3 trigger via the policy
-    layer; this pure function already encodes all four codes so the contract is tested independently
-    of that wiring."""
+    (policy satisfied OR none supplied) and (anchor requirement met OR none requested); 1 =
+    crypto/verification failure; 3 = crypto OK but a supplied trust policy was NOT satisfied OR a
+    ``--require-anchor`` requirement was NOT met. Malformed input (2) is returned earlier, before this
+    is reached. `policy_ok` is None when no --policy was given; `anchor_required_ok` is None when no
+    --require-anchor was given — both are relying-party gates layered OVER the crypto result, so a
+    crypto failure (exit 1) always dominates. This pure function encodes every code so the contract is
+    tested independently of the wiring."""
     if not crypto_ok:
         return 1
-    if policy_ok is False:
+    if policy_ok is False or anchor_required_ok is False:
         return 3
     return 0
 
@@ -325,14 +327,64 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool) -> dict:
+    """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
+    ``proofbundle.anchors`` layer — never a parallel reimplementation. Returns
+    ``{ok, status, detail, results}`` where ``ok`` is True iff the requirement is met (the anchor layer
+    did NOT return FAIL: at least one anchor of the required type verified — or, with ``allow_pending``,
+    is pending — and no anchor hard-failed). A receipt with no ``anchors`` → the layer FAILs the
+    requirement (``ok=False``), which maps to exit 3, exactly like an unsatisfied trust policy.
+
+    Target roots are computed ONLY when anchors are actually present (so the common no-anchor case needs
+    no extra dependency): the ``receipt`` root is the canonical root of the bundle WITHOUT its own
+    ``anchors`` (detached evidence — an anchor stamps the pre-anchor bundle), and the ``preRegistration``
+    root is the receipt's signed ``prereg_sha256``. If a needed root cannot be computed (e.g. the
+    RFC 8785 canonicalizer from the ``[anchors]``/``[eval]`` extra is absent), that target is simply
+    omitted → an anchor for it fails closed with a clear reason, never a silent pass."""
+    from .anchors import (  # noqa: PLC0415
+        prereg_canonical_root, receipt_canonical_root, verify_anchors,
+    )
+    anchors_list = bundle.get("anchors")
+    target_roots: dict = {}
+    if anchors_list:
+        try:
+            receipt_only = {k: v for k, v in bundle.items() if k != "anchors"}
+            target_roots["receipt"] = receipt_canonical_root(receipt_only)
+        except ProofBundleError:
+            pass   # canonicalizer extra absent → no receipt target; a receipt anchor then fails closed
+        try:
+            from .evalclaim import decode_eval_claim  # noqa: PLC0415
+            claim = decode_eval_claim(bundle)
+            if claim and claim.get("prereg_sha256"):
+                target_roots["preRegistration"] = prereg_canonical_root(claim["prereg_sha256"])
+        except (ProofBundleError, ValueError):
+            pass
+    try:
+        res = verify_anchors(anchors_list, target_roots=target_roots, require=require,
+                             allow_pending=allow_pending)
+    except ProofBundleError as exc:   # malformed anchors[] → fail-closed (never a silent pass)
+        return {"ok": False, "status": "FAIL", "detail": str(exc), "results": []}
+    return {"ok": res["status"] != "FAIL", "status": res["status"], "detail": res["detail"],
+            "results": res.get("results", [])}
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .policy import evaluate_policy, load_policy, policy_expected_aud  # noqa: PLC0415
 
     flag_aud = getattr(args, "aud", None)
     flag_nonce = getattr(args, "nonce", None)
+    # WP4 (additive): resolve the anchor requirement to the value the anchor layer expects — None (no
+    # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
+    anchor_type = getattr(args, "anchor_type", None)
+    require_anchor = anchor_type if anchor_type else ("any" if getattr(args, "require_anchor", False) else None)
+    allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
+        # --allow-pending only means anything alongside a requirement: reject the lone flag loudly
+        # (a silent no-op would hide a mistaken invocation) → the documented malformed-input exit 2.
+        if allow_pending and require_anchor is None:
+            raise ValueError("--allow-pending only applies together with --require-anchor / --anchor-type")
         # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
         # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
         bundle = load_bundle(args.bundle)
@@ -372,6 +424,16 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     if policy is not None and crypto_ok:
         policy_result = evaluate_policy(bundle, result, policy)
         policy_ok = policy_result["policy_ok"]
+    # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
+    # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
+    # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
+    # about the anchors is looked at (default behaviour unchanged).
+    anchor_required_ok = None
+    anchor_report = None
+    if require_anchor is not None and crypto_ok:
+        anchor_report = _evaluate_anchor_requirement(
+            bundle, require=require_anchor, allow_pending=allow_pending)
+        anchor_required_ok = anchor_report["ok"]
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
     assurance = _assurance_from_bundle(bundle) if crypto_ok else None
@@ -384,6 +446,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         fields["policy_id"] = policy.get("policy_id")
     if policy_result is not None:
         fields["policy_checks"] = policy_result["checks"]
+    if anchor_report is not None:
+        # anchor_ok was None (not evaluated) in the core contract; now it carries the real gate verdict,
+        # with the anchor layer's aggregate status + per-entry results for transparency (additive keys).
+        fields["anchor_ok"] = anchor_required_ok
+        fields["anchor_status"] = anchor_report["status"]
+        fields["anchor_detail"] = anchor_report["detail"]
+        fields["anchor_results"] = anchor_report["results"]
 
     if args.json:
         out = result.as_dict()
@@ -427,7 +496,19 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"POLICY: {_policy_line(policy_ok, reason)}")
         print(f"ASSURANCE: {assurance_line}")
         print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
-    return _verify_exit_code(crypto_ok, policy_ok)
+        # WP4: the ANCHOR line is printed ONLY when --require-anchor was given (default output unchanged).
+        if require_anchor is not None:
+            if not crypto_ok:
+                print("ANCHOR: NOT_EVALUATED (crypto failed — anchor requirement not checked)")
+            else:
+                # crypto passed AND a requirement was set → the gate above ran, so anchor_report exists
+                # (narrows the dict|None for the type checker; behaviour is unchanged).
+                assert anchor_report is not None
+                if anchor_required_ok:
+                    print(f"ANCHOR: OK ({_safe_line(anchor_report['detail'])})")
+                else:
+                    print(f"ANCHOR: REQUIRED_NOT_MET ({_safe_line(anchor_report['detail'])})")
+    return _verify_exit_code(crypto_ok, policy_ok, anchor_required_ok)
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
@@ -870,12 +951,14 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="verify an evidence bundle JSON file",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Exit codes (verify contract):\n"
-               "  0  CRYPTO OK, and the trust policy was satisfied or none was supplied\n"
+               "  0  CRYPTO OK, and the trust policy was satisfied or none was supplied, and the\n"
+               "     --require-anchor requirement was met or none was requested\n"
                "  1  crypto / verification failure (a signature, merkle or key-binding check FAILED)\n"
                "  2  malformed input (unreadable file, bad JSON, malformed policy, or aud/policy ambiguity)\n"
-               "  3  CRYPTO OK but a supplied --policy was NOT satisfied\n"
-               "Without --policy the output shows 'POLICY: NOT_EVALUATED' and never exits 3 —\n"
-               "verify makes NO trust decision on its own.")
+               "  3  CRYPTO OK but a supplied --policy was NOT satisfied, or a --require-anchor\n"
+               "     requirement was NOT met\n"
+               "Without --policy the output shows 'POLICY: NOT_EVALUATED' and without --require-anchor\n"
+               "the receipt's anchors are not evaluated at all — verify makes NO trust decision on its own.")
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
     verify.add_argument("--matrix", action="store_true",
@@ -893,6 +976,20 @@ def build_parser() -> argparse.ArgumentParser:
                              "fail-closed, offline trust decision OVER the crypto result: without it "
                              "POLICY reads NOT_EVALUATED; a policy failure is exit 3, distinct from a "
                              "crypto failure (exit 1)")
+    verify.add_argument("--require-anchor", action="store_true",
+                        help="require a verifying external time anchor on the receipt (a relying-party "
+                             "gate OVER the crypto result, like --policy): ANY verifying anchor "
+                             "satisfies it unless --anchor-type narrows it. A receipt with no such "
+                             "anchor → exit 3 (a policy failure, distinct from a crypto failure). "
+                             "Without this flag (and without --anchor-type) the receipt's anchors are "
+                             "not evaluated at all (default behaviour unchanged)")
+    verify.add_argument("--anchor-type", default=None, metavar="TYPE",
+                        help="require a verifying anchor of THIS type specifically (e.g. rfc3161-tsa, "
+                             "opentimestamps); implies --require-anchor")
+    verify.add_argument("--allow-pending", action="store_true",
+                        help="with --require-anchor / --anchor-type, also accept a PENDING anchor (e.g. "
+                             "an un-upgraded OpenTimestamps proof) as satisfying the requirement — "
+                             "weaker, since a pending proof is not yet a full external-time anchor")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")

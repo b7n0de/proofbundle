@@ -62,6 +62,23 @@
           "description": "Optional issuer Ed25519 public key; if present the verifier checks the issuer signature."
         }
       }
+    },
+    "anchors": {
+      "type": "array",
+      "description": "OPTIONAL, EXPERIMENTAL (SPEC.md §7i / the [anchors] extra): external time-anchor evidence, DETACHED from the signed payload. The offline core verifier tolerates but does NOT verify this field; anchors are checked separately (`verify --require-anchor`). A bundle's crypto verdict is identical whether or not it carries anchors.",
+      "items": {
+        "type": "object",
+        "required": ["type", "target", "canonicalRoot", "proof"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "description": "Anchor type: `rfc3161-tsa`, `opentimestamps`, or an extension `<org>/<name>/vN`.", "minLength": 1 },
+          "target": { "enum": ["receipt", "preRegistration"], "description": "What the anchor's canonicalRoot is the root of. Never mixed: a preRegistration anchor cannot validate a receipt target and vice versa." },
+          "canonicalRoot": { "type": "string", "description": "Base64 of the canonical root of the anchor's OWN target.", "minLength": 1 },
+          "proof": { "type": "string", "description": "Base64 of the type-specific proof (an RFC 3161 token, an OpenTimestamps proof, ...).", "minLength": 1 },
+          "anchoredAt": { "type": ["string", "null"], "description": "RFC 3339 Z, INFORMATIVE only — the trusted time comes from the proof, never this field." },
+          "frozen": { "type": "object", "description": "OPTIONAL type-specific material bundled at emit time (e.g. the frozen TSA certificate chain, or an opt-in `policyOid` to pin)." }
+        }
+      }
     }
   }
 }
