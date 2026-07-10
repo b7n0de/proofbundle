@@ -34,16 +34,14 @@ released wire change.
 
 ## Honest rest-item (No-Fake)
 
-The addendum's part-2 wording "decision.py MUST use the primitive (pure refactor)" could **not** be executed on
-this branch: `decision.py` (and `docs/predicates/decision-receipt.md`) live only on the unmerged PR #45 branch
-`feat/decision-receipt-v0.1`, not on `main`. Branching off `main` was the explicit instruction (WP2 is meant to
-be independent of PR #45), so the foundation is delivered standalone and the decision.py adoption is documented
-as a tracked follow-up (ADR 0002 §Migration): once PR #45 rebases onto a `main` carrying `canonical.py`, its
-`_rfc8785_bytes` delegates to `canonical.canonicalize_statement` (catching `CanonicalizerUnavailable` to keep
-its `DecisionReceiptError` message) and `anchors.statement_content_root` (bytes→root) delegates to
-`canonical.statement_content_root` — byte-identical, no wire change. The primitive is byte-compatible with both
-of PR #45's current call sites (verified against `decision.py` L270/L289/L345 and `anchors.py`
-`statement_content_root(payload_bytes)`).
+The addendum's part-2 wording "decision.py MUST use the primitive (pure refactor)" was initially deferred
+because `decision.py` (and `docs/predicates/decision-receipt.md`) lived only on the then-unmerged PR #45
+branch, not on `main`. **Update:** PR #45 is now merged to `main`; this branch was rebased onto it and the
+decision.py adoption is **done on this branch** (commit `6647f06`): `decision.py._rfc8785_bytes` delegates to
+`canonical.canonicalize_statement` (catching `CanonicalizerUnavailable` to keep its identical
+`DecisionReceiptError` message) and `anchors.statement_content_root` (bytes→root) delegates to
+`canonical.statement_content_root` — byte-identical, no wire change, proven by an old-vs-new comparison over
+14 adversarial statements plus the full `test_decision_*` suite unchanged green (637 tests).
 
 ## Checks
 
