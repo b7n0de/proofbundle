@@ -1,5 +1,6 @@
 {
   "_type": "https://in-toto.io/Statement/v1",
+  "contentRootAlg": "jcs-sha256-v1",
   "predicate": {
     "properties": [
       "PROOFBUNDLE_SIGNATURE_VALID",

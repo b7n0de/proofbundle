@@ -1,6 +1,8 @@
 # ADR 0002: Universal content root (`jcs-sha256-v1`)
 
-- **Status:** accepted (design-only; the released-path activation is a separate owner gate — see §Migration)
+- **Status:** accepted. Foundation landed (PR #47). **Activation implemented** on
+  `feat/wp2-eval-svr-migration` (the eval-result / test-result / SVR paths now default to `jcs-sha256-v1`
+  with an explicit legacy mode — see §Activation). Shipping it to PyPI as **2.1.0** remains the owner gate.
 - **Date:** 2026-07-10 (decision date; commit date live)
 - **Deciders:** proofbundle maintainer (b7n0de)
 - **Builds on:** ADR 0001 (decision-receipt as a separate vendored predicate)
@@ -95,13 +97,49 @@ for the released eval-result / test-result / SVR paths. That activation:
   addendum §3.4). That test belongs to the activation phase, not to this foundation, because it asserts the
   behavior the activation introduces.
 
-What lands now (WP2 foundation) is non-breaking and additive: the ADR, the shared `canonical.py` primitive,
-its exports and tests. No released path is migrated. The decision-receipt module (`decision.py`, on the still
-open PR #45 branch) is the intended first adopter of the primitive — once that branch rebases onto a `main`
-carrying `canonical.py`, its local `_rfc8785_bytes` delegates to `canonical.canonicalize_statement` (catching
-`CanonicalizerUnavailable` to preserve its own `DecisionReceiptError` message), and `anchors.statement_content_root`
-(bytes → root) can delegate to `canonical.statement_content_root` with identical behavior. That adoption is a
-pure refactor tracked with PR #45, not part of this design-only ADR.
+What landed with the **WP2 foundation** (PR #47) was non-breaking and additive: the ADR, the shared
+`canonical.py` primitive, its exports and tests. No released path was migrated *at that point*. The
+decision-receipt module (`decision.py`) is the first adopter of the primitive — its local `_rfc8785_bytes`
+delegates to `canonical.canonicalize_statement` (catching `CanonicalizerUnavailable` to preserve its own
+`DecisionReceiptError` message), and `anchors.statement_content_root` (bytes → root) delegates to
+`canonical.statement_content_root` with identical behavior. That adoption was a pure refactor.
+
+The **activation** described in the next section (the eval-result / test-result / SVR migration) is the
+step that this foundation deliberately deferred; it is now implemented, and this section describes the
+state *before* it.
+
+## Activation (WP2, `feat/wp2-eval-svr-migration`)
+
+The migration designed above is now implemented for the released `intoto.py` export paths. It is a
+**compatible evolution with an explicit legacy mode**, not a data-loss cutover:
+
+1. **Versioned wire field.** A Statement declares its content-root algorithm in a top-level `contentRootAlg`
+   field (in-toto Statement v1 sets `additionalProperties: true`, so this is schema-valid and uniform across
+   the vendor eval-result predicate and the standard test-result / SVR predicates, which cannot carry a
+   custom field inside their predicate). The field is inside the signed payload, so it cannot be flipped
+   after signing. New default: `jcs-sha256-v1`. Historic serializer: `legacy-sortkeys-json-v0`
+   (`json.dumps(sort_keys=True)`), retained as a named mode. **Absent ⇒ legacy** — this is exactly how
+   already-signed 2.0.0 receipts (which carry no field) keep verifying; absence is never silently jcs.
+
+2. **Producer.** `export_intoto_dsse` / `export_eval_result_dsse` / `export_svr_dsse` default to
+   `jcs-sha256-v1` via `canonical.canonicalize_statement`. The old `json.dumps` path is retained as the
+   named legacy serializer (`_canonical_body`) and is selectable with `content_root_alg=LEGACY_CONTENT_ROOT_ALG`
+   for a byte-identical legacy re-emission.
+
+3. **Verifier.** Each verify reads the declared `contentRootAlg` (absent ⇒ legacy) and re-serializes the
+   Statement with **exactly** that algorithm to confirm the transmitted payload is its own canonical form
+   (fail-closed). It hashes / checks the exact bytes and never re-canonicalizes to *compute* a root, and it
+   never falls back between algorithms. Verifying `jcs-sha256-v1` canonicality needs the `[eval]` extra and
+   is fail-closed without it; legacy verification is stdlib-only, so **released 2.0.0 receipts verify on a
+   base install**.
+
+4. **P0 activation test (addendum §3.4).** A `json.dumps(sort_keys=True)` root offered *as* `jcs-sha256-v1`
+   is rejected (proven with a value where the two serializers diverge), while the same bytes declared/absent
+   as legacy verify; the reverse (genuine JCS bytes declared legacy) is rejected too. An unknown algorithm is
+   fail-closed. Tests: `tests/test_intoto_content_root_migration.py` (proofs A/B/C).
+
+The **release** of this wire change (a new PyPI **2.1.0**, the same gate that ships the decision-receipt
+predicate) remains the owner gate — the code carries the change behind SemVer, it is not published here.
 
 ## Consequences
 
