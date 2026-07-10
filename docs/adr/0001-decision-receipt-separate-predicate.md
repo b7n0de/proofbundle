@@ -23,12 +23,15 @@ the resulting decision so that Phase D implementation does not re-open it.
    `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`. This is a **vendored** predicate under
    the b7n0de namespace. It makes **no claim** on the `in-toto.io` namespace; any upstream standardization is a
    separate in-toto discussion tracked via issue #26 (or a new issue), not this vendored track.
-3. **Coupling is one-directional and digest-bound only.** A Decision Receipt references signed eval-result
-   statements exclusively through digest-bound `evidenceRefs`. Never the reverse, and no semantic mixing of the
-   two predicates.
+3. **Coupling is one-directional and content-root-bound.** A Decision Receipt references signed eval-result
+   statements exclusively through `evidenceRefs` whose `digest` is the referenced evidence **statement content
+   root** (sha256 over its RFC-8785 canonical bytes; proofbundle#7 consensus), never the enclosing envelope
+   hash. Never the reverse, and no semantic mixing of the two predicates.
 4. **Core fields** (derived from the feedback): input/source snapshot (digests); policy/risk boundary
    (policy id + digest + decision path); proposed action + verdict (`ALLOW` / `DENY` / `REFUSE` / `ESCALATE` /
-   `DEFER`); `notChecked`; `decisionChangeConditions`. Optional: outcome / trace / anchors.
+   `DEFER`); `notChecked`; `decisionChangeConditions`. Optional: outcome / trace. Anchors for the statement's
+   own content root are **detached** (a sibling of the DSSE envelope), never a predicate field — an anchor
+   cannot live inside the bytes whose hash it commits (Fix 2 / proofbundle#7).
 5. **Target release: 2.1.0**, built on the Trust Policy foundation shipped in Phase B
    (`proofbundle/trust-policy/v0.1`, snake_case). In 2.1 that schema is extended additively with a
    Decision-Receipt section to v0.2; no breaking change to v0.1.

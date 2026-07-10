@@ -55,6 +55,9 @@
       "digest": {
         "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
       },
+      "artifactDigest": {
+        "sha256": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d"
+      },
       "predicateType": "https://b7n0de.com/proofbundle/predicates/eval-result/v0.1"
     }
   ],
