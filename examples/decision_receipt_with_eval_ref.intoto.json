@@ -38,7 +38,7 @@
       },
       "method": "POST",
       "parametersDigest": {
-        "sha256": "1f3ce4f5e0a2b6d5e7c8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e"
+        "sha256": "dc5614a1c72929a3ef517e9bb388da81ea7cda29e4c7f4e3537c03045ba978e2"
       }
     },
     "inputSnapshot": [
@@ -55,7 +55,7 @@
       "policyEngine": "opa",
       "policyId": "https://example.org/policies/agent-export/v1",
       "policyDigest": {
-        "sha256": "d2d2c86f2b1c8e0e8e6a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2"
+        "sha256": "8e1e7ef21906719fd84ad1f4f2ae2249421330449a4170cf893abd89dc84b083"
       },
       "decisionPath": "data.agent.export.allow"
     },
