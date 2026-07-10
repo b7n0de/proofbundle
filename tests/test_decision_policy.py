@@ -123,5 +123,60 @@ class TestVerifyWithPolicy(unittest.TestCase):
         self.assertIs(r["policy_ok"], False)
 
 
+class TestDecisionPolicyKnobs(unittest.TestCase):
+    """v0.2 governance knobs from the course-correction: each presence/privacy/shape knob with a violation
+    that must fail the policy, plus mistyped-flag fail-closed parsing."""
+
+    def _eval(self, pred, section):
+        _, pub = _keys()
+        pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "t",
+                           "decision_receipt": section})
+        return evaluate_decision_policy(build_decision_statement(pred), {}, pol, signer_public_key_b64=pub)
+
+    def test_require_audience(self):
+        p = _pred("deny")
+        p.pop("validity", None)
+        self.assertIs(self._eval(p, {"require_audience": True})["policy_ok"], False)
+        self.assertIs(self._eval(_pred("deny"), {"require_audience": True})["policy_ok"], True)
+
+    def test_require_nonce(self):
+        p = _pred("deny")
+        p["validity"] = {"audience": ["x"]}
+        self.assertIs(self._eval(p, {"require_nonce": True})["policy_ok"], False)
+
+    def test_require_not_checked_and_change_conditions(self):
+        p = _pred("deny")
+        p["notChecked"] = []
+        self.assertIs(self._eval(p, {"require_not_checked": True})["policy_ok"], False)
+        q = _pred("deny")
+        q["decisionChangeConditions"] = []
+        self.assertIs(self._eval(q, {"require_decision_change_conditions": True})["policy_ok"], False)
+
+    def test_require_trace_context(self):
+        self.assertIs(self._eval(_pred("deny"), {"require_trace_context": True})["policy_ok"], False)
+        p = _pred("deny")
+        p["traceContext"] = {"traceparent": "00-00000000000000000000000000000000-0000000000000000-01"}
+        self.assertIs(self._eval(p, {"require_trace_context": True})["policy_ok"], True)
+
+    def test_allow_raw_inputs_default_false(self):
+        p = _pred("deny")
+        p["privacy"]["rawInputsIncluded"] = True
+        self.assertIs(self._eval(p, {})["policy_ok"], False)
+        self.assertIs(self._eval(p, {"allow_raw_inputs": True})["policy_ok"], True)
+
+    def test_require_policy_digest_failing_branch(self):
+        p = _pred("deny")
+        p["policyBoundary"].pop("policyDigest", None)
+        self.assertIs(self._eval(p, {"require_policy_digest": True})["policy_ok"], False)
+
+    def test_allowed_decision_types_violation(self):
+        self.assertIs(self._eval(_pred("deny"), {"allowed_decision_types": ["postHocReview"]})["policy_ok"], False)
+
+    def test_mistyped_bool_flag_rejected(self):
+        with self.assertRaises(PolicyError):
+            load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "t",
+                         "decision_receipt": {"require_audience": "false"}})
+
+
 if __name__ == "__main__":
     unittest.main()
