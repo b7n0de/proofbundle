@@ -50,7 +50,12 @@ SCHEMA = "proofbundle/v0.1"
 
 # Allowed keys per object — SPEC.md §3: a verifier MUST reject unknown fields (schema is
 # additionalProperties: false). Enforced here so the code matches its own normative spec.
-_TOP_KEYS = {"schema", "payload_b64", "signature", "merkle", "sd_jwt_vc"}
+# `anchors` is an OPTIONAL, EXPERIMENTAL detached layer (external time anchors, SPEC.md §7i / the
+# `[anchors]` extra): the core crypto verifier merely TOLERATES the field so an anchored receipt is not
+# rejected as malformed — it never verifies the anchors here, so a bundle's crypto verdict is identical
+# whether or not it carries `anchors`. Anchor verification is a separate, opt-in relying-party step
+# (`proofbundle.anchors.verify_anchors` / `verify --require-anchor`), never part of this offline core.
+_TOP_KEYS = {"schema", "payload_b64", "signature", "merkle", "sd_jwt_vc", "anchors"}
 _SIG_KEYS = {"alg", "public_key_b64", "sig_b64"}
 _MERKLE_KEYS = {"hash_alg", "leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"}
 _SD_KEYS = {"compact", "issuer_public_key_b64"}

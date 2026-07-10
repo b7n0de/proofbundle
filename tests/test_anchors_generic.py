@@ -90,6 +90,50 @@ class TestCrossTargetSafety(AnchorRegistryFixture):
         self.assertEqual(res["status"], "PASS")
 
 
+class TestAllowPending(AnchorRegistryFixture):
+    """WP4: --allow-pending only changes what SATISFIES a `require`; it never turns a broken anchor into
+    a pass. The base fixture's `test-anchor` is confirmed (ok, not warn); this class adds a pending one."""
+
+    def setUp(self):
+        super().setUp()
+        anchors.register_anchor_type(
+            "pending-anchor",
+            lambda proof, root, *, frozen, now: {"ok": False, "warn": True, "status": "pending",
+                                                 "detail": "pending"})
+
+    def _pending(self):
+        return _anchor(atype="pending-anchor", target="receipt", root=_RECEIPT_ROOT, proof=b"whatever")
+
+    def test_pending_does_not_satisfy_require_by_default(self):
+        res = anchors.verify_anchors([self._pending()], target_roots=_ROOTS, require="any")
+        self.assertEqual(res["status"], "FAIL")
+
+    def test_pending_satisfies_require_with_allow_pending(self):
+        res = anchors.verify_anchors([self._pending()], target_roots=_ROOTS, require="any",
+                                     allow_pending=True)
+        self.assertNotEqual(res["status"], "FAIL")   # requirement met (aggregates to WARN, not FAIL)
+        self.assertEqual(res["status"], "WARN")
+
+    def test_allow_pending_still_hard_fails_a_broken_anchor(self):
+        # a genuinely broken anchor (root mismatch) is a hard FAIL even under allow_pending — the flag
+        # only relaxes pending-vs-confirmed, never fail-closed integrity.
+        broken = _anchor(atype="pending-anchor", target="receipt", root=b"\x00" * 32, proof=b"x")
+        res = anchors.verify_anchors([broken], target_roots=_ROOTS, require="any", allow_pending=True)
+        self.assertEqual(res["status"], "FAIL")
+
+    def test_confirmed_still_satisfies_under_allow_pending(self):
+        res = anchors.verify_anchors([_anchor(proof=b"good")], target_roots=_ROOTS, require="any",
+                                     allow_pending=True)
+        self.assertEqual(res["status"], "PASS")
+
+    def test_allow_pending_respects_type_selector(self):
+        # a pending anchor of the WRONG type does not satisfy a type-specific requirement even with
+        # allow_pending.
+        res = anchors.verify_anchors([self._pending()], target_roots=_ROOTS, require="test-anchor",
+                                     allow_pending=True)
+        self.assertEqual(res["status"], "FAIL")
+
+
 class TestSchemaValidation(AnchorRegistryFixture):
     def test_unknown_field_rejected(self):
         bad = _anchor(proof=b"good")

@@ -1,6 +1,6 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
-Revision: 2026-07-09
+Revision: 2026-07-10
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
@@ -42,10 +42,14 @@ bytes* were signed and anchored, not what they mean.
 | `signature` | yes | object | Ed25519 signature over the payload (§4). |
 | `merkle` | yes | object | RFC 6962 inclusion proof of the payload leaf (§5). |
 | `sd_jwt_vc` | no | object | Optional SD-JWT selective-disclosure credential (§6). |
+| `anchors` | no | array | Optional, **EXPERIMENTAL** external time-anchor evidence, detached from the signed payload (§7i, the `[anchors]` extra). |
 
 A verifier MUST reject a bundle whose `schema` is not `"proofbundle/v0.1"`
 (unsupported), and MUST reject unknown top-level fields (the schema is
-`additionalProperties: false`).
+`additionalProperties: false`). The optional `anchors` field is now a KNOWN
+field: a bundle carrying it is not malformed, but the core verifier (§7) does
+NOT verify it — anchors are a separate, opt-in relying-party step (§7i), so a
+bundle's crypto verdict is identical whether or not it carries `anchors`.
 
 ### 4. `signature`
 
@@ -284,6 +288,106 @@ signature under the Verifier key (a supplied trust anchor), ``typ`` = ``eat+jwt`
 preview's stand-in for the still-draft AR4SI/EAR trustworthiness tier) VERBATIM. proofbundle does
 NOT parse or appraise raw hardware evidence — that is the Verifier's role. See
 docs/EXPERIMENTAL_ENCLAVE.md.
+
+## 7i. External time anchors — `anchors[]` (EXPERIMENTAL, the `[anchors]` extra)
+
+A receipt MAY carry a top-level `anchors` array of external time-anchor
+evidence. An anchor adds evidence of *when*, from a party the producer does not
+control — something the receipt's own Ed25519 signature and Merkle structure
+cannot establish on their own (a self-emitted timestamp is only producer-clock
+testimony). This layer is **EXPERIMENTAL**: the wire format MAY change, the base
+install does not verify it, and a receipt with no anchors verifies exactly as
+before. The prose companion is [docs/ANCHORS.md](docs/ANCHORS.md).
+
+**This field is DETACHED from the content root.** An anchor is evidence *about*
+the receipt, never part of what it attests. A `receipt`-target anchor stamps the
+canonical root of the receipt **without its own `anchors` field** (an anchor
+cannot attest a root that already contains itself); a verifier computing that
+root MUST exclude `anchors`. Anchor bytes are never part of any signed payload.
+
+**Producer rollout — one-way compatibility.** Emitting `anchors[]` is a one-way
+compatibility step. `anchors` became a KNOWN top-level field only in this
+revision (2026-07-10); a verifier built against an earlier SPEC revision does not
+list it, so — because the bundle schema is `additionalProperties: false` (§3) —
+it rejects an anchored bundle as **malformed (exit 2)** rather than ignoring the
+field. This is not a security bug (a fail-closed verifier erring toward rejection
+is correct), but a producer that starts adding `anchors[]` SHOULD know that older
+verifiers will refuse the bundle until they are updated to this revision.
+
+### Anchor entry
+
+Each `anchors[]` entry is a JSON object:
+
+| field | required | type | meaning |
+|---|---|---|---|
+| `type` | yes | string | `rfc3161-tsa`, `opentimestamps`, or an extension `<org>/<name>/vN`. An unknown type is a FAIL, never a silent pass. |
+| `target` | yes | string | `receipt` or `preRegistration` (see below). |
+| `canonicalRoot` | yes | string | Base64 of the canonical root of the anchor's OWN target. |
+| `proof` | yes | string | Base64 of the type-specific proof (an RFC 3161 token, an OpenTimestamps proof, …). |
+| `anchoredAt` | no | string \| null | RFC 3339 Z, **INFORMATIVE only** — the trusted time comes from the proof, never this field. |
+| `frozen` | no | object | OPTIONAL type-specific material bundled at emit time (e.g. the frozen TSA certificate chain; for `rfc3161-tsa` an optional `policyOid` to pin, see below). |
+
+### Targets (never mixed)
+
+| target | claim | canonical root |
+|---|---|---|
+| `preRegistration` | the commitment existed **before** the run (backdating protection; in-toto/attestation#565) | SHA-256 of the raw protocol bytes, i.e. the receipt's `prereg_sha256` |
+| `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`** |
+
+`canonicalRoot` is compared to the root of the anchor's OWN `target`: a
+`preRegistration` anchor can never validate a `receipt` target and vice versa
+(the roots differ, and a mismatch is a FAIL). A future `statement` target — for
+a signed decision receipt whose content root is the DSSE Statement bytes — is
+RESERVED (in-toto/attestation#565, proofbundle#7) and is **not** part of this
+experimental layer yet.
+
+### Verify contract and the three anchor states
+
+Verification is **fail-closed** and reported as one aggregate status plus a
+per-entry status:
+
+- **absent** — missing/empty `anchors` → **SKIP** (never FAIL). This matches
+  in-toto's Monotonic Principle: deny only when an attestation is present and
+  wrong, not when it is absent.
+- **confirmed** — a fully verifying anchor (`ok`): its root matches the target,
+  its type is known, and its proof verifies. All entries confirmed → **PASS**.
+- **pending** — an anchor that is honestly not yet a full external-time proof
+  (a `warn`), e.g. an un-upgraded OpenTimestamps proof or a Merkle-only
+  chia-datalayer level-i anchor → **WARN**. It is never conflated with a
+  confirmed anchor.
+
+A root mismatch, an unknown type, or a broken proof is a hard **FAIL**; a
+verifier that raises is treated as FAIL. `verify --require-anchor` (optionally
+narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
+into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet
+(distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending**
+anchor does NOT satisfy `--require-anchor` unless `--allow-pending` is given.
+
+### Built-in types (informative)
+
+- **`rfc3161-tsa`** — an RFC 3161 timestamp token, verified **offline** against
+  the TSA certificate chain **frozen** into the anchor at emit time (a TSA can
+  rotate its certificate). The chain is validated at the token's own `gen_time`,
+  not the current wall clock, so a frozen token stays re-verifiable after the
+  TSA certificate has expired or rotated; a certificate that was not valid at
+  `gen_time` fails closed. The TSA **policy OID** is not pinned by default (any
+  policy is accepted); a relying party MAY pin it by setting
+  `frozen.policyOid` to the expected dotted-decimal OID, in which case a token
+  whose `TSTInfo.policy` differs fails closed.
+- **`opentimestamps`** — an OpenTimestamps proof anchored in Bitcoin. A fresh
+  stamp is **PENDING** (a WARN) until `ots upgrade` embeds the Bitcoin
+  block-header path. A frozen `bitcoinBlockHeaderMerkleRootsByHeight` maps a
+  block height to that block's `hashMerkleRoot` in **internal (node) byte
+  order** as returned by `bitcoind` — NOT the byte-reversed order that block
+  explorers display. A reimplementer MUST use the internal order or every root
+  comparison fails.
+
+### Privacy
+
+Public anchoring transmits and publishes **only digests / roots**, never
+payload contents: the anchored value is `canonicalRoot` (a SHA-256), so nothing
+about the underlying claim, protocol, or samples leaks to the timestamping
+authority, calendar, or chain.
 
 ## 8. References
 

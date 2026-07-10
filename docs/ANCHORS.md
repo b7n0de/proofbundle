@@ -16,8 +16,17 @@ not control.
 | `receipt` | the receipt existed **from** time T | publication proof |
 | `statement` | this in-toto Statement's content existed **from** time T | the content root of a DSSE Statement (used by decision receipts); kept **detached** — an anchor cannot live inside the signed bytes whose hash it commits (proofbundle#7 consensus, 2026-07-10) |
 
+> **Note — `statement` is NOT a valid target inside a `proofbundle/v0.1` bundle's own `anchors[]`.** The
+> bundle schema's `target` enum is `receipt` | `preRegistration` only (`schemas/proofbundle_v0_1.schema.json`;
+> SPEC §7i lists `statement` as RESERVED there). The `statement` target applies exclusively to **decision
+> receipts**, supplied as DETACHED evidence via `decision verify --anchors <file>` — never in a bundle's
+> `anchors[]`. A bundle carrying `target: "statement"` is rejected as malformed (exit 2). The schema example
+> and targets below therefore describe the anchor **layer**; a v0.1 bundle may only use `receipt` / `preRegistration`.
+
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
-(JCS) sha256 of the receipt bundle, for `preRegistration` the sha256 of the raw protocol bytes (the
+(JCS) sha256 of the receipt bundle **excluding its own `anchors` field** (the anchors are detached
+evidence; an anchor cannot attest a root that already contains itself, so a verifier recomputing the
+receipt root MUST strip `anchors`), for `preRegistration` the sha256 of the raw protocol bytes (the
 receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload bytes (the
 `statement_content_root`). A `preRegistration` anchor can therefore never validate a `receipt` or
 `statement` target, and vice versa: the roots differ, and a mismatch is a FAIL.
@@ -50,7 +59,10 @@ not-checked set) are committed-to without the anchor itself revealing any of the
   when an attestation is present and wrong, not when it is absent.
 - **Present → fail-closed.** A root mismatch, an unknown `type`, or a broken proof is a **FAIL**, never
   a silent pass. A verifier that raises is treated as FAIL.
-- `--require-anchor <type|any>` turns "no verifying anchor (of that type)" into a FAIL.
+- `verify --require-anchor` turns "no verifying anchor" into a FAIL — a relying-party gate OVER the
+  crypto result (exit 3 when unmet, distinct from a crypto failure exit 1, exactly like `--policy`).
+  `--anchor-type <type>` narrows it to a specific type; `--allow-pending` also accepts a **pending**
+  anchor (weaker). Without the flag the receipt's anchors are not evaluated at all (default unchanged).
 - Anchoring **writes a new file**. A network error while stamping never corrupts the local receipt.
 
 ## Built-in types
@@ -65,6 +77,14 @@ re-verifiable against the chain that was frozen at emit time, not the TSA's curr
 TSAs: the Sigstore TSA (`https://timestamp.sigstore.dev/api/v1/timestamp`) and FreeTSA as a second,
 independent anchor.
 
+**Verification time (cert expiration).** The chain is validated at the token's own `gen_time`, not at
+the current wall clock — a frozen token therefore stays re-verifiable after the TSA certificate has
+expired or rotated (the whole point of freezing), and a certificate that was not valid at `gen_time`
+fails closed. **Policy OID.** By default no TSA policy OID is pinned (any policy is accepted). A relying
+party who cares which TSA policy issued the timestamp sets `frozen.policyOid` to the expected
+dotted-decimal OID; a token whose `TSTInfo.policy` differs then fails closed (a malformed OID string
+fails closed too).
+
 ### `opentimestamps`
 
 An OpenTimestamps proof anchored in the Bitcoin blockchain. Honest lifecycle: a fresh stamp goes to
@@ -74,6 +94,11 @@ self-contained. Verifying an upgraded proof needs no calendar, but — per the d
 **local (pruned) Bitcoin node** for the block header. There is no documented "header-file instead of a
 node" mode, and we do not claim one. Doc wording to reuse verbatim: *"offline verifiable given a local
 (pruned) Bitcoin node; no calendar or account needed for verification."*
+
+**Byte-order warning (for reimplementers).** A frozen `bitcoinBlockHeaderMerkleRootsByHeight` maps a
+block height to that block's `hashMerkleRoot` in **internal (node) byte order** as returned by
+`bitcoind` — NOT the byte-reversed order that block explorers display. Use the internal order or every
+root comparison fails. (Confirmed correct on in-toto/attestation#565 · proofbundle#7.)
 
 ## Extension mechanism — bring your own anchor type
 

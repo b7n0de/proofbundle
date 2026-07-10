@@ -111,5 +111,116 @@ class TestRfc3161Anchor(unittest.TestCase):
         self.assertEqual(anchors.verify_anchors([built], target_roots=roots)["status"], "PASS")
 
 
+@unittest.skipUnless(_HAS_TSA, "needs proofbundle[anchors] (rfc3161-client)")
+class TestRfc3161PolicyOid(unittest.TestCase):
+    """WP4 — anchors_rfc3161 delegates policy-OID handling to the rfc3161-client lib, but proofbundle
+    now lets a relying party OPT IN to pinning it via the anchor's frozen.policyOid. These pin the
+    documented behaviour: absent → any policy accepted; present → fail-closed on mismatch/malformed."""
+
+    def _fixture_policy_oid(self) -> str:
+        import rfc3161_client as tsp
+        anchor, _ = _load_fixture()
+        return tsp.decode_timestamp_response(base64.b64decode(anchor["proof"])).tst_info.policy.dotted_string
+
+    def test_absent_policy_oid_accepts_any_policy(self):
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        frozen = dict(anchor["frozen"])
+        frozen.pop("policyOid", None)   # no pin
+        res = verify_rfc3161(base64.b64decode(anchor["proof"]),
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+        self.assertTrue(res["ok"], res["detail"])
+
+    def test_matching_policy_oid_passes(self):
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        frozen = dict(anchor["frozen"])
+        frozen["policyOid"] = self._fixture_policy_oid()   # the token's real TSA policy OID
+        res = verify_rfc3161(base64.b64decode(anchor["proof"]),
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+        self.assertTrue(res["ok"], res["detail"])
+
+    def test_mismatched_policy_oid_fails_closed(self):
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        frozen = dict(anchor["frozen"])
+        real = self._fixture_policy_oid()
+        frozen["policyOid"] = real + ".999"   # a policy OID the token does NOT carry
+        res = verify_rfc3161(base64.b64decode(anchor["proof"]),
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+        self.assertFalse(res["ok"], "a pinned policy OID that does not match the token must FAIL closed")
+
+    def test_malformed_policy_oid_fails_closed(self):
+        # a non-OID string must not crash and must not pass — x509.ObjectIdentifier raises, caught as FAIL.
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        frozen = dict(anchor["frozen"])
+        frozen["policyOid"] = "not-an-oid"
+        res = verify_rfc3161(base64.b64decode(anchor["proof"]),
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+        self.assertFalse(res["ok"])
+
+    def test_mismatched_policy_oid_through_generic_layer(self):
+        anchor, roots = _load_fixture()
+        bad = dict(anchor)
+        bad["frozen"] = dict(anchor["frozen"], policyOid=self._fixture_policy_oid() + ".999")
+        self.assertEqual(anchors.verify_anchors([bad], target_roots=roots)["status"], "FAIL")
+
+
+@unittest.skipUnless(_HAS_TSA, "needs proofbundle[anchors] (rfc3161-client)")
+class TestRfc3161CertExpiration(unittest.TestCase):
+    """WP4 — cert expiration handling. The rfc3161-client lib validates the chain at the token's OWN
+    gen_time (not the current wall clock): that is why a frozen token stays re-verifiable after the TSA
+    cert has expired/rotated, AND why a chain that was not valid at gen_time fails closed."""
+
+    def test_certs_are_valid_at_the_tokens_gen_time(self):
+        # Document WHY the fixture verifies: its frozen root cert's validity window CONTAINS gen_time.
+        import rfc3161_client as tsp
+        from cryptography import x509
+        anchor, _ = _load_fixture()
+        ti = tsp.decode_timestamp_response(base64.b64decode(anchor["proof"])).tst_info
+        root = x509.load_der_x509_certificate(base64.b64decode(anchor["frozen"]["rootCertsDerB64"][0]))
+        self.assertLessEqual(root.not_valid_before_utc, ti.gen_time)
+        self.assertGreaterEqual(root.not_valid_after_utc, ti.gen_time)
+
+    def test_verdict_is_independent_of_the_callers_clock(self):
+        # The `now` argument must not change the verdict — verification is anchored to the token's
+        # gen_time, so an expired-TODAY TSA cert stays offline re-verifiable (the frozen-chain contract).
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        proof = base64.b64decode(anchor["proof"])
+        root = base64.b64decode(anchor["canonicalRoot"])
+        far_future = 4_102_444_800   # 2100-01-01, long after any TSA cert would have expired
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=None)["ok"])
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=far_future)["ok"])
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=0)["ok"])
+
+    def test_frozen_root_expired_before_gen_time_fails_closed(self):
+        # A frozen root whose validity window ENDS before the token's gen_time cannot anchor the token
+        # → fail-closed (the layer never silently passes an out-of-validity trust anchor). Simulated with
+        # a self-signed cert valid only in 2000–2001, well before the fixture's 2026 gen_time.
+        import datetime
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.serialization import Encoding
+        from cryptography.x509.oid import NameOID
+
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        anchor, _ = _load_fixture()
+        key = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "expired-freetsa-root")])
+        expired = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+                   .public_key(key.public_key()).serial_number(x509.random_serial_number())
+                   .not_valid_before(datetime.datetime(2000, 1, 1))
+                   .not_valid_after(datetime.datetime(2001, 1, 1)).sign(key, hashes.SHA256()))
+        frozen = dict(anchor["frozen"])
+        frozen["rootCertsDerB64"] = [base64.b64encode(expired.public_bytes(Encoding.DER)).decode()]
+        res = verify_rfc3161(base64.b64decode(anchor["proof"]),
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+        self.assertFalse(res["ok"], "an expired-at-gen-time frozen root must fail closed")
+
+
 if __name__ == "__main__":
     unittest.main()
