@@ -84,7 +84,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
 
     # decisionType enum
     dt = predicate.get("decisionType")
-    if dt is not None and dt not in _DECISION_TYPES:
+    if dt is not None and (not isinstance(dt, str) or dt not in _DECISION_TYPES):
         errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {dt!r}")
 
     # RFC3339-Z time fields
@@ -96,8 +96,9 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # decision.verdict + reasonCodes
     dec = predicate.get("decision")
     if isinstance(dec, dict):
-        if dec.get("verdict") not in _VERDICTS:
-            errors.append(f"decision.verdict must be one of {sorted(_VERDICTS)}, got {dec.get('verdict')!r}")
+        vd = dec.get("verdict")
+        if not isinstance(vd, str) or vd not in _VERDICTS:
+            errors.append(f"decision.verdict must be one of {sorted(_VERDICTS)}, got {vd!r}")
         rc = dec.get("reasonCodes")
         if not isinstance(rc, list) or not rc or not all(isinstance(x, str) for x in rc):
             errors.append("decision.reasonCodes must be a non-empty list of strings")
@@ -126,8 +127,10 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
 
     # actionOutcome (optional) — status enum
     ao = predicate.get("actionOutcome")
-    if isinstance(ao, dict) and ao.get("status") not in _OUTCOME_STATUS:
-        errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {ao.get('status')!r}")
+    if isinstance(ao, dict):
+        st = ao.get("status")
+        if not isinstance(st, str) or st not in _OUTCOME_STATUS:
+            errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
 
     # validity — strict interactive requires audience + nonce when present
     val = predicate.get("validity")
