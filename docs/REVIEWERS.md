@@ -23,7 +23,7 @@ an afternoon and treat the rest as "does not weaken the core if ignored."
 1. **Run it, then break it (5 min).** `pip install -e ".[eval]" && proofbundle demo` — an honest receipt
    verifies, six tampers each verify FAILED, a swapped sample is caught. The command exits
    non-zero if any tamper verifies; if you can make it exit 0 with a real tamper, that is a break.
-2. **Full suite (5 min).** `make test` → 257 tests. Without optional dev extras you will see a few
+2. **Full suite (5 min).** `make test` → 683 tests. Without optional dev extras you will see a few
    skips/env errors (`jsonschema`, `pytest`); those are environmental, not code defects.
 3. **Correctness is not self-referential (5 min).** Two external anchors are vendored and tested:
    RFC 6962 conformance vectors from `transparency-dev/merkle`
