@@ -26,8 +26,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Non-claims (unchanged boundary):** a Decision Receipt does not prove the decision was correct, legal, safe,
   or fully informed; `actionOutcome=executed` without a separately signed outcome is self-assertion, reported
   as `action_outcome_proven=false`.
-- Follow-ups (not in the initial core): decision anchors[] composition (tracked live on proofbundle#7, the
-  anchor-binding shape is still iterating) and the full tamper/replay/fuzz matrix.
+- **Decision `anchors[]` composition landed.** A `statement`-target anchor binds the SHA-256 content root
+  over the exact signed payload bytes and is kept **detached** (outside the signed predicate — an anchor
+  cannot live inside the bytes whose hash it commits; proofbundle#7 consensus, 2026-07-10). `verify` gains
+  `--anchors`; with a policy's `require_external_anchor`/`allow_pending`, a pending (calendar-only) anchor
+  is the absence of a time anchor → exit 3. See `docs/ANCHORS.md` and `tests/test_decision_anchors.py`.
+- **The tamper / replay / fuzz matrix landed.** A systematic, deterministic sweep
+  (`tests/test_decision_fuzz.py` — every signature byte, spread payload bytes, every required-field deletion,
+  top-level type confusion, ten malformed-envelope classes, a wrong-key batch), plus audience/nonce replay
+  gating (`tests/test_decision_hardening.py`, `tests/test_decision_verify.py`).
+- Still deferred (not in this core): independent cross-implementation worked vectors over a decision object
+  (MarkovianProtocol's reference anchor), iterated on proofbundle#7.
 
 ## [2.0.0] - 2026-07-09
 
