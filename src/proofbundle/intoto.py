@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -35,6 +36,17 @@ EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
 # DSSE payloadType for an in-toto Statement is the canonical Statement media type (in-toto spec v1
 # envelope.md), NOT a predicate-specific subtype. Pinned so sign and verify agree.
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
+
+# Content-root algorithm ids for these DSSE export paths (ADR 0002 / WP2 activation, 2.1.0). The DEFAULT is
+# CONTENT_ROOT_ALG ("jcs-sha256-v1"): SHA-256 over the RFC-8785 (JCS) canonical Statement bytes, unifying
+# these paths with the decision-receipt content root so cross-predicate composition matches byte-for-byte.
+# The historic serializer (json.dumps(sort_keys=True) via `_canonical_body`, the released 2.0.0 wire) is
+# retained as a NAMED legacy algorithm — an explicit declared mode, never an unlabeled fallback. A Statement
+# DECLARES its algorithm in a top-level `contentRootAlg` field (in-toto Statement v1 allows additional
+# top-level properties, additionalProperties:true), so the declaration is inside the signed payload and
+# cannot be flipped after signing. ABSENT `contentRootAlg` ⇒ legacy (this is how already-signed 2.0.0
+# receipts, which carry no field, keep verifying); absence is NEVER silently treated as jcs.
+LEGACY_CONTENT_ROOT_ALG = "legacy-sortkeys-json-v0"
 
 # Subject profiles (what the Statement's `subject` IS). Documented per profile in docs/IN_TOTO_PROFILE.md.
 #   receipt      — the eval receipt itself (a binder digest; reveals nothing about the model). DEFAULT.
@@ -105,14 +117,86 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
 
 
 def _canonical_body(statement: dict) -> bytes:
-    """Deterministic byte serialization of the Statement for the DSSE payload. DSSE signs/verifies over
-    exactly these bytes (verify decodes envelope.payload, never re-serializes), so a stable sorted dump
-    is sufficient and keeps the core dependency-free (no rfc8785 needed for the in-toto export path)."""
+    """LEGACY (`legacy-sortkeys-json-v0`) Statement serialization: json.dumps(sort_keys=True). This is the
+    released 2.0.0 wire; it is NOT full RFC-8785 (it does not normalize number formatting or string
+    escaping), so it cannot carry a stable cross-implementation content root (ADR 0002). Retained as the
+    NAMED legacy serializer so already-signed 2.0.0 receipts keep verifying byte-for-byte and legacy
+    re-emission stays possible; new exports default to `jcs-sha256-v1` (see `_serialize_statement`)."""
     return json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _declared_content_root_alg(statement: Any) -> str:
+    """The content-root algorithm a Statement DECLARES via its top-level `contentRootAlg`. ABSENT ⇒ legacy
+    (`legacy-sortkeys-json-v0`) — this is how released 2.0.0 receipts, which carry no field, keep verifying.
+    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg)."""
+    if isinstance(statement, dict):
+        alg = statement.get("contentRootAlg")
+        if isinstance(alg, str) and alg:
+            return alg
+    return LEGACY_CONTENT_ROOT_ALG
+
+
+def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
+    """Serialize a Statement under a NAMED content-root algorithm — no silent default between algorithms.
+
+    * `jcs-sha256-v1` → RFC-8785 (JCS) canonical bytes via the shared `canonical.canonicalize_statement`
+      (lazily needs the `[eval]` extra; a missing extra is a fail-closed `CanonicalizerUnavailable`);
+    * `legacy-sortkeys-json-v0` → the historic `_canonical_body` (json.dumps(sort_keys=True), stdlib only).
+
+    An unknown/unregistered id is a fail-closed error: a verifier MUST NOT default a missing/unknown
+    algorithm (that is exactly where an algorithm-confusion attack would hide, ADR 0002 §1)."""
+    if content_root_alg == CONTENT_ROOT_ALG:
+        return canonicalize_statement(statement)
+    if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
+        return _canonical_body(statement)
+    raise BundleFormatError(
+        f"unknown contentRootAlg {content_root_alg!r}: no silent default for a missing/unknown "
+        "algorithm (algorithm-confusion guard, ADR 0002 §1)")
+
+
+def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
+    """Return the Statement with its content-root algorithm DECLARED. `jcs-sha256-v1` adds the top-level
+    `contentRootAlg` field (part of the signed payload, so it cannot be flipped after signing); legacy adds
+    NO field, so a legacy re-emission is byte-identical to the released 2.0.0 wire (absent ⇒ legacy on
+    verify). An unknown id is a fail-closed error."""
+    if content_root_alg == CONTENT_ROOT_ALG:
+        return {**statement, "contentRootAlg": CONTENT_ROOT_ALG}
+    if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
+        return {k: v for k, v in statement.items() if k != "contentRootAlg"}
+    raise BundleFormatError(
+        f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
+
+
+def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
+    """Verify the transmitted payload IS canonical for its OWN declared content-root algorithm. Fail-closed.
+
+    Returns ``(ok, alg, detail)``. The verifier reads the DECLARED `contentRootAlg` (absent ⇒ legacy) and
+    re-serializes the Statement with EXACTLY that algorithm, then checks byte-equality against the exact
+    transmitted payload — it never re-canonicalizes to COMPUTE a root and never falls back between algorithms.
+    A payload that deviates from its own declared canonical form is rejected (this is the P0 guard: a
+    `json.dumps(sort_keys=True)` body offered AS `jcs-sha256-v1` is rejected — unless it also happens to be
+    valid JCS — while the same body declared/absent as legacy verifies). Verifying `jcs-sha256-v1` canonicality
+    needs the `[eval]` extra; without it this is fail-closed (never a silent pass over possibly non-canonical
+    bytes). Legacy verification is stdlib-only, so released 2.0.0 receipts verify on a base install."""
+    alg = _declared_content_root_alg(statement)
+    if not isinstance(statement, dict):
+        return False, alg, "payload is not a JSON in-toto Statement object"
+    try:
+        expected = _serialize_statement(statement, alg)
+    except CanonicalizerUnavailable:
+        return False, alg, ("cannot verify jcs-sha256-v1 canonicality — install proofbundle[eval] "
+                            "(fail-closed; never a silent pass over non-canonical bytes)")
+    except BundleFormatError as exc:
+        return False, alg, str(exc)
+    if expected != body:
+        return False, alg, (f"payload is not canonical for its declared contentRootAlg={alg!r} "
+                            "(algorithm-confusion / tamper, fail-closed)")
+    return True, alg, ""
+
+
 def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Optional[str] = None,
-                             harness: Optional[dict] = None, url: Optional[str] = None) -> dict:
+                             harness: Optional[dict] = None, url: Optional[str] = None,
+                             content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """Build a STANDARD in-toto Statement v1 with the generic `test-result/v0.1` predicate (v0.9).
 
     Unlike ``to_intoto_statement`` (self-hosted predicate), this maps the receipt onto the community
@@ -161,22 +245,27 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
         predicate[key] = [str(suite)]
     if url:
         predicate["url"] = url
-    return {
+    return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": "eval-receipt", "digest": dict(subject_digest)}],
         "predicateType": TEST_RESULT_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, content_root_alg)
 
 
 def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
                        harness: Optional[dict] = None, url: Optional[str] = None,
-                       keyid: Optional[str] = None) -> dict:
+                       keyid: Optional[str] = None,
+                       content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """Export a receipt as a DSSE-signed in-toto test-result attestation (v0.9). The native bundle stays
     the source of truth; this is an interop export. Returns a DSSE envelope. The subject digest is the
     sha256 of a stable *binder* over the receipt's model + dataset commitments, root, and timestamp — a
     real hex digest that binds the attestation to the receipt without revealing the model (not a hash of
-    the statement body, and never the model's own sha256)."""
+    the statement body, and never the model's own sha256).
+
+    The signed Statement declares its content-root algorithm (default `jcs-sha256-v1`, ADR 0002). Pass
+    `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (json.dumps root,
+    no field)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
@@ -188,15 +277,16 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
     subject_digest = {"sha256": hashlib.sha256(binder).hexdigest()}
     statement = to_test_result_statement(claim, subject_digest=subject_digest, root_b64=root_b64,
-                                         harness=harness, url=url)
-    body = _canonical_body(statement)
+                                         harness=harness, url=url, content_root_alg=content_root_alg)
+    body = _serialize_statement(statement, content_root_alg)
     return dsse.sign_envelope(body, signer, payload_type=TEST_RESULT_PAYLOAD_TYPE, keyid=keyid)
 
 
 def verify_intoto_dsse(envelope: dict, public_key: bytes) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
-    {ok, statement, predicate_type}. ``ok`` is True iff the Ed25519 signature over the DSSE PAE verifies
-    AND the payloadType is the pinned test-result media type."""
+    {ok, statement, predicate_type, content_root_alg, content_root_ok, content_root_detail}. ``ok`` is True
+    iff the Ed25519 signature over the DSSE PAE verifies, the payloadType is the pinned test-result media
+    type, AND the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
     from . import dsse  # noqa: PLC0415
     from .errors import BundleFormatError  # noqa: PLC0415
 
@@ -206,8 +296,10 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes) -> dict:
         statement = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:   # valid base64 but not a JSON Statement → malformed
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
-    return {"ok": bool(ok), "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+    binding_ok, alg, detail = _content_root_binding(statement, body)
+    return {"ok": bool(ok) and binding_ok, "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
+            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -320,23 +412,29 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
 
 def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
-                             subject_profile: str = "receipt") -> dict:
-    """A STANDARD in-toto Statement v1 carrying the eval-result predicate."""
-    return {
+                             subject_profile: str = "receipt",
+                             content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
+    """A STANDARD in-toto Statement v1 carrying the eval-result predicate. Declares its content-root
+    algorithm (default `jcs-sha256-v1`, ADR 0002); legacy adds no `contentRootAlg` field."""
+    return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": subject,
         "predicateType": EVAL_RESULT_PREDICATE_TYPE,
         "predicate": to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
                                               anchors=anchors, subject_profile=subject_profile),
-    }
+    }, content_root_alg)
 
 
 def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
                             subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                             root_b64: Optional[str] = None, harness: Optional[dict] = None,
-                            anchors: Optional[list] = None, keyid: Optional[str] = None) -> dict:
+                            anchors: Optional[list] = None, keyid: Optional[str] = None,
+                            content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """Export a receipt as a DSSE-signed in-toto Statement with the eval-result predicate. Deterministic:
-    identical inputs produce byte-identical statement bytes (sorted canonical dump)."""
+    identical inputs produce byte-identical statement bytes. The signed Statement declares its content-root
+    algorithm (default `jcs-sha256-v1`, ADR 0002 / WP2 activation). Pass
+    `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (released 2.0.0 wire:
+    json.dumps root, no field)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
@@ -344,15 +442,17 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
-                                         anchors=anchors, subject_profile=subject_profile)
-    body = _canonical_body(statement)
+                                         anchors=anchors, subject_profile=subject_profile,
+                                         content_root_alg=content_root_alg)
+    body = _serialize_statement(statement, content_root_alg)
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
 def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
-    """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type}. `ok` is True
-    iff the Ed25519 signature over the DSSE PAE verifies AND payloadType is the pinned in-toto Statement
-    media type."""
+    """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
+    content_root_alg, content_root_ok, content_root_detail}. `ok` is True iff the Ed25519 signature over the
+    DSSE PAE verifies, payloadType is the pinned in-toto Statement media type, AND the payload is canonical
+    for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
     from . import dsse  # noqa: PLC0415
 
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
@@ -361,8 +461,10 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
         statement = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
-    return {"ok": bool(ok), "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+    binding_ok, alg, detail = _content_root_binding(statement, body)
+    return {"ok": bool(ok) and binding_ok, "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
+            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -408,7 +510,8 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
 
 def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
-                    anchor_verified: bool = False, keyid: Optional[str] = None) -> dict:
+                    anchor_verified: bool = False, keyid: Optional[str] = None,
+                    content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """Emit an in-toto SVR (svr/v0.1) for a receipt — ONLY after a real, passing verification.
 
     Refuses (fail-closed) if the receipt is not a valid eval receipt, does not cryptographically verify,
@@ -440,7 +543,7 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     verifier: dict[str, Any] = {"id": VERIFIER_ID}
     if policy:
         verifier["policy"] = policy
-    statement = {
+    statement = _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": subject,
         "predicateType": SVR_PREDICATE_TYPE,
@@ -449,13 +552,15 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
             "timeCreated": time_created or _now_rfc3339z(),
             "properties": props,
         },
-    }
-    body = _canonical_body(statement)
+    }, content_root_alg)
+    body = _serialize_statement(statement, content_root_alg)
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
 def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
-    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type}."""
+    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, content_root_alg,
+    content_root_ok, content_root_detail}. `ok` requires the signature AND that the payload is canonical for
+    its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
     from . import dsse  # noqa: PLC0415
 
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
@@ -464,5 +569,7 @@ def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
         statement = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
-    return {"ok": bool(ok), "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None}
+    binding_ok, alg, detail = _content_root_binding(statement, body)
+    return {"ok": bool(ok) and binding_ok, "statement": statement,
+            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
+            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
