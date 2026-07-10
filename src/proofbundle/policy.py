@@ -210,7 +210,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         claimed_id = (predicate.get("decisionMaker") or {}).get("id")
         match = next((m for m in tdm if m.get("public_key_b64") == signer_public_key_b64), None)
         signer_trusted = match is not None
-        if not signer_trusted:
+        if match is None:
             errors.append("signer key is not in trusted_decision_makers")
         elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
             signer_trusted = False
