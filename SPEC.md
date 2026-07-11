@@ -70,6 +70,42 @@ Check **ed25519-signature**: decode `payload_b64` to `P`, verify the Ed25519
 signature `sig_b64` over `P` under `public_key_b64`. The message is the raw
 payload bytes — no pre-hashing, no domain separation.
 
+### 4a. Verification semantics — the edge-case envelope (normative for this implementation)
+
+Ed25519 implementations disagree on adversarially crafted edge-case signatures
+(cofactored vs cofactorless verification, the RFC 8032 S-bound, non-canonical
+point encodings, small-order components — "Taming the Many EdDSAs",
+[eprint 2020/1244](https://eprint.iacr.org/2020/1244)). proofbundle delegates
+verification to `cryptography` (OpenSSL) and PINS that behavior as a documented
+property rather than an undocumented accident:
+
+- **cofactorless** verification;
+- the RFC 8032 **S-bound is enforced** (a signature whose S ≥ L is rejected);
+- a **non-canonical R** encoding is rejected;
+- a **non-canonical A** (public key) encoding is *partially* accepted (one of
+  the two published variants verifies);
+- **small-/mixed-order components are accepted** (no torsion check).
+
+Against the "Taming the Many EdDSAs" 12-vector corpus this profile matches the
+**BoringSSL / Dalek (non-strict)** row exactly — ACCEPT {0,1,2,3,11}, REJECT
+{4,5,6,7,8,9,10} — observed identically from `cryptography` 42.0.8 (the declared
+floor) through the current release. It is NEITHER **Dalek-strict** (which
+rejects {0,1,2,11} and accepts only vector 3, whose rejection would need a
+full-order check no surveyed library performs) NOR **ZIP-215** (Zebra, which
+additionally accepts {4,5,9,10}). The divergence from Dalek-strict is exactly
+{0,1,2,11}; from ZIP-215 exactly {4,5,9,10}. Signatures produced by an honest
+RFC 8032 signer over a canonical public key verify identically under all of
+these profiles — the divergence envelope exists ONLY for adversarially crafted
+signatures. **Consequence for cross-verifier consensus:** an independent
+verifier using a different profile (e.g. ZIP-215) MAY disagree with proofbundle
+on such crafted signatures; a relying party that needs multi-implementation
+agreement on hostile inputs must pin one profile across its verifiers. The exact
+12-vector envelope is vendored (byte-pinned) and asserted by
+`tests/test_ed25519_semantics.py` — a change in the backing library turns the
+repository's CI red (a deliberate, documented decision), never a silent drift.
+No wire or behavior change is made by documenting this; switching profiles would
+be a breaking, versioned change.
+
 ### 5. `merkle`
 
 | field | required | type | meaning |
