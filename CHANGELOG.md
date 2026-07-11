@@ -7,11 +7,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security — verify-path hardening from a 6-lens adversarial review (2026-07-11)
-- **Trust policy rejects a low-order pinned key** (`policy.py`) — the core verifier deliberately accepts
-  small-/mixed-order Ed25519 keys (SPEC §4a). A policy that PINS such a key as a trusted issuer /
-  decision-maker would accept a fixed `(pub, sig)` pair for many messages with no private key — forgery
-  of a trusted identity without a secret. `load_policy` now fail-closed rejects a low-order (and a
-  non-base64 / wrong-length) pinned `public_key_b64` in `allowed_issuers` and `trusted_decision_makers`.
+- **Trust policy rejects a low-order / non-canonical pinned key** (`policy.py`) — the core verifier
+  deliberately accepts low-order and non-canonical Ed25519 encodings (SPEC §4a). A policy that PINS such
+  a key as a trusted issuer / decision-maker would accept a fixed `(pub, sig)` pair for many messages
+  (for the identity encodings, ALL messages) with no private key — forgery of a trusted identity without
+  a secret. `load_policy` now fail-closed rejects the whole class by the point's **y-value**
+  (sign-independent, so no encoding variant slips past — an earlier hand-kept byte-string blocklist
+  missed three) plus the non-canonical (`y >= p`) class, in `allowed_issuers` and
+  `trusted_decision_makers`; a low-order key is also refused at the evaluation layer
+  (`evaluate_policy` / `evaluate_decision_policy`) as defense-in-depth, so a policy dict that skipped
+  `load_policy` gets no trust from it either. (Scope: a genuine full-order key from an honest keygen is
+  accepted; MIXED-order keys are accepted and are not forgeable via this attack — a full prime-subgroup
+  membership check is a follow-up.)
 - **`verify_decision_receipt` no longer reports trust fields over unauthenticated bytes** (`decision.py`)
   — a forged/unsigned envelope previously left `audience_ok`/`nonce_ok`/`evidence_bound` computed
   (potentially True) with an empty `errors[]`. Now an aggregate **`ok`** field is the single verdict, the

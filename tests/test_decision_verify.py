@@ -97,6 +97,36 @@ class TestDecisionVerify(unittest.TestCase):
         r = verify_decision_receipt(env, pub)
         self.assertIsNone(r["evidence_bound"])
 
+    def test_attributes_to_nobody_not_suppressed_by_allowed_issuers(self):
+        # Fix-review (H3 false negative): allowed_issuers / require_expected_signer are EVAL-bundle
+        # concepts that the decision path never reads, so an orthogonal allowed_issuers block must NOT
+        # suppress the "attributes to nobody" warning for a decision receipt with no
+        # trusted_decision_makers.
+        from proofbundle.policy import load_policy
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        full = "Ts6DJw7AT4alPGqp9JVzh83VvXoMcRXVU0Lb7R2qB08="  # a real full-order key (irrelevant to decisions)
+        policy = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "x",
+                              "allowed_issuers": [{"issuer": "X", "public_key_b64": full}],
+                              "decision_receipt": {"allowed_verdicts": ["ALLOW", "DENY", "REFUSE",
+                                                                        "ESCALATE", "DEFER", "OBSERVE"]}})
+        r = verify_decision_receipt(env, pub, policy=policy)
+        self.assertTrue(any("attributes to nobody" in w for w in r["warnings"]))
+
+    def test_pinned_decision_maker_no_false_positive_warning(self):
+        import base64 as _b64
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        from proofbundle.policy import load_policy
+        policy = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "y",
+                              "decision_receipt": {"trusted_decision_makers":
+                                                   [{"public_key_b64": _b64.b64encode(pub).decode()}]}})
+        r = verify_decision_receipt(env, pub, policy=policy)
+        self.assertFalse(any("attributes to nobody" in w for w in r["warnings"]))
+        self.assertTrue(r["signer_trusted"])
+
     def test_wrong_key_fails(self):
         s, _ = _keys()
         env = emit_decision_receipt(_pred("deny"), s)

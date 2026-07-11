@@ -118,6 +118,16 @@ class TestEvalClaim(unittest.TestCase):
         with self.assertRaises(EvalClaimError):
             load_claim_text('{"a": 1, "a": 2}')
 
+    def test_deep_nesting_is_clean_error_not_recursion_crash(self):
+        # WP-H4 (6-lens review): a pathologically deep-nested claim payload must be a clean
+        # EvalClaimError (via the shared loads_strict), NOT an uncaught RecursionError (CWE-674) —
+        # the crash was reachable from decode_eval_claim / hf_evals.verify_eval_results_entry /
+        # policy.evaluate_policy / CLI emit-eval.
+        from proofbundle.evalclaim import load_claim_text
+        deep = "[" * 5000 + "]" * 5000
+        with self.assertRaises(EvalClaimError):
+            load_claim_text(deep)
+
     def test_float_guard_red(self):
         with self.assertRaises(EvalClaimError):
             canonicalize({"schema": "x", "threshold": 0.80})  # a Python float is forbidden

@@ -16,9 +16,10 @@ _LOW_ORDER_B64 = [
     base64.b64encode(bytes.fromhex("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa")).decode(),
     base64.b64encode(bytes.fromhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).decode(),
 ]
-# a genuine full-order key (speccheck case 2's pub) — must be ACCEPTED
-_FULL_ORDER_B64 = base64.b64encode(
-    bytes.fromhex("f7badec5b8abeaf699583992219b7b223f1df3fbbea919844e3f7c554a43dd43")).decode()
+# a genuine full-order key from an honest keygen — must be ACCEPTED (NOT a speccheck vector: those
+# include mixed-/small-order points; fix-review caught that case 2 is "mixed-order A", not full-order)
+from proofbundle.emit import generate_signer  # noqa: E402
+_FULL_ORDER_B64 = base64.b64encode(generate_signer().public_key().public_bytes_raw()).decode()
 
 
 class TestPinnedKeyValidation(unittest.TestCase):
@@ -46,6 +47,29 @@ class TestPinnedKeyValidation(unittest.TestCase):
         with self.assertRaises(PolicyError):
             load_policy({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x",
                          "allowed_issuers": [{"public_key_b64": short}]})
+
+    def test_sign_variant_and_non_canonical_encodings_rejected(self):
+        # Fix-review re-break: a hand-kept byte-string blocklist missed these three low-order/identity
+        # encodings (sign-bit and non-canonical-y variants); the y-value check must catch all of them.
+        for h in ("0100000000000000000000000000000000000000000000000000000000000080",  # identity, sign=1
+                  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",  # y=p+1 (non-canonical)
+                  "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"):  # y=p (non-canonical)
+            k = base64.b64encode(bytes.fromhex(h)).decode()
+            with self.assertRaises(PolicyError):
+                load_policy({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x",
+                             "allowed_issuers": [{"public_key_b64": k}]})
+
+    def test_evaluate_layer_refuses_low_order_key_even_without_load_policy(self):
+        # Fix-review Finding 2 (defense-in-depth): a policy dict that skipped load_policy must still not
+        # grant trust to a low-order pinned decision-maker key.
+        from proofbundle.policy import evaluate_decision_policy
+        low = base64.b64encode(bytes.fromhex(
+            "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa")).decode()
+        raw_policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "x",
+                      "decision_receipt": {"trusted_decision_makers": [{"public_key_b64": low}]}}
+        stmt = {"predicateType": "x", "predicate": {"decisionMaker": {"id": "dm"}}}
+        pe = evaluate_decision_policy(stmt, {}, raw_policy, signer_public_key_b64=low)
+        self.assertFalse(pe["signer_trusted"])
 
 
 if __name__ == "__main__":
