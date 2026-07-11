@@ -14,6 +14,34 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (covers every JSON verify path — bundle / decision / in-toto / status-list / anchors); `tlogproof`
   and `checkpoint` bound the tree-size / index digit count (<= 20, i.e. 2**64) BEFORE `int()`; and the
   CLI `verify-proof` handler catches `ValueError` as a stopgap. Regression-tested; never a raw traceback.
+### Security — verify-path hardening from a 6-lens adversarial review (2026-07-11)
+- **Trust policy rejects a low-order / non-canonical pinned key** (`policy.py`) — the core verifier
+  deliberately accepts low-order and non-canonical Ed25519 encodings (SPEC §4a). A policy that PINS such
+  a key as a trusted issuer / decision-maker would accept a fixed `(pub, sig)` pair for many messages
+  (for the identity encodings, ALL messages) with no private key — forgery of a trusted identity without
+  a secret. `load_policy` now fail-closed rejects the whole class by the point's **y-value**
+  (sign-independent, so no encoding variant slips past — an earlier hand-kept byte-string blocklist
+  missed three) plus the non-canonical (`y >= p`) class, in `allowed_issuers` and
+  `trusted_decision_makers`; a low-order key is also refused at the evaluation layer
+  (`evaluate_policy` / `evaluate_decision_policy`) as defense-in-depth, so a policy dict that skipped
+  `load_policy` gets no trust from it either. (Scope: a genuine full-order key from an honest keygen is
+  accepted; MIXED-order keys are accepted and are not forgeable via this attack — a full prime-subgroup
+  membership check is a follow-up.)
+- **`verify_decision_receipt` no longer reports trust fields over unauthenticated bytes** (`decision.py`)
+  — a forged/unsigned envelope previously left `audience_ok`/`nonce_ok`/`evidence_bound` computed
+  (potentially True) with an empty `errors[]`. Now an aggregate **`ok`** field is the single verdict, the
+  trust-derived fields stay `None` when `crypto_ok` is False (mirroring the anchors/policy gates), an
+  error is recorded on a crypto failure, and `evidence_bound` is `None` (not a vacuous `all([])` True)
+  when there are no evidence refs.
+- **Decision trust policy surfaces the "attributes to nobody" warning** (`decision.py`) — a decision
+  policy that constrains the verdict/type but pins no `trusted_decision_makers` means `POLICY: OK` proves
+  integrity by an unknown signer. `policy_warnings()` (already decision-aware) is now wired into the
+  decision verify path, matching the eval path.
+- **`evalclaim.load_claim_text` uses the shared strict parser** (`evalclaim.py`) — it reimplemented
+  duplicate-key rejection and did not map `RecursionError`, so a pathologically deep-nested claim payload
+  crashed `decode_eval_claim` uncaught (CWE-674) — reachable from the batch verifier
+  `hf_evals.verify_eval_results_entry`, `policy.evaluate_policy`, and CLI `emit-eval`. It now delegates to
+  `loads_strict` (deep nesting and duplicate keys become a clean `EvalClaimError`, never a raw traceback).
 
 ### Docs — No-Overclaim corrections from the 6-lens review (2026-07-11)
 - **`hf_evals.to_eval_results_entry` docstring + THREAT_MODEL** — the value↔verdict check was described

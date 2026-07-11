@@ -903,7 +903,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # opaque verify object verbatim, so a public-key value cannot flow into a clear-text log (CodeQL
         # py/clear-text-logging-sensitive-data).
         report = {k: result[k] for k in (
-            "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
+            "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
             "action_outcome_proven", "warnings", "errors",
         )}
@@ -943,6 +943,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # like the eval verify path, never a silent exit 0 (lens 3 defect).
     if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
+    # A supplied anchor that FAILS to verify (broken / root-mismatched / unknown type) is a tamper
+    # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
+    if result["anchors_ok"] is False:
+        return 1
     if result["policy_ok"] is False:
         return 3
     return 0
