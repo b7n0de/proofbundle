@@ -20,6 +20,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rights, like every contributor).
 
 ### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
+- **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
+  only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
+  minted verified fine (the token check covers only the embedded bundle, and a Hub reader sees the
+  value, not the token). Now the verifier side checks token crypto AND
+  `value <comparator> threshold == passed` against the decoded, issuer-bound claim (fail-closed:
+  a non-eval bundle or a non-finite value never judges as consistent). **Documented replay
+  boundary** (module + THREAT_MODEL row): the entry's `dataset.id`/`task_id` are NOT bound to the
+  receipt's salted dataset commitment — that binding needs the salt opening; this function is a
+  value check, never a repo-binding check.
+- **`adapters.from_eee_dataset` now binds the receipt to its exact source record** (it was the
+  only adapter without a provenance binding): `provenance.eee_record_sha256` =
+  `sha256-jcs:<hex>` over the RFC-8785-canonical record (labeled `sha256-sortkeys` fallback,
+  mirroring `adapters/_provenance.config_hash`), plus the RESULT-level `evaluation_result_id` as
+  `run_id` — guarded: dropped if a producer embedded the cleartext model id in it (the TOP-level
+  `evaluation_id` stays excluded for exactly that reason; digest-privacy consideration documented
+  in the adapter).
+- Hardened after a Tier-1 review (2 P1 privacy findings): the `eee_record_sha256` digest is now computed over a **model-id-stripped** record — an unsalted digest over a record embedding `model_info.id` in cleartext was a model-id confirmation/enumeration oracle (the old "not enumerable" comment was an overclaim); it still binds scores/timestamps/dataset for tamper-evidence. The `run_id` privacy guard now drops the id on ANY model-name component (bare name, slug variants, case-insensitive), not only the full `org/name` id. `verify_eval_results_entry` returns fail-closed (not a raise) for a token-less entry (verifyToken is optional in the HF schema) and rejects a boolean `value` (the builder rejects bool too).
+
 ### Added — anchor TARGET gate + structured trustedTime (WP-A1 / WP-A2 / WP-A7)
 - **`verify --anchor-target receipt|preRegistration|statement`** (implies `--require-anchor`) and
   the trust-policy **v0.2 `anchors` section** (`require_anchor`, `require_anchor_target`,

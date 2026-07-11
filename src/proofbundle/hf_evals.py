@@ -32,7 +32,7 @@ from .bundle import verify_bundle
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
-           "to_eval_results_entry", "eval_results_yaml"]
+           "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
 
 TOKEN_PREFIX = "pb1."
 _MAX_TOKEN_BYTES = 262_144   # 256 KiB decompressed cap — a receipt is a few KB; refuse zip bombs
@@ -80,6 +80,81 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         return verify_bundle(bundle), bundle
     except UnsupportedError as exc:
         raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+
+
+def verify_eval_results_entry(entry: dict) -> dict:
+    """VERIFIER-side check of one ``.eval_results`` entry (WP-I2): the builder's value↔verdict
+    consistency was emit-side only, so an entry whose ``value`` was edited AFTER the token was
+    minted verified fine (``verify_receipt_token`` checks only the bundle inside the token, and a
+    Hub reader sees the value, not the token). This closes that: token crypto + the published
+    ``value`` must be consistent with the signed claim's threshold verdict.
+
+    Returns ``{ok, crypto_ok, value_consistent, entry_value, claim, warnings[], detail}``:
+
+    * ``crypto_ok`` — the embedded receipt verifies (Ed25519 + Merkle, offline);
+    * ``value_consistent`` — ``value <comparator> threshold == passed`` against the DECODED,
+      issuer-bound eval claim. Fail-closed: a token whose bundle is not a decodable eval receipt
+      yields ``False`` (an eval_results entry claims to publish an eval result — refusing to judge
+      it would be the silent skip this project eliminates), as does a missing/non-finite value.
+    * ``ok`` — both of the above.
+
+    **Replay boundary (documented, not silently claimed):** the receipt's model/dataset are SALTED
+    COMMITMENTS, so this check binds the VALUE to the signed verdict — it can NOT bind the entry's
+    ``dataset.id``/``task_id`` to the receipt's committed dataset. A token replayed onto a
+    DIFFERENT Hub repo/benchmark with a consistent value still verifies here; binding the identity
+    needs the salt opening (``verify_commitment``) out of band. THREAT_MODEL.md carries the same
+    row — this function must never be read as a repo-binding check."""
+    import math as _math  # noqa: PLC0415
+    if not isinstance(entry, dict):
+        raise BundleFormatError("verify_eval_results_entry needs an entry dict")
+    out: dict = {"ok": False, "crypto_ok": False, "value_consistent": False, "entry_value": None,
+                 "claim": None, "detail": "",
+                 "warnings": ["value↔verdict bound; dataset/task identity NOT bound (salted "
+                              "commitments — needs the salt opening, see THREAT_MODEL)"]}
+    # verifyToken is OPTIONAL in the HF schema (six-lens review): a batch verifier over a mixed list
+    # must not crash on a token-less entry. It is simply not verifiable → fail-closed ok=False, not
+    # a raised error. A malformed (non-string) token is likewise reported, not raised.
+    token = entry.get("verifyToken")
+    if not isinstance(token, str) or not token:
+        out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
+        return out
+    result, bundle = verify_receipt_token(token)
+    out["crypto_ok"] = bool(result.ok)
+    if not result.ok:
+        out["detail"] = "embedded receipt does not verify"
+        return out
+    _val = entry.get("value")
+    if _val is None:   # narrow None out before float() (mypy) — a missing value is not verifiable
+        out["detail"] = "entry carries no value to check against the signed verdict"
+        return out
+    if isinstance(_val, bool):   # six-lens review: float(True)==1.0 would sneak a bool past the check;
+        out["detail"] = "entry value is a boolean, not a metric number"   # the builder rejects bool too
+        return out
+    try:
+        numeric = float(_val)
+    except (TypeError, ValueError, OverflowError):
+        out["detail"] = f"entry value {_val!r} is not a number"
+        return out
+    if not _math.isfinite(numeric):
+        out["detail"] = "entry value is not finite"
+        return out
+    out["entry_value"] = numeric
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    claim = decode_eval_claim(bundle)
+    if claim is None:
+        out["detail"] = ("token bundle is not a decodable, issuer-bound eval receipt — cannot "
+                         "judge the published value (fail-closed)")
+        return out
+    out["claim"] = {k: claim[k] for k in ("suite", "metric", "comparator", "threshold", "passed", "n")}
+    thr = float(claim["threshold"])
+    cmp_ok = {">=": numeric >= thr, ">": numeric > thr,
+              "<=": numeric <= thr, "<": numeric < thr}[claim["comparator"]]
+    out["value_consistent"] = (cmp_ok == bool(claim["passed"]))
+    if not out["value_consistent"]:
+        out["detail"] = (f"published value {numeric} contradicts the signed claim: passed="
+                         f"{claim['passed']} for {claim['comparator']} {claim['threshold']}")
+    out["ok"] = out["crypto_ok"] and out["value_consistent"]
+    return out
 
 
 def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
