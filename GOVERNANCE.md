@@ -41,10 +41,12 @@ Trust is granted **gradually**, never in one step:
 - **Co-maintainer** — after sustained trusted work, may be invited. Merge and release rights are a
   **separate, explicit grant per person**, not automatic with the role, and default to off.
 
-Roles are recorded in `office/governance/oss_maintainer_roles.json` (DEFAULT DENY: no delegated
-right without an explicit entry). The Owner remains the highest authority; the Fork-PR CI
-secret-isolation guard and branch protection apply to everyone unchanged — **more eyes, not weaker
-gates**.
+Roles are recorded in [`oss_maintainer_roles.json`](oss_maintainer_roles.json) at the repository
+root (DEFAULT DENY: no delegated right without an explicit entry). Code ownership of the trusted
+core, the spec, the schemas and the CI/release wiring is declared in
+[`.github/CODEOWNERS`](.github/CODEOWNERS), so a change to those paths requires the maintainer's
+review — **more eyes, not weaker gates**. The Owner remains the highest authority; the Fork-PR CI
+secret-isolation guard and branch protection apply to everyone unchanged.
 
 A note on caution (the XZ-utils lesson): a pattern of helpful contributions combined with pressure
 for rights or merge speed is a red flag, not a reason to accelerate. The real gate is diff review
@@ -55,6 +57,13 @@ first-time contributors.
 **Removing rights.** A role or a granted right can be withdrawn at any time by the Owner — for
 inactivity, on request, or on any concern — by removing the entry from the roles registry. No
 process is owed for revocation of a delegated right; the default state is no rights.
+
+## Contributors
+
+proofbundle's first external contribution is issue **#28** (the CLI `--version` printing the pinned
+spec revision, WP-B1), from **[@onxxdatas](https://github.com/onxxdatas)**. It is recorded in the
+roles registry for the governance story; like every contributor, they hold no delegated rights
+(DEFAULT DENY) — the change went through the same review and CI as any other.
 
 ## Provenance and AI assistance
 

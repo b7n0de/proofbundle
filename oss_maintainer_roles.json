@@ -1,0 +1,26 @@
+{
+  "schema": "proofbundle.oss_maintainer_roles.v1",
+  "description": "Delegated-rights registry for proofbundle (GOVERNANCE.md). DEFAULT DENY: nobody holds a delegated right (merge, release, secret access, label/triage) without an explicit entry here. Roles are granted gradually and per-person; merge and release rights are a separate explicit grant, never automatic with a role. The Owner remains the highest authority; the fork-PR CI secret-isolation guard and branch protection apply to everyone unchanged.",
+  "policy": {
+    "default": "deny",
+    "roles": {
+      "contributor": "opens issues/PRs; every change goes through review and CI like anyone's. No delegated rights.",
+      "triager": "may label and suggest-review after a track record; cockpit-internal only — never merge, release, or secret access.",
+      "co_maintainer": "invited after sustained trusted work; merge and release rights are a SEPARATE explicit grant per person and default to off."
+    }
+  },
+  "maintainer": {
+    "handle": "b7n0de",
+    "role": "owner",
+    "rights": ["merge", "release", "secrets", "admin"]
+  },
+  "delegated": [],
+  "contributors": [
+    {
+      "handle": "onxxdatas",
+      "first_contribution": "issue #28 — CLI --version prints the pinned spec revision (WP-B1)",
+      "note": "First external contributor. Recorded for the governance story; holds no delegated rights (DEFAULT DENY)."
+    }
+  ],
+  "revocation": "Any role or granted right can be withdrawn at any time by the Owner by removing the entry; no process is owed for revocation of a delegated right (the default state is no rights)."
+}
