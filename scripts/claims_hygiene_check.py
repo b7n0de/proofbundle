@@ -33,6 +33,7 @@ _DEFAULT_DOCS = [
     "docs/FAQ.md", "docs/GLOSSARY.md", "docs/TRUST_ANCHORS.md", "docs/PROJECT_BRIEF.md",
     "docs/INSPECT_HAPPY_PATH.md", "docs/NON_CLAIMS.md", "docs/DEMO.md", "docs/ANCHORS.md",
     "docs/ANCHORS_MARKOVIAN.md", "docs/REVIEWERS.md", "docs/EXPERIMENTAL_ENCLAVE.md",
+    "docs/OPERATIONS_SECURITY.md",
 ]
 
 # Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.

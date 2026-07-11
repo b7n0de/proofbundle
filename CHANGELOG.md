@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added — MAINTAINERS.md + TRADEMARK.md governance docs (WP-W5 phase 1)
+### Added — MAINTAINERS.md + TRADEMARK.md + OPERATIONS_SECURITY.md governance docs (WP-W5 phase 1-2)
 - **`MAINTAINERS.md`** — the conventional human-readable maintainer file: names the single maintainer,
   points to `GOVERNANCE.md`, the DEFAULT-DENY `oss_maintainer_roles.json`, `.github/CODEOWNERS`, and
   `SECURITY.md`. No delegated maintainers today.
@@ -14,8 +14,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "proofbundle" / "b7n0de" names are **not registered trademarks** (no ® claim) but should not be used
   to name a competing fork/package or imply official status. Protects the one thing the project cannot
   fork away: that a receipt under this name comes from the reviewed, gated releases.
-- Both docs are now in the `claims_hygiene_check` scanned set (27 docs), so they are held to the same
-  No-Overclaim discipline as the rest of the documentation.
+- **`docs/OPERATIONS_SECURITY.md`** — the supply-chain posture checklist (accounts/2FA, PyPI trusted
+  publishing, signing-key custody, SHA-pinned CI actions, fork-PR secret isolation, domain lock). It is
+  a checklist, not a claim: `[Owner]` items are the maintainer's to verify and are not asserted done;
+  `[repo]` items are enforced by files in the repo. Distinct from `SECURITY.md` (which is about
+  receiving vulnerability reports).
+- All three docs are now in the `claims_hygiene_check` scanned set (28 docs), so they are held to the
+  same No-Overclaim discipline as the rest of the documentation.
 
 ### Added — offline conformance corpus with cross-implementation decision vectors (WP-W2)
 - **`conformance/`** — a versioned, digest-pinned corpus verified fully offline by
