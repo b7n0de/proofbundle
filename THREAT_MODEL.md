@@ -122,13 +122,13 @@ Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (S
 
 ## Ed25519 edge-case envelope (C2) — cross-verifier divergence on crafted signatures
 
-Verification delegates to `cryptography` (OpenSSL): cofactorless, RFC 8032 S-bound enforced,
-non-canonical R rejected, one non-canonical-A variant accepted, small-order components accepted
-(SPEC §4a; pinned by `tests/test_ed25519_semantics.py` over the eprint 2020/1244 vectors). An
-honest signer is unaffected. The residual: for adversarially CRAFTED signatures, an independent
-verifier with a different profile (strict, ZIP-215) can disagree with proofbundle about validity —
-so "N verifiers agreed" is only meaningful on hostile inputs when all N pin the same profile. A
-profile switch would be a versioned, breaking change, never silent.
+Verification delegates to `cryptography` (OpenSSL): against the eprint 2020/1244 corpus it matches
+the BoringSSL / Dalek (non-strict) row exactly — ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10}
+(SPEC §4a; byte-pinned by `tests/test_ed25519_semantics.py`). An honest RFC 8032 signer is
+unaffected. The residual: for adversarially CRAFTED signatures, an independent verifier with a
+different profile (Dalek-strict, ZIP-215) can disagree with proofbundle about validity — so "N
+verifiers agreed" is only meaningful on hostile inputs when all N pin the same profile. A profile
+switch would be a versioned, breaking change, never silent.
 
 ## Beacon audit mode (v1.9) — residual grinding
 
