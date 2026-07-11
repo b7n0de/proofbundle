@@ -151,14 +151,30 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
         else:
             jcs = (case_dir / "decision_receipt.jcs").read_bytes()
             root = hashlib.sha256(jcs).digest()
+            # WP-A1: the Bitcoin block header is TRUST material and must come from the RELYING PARTY, not
+            # the bundle's producer-controlled `frozen` block. A confirmed conformance case declares its
+            # header under `rpTrust` (independently sourced — see the case's independent_source block); the
+            # producer `frozen` is kept only as evidence. Passing it as rp_trust models a relying party who
+            # independently obtained that header. A confirmed expectation with NO rpTrust is a case bug.
+            rp_declared = anchor.get("rpTrust") or {}
+            rp_trust = {"bitcoin_block_headers": rp_declared.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}}
             frozen = anchor.get("frozen") or {}
+            if want == "confirmed" and not rp_trust["bitcoin_block_headers"]:
+                return _fail(cid, "case expects a confirmed anchor but declares no rpTrust header (WP-A1: "
+                                  "frozen is not trust — a confirmed case must supply a relying-party header)")
             res = verify_opentimestamps((case_dir / "decision_receipt.jcs.ots").read_bytes(),
-                                        root, frozen=frozen)
+                                        root, frozen=frozen, rp_trust=rp_trust)
             if res["status"] != want:
                 return _fail(cid, f"anchor status {res['status']!r} != expected {want!r} ({res['detail']})")
             if want == "confirmed" and not res.get("ok"):
                 return _fail(cid, "anchor expected confirmed but verify did not return ok")
-            notes.append(f"anchor {res['status']} (offline{'' if frozen else ', no frozen header'})")
+            # WP-A1 security counter-check: the SAME proof WITHOUT the relying-party header must NOT confirm
+            if want == "confirmed":
+                no_rp = verify_opentimestamps((case_dir / "decision_receipt.jcs.ots").read_bytes(),
+                                              root, frozen=frozen)
+                if no_rp.get("ok") or no_rp["status"] == "confirmed":
+                    return _fail(cid, "anchor confirmed WITHOUT relying-party trust — frozen leaked as trust")
+            notes.append(f"anchor {res['status']} (offline, relying-party header)")
 
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
