@@ -47,6 +47,7 @@ import json
 from typing import List, Optional, Sequence
 
 from . import merkle
+from ._strict_json import loads_strict
 from .errors import BundleFormatError
 
 __all__ = ["LEAF_ALG", "derive_leaf_salt", "make_disclosure", "build_sample_tree",
@@ -193,7 +194,13 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         return result
 
     try:
-        parsed = json.loads(_b64url_decode(disclosure))
+        # WP-C1 (six-lens review): the committed record is attacker-supplied verify-path input —
+        # a duplicated key ({"idx":0,...,"verdict":"PASS","verdict":"FAIL"}) parsed last-wins while
+        # the LEAF committed the raw string; strict parse keeps one parse = one truth.
+        parsed = loads_strict(_b64url_decode(disclosure))
+    except BundleFormatError as exc:
+        result["detail"] = f"disclosure rejected: {exc}"
+        return result
     except (ValueError, TypeError):
         result["detail"] = "disclosure is not valid base64url(JSON)"
         return result

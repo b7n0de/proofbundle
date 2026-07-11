@@ -27,6 +27,7 @@ import json
 import zlib
 from typing import Optional
 
+from ._strict_json import loads_strict
 from .errors import BundleFormatError
 from .signature import verify_ed25519
 
@@ -115,10 +116,16 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         return result
     header_b64, payload_b64, sig_b64 = status_list_token.split(".")
     try:
-        header = json.loads(_b64url_decode(header_b64))
-        payload = json.loads(_b64url_decode(payload_b64))
+        # WP-C1 (six-lens review, PROVEN differential): a duplicated status_list key in a SIGNED
+        # token read VALID under a first-wins parser and INVALID under last-wins — the exact
+        # revocation split-brain this gate exists to prevent.
+        header = loads_strict(_b64url_decode(header_b64))
+        payload = loads_strict(_b64url_decode(payload_b64))
         sig = _b64url_decode(sig_b64)
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except BundleFormatError as exc:
+        result["detail"] = f"malformed status list token: {exc}"
+        return result
+    except (ValueError, TypeError):
         result["detail"] = "malformed status list token"
         return result
     if not isinstance(header, dict) or not isinstance(payload, dict):

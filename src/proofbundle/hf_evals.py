@@ -27,6 +27,7 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 
@@ -66,7 +67,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         raw = decomp.decompress(_b64url_decode(token[len(TOKEN_PREFIX):]), _MAX_TOKEN_BYTES)
         if decomp.unconsumed_tail:
             raise BundleFormatError("receipt token exceeds the decompression cap")
-        bundle = json.loads(raw)
+        bundle = loads_strict(raw)   # WP-C1: duplicate keys rejected fail-closed
     except BundleFormatError:
         raise
     except (ValueError, TypeError, zlib.error) as exc:
@@ -151,7 +152,11 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
             # genuinely NON-eval bundle (different/absent schema) has no verdict to check → skip. The bundle's signature
             # was already verified above (require_verified), so reading the raw payload's schema label is authentic.
             try:
-                _raw = json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                # WP-C1, DELIBERATE: a duplicate key here raises BundleFormatError and PROPAGATES
+                # (it is NOT in the tuple below) — the schema label of a dup-key payload cannot be
+                # read reliably, so refusing to publish is the only honest outcome. Adding it to
+                # the except would set _is_eval=False and fail OPEN for dup-key eval claims.
+                _raw = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
                 _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
                 _is_eval = False

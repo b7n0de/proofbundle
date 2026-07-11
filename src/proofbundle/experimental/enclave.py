@@ -48,6 +48,7 @@ import hashlib
 import json
 from typing import Optional
 
+from .._strict_json import loads_strict
 from ..errors import BundleFormatError
 from ..signature import verify_ed25519
 
@@ -116,10 +117,13 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
         return result
     header_b64, payload_b64, sig_b64 = eat_jws.split(".")
     try:
-        header = json.loads(_b64url_decode(header_b64))
-        claims = json.loads(_b64url_decode(payload_b64))
+        header = loads_strict(_b64url_decode(header_b64))   # WP-C1: dup keys fail-closed
+        claims = loads_strict(_b64url_decode(payload_b64))
         sig = _b64url_decode(sig_b64)
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except BundleFormatError as exc:
+        result["detail"] = f"malformed EAT token: {exc}"
+        return result
+    except (ValueError, TypeError):
         result["detail"] = "malformed EAT token"
         return result
     if not isinstance(header, dict) or not isinstance(claims, dict):
