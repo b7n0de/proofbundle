@@ -10,6 +10,7 @@
     "bundle/corrupted-signature",
     "bundle/sd-jwt-unsigned-unauthenticated",
     "bundle/sd-jwt-signed-but-unbound",
-    "bundle/sd-jwt-forged-issuer-identity"
+    "bundle/sd-jwt-forged-issuer-identity",
+    "bundle/forged-anchor-own-frozen"
   ]
 }

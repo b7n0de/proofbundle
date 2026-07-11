@@ -34,12 +34,18 @@ def _confirmed_anchor():
     return anchor, {"preRegistration": root, "receipt": b"\x01" * 32}
 
 
+def _rp(anchor) -> dict:
+    """WP-A1: the relying party supplies the Bitcoin block header (here the same one the fixture froze)."""
+    headers = (anchor.get("frozen") or {}).get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
+    return {"bitcoin_block_headers": headers}
+
+
 class TestTargetGate(unittest.TestCase):
     @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_matching_target_satisfies(self):
         anchor, roots = _confirmed_anchor()
         res = verify_anchors([anchor], target_roots=roots, require="any",
-                             require_target="preRegistration")
+                             require_target="preRegistration", rp_trust=_rp(anchor))
         self.assertTrue(res["require_met"])
         self.assertEqual(res["status"], "PASS")
 
@@ -56,7 +62,8 @@ class TestTargetGate(unittest.TestCase):
     @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_target_requirement_implies_anchor_requirement(self):
         anchor, roots = _confirmed_anchor()
-        res = verify_anchors([anchor], target_roots=roots, require_target="preRegistration")
+        res = verify_anchors([anchor], target_roots=roots, require_target="preRegistration",
+                             rp_trust=_rp(anchor))
         self.assertTrue(res.get("require_met"), "require_target alone must arm the gate")
         empty = verify_anchors([], target_roots=roots, require_target="preRegistration")
         self.assertFalse(empty["require_met"])
@@ -72,7 +79,7 @@ class TestTrustedTime(unittest.TestCase):
     @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_confirmed_bitcoin_anchor_reports_structured_height(self):
         anchor, roots = _confirmed_anchor()
-        res = verify_anchors([anchor], target_roots=roots)
+        res = verify_anchors([anchor], target_roots=roots, rp_trust=_rp(anchor))
         entry = res["results"][0]
         self.assertTrue(entry["ok"])
         self.assertEqual(entry["trustedTime"]["source"], "bitcoin_block")

@@ -35,6 +35,46 @@ def _test_verifier(proof, canonical_root, *, frozen, now):
     return {"ok": proof == b"OK", "detail": "test anchor"}
 
 
+def _rp_verifier(proof, canonical_root, *, frozen, now, rp_trust=None):
+    """WP-A1: a time-anchor-style verifier that confirms ONLY when the relying party supplied trust
+    material — mirrors the built-in OTS/rfc3161 behaviour so the decision path's rp_trust threading is
+    exercised (the plain test-anchor verifier ignores rp_trust)."""
+    if (rp_trust or {}).get("bitcoin_block_headers"):
+        return {"ok": True, "rp_trusted": True, "detail": "rp-confirmed"}
+    return {"ok": False, "needs_rp_trust": True, "status": "needs_rp_trust", "detail": "needs rp header"}
+
+
+class TestDecisionAnchorRpTrust(unittest.TestCase):
+    """WP-A1: verify_decision_receipt threads rp_trust to a statement time anchor. Without it a real time
+    anchor is needs_rp_trust (fail-closed); with it (relying-party material) it confirms."""
+
+    @classmethod
+    def setUpClass(cls):
+        anchors.register_anchor_type("test-rp-anchor", _rp_verifier)
+
+    def setUp(self):
+        self.signer = generate_signer()
+        self.pub = self.signer.public_key().public_bytes_raw()
+        self.env = emit_decision_receipt(_pred("deny"), self.signer, strict=True)
+        self.content_root = hashlib.sha256(dsse.load_payload(self.env)).digest()
+
+    def _anchor(self):
+        return {"type": "test-rp-anchor", "target": "statement",
+                "canonicalRoot": base64.b64encode(self.content_root).decode(),
+                "proof": base64.b64encode(b"x").decode(), "anchoredAt": None}
+
+    def test_statement_anchor_needs_rp_trust_without_it(self):
+        r = verify_decision_receipt(self.env, self.pub, anchors=[self._anchor()])
+        self.assertFalse(r["anchors_ok"])        # no rp_trust → needs_rp_trust → fail-closed
+        self.assertFalse(r["ok"])
+
+    def test_statement_anchor_confirms_with_rp_trust(self):
+        r = verify_decision_receipt(self.env, self.pub, anchors=[self._anchor()],
+                                    rp_trust={"bitcoin_block_headers": {"800000": "aa" * 32}})
+        self.assertTrue(r["anchors_ok"], r.get("errors"))   # relying-party material → confirmed
+        self.assertTrue(r["ok"])
+
+
 class TestDecisionAnchors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

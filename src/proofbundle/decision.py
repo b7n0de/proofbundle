@@ -293,7 +293,14 @@ def _rfc8785_available() -> bool:
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
-    commitment to the decision (default: sha256 over the RFC-8785 canonical predicate)."""
+    commitment to the decision: by DEFAULT sha256 over the RFC-8785 canonical predicate.
+
+    **Caller-attested override (No-Overclaim, 6-lens review):** a caller-supplied `subject_sha256` /
+    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate here;
+    `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
+    is self-attesting what the statement applies to — a generic in-toto consumer that matches by
+    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
+    the subject a true commitment to the signed predicate."""
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -332,7 +339,8 @@ def _empty_result() -> dict:
 
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
-                            policy: dict | None = None, anchors: list | None = None) -> dict:
+                            policy: dict | None = None, anchors: list | None = None,
+                            rp_trust: dict | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -446,7 +454,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         else:
             from . import anchors as _anchors_mod  # noqa: PLC0415
             content_root = _anchors_mod.statement_content_root(body)
-            ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root})
+            # WP-A1: thread the relying-party trust material so a real OTS/rfc3161 statement anchor can
+            # confirm here (the bundle's frozen material is never trust). Without it a time anchor is
+            # needs_rp_trust — fail-closed, not a silent frozen pass.
+            ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
+                                             rp_trust=rp_trust)
             # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but a
             # FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
             # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.

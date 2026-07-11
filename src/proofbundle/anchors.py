@@ -144,9 +144,29 @@ def statement_content_root(payload_bytes: bytes) -> bytes:
     return canonical.statement_content_root(bytes(payload_bytes))
 
 
-def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None) -> dict:
+def _call_verifier(fn: Callable, proof: bytes, canonical_root: bytes, *,
+                   frozen: dict, now: Optional[int], rp_trust: Optional[dict]) -> dict:
+    """Dispatch to an anchor verifier, backward-compatibly. WP-A1 added the ``rp_trust`` kwarg (relying-
+    party trust material); a third-party verifier registered before A-1 accepts only ``(proof, root, *,
+    frozen, now)``. Pass ``rp_trust`` only when the verifier's signature accepts it (or takes ``**kwargs``),
+    so pre-A1 extension verifiers keep working — they simply never see RP trust (their own trust model)."""
+    import inspect  # noqa: PLC0415
+    kw: dict = {"frozen": frozen, "now": now}
+    try:
+        params = inspect.signature(fn).parameters
+        if "rp_trust" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            kw["rp_trust"] = rp_trust
+    except (ValueError, TypeError):   # a builtin/C callable with no introspectable signature
+        pass
+    return fn(proof, canonical_root, **kw)
+
+
+def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None,
+                  rp_trust: Optional[dict] = None) -> dict:
     """Verify ONE anchor entry, fail-closed. ``target_roots`` maps a target name to its canonical root
-    bytes (only the targets that exist for this receipt). Returns ``{ok, type, target, detail}``."""
+    bytes (only the targets that exist for this receipt). ``rp_trust`` (WP-A1) is the relying-party trust
+    material (TSA roots, Bitcoin block headers) — the ONLY source of trust for a confirmed time anchor;
+    the bundle's own ``frozen`` block is evidence, never trust. Returns ``{ok, type, target, detail}``."""
     _ensure_builtin_types()
     if not isinstance(anchor, dict):
         raise BundleFormatError("each anchor must be a JSON object")
@@ -182,7 +202,8 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         return out
     proof = _b64d(anchor.get("proof"), "proof")
     try:
-        res = _VERIFIERS[atype](proof, canonical_root, frozen=anchor.get("frozen") or {}, now=now)
+        res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
+                             frozen=anchor.get("frozen") or {}, now=now, rp_trust=rp_trust)
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
@@ -190,6 +211,13 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     out["warn"] = bool(res.get("warn"))
     out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
     out["detail"] = res.get("detail", "")
+    # WP-A1: surface the trust provenance so the relying party can see WHY (and the require gate can only
+    # count RP-trusted anchors). `rp_trusted` True → verified against RP-supplied trust material;
+    # `needs_rp_trust` True → the proof exists but confirming it needs RP material (frozen is not trust);
+    # `frozenEvidence` True → the bundle carried frozen material, reported but never trusted.
+    for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
+        if _f in res:
+            out[_f] = bool(res.get(_f))
     # WP-A2: structured trusted time, carried VERBATIM from the type verifier — present only when
     # the proof genuinely carries it (rfc3161 gen_time; a confirmed Bitcoin height). NEVER guessed,
     # NEVER derived from the informative anchoredAt field.
@@ -201,7 +229,8 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
 
 def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None,
                    require_target: Optional[str] = None,
-                   allow_pending: bool = False, now: Optional[int] = None) -> dict:
+                   allow_pending: bool = False, now: Optional[int] = None,
+                   rp_trust: Optional[dict] = None) -> dict:
     """Verify a receipt's ``anchors``. Missing/empty → SKIP (unless ``require`` is set → FAIL). Present →
     fail-closed PASS/FAIL over every entry. ``require`` is ``None`` | ``'any'`` | a type string; when set,
     at least one anchor of that type (or any) must verify. Returns ``{status, detail, results}`` with
@@ -236,7 +265,7 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
     if not isinstance(anchors, list):
         raise BundleFormatError("anchors must be a list")
-    results = [verify_anchor(a, target_roots=target_roots, now=now) for a in anchors]
+    results = [verify_anchor(a, target_roots=target_roots, now=now, rp_trust=rp_trust) for a in anchors]
     if require:   # a warn/pending/inclusion-only anchor never SATISFIES a requirement — only a full one
         want = None if require == "any" else require
         # WP-A1: matched = ok ∧ ¬warn ∧ type ∧ TARGET. Matching the type alone was a backdating

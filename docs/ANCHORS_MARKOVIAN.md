@@ -59,8 +59,9 @@ UTF-8 JSON, base64'd into the anchor's `proof` field:
 ## Trust model (honest)
 
 - **Time** is trust-minimized (Bitcoin PoW time): it comes from Bitcoin via the OTS proof, verified offline against a block header
-  supplied by a trusted (pruned) node in `frozen.bitcoinBlockHeaderMerkleRootsByHeight` — proofbundle
-  never fetches it. That value is the block's `hashMerkleRoot` in Bitcoin **internal (node) byte order**
+  the **relying party supplies** (WP-A1: `--bitcoin-header` / policy `anchors.bitcoin_block_headers`) from
+  their own trusted (pruned) node — NOT the anchor's `frozen` header, which is producer-controlled evidence
+  and is never trusted. proofbundle never fetches it. That value is the block's `hashMerkleRoot` in Bitcoin **internal (node) byte order**
   (what `bitcoind` returns and what the OTS attestation commits to), *not* the reversed display order a
   block explorer prints.
 - **Issuer binding** is *self-consistent within the stamp*: `merkle_root` cryptographically ties the
