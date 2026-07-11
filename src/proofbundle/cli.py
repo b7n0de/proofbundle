@@ -331,7 +331,8 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     return 0
 
 
-def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool) -> dict:
+def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool,
+                                 require_target=None) -> dict:
     """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
     ``proofbundle.anchors`` layer — never a parallel reimplementation. Returns
     ``{ok, status, detail, results}`` where ``ok`` is the anchor layer's ``require_met`` verdict: True
@@ -369,7 +370,7 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
             pass
     try:
         res = verify_anchors(anchors_list, target_roots=target_roots, require=require,
-                             allow_pending=allow_pending)
+                             require_target=require_target, allow_pending=allow_pending)
     except ProofBundleError as exc:   # malformed anchors[] → fail-closed (never a silent pass)
         return {"ok": False, "status": "FAIL", "detail": str(exc), "results": []}
     # WP4 fix (aggregation bug): the requirement verdict follows the anchor layer's `require_met` signal
@@ -389,7 +390,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # WP4 (additive): resolve the anchor requirement to the value the anchor layer expects — None (no
     # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
     anchor_type = getattr(args, "anchor_type", None)
-    require_anchor = anchor_type if anchor_type else ("any" if getattr(args, "require_anchor", False) else None)
+    anchor_target = getattr(args, "anchor_target", None)   # WP-A1: implies --require-anchor
+    require_anchor = anchor_type if anchor_type else (
+        "any" if (getattr(args, "require_anchor", False) or anchor_target) else None)
     allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
@@ -413,6 +416,27 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                     f"--aud {flag_aud!r} conflicts with the policy's sd_jwt.expected_aud {pol_aud!r} "
                     "— ambiguous; supply only one, or make them equal")
             effective_aud = flag_aud if flag_aud is not None else pol_aud
+            # WP-A1: the policy's anchors section supplies the anchor requirement when no CLI flag
+            # does; a CONFLICTING flag/policy pair is ambiguous → exit 2 (mirrors expected_aud).
+            pol_anc = policy.get("anchors") or {}
+            if pol_anc:
+                from .policy import PolicyError  # noqa: PLC0415
+                p_req = pol_anc.get("require_anchor")
+                p_tgt = pol_anc.get("require_anchor_target")
+                if p_req is not None and require_anchor is not None and p_req != require_anchor:
+                    raise PolicyError(
+                        f"anchor requirement conflict: CLI wants {require_anchor!r}, the policy's "
+                        f"anchors.require_anchor is {p_req!r} — ambiguous; align them")
+                if p_tgt is not None and anchor_target is not None and p_tgt != anchor_target:
+                    raise PolicyError(
+                        f"anchor target conflict: CLI wants {anchor_target!r}, the policy's "
+                        f"anchors.require_anchor_target is {p_tgt!r} — ambiguous; align them")
+                require_anchor = require_anchor if require_anchor is not None else p_req
+                anchor_target = anchor_target if anchor_target is not None else p_tgt
+                if anchor_target and require_anchor is None:
+                    require_anchor = "any"
+                if pol_anc.get("allow_pending"):
+                    allow_pending = True
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
@@ -444,7 +468,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     anchor_report = None
     if require_anchor is not None and crypto_ok:
         anchor_report = _evaluate_anchor_requirement(
-            bundle, require=require_anchor, allow_pending=allow_pending)
+            bundle, require=require_anchor, allow_pending=allow_pending,
+            require_target=anchor_target)
         anchor_required_ok = anchor_report["ok"]
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
@@ -999,6 +1024,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--anchor-type", default=None, metavar="TYPE",
                         help="require a verifying anchor of THIS type specifically (e.g. rfc3161-tsa, "
                              "opentimestamps); implies --require-anchor")
+    verify.add_argument("--anchor-target", default=None,
+                        choices=("receipt", "preRegistration", "statement"),
+                        help="require the verifying anchor to stamp THIS target (WP-A1; implies "
+                             "--require-anchor). Without it --require-anchor matches the TYPE only — "
+                             "a receipt anchor stamped today would satisfy a relying party who meant "
+                             "backdating protection (preRegistration)")
     verify.add_argument("--allow-pending", action="store_true",
                         help="with --require-anchor / --anchor-type, also accept a PENDING anchor (e.g. "
                              "an un-upgraded OpenTimestamps proof) as satisfying the requirement — "

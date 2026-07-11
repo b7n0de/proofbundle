@@ -6,6 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — anchor TARGET gate + structured trustedTime (WP-A1 / WP-A2 / WP-A7)
+- **`verify --anchor-target receipt|preRegistration|statement`** (implies `--require-anchor`) and
+  the trust-policy **v0.2 `anchors` section** (`require_anchor`, `require_anchor_target`,
+  `allow_pending`): the anchor requirement matched the TYPE only, so a `receipt` anchor stamped
+  today satisfied a relying party who demanded backdating protection — existence-now proves
+  nothing about existence-before-the-run. Matched is now ok ∧ ¬warn ∧ type ∧ **target**; a
+  CLI/policy conflict is exit 2 (mirrors `expected_aud`), never a silent override.
+- **Structured `trustedTime` in per-anchor results** (SPEC §7i): `{source: rfc3161_gen_time,
+  time, tz}` from a verified token's own gen_time; `{source: bitcoin_block, height}` from a
+  confirmed OTS attestation (native unit, no wall-clock guess); the markovian type carries the
+  delegated OTS time through. Present ONLY when the proof carries it — never derived from the
+  informative `anchoredAt` (a tampered `anchoredAt` changes neither verdict nor trustedTime,
+  pinned by regression test). Time-window policies over `verify --json` become buildable.
+- **A7 regressions closed:** a v0.1 bundle carrying `anchors[].target: "statement"` is now
+  rejected as malformed (exit 2) by the verifier itself — the docs promised it, the code never
+  enforced it (`statement` is exclusively for DETACHED decision evidence); a non-string
+  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.
+
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and

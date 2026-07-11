@@ -62,7 +62,18 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
         builder.build().verify_message(response, canonical_root)
     except Exception as exc:   # any verify failure is a FAIL, never a silent pass (fail-closed)
         return {"ok": False, "detail": f"RFC 3161 token did not verify against the frozen chain: {exc}"}
-    return {"ok": True, "detail": "RFC 3161 token verified offline against the frozen TSA chain"}
+    out = {"ok": True, "detail": "RFC 3161 token verified offline against the frozen TSA chain"}
+    # WP-A2: structured trusted time from the VERIFIED token's own gen_time (the TSA-asserted time
+    # the whole anchor exists to establish). Best-effort extraction from the verified response —
+    # if the library exposes no gen_time, the field is simply absent (never guessed, never taken
+    # from the informative anchoredAt).
+    try:
+        gen_time = response.tst_info.gen_time
+        out["trustedTime"] = {"source": "rfc3161_gen_time",
+                              "time": gen_time.strftime("%Y-%m-%dT%H:%M:%SZ"), "tz": "Z"}
+    except Exception:   # noqa: BLE001 — structured time is additive; its absence is honest
+        pass
+    return out
 
 
 def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,

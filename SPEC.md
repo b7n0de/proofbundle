@@ -1,6 +1,6 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
-Revision: 2026-07-10
+Revision: 2026-07-11
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
@@ -362,6 +362,26 @@ narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
 into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet
 (distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending**
 anchor does NOT satisfy `--require-anchor` unless `--allow-pending` is given.
+
+**Target gate (WP-A1).** `--anchor-target receipt|preRegistration|statement`
+(implies `--require-anchor`) additionally requires the verifying anchor to
+stamp THAT target: matched = ok ∧ ¬warn ∧ type ∧ **target**. Without it the
+requirement matches the TYPE alone — a `receipt` anchor stamped today would
+satisfy a relying party who meant backdating protection (`preRegistration`),
+although existence-now proves nothing about existence-before-the-run. The same
+requirement is expressible as a policy key (trust-policy **v0.2** `anchors`
+section: `require_anchor`, `require_anchor_target`, `allow_pending`); a CLI
+flag conflicting with the policy value is an ambiguity error (exit 2), never a
+silent override.
+
+**Structured trusted time (WP-A2).** A verifying anchor's per-entry result MAY
+carry `trustedTime` — `{source: "rfc3161_gen_time", time: <RFC 3339>, tz: "Z"}`
+from a verified RFC 3161 token's own `gen_time`, or
+`{source: "bitcoin_block", height: <int>}` from a confirmed OpenTimestamps
+attestation (the block HEIGHT is the proof's native unit; no wall-clock value
+is guessed for it). The field is present ONLY when the proof genuinely carries
+the time; it is never derived from the informative `anchoredAt`. This is what
+makes a time-window policy (t₁ < run < t₂) buildable over `verify --json`.
 
 ### Built-in types (informative)
 
