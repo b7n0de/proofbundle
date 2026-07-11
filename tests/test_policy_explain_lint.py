@@ -80,6 +80,56 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("ERROR", err)
 
+    def test_malformed_policy_json_emits_error_object(self):
+        # six-lens review: --json on a malformed policy must not be an empty stdout (breaks a JSON
+        # consumer); emit an error object, exit 2 unchanged.
+        path = _write({"schema": "nope"})
+        try:
+            rc, out, _ = _run(["policy", "lint", "--json", path])
+            rc2, out2, _ = _run(["policy", "explain", "--json", path])
+        finally:
+            os.unlink(path)
+        self.assertEqual(rc, 2)
+        self.assertFalse(json.loads(out)["ok"])
+        self.assertIn("error", json.loads(out))
+        self.assertEqual(rc2, 2)
+        self.assertIn("error", json.loads(out2))
+
+    def test_human_output_label_matches_verdict(self):
+        # six-lens review: the human '[policy-lint] PASS/FAIL' label was never asserted, so a
+        # label swap survived. Pin both the label and the human explain path (incl. the vacuous hint).
+        p1, p2 = _write(MINIMAL), _write(_signer_policy(generate_signer()))
+        try:
+            rc1, out1, _ = _run(["policy", "lint", p1])
+            rc2, out2, _ = _run(["policy", "lint", p2])
+            _, ex_empty, _ = _run(["policy", "explain", p1])
+            _, ex_pinned, _ = _run(["policy", "explain", p2])
+        finally:
+            os.unlink(p1), os.unlink(p2)
+        self.assertEqual(rc1, 1)
+        self.assertIn("[policy-lint] FAIL", out1)
+        self.assertEqual(rc2, 0)
+        self.assertIn("[policy-lint] PASS", out2)
+        self.assertIn("wirkungslos", ex_empty)          # the vacuous-policy hint on the human path
+        self.assertIn("public key pinned", ex_pinned)
+
+    def test_empty_string_required_hash_alg_is_a_pin_not_vacuous(self):
+        # six-lens review: merkle.required_hash_alg='' is ENFORCED by evaluate_policy (is not None)
+        # but explain_policy omitted it (truthiness) — lint wrongly called the policy vacuous while
+        # verify actually FAILs it. explain must list it; lint must NOT call it vacuous.
+        pol = load_policy({**MINIMAL, "merkle": {"required_hash_alg": ""}})
+        self.assertTrue(any("merkle.hash_alg" in x for x in explain_policy(pol)))
+        self.assertTrue(lint_policy(pol)["pins"])
+        self.assertNotIn("pins nothing", " ".join(lint_policy(pol)["errors"]))
+
+    def test_unsatisfiable_require_signer_is_a_lint_error(self):
+        # six-lens review: require_expected_signer=true with empty allowed_issuers can NEVER pass
+        # (evaluate fail-closes every verify to exit 3) — that is a lint ERROR, not a valid pin.
+        pol = load_policy({**MINIMAL, "signature": {"require_expected_signer": True}})
+        res = lint_policy(pol)
+        self.assertFalse(res["ok"])
+        self.assertTrue(any("unsatisfiable" in e for e in res["errors"]))
+
 
 class TestExplain(unittest.TestCase):
     def test_explain_lists_the_effective_pins(self):

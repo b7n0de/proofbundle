@@ -459,7 +459,9 @@ def explain_policy(policy: dict) -> list:
     if sig.get("require_expected_signer"):
         lines.append("signer MUST match an allowed_issuers entry (require_expected_signer)")
     mk = policy.get("merkle") or {}
-    if mk.get("required_hash_alg"):
+    if mk.get("required_hash_alg") is not None:
+        # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
+        # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
         lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
     sdj = policy.get("sd_jwt") or {}
     if sdj.get("require_key_binding_when_cnf_present"):
@@ -521,6 +523,13 @@ def lint_policy(policy: dict, *, strict: bool = False) -> dict:
         errors.append(
             "policy pins nothing (only schema/policy_id): every verify would report POLICY: OK "
             "with zero checks evaluated — a vacuous pass, not a trust decision")
+    # UNSATISFIABLE (six-lens review): require_expected_signer with no allowed_issuers can NEVER pass
+    # (no signer key can match an empty list) — evaluate_policy fail-closes every verify to exit 3.
+    # That is a policy bug, not a valid pin, so it is a lint ERROR (always, not just --strict).
+    if (policy.get("signature") or {}).get("require_expected_signer") and not policy.get("allowed_issuers"):
+        errors.append(
+            "require_expected_signer is set but allowed_issuers is empty — unsatisfiable: no signer "
+            "key can ever match, so every verify FAILs (exit 3). Add the expected issuer key(s).")
     if strict:
         errors.extend(warnings)
         warnings = []

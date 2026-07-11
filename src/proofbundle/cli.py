@@ -456,10 +456,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         assurance=assurance, policy_ok=policy_ok)
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
-        # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged,
-        # but a POLICY: OK under a signer-less policy must say what it does NOT establish.
+        # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged.
+        # Mirror the human line (six-lens review): the warning is meaningful only for a PASSING
+        # policy (a POLICY: OK that attributes to nobody); on FAIL / crypto-FAIL the FAIL is the
+        # message, so the JSON field is empty too — the key stays present for contract stability.
         from .policy import policy_warnings  # noqa: PLC0415
-        fields["policy_warnings"] = policy_warnings(policy)
+        fields["policy_warnings"] = policy_warnings(policy) if policy_ok else []
     if policy_result is not None:
         fields["policy_checks"] = policy_result["checks"]
     if anchor_report is not None:
@@ -966,8 +968,11 @@ def _cmd_policy_explain(args: argparse.Namespace) -> int:
     from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
     try:
         policy = load_policy(args.policy)
-    except PolicyError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+    except PolicyError as exc:   # malformed policy → exit 2; in --json emit an error object (six-lens
+        if args.json:            # review: an empty stdout on the error path breaks a JSON consumer)
+            print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     pins = explain_policy(policy)
     warns = policy_warnings(policy)
@@ -991,7 +996,10 @@ def _cmd_policy_lint(args: argparse.Namespace) -> int:
     try:
         policy = load_policy(args.policy)
     except PolicyError as exc:   # malformed policy is a lint failure too, with the parse reason
-        print(f"ERROR: {exc}", file=sys.stderr)
+        if args.json:            # emit an error object in --json (mirror _cmd_verify; exit 2 unchanged)
+            print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     res = lint_policy(policy, strict=args.strict)
     if args.json:
