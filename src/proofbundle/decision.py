@@ -293,7 +293,14 @@ def _rfc8785_available() -> bool:
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
-    commitment to the decision (default: sha256 over the RFC-8785 canonical predicate)."""
+    commitment to the decision: by DEFAULT sha256 over the RFC-8785 canonical predicate.
+
+    **Caller-attested override (No-Overclaim, 6-lens review):** a caller-supplied `subject_sha256` /
+    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate here;
+    `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
+    is self-attesting what the statement applies to — a generic in-toto consumer that matches by
+    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
+    the subject a true commitment to the signed predicate."""
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))

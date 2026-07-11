@@ -514,9 +514,16 @@ def _now_rfc3339z() -> str:
 def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
                    anchor_verified: bool = False) -> list:
     """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
-    passed. A missing optional check produces NO property (never a placeholder). PROOFBUNDLE_PREREG_BOUND
-    and PROOFBUNDLE_ANCHOR_VALID are asserted ONLY when the caller confirms that verification actually
-    ran offline (a present prereg hash or an anchors[] block alone is NOT a verified binding)."""
+    passed. A missing optional check produces NO property (never a placeholder).
+
+    **No-Overclaim scope (6-lens review):** `PROOFBUNDLE_SIGNATURE_VALID` / `PROOFBUNDLE_RECEIPT_UNCHANGED`
+    / `PROOFBUNDLE_THRESHOLD_MET` / `PROOFBUNDLE_SAMPLE_ROOT_VALID` are derived from the passed
+    `VerificationResult`/`claim` here. But `PROOFBUNDLE_PREREG_BOUND` and `PROOFBUNDLE_ANCHOR_VALID` are
+    emitted PURELY from the caller's `prereg_verified` / `anchor_verified` flags — this function does NOT
+    call `anchors.verify_anchors()` and does not check the anchor itself. They are CALLER-ATTESTED: the
+    caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
+    asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
+    verified binding."""
     checks = {c.name: c.ok for c in result.checks}
     props = []
     if checks.get("ed25519-signature"):
@@ -538,12 +545,18 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,
                     content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
-    """Emit an in-toto SVR (svr/v0.1) for a receipt — ONLY after a real, passing verification.
+    """Emit an in-toto SVR (svr/v0.1) for a receipt — after a real, passing signature/merkle/threshold
+    verification (done here).
 
     Refuses (fail-closed) if the receipt is not a valid eval receipt, does not cryptographically verify,
     OR did not pass its threshold. SVR carries only PASSING property strings; there is no FAILED form
     (that would be a VSA with a PASSED|FAILED verdict — deliberately NOT implemented here, see docs). The
-    subject is the receipt digest; no secrets ever enter the statement."""
+    subject is the receipt digest; no secrets ever enter the statement.
+
+    **Caller-attested properties (No-Overclaim, 6-lens review):** `prereg_verified` / `anchor_verified`
+    are NOT verified by this function — it does not call `anchors.verify_anchors()`. If you pass them, the
+    signed SVR asserts `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID` on your word; run a real
+    offline anchor verification first, or leave them False."""
     from . import dsse  # noqa: PLC0415
     from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
