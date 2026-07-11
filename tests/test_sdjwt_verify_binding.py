@@ -103,6 +103,66 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         self.assertFalse(data["sd_jwt_ok"])
         self.assertFalse(data["sd_jwt_issuer_verified"])
 
+    def test_forged_issuer_identity_fails(self):   # C-1 2nd-lens: self-signed, discloses a trusted issuer
+        # Attacker self-signs the SD-JWT with their OWN key but names the trusted bundle issuer in the
+        # always-open `issuer` claim (and binds the real root + forges exact_score). The issuer signature
+        # is VALID under the attacker key — only the key↔claimed-issuer identity check catches it.
+        signer = generate_signer()          # the trusted bundle signer
+        att = generate_signer()             # the attacker's own key
+        holder = generate_signer()
+        ev_claim, _ = build_eval_claim(
+            suite="safety", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
+            score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+            timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+        plain = emit_eval_receipt(ev_claim, signer)
+        real_root = (plain.get("merkle") or {}).get("root_b64")
+        trusted_issuer = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
+        forged = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
+                  "issuer": trusted_issuer}   # names the trusted issuer…
+        compact = issue_sd_jwt(forged, att, root_b64=real_root, exact_score="0.99999",   # …but signed by att
+                               holder_public_key=_raw_pub(holder))
+        presented = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=_IAT)
+        vc = {"compact": presented, "issuer_public_key_b64": base64.b64encode(_raw_pub(att)).decode("ascii")}
+        bundle = emit_eval_receipt(ev_claim, signer, sd_jwt=vc)
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump(bundle, f)
+        try:
+            rc, data = _verify_json(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(rc, 1)
+        checks = self._checks(data)
+        self.assertTrue(checks["sd-jwt-issuer-signature"]["ok"])      # signature IS valid (under att)…
+        self.assertFalse(checks["sd-jwt-issuer-identity"]["ok"])      # …but by the wrong signer
+        self.assertIn("issuer-key-mismatch", checks["sd-jwt-issuer-identity"]["detail"])
+        self.assertFalse(data["sd_jwt_ok"])
+
+    def test_missing_eval_field_no_raw_traceback(self):   # C-1 robustness: attacker-shaped incomplete claim
+        # A signed eval-claim payload missing a required field (here: no `passed`) must NOT crash the binding
+        # check with a raw KeyError — verify must return a documented exit code, never a traceback.
+        att = generate_signer()
+        holder = generate_signer()
+        bad_payload = json.dumps({"schema": "proofbundle/eval-claim/v0.1",
+                                  "issuer": "ed25519:" + base64.b64encode(_raw_pub(att)).decode("ascii"),
+                                  "suite": "safety", "comparator": ">=", "threshold": "0.8"}).encode()
+        sd_claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
+                    "issuer": "ed25519:" + base64.b64encode(_raw_pub(att)).decode("ascii")}
+        compact = issue_sd_jwt(sd_claim, att, root_b64="cm9vdA==", exact_score="0.9",
+                               holder_public_key=_raw_pub(holder))
+        presented = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=_IAT)
+        vc = {"compact": presented, "issuer_public_key_b64": base64.b64encode(_raw_pub(att)).decode("ascii")}
+        from proofbundle import emit_bundle  # noqa: PLC0415
+        bundle = emit_bundle(bad_payload, att, sd_jwt_vc=vc)
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump(bundle, f)
+        try:
+            rc, _ = _verify_json(path)   # must not raise
+        finally:
+            os.unlink(path)
+        self.assertIn(rc, (1, 2))        # documented failure/malformed, never a crash
+
 
 if __name__ == "__main__":
     unittest.main()

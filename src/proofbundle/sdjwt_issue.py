@@ -174,7 +174,11 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
         p = _jwt_payload(compact)
     except (ValueError, KeyError, IndexError):
         return False
-    return (p.get("passed") == claim["passed"] and p.get("threshold") == claim["threshold"]
-            and p.get("comparator") == claim["comparator"] and p.get("suite") == claim["suite"]
-            and p.get("issuer") == claim["issuer"]
-            and (p.get("receipt") or {}).get("root_b64") == root_b64)
+    # `claim` is an attacker-controllable, only-schema-checked bundle payload — read every field with
+    # .get() (WP-C1 6-lens review): a missing field must yield a mismatch (unbound → False), never a
+    # raw KeyError traceback out of the verify path. Guarding against `None == None` matching a genuinely
+    # absent SD-JWT field would be a false bind, so a claim missing a required field can never bind.
+    for field in ("passed", "threshold", "comparator", "suite", "issuer"):
+        if field not in claim or p.get(field) != claim.get(field):
+            return False
+    return (p.get("receipt") or {}).get("root_b64") == root_b64

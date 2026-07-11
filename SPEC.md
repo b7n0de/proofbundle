@@ -151,6 +151,14 @@ is **absent**, this check **FAILS** (reason: `unsigned`) — the disclosures are
 unauthenticated and MUST NOT be treated as a passing credential. There is no
 opt-out that lets an unsigned SD-JWT verify.
 
+Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
+its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
+verified the signature MUST be the key it names:
+`"ed25519:" + Base64(issuer_public_key_b64) == disclosed issuer`. A signature that
+verifies under an **attacker-chosen** key while the always-open `issuer` names a
+*trusted* party is a forged identity (valid signature, wrong signer) and **FAILS**
+(reason: `issuer-key-mismatch`).
+
 Check **sd-jwt-bundle-binding** (WP-C1): performed **iff** `sd_jwt_vc` is present,
 its issuer signature verified, and `payload_b64` decodes to a
 `proofbundle/eval-claim/v0.1` claim with a `merkle.root_b64`. The SD-JWT's
@@ -193,7 +201,10 @@ A conforming verifier MUST perform, in this order, and report each result:
    unauthenticated); it is not a skipped or warning-only check.
 5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
    serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
-6. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
+6. **sd-jwt-issuer-identity** — only if `sd_jwt_vc` is present, its issuer
+   signature verified, and it discloses an `issuer` (§6, WP-C1; fail-closed against
+   a forged issuer identity).
+7. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
    signature verified, and the payload is a `proofbundle/eval-claim/v0.1` claim
    (§6, WP-C1; fail-closed against cross-receipt substitution).
 

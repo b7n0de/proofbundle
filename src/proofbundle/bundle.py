@@ -270,7 +270,28 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # this bundle. Only meaningful once the issuer signature verified (an unsigned SD-JWT already fails C2).
         if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
             import json as _json  # noqa: PLC0415
+            from .sdjwt_issue import _jwt_payload as _sd_payload  # noqa: PLC0415
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
+            try:
+                _sd_p = _sd_payload(compact)
+            except (ValueError, KeyError, IndexError):
+                _sd_p = {}
+
+            # WP-C1 (2nd-lens fix): the issuer signature verifies under sd_jwt_vc.issuer_public_key_b64,
+            # but that key is ATTACKER-CHOSEN — it lives outside the bundle signature. A self-signed SD-JWT
+            # that NAMES a trusted issuer in its always-open `issuer` claim while being signed by a DIFFERENT
+            # key is a forged identity (valid signature, wrong signer). Bind the verifying key to the claimed
+            # issuer: fingerprint(issuer_pub) MUST equal the disclosed `issuer`. Only when an issuer is
+            # actually disclosed (an SD-JWT with no issuer claim asserts no identity to forge).
+            _disc_issuer = _sd_p.get("issuer") if isinstance(_sd_p, dict) else None
+            if _disc_issuer is not None and issuer_pub is not None:
+                _verifying_fp = "ed25519:" + base64.b64encode(issuer_pub).decode("ascii")
+                result.add(
+                    "sd-jwt-issuer-identity", _disc_issuer == _verifying_fp,
+                    "SD-JWT issuer key matches the disclosed issuer" if _disc_issuer == _verifying_fp else
+                    "sd_jwt_vc issuer signature verifies under a key that is NOT the disclosed issuer "
+                    "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
+
             try:
                 _claim = _json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
             except (ValueError, KeyError, TypeError):
