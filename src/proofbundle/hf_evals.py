@@ -124,6 +124,9 @@ def verify_eval_results_entry(entry: dict) -> dict:
         out["detail"] = "embedded receipt does not verify"
         return out
     _val = entry.get("value")
+    if _val is None:   # narrow None out before float() (mypy) — a missing value is not verifiable
+        out["detail"] = "entry carries no value to check against the signed verdict"
+        return out
     if isinstance(_val, bool):   # six-lens review: float(True)==1.0 would sneak a bool past the check;
         out["detail"] = "entry value is a boolean, not a metric number"   # the builder rejects bool too
         return out
