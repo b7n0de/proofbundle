@@ -99,14 +99,21 @@ def _extract_score(score_details: dict, metric_config: dict) -> str:
 
 def _model_id_stripped(record: dict) -> dict:
     """A deep copy of the EEE record with the cleartext model identity removed (WP-I3 privacy fix).
-    Removes ``model_info.id`` and the top-level ``evaluation_id`` (which embeds the id) so a digest
-    over the result cannot be used as a model-id confirmation / enumeration oracle, while still
-    binding every score, timestamp, dataset and metric for tamper-evidence."""
+    Removes ``model_info.id``, the top-level ``evaluation_id``, AND each
+    ``evaluation_results[].evaluation_result_id`` — all three commonly embed the model id in a
+    traceability string (e.g. ``eval_name/model_id/timestamp`` or ``arc/gpt2/run1``). Stripping only
+    the first two left a digest that still differentiated two model guesses via the per-result id
+    (6-lens review): with the model name in ``evaluation_result_id`` the digest stayed a
+    confirmation/enumeration oracle. The digest still binds every score, timestamp, dataset and metric
+    for tamper-evidence — only the model-identifying strings are removed."""
     import copy  # noqa: PLC0415
     r = copy.deepcopy(record)
     if isinstance(r.get("model_info"), dict):
         r["model_info"].pop("id", None)
     r.pop("evaluation_id", None)   # format eval_name/model_id/timestamp — embeds the id
+    for res in r.get("evaluation_results") or []:   # per-result traceability id — also embeds the id
+        if isinstance(res, dict):
+            res.pop("evaluation_result_id", None)
     return r
 
 

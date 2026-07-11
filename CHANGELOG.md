@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security — close the EEE record-digest model-id oracle (WP-M2, 6-lens review)
+- **`adapters/eee._model_id_stripped`** now also strips each `evaluation_results[].evaluation_result_id`
+  before computing `provenance.eee_record_sha256`. It stripped `model_info.id` and the top-level
+  `evaluation_id`, but the per-result traceability id commonly embeds the model name too (e.g.
+  `arc/gpt2/run1`) — so the digest still differentiated two model guesses, keeping the confirmation /
+  enumeration oracle the strip was meant to close. Two records differing only in the model id (across
+  all three id-bearing fields) now yield the same digest; a tampered score still changes it
+  (tamper-evidence preserved).
+
 ### Added — native-bundle conformance vectors (WP-S1)
 - **`conformance/bundle/`** — four native proofbundle bundle cases (kind `native_bundle`) checked
   against the CLI verify exit-code contract: `valid-minimal` (a valid bundle verifies, exit 0),

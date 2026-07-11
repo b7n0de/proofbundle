@@ -169,13 +169,19 @@ class TestEeeRecordDigest(unittest.TestCase):
         # confirm the model id — it is computed over a model-id-STRIPPED record.
         from proofbundle.adapters.eee import _model_id_stripped, _record_digest
         rec = self._record()
+        rec["evaluation_results"][0]["evaluation_result_id"] = "arc/gpt2/run1"
         stripped = _model_id_stripped(rec)
         self.assertNotIn("id", stripped.get("model_info", {}))
         self.assertNotIn("evaluation_id", stripped)
-        # two records that differ ONLY in the model id yield the SAME digest (no oracle)
+        # WP-M2 (6-lens review): the per-result traceability id is stripped too — leaving it made the
+        # digest still differentiate two model guesses.
+        self.assertNotIn("evaluation_result_id", stripped["evaluation_results"][0])
+        # two records that differ in the model id ACROSS ALL id-bearing fields (incl. the per-result id)
+        # yield the SAME digest (no oracle)
         rec2 = self._record()
         rec2["model_info"]["id"] = "some-other-model"
         rec2["evaluation_id"] = "suite/some-other-model/2026"
+        rec2["evaluation_results"][0]["evaluation_result_id"] = "arc/some-other-model/run1"
         self.assertEqual(_record_digest(rec), _record_digest(rec2))
         # but a tampered SCORE still changes the digest (tamper-evidence preserved)
         rec3 = self._record()
