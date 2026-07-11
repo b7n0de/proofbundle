@@ -66,9 +66,16 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
         return _fail(cid, f"fixture {pathlib.Path(inp).name} missing")
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
+    # optional extra verify args (e.g. ["--require-anchor"]) — a relying-party gate the case exercises.
+    # Confined to a small allowlist so a case cannot make the harness read files or reach the network.
+    extra = case.get("verifyArgs") or []
+    _ALLOWED = {"--require-anchor", "--anchor-type", "--allow-pending", "--anchor-target"}
+    if not isinstance(extra, list) or any(
+            not isinstance(a, str) or (a.startswith("--") and a not in _ALLOWED) for a in extra):
+        return _fail(cid, f"verifyArgs must be a list drawn from {sorted(_ALLOWED)} (no file/network flags)")
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        rc = _cli_main(["verify", str(bundle)])
+        rc = _cli_main(["verify", str(bundle), *extra])
     if rc != exp["exitCode"]:
         return _fail(cid, f"verify exit {rc} != expected {exp['exitCode']}")
     if "rejected" in exp and bool(exp["rejected"]) != (rc != 0):

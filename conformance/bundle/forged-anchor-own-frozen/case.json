@@ -1,0 +1,10 @@
+{
+  "caseId": "native-bundle-forged-anchor-own-frozen",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "verifyArgs": ["--require-anchor"],
+  "attribution": "proofbundle (WP-A1 backdating vector: producer self-committed the Bitcoin block header into frozen)",
+  "expected": { "exitCode": 3, "rejected": true },
+  "specRefs": ["SPEC.md", "THREAT_MODEL.md"],
+  "rationale": "The receipt carries an upgraded OpenTimestamps anchor whose `frozen` block declares a self-committed Bitcoin block header (the producer put the attestation message straight into frozen so it 'looks confirmed' to a verifier that trusts frozen). WP-A1: frozen is producer-controlled evidence, never trust. With no relying-party header (no --bitcoin-header, no policy anchors.bitcoin_block_headers), the anchor is needs_rp_trust and `verify --require-anchor` is UNMET → exit 3 (a relying-party gate, distinct from a crypto failure). A malicious producer cannot self-certify a backdated timestamp. WP-A1 (Owner-GO, 2026-07-11)."
+}
