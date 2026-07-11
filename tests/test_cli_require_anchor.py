@@ -244,5 +244,65 @@ class TestRequireAnchorCli(_AnchorRegistryFixture):
         self.assertNotIn("ANCHOR", out)
 
 
+class TestRpTrustCliFlags(_AnchorRegistryFixture):
+    """WP-A1: --trusted-tsa-root / --bitcoin-header supply the relying party's anchor trust material, and
+    a required time anchor is UNMET (exit 3) until they do. Uses an rp_trust-aware dummy verifier so the
+    plumbing is tested without the [anchors] extra."""
+
+    def setUp(self):
+        super().setUp()
+        anchors.register_anchor_type(   # confirmed ONLY when the relying party supplied a bitcoin header
+            "test-rp",
+            lambda proof, root, *, frozen, now, rp_trust=None: (
+                {"ok": True, "rp_trusted": True, "detail": "rp header supplied"}
+                if (rp_trust or {}).get("bitcoin_block_headers")
+                else {"ok": False, "needs_rp_trust": True, "status": "needs_rp_trust",
+                      "detail": "needs a relying-party header"}))
+
+    def test_required_anchor_unmet_without_rp_material_exit_3(self):
+        path = self._track(_receipt_with_anchor("test-rp", b"whatever"))
+        rc, out = _run(["verify", path, "--require-anchor"])
+        self.assertEqual(rc, 3)                       # no rp_trust → unmet → exit 3
+        self.assertIn("ANCHOR", out)
+
+    def test_required_anchor_met_with_bitcoin_header_exit_0(self):
+        path = self._track(_receipt_with_anchor("test-rp", b"whatever"))
+        rc, out = _run(["verify", path, "--require-anchor", "--bitcoin-header", "800000:" + "aa" * 32])
+        self.assertEqual(rc, 0)                       # rp header supplied → met → exit 0
+
+    def test_malformed_bitcoin_header_is_exit_2(self):
+        path = self._track(_receipt_with_anchor("test-rp", b"whatever"))
+        self.assertEqual(_run(["verify", path, "--require-anchor", "--bitcoin-header", "nope"])[0], 2)
+        self.assertEqual(
+            _run(["verify", path, "--require-anchor", "--bitcoin-header", "800000:zz"])[0], 2)
+
+    def _policy_file(self, anchors_section: dict) -> str:
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
+                       "anchors": anchors_section}, f)
+        return self._track(path)
+
+    def test_policy_supplies_rp_trust(self):   # WP-A1: policy anchors section carries the trust material
+        path = self._track(_receipt_with_anchor("test-rp", b"whatever"))
+        pol_met = self._policy_file({"require_anchor": "test-rp",
+                                     "bitcoin_block_headers": {"800000": "aa" * 32}})
+        self.assertEqual(_run(["verify", path, "--policy", pol_met])[0], 0)   # policy trust → met
+        pol_unmet = self._policy_file({"require_anchor": "test-rp"})            # requires but no trust
+        self.assertEqual(_run(["verify", path, "--policy", pol_unmet])[0], 3)  # unmet → exit 3
+
+    def test_build_rp_trust_parses_flags(self):
+        import argparse
+
+        from proofbundle.cli import _build_rp_trust
+        ns = argparse.Namespace(trusted_tsa_root=None,
+                                bitcoin_header=["800000:" + "ab" * 32, "800001:" + "cd" * 32])
+        rp = _build_rp_trust(ns)
+        self.assertEqual(rp["bitcoin_block_headers"]["800000"], "ab" * 32)
+        self.assertEqual(rp["bitcoin_block_headers"]["800001"], "cd" * 32)
+        # nothing supplied → None (a required anchor then stays unmet, never a silent frozen pass)
+        self.assertIsNone(_build_rp_trust(argparse.Namespace(trusted_tsa_root=None, bitcoin_header=None)))
+
+
 if __name__ == "__main__":
     unittest.main()

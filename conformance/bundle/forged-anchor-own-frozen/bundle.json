@@ -1,0 +1,30 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJyZXByb2R1Y2VkIiwiY29tbWl0X2FsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJjb21wYXJhdG9yIjoiPj0iLCJkYXRhc2V0X2lkX2NvbW1pdCI6InNoYTI1NjowYzU5MmU3MTQ3ZjgwMWQwZmMzY2YxMTdlZjY0MGYzZDFiMzJjNjEwMjM4NzY2ZGY4NGJlYzBjZjcwNmNiNjEyIiwiaXNzdWVyIjoiZWQyNTUxOTo0YW0zNnRjRmd0YUtKL2JESXk1d0NzaTdOdnU1bDlBWlNYc053eU80Rm9zPSIsIm1ldHJpYyI6ImFjYyIsIm1vZGVsX2lkX2NvbW1pdCI6InNoYTI1Njo4MjNjNTE2YmVjYTBjYjZjNTdiMDE4YWFmNmFiNzU2OGZmZmE0YzVjMTA5Yjg5MGMzMjQ0ZDFmOGRjOTUyOTM2IiwibiI6MTAwLCJwYXNzZWQiOnRydWUsInByZXJlZ19zaGEyNTYiOiI0OWQ2NjBlYjhlMmU3ODc0YzQ4OWQ5ODFlNGM1ZDk4ZjcxZWM2YTU2MDc3YThhNGJhMWM4ZDA1ZGQxZGFmMmU4Iiwic2NoZW1hIjoicHJvb2ZidW5kbGUvZXZhbC1jbGFpbS92MC4xIiwic3VpdGUiOiJzYWZldHkiLCJzdWl0ZV92ZXJzaW9uIjoiMSIsInRocmVzaG9sZCI6IjAuOCIsInRpbWVzdGFtcCI6IjIwMjYtMDctMDlUMTA6MDA6MDBaIn0=",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "4am36tcFgtaKJ/bDIy5wCsi7Nvu5l9AZSXsNwyO4Fos=",
+    "sig_b64": "xfR8hUkunmMXSf9O6BYdkybiWCJVDVKgNPUYdT/23LQZdewDNh4meAOTjKBbQ7qRpasEj7JX48YrJsEf1bEDCA=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 1,
+    "inclusion_proof_b64": [],
+    "root_b64": "BkG14oYPcAJu5NHYbORey5xN6RCF5953i92QPlt8DDg="
+  },
+  "anchors": [
+    {
+      "type": "opentimestamps",
+      "target": "preRegistration",
+      "canonicalRoot": "SdZg644ueHTEidmB5MXZj3HsalYHeopLocjQXdHa8ug=",
+      "proof": "AE9wZW5UaW1lc3RhbXBzAABQcm9vZgC/ieLohOiSlAEISdZg644ueHTEidmB5MXZj3HsalYHeopLocjQXdHa8ugABYiWDXPXGQEDgOow",
+      "anchoredAt": null,
+      "frozen": {
+        "bitcoinBlockHeaderMerkleRootsByHeight": {
+          "800000": "49d660eb8e2e7874c489d981e4c5d98f71ec6a56077a8a4ba1c8d05dd1daf2e8"
+        }
+      }
+    }
+  ]
+}

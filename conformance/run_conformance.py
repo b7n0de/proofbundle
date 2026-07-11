@@ -56,6 +56,13 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     exp = case["expected"]
     if "exitCode" not in exp:
         return _fail(cid, "native_bundle case under-declares its expectations (fail-closed): missing exitCode")
+    # A case whose intended rejection reason needs the [anchors] extra (e.g. a forged OpenTimestamps anchor
+    # that must reach `needs_rp_trust`) MUST NOT false-pass on a base install, where the proof never parses
+    # (no_lib) and the same exit 3 arises for an unrelated reason. Gate it like decision_crossimpl.
+    if case.get("requiresAnchorsExtra") and not _HAS_OTS:
+        if require_anchors:
+            return _fail(cid, "case needs the [anchors] extra but opentimestamps is not installed")
+        return {"caseId": cid, "ok": True, "detail": "SKIPPED (opentimestamps not installed)"}
     inp = case.get("input", "bundle.json")
     bundle = (case_dir / inp).resolve()
     # confine the fixture to the case directory: a case.json is a reviewed fixture, but an absolute or
@@ -66,9 +73,16 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
         return _fail(cid, f"fixture {pathlib.Path(inp).name} missing")
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
+    # optional extra verify args (e.g. ["--require-anchor"]) — a relying-party gate the case exercises.
+    # Confined to a small allowlist so a case cannot make the harness read files or reach the network.
+    extra = case.get("verifyArgs") or []
+    _ALLOWED = {"--require-anchor", "--anchor-type", "--allow-pending", "--anchor-target"}
+    if not isinstance(extra, list) or any(
+            not isinstance(a, str) or (a.startswith("--") and a not in _ALLOWED) for a in extra):
+        return _fail(cid, f"verifyArgs must be a list drawn from {sorted(_ALLOWED)} (no file/network flags)")
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        rc = _cli_main(["verify", str(bundle)])
+        rc = _cli_main(["verify", str(bundle), *extra])
     if rc != exp["exitCode"]:
         return _fail(cid, f"verify exit {rc} != expected {exp['exitCode']}")
     if "rejected" in exp and bool(exp["rejected"]) != (rc != 0):
@@ -151,14 +165,30 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
         else:
             jcs = (case_dir / "decision_receipt.jcs").read_bytes()
             root = hashlib.sha256(jcs).digest()
+            # WP-A1: the Bitcoin block header is TRUST material and must come from the RELYING PARTY, not
+            # the bundle's producer-controlled `frozen` block. A confirmed conformance case declares its
+            # header under `rpTrust` (independently sourced — see the case's independent_source block); the
+            # producer `frozen` is kept only as evidence. Passing it as rp_trust models a relying party who
+            # independently obtained that header. A confirmed expectation with NO rpTrust is a case bug.
+            rp_declared = anchor.get("rpTrust") or {}
+            rp_trust = {"bitcoin_block_headers": rp_declared.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}}
             frozen = anchor.get("frozen") or {}
+            if want == "confirmed" and not rp_trust["bitcoin_block_headers"]:
+                return _fail(cid, "case expects a confirmed anchor but declares no rpTrust header (WP-A1: "
+                                  "frozen is not trust — a confirmed case must supply a relying-party header)")
             res = verify_opentimestamps((case_dir / "decision_receipt.jcs.ots").read_bytes(),
-                                        root, frozen=frozen)
+                                        root, frozen=frozen, rp_trust=rp_trust)
             if res["status"] != want:
                 return _fail(cid, f"anchor status {res['status']!r} != expected {want!r} ({res['detail']})")
             if want == "confirmed" and not res.get("ok"):
                 return _fail(cid, "anchor expected confirmed but verify did not return ok")
-            notes.append(f"anchor {res['status']} (offline{'' if frozen else ', no frozen header'})")
+            # WP-A1 security counter-check: the SAME proof WITHOUT the relying-party header must NOT confirm
+            if want == "confirmed":
+                no_rp = verify_opentimestamps((case_dir / "decision_receipt.jcs.ots").read_bytes(),
+                                              root, frozen=frozen)
+                if no_rp.get("ok") or no_rp["status"] == "confirmed":
+                    return _fail(cid, "anchor confirmed WITHOUT relying-party trust — frozen leaked as trust")
+            notes.append(f"anchor {res['status']} (offline, relying-party header)")
 
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
