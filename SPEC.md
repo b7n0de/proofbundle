@@ -153,8 +153,9 @@ opt-out that lets an unsigned SD-JWT verify.
 
 Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
 its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
-verified the signature MUST be the key it names:
-`"ed25519:" + Base64(issuer_public_key_b64) == disclosed issuer`. A signature that
+verified the signature MUST be the key it names (`issuer_public_key_b64` is already
+the Base64 of the 32-byte raw key, per §6):
+`"ed25519:" + issuer_public_key_b64 == disclosed issuer`. A signature that
 verifies under an **attacker-chosen** key while the always-open `issuer` names a
 *trusted* party is a forged identity (valid signature, wrong signer) and **FAILS**
 (reason: `issuer-key-mismatch`).
