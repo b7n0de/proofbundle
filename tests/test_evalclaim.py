@@ -118,6 +118,23 @@ class TestEvalClaim(unittest.TestCase):
         with self.assertRaises(EvalClaimError):
             load_claim_text('{"a": 1, "a": 2}')
 
+    def test_deep_nesting_no_raw_recursion_crash(self):
+        # WP-H4 (6-lens review): a pathologically deep-nested claim payload must NEVER surface an
+        # uncaught RecursionError (CWE-674) — the crash was reachable from decode_eval_claim /
+        # hf_evals.verify_eval_results_entry / policy.evaluate_policy / CLI emit-eval. The contract is
+        # "no raw RecursionError": either the input is cleanly mapped to EvalClaimError (via the shared
+        # loads_strict) or a given interpreter parses it without hitting its limit — both are fine; a
+        # raw RecursionError is the regression. (Version-robust: 3.12+ changed recursion handling, so a
+        # fixed depth may or may not hit the limit — the security property is invariant.)
+        from proofbundle.evalclaim import load_claim_text
+        deep = "[" * 100000 + "]" * 100000
+        try:
+            load_claim_text(deep)
+        except EvalClaimError:
+            pass
+        except RecursionError:
+            self.fail("uncaught RecursionError — H4 regression (must be mapped to EvalClaimError)")
+
     def test_float_guard_red(self):
         with self.assertRaises(EvalClaimError):
             canonicalize({"schema": "x", "threshold": 0.80})  # a Python float is forbidden

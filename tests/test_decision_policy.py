@@ -45,7 +45,8 @@ class TestDecisionPolicyLoad(unittest.TestCase):
         self.assertEqual(v01["schema"], "proofbundle/trust-policy/v0.1")
 
     def test_v02_decision_section_loads(self):
-        p = load_policy(_policy_trusting("AAAA"))
+        # a real full-order key — load_policy now rejects a low-order / malformed pinned key
+        p = load_policy(_policy_trusting("Ts6DJw7AT4alPGqp9JVzh83VvXoMcRXVU0Lb7R2qB08="))
         self.assertIs(p["decision_receipt"]["require_policy_digest"], True)
 
     def test_decision_section_under_v01_schema_rejected(self):

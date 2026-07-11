@@ -323,9 +323,9 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
 
 def _empty_result() -> dict:
     return {
-        "structure_ok": None, "crypto_ok": None, "signer_trusted": None, "predicate_type_ok": None,
-        "policy_ok": None, "evidence_bound": None, "audience_ok": None, "nonce_ok": None,
-        "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
+        "ok": None, "structure_ok": None, "crypto_ok": None, "signer_trusted": None,
+        "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
+        "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
         "warnings": [], "errors": [],
     }
 
@@ -335,6 +335,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             policy: dict | None = None, anchors: list | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
+
+    **Read `ok` (or `crypto_ok`) — never an individual `*_ok` field alone.** `ok` is the aggregate
+    verdict (crypto AND structure AND predicate-type AND every applicable trust check). The individual
+    fields describe the payload only AFTER authentication: when `crypto_ok` is False the bytes are
+    unauthenticated, so the trust-derived fields (`audience_ok`, `nonce_ok`, `evidence_bound`,
+    `signer_trusted`, `policy_ok`, `action_outcome_proven`) stay None — and `anchors_ok` is None, or
+    False when anchors were supplied — and an error is recorded, so a consumer that reads e.g.
+    `audience_ok` without checking `crypto_ok`/`ok` cannot read a claim about bytes nobody signed. The
+    CLI gates its exit code on `crypto_ok` first (and reports `ok`).
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
     fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
@@ -349,6 +358,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r = _empty_result()
 
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+    if not r["crypto_ok"]:
+        # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
+        # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
+        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
     body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
     try:
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
@@ -394,13 +407,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
-    if isinstance(predicate, dict):
-        ev = predicate.get("evidenceRefs")
-        r["evidence_bound"] = isinstance(ev, list) and all(
-            isinstance(x, dict) and _is_digest(x.get("digest")) for x in ev)
+    # The predicate-derived fields describe AUTHENTICATED bytes only — never compute them over a payload
+    # whose signature failed (mirrors the anchors/policy gates below). On a forged envelope they all stay
+    # None, so a consumer can never read e.g. audience_ok=True or action_outcome_proven=True on bytes
+    # nobody signed (fix-review: action_outcome_proven was computed pre-auth before).
+    if isinstance(predicate, dict) and r["crypto_ok"]:
         r["action_outcome_proven"] = action_outcome_proven(predicate)
         if r["action_outcome_proven"] is False:
             r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
+        ev = predicate.get("evidenceRefs")
+        # None (not vacuous True) when there is nothing to bind — `all([])` is True, but "there are no
+        # evidence refs" is not "the evidence is bound". Only digest-SHAPE is checked here; content
+        # confirmation is a separate step (resolve_evidence_ref), never implied by evidence_bound.
+        if isinstance(ev, list) and ev:
+            r["evidence_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in ev)
         val = predicate.get("validity")
         if isinstance(val, dict):
             if expected_audience is not None:
@@ -459,5 +479,25 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])
+            # Honesty warning — a decision policy that constrains the verdict/type but pins NO
+            # trusted_decision_makers means POLICY: OK proves integrity by an UNKNOWN signer.
+            # DECISION-SPECIFIC (fix-review): the shared policy_warnings()/_attributes_to_nobody also
+            # counts allowed_issuers / signature.require_expected_signer as "pins a signer" — but those
+            # are EVAL-bundle concepts that evaluate_decision_policy never reads, so an orthogonal
+            # allowed_issuers block in a v0.2 policy would wrongly suppress this warning for a decision
+            # receipt signed by anyone. Gate solely on decision_receipt.trusted_decision_makers here.
+            _dr = policy.get("decision_receipt")
+            if isinstance(_dr, dict) and not _dr.get("trusted_decision_makers"):
+                r["warnings"].append(
+                    "attributes to nobody: the policy pins no decision maker (no "
+                    "decision_receipt.trusted_decision_makers) — POLICY: OK then proves integrity by an "
+                    "UNKNOWN signer. Pin the expected decision-maker key(s).")
 
+    # Aggregate verdict: authenticated AND well-structured AND no applicable trust check FAILED.
+    # None means not-applicable (passes); only an explicit False fails the aggregate.
+    r["ok"] = bool(
+        r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
+        and r["policy_ok"] is not False and r["signer_trusted"] is not False
+        and r["audience_ok"] is not False and r["nonce_ok"] is not False
+        and r["evidence_bound"] is not False and r["anchors_ok"] is not False)
     return r

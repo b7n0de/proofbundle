@@ -127,15 +127,20 @@ def canonicalize(claim: dict) -> bytes:
 
 
 def load_claim_text(text: str) -> dict:
-    """Parse claim JSON text, rejecting duplicate keys (JCS forbids them)."""
-    def _no_dupes(pairs):
-        seen = {}
-        for k, v in pairs:
-            if k in seen:
-                raise EvalClaimError(f"duplicate key {k!r} in claim JSON")
-            seen[k] = v
-        return seen
-    return json.loads(text, object_pairs_hook=_no_dupes)
+    """Parse claim JSON text, rejecting duplicate keys (JCS forbids them).
+
+    Delegates to the shared strict parser (:func:`proofbundle._strict_json.loads_strict`) so this
+    path has the SAME robustness as every other verify path: a duplicate key and a pathologically
+    deep nesting (``RecursionError``, CWE-674) both become a clean malformed-input error, never a
+    raw traceback. Re-raised as :class:`EvalClaimError` (a ``ValueError``) so existing
+    ``except (ValueError, EvalClaimError)`` handling at the call sites — including the batch
+    verifier ``hf_evals.verify_eval_results_entry`` — stays correct and never crashes."""
+    from ._strict_json import loads_strict  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    try:
+        return loads_strict(text)
+    except BundleFormatError as e:
+        raise EvalClaimError(str(e)) from e
 
 
 def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator: str,

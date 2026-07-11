@@ -3,7 +3,7 @@
   "policy_id": "example-strict-eval-policy",
   "allowed_schema_versions": ["proofbundle/v0.1"],
   "allowed_issuers": [
-    {"issuer": "Example Auditor", "public_key_b64": "REPLACE_WITH_THE_EXPECTED_ISSUER_PUBLIC_KEY_BASE64", "kid": "example-2026"}
+    {"issuer": "Example Auditor", "public_key_b64": "Ts6DJw7AT4alPGqp9JVzh83VvXoMcRXVU0Lb7R2qB08=", "kid": "example-2026"}
   ],
   "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": true},
   "merkle": {"required_hash_alg": "sha256-rfc6962"},
