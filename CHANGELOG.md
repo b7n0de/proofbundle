@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Ed25519 verify semantics decided, documented, pinned (WP-C2)
+- SPEC.md gains **§4a Verification semantics — the edge-case envelope**: proofbundle's Ed25519
+  verification (via `cryptography`/OpenSSL) is cofactorless, enforces the RFC 8032 S-bound,
+  rejects non-canonical R, partially accepts non-canonical A, and accepts small-order components —
+  neither "strict" nor ZIP-215 ("Taming the Many EdDSAs", eprint 2020/1244). Honest RFC 8032
+  signatures are unaffected; the cross-verifier-consensus consequence for crafted signatures is
+  documented here and in THREAT_MODEL.md.
+- The full 12-vector edge-case envelope is vendored
+  (`tests/fixtures/ed25519_speccheck_cases.json`, from novifinancial/ed25519-speccheck,
+  Apache-2.0) and pinned by `tests/test_ed25519_semantics.py` — a backing-library behavior change
+  becomes a red test demanding a deliberate documented decision, never a silent semantic drift.
+  No behavior change; switching profiles would be a versioned, breaking change.
+
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
