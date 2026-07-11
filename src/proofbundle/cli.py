@@ -428,7 +428,9 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
-    from .policy import evaluate_policy, load_policy, policy_expected_aud  # noqa: PLC0415
+    from .policy import (  # noqa: PLC0415
+        evaluate_policy, load_policy, policy_anchor_trust, policy_expected_aud,
+    )
 
     flag_aud = getattr(args, "aud", None)
     flag_nonce = getattr(args, "nonce", None)
@@ -486,6 +488,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                     require_anchor = "any"
                 if pol_anc.get("allow_pending"):
                     allow_pending = True
+            # WP-A1: union the policy's anchor TRUST material with the CLI's (a CLI value wins per key).
+            pol_trust = policy_anchor_trust(policy)
+            if pol_trust:
+                merged = dict(pol_trust)
+                merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
+                rp_trust_material = merged
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback

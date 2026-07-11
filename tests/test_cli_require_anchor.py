@@ -276,6 +276,21 @@ class TestRpTrustCliFlags(_AnchorRegistryFixture):
         self.assertEqual(
             _run(["verify", path, "--require-anchor", "--bitcoin-header", "800000:zz"])[0], 2)
 
+    def _policy_file(self, anchors_section: dict) -> str:
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
+                       "anchors": anchors_section}, f)
+        return self._track(path)
+
+    def test_policy_supplies_rp_trust(self):   # WP-A1: policy anchors section carries the trust material
+        path = self._track(_receipt_with_anchor("test-rp", b"whatever"))
+        pol_met = self._policy_file({"require_anchor": "test-rp",
+                                     "bitcoin_block_headers": {"800000": "aa" * 32}})
+        self.assertEqual(_run(["verify", path, "--policy", pol_met])[0], 0)   # policy trust → met
+        pol_unmet = self._policy_file({"require_anchor": "test-rp"})            # requires but no trust
+        self.assertEqual(_run(["verify", path, "--policy", pol_unmet])[0], 3)  # unmet → exit 3
+
     def test_build_rp_trust_parses_flags(self):
         import argparse
 
