@@ -63,7 +63,19 @@ def _is_digest(obj: Any) -> bool:
 
 
 def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
-    """Return a list of human-readable errors; empty list == valid. Fail-closed.
+    """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
+
+    This function RETURNS its findings, it does NOT raise. Do NOT wrap it in
+    ``try/except`` — a caller that treats "no exception" as "valid" will report a
+    malformed predicate as valid (an empty ``except`` clause never fires because
+    nothing is raised). Check the returned list instead::
+
+        errors = validate_decision_predicate(pred)
+        if errors:            # non-empty == invalid
+            ...
+
+    If you want an exception on the first invalid predicate, use
+    :func:`require_valid_decision_predicate`, which raises ``DecisionReceiptError``.
 
     strict=True enforces the strict-v0.1 requirements (notChecked / decisionChangeConditions / privacy present,
     policyBoundary.policyDigest present, and — when `validity` is present — audience+nonce).
@@ -192,6 +204,22 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
 
     return errors
+
+
+def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) -> None:
+    """Raise ``DecisionReceiptError`` if the predicate is invalid; return ``None`` if valid.
+
+    A raising counterpart to :func:`validate_decision_predicate` for callers that prefer
+    exception control flow. This exists because the list-returning validator is easy to
+    misuse (``try: validate(...) ; except: ...`` silently passes every predicate, valid or
+    not); use this wrapper when you want a real exception, or check the returned list
+    directly — never wrap the list-returning form in ``try/except``.
+    """
+    errors = validate_decision_predicate(predicate, strict=strict)
+    if errors:
+        raise DecisionReceiptError(
+            f"decision predicate has {len(errors)} finding(s): " + "; ".join(errors)
+        )
 
 
 def action_outcome_proven(predicate: Any) -> bool | None:
