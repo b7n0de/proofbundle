@@ -68,9 +68,14 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     # if the library exposes no gen_time, the field is simply absent (never guessed, never taken
     # from the informative anchoredAt).
     try:
+        from datetime import timezone  # noqa: PLC0415
         gen_time = response.tst_info.gen_time
+        # WP-A2 (six-lens review): normalize to UTC before formatting with a literal 'Z'. RFC 3161
+        # genTime is Zulu, but the parsed value may be naive (assume UTC) or tz-aware in another
+        # zone (convert) — a bare strftime('…Z') on a non-UTC-aware value would mis-label the time.
+        gt = gen_time.replace(tzinfo=timezone.utc) if gen_time.tzinfo is None else gen_time.astimezone(timezone.utc)
         out["trustedTime"] = {"source": "rfc3161_gen_time",
-                              "time": gen_time.strftime("%Y-%m-%dT%H:%M:%SZ"), "tz": "Z"}
+                              "time": gt.strftime("%Y-%m-%dT%H:%M:%SZ"), "tz": "Z"}
     except Exception:   # noqa: BLE001 — structured time is additive; its absence is honest
         pass
     return out

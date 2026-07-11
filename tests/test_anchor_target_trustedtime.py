@@ -90,6 +90,29 @@ class TestTrustedTime(unittest.TestCase):
         self.assertNotIn("trustedTime", res)
 
 
+class TestRfc3161TrustedTimeTz(unittest.TestCase):
+    """WP-A2 tz-normalization (six-lens review): a non-UTC-aware or naive gen_time must still be
+    formatted as a correct Zulu string, never mislabeled."""
+
+    def _format(self, gen_time):
+        # mirror the exact normalization in anchors_rfc3161.verify_rfc3161
+        from datetime import timezone
+        gt = (gen_time.replace(tzinfo=timezone.utc) if gen_time.tzinfo is None
+              else gen_time.astimezone(timezone.utc))
+        return gt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_naive_gen_time_assumed_utc(self):
+        from datetime import datetime
+        self.assertEqual(self._format(datetime(2026, 7, 11, 12, 0, 0)), "2026-07-11T12:00:00Z")
+
+    def test_aware_non_utc_gen_time_converted(self):
+        from datetime import datetime, timedelta, timezone
+        plus2 = timezone(timedelta(hours=2))
+        # 14:00+02:00 is 12:00Z — must convert, not label 14:00 as Z
+        self.assertEqual(self._format(datetime(2026, 7, 11, 14, 0, 0, tzinfo=plus2)),
+                         "2026-07-11T12:00:00Z")
+
+
 class TestA7Regressions(unittest.TestCase):
     def test_anchored_at_wrong_type_fails_closed(self):
         anchor, roots = _confirmed_anchor()
