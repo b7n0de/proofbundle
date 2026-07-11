@@ -418,16 +418,19 @@ class TestVerifyLensFixes(unittest.TestCase):
         self.assertTrue(res["policy_ok"])   # 300s age < 3600s bound → fresh
 
     # L1/L2 — require_nonce must not pass on an UNAUTHENTICATED nonce (the HIGH false-PASS).
-    def test_require_nonce_fails_closed_without_verified_kb(self):   # L1 F1 / L2 F1
-        path = _sd_jwt_bundle(with_issuer_key=False, with_cnf=False)   # KB-JWT present but never verified
+    def test_require_nonce_fails_closed_without_verified_kb(self):   # L1 F1 / L2 F1 (WP-C2 re-pin)
+        path = _sd_jwt_bundle(with_issuer_key=False, with_cnf=False)   # unsigned sd_jwt_vc (no issuer key)
         pol = _policy_file(_base_policy(sd_jwt={"require_nonce": True}))
         try:
             rc, out = _run(["verify", path, "--policy", pol])
         finally:
             os.unlink(path)
             os.unlink(pol)
-        self.assertEqual(rc, 3)                 # crypto OK, but policy fails closed (was a false exit 0)
-        self.assertIn("POLICY: FAIL", out)
+        # WP-C2 (Owner-GO breaking): an unsigned sd_jwt_vc now fails the CRYPTO verify (exit 1) before
+        # any policy check — the disclosures are unauthenticated. (Was exit 3 / policy-fail-closed, when
+        # the unsigned SD-JWT still let crypto pass.)
+        self.assertEqual(rc, 1)
+        self.assertIn("CRYPTO: FAIL", out)
 
     def test_require_nonce_passes_on_verified_kb(self):   # L5 — the real True path
         path = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True, nonce="n-1")

@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-sd-jwt-forged-issuer-identity",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (WP-C1 forged-identity vector: valid issuer signature by the WRONG signer)",
+  "expected": { "exitCode": 1, "rejected": true },
+  "specRefs": ["SPEC.md", "THREAT_MODEL.md"],
+  "rationale": "The sd_jwt_vc has a cryptographically VALID issuer signature and binds the correct merkle root, but the signing key is the attacker's own — while the always-open `issuer` claim names the trusted bundle issuer (and a forged exact_score is disclosed). Only the sd-jwt-issuer-identity check (fingerprint(issuer_public_key_b64) == disclosed issuer) catches it: a valid signature by the wrong signer is a forged identity, not evidence. verify MUST reject (exit 1, sd-jwt-issuer-signature=True but sd-jwt-issuer-identity=False, reason issuer-key-mismatch). WP-C1 (Owner-GO, 2026-07-11)."
+}

@@ -111,28 +111,29 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
     by_name = {c.name: c.ok for c in result.checks}
     warnings = [f"{c.name}: {c.detail}" for c in result.checks if not c.ok]
 
-    # sd_jwt_ok is fail-closed against the "reading OK as truth" trap (verify-lens L1/L2, 2026-07-09):
-    # `sd_jwt_vc` lives OUTSIDE payload_b64, so the Ed25519 signature does NOT cover it — the only thing
-    # that authenticates the SD-JWT is its ISSUER signature. `sd-jwt-disclosures` alone proves only that
-    # the disclosures hash to their own committed digests (self-consistent, forgeable without any key).
-    # So a bundle carrying an SD-JWT with NO issuer_public_key_b64 runs no issuer-signature check
-    # (sd_iss is None) — and that must NOT read as a passing credential. sd_jwt_issuer_verified carries
-    # the granular truth (True/False/None) so the single sd_jwt_ok cannot be misread.
+    # sd_jwt_ok is fail-closed against the "reading OK as truth" trap (verify-lens L1/L2, 2026-07-09;
+    # WP-C1/C2, 2026-07-11): `sd_jwt_vc` lives OUTSIDE payload_b64, so the Ed25519 signature does NOT cover
+    # it — only the SD-JWT's ISSUER signature authenticates its disclosures. Since WP-C2 a present sd_jwt_vc
+    # ALWAYS runs sd-jwt-issuer-signature (it FAILS with reason `unsigned` when no issuer key is supplied),
+    # so sd_iss is never None once an SD-JWT is present. sd_jwt_issuer_verified carries the granular truth
+    # (True checked+valid / False checked+invalid / None no SD-JWT) so the single sd_jwt_ok cannot be misread.
     sd_disc = by_name.get("sd-jwt-disclosures")
-    sd_iss = by_name.get("sd-jwt-issuer-signature")   # present only when an issuer key was supplied
-    sd_jwt_issuer_verified = sd_iss                   # True checked+valid / False checked+invalid / None not checked
+    sd_iss = by_name.get("sd-jwt-issuer-signature")   # present (True/False) whenever an sd_jwt_vc is present
+    sd_jwt_issuer_verified = sd_iss
     if sd_disc is None:
         sd_jwt_ok = None                              # no SD-JWT → not applicable
     elif not sd_disc:
         sd_jwt_ok = False                             # disclosure structure malformed → definitely failed
-    elif sd_iss is None:
-        sd_jwt_ok = None                              # structure ok BUT issuer signature UNVERIFIED (no key)
-        warnings.append(
-            "sd-jwt-issuer-signature: NOT checked — no issuer key supplied. sd_jwt_ok is null: the "
-            "disclosure structure is well-formed but issuer provenance is UNVERIFIED. Supply "
-            "sd_jwt_vc.issuer_public_key_b64 to authenticate it.")
     else:
-        sd_jwt_ok = bool(sd_iss)                      # structure ok AND issuer signature checked → its verdict
+        sd_jwt_ok = bool(sd_iss)                      # structure ok → the issuer-signature verdict…
+        # WP-C1: …folded with every further sd-jwt sub-check that actually ran. A valid issuer signature is
+        # not enough if the SD-JWT binds a DIFFERENT bundle (sd-jwt-bundle-binding=False), was signed by a
+        # key that is not the disclosed issuer (sd-jwt-issuer-identity=False, forged identity), or its holder
+        # key-binding is invalid (sd-jwt-key-binding=False) — none of those may read as sd_jwt_ok=True
+        # (No-Fake). `is False` only, so a not-applicable (None) sub-check never downgrades.
+        if any(by_name.get(n) is False for n in
+               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding")):
+            sd_jwt_ok = False
 
     key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
 

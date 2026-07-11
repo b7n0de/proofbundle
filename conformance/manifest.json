@@ -8,6 +8,9 @@
     "bundle/duplicate-json-key",
     "bundle/tampered-payload",
     "bundle/corrupted-signature",
+    "bundle/sd-jwt-unsigned-unauthenticated",
+    "bundle/sd-jwt-signed-but-unbound",
+    "bundle/sd-jwt-forged-issuer-identity",
     "bundle/forged-anchor-own-frozen"
   ]
 }

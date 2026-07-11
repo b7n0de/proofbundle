@@ -215,6 +215,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                 sd_res["sig_ok"],
                 "issuer signature valid" if sd_res["sig_ok"] else "issuer signature invalid",
             )
+        else:
+            # WP-C2 (6-lens review, Owner-GO breaking / secure-by-default): sd_jwt_vc sits OUTSIDE
+            # payload_b64, so the bundle's Ed25519 signature does NOT cover it. A present sd_jwt_vc whose
+            # ISSUER SIGNATURE was never verified (no sd_jwt_vc.issuer_public_key_b64) carries disclosures
+            # anyone could have authored — previously .ok could still be True over attacker-chosen
+            # "disclosed" values. Now a FAILING check makes .ok False (reason: unsigned); there is no
+            # opt-out. Supply issuer_public_key_b64 to authenticate the disclosures.
+            result.add(
+                "sd-jwt-issuer-signature", False,
+                "sd_jwt_vc present but no issuer_public_key_b64 — its disclosures are unauthenticated "
+                "(reason: unsigned; the bundle signature does not cover sd_jwt_vc). Supply the issuer key.")
         # v1.2/v1.3, fail-closed: a KB-JWT that is PRESENT must verify (RFC 9901 §4.3), AND if the issuer
         # bound a `cnf` holder key (proof-of-possession REQUIRED) a presentation with NO KB-JWT is a bearer
         # downgrade — anyone who sees the disclosed SD-JWT could replay it — so that MUST fail. expected_aud/
@@ -251,6 +262,51 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
                     "binding is unverifiable, refusing (fail-closed; supply "
                     "sd_jwt_vc.issuer_public_key_b64)")
+
+        # WP-C1 (6-lens review, Owner-GO): bind the sd_jwt_vc to THIS bundle. sd_jwt_vc is outside the
+        # signed payload, so an issuer-VALID SD-JWT from bundle B can be swapped into bundle A (cross-receipt
+        # credential substitution) — its always-open claims (passed/threshold/comparator/suite/issuer +
+        # receipt root) must match A's own signed claim + merkle root, else the disclosures do NOT belong to
+        # this bundle. Only meaningful once the issuer signature verified (an unsigned SD-JWT already fails C2).
+        if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
+            import json as _json  # noqa: PLC0415
+            from .sdjwt_issue import _jwt_payload as _sd_payload  # noqa: PLC0415
+            from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
+            try:
+                _sd_p = _sd_payload(compact)
+            except (ValueError, KeyError, IndexError):
+                _sd_p = {}
+
+            # WP-C1 (2nd-lens fix): the issuer signature verifies under sd_jwt_vc.issuer_public_key_b64,
+            # but that key is ATTACKER-CHOSEN — it lives outside the bundle signature. A self-signed SD-JWT
+            # that NAMES a trusted issuer in its always-open `issuer` claim while being signed by a DIFFERENT
+            # key is a forged identity (valid signature, wrong signer). Bind the verifying key to the claimed
+            # issuer: fingerprint(issuer_pub) MUST equal the disclosed `issuer`. Only when an issuer is
+            # actually disclosed (an SD-JWT with no issuer claim asserts no identity to forge).
+            _disc_issuer = _sd_p.get("issuer") if isinstance(_sd_p, dict) else None
+            if _disc_issuer is not None and issuer_pub is not None:
+                _verifying_fp = "ed25519:" + base64.b64encode(issuer_pub).decode("ascii")
+                result.add(
+                    "sd-jwt-issuer-identity", _disc_issuer == _verifying_fp,
+                    "SD-JWT issuer key matches the disclosed issuer" if _disc_issuer == _verifying_fp else
+                    "sd_jwt_vc issuer signature verifies under a key that is NOT the disclosed issuer "
+                    "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
+
+            try:
+                _claim = _json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+            except (ValueError, KeyError, TypeError):
+                _claim = None
+            _root = (bundle.get("merkle") or {}).get("root_b64")
+            # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
+            # non-eval payload with an sd_jwt_vc is out of scope for this binding (nothing to bind against).
+            if isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:
+                bound = check_binds_bundle(compact, _claim, _root)
+                result.add(
+                    "sd-jwt-bundle-binding", bound,
+                    "sd_jwt_vc always-open claims + receipt root match this bundle" if bound else
+                    "sd_jwt_vc disclosures do NOT bind this bundle (reason: unbound/mismatch — cross-receipt "
+                    "substitution; the SD-JWT's passed/threshold/comparator/suite/issuer/root differ from the "
+                    "signed claim)")
 
     # F4 (v1.9.2, fail-closed): supplying expected_aud/expected_nonce asks for RFC 9901 §7.3
     # replay/audience binding. A bundle with no verifiable KB-JWT (no sd_jwt_vc at all, or an
