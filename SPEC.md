@@ -1,6 +1,6 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
-Revision: 2026-07-10
+Revision: 2026-07-11
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
@@ -32,6 +32,13 @@ bytes* were signed and anchored, not what they mean.
   uses base64url per the SD-JWT spec.)
 - Hashes are SHA-256 (32 bytes).
 - Integers are JSON numbers with no fractional part.
+- **Duplicate object keys MUST be rejected** (WP-C1), at any nesting depth, in
+  the bundle document and in every other JSON input a verifier parses. JSON
+  parsers disagree on duplicates (first-wins vs last-wins), so two
+  implementations could verify DIFFERENT `root_b64`/`sig_b64` values from the
+  same bytes — an interoperating implementation that silently keeps either
+  occurrence is non-conforming. (RFC 8785 forbids duplicates outright; this
+  extends the rule to the non-canonical inputs too.)
 
 ## 3. Object fields
 

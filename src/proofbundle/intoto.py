@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError
 
@@ -293,7 +294,7 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes) -> dict:
     ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:   # valid base64 but not a JSON Statement → malformed
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)
@@ -458,7 +459,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)
@@ -566,7 +567,7 @@ def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)

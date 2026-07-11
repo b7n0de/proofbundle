@@ -11,10 +11,10 @@ Field names are lowerCamelCase (ITE-9); only the proofbundle-local trust policy 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from typing import Any
 
+from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
@@ -323,7 +323,14 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
     body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
     try:
-        statement = json.loads(body.decode("utf-8"))
+        # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
+        # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
+        # but only when the rfc8785 extra is installed.
+        statement = loads_strict(body.decode("utf-8"))
+    except BundleFormatError:
+        r["structure_ok"] = False
+        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
+        raise
     except (ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
         r["errors"].append("DSSE payload is not a JSON in-toto Statement")
