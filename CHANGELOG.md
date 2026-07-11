@@ -23,6 +23,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `run_id` — guarded: dropped if a producer embedded the cleartext model id in it (the TOP-level
   `evaluation_id` stays excluded for exactly that reason; digest-privacy consideration documented
   in the adapter).
+- Hardened after a Tier-1 review (2 P1 privacy findings): the `eee_record_sha256` digest is now computed over a **model-id-stripped** record — an unsalted digest over a record embedding `model_info.id` in cleartext was a model-id confirmation/enumeration oracle (the old "not enumerable" comment was an overclaim); it still binds scores/timestamps/dataset for tamper-evidence. The `run_id` privacy guard now drops the id on ANY model-name component (bare name, slug variants, case-insensitive), not only the full `org/name` id. `verify_eval_results_entry` returns fail-closed (not a raise) for a token-less entry (verifyToken is optional in the HF schema) and rejects a boolean `value` (the builder rejects bool too).
 
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen

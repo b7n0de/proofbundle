@@ -22,6 +22,7 @@ has_unknown_level == true means Unknown and is rejected (not silently mapped to 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Optional, Union
 
@@ -96,18 +97,50 @@ def _extract_score(score_details: dict, metric_config: dict) -> str:
     return _num_to_decimal_str(raw)
 
 
+def _model_id_stripped(record: dict) -> dict:
+    """A deep copy of the EEE record with the cleartext model identity removed (WP-I3 privacy fix).
+    Removes ``model_info.id`` and the top-level ``evaluation_id`` (which embeds the id) so a digest
+    over the result cannot be used as a model-id confirmation / enumeration oracle, while still
+    binding every score, timestamp, dataset and metric for tamper-evidence."""
+    import copy  # noqa: PLC0415
+    r = copy.deepcopy(record)
+    if isinstance(r.get("model_info"), dict):
+        r["model_info"].pop("id", None)
+    r.pop("evaluation_id", None)   # format eval_name/model_id/timestamp — embeds the id
+    return r
+
+
 def _record_digest(record: dict) -> str:
-    """``"<alg>:<hex>"`` over the canonical EEE record JSON (WP-I3). JCS when the ``[eval]`` extra
-    is present (the emit path needs it anyway), else a labeled deterministic fallback — the label
-    tells a verifier which normalization produced the hex, never a silent difference."""
+    """``"<alg>:<hex>"`` over the canonical EEE record JSON with the cleartext model identity removed
+    (WP-I3; six-lens review: an UNSALTED digest over a record embedding ``model_info.id`` is a model
+    confirmation/enumeration oracle, so it is stripped first — the digest still binds scores,
+    timestamps, dataset and metrics for tamper-evidence). JCS when the ``[eval]`` extra is present,
+    else a labeled deterministic sort_keys fallback (the label tells a verifier which normalization
+    produced the hex, never a silent difference)."""
     import hashlib  # noqa: PLC0415
+    stripped = _model_id_stripped(record)
     try:
         import rfc8785  # noqa: PLC0415
-        return "sha256-jcs:" + hashlib.sha256(rfc8785.dumps(record)).hexdigest()
+        return "sha256-jcs:" + hashlib.sha256(rfc8785.dumps(stripped)).hexdigest()
     except (ImportError, ValueError, TypeError):
-        canonical = json.dumps(record, sort_keys=True, separators=(",", ":"),
+        canonical = json.dumps(stripped, sort_keys=True, separators=(",", ":"),
                                ensure_ascii=False).encode("utf-8")
         return "sha256-sortkeys:" + hashlib.sha256(canonical).hexdigest()
+
+
+def _leaks_model_id(text: str, model_id: str) -> bool:
+    """True iff ``text`` contains the model id or any of its name components (WP-I3 privacy, six-lens
+    review). Case-insensitive; checks the full ``org/name`` id, the bare name after the last '/',
+    and slug variants where '-', '_' and '.' are unified — so 'arc/gpt2/run1' is caught for a model
+    id whose bare name is 'gpt2'."""
+    hay = text.lower()
+    hay_norm = re.sub(r"[-_.]+", "", hay)
+    tokens = {model_id.lower()}
+    bare = model_id.split("/")[-1].lower()
+    if bare:
+        tokens.add(bare)
+        tokens.add(re.sub(r"[-_.]+", "", bare))   # slug-normalized ('gpt-2' -> 'gpt2')
+    return any(t and (t in hay or t in hay_norm) for t in tokens)
 
 
 def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, threshold: str,
@@ -165,17 +198,18 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
 
     provenance = {"source": "every_eval_ever", "eee_schema_version": record.get("schema_version") or _SCHEMA_VERSION}
     # WP-I3: bind the receipt to the EXACT source record — the only adapter without a provenance
-    # binding. sha256 over the RFC-8785 (JCS) canonical record JSON, labeled with the algorithm
-    # (fallback sort_keys, labeled, mirrors adapters/_provenance.config_hash). Privacy note: the
-    # record contains model_info.id in cleartext, but a sha256 DIGEST of the full record does not
-    # disclose it (and, unlike the receipt's salted commitment, the digest binds the WHOLE record,
-    # scores and timestamps included — enough entropy that the id is not enumerable from it).
+    # binding. sha256 over the RFC-8785 (JCS) canonical record JSON with the cleartext model identity
+    # stripped first (see _record_digest — the digest binds scores/timestamps/dataset for
+    # tamper-evidence but is not a model-id oracle). Same "<alg>:<hex>" label scheme as
+    # adapters/_provenance.config_hash, but note it uses NO domain-separation tag (the label
+    # distinguishes it); it is provenance metadata, never a security commitment.
     provenance["eee_record_sha256"] = _record_digest(record)
     # the RESULT-level id is traceability metadata; the TOP-level evaluation_id embeds the model id
-    # in cleartext and stays deliberately excluded (see the note below). Guard the result id the
-    # same way: if a producer embedded the model id in it, drop it rather than leak.
+    # in cleartext and stays deliberately excluded. Guard the result id: drop it if ANY model-name
+    # component appears (six-lens review: the exact full-repo-id substring test missed the bare
+    # name and slug variants — 'arc/gpt2/run1' leaked 'gpt2'). Case-insensitive over a token set.
     _rid = chosen.get("evaluation_result_id")
-    if isinstance(_rid, str) and _rid and str(model_id) not in _rid:
+    if isinstance(_rid, str) and _rid and not _leaks_model_id(_rid, str(model_id)):
         add_provenance(provenance, run_id=_rid)
     if eval_library.get("name"):
         provenance["harness"] = str(eval_library["name"])

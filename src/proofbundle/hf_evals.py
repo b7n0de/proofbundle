@@ -106,22 +106,30 @@ def verify_eval_results_entry(entry: dict) -> dict:
     import math as _math  # noqa: PLC0415
     if not isinstance(entry, dict):
         raise BundleFormatError("verify_eval_results_entry needs an entry dict")
-    token = entry.get("verifyToken")
-    if not isinstance(token, str) or not token:
-        raise BundleFormatError("entry carries no verifyToken to verify")
     out: dict = {"ok": False, "crypto_ok": False, "value_consistent": False, "entry_value": None,
                  "claim": None, "detail": "",
                  "warnings": ["value↔verdict bound; dataset/task identity NOT bound (salted "
                               "commitments — needs the salt opening, see THREAT_MODEL)"]}
+    # verifyToken is OPTIONAL in the HF schema (six-lens review): a batch verifier over a mixed list
+    # must not crash on a token-less entry. It is simply not verifiable → fail-closed ok=False, not
+    # a raised error. A malformed (non-string) token is likewise reported, not raised.
+    token = entry.get("verifyToken")
+    if not isinstance(token, str) or not token:
+        out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
+        return out
     result, bundle = verify_receipt_token(token)
     out["crypto_ok"] = bool(result.ok)
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"
         return out
+    _val = entry.get("value")
+    if isinstance(_val, bool):   # six-lens review: float(True)==1.0 would sneak a bool past the check;
+        out["detail"] = "entry value is a boolean, not a metric number"   # the builder rejects bool too
+        return out
     try:
-        numeric = float(entry.get("value"))
+        numeric = float(_val)
     except (TypeError, ValueError, OverflowError):
-        out["detail"] = f"entry value {entry.get('value')!r} is not a number"
+        out["detail"] = f"entry value {_val!r} is not a number"
         return out
     if not _math.isfinite(numeric):
         out["detail"] = "entry value is not finite"
