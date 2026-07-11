@@ -22,7 +22,7 @@ credit are named in the advisory and CHANGELOG.
 
 ## Supported versions
 
-During the 1.x phase, only the latest released minor version receives fixes.
+Only the latest released minor version of the current major line receives fixes.
 
 ## Handling signing keys
 
