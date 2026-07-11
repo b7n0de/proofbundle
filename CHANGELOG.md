@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
+- **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
+  `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
+  a green `POLICY: OK` that evaluated nothing. Now: `proofbundle policy lint <policy>` exits 1 on
+  such a wirkungslose policy (`--strict` also fails an attributes-to-nobody policy);
+  `proofbundle policy explain <policy>` lists the effective pins (human + `--json`).
+- `verify --policy` marks a PASSING policy that pins no signer inline —
+  `POLICY: OK (WARNING: attributes to nobody)` — plus a machine-readable `policy_warnings[]` JSON
+  field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
+  policy violations untouched).
+- docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
+  (`tests/test_policy_explain_lint.py`).
+
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and

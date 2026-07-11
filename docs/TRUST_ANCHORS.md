@@ -47,6 +47,14 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
 
+**Inspecting a policy (`policy explain` / `policy lint`, TP1):** `proofbundle policy explain
+<policy>` lists the effective pins a policy makes (what a green `POLICY: OK` will actually mean);
+`proofbundle policy lint <policy>` fails (exit 1) on a policy that pins NOTHING — such a policy
+would produce a vacuous `POLICY: OK` with zero checks evaluated. `--strict` additionally fails a
+policy that pins no signer. In `verify` itself, a PASSING policy that pins no signer prints
+`POLICY: OK (WARNING: attributes to nobody)` and carries the machine-readable `policy_warnings[]`
+— the exit code stays 0 (a warning, not a failure), but the attribution gap is never silent.
+
 **Honest boundaries (v0.1):**
 
 - The `status` section (`reject_self_issued`, `allowed_status_authorities`) is accepted so a policy

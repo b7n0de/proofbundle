@@ -456,6 +456,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         assurance=assurance, policy_ok=policy_ok)
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
+        # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged,
+        # but a POLICY: OK under a signer-less policy must say what it does NOT establish.
+        from .policy import policy_warnings  # noqa: PLC0415
+        fields["policy_warnings"] = policy_warnings(policy)
     if policy_result is not None:
         fields["policy_checks"] = policy_result["checks"]
     if anchor_report is not None:
@@ -506,7 +510,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print("POLICY: NOT_EVALUATED (crypto failed — policy not checked)")
         else:
             reason = _safe_line(policy_result["reason"]) if policy_result else ""
-            print(f"POLICY: {_policy_line(policy_ok, reason)}")
+            line = _policy_line(policy_ok, reason)
+            # WP-TP1: a passing policy that pins no signer says so INLINE — never a bare OK that
+            # reads as an attribution. Exit code unchanged (warning, not failure).
+            warns = fields.get("policy_warnings") or []
+            if policy_ok and warns:
+                line += f" (WARNING: {_safe_line(warns[0].split(':', 1)[0])})"
+            print(f"POLICY: {line}")
         print(f"ASSURANCE: {assurance_line}")
         print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
         # WP4: the ANCHOR line is printed ONLY when --require-anchor was given (default output unchanged).
@@ -952,6 +962,50 @@ def _cmd_decision_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_policy_explain(args: argparse.Namespace) -> int:
+    from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
+    try:
+        policy = load_policy(args.policy)
+    except PolicyError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    pins = explain_policy(policy)
+    warns = policy_warnings(policy)
+    if args.json:
+        print(json.dumps({"policy_id": policy.get("policy_id"), "schema": policy.get("schema"),
+                          "pins": pins, "warnings": warns}, indent=2, ensure_ascii=False))
+        return 0
+    print(f"policy   {policy.get('policy_id')}  ({policy.get('schema')})")
+    if pins:
+        for line in pins:
+            print(f"  pins   {line}")
+    else:
+        print("  pins   (none — this policy is wirkungslos; see `policy lint`)")
+    for w in warns:
+        print(f"  WARN   {w}")
+    return 0
+
+
+def _cmd_policy_lint(args: argparse.Namespace) -> int:
+    from .policy import PolicyError, lint_policy, load_policy  # noqa: PLC0415
+    try:
+        policy = load_policy(args.policy)
+    except PolicyError as exc:   # malformed policy is a lint failure too, with the parse reason
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    res = lint_policy(policy, strict=args.strict)
+    if args.json:
+        print(json.dumps({"policy_id": policy.get("policy_id"), **res}, indent=2, ensure_ascii=False))
+    else:
+        print(f"[policy-lint] {'PASS' if res['ok'] else 'FAIL'} · {len(res['pins'])} pin(s) · "
+              f"{len(res['errors'])} error(s) · {len(res['warnings'])} warning(s)")
+        for e in res["errors"]:
+            print(f"  ERROR {e}")
+        for w in res["warnings"]:
+            print(f"  WARN  {w}")
+    return 0 if res["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -1121,6 +1175,23 @@ def build_parser() -> argparse.ArgumentParser:
     svr.add_argument("--verify", action="store_true", help="verify an SVR instead of emitting one (needs --pub)")
     svr.add_argument("--pub", help="verifier Ed25519 public key (base64) to verify against")
     svr.set_defaults(func=_cmd_svr)
+
+    policy_cmd = sub.add_parser(
+        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
+    psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
+    p_explain = psub.add_parser(
+        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)")
+    p_explain.add_argument("policy", help="path to the trust-policy JSON")
+    p_explain.add_argument("--json", action="store_true", help="machine readable output")
+    p_explain.set_defaults(func=_cmd_policy_explain)
+    p_lint = psub.add_parser(
+        "lint", help="fail (exit 1) on a WIRKUNGSLOSE policy that would produce a vacuous "
+                     "POLICY: OK; --strict also fails on attributes-to-nobody")
+    p_lint.add_argument("policy", help="path to the trust-policy JSON")
+    p_lint.add_argument("--strict", action="store_true",
+                        help="promote warnings (attributes to nobody) to lint failures")
+    p_lint.add_argument("--json", action="store_true", help="machine readable output")
+    p_lint.set_defaults(func=_cmd_policy_lint)
 
     prereg = sub.add_parser(
         "prereg",
