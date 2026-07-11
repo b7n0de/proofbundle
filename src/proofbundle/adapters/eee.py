@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from ..evalclaim import build_eval_claim
+from ._provenance import add_provenance
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "eee_eval_schema.json"
 _SCHEMA_VERSION = "0.2.2"
@@ -95,6 +96,20 @@ def _extract_score(score_details: dict, metric_config: dict) -> str:
     return _num_to_decimal_str(raw)
 
 
+def _record_digest(record: dict) -> str:
+    """``"<alg>:<hex>"`` over the canonical EEE record JSON (WP-I3). JCS when the ``[eval]`` extra
+    is present (the emit path needs it anyway), else a labeled deterministic fallback — the label
+    tells a verifier which normalization produced the hex, never a silent difference."""
+    import hashlib  # noqa: PLC0415
+    try:
+        import rfc8785  # noqa: PLC0415
+        return "sha256-jcs:" + hashlib.sha256(rfc8785.dumps(record)).hexdigest()
+    except (ImportError, ValueError, TypeError):
+        canonical = json.dumps(record, sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=False).encode("utf-8")
+        return "sha256-sortkeys:" + hashlib.sha256(canonical).hexdigest()
+
+
 def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, threshold: str,
                      timestamp: Optional[str] = None, eval_index: int = 0, metric_name: Optional[str] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,
@@ -149,6 +164,19 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
         raise EEEAdapterError("no timestamp: pass timestamp= or set retrieved_timestamp/evaluation_timestamp")
 
     provenance = {"source": "every_eval_ever", "eee_schema_version": record.get("schema_version") or _SCHEMA_VERSION}
+    # WP-I3: bind the receipt to the EXACT source record — the only adapter without a provenance
+    # binding. sha256 over the RFC-8785 (JCS) canonical record JSON, labeled with the algorithm
+    # (fallback sort_keys, labeled, mirrors adapters/_provenance.config_hash). Privacy note: the
+    # record contains model_info.id in cleartext, but a sha256 DIGEST of the full record does not
+    # disclose it (and, unlike the receipt's salted commitment, the digest binds the WHOLE record,
+    # scores and timestamps included — enough entropy that the id is not enumerable from it).
+    provenance["eee_record_sha256"] = _record_digest(record)
+    # the RESULT-level id is traceability metadata; the TOP-level evaluation_id embeds the model id
+    # in cleartext and stays deliberately excluded (see the note below). Guard the result id the
+    # same way: if a producer embedded the model id in it, drop it rather than leak.
+    _rid = chosen.get("evaluation_result_id")
+    if isinstance(_rid, str) and _rid and str(model_id) not in _rid:
+        add_provenance(provenance, run_id=_rid)
     if eval_library.get("name"):
         provenance["harness"] = str(eval_library["name"])
     if eval_library.get("version"):
