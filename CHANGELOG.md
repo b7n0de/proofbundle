@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — upstream submission materials complete (WP-U1)
+- `docs/upstream/eval_result.proto` (the SVR-precedent follow-up-PR protobuf, prepared now) and
+  `docs/upstream/eval_result_example.cue` (CUE constraints mirroring the spec's field rules) join
+  the submit-ready `docs/upstream/eval-result.md`; `audit_artifacts/565_pr_body_draft.md` is the
+  ready spec-only PR body. **Send gate documented in docs/upstream/README.md:** the upstream PR is
+  opened by the OWNER (or after the owner's explicit go), never by automation — the same owner-only
+  rule that governs every comment on in-toto/attestation#565 / proofbundle#7.
+
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and

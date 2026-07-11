@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package in_toto_attestation.predicates.eval_result.v0;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/in-toto/attestation/go/predicates/eval_result/v0";
+option java_package = "io.github.intoto.attestation.predicates.eval_result.v0";
+option java_multiple_files = true;
+
+// Proto definition of the eval-result predicate (in-toto/attestation#565).
+// JSON names follow the spec's lowerCamelCase via the standard proto3 JSON mapping.
+message EvalResult {
+  // The party that emitted/verified the result (TypeURI). REQUIRED.
+  Verifier verifier = 1;
+
+  // When the evaluation ran (RFC 3339 in JSON). REQUIRED.
+  google.protobuf.Timestamp evaluated_at = 2;
+
+  // The eval suite. REQUIRED.
+  Suite suite = 3;
+
+  // One or more threshold-based claims. REQUIRED.
+  repeated Claim claims = 4;
+
+  // Number of samples the result is over. REQUIRED.
+  int64 sample_size = 5;
+
+  // Salted commitments to the model and dataset identifiers. REQUIRED.
+  Commitments commitments = 6;
+
+  // self_attested | third_party | reproduced | enclave_attested. REQUIRED.
+  string assurance_level = 7;
+
+  // receipt | public-model | release-gate. REQUIRED.
+  string subject_profile = 8;
+
+  // Commitment to the eval protocol made before the run. OPTIONAL.
+  Digest pre_registration = 9;
+
+  // Binding to the external signed receipt. OPTIONAL.
+  Receipt receipt = 10;
+
+  // The eval harness. OPTIONAL.
+  Harness harness = 11;
+
+  // External time anchors (defined by a separate anchors extension). OPTIONAL.
+  repeated google.protobuf.Struct anchors = 12;
+}
+
+message Verifier {
+  // TypeURI of the verifier. REQUIRED.
+  string id = 1;
+}
+
+message Suite {
+  string name = 1;     // REQUIRED
+  string version = 2;  // OPTIONAL
+}
+
+message Claim {
+  string metric = 1;      // REQUIRED
+  string comparator = 2;  // one of ">=", ">", "<=", "<". REQUIRED.
+  // Decimal STRING, never a float — a threshold value must not be altered by
+  // float round-tripping. REQUIRED.
+  string threshold = 3;
+  bool passed = 4;        // REQUIRED
+}
+
+message Commitments {
+  SaltedCommitment model = 1;    // REQUIRED
+  SaltedCommitment dataset = 2;  // REQUIRED
+}
+
+message SaltedCommitment {
+  // Commitment algorithm identifier (e.g. "sha256-salted-v1"). REQUIRED.
+  string alg = 1;
+  // Hex commitment value: a hash over a secret salt || identifier — NOT an
+  // artifact content digest; a consumer MUST NOT treat it as one. REQUIRED.
+  string value = 2;
+  // Always true for a commitment; makes the privacy semantics explicit. REQUIRED.
+  bool salted = 3;
+}
+
+message Digest {
+  string alg = 1;    // e.g. "sha256". REQUIRED.
+  string value = 2;  // hex. REQUIRED.
+}
+
+message Receipt {
+  string schema = 1;           // e.g. "proofbundle/v0.1". REQUIRED.
+  string merkle_root_b64 = 2;  // base64 Merkle root of the external receipt. REQUIRED.
+}
+
+message Harness {
+  string name = 1;     // REQUIRED
+  string version = 2;  // OPTIONAL
+}
