@@ -23,18 +23,33 @@ def _load_fixture():
     return anchor, {"receipt": root}
 
 
+def _rp(anchor) -> dict:
+    """WP-A1: the relying party supplies the TSA root out of band. In these tests the RP independently
+    trusts the same FreeTSA root the fixture froze, so it passes it as rp_trust.trusted_tsa_roots."""
+    return {"trusted_tsa_roots": list((anchor.get("frozen") or {}).get("rootCertsDerB64") or [])}
+
+
 @unittest.skipUnless(_HAS_TSA, "needs proofbundle[anchors] (rfc3161-client)")
 class TestRfc3161Anchor(unittest.TestCase):
-    def test_real_token_verifies_against_frozen_chain(self):
+    def test_real_token_verifies_against_relying_party_root(self):   # WP-A1 re-pin
         anchor, roots = _load_fixture()
-        res = anchors.verify_anchors([anchor], target_roots=roots)
+        res = anchors.verify_anchors([anchor], target_roots=roots, rp_trust=_rp(anchor))
         self.assertEqual(res["status"], "PASS", res)
         self.assertTrue(res["results"][0]["ok"])
+        self.assertTrue(res["results"][0]["rp_trusted"])
+        # WP-A1 security property: the SAME token WITHOUT a relying-party root does NOT verify
+        no_rp = anchors.verify_anchors([anchor], target_roots=roots)
+        self.assertNotEqual(no_rp["status"], "PASS")
+        self.assertFalse(no_rp["results"][0]["ok"])
+        self.assertTrue(no_rp["results"][0]["needs_rp_trust"])
 
-    def test_require_anchor_rfc3161_passes(self):
+    def test_require_anchor_rfc3161_passes(self):   # WP-A1 re-pin: needs RP root
         anchor, roots = _load_fixture()
-        self.assertEqual(anchors.verify_anchors([anchor], target_roots=roots, require="rfc3161-tsa")["status"],
-                         "PASS")
+        self.assertEqual(anchors.verify_anchors([anchor], target_roots=roots, require="rfc3161-tsa",
+                                                rp_trust=_rp(anchor))["status"], "PASS")
+        # without the relying-party root, --require-anchor is UNMET (→ exit 3 at the CLI)
+        unmet = anchors.verify_anchors([anchor], target_roots=roots, require="rfc3161-tsa")
+        self.assertFalse(unmet["require_met"])
 
     def test_root_mismatch_fails(self):
         # a different receipt root → the anchor's canonicalRoot no longer matches → FAIL (fail-closed).
@@ -52,11 +67,11 @@ class TestRfc3161Anchor(unittest.TestCase):
         proof = base64.b64decode(anchor["proof"])
         canonical_root = base64.b64decode(anchor["canonicalRoot"])
 
-        # frozen (original) chain → verifies
-        good = verify_rfc3161(proof, canonical_root, frozen=anchor["frozen"])
+        # relying party trusts the original FreeTSA root → verifies (WP-A1)
+        good = verify_rfc3161(proof, canonical_root, frozen=anchor["frozen"], rp_trust=_rp(anchor))
         self.assertTrue(good["ok"], good["detail"])
 
-        # rotated chain: replace the root with an unrelated self-signed cert → must FAIL
+        # rotated: the relying party now trusts a DIFFERENT root (an unrelated self-signed cert) → must FAIL
         import datetime
 
         from cryptography import x509
@@ -70,19 +85,20 @@ class TestRfc3161Anchor(unittest.TestCase):
                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
                    .not_valid_before(datetime.datetime(2026, 1, 1))
                    .not_valid_after(datetime.datetime(2030, 1, 1)).sign(key, hashes.SHA256()))
-        rotated_frozen = dict(anchor["frozen"])
-        rotated_frozen["rootCertsDerB64"] = [base64.b64encode(rotated.public_bytes(Encoding.DER)).decode()]
-        bad = verify_rfc3161(proof, canonical_root, frozen=rotated_frozen)
-        self.assertFalse(bad["ok"], "old token must NOT verify against a rotated chain")
+        rotated_rp = {"trusted_tsa_roots": [base64.b64encode(rotated.public_bytes(Encoding.DER)).decode()]}
+        bad = verify_rfc3161(proof, canonical_root, frozen=anchor["frozen"], rp_trust=rotated_rp)
+        self.assertFalse(bad["ok"], "old token must NOT verify against a rotated relying-party root")
 
-    def test_missing_frozen_root_fails_closed(self):
+    def test_missing_relying_party_root_fails_closed(self):   # WP-A1 re-pin
         from proofbundle.anchors_rfc3161 import verify_rfc3161
         anchor, _ = _load_fixture()
         proof = base64.b64decode(anchor["proof"])
         root = base64.b64decode(anchor["canonicalRoot"])
-        res = verify_rfc3161(proof, root, frozen={})   # no frozen chain
+        res = verify_rfc3161(proof, root, frozen=anchor["frozen"])   # frozen present but NO rp_trust
         self.assertFalse(res["ok"])
-        self.assertIn("rootCertsDerB64", res["detail"])
+        self.assertEqual(res["status"], "needs_rp_trust")
+        self.assertTrue(res["frozenEvidence"])          # frozen root reported…
+        self.assertIn("relying-party", res["detail"])   # …but never trusted
 
     def test_create_anchor_freezes_chain_and_self_verifies(self):
         # create_rfc3161_anchor does the network POST, freezes the supplied chain, and refuses to return
@@ -107,8 +123,9 @@ class TestRfc3161Anchor(unittest.TestCase):
                                           anchored_at="2026-07-05T00:00:00Z")
         self.assertEqual(built["type"], "rfc3161-tsa")
         self.assertEqual(built["target"], "receipt")
-        # the built anchor must verify through the generic layer
-        self.assertEqual(anchors.verify_anchors([built], target_roots=roots)["status"], "PASS")
+        # the built anchor must verify through the generic layer when the relying party supplies the root
+        self.assertEqual(anchors.verify_anchors([built], target_roots=roots, rp_trust=_rp(built))["status"],
+                         "PASS")
 
 
 @unittest.skipUnless(_HAS_TSA, "needs proofbundle[anchors] (rfc3161-client)")
@@ -128,7 +145,7 @@ class TestRfc3161PolicyOid(unittest.TestCase):
         frozen = dict(anchor["frozen"])
         frozen.pop("policyOid", None)   # no pin
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
-                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
         self.assertTrue(res["ok"], res["detail"])
 
     def test_matching_policy_oid_passes(self):
@@ -137,7 +154,7 @@ class TestRfc3161PolicyOid(unittest.TestCase):
         frozen = dict(anchor["frozen"])
         frozen["policyOid"] = self._fixture_policy_oid()   # the token's real TSA policy OID
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
-                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
         self.assertTrue(res["ok"], res["detail"])
 
     def test_mismatched_policy_oid_fails_closed(self):
@@ -191,9 +208,10 @@ class TestRfc3161CertExpiration(unittest.TestCase):
         proof = base64.b64decode(anchor["proof"])
         root = base64.b64decode(anchor["canonicalRoot"])
         far_future = 4_102_444_800   # 2100-01-01, long after any TSA cert would have expired
-        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=None)["ok"])
-        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=far_future)["ok"])
-        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=0)["ok"])
+        rp = _rp(anchor)
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=None, rp_trust=rp)["ok"])
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=far_future, rp_trust=rp)["ok"])
+        self.assertTrue(verify_rfc3161(proof, root, frozen=anchor["frozen"], now=0, rp_trust=rp)["ok"])
 
     def test_frozen_root_expired_before_gen_time_fails_closed(self):
         # A frozen root whose validity window ENDS before the token's gen_time cannot anchor the token
