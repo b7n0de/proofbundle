@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Docs — No-Overclaim scope corrections from the 6-lens review (MED)
+- **`intoto.svr_properties` / `export_svr_dsse`** (WP-E1) — PROOFBUNDLE_PREREG_BOUND / PROOFBUNDLE_ANCHOR_VALID
+  are emitted from the caller's flags (the function does not call verify_anchors) — caller-attested.
+- **`decision.build_decision_statement`** (WP-E2) — a caller-supplied subject_sha256 is verbatim, not
+  cross-checked against the predicate (nor re-derived at verify).
+- **`merkle.verify_inclusion`** (WP-D2) — documented the RFC 6962 precondition: tree_size + root must come
+  atomically from one authenticated source.
+- **`policy` sd_jwt.max_iat_age_seconds** (WP-C3) — bounds the eval claim timestamp, NOT the KB-JWT iat.
+
 ### Security — verify-path hardening from a 6-lens adversarial review (2026-07-11)
 - **Trust policy rejects a low-order / non-canonical pinned key** (`policy.py`) — the core verifier
   deliberately accepts low-order and non-canonical Ed25519 encodings (SPEC §4a). A policy that PINS such

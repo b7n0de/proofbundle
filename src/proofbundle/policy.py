@@ -492,6 +492,11 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             "input — evaluate revocation separately with verify_status_snapshot (fail-closed)")
 
     # 7. assurance + freshness — only meaningful for an issuer-bound eval receipt. Decode once.
+    # NOTE (No-Overclaim, 6-lens review): despite the RFC-9901-evoking name, `sd_jwt.max_iat_age_seconds`
+    # bounds the EVAL CLAIM's own `timestamp` (via check_freshness below), NOT the KB-JWT `iat`. It does
+    # NOT give KB-JWT presentation-replay freshness (kbjwt.py carries no clock-based iat window); a
+    # captured KB-JWT presentation still replays as long as the underlying claim is within this age.
+    # explain_policy() labels it "eval claim freshness" for exactly this reason.
     asr = policy.get("assurance") or {}
     max_age = sdj.get("max_iat_age_seconds")
     needs_claim = (asr.get("minimum_level") is not None
