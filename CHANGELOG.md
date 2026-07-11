@@ -6,6 +6,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — duplicate JSON keys rejected on every verify path (WP-C1)
+- **`json.loads` last-wins duplicate keys are now rejected fail-closed everywhere** (new
+  stdlib-only `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth,
+  clear `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential:
+  two JSON implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they
+  verified. The **native bundle path accepted duplicates silently** (`load_bundle`, the `pb1.`
+  HF receipt token); the DSSE statement paths (eval-result / test-result / SVR / decision) caught
+  them only *indirectly* via canonical byte-equality — now all of them, plus every `json.load` in
+  the CLI (`verify-opening`, `intoto --verify`, `svr --verify`, `decision emit/verify/inspect`,
+  `--anchors`), reject explicitly. Emit side too: a predicate file carrying a duplicate key is
+  refused before anything is signed.
+- `decision inspect` no longer risks a raw traceback on a malformed/duplicated payload (clean
+  exit 2) — it is a debug tool, but it must not crash.
+- New negative-test suite `tests/test_dup_key_reject.py` (12 tests: native bundle
+  signature/merkle/top-level, HF token, DSSE jcs+legacy across all four verify functions, decision
+  verify library+CLI, emit-side refusal) + a mutation operator (`strict-json: duplicate-key reject
+  disabled`) proving the tests kill a disabled guard.
+- Known residual (documented, follow-up): the JWT-payload parse paths (`sdjwt.py`, `kbjwt.py`,
+  `statuslist.py`) still parse with plain `json.loads`; converting them needs care because one
+  helper's fail-open direction would invert (a rejected `cnf` read must not read as "no holder
+  binding required").
+
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
