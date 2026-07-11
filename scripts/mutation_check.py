@@ -167,6 +167,11 @@ MUTATIONS = [
     ("src/proofbundle/_strict_json.py",
      "if key in obj:", "if False:",
      "strict-json: duplicate-key reject disabled (last-wins differential)", True),
+    # WP-I1 — predicateType-confusion defense: disabling the type check must go red.
+    ("src/proofbundle/intoto.py",
+     "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
+     "    ok = bool(sig_ok) and binding_ok",
+     "intoto: predicateType-confusion enforcement disabled", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",
