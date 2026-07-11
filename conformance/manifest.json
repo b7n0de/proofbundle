@@ -6,6 +6,7 @@
     "decision/crossimpl/canonicalization-root-binding",
     "bundle/valid-minimal",
     "bundle/duplicate-json-key",
-    "bundle/tampered-payload"
+    "bundle/tampered-payload",
+    "bundle/corrupted-signature"
   ]
 }

@@ -7,12 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added — native-bundle conformance vectors (WP-S1)
-- **`conformance/bundle/`** — three native proofbundle bundle cases (kind `native_bundle`) checked
+- **`conformance/bundle/`** — four native proofbundle bundle cases (kind `native_bundle`) checked
   against the CLI verify exit-code contract: `valid-minimal` (a valid bundle verifies, exit 0),
   `duplicate-json-key` (a bundle whose raw JSON carries a duplicate top-level key is rejected as
   malformed, exit 2 — locking the C1 Bishop-Fox parser-differential defense onto the conformance
-  gate), and `tampered-payload` (a valid bundle with one payload byte flipped fails the signature,
-  exit 1). The harness `native_bundle` handler runs `proofbundle verify` and asserts the exact exit
+  gate), `tampered-payload` (a valid bundle with one payload byte flipped fails the signature, exit 1),
+  and `corrupted-signature` (payload intact but the signature bytes corrupted, exit 1). The harness `native_bundle` handler runs `proofbundle verify` and asserts the exact exit
   code, with the same fail-closed floor (a case must declare `exitCode`). Anti-tautology regression
   tests: a wrong expected exit code fails, a missing exitCode fails, and the duplicate-key bundle is
   proven rejected.

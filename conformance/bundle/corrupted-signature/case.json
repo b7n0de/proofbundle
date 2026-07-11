@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-corrupted-signature",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (tamper vector: valid bundle, signature bytes corrupted, payload intact)",
+  "expected": { "exitCode": 1, "rejected": true },
+  "specRefs": ["SPEC.md", "THREAT_MODEL.md"],
+  "rationale": "A bundle whose payload is intact but whose Ed25519 signature bytes are corrupted must FAIL verification (exit 1). Distinct from tampered-payload: it proves the verifier checks the signature itself, not merely that payload and signature are mutually consistent."
+}
