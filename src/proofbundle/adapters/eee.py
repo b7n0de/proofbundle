@@ -99,14 +99,27 @@ def _extract_score(score_details: dict, metric_config: dict) -> str:
 
 def _model_id_stripped(record: dict) -> dict:
     """A deep copy of the EEE record with the cleartext model identity removed (WP-I3 privacy fix).
-    Removes ``model_info.id`` and the top-level ``evaluation_id`` (which embeds the id) so a digest
-    over the result cannot be used as a model-id confirmation / enumeration oracle, while still
-    binding every score, timestamp, dataset and metric for tamper-evidence."""
+    Removes ``model_info.id`` and the id-bearing top-level fields (``evaluation_id`` which embeds the
+    id, and ``evaluation_result_id``) so a digest over the result cannot be used as a model-id
+    confirmation / enumeration oracle, while still binding every score, timestamp, dataset and metric
+    for tamper-evidence.
+
+    M2 (6-lens review 2026-07-11): ``evaluation_result_id`` was left IN the digest record while the
+    run_id provenance path already `_leaks_model_id`-guards it — an asymmetry that kept the digest a
+    model-id oracle (the id can correlate to / embed the model). It is a provenance identifier, not a
+    scored/content field, so stripping it from the DIGEST removes the oracle without weakening the
+    tamper-evidence over the actual result content (it stays available for run_id provenance, which
+    applies its own leak guard)."""
     import copy  # noqa: PLC0415
     r = copy.deepcopy(record)
     if isinstance(r.get("model_info"), dict):
         r["model_info"].pop("id", None)
-    r.pop("evaluation_id", None)   # format eval_name/model_id/timestamp — embeds the id
+    r.pop("evaluation_id", None)          # format eval_name/model_id/timestamp — embeds the id
+    # M2: strip the per-result ``evaluation_result_id`` (nested in each ``evaluation_results[*]``) —
+    # it is a provenance id that can embed/correlate the model id (a digest over it is an oracle).
+    for er in r.get("evaluation_results", []) or []:
+        if isinstance(er, dict):
+            er.pop("evaluation_result_id", None)
     return r
 
 

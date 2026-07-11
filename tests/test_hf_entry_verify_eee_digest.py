@@ -177,6 +177,14 @@ class TestEeeRecordDigest(unittest.TestCase):
         rec2["model_info"]["id"] = "some-other-model"
         rec2["evaluation_id"] = "suite/some-other-model/2026"
         self.assertEqual(_record_digest(rec), _record_digest(rec2))
+        # M2 (6-lens review): the per-result evaluation_result_id (a provenance id that can embed the
+        # model id) must ALSO be stripped from the digest — else two records differing only in that id
+        # yield different digests = a model-id confirmation oracle.
+        self.assertNotIn("evaluation_result_id", stripped["evaluation_results"][0])
+        rec4 = self._record()
+        rec4["evaluation_results"][0]["evaluation_result_id"] = "suite/some-other-model/run-9"
+        self.assertEqual(_record_digest(rec), _record_digest(rec4),
+                         "evaluation_result_id must not change the digest (M2: no id oracle)")
         # but a tampered SCORE still changes the digest (tamper-evidence preserved)
         rec3 = self._record()
         rec3["evaluation_results"][0]["score_details"]["score"] = 0.91
