@@ -102,6 +102,35 @@ class TestHarnessFailsClosed(unittest.TestCase):
         # must return 1 (a FAIL), not raise
         self.assertEqual(self._run_on(root), 1)
 
+    def test_native_bundle_wrong_expected_exitcode_fails(self):
+        import json
+        root = self._copy_corpus()
+        # the valid bundle verifies with exit 0; asserting it must exit 2 must FAIL
+        cp = root / "bundle/valid-minimal/case.json"
+        case = json.loads(cp.read_text())
+        case["expected"]["exitCode"] = 2
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1)
+
+    def test_native_bundle_missing_exitcode_fails(self):
+        import json
+        root = self._copy_corpus()
+        cp = root / "bundle/valid-minimal/case.json"
+        case = json.loads(cp.read_text())
+        case["expected"] = {}
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1, "a native_bundle case without exitCode must FAIL (floor)")
+
+    def test_duplicate_key_bundle_is_rejected(self):
+        # the C1 defense as a conformance property: the dup-key fixture MUST verify to exit 2
+        from proofbundle.cli import main as cli_main
+        import contextlib
+        import io
+        p = _CONF / "bundle/duplicate-json-key/bundle.json"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = cli_main(["verify", str(p)])
+        self.assertEqual(rc, 2, "a bundle with a duplicate JSON key must be rejected as malformed")
+
 
 if __name__ == "__main__":
     unittest.main()

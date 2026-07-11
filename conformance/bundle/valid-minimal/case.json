@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-valid-minimal",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (examples/example_bundle.json)",
+  "expected": { "exitCode": 0, "rejected": false },
+  "specRefs": ["SPEC.md", "README.md"],
+  "rationale": "A valid signed bundle verifies (exit 0). The positive anchor of the native-bundle conformance set; any implementation must accept it."
+}

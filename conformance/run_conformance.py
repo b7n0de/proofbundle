@@ -46,6 +46,32 @@ def _content_root_hex(statement: dict) -> str:
     return r.hex() if isinstance(r, (bytes, bytearray)) else str(r)
 
 
+def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    """A native proofbundle bundle checked against the CLI verify exit-code contract
+    (0 crypto OK · 1 verification failure · 2 malformed · 3 policy unmet). The exit code IS the
+    conformance contract, so a case declares the exact code it must produce. Fail-closed floor:
+    a native_bundle case MUST declare `exitCode`."""
+    from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    cid = case["caseId"]
+    exp = case["expected"]
+    if "exitCode" not in exp:
+        return _fail(cid, "native_bundle case under-declares its expectations (fail-closed): missing exitCode")
+    bundle = case_dir / case.get("input", "bundle.json")
+    if not bundle.is_file():
+        return _fail(cid, f"fixture {bundle.name} missing")
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = _cli_main(["verify", str(bundle)])
+    if rc != exp["exitCode"]:
+        return _fail(cid, f"verify exit {rc} != expected {exp['exitCode']}")
+    if "rejected" in exp and bool(exp["rejected"]) != (rc != 0):
+        return _fail(cid, f"rejected={exp['rejected']} but exit {rc}")
+    verdict = {0: "verified", 1: "verification failed", 2: "malformed/rejected", 3: "policy unmet"}.get(rc, str(rc))
+    return {"caseId": cid, "ok": True, "detail": f"verify exit {rc} ({verdict}) as expected"}
+
+
 def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anchors: bool) -> dict:
     cid = case["caseId"]
     exp = case["expected"]
@@ -132,7 +158,7 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
 
-_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl}
+_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle}
 
 
 def run(*, require_anchors: bool = False) -> int:
