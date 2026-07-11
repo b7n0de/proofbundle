@@ -69,6 +69,44 @@ class TestDocsTruth(unittest.TestCase):
         self.assertGreater(out["checked"], 0, "link checker found no local links to check — is it wired up?")
         self.assertEqual(out["broken"], [], f"broken internal doc link(s): {out['broken']}")
 
+    def test_docs_references_are_current(self):
+        # WP-N2 reference hygiene, pinned so the three audited drifts cannot return:
+        # (d) ValiChord moved — the old topeuph-ai URL is dead/wrong everywhere;
+        # (e) SD-JWT VC is at draft-17/IESG — no doc/code comment may still cite draft-15/-16 as current
+        #     (the historical CHANGELOG is exempt: it records what WAS true);
+        # (f) the enclave preview install must not pin a stale beta that predates the stable release.
+        for rel in ("INTEROP.md", "INTEGRATIONS.md"):
+            text = (REPO / rel).read_text(encoding="utf-8")
+            self.assertNotIn("topeuph-ai/ValiChord", text, f"{rel}: stale ValiChord URL")
+            self.assertIn("github.com/ValiChord/ValiChord", text, f"{rel}: canonical ValiChord URL missing")
+        sdjwt_issue = (REPO / "src" / "proofbundle" / "sdjwt_issue.py").read_text(encoding="utf-8")
+        self.assertIn("sd-jwt-vc-17", sdjwt_issue, "sdjwt_issue.py must cite the current draft revision")
+        self.assertNotIn("draft-15", sdjwt_issue)
+        enclave_doc = (REPO / "docs" / "EXPERIMENTAL_ENCLAVE.md").read_text(encoding="utf-8")
+        self.assertNotIn("2.0.0b1", enclave_doc, "EXPERIMENTAL_ENCLAVE.md pins a stale beta install")
+
+    def test_non_claims_covers_decision_authorization_boundary(self):
+        # WP-N2(c): NON_CLAIMS.md must state the decision boundary — a verified ALLOW is a record,
+        # never an authorization/bearer token — and name the replay countermeasure. The decision
+        # verify CLI help carries the same sentence.
+        non_claims = (REPO / "docs" / "NON_CLAIMS.md").read_text(encoding="utf-8")
+        self.assertIn("not an authorization", non_claims)
+        self.assertIn("bearer token", non_claims)
+        self.assertIn("require_audience", non_claims)
+        self.assertIn("require_nonce", non_claims)
+        self.assertIn("TEE", non_claims)
+        from proofbundle.cli import build_parser
+        import io as _io
+        from contextlib import redirect_stdout as _rs
+        parser = build_parser()
+        buf = _io.StringIO()
+        try:
+            with _rs(buf):
+                parser.parse_args(["decision", "verify", "--help"])
+        except SystemExit:
+            pass
+        self.assertIn("NOT an authorization or bearer token", buf.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

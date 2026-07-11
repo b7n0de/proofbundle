@@ -2,9 +2,9 @@
 
 > **Preview / unstable.** Everything here lives under `proofbundle.experimental` and the
 > `[experimental]` install extra. Its API and wire format may change or be removed in any release
-> without a deprecation cycle. It is not imported by the stable v1.x core. `pip install
-> "proofbundle==2.0.0b1"` (a pre-release — normal `pip install` won't pull it) or
-> `pip install --pre "proofbundle[experimental]"`.
+> without a deprecation cycle. It is not imported by the stable core.
+> `pip install "proofbundle[experimental]"` (since 2.1.0 a normal release ships the extra; no
+> `--pre` needed).
 
 ## What it's for
 

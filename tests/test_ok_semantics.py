@@ -25,7 +25,8 @@ from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 CONTRACT_FIELDS = {
     "schema_ok", "signature_ok", "merkle_ok", "sd_jwt_ok", "sd_jwt_issuer_verified", "key_binding_ok",
     "audience_ok", "nonce_ok", "freshness_ok", "anchor_ok", "witness_ok", "status_ok",
-    "assurance_policy_ok", "crypto_ok", "policy_ok", "assurance", "warnings", "limitations",
+    "assurance_policy_ok", "crypto_ok", "policy_ok", "assurance", "assurance_declared_by",
+    "warnings", "limitations",
 }
 
 _IAT = 1_780_000_000
@@ -182,6 +183,35 @@ class TestLabelledOutput(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("ASSURANCE: reproduced", out)
         self.assertEqual(data["assurance"], "reproduced")   # verbatim, not "trusted"/"OK"/interpreted
+
+    def test_assurance_line_names_the_issuer_as_source(self):
+        # WP-N2: the level is the issuer's own declaration, not an appraisal — the line says so, and
+        # the JSON attributes it machine-readably. Pinned so the suffix cannot silently disappear.
+        path = _eval_receipt_file(assurance_level="reproduced")
+        try:
+            rc, out = _run(["verify", path])
+            _, jout = _run(["verify", "--json", path])
+            data = json.loads(jout)
+        finally:
+            os.unlink(path)
+        self.assertEqual(rc, 0)
+        self.assertIn("ASSURANCE: reproduced (issuer-declared)", out)
+        self.assertEqual(data["assurance_declared_by"], "issuer")
+
+    def test_assurance_declared_by_null_when_not_an_eval_receipt(self):
+        # No assurance level → nothing to attribute: the field must be null, never a fake "issuer",
+        # and the n/a display line carries no issuer-declared suffix.
+        path = _bundle_file()
+        try:
+            _, jout = _run(["verify", "--json", path])
+            data = json.loads(jout)
+            _, out = _run(["verify", path])
+        finally:
+            os.unlink(path)
+        self.assertIsNone(data["assurance"])
+        self.assertIsNone(data["assurance_declared_by"])
+        self.assertIn("ASSURANCE: n/a (not an eval receipt)", out)
+        self.assertNotIn("(issuer-declared)", out)
 
 
 class TestJsonFieldContract(unittest.TestCase):

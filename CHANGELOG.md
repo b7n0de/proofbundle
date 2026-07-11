@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — claims-hygiene gate honesty (WP-N1)
+- **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
+  `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
+  `docs/MIGRATION_2.0.md` never existed), so the gate scanned only 10 docs while reporting PASS. A
+  listed-but-missing path is now a FAIL (exit 1, `missing[]` in the JSON), the scan list matches the
+  repository exactly, and six more user-facing docs are scanned (`docs/NON_CLAIMS.md`, `docs/DEMO.md`,
+  `docs/ANCHORS.md`, `docs/ANCHORS_MARKOVIAN.md`, `docs/REVIEWERS.md`, `docs/EXPERIMENTAL_ENCLAVE.md`).
+- **Soft-wrapped Markdown sentences are unwrapped before the negation check.** A negation on the
+  previous physical line of the same sentence ("… not a statement that a\n  model is safe to deploy")
+  was lost because every newline counted as a sentence boundary; block starts (blank line, heading,
+  list item, quote, table row) remain boundaries.
+- **New forbidden phrasings** (Gate 3, standard-track): `safe to deploy`, `safe model`,
+  `verified result`, `correct decision`, `authorized action`, and positive `trustless` (the allowed
+  wording is "trust-minimized (Bitcoin PoW time)", or an explicit negation).
+
+### Changed — wording and reference hygiene (WP-N2)
+- `verify` labels the assurance source: `ASSURANCE: <level> (issuer-declared)` plus a machine-readable
+  `assurance_declared_by: "issuer"` JSON field (null when the bundle is not an eval receipt) — the
+  level is the issuer's own declaration, never an appraisal.
+- `trustless` → `trust-minimized (Bitcoin PoW time)` in `anchors_markovian.py` and
+  `docs/ANCHORS_MARKOVIAN.md` (the Bitcoin time component is trust-minimized; nothing here is
+  trust-free).
+- `docs/NON_CLAIMS.md` gains a **Decision Receipts** section (a verified ALLOW is a *record*, not an
+  authorization/bearer token; set `require_audience`/`require_nonce` against cross-context replay) and
+  a **TEE bridge** section; `decision verify --help` carries the same boundary sentence.
+- Reference fixes, pinned by `tests/test_docs_truth.py`: ValiChord URL →
+  `github.com/ValiChord/ValiChord` (INTEROP.md, INTEGRATIONS.md); SD-JWT VC citation →
+  draft-ietf-oauth-sd-jwt-vc-17 (IESG "Publication Requested"; `dc+sd-jwt` not yet IANA-registered);
+  `docs/EXPERIMENTAL_ENCLAVE.md` install no longer pins the stale `2.0.0b1` beta.
+
 ## [2.1.0] - 2026-07-10
 
 First release on the 2.x line after **2.0.0 final**: a new vendored **decision-receipt/v0.1** predicate for

@@ -58,7 +58,7 @@ UTF-8 JSON, base64'd into the anchor's `proof` field:
 
 ## Trust model (honest)
 
-- **Time** is trustless: it comes from Bitcoin via the OTS proof, verified offline against a block header
+- **Time** is trust-minimized (Bitcoin PoW time): it comes from Bitcoin via the OTS proof, verified offline against a block header
   supplied by a trusted (pruned) node in `frozen.bitcoinBlockHeaderMerkleRootsByHeight` — proofbundle
   never fetches it. That value is the block's `hashMerkleRoot` in Bitcoin **internal (node) byte order**
   (what `bitcoind` returns and what the OTS attestation commits to), *not* the reversed display order a

@@ -33,5 +33,27 @@ It also does **not**:
 - **Depend on a network to verify.** Verification is offline and pure-Python. An anchor, if present,
   is verified against material bundled at emit time, not by calling out.
 
+## Decision receipts (`decision-receipt/v0.1`)
+
+The same discipline applies to the decision path. A verified Decision Receipt does **not** prove:
+
+- **That the decision was correct, legal, or safe.** It proves the signed decision *record* has not
+  been altered — a protocol entry, not a verdict on the decision's quality.
+- **Authorization.** A verified ALLOW receipt is a *record* of a decision, **not an authorization
+  token, not a bearer token, and not a capability**. Possession of a receipt authorizes nothing; the
+  system executing an action must make its own authorization check. A relying party that treats a
+  replayed ALLOW as permission has misread the format — set `require_audience` / `require_nonce`
+  (`validity.audience` / `validity.nonce`) so a receipt cannot even *verify* outside its intended
+  context.
+- **That the action happened.** `actionOutcome: executed` without a signed outcome reference is
+  self-asserted; the CLI says so (`action_outcome_proven: false`).
+
+## TEE attestation bridge (experimental)
+
+A verified enclave Attestation Result does **not** prove the enclave is genuine, the vendor's root of
+trust is sound, or the eval inside was honest — proofbundle checks the *Verifier's* signature and the
+receipt binding, never raw hardware evidence (see EXPERIMENTAL_ENCLAVE.md). "TEE-attested" is never
+"computation proven correct".
+
 If you need any of the things on this list, a receipt is the wrong tool for that part — use it for the
 one thing it does, and reach for an audit, a benchmark study, or a governance process for the rest.
