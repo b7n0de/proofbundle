@@ -587,7 +587,7 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             leaf = handle.read()
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
-    except (ProofBundleError, OSError) as exc:
+    except (ProofBundleError, OSError, ValueError) as exc:  # ValueError stopgap: never a raw traceback (D-1)
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
