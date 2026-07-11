@@ -51,6 +51,24 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
     exp = case["expected"]
     notes: list[str] = []
 
+    # Required-expectations floor (fail-closed): every check below is gated on its key being
+    # present in `expected`, so a case that DECLARES nothing would assert nothing and pass green.
+    # A decision_crossimpl case MUST declare its bindings; an anchored case MUST declare its anchor.
+    # This is what makes "a broken/under-declared fixture cannot pass" unconditional, not just true
+    # for byte-tampering. Removing/weakening an expectation is caught here, not silently skipped.
+    required = ["jcs_byte_identical", "content_roots_match_manifest", "decision_content_root",
+                "evidence_content_root", "evidence_ref_binds_content_root",
+                "decision_predicate_findings", "schema_conformant"]
+    if (case_dir / "decision_receipt.jcs.ots").is_file():
+        required.append("anchor")
+    missing = [k for k in required if k not in exp]
+    if missing:
+        return _fail(cid, f"case under-declares its expectations (fail-closed): missing {missing}")
+
+    # These are the DEFINING properties of a decision_crossimpl case, so they run UNCONDITIONALLY
+    # (the `expected` values only supply the exact root/count/status to match). An `expected` value of
+    # false or a dropped key can never silently disable them — the floor guarantees presence and the
+    # checks below always execute, so the "ok" notes never claim a comparison that did not run.
     man = json.loads((case_dir / "MANIFEST.json").read_text())
     for name, stem, mkey, ekey in [
         ("decision", "decision_receipt", "decision_content_root_sha256", "decision_content_root"),
@@ -60,36 +78,39 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
         canon = canonicalize_statement(statement)
         canon = canon.encode() if isinstance(canon, str) else canon
         jcs = (case_dir / f"{stem}.jcs").read_bytes()
-        if exp.get("jcs_byte_identical") and canon != jcs:
+        if canon != jcs:
             return _fail(cid, f"{name}: .jcs not byte-identical to canonical output")
         root = _content_root_hex(statement)
-        if exp.get("content_roots_match_manifest") and root != man.get(mkey):
+        if root != man.get(mkey):
             return _fail(cid, f"{name}: content root {root} != MANIFEST {man.get(mkey)}")
-        if ekey in exp and root != exp[ekey]:
+        if root != exp[ekey]:
             return _fail(cid, f"{name}: content root {root} != expected {exp[ekey]}")
         notes.append(f"{name} root {root[:12]}… ok")
 
-    # evidenceRef binds the evidence content root
+    # evidenceRef binds the evidence content root (unconditional)
     dec = json.loads((case_dir / "decision_receipt.json").read_text())
     ev_root = _content_root_hex(json.loads((case_dir / "evidence_eval_result.json").read_text()))
     refs = dec.get("predicate", {}).get("evidenceRefs") or []
     bound = any(isinstance(r, dict) and r.get("digest", {}).get("sha256") == ev_root for r in refs)
-    if exp.get("evidence_ref_binds_content_root") and not bound:
+    if not bound:
         return _fail(cid, "evidenceRefs[*].digest does not bind the evidence content root")
 
-    # schema conformance (expected-fail is a real, recorded expectation)
+    # schema conformance (expected-fail is a real, recorded expectation; count is compared unconditionally)
     findings = validate_decision_predicate(dec["predicate"])
-    if "decision_predicate_findings" in exp and len(findings) != exp["decision_predicate_findings"]:
+    if len(findings) != exp["decision_predicate_findings"]:
         return _fail(cid, f"validate_decision_predicate = {len(findings)} findings, "
                           f"expected {exp['decision_predicate_findings']}")
-    if exp.get("schema_conformant") is True and findings:
+    if exp["schema_conformant"] is True and findings:
         return _fail(cid, f"expected schema-conformant but got {len(findings)} findings")
-    if exp.get("schema_conformant") is False and not findings:
+    if exp["schema_conformant"] is False and not findings:
         return _fail(cid, "expected non-conformant (findings) but predicate validates clean")
     notes.append(f"validator {len(findings)} findings (expected-fail)" if findings else "validator clean")
 
-    # anchor
+    # anchor — mandatory (floor) whenever the case ships a .jcs.ots; verified unconditionally so a
+    # confirmed case cannot pass by simply not declaring its anchor.
     anchor = exp.get("anchor")
+    if (case_dir / "decision_receipt.jcs.ots").is_file() and not anchor:
+        return _fail(cid, "case ships a .jcs.ots but declares no anchor expectation (fail-closed)")
     if anchor:
         want = anchor.get("status")
         if not _HAS_OTS:
@@ -125,7 +146,10 @@ def run(*, require_anchors: bool = False) -> int:
         if handler is None:
             results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
             continue
-        results.append(handler(case, case_dir, require_anchors=require_anchors))
+        try:
+            results.append(handler(case, case_dir, require_anchors=require_anchors))
+        except Exception as e:   # a missing/broken fixture is a per-case FAIL, never a run-aborting crash
+            results.append(_fail(case.get("caseId", rel), f"{type(e).__name__}: {e}"))
 
     ok = all(r["ok"] for r in results)
     print(f"[conformance] {sum(r['ok'] for r in results)}/{len(results)} cases pass"

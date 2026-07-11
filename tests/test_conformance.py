@@ -36,6 +36,71 @@ class TestConformanceCorpus(unittest.TestCase):
             case = json.loads((_CONF / rel / "case.json").read_text())
             for key in ("caseId", "kind", "expected", "specRefs", "rationale", "attribution"):
                 self.assertIn(key, case, f"{rel} case.json missing {key}")
+            # every shipped decision_crossimpl case must fully declare its bindings (the floor):
+            if case["kind"] == "decision_crossimpl":
+                exp = case["expected"]
+                for k in ("jcs_byte_identical", "content_roots_match_manifest", "decision_content_root",
+                          "evidence_content_root", "evidence_ref_binds_content_root",
+                          "decision_predicate_findings", "schema_conformant"):
+                    self.assertIn(k, exp, f"{rel} expected under-declares {k}")
+                if (_CONF / rel / "decision_receipt.jcs.ots").is_file():
+                    self.assertIn("anchor", exp, f"{rel} ships a .ots but declares no anchor")
+
+
+class TestHarnessFailsClosed(unittest.TestCase):
+    """WP-W2 review (harness-soundness lens): a case that UNDER-DECLARES its expectations must FAIL,
+    not pass green asserting nothing (fake-PASS-by-omission), and a missing fixture must be a per-case
+    FAIL, not a run-aborting crash."""
+
+    def _copy_corpus(self):
+        import shutil
+        import tempfile
+        dst = pathlib.Path(tempfile.mkdtemp()) / "conformance"
+        shutil.copytree(_CONF, dst)
+        return dst
+
+    def _run_on(self, root, **kw):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rc_tmp", root / "run_conformance.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        m.ROOT = root
+        return m.run(**kw)
+
+    def test_empty_expected_fails(self):
+        import json
+        root = self._copy_corpus()
+        case_path = next(root.glob("decision/crossimpl/*/case.json"))
+        case = json.loads(case_path.read_text())
+        case["expected"] = {}
+        case_path.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1, "a case declaring no expectations must FAIL")
+
+    def test_dropping_a_binding_key_fails(self):
+        import json
+        root = self._copy_corpus()
+        case_path = next(root.glob("decision/crossimpl/*/case.json"))
+        case = json.loads(case_path.read_text())
+        del case["expected"]["content_roots_match_manifest"]
+        case_path.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1, "dropping a mandatory binding key must FAIL")
+
+    def test_dropping_anchor_on_anchored_case_fails(self):
+        import json
+        root = self._copy_corpus()
+        # the confirmed-anchor case ships a .ots — dropping its anchor expectation must fail
+        cdir = root / "decision/crossimpl/confirmed-anchor-lifecycle"
+        case = json.loads((cdir / "case.json").read_text())
+        case["expected"].pop("anchor", None)
+        (cdir / "case.json").write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root, require_anchors=_rc._HAS_OTS), 1,
+                         "an anchored case that drops its anchor expectation must FAIL")
+
+    def test_missing_fixture_is_per_case_fail_not_crash(self):
+        root = self._copy_corpus()
+        (next(root.glob("decision/crossimpl/*/evidence_eval_result.json"))).unlink()
+        # must return 1 (a FAIL), not raise
+        self.assertEqual(self._run_on(root), 1)
 
 
 if __name__ == "__main__":

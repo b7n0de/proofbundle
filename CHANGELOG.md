@@ -14,13 +14,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `decision/crossimpl/confirmed-anchor-lifecycle` — proves RFC 8785 canonicalization + content-root
     binding cross-implementation **and** a confirmed Bitcoin anchor at block 957504: the OTS proof's
     committed root matches the real block merkle root (independently fetched, frozen in the case,
-    verified offline; a wrong header is rejected, never a blind pass). Does not prove `decision-receipt/v0.1`
-    schema conformance (predicate reports 12 findings, expected-fail).
+    verified offline; a wrong frozen root is rejected — `block_mismatch`, covered by `test_anchors_ots.py`).
+    Does not prove `decision-receipt/v0.1` schema conformance (predicate reports 12 findings, expected-fail).
   - `decision/crossimpl/canonicalization-root-binding` — proves canonicalization + root binding; anchor
     still pending and predicate not yet schema-conformant (both recorded as expected, not hidden).
   Anchor sub-checks run in the `anchors` CI job (`[anchors]` extra, `--require-anchors`); the corpus's
   non-anchor checks run in every matrix leg. README §Interop precised: canonicalization interop proven,
-  full decision-receipt conformance of the external fixture still pending.
+  full decision-receipt conformance of the external fixture still pending. The harness is fail-closed by a
+  required-expectations floor: a `decision_crossimpl` case that under-declares its bindings FAILS rather
+  than passing green asserting nothing, and its defining checks (JCS byte-identity, content-root match,
+  evidenceRef binding, anchor when a `.ots` ships) run unconditionally; a missing fixture is a per-case
+  FAIL, not a run-aborting crash (regression-tested).
 
 ### Added — decision-receipt validator API hardening + cross-impl gap record (WP-W6 / WP-W1)
 - **`decision.require_valid_decision_predicate(pred)`** — a raising counterpart to

@@ -2,8 +2,9 @@
 
 Versioned, digest-pinned test vectors that a proofbundle verifier (this one, or an
 independent implementation) must agree on. Every case is verified **offline** by
-`run_conformance.py`: no calendar contact, no network — any Bitcoin block header a case
-needs is frozen inside its `case.json`, independently sourced and byte-reproducible.
+`run_conformance.py`: no calendar contact, no network — the specific Bitcoin block
+**merkle root** a case needs is frozen inside its `case.json`, independently sourced and
+byte-reproducible.
 
 Run it:
 
@@ -39,8 +40,9 @@ independent implementation**, checked for cross-implementation agreement:
 - `validate_decision_predicate` returns exactly `expected.decision_predicate_findings` (an
   expected-fail when the external predicate does not yet match `decision-receipt/v0.1`);
 - the OpenTimestamps anchor, when present, resolves to the expected status offline
-  (`confirmed` against a frozen block header, or `pending`), and a wrong frozen header is
-  rejected — never a blind pass.
+  (`confirmed` against a frozen merkle root, or `pending`). The verifier rejects a wrong
+  frozen root (`block_mismatch`), so confirmation is not a blind pass — that negative is
+  exercised by `tests/test_anchors_ots.py`; the corpus itself runs the positive check.
 
 ## Cases today
 
