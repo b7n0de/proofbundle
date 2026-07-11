@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Docs — No-Overclaim corrections from the 6-lens review (2026-07-11)
+- **`hf_evals.to_eval_results_entry` docstring + THREAT_MODEL** — the value↔verdict check was described
+  as making the published `value` "match" a disclosed score and "stops 0.60 next to 0.99". The signed
+  claim carries `threshold`/`comparator`/`passed`, not the exact score, so the check binds the value to
+  the correct SIDE of the threshold, not to a true magnitude: an inflated value on the passing side (a
+  true `0.81` published as `99.9`, both `>= 0.80`) still verifies. Docstring corrected and a
+  value-magnitude boundary row added to THREAT_MODEL.
+- **`docs/OPERATIONS_SECURITY.md`** — the `[Owner]` checklist items read as accomplished present-tense
+  fact ("account on 2FA", "tags are protected", "Scorecard is enabled"), contradicting the document's
+  own "does not assert they are done" preamble. The marker is now **`[Owner · to verify]`** on every
+  line so the unverified status survives a reader skimming the list.
+
 ### Added — native-bundle conformance vectors (WP-S1)
 - **`conformance/bundle/`** — four native proofbundle bundle cases (kind `native_bundle`) checked
   against the CLI verify exit-code contract: `valid-minimal` (a valid bundle verifies, exit 0),

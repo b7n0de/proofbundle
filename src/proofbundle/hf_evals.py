@@ -174,10 +174,14 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     ``verifyToken`` (schema-valid, proofbundle-verifiable; NOT the HF-internal badge token — HF's
     "verified" badge is HF's server-side decision, and this module makes no claim about it).
 
-    v1.8 (external review): if the bundle is an eval receipt whose claim discloses a ``score``,
-    the published ``value`` MUST match it (a Hub reader sees the value, not the token) — a
-    mismatch raises unless ``allow_value_mismatch=True``. This stops a receipt saying 0.60 from
-    being published next to a displayed 0.99.
+    v1.8 (external review): if the bundle is an eval receipt, the published ``value`` MUST be
+    CONSISTENT with the signed pass/fail verdict — ``value <comparator> threshold == passed`` — a
+    mismatch raises unless ``allow_value_mismatch=True``. **Scope (do not overclaim):** the signed
+    claim minimizes data (it carries ``threshold``/``comparator``/``passed``, NOT the exact score),
+    so this binds the value to the correct SIDE of the threshold, not to a true magnitude. It stops
+    a value that CONTRADICTS the verdict (a "passed" receipt published with a failing value); it does
+    NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
+    ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
     """
     if require_verified:
         result = verify_bundle(bundle)
