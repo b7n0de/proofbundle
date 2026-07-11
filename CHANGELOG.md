@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — CODEOWNERS + roles registry, dead governance link fixed (WP-G2)
+- **`.github/CODEOWNERS`** for the trusted core, `SPEC.md`, `schemas/`, `docs/predicates`,
+  `docs/adr`, and the CI/release wiring — a change to those paths requires the maintainer's review
+  ("more eyes, not weaker gates", GOVERNANCE.md). Single-maintainer today; co-maintainers are added
+  per-person, never implicitly.
+- **`oss_maintainer_roles.json`** at the repo root — the delegated-rights registry GOVERNANCE.md
+  referenced but which pointed at a non-existent `office/governance/` path (a monorepo path that
+  never shipped here). DEFAULT DENY: nobody holds merge/release/secret rights without an explicit
+  entry. GOVERNANCE.md now links the real file and CODEOWNERS.
+- The project's **first external contributor** (@onxxdatas, issue #28 — `--version` prints the
+  pinned spec revision) is recorded in the governance story and the roles registry (no delegated
+  rights, like every contributor).
+
+### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 ### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
 - **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
   only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
