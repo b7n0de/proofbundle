@@ -1,0 +1,10 @@
+{
+  "rule": "anchor root = SHA-256 over RFC 8785 (JCS) canonical statement bytes (content root); signatures are a separate layer.",
+  "predicate_uri": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+  "evidence_uri": "https://b7n0de.com/attestation/eval-result/v0.1",
+  "evidence_content_root_sha256": "323adb188f840e90331c920b32a73f348acc5caea8d40f9a84ea384d46c258d4",
+  "decision_content_root_sha256": "ff05e3e0126e31090511f9e42494bbde4d86c9b1a9a0a9570850c42e8546029b",
+  "anchored_file": "decision_receipt.jcs",
+  "evidenceRefs_bind_to": "evidence content root (survives re-signing / counter-signing / key rotation)",
+  "note": "predicateType URIs frozen against proofbundle v2.1.0 (2026-07-10); they are inside the anchored bytes."
+}

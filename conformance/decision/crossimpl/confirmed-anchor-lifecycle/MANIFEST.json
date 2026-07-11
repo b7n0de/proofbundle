@@ -1,0 +1,8 @@
+{
+  "rule": "anchor root = SHA-256 over RFC 8785 (JCS) canonical statement bytes (content root); signatures are a separate layer.",
+  "evidence_content_root_sha256": "a86058b3b338555de20090e4901d003230a3e1e29a7cca97ddd0295e376261da",
+  "decision_content_root_sha256": "16b80b4ce7839140fe89ed1a5cf4376dd5bcfaa08b1fb814a29056e1d516edb0",
+  "anchored_file": "decision_receipt.jcs",
+  "evidenceRefs_bind_to": "evidence content root (survives re-signing / counter-signing / key rotation)",
+  "note": "predicateType 'proofbundle/predicates/decision-receipt/v0.1' is part of the anchored bytes; if the final vendored URI changes, the content root changes and the object must be re-anchored."
+}

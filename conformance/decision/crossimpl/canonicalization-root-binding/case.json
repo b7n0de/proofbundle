@@ -1,0 +1,24 @@
+{
+  "caseId": "decision-crossimpl-canonicalization-root-binding",
+  "kind": "decision_crossimpl",
+  "input": "canonicalization-root-binding",
+  "attribution": "MarkovianProtocol / Colin — audit-anchor@3abe69f (examples/decision-receipt)",
+  "expected": {
+    "jcs_byte_identical": true,
+    "content_roots_match_manifest": true,
+    "evidence_ref_binds_content_root": true,
+    "decision_content_root": "ff05e3e0126e31090511f9e42494bbde4d86c9b1a9a0a9570850c42e8546029b",
+    "evidence_content_root": "323adb188f840e90331c920b32a73f348acc5caea8d40f9a84ea384d46c258d4",
+    "decision_predicate_findings": 12,
+    "schema_conformant": false,
+    "anchor": {
+      "status": "pending",
+      "note": "Re-anchored against the frozen v0.1 URIs; submitted to calendars, not yet confirmed on Bitcoin. No block height. Graduates to a confirmed case after an ots upgrade pins its block."
+    }
+  },
+  "specRefs": [
+    "docs/predicates/decision-receipt.md#7.1",
+    "SPEC.md"
+  ],
+  "rationale": "The regenerated fixture against the frozen/vendored v0.1 URIs. It proves RFC 8785 canonicalization and content-root binding cross-implementation: the .jcs bytes are byte-identical with proofbundle's canonical output and both content roots recompute to the MANIFEST values (evidence 323adb18…, decision ff05e3e0…), and the evidenceRef binds the evidence content root. It does NOT prove decision-receipt/v0.1 schema conformance — the predicate reports 12 findings, recorded as an expected-fail rather than hidden — and its anchor is still pending. This is the honest 'what it proves today' case; it graduates to a full end-to-end conformance case after a schema-conformant regeneration and a confirmed Bitcoin anchor."
+}

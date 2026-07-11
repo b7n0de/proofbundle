@@ -1,0 +1,36 @@
+{
+  "caseId": "decision-crossimpl-confirmed-anchor-lifecycle",
+  "kind": "decision_crossimpl",
+  "input": "confirmed-anchor-lifecycle",
+  "attribution": "MarkovianProtocol / Colin — audit-anchor@9ab2ed2 (examples/decision-receipt)",
+  "expected": {
+    "jcs_byte_identical": true,
+    "content_roots_match_manifest": true,
+    "evidence_ref_binds_content_root": true,
+    "decision_content_root": "16b80b4ce7839140fe89ed1a5cf4376dd5bcfaa08b1fb814a29056e1d516edb0",
+    "evidence_content_root": "a86058b3b338555de20090e4901d003230a3e1e29a7cca97ddd0295e376261da",
+    "decision_predicate_findings": 12,
+    "schema_conformant": false,
+    "anchor": {
+      "height": 957504,
+      "status": "confirmed",
+      "frozen": {
+        "bitcoinBlockHeaderMerkleRootsByHeight": {
+          "957504": "ba725ff4e94c6a5ac5bb2c0ee652a7de79a2c496a0337f1f36d08e4bd2a26486"
+        }
+      },
+      "independent_source": {
+        "provider": "blockstream.info",
+        "block_hash": "00000000000000000001f23a6377157ff0aa8f37bf2331530ca743af6420f590",
+        "merkle_root_display_be": "8664a2d24b8ed0361f7f33a096c4a279dea752e60e2cbbc55a6a4ce9f45f72ba",
+        "note": "The frozen value is the block-internal (little-endian) merkle root that OpenTimestamps commits to; it is the byte-reverse of the big-endian value block explorers display. Fetched once, offline-verifiable forever against any Bitcoin block header for height 957504."
+      }
+    }
+  },
+  "specRefs": [
+    "docs/predicates/decision-receipt.md#7.1",
+    "docs/ANCHORS.md",
+    "SPEC.md"
+  ],
+  "rationale": "The only externally confirmed end-to-end OpenTimestamps case in the corpus: the OTS proof commits to the decision content root (16b80b4c…) and carries a BitcoinBlockHeaderAttestation at height 957504, whose real block merkle root (independently fetched from blockstream.info) matches the proof's committed root — verified offline against the frozen header, never by contacting a calendar, and refuted by a wrong header (not a blind pass). This case proves the anchor lifecycle and cross-implementation canonicalization; it does NOT prove decision-receipt/v0.1 schema conformance (the predicate reports 12 findings, expected-fail — see audit_artifacts/crossimpl_fixture_gap_20260711.md)."
+}

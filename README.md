@@ -182,8 +182,11 @@ flowchart LR
   `jcs-sha256-v1`); a verifier re-serializes with exactly the declared algorithm, never falls back, and an
   unknown algorithm fails closed. Migration is a compatible evolution, not a cutover: absent `contentRootAlg`
   ⇒ the historic `legacy-sortkeys-json-v0` mode, so every already-signed 2.0.0 receipt keeps verifying
-  byte-for-byte. This is **not** a completed universal migration — a CLI flag to select the algorithm and
-  independent cross-implementation (MarkovianProtocol) interop vectors are still deferred.
+  byte-for-byte. This is **not** a completed universal migration — a CLI flag to select the algorithm is still
+  deferred. Independent cross-implementation (MarkovianProtocol) interop is now proven for RFC 8785
+  canonicalization + content-root binding and a confirmed Bitcoin anchor (see `conformance/decision/crossimpl/`);
+  full `decision-receipt/v0.1` schema conformance of the external fixture is still pending a schema-conformant
+  regeneration.
 - **Decision Receipts** *(2.1, vendored `decision-receipt/v0.1` predicate)* — a separate predicate for agent
   *decisions* (not eval metrics): who decided, the proposed action, the policy boundary, digest-bound evidence,
   the verdict (`ALLOW`/`DENY`/`REFUSE`/`ESCALATE`/`DEFER`/`OBSERVE`), and explicitly what was *not* checked.
