@@ -5,10 +5,16 @@
   "description": "A relying party's machine-readable, fail-closed trust decision, applied OVER a completed crypto verification. snake_case, offline, versioned. Unknown fields are a parse error (additionalProperties: false) so a typo silently weakening a policy is impossible.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "policy_id"],
+  "required": [
+    "schema",
+    "policy_id"
+  ],
   "properties": {
     "schema": {
-      "enum": ["proofbundle/trust-policy/v0.1", "proofbundle/trust-policy/v0.2"],
+      "enum": [
+        "proofbundle/trust-policy/v0.1",
+        "proofbundle/trust-policy/v0.2"
+      ],
       "description": "Policy format version. v0.2 adds the additive decision_receipt section (for the decision-receipt/v0.1 predicate); v0.1 policies stay valid unchanged. The decision_receipt section is accepted ONLY under v0.2 (the parser fails closed on a decision_receipt section declared under v0.1)."
     },
     "policy_id": {
@@ -18,7 +24,9 @@
     },
     "allowed_schema_versions": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Bundle schema versions this policy accepts (e.g. [\"proofbundle/v0.1\"]). Empty/absent = do not constrain the schema version."
     },
     "allowed_issuers": {
@@ -27,11 +35,23 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["public_key_b64"],
+        "required": [
+          "public_key_b64"
+        ],
         "properties": {
-          "issuer": {"type": "string", "description": "Human-readable label for logs; NOT used for matching."},
-          "public_key_b64": {"type": "string", "minLength": 1, "description": "Base64 raw Ed25519 public key the signer must match."},
-          "kid": {"type": "string", "description": "Optional key id hint; display only."}
+          "issuer": {
+            "type": "string",
+            "description": "Human-readable label for logs; NOT used for matching."
+          },
+          "public_key_b64": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Base64 raw Ed25519 public key the signer must match."
+          },
+          "kid": {
+            "type": "string",
+            "description": "Optional key id hint; display only."
+          }
         }
       }
     },
@@ -41,7 +61,9 @@
       "properties": {
         "allowed_algs": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Signature algorithms this policy accepts (e.g. [\"ed25519\"]). Empty/absent = do not constrain the alg."
         },
         "require_expected_signer": {
@@ -69,7 +91,10 @@
           "description": "If true, an SD-JWT that bound a cnf holder key MUST present a valid Key Binding JWT (the verifier already fails closed on this; the policy makes the requirement explicit). Default false."
         },
         "expected_aud": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "If set, the KB-JWT aud MUST equal this (RFC 9901 audience binding). null = do not constrain."
         },
         "require_nonce": {
@@ -77,7 +102,10 @@
           "description": "If true, the presentation MUST carry a KB-JWT nonce (replay binding). Default false."
         },
         "max_iat_age_seconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "description": "If set, the eval claim's signed timestamp MUST be at most this many seconds old at verify time. null = do not judge freshness."
         }
@@ -94,7 +122,9 @@
         },
         "allowed_status_authorities": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Base64 public keys of accepted status authorities."
         }
       }
@@ -104,8 +134,17 @@
       "additionalProperties": false,
       "properties": {
         "minimum_level": {
-          "type": ["string", "null"],
-          "enum": ["self_attested", "third_party", "reproduced", "enclave_attested", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "self_attested",
+            "third_party",
+            "reproduced",
+            "enclave_attested",
+            null
+          ],
           "description": "If set, the eval claim's assurance_level MUST be at least this (ordered weakest→strongest). null = do not constrain."
         },
         "reject_self_attested_without_prereg": {
@@ -125,21 +164,94 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["public_key_b64"],
+            "required": [
+              "public_key_b64"
+            ],
             "properties": {
-              "id": {"type": "string", "description": "decisionMaker.id this key is trusted for (hint; must not conflict)."},
-              "public_key_b64": {"type": "string", "minLength": 1, "description": "Base64 raw Ed25519 public key."},
-              "kid": {"type": "string", "description": "Optional key id hint; display only."}
+              "id": {
+                "type": "string",
+                "description": "decisionMaker.id this key is trusted for (hint; must not conflict)."
+              },
+              "public_key_b64": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Base64 raw Ed25519 public key."
+              },
+              "kid": {
+                "type": "string",
+                "description": "Optional key id hint; display only."
+              }
             }
           }
         },
-        "accepted_predicate_types": {"type": "array", "items": {"type": "string"}, "description": "Allowed predicateType URIs (confusion defense: a decision receipt presented as another predicate fails)."},
-        "allowed_decision_types": {"type": "array", "items": {"type": "string"}, "description": "Allowed decisionType values."},
-        "allowed_verdicts": {"type": "array", "items": {"type": "string"}, "description": "Allowed decision.verdict values."},
-        "required_evidence_relations": {"type": "array", "items": {"type": "string"}, "description": "evidenceRefs[].relation values that MUST be present."},
-        "require_policy_digest": {"type": "boolean", "description": "If true, policyBoundary.policyDigest MUST be present."},
-        "require_external_anchor": {"type": "boolean", "description": "If true, the receipt MUST carry an external anchor (see allow_pending)."},
-        "allow_pending": {"type": "boolean", "description": "If false (default), a pending anchor does NOT satisfy require_external_anchor."}
+        "accepted_predicate_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed predicateType URIs (confusion defense: a decision receipt presented as another predicate fails)."
+        },
+        "allowed_decision_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed decisionType values."
+        },
+        "allowed_verdicts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed decision.verdict values."
+        },
+        "required_evidence_relations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "evidenceRefs[].relation values that MUST be present."
+        },
+        "require_policy_digest": {
+          "type": "boolean",
+          "description": "If true, policyBoundary.policyDigest MUST be present."
+        },
+        "require_external_anchor": {
+          "type": "boolean",
+          "description": "If true, the receipt MUST carry an external anchor (see allow_pending)."
+        },
+        "allow_pending": {
+          "type": "boolean",
+          "description": "If false (default), a pending anchor does NOT satisfy require_external_anchor."
+        }
+      }
+    },
+    "anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v0.2-only (WP-A1). The relying party's anchor requirement as a policy key, accepted ONLY when schema == proofbundle/trust-policy/v0.2 (fail-closed otherwise). require_anchor: 'any' or a specific anchor type; require_anchor_target pins WHICH target the verifying anchor must stamp — matching the type alone lets a receipt anchor stamped today satisfy a relying party who meant backdating protection (preRegistration). A CLI flag that conflicts with these values is an ambiguity error (exit 2), never a silent override; allow_pending mirrors --allow-pending.",
+      "properties": {
+        "require_anchor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "require_anchor_target": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "receipt",
+            "preRegistration",
+            "statement",
+            null
+          ]
+        },
+        "allow_pending": {
+          "type": "boolean"
+        }
       }
     }
   }
