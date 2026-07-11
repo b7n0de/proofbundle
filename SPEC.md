@@ -133,12 +133,32 @@ expected length for `(leaf_index, tree_size)`.
 | field | required | type | meaning |
 |---|---|---|---|
 | `compact` | yes | string | SD-JWT in compact serialization: an issuer-signed JWT followed by `~`-separated disclosures. |
-| `issuer_public_key_b64` | no | string | If present, Base64 of the 32-byte raw Ed25519 issuer key. |
+| `issuer_public_key_b64` | yes¹ | string | Base64 of the 32-byte raw Ed25519 issuer key. ¹Structurally optional for backward wire-compatibility, but **its absence now fails the bundle** — see below. |
+
+The `sd_jwt_vc` block lives **outside** `payload_b64`, so the bundle's Ed25519
+signature (§4) does **not** cover it; the only thing that authenticates the
+SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
+2026-07-11, WP-C1/C2 — a breaking change from the prior null-and-warn behaviour):
 
 Check **sd-jwt-disclosures**: the compact string is well formed and every
 presented disclosure is committed (its digest appears in the issuer-signed
-payload's `_sd` array). If `issuer_public_key_b64` is present, additionally check
-**sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under it.
+payload's `_sd` array). This is self-consistency only — it proves nothing about
+provenance and is forgeable without any key.
+
+Check **sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under
+`issuer_public_key_b64`. When `sd_jwt_vc` is present but `issuer_public_key_b64`
+is **absent**, this check **FAILS** (reason: `unsigned`) — the disclosures are
+unauthenticated and MUST NOT be treated as a passing credential. There is no
+opt-out that lets an unsigned SD-JWT verify.
+
+Check **sd-jwt-bundle-binding** (WP-C1): performed **iff** `sd_jwt_vc` is present,
+its issuer signature verified, and `payload_b64` decodes to a
+`proofbundle/eval-claim/v0.1` claim with a `merkle.root_b64`. The SD-JWT's
+always-open disclosures (`passed`, `threshold`, `comparator`, `suite`, `issuer`)
+and its committed `receipt.root_b64` MUST match the bundle payload bit-exact and
+bind **this** bundle's Merkle root. A valid issuer signature over disclosures that
+describe a *different* bundle (a receipt lifted and grafted on — cross-receipt
+substitution) **FAILS** (reason: `unbound`/`mismatch`).
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
@@ -168,9 +188,14 @@ A conforming verifier MUST perform, in this order, and report each result:
 2. **ed25519-signature** (§4).
 3. **merkle-inclusion** (§5).
 4. **sd-jwt-disclosures** and **sd-jwt-issuer-signature** — only if `sd_jwt_vc`
-   is present (§6).
+   is present (§6). Since revision 2026-07-11, a present `sd_jwt_vc` with **no**
+   `issuer_public_key_b64` makes **sd-jwt-issuer-signature** FAIL (unsigned →
+   unauthenticated); it is not a skipped or warning-only check.
 5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
    serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
+6. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
+   signature verified, and the payload is a `proofbundle/eval-claim/v0.1` claim
+   (§6, WP-C1; fail-closed against cross-receipt substitution).
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party

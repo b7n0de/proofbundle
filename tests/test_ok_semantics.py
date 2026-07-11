@@ -309,18 +309,18 @@ class TestSdJwtFields(unittest.TestCase):
         self.assertFalse(data["key_binding_ok"])
         self.assertFalse(data["audience_ok"])
 
-    def test_null_and_warns_without_issuer_key(self):   # Fund A — the core fix
+    def test_unsigned_sd_jwt_now_fails_not_null(self):   # WP-C2 re-pin (was test_null_and_warns…)
         path = _sd_jwt_bundle_file(with_issuer_key=False)
         try:
-            _, out = _run(["verify", "--json", path])
+            rc, out = _run(["verify", "--json", path])
             data = json.loads(out)
         finally:
             os.unlink(path)
-        # structure is well-formed, but the issuer signature was NEVER checked → NOT silently true
-        self.assertIsNone(data["sd_jwt_ok"])
-        self.assertIsNone(data["sd_jwt_issuer_verified"])
-        self.assertTrue(any("issuer" in w.lower() and "unverified" in w.lower()
-                            for w in data["warnings"]))
+        # WP-C2 (Owner-GO breaking / secure-by-default): an unsigned sd_jwt_vc is no longer a
+        # null-and-warn — its disclosures are unauthenticated, so the bundle FAILS (was .ok=True/null).
+        self.assertNotEqual(rc, 0)                       # bundle does not verify
+        self.assertFalse(data["sd_jwt_ok"])              # was None
+        self.assertFalse(data["sd_jwt_issuer_verified"])  # was None; now a real (failed) check
 
 
 class TestAssuranceInjection(unittest.TestCase):

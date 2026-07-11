@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-sd-jwt-unsigned-unauthenticated",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (WP-C2 secure-by-default vector: sd_jwt_vc present with NO issuer_public_key_b64)",
+  "expected": { "exitCode": 1, "rejected": true },
+  "specRefs": ["SPEC.md", "THREAT_MODEL.md"],
+  "rationale": "An sd_jwt_vc lives OUTSIDE payload_b64, so the bundle's Ed25519 signature does NOT cover it — only the issuer signature authenticates its disclosures. A bundle that carries an SD-JWT but supplies no issuer_public_key_b64 leaves those disclosures unauthenticated and MUST fail verification (exit 1), not pass with a warning. WP-C2 (Owner-GO breaking / secure-by-default, 2026-07-11): this replaced the prior null-and-warn behaviour."
+}

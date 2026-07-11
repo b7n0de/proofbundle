@@ -7,6 +7,8 @@
     "bundle/valid-minimal",
     "bundle/duplicate-json-key",
     "bundle/tampered-payload",
-    "bundle/corrupted-signature"
+    "bundle/corrupted-signature",
+    "bundle/sd-jwt-unsigned-unauthenticated",
+    "bundle/sd-jwt-signed-but-unbound"
   ]
 }

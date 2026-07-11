@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security (BREAKING) — SD-JWT disclosures must be signed AND bind their bundle (WP-C1/C2, 6-lens review)
+- An `sd_jwt_vc` block lives OUTSIDE `payload_b64`, so the bundle's Ed25519 signature does not cover it —
+  only the issuer signature authenticates its disclosures. Two verify-path holes are now closed
+  (secure-by-default; SPEC.md §6/§7 revision 2026-07-11):
+  - **Unsigned SD-JWT now FAILS (was null-and-warn).** A bundle carrying an `sd_jwt_vc` with **no**
+    `issuer_public_key_b64` previously verified with a warning and a null `sd_jwt_ok`; its disclosures were
+    unauthenticated yet the bundle passed. It now fails verification (exit 1) with a failing
+    **sd-jwt-issuer-signature** check, `sd_jwt_ok: false`, `sd_jwt_issuer_verified: false`, reason
+    `unsigned`. There is no opt-out flag that lets an unsigned SD-JWT verify.
+  - **Cross-receipt substitution now FAILS (new sd-jwt-bundle-binding check).** For a
+    `proofbundle/eval-claim/v0.1` payload, a *validly issuer-signed* SD-JWT whose always-open disclosures
+    (passed/threshold/comparator/suite/issuer + committed merkle root) describe a **different** bundle —
+    a receipt lifted and grafted on — now fails (exit 1, `sd-jwt-bundle-binding: false`,
+    `sd_jwt_ok: false`, reason `unbound`/`mismatch`).
+  - **Migration.** If you emit bundles with an `sd_jwt_vc`, add `sd_jwt_vc.issuer_public_key_b64`
+    (Base64 of the 32-byte raw Ed25519 issuer key) so verifiers can authenticate the disclosures, and
+    ensure the SD-JWT's disclosed claims + `receipt.root_b64` match the bundle they ship in. Bundles that
+    carry no `sd_jwt_vc` are unaffected. The three prior backward-compat tests are re-pinned as negative
+    tests of the new secure behaviour; conformance corpus gains `bundle/sd-jwt-unsigned-unauthenticated`
+    and `bundle/sd-jwt-signed-but-unbound` (both expect exit 1).
+
 ### Security — pre-auth DoS: bound oversized integer parsing (WP-D1, 6-lens review)
 - Python caps `int(str)` at `sys.get_int_max_str_digits()` (default 4300) and raises a raw `ValueError`
   above it (CWE-674 / CVE-2020-10735). A pre-auth parser that fed an unbounded decimal string to

@@ -133,6 +133,13 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
             "sd_jwt_vc.issuer_public_key_b64 to authenticate it.")
     else:
         sd_jwt_ok = bool(sd_iss)                      # structure ok AND issuer signature checked → its verdict
+        # WP-C1: fold in any further sd-jwt sub-check that actually ran. A valid issuer signature over
+        # disclosures that do NOT bind THIS bundle (sd-jwt-bundle-binding=False, cross-receipt
+        # substitution) — or an invalid holder key-binding — must NOT read as sd_jwt_ok=True (No-Fake:
+        # the single summary field cannot claim the credential is good for this bundle when a sub-check
+        # failed). `is False` only, so a not-applicable (None) sub-check never downgrades.
+        if by_name.get("sd-jwt-bundle-binding") is False or by_name.get("sd-jwt-key-binding") is False:
+            sd_jwt_ok = False
 
     key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
 
