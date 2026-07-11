@@ -26,7 +26,6 @@ Never raises for an ordinary bad proof.
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Optional
 
 ANCHOR_TYPE = "chia-datalayer/v1"

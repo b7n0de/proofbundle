@@ -19,7 +19,6 @@ Design invariants:
 from __future__ import annotations
 
 import copy
-import json
 from typing import Union
 
 from ._strict_json import loads_strict
