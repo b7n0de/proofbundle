@@ -81,6 +81,10 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                     "detail": f"supplied Bitcoin block merkle root for height {height} is not valid hex"}
         if msg == expected:
             return {"ok": True, "warn": False, "status": "confirmed",
+                    # WP-A2: a Bitcoin HEIGHT is the proof's native trusted-time unit — reported
+                    # structured, never converted to a wall-clock guess (the header time is not
+                    # part of the supplied material).
+                    "trustedTime": {"source": "bitcoin_block", "height": height},
                     "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
                               "(merkle root supplied by a trusted node)"}
         return {"ok": False, "warn": False, "status": "block_mismatch",

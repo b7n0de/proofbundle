@@ -146,6 +146,22 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     if schema != SCHEMA:
         raise UnsupportedError(f"unsupported schema {schema!r}, expected {SCHEMA!r}")
     _reject_unknown(bundle, _TOP_KEYS, "bundle")
+    # WP-A7: the anchors field stays UNVERIFIED here (crypto verdict identical with/without it),
+    # but its STRUCTURE follows the published JSON Schema — in a v0.1 bundle `target` is the enum
+    # receipt|preRegistration only (SPEC §7i: `statement` is exclusively for DETACHED decision
+    # evidence). The docs promised "rejected as malformed (exit 2)"; the code now matches them.
+    anchors_field = bundle.get("anchors")
+    if anchors_field is not None:
+        if not isinstance(anchors_field, list):
+            raise BundleFormatError("field anchors must be a list")
+        for i, entry in enumerate(anchors_field):
+            if not isinstance(entry, dict):
+                raise BundleFormatError(f"anchors[{i}] must be a JSON object")
+            tgt = entry.get("target")
+            if tgt not in ("receipt", "preRegistration"):
+                raise BundleFormatError(
+                    f"anchors[{i}].target {tgt!r} is not allowed in a proofbundle/v0.1 bundle "
+                    "(receipt|preRegistration only; 'statement' is for detached decision evidence)")
 
     result = VerificationResult()
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")

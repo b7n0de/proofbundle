@@ -110,8 +110,11 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     chain = env.get("block_height")
     chain_part = f", Markovian chain block {chain}" if chain is not None else ""
     if ots_res.get("ok"):
-        return {"ok": True, "warn": False, "status": "confirmed",
-                "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
+        out = {"ok": True, "warn": False, "status": "confirmed",
+               "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
+        if isinstance(ots_res.get("trustedTime"), dict):   # WP-A2: delegate verbatim (compose)
+            out["trustedTime"] = ots_res["trustedTime"]
+        return out
     # not a full anchor yet — carry the OTS lifecycle status/warn verbatim, framed as Markovian
     return {"ok": False, "warn": bool(ots_res.get("warn")), "status": ots_res.get("status", "fail"),
             "detail": f"markovian stamp envelope valid ({who}{chain_part}) but Bitcoin proof not verified: "

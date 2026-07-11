@@ -26,7 +26,8 @@ from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
 
-__all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy"]
+__all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy",
+           "explain_policy", "lint_policy", "policy_warnings"]
 
 POLICY_SCHEMA = "proofbundle/trust-policy/v0.1"
 POLICY_SCHEMA_V0_2 = "proofbundle/trust-policy/v0.2"
@@ -41,7 +42,9 @@ class PolicyError(ProofBundleError):
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
+_ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending"}
+_ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
                   "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
@@ -171,6 +174,19 @@ def load_policy(source: Union[str, dict]) -> dict:
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
         _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
+    if "anchors" in policy:
+        # WP-A1: the anchor requirement as a POLICY key (v0.2-gated like decision_receipt) — so a
+        # relying party pins "must carry a verifying preRegistration anchor" in the policy file
+        # instead of remembering CLI flags.
+        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+            raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
+        anc = _require_dict(policy["anchors"], "anchors")
+        _reject_unknown(anc, _ANCHORS_KEYS, "anchors")
+        _require_str_or_null(anc, "require_anchor", "anchors")
+        rt = anc.get("require_anchor_target")
+        if rt is not None and rt not in _ANCHOR_TARGETS:
+            raise PolicyError(f"anchors.require_anchor_target must be one of {list(_ANCHOR_TARGETS)} or null")
+        _require_bool(anc, "allow_pending", "anchors")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
@@ -437,3 +453,101 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     policy_ok = all(c["ok"] for c in checks)
     reason = "" if policy_ok else next((c["detail"] for c in checks if not c["ok"]), "policy not satisfied")
     return {"policy_ok": policy_ok, "checks": checks, "reason": reason}
+
+
+# ── WP-TP1: explain / lint / vacuous-pass warning ────────────────────────────
+
+def explain_policy(policy: dict) -> list:
+    """Human-readable list of the EFFECTIVE pins a (already load_policy-validated) policy makes.
+
+    One line per active constraint; an empty list means the policy pins nothing (see
+    :func:`lint_policy` — such a policy is wirkungslos and `POLICY: OK` under it attributes the
+    bytes to nobody)."""
+    lines: list = []
+    if policy.get("allowed_schema_versions"):
+        lines.append(f"schema version in {policy['allowed_schema_versions']}")
+    for issuer in policy.get("allowed_issuers", []) or []:
+        who = issuer.get("issuer") or issuer.get("kid") or "(unnamed)"
+        key = issuer.get("public_key_b64", "")
+        lines.append(f"issuer {who}: public key pinned ({key[:12]}…)")
+    sig = policy.get("signature") or {}
+    if sig.get("allowed_algs"):
+        lines.append(f"signature alg in {sig['allowed_algs']}")
+    if sig.get("require_expected_signer"):
+        lines.append("signer MUST match an allowed_issuers entry (require_expected_signer)")
+    mk = policy.get("merkle") or {}
+    if mk.get("required_hash_alg") is not None:
+        # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
+        # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
+        lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
+    sdj = policy.get("sd_jwt") or {}
+    if sdj.get("require_key_binding_when_cnf_present"):
+        lines.append("SD-JWT: key binding required when cnf present")
+    if sdj.get("expected_aud") is not None:
+        lines.append(f"SD-JWT: audience == {sdj['expected_aud']!r}")
+    if sdj.get("require_nonce"):
+        lines.append("SD-JWT: nonce required from a VERIFIED key binding")
+    if sdj.get("max_iat_age_seconds") is not None:
+        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+    st = policy.get("status") or {}
+    if st.get("reject_self_issued") or (st.get("allowed_status_authorities") or []):
+        lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")
+    asr = policy.get("assurance") or {}
+    if asr.get("minimum_level") is not None:
+        lines.append(f"assurance_level >= {asr['minimum_level']!r}")
+    if asr.get("reject_self_attested_without_prereg"):
+        lines.append("self_attested without prereg_sha256 rejected")
+    dr = policy.get("decision_receipt") or {}
+    if dr:
+        active = [k for k in dr if dr.get(k)]
+        lines.append(f"decision_receipt section active ({len(active)} knob(s): {sorted(active)})")
+    return lines
+
+
+def _attributes_to_nobody(policy: dict) -> bool:
+    """True iff the policy pins NO signer identity: no allowed_issuers AND no
+    require_expected_signer (eval side) AND no trusted_decision_makers (decision side). Crypto OK
+    under such a policy proves integrity by an UNKNOWN party — 'attribution to nobody'
+    (docs/TRUST_ANCHORS.md's first row)."""
+    has_issuers = bool(policy.get("allowed_issuers"))
+    has_require = bool((policy.get("signature") or {}).get("require_expected_signer"))
+    has_dm = bool((policy.get("decision_receipt") or {}).get("trusted_decision_makers"))
+    return not (has_issuers or has_require or has_dm)
+
+
+def policy_warnings(policy: dict) -> list:
+    """Non-fatal honesty warnings for a valid policy (surfaced by `verify` next to POLICY: OK)."""
+    warnings: list = []
+    if _attributes_to_nobody(policy):
+        warnings.append(
+            "attributes to nobody: the policy pins no signer (no allowed_issuers, no "
+            "require_expected_signer) — POLICY: OK then proves integrity by an UNKNOWN party. "
+            "Pin the expected issuer key(s).")
+    return warnings
+
+
+def lint_policy(policy: dict, *, strict: bool = False) -> dict:
+    """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
+
+    Returns ``{ok, errors, warnings, pins}``. ``errors`` (lint failures, exit != 0 in the CLI):
+    the policy makes NO effective pin at all — `evaluate_policy` would return ``policy_ok=True``
+    with an EMPTY check list (``all([]) is True``), the exact vacuous-pass trap TP1 closes.
+    ``strict`` additionally promotes the attributes-to-nobody warning to an error."""
+    pins = explain_policy(policy)
+    errors: list = []
+    warnings = policy_warnings(policy)
+    if not pins:
+        errors.append(
+            "policy pins nothing (only schema/policy_id): every verify would report POLICY: OK "
+            "with zero checks evaluated — a vacuous pass, not a trust decision")
+    # UNSATISFIABLE (six-lens review): require_expected_signer with no allowed_issuers can NEVER pass
+    # (no signer key can match an empty list) — evaluate_policy fail-closes every verify to exit 3.
+    # That is a policy bug, not a valid pin, so it is a lint ERROR (always, not just --strict).
+    if (policy.get("signature") or {}).get("require_expected_signer") and not policy.get("allowed_issuers"):
+        errors.append(
+            "require_expected_signer is set but allowed_issuers is empty — unsatisfiable: no signer "
+            "key can ever match, so every verify FAILs (exit 3). Add the expected issuer key(s).")
+    if strict:
+        errors.extend(warnings)
+        warnings = []
+    return {"ok": not errors, "errors": errors, "warnings": warnings, "pins": pins}

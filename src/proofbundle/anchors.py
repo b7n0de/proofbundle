@@ -159,6 +159,13 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     if target not in ANCHOR_TARGETS:
         out["detail"] = f"anchor target must be one of {ANCHOR_TARGETS}"
         return out
+    anchored_at = anchor.get("anchoredAt")
+    if anchored_at is not None and not isinstance(anchored_at, str):
+        # WP-A7: anchoredAt is INFORMATIVE, but a non-string value is malformed input, not a
+        # display nicety — fail closed like every other schema violation (detached anchors have no
+        # JSON-schema layer in front of them).
+        out["detail"] = "anchor anchoredAt must be an RFC 3339 string or null (informative only)"
+        return out
     if not isinstance(atype, str) or atype not in _VERIFIERS:
         # Unknown type is a FAIL, not a SKIP — an anchor we cannot check must never pass silently.
         out["detail"] = (f"no verifier registered for anchor type {atype!r} "
@@ -183,10 +190,17 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     out["warn"] = bool(res.get("warn"))
     out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
     out["detail"] = res.get("detail", "")
+    # WP-A2: structured trusted time, carried VERBATIM from the type verifier — present only when
+    # the proof genuinely carries it (rfc3161 gen_time; a confirmed Bitcoin height). NEVER guessed,
+    # NEVER derived from the informative anchoredAt field.
+    tt = res.get("trustedTime")
+    if isinstance(tt, dict) and tt.get("source"):
+        out["trustedTime"] = tt
     return out
 
 
 def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None,
+                   require_target: Optional[str] = None,
                    allow_pending: bool = False, now: Optional[int] = None) -> dict:
     """Verify a receipt's ``anchors``. Missing/empty → SKIP (unless ``require`` is set → FAIL). Present →
     fail-closed PASS/FAIL over every entry. ``require`` is ``None`` | ``'any'`` | a type string; when set,
@@ -209,6 +223,11 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
     the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
     anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
+    if require_target is not None and require_target not in ANCHOR_TARGETS:
+        raise BundleFormatError(
+            f"require_target must be one of {ANCHOR_TARGETS}, got {require_target!r}")
+    if require_target is not None and not require:
+        require = "any"   # a target requirement IS an anchor requirement (mirrors --anchor-type)
     if not anchors:
         if require:
             return {"status": "FAIL", "require_met": False,
@@ -220,16 +239,25 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     results = [verify_anchor(a, target_roots=target_roots, now=now) for a in anchors]
     if require:   # a warn/pending/inclusion-only anchor never SATISFIES a requirement — only a full one
         want = None if require == "any" else require
+        # WP-A1: matched = ok ∧ ¬warn ∧ type ∧ TARGET. Matching the type alone was a backdating
+        # hole: a relying party demanding pre-registration evidence (--anchor-target
+        # preRegistration) was satisfied by a RECEIPT anchor stamped today — existence-now proves
+        # nothing about existence-before-the-run.
+        def _target_ok(r):
+            return require_target is None or r["target"] == require_target
         if allow_pending:
             matched = [r for r in results
-                       if (r["ok"] or r["warn"]) and (want is None or r["type"] == want)]
+                       if (r["ok"] or r["warn"]) and (want is None or r["type"] == want)
+                       and _target_ok(r)]
         else:
             matched = [r for r in results
-                       if r["ok"] and not r["warn"] and (want is None or r["type"] == want)]
+                       if r["ok"] and not r["warn"] and (want is None or r["type"] == want)
+                       and _target_ok(r)]
         if not matched:
-            detail = (f"--require-anchor {require} (--allow-pending): no verifying or pending anchor of that type"
+            tgt = f" with target {require_target!r}" if require_target is not None else ""
+            detail = (f"--require-anchor {require}{tgt} (--allow-pending): no verifying or pending anchor of that type/target"
                       if allow_pending else
-                      f"--require-anchor {require}: no verifying anchor of that type")
+                      f"--require-anchor {require}{tgt}: no verifying anchor of that type/target")
             return {"status": "FAIL", "require_met": False, "detail": detail, "results": results}
     hard_fail = any(not r["ok"] and not r["warn"] for r in results)
     if hard_fail:
