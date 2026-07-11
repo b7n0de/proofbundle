@@ -50,7 +50,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   required-expectations floor: a `decision_crossimpl` case that under-declares its bindings FAILS rather
   than passing green asserting nothing, and its defining checks (JCS byte-identity, content-root match,
   evidenceRef binding, anchor when a `.ots` ships) run unconditionally; a missing fixture is a per-case
-  FAIL, not a run-aborting crash (regression-tested).
+  FAIL, not a run-aborting crash. Hardened further after a 6-lens review: a missing case dir,
+  a malformed case.json, or a case.json with no `kind` is now a per-case FAIL (the outer parse was
+  outside the try before), and a native_bundle `input` cannot escape its case directory.
 
 ### Added — decision-receipt validator API hardening + cross-impl gap record (WP-W6 / WP-W1)
 - **`decision.require_valid_decision_predicate(pred)`** — a raising counterpart to

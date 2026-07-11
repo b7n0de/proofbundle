@@ -56,9 +56,14 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     exp = case["expected"]
     if "exitCode" not in exp:
         return _fail(cid, "native_bundle case under-declares its expectations (fail-closed): missing exitCode")
-    bundle = case_dir / case.get("input", "bundle.json")
+    inp = case.get("input", "bundle.json")
+    bundle = (case_dir / inp).resolve()
+    # confine the fixture to the case directory: a case.json is a reviewed fixture, but an absolute or
+    # traversal `input` must never let the harness verify a file outside its own case dir.
+    if not str(bundle).startswith(str(case_dir.resolve()) + "/"):
+        return _fail(cid, f"input {inp!r} escapes the case directory")
     if not bundle.is_file():
-        return _fail(cid, f"fixture {bundle.name} missing")
+        return _fail(cid, f"fixture {pathlib.Path(inp).name} missing")
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
     out, err = io.StringIO(), io.StringIO()
@@ -166,16 +171,23 @@ def run(*, require_anchors: bool = False) -> int:
     cases = manifest.get("cases", [])
     results: list[dict] = []
     for rel in cases:
+        # EVERYTHING per-case is inside the try: a missing case dir, a malformed case.json, a case.json
+        # with no `kind`, or an exception inside the handler is a per-case FAIL — never a run-aborting
+        # crash that masks every later case's status. (The manifest-level parse above is a whole-corpus
+        # precondition; a corrupt manifest failing loudly is correct.)
         case_dir = ROOT / rel
-        case = json.loads((case_dir / "case.json").read_text())
-        handler = _DISPATCH.get(case["kind"])
-        if handler is None:
-            results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
-            continue
         try:
+            case = json.loads((case_dir / "case.json").read_text())
+            if "kind" not in case:
+                results.append(_fail(rel, "case.json has no 'kind'"))
+                continue
+            handler = _DISPATCH.get(case["kind"])
+            if handler is None:
+                results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
+                continue
             results.append(handler(case, case_dir, require_anchors=require_anchors))
-        except Exception as e:   # a missing/broken fixture is a per-case FAIL, never a run-aborting crash
-            results.append(_fail(case.get("caseId", rel), f"{type(e).__name__}: {e}"))
+        except Exception as e:
+            results.append(_fail(rel, f"{type(e).__name__}: {e}"))
 
     ok = all(r["ok"] for r in results)
     print(f"[conformance] {sum(r['ok'] for r in results)}/{len(results)} cases pass"
