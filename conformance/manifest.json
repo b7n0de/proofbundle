@@ -3,6 +3,10 @@
   "description": "Versioned conformance corpus. Each entry points at a case directory holding a case.json ({caseId, kind, input, expected, specRefs[], rationale, attribution}) and its fixtures. The harness (run_conformance.py) verifies every case offline. See README.md for the expected-outcome model.",
   "cases": [
     "decision/crossimpl/confirmed-anchor-lifecycle",
-    "decision/crossimpl/canonicalization-root-binding"
+    "decision/crossimpl/canonicalization-root-binding",
+    "bundle/valid-minimal",
+    "bundle/duplicate-json-key",
+    "bundle/tampered-payload",
+    "bundle/corrupted-signature"
   ]
 }

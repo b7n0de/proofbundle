@@ -44,6 +44,15 @@ independent implementation**, checked for cross-implementation agreement:
   frozen root (`block_mismatch`), so confirmation is not a blind pass — that negative is
   exercised by `tests/test_anchors_ots.py`; the corpus itself runs the positive check.
 
+### `native_bundle`
+
+A native proofbundle bundle checked against the CLI **verify exit-code contract**
+(`0` crypto OK · `1` verification failure · `2` malformed · `3` policy unmet). The exit code is
+the conformance contract, so each case declares the exact code it must produce; the fail-closed
+floor requires a `native_bundle` case to declare `exitCode`. These lock core verifier properties
+onto the gate — a valid bundle verifies, a **duplicate JSON key** is rejected as malformed (the C1
+Bishop-Fox parser-differential defense), a single flipped payload byte fails the signature.
+
 ## Cases today
 
 | caseId | proves | does NOT prove |

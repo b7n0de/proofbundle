@@ -46,6 +46,37 @@ def _content_root_hex(statement: dict) -> str:
     return r.hex() if isinstance(r, (bytes, bytearray)) else str(r)
 
 
+def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    """A native proofbundle bundle checked against the CLI verify exit-code contract
+    (0 crypto OK · 1 verification failure · 2 malformed · 3 policy unmet). The exit code IS the
+    conformance contract, so a case declares the exact code it must produce. Fail-closed floor:
+    a native_bundle case MUST declare `exitCode`."""
+    from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    cid = case["caseId"]
+    exp = case["expected"]
+    if "exitCode" not in exp:
+        return _fail(cid, "native_bundle case under-declares its expectations (fail-closed): missing exitCode")
+    inp = case.get("input", "bundle.json")
+    bundle = (case_dir / inp).resolve()
+    # confine the fixture to the case directory: a case.json is a reviewed fixture, but an absolute or
+    # traversal `input` must never let the harness verify a file outside its own case dir.
+    if not str(bundle).startswith(str(case_dir.resolve()) + "/"):
+        return _fail(cid, f"input {inp!r} escapes the case directory")
+    if not bundle.is_file():
+        return _fail(cid, f"fixture {pathlib.Path(inp).name} missing")
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = _cli_main(["verify", str(bundle)])
+    if rc != exp["exitCode"]:
+        return _fail(cid, f"verify exit {rc} != expected {exp['exitCode']}")
+    if "rejected" in exp and bool(exp["rejected"]) != (rc != 0):
+        return _fail(cid, f"rejected={exp['rejected']} but exit {rc}")
+    verdict = {0: "verified", 1: "verification failed", 2: "malformed/rejected", 3: "policy unmet"}.get(rc, str(rc))
+    return {"caseId": cid, "ok": True, "detail": f"verify exit {rc} ({verdict}) as expected"}
+
+
 def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anchors: bool) -> dict:
     cid = case["caseId"]
     exp = case["expected"]
@@ -132,7 +163,7 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
 
-_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl}
+_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle}
 
 
 def run(*, require_anchors: bool = False) -> int:
@@ -140,16 +171,23 @@ def run(*, require_anchors: bool = False) -> int:
     cases = manifest.get("cases", [])
     results: list[dict] = []
     for rel in cases:
+        # EVERYTHING per-case is inside the try: a missing case dir, a malformed case.json, a case.json
+        # with no `kind`, or an exception inside the handler is a per-case FAIL — never a run-aborting
+        # crash that masks every later case's status. (The manifest-level parse above is a whole-corpus
+        # precondition; a corrupt manifest failing loudly is correct.)
         case_dir = ROOT / rel
-        case = json.loads((case_dir / "case.json").read_text())
-        handler = _DISPATCH.get(case["kind"])
-        if handler is None:
-            results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
-            continue
         try:
+            case = json.loads((case_dir / "case.json").read_text())
+            if "kind" not in case:
+                results.append(_fail(rel, "case.json has no 'kind'"))
+                continue
+            handler = _DISPATCH.get(case["kind"])
+            if handler is None:
+                results.append(_fail(case.get("caseId", rel), f"unknown kind {case['kind']!r}"))
+                continue
             results.append(handler(case, case_dir, require_anchors=require_anchors))
-        except Exception as e:   # a missing/broken fixture is a per-case FAIL, never a run-aborting crash
-            results.append(_fail(case.get("caseId", rel), f"{type(e).__name__}: {e}"))
+        except Exception as e:
+            results.append(_fail(rel, f"{type(e).__name__}: {e}"))
 
     ok = all(r["ok"] for r in results)
     print(f"[conformance] {sum(r['ok'] for r in results)}/{len(results)} cases pass"
