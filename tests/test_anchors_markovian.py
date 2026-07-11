@@ -64,10 +64,9 @@ class TestMarkovianVerifier(unittest.TestCase):
         from proofbundle.anchors_markovian import verify_markovian
         self.verify = verify_markovian
 
-    def test_confirmed_synthetic(self):
-        # upgraded OTS whose attestation sits on the root + supplied block merkle root == root -> confirmed
-        frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"850000": _ROOT.hex()}}
-        res = self.verify(_envelope(_upgraded_ots(height=850000)), _ROOT, frozen=frozen)
+    def test_confirmed_synthetic(self):   # WP-A1 re-pin: confirmed only against RELYING-PARTY header
+        rp = {"bitcoin_block_headers": {"850000": _ROOT.hex()}}
+        res = self.verify(_envelope(_upgraded_ots(height=850000)), _ROOT, frozen={}, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
         self.assertIn(_WALLET, res["detail"])          # PASS names the committing wallet
@@ -110,12 +109,12 @@ class TestMarkovianVerifier(unittest.TestCase):
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "malformed")
 
-    def test_upgraded_without_header_is_honest_not_pass(self):
-        # inherits the OTS "upgraded but unverifiable offline without a header" honest report
+    def test_upgraded_without_rp_header_is_honest_not_pass(self):   # WP-A1 re-pin
+        # inherits the OTS "upgraded but needs relying-party trust material" honest report
         res = self.verify(_envelope(_upgraded_ots()), _ROOT, frozen={})
         self.assertFalse(res["ok"])
         self.assertFalse(res["warn"])
-        self.assertEqual(res["status"], "upgraded_unverified")
+        self.assertEqual(res["status"], "needs_rp_trust")
 
 
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
@@ -124,20 +123,34 @@ class TestMarkovianThroughGenericLayer(unittest.TestCase):
         from proofbundle.anchors_markovian import register
         register()   # third-party type is opt-in; register it before the generic layer will dispatch to it
 
-    def test_real_confirmed_fixture_passes(self):
-        # the real fixture: our block-956857 Bitcoin-confirmed OpenTimestamps proof wrapped in a
-        # markovian-provenance/v1 stamp, verified end to end through anchors.verify_anchors.
-        anchor = json.loads(_FIXTURE.read_text())
-        root = base64.b64decode(anchor["canonicalRoot"])
-        res = anchors.verify_anchors([anchor], target_roots={"preRegistration": root})
-        self.assertEqual(res["status"], "PASS", res["detail"])
-        self.assertTrue(res["results"][0]["ok"])
+    def _rp_from_fixture(self, anchor):
+        # WP-A1: the relying party supplies the Bitcoin block header (from their own node). The fixture
+        # carries the real block-956857 header in its frozen block; a relying party who independently
+        # trusts that header passes it as rp_trust — exactly what a real verifier would do.
+        headers = (anchor.get("frozen") or {}).get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
+        return {"bitcoin_block_headers": headers}
 
-    def test_confirmed_fixture_satisfies_require_anchor(self):
+    def test_real_confirmed_fixture_passes(self):   # WP-A1 re-pin
+        # the real fixture: our block-956857 Bitcoin-confirmed OpenTimestamps proof wrapped in a
+        # markovian-provenance/v1 stamp, verified end to end through anchors.verify_anchors with the
+        # relying party supplying the block header.
         anchor = json.loads(_FIXTURE.read_text())
         root = base64.b64decode(anchor["canonicalRoot"])
         res = anchors.verify_anchors([anchor], target_roots={"preRegistration": root},
-                                     require="markovian-provenance/v1")
+                                     rp_trust=self._rp_from_fixture(anchor))
+        self.assertEqual(res["status"], "PASS", res["detail"])
+        self.assertTrue(res["results"][0]["ok"])
+        # WP-A1 security property: the SAME fixture WITHOUT relying-party trust material does NOT confirm
+        no_rp = anchors.verify_anchors([anchor], target_roots={"preRegistration": root})
+        self.assertNotEqual(no_rp["status"], "PASS")
+        self.assertFalse(no_rp["results"][0]["ok"])
+
+    def test_confirmed_fixture_satisfies_require_anchor(self):   # WP-A1 re-pin
+        anchor = json.loads(_FIXTURE.read_text())
+        root = base64.b64decode(anchor["canonicalRoot"])
+        res = anchors.verify_anchors([anchor], target_roots={"preRegistration": root},
+                                     require="markovian-provenance/v1",
+                                     rp_trust=self._rp_from_fixture(anchor))
         self.assertEqual(res["status"], "PASS", res["detail"])
 
     def test_cross_target_root_mismatch_hard_fails(self):

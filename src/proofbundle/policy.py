@@ -102,7 +102,8 @@ def _pinned_key_forgeable(b64: str) -> bool:
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
              "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
-_ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending"}
+_ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
+                 "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
@@ -247,6 +248,24 @@ def load_policy(source: Union[str, dict]) -> dict:
         if rt is not None and rt not in _ANCHOR_TARGETS:
             raise PolicyError(f"anchors.require_anchor_target must be one of {list(_ANCHOR_TARGETS)} or null")
         _require_bool(anc, "allow_pending", "anchors")
+        # WP-A1: relying-party anchor TRUST material carried in the policy file (self-contained, no file
+        # paths). trusted_tsa_roots = list of base64 DER cert strings; bitcoin_block_headers = {height(str):
+        # merkleRootHex}; trusted_tsa_policy_oids = list of dotted-decimal strings. All optional + fail-closed.
+        if "trusted_tsa_roots" in anc:
+            roots = anc["trusted_tsa_roots"]
+            if not isinstance(roots, list) or not all(isinstance(r, str) and r for r in roots):
+                raise PolicyError("anchors.trusted_tsa_roots must be a list of base64 DER certificate strings")
+        if "trusted_tsa_policy_oids" in anc:
+            oids = anc["trusted_tsa_policy_oids"]
+            if not isinstance(oids, list) or not all(isinstance(o, str) and o for o in oids):
+                raise PolicyError("anchors.trusted_tsa_policy_oids must be a list of dotted-decimal strings")
+        if "bitcoin_block_headers" in anc:
+            hdrs = anc["bitcoin_block_headers"]
+            if not isinstance(hdrs, dict) or not all(
+                    isinstance(k, str) and k.isdigit() and isinstance(v, str) and len(v) == 64
+                    for k, v in hdrs.items()):
+                raise PolicyError("anchors.bitcoin_block_headers must map a decimal height string to a "
+                                  "64-char hex merkle root")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
@@ -377,6 +396,22 @@ def policy_expected_aud(policy: dict):
     """The aud the policy wants bound (sd_jwt.expected_aud), or None. Used by the CLI to reconcile
     with the --aud flag (a policy/flag conflict is an error, never a silent override)."""
     return (policy.get("sd_jwt") or {}).get("expected_aud")
+
+
+def policy_anchor_trust(policy: dict) -> dict | None:
+    """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
+    ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
+    None when the policy declares none. Mirrors the CLI ``--trusted-tsa-root`` / ``--bitcoin-header``; the
+    CLI unions the two. Validated already in ``load_policy`` (fail-closed), so this is a pure projection."""
+    anc = policy.get("anchors") or {}
+    rp: dict = {}
+    if anc.get("trusted_tsa_roots"):
+        rp["trusted_tsa_roots"] = list(anc["trusted_tsa_roots"])
+    if anc.get("bitcoin_block_headers"):
+        rp["bitcoin_block_headers"] = {str(k): v.lower() for k, v in anc["bitcoin_block_headers"].items()}
+    if anc.get("trusted_tsa_policy_oids"):
+        rp["trusted_tsa_policy_oids"] = list(anc["trusted_tsa_policy_oids"])
+    return rp or None
 
 
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
