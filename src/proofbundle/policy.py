@@ -42,7 +42,9 @@ class PolicyError(ProofBundleError):
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
+_ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending"}
+_ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
                   "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
@@ -172,6 +174,19 @@ def load_policy(source: Union[str, dict]) -> dict:
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
         _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
+    if "anchors" in policy:
+        # WP-A1: the anchor requirement as a POLICY key (v0.2-gated like decision_receipt) — so a
+        # relying party pins "must carry a verifying preRegistration anchor" in the policy file
+        # instead of remembering CLI flags.
+        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+            raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
+        anc = _require_dict(policy["anchors"], "anchors")
+        _reject_unknown(anc, _ANCHORS_KEYS, "anchors")
+        _require_str_or_null(anc, "require_anchor", "anchors")
+        rt = anc.get("require_anchor_target")
+        if rt is not None and rt not in _ANCHOR_TARGETS:
+            raise PolicyError(f"anchors.require_anchor_target must be one of {list(_ANCHOR_TARGETS)} or null")
+        _require_bool(anc, "allow_pending", "anchors")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")

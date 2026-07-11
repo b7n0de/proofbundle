@@ -62,7 +62,23 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
         builder.build().verify_message(response, canonical_root)
     except Exception as exc:   # any verify failure is a FAIL, never a silent pass (fail-closed)
         return {"ok": False, "detail": f"RFC 3161 token did not verify against the frozen chain: {exc}"}
-    return {"ok": True, "detail": "RFC 3161 token verified offline against the frozen TSA chain"}
+    out = {"ok": True, "detail": "RFC 3161 token verified offline against the frozen TSA chain"}
+    # WP-A2: structured trusted time from the VERIFIED token's own gen_time (the TSA-asserted time
+    # the whole anchor exists to establish). Best-effort extraction from the verified response —
+    # if the library exposes no gen_time, the field is simply absent (never guessed, never taken
+    # from the informative anchoredAt).
+    try:
+        from datetime import timezone  # noqa: PLC0415
+        gen_time = response.tst_info.gen_time
+        # WP-A2 (six-lens review): normalize to UTC before formatting with a literal 'Z'. RFC 3161
+        # genTime is Zulu, but the parsed value may be naive (assume UTC) or tz-aware in another
+        # zone (convert) — a bare strftime('…Z') on a non-UTC-aware value would mis-label the time.
+        gt = gen_time.replace(tzinfo=timezone.utc) if gen_time.tzinfo is None else gen_time.astimezone(timezone.utc)
+        out["trustedTime"] = {"source": "rfc3161_gen_time",
+                              "time": gt.strftime("%Y-%m-%dT%H:%M:%SZ"), "tz": "Z"}
+    except Exception:   # noqa: BLE001 — structured time is additive; its absence is honest
+        pass
+    return out
 
 
 def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
