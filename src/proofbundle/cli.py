@@ -68,7 +68,7 @@ def _safe_line(s: str) -> str:
 _VERIFY_NULLABLE_FIELDS = (
     "schema_ok", "signature_ok", "merkle_ok", "sd_jwt_ok", "sd_jwt_issuer_verified",
     "key_binding_ok", "audience_ok", "nonce_ok", "freshness_ok", "anchor_ok", "witness_ok",
-    "status_ok", "assurance_policy_ok", "policy_ok", "assurance")
+    "status_ok", "assurance_policy_ok", "policy_ok", "assurance", "assurance_declared_by")
 
 
 def _error_verify_fields(error: str) -> dict:
@@ -160,6 +160,10 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
         "crypto_ok": result.ok,
         "policy_ok": policy_ok,        # None unless a trust policy was supplied (WP-B3)
         "assurance": assurance,        # verbatim eval-claim level, or None (not an eval receipt)
+        # WP-N2: the assurance level is the ISSUER's own self-declared value — carried verbatim in the
+        # signed claim, never appraised by verify. Said explicitly so a log line cannot read it as an
+        # independent assessment. None when there is no assurance level to attribute.
+        "assurance_declared_by": "issuer" if assurance is not None else None,
         "warnings": warnings,
         "limitations": list(VERIFY_LIMITATIONS),
     }
@@ -491,7 +495,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (WP-B3); ASSURANCE is the issuer's own verbatim self-declared level; LIMITATIONS restates
         # what a valid signature does NOT mean.
         if assurance is not None:
-            assurance_line = _safe_line(assurance)          # issuer-controlled → control-chars neutralised
+            # WP-N2: name the source — the level is the issuer's own declaration, not an appraisal.
+            assurance_line = f"{_safe_line(assurance)} (issuer-declared)"   # issuer-controlled → control-chars neutralised
         elif not crypto_ok:
             assurance_line = "n/a (crypto verification failed)"   # a real receipt whose crypto broke
         else:
@@ -1146,7 +1151,12 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
         description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input or "
                      "predicateType confusion. Without a decision policy the output shows POLICY: NOT_EVALUATED "
-                     "and never exits 3."))
+                     "and never exits 3. A verified ALLOW receipt is a record of a decision, NOT an "
+                     "authorization or bearer token — the executing system makes its own authorization "
+                     "check. --aud/--nonce bind a receipt that CARRIES validity.audience/validity.nonce "
+                     "to this context; a receipt without a validity object is not checked against them, "
+                     "so require their presence via a v0.2 policy's require_audience/require_nonce "
+                     "(see docs/NON_CLAIMS.md)."))
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     d_verify.add_argument("--policy", default=None,

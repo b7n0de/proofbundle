@@ -24,10 +24,15 @@ REPO = Path(__file__).resolve().parents[1]
 
 # Default scan set: the docs a stranger or a citation actually reads. CHANGELOG/SPEC/THREAT_MODEL
 # included on purpose — an honest claim must hold everywhere, not only above the fold.
+# Every entry MUST exist: a listed-but-missing path is a FAIL, never a silent skip (WP-N1 — six of
+# sixteen entries were silently skipped for months because they lacked the docs/ prefix).
 _DEFAULT_DOCS = [
-    "README.md", "CITATION.cff", "COMPLIANCE.md", "INTEROP.md", "SECURITY.md", "PREDICATE.md",
-    "THREAT_MODEL.md", "SPEC.md", "FAQ.md", "GLOSSARY.md", "TRUST_ANCHORS.md", "PROJECT_BRIEF.md",
-    "CHANGELOG.md", "docs/INSPECT_HAPPY_PATH.md", "docs/MATURITY.md", "docs/MIGRATION_2.0.md",
+    "README.md", "CITATION.cff", "COMPLIANCE.md", "INTEROP.md", "INTEGRATIONS.md", "SECURITY.md",
+    "PREDICATE.md", "THREAT_MODEL.md", "SPEC.md", "CHANGELOG.md", "EVAL_CLAIM.md", "RELEASE.md",
+    "GOVERNANCE.md", "CONTRIBUTING.md",
+    "docs/FAQ.md", "docs/GLOSSARY.md", "docs/TRUST_ANCHORS.md", "docs/PROJECT_BRIEF.md",
+    "docs/INSPECT_HAPPY_PATH.md", "docs/NON_CLAIMS.md", "docs/DEMO.md", "docs/ANCHORS.md",
+    "docs/ANCHORS_MARKOVIAN.md", "docs/REVIEWERS.md", "docs/EXPERIMENTAL_ENCLAVE.md",
 ]
 
 # Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.
@@ -43,6 +48,13 @@ _FORBIDDEN = [
     (r"industry\s+standard", "industry standard"),
     (r"TEE\s+proves\s+(?:the\s+)?computation", "TEE proves computation"),
     (r"prevents?\s+cherry[- ]picking", "prevents cherry-picking (needs a mode qualifier)"),
+    # Gate-3 additions (WP-N1/N2, standard-track 2026-07-11):
+    (r"safe\s+to\s+deploy", "safe to deploy"),
+    (r"safe\s+model", "safe model"),
+    (r"verified\s+result", "verified result"),
+    (r"correct\s+decision", "correct decision"),
+    (r"authorized\s+action", "authorized action"),
+    (r"\btrustless\b", 'trustless (say "trust-minimized (Bitcoin PoW time)" or negate it)'),
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
 
@@ -64,22 +76,57 @@ def _strip_code(text: str) -> str:
     return text
 
 
+# A line whose START opens a new block: blank, heading, list item, quote, table row, numbered
+# item, code fence. The newline BEFORE such a line is always a real boundary.
+_NEXT_STARTS_BLOCK_RE = re.compile(r"[ \t]*(?:$|[#\-\*\+>|]|\d+\.|```)")
+# A line that can never CONTINUE into following prose: blank, heading, table row, fence, setext
+# underline — CommonMark forbids a paragraph lazily continuing any of them, so merging one forward
+# would let a negation inside a heading/table cell exonerate the NEXT paragraph (six-lens review,
+# 2026-07-11). List items and quotes DO wrap (their continuation lines are why _soft_unwrap exists).
+_LINE_NEVER_WRAPS_RE = re.compile(r"[ \t]*(?:$|#|\||```|={3,}[ \t]*$|-{3,}[ \t]*$)")
+
+
+def _soft_unwrap(text: str) -> str:
+    """Join soft-wrapped Markdown lines back into their sentence (WP-N1). Markdown wraps prose
+    mid-sentence, and `_sentence_around` treats a newline as a sentence boundary — so a negation on
+    the previous physical line ("... not a statement that a\\n  model is safe to deploy") was lost and
+    the wrapped tail read as an un-negated claim. A newline stays a boundary when the NEXT line
+    starts a new block OR when the CURRENT line cannot continue into prose (see the two regexes
+    above); any other newline is a soft wrap and becomes a space. 1:1 replacement, so offsets/line
+    numbers computed against the raw text stay valid.
+
+    Known, accepted limitations (both fail in the closed direction — a false VIOLATION, never a
+    silent pass): a continuation line that itself starts with `*`/`>`/`-`/`<digit>.` reads as a
+    block start, so an in-sentence negation on its previous line is not seen; the patterns are
+    ASCII, so Unicode-homoglyph evasion is a documented residual for the FORBIDDEN list itself."""
+    lines = text.split("\n")
+    out = []
+    for i, line in enumerate(lines[:-1]):
+        keep = (_NEXT_STARTS_BLOCK_RE.match(lines[i + 1]) is not None
+                or _LINE_NEVER_WRAPS_RE.match(line) is not None)
+        out.append(line + ("\n" if keep else " "))
+    out.append(lines[-1])
+    return "".join(out)
+
+
 def _sentence_around(text: str, start: int, end: int) -> str:
-    """The sentence containing [start,end): from the previous .!?/newline boundary to the next one."""
-    left = max(text.rfind(".", 0, start), text.rfind("!", 0, start),
-               text.rfind("?", 0, start), text.rfind("\n", 0, start))
-    right_candidates = [i for i in (text.find(".", end), text.find("!", end),
-                                    text.find("?", end), text.find("\n", end)) if i != -1]
+    """The clause containing [start,end): from the previous boundary to the next one. Boundaries are
+    sentence ends (.!?), newlines, and CLAUSE separators (';', ':', ' — '): a negation in an earlier,
+    grammatically independent clause must not exonerate a positive claim in a later one (six-lens
+    review, 2026-07-11 — "X is not producible — the anchor is trustless" would otherwise pass)."""
+    marks = (".", "!", "?", "\n", ";", ":", "—")
+    left = max(text.rfind(mk, 0, start) for mk in marks)
+    right_candidates = [i for i in (text.find(mk, end) for mk in marks) if i != -1]
     right = min(right_candidates) if right_candidates else len(text)
     return text[left + 1:right]
 
 
 def scan_file(path: Path) -> list[dict]:
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    text = _strip_code(raw)
+    """Scan one doc. A read error (missing/unreadable) RAISES OSError — the caller decides; the gate
+    treats it as a FAIL entry, never a silent skip (six-lens review: a listed-but-unreadable doc
+    previously counted as scanned + PASS, the exact class WP-N1 eliminates)."""
+    raw = path.read_text(encoding="utf-8")
+    text = _soft_unwrap(_strip_code(raw))
     violations = []
     for rx, label in _FORBIDDEN_RE:
         for m in rx.finditer(text):
@@ -104,27 +151,42 @@ def main(argv=None) -> int:
     rels = args or _DEFAULT_DOCS
     violations = []
     scanned = []
+    missing = []
     for rel in rels:
         p = REPO / rel
-        if p.is_file():
-            scanned.append(rel)
-            violations.extend(scan_file(p))
+        # WP-N1: a listed-but-missing OR unreadable path is a FAIL, never a silent skip. A gate that
+        # quietly narrows its own scan set stops being a gate (6/16 entries were skipped for months;
+        # an unreadable doc previously counted as scanned + PASS — same class, six-lens 2026-07-11).
+        try:
+            file_violations = scan_file(p)
+        except OSError as exc:
+            missing.append(f"{rel} ({type(exc).__name__})")
+            continue
+        scanned.append(rel)
+        violations.extend(file_violations)
+    failed = bool(violations or missing)
     out = {
         "schema": "proofbundle.claims_hygiene.v1",
-        "verdict": "FAIL" if violations else "PASS",
+        "verdict": "FAIL" if failed else "PASS",
         "scanned": len(scanned),
+        "missing": missing,
         "violations": violations,
-        "note": ("A forbidden phrasing appeared outside a negation. Reword to the boundary language "
-                 "(authorship/integrity/tamper-evident/offline-verifiable) or negate it explicitly."
-                 if violations else "no un-negated forbidden claims"),
+        "note": ("A forbidden phrasing appeared outside a negation, or a listed doc is missing. "
+                 "Reword to the boundary language (authorship/integrity/tamper-evident/"
+                 "offline-verifiable), negate it explicitly, or fix the scan list."
+                 if failed else "no un-negated forbidden claims"),
     }
     if as_json:
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
-        print(f"[claims-hygiene] {out['verdict']} · {len(scanned)} docs scanned · {len(violations)} violation(s)")
+        print(f"[claims-hygiene] {out['verdict']} · {len(scanned)} docs scanned · "
+              f"{len(violations)} violation(s) · {len(missing)} missing listed doc(s)")
+        for rel in missing:
+            print(f"  MISSING {rel}  — listed in the scan set but not a readable file "
+                  "(fix the list or restore the doc)")
         for v in violations:
             print(f"  {v['file']}:{v['line']}  '{v['match']}' ({v['phrase']})  — {v['sentence']}")
-    return 1 if violations else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

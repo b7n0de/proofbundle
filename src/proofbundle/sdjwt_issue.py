@@ -35,11 +35,12 @@ SD_ALG = "sha-256"
 _HASH_BY_SD_ALG = {"sha-256": hashlib.sha256, "sha-384": hashlib.sha384, "sha-512": hashlib.sha512}
 _SALT_BYTES = 16  # 128 bit
 
-# SD-JWT VC syntactic markers (v1.3). draft-ietf-oauth-sd-jwt-vc is pre-IESG (draft-15) — we
-# adopt ONLY its four stable interop markers: header `typ: dc+sd-jwt` (media type
-# application/dc+sd-jwt; stable since the vc+sd-jwt rename), a `vct` type URI, the optional
-# `status` claim (Token Status List), and `cnf` (already present since v1.2). The type-metadata
-# resolution machinery is deliberately NOT implemented (network-bound, still churning).
+# SD-JWT VC syntactic markers (v1.3). draft-ietf-oauth-sd-jwt-vc-17 (2026-07) is at the IESG
+# ("Publication Requested"), not yet an RFC — we adopt ONLY its four stable interop markers:
+# header `typ: dc+sd-jwt` (media type application/dc+sd-jwt; stable since the vc+sd-jwt rename,
+# though NOT yet IANA-registered — registration lands with RFC publication), a `vct` type URI,
+# the optional `status` claim (Token Status List), and `cnf` (already present since v1.2). The
+# type-metadata resolution machinery is deliberately NOT implemented (network-bound, still churning).
 SD_JWT_TYP = "dc+sd-jwt"
 DEFAULT_VCT = "https://b7n0de.com/proofbundle/vct/eval-receipt/v1"
 

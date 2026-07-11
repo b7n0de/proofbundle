@@ -166,7 +166,8 @@ verifies at level i) and `examples/anchors/chia-datalayer-invalid-root.json` (th
 **Hard limit (documented, not hidden).** There is no per-tooling-exportable weight proof and no per-coin
 Merkle-against-header via RPC, so a fully trustless "this root-coin was in the heaviest chain at height H"
 proof from a file alone is **not producible with standard tooling** — the practical trust anchor is a full
-node (your own = trustless). Closing that gap with a standalone weight-proof verifier is **Paket 4**, a
+node (run your own and no third-party trust remains). Closing that gap with a standalone weight-proof
+verifier is **Paket 4**, a
 separate, grant-eligible work package ("to our knowledge no such tool exists"), tracked as a roadmap issue,
 deliberately not built in this pass.
 

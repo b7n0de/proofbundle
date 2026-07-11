@@ -44,5 +44,151 @@ class TestClaimsHygiene(unittest.TestCase):
             self.assertEqual(ch.scan_file(p), [], "code fences / inline code are not prose")
 
 
+class TestGateHonesty(unittest.TestCase):
+    """WP-N1 — the gate itself must be honest: a listed-but-missing doc is a FAIL, never a silent
+    skip (6 of 16 default entries were silently skipped for months), and the scan set matches the
+    repository exactly."""
+
+    def test_every_default_doc_exists_and_scan_covers_all(self):
+        missing = [rel for rel in ch._DEFAULT_DOCS if not (REPO / rel).is_file()]
+        self.assertEqual(missing, [], "default scan set lists non-existent docs (silent-skip regression)")
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = ch.main(["--json"])
+        self.assertEqual(rc, 0)
+        import json as _json
+        out = _json.loads(buf.getvalue())
+        self.assertEqual(out["scanned"], len(ch._DEFAULT_DOCS),
+                         "scanned must equal the full default scan set — nothing silently skipped")
+        self.assertEqual(out["missing"], [])
+
+    def test_listed_but_missing_path_fails(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = ch.main(["--json", "docs/DOES_NOT_EXIST_ANYWHERE.md"])
+        self.assertEqual(rc, 1, "a listed-but-missing doc must FAIL the gate, never a silent skip")
+        import json as _json
+        out = _json.loads(buf.getvalue())
+        self.assertEqual(out["verdict"], "FAIL")
+        # missing entries carry the OSError class as a suffix, e.g. " (FileNotFoundError)"
+        self.assertTrue(any(m.startswith("docs/DOES_NOT_EXIST_ANYWHERE.md") for m in out["missing"]),
+                        f"missing[] must name the path: {out['missing']}")
+
+    def test_injected_overclaim_in_every_listed_doc_fails(self):
+        # WP-N1 acceptance: an injected "safe to deploy" in EVERY listed doc must be caught — proving
+        # each doc is really scanned (the exact regression the silent skip hid).
+        with tempfile.TemporaryDirectory() as d:
+            for rel in ch._DEFAULT_DOCS:
+                src = (REPO / rel).read_text(encoding="utf-8")
+                p = Path(d) / Path(rel).name
+                p.write_text(src + "\n\nThe model is safe to deploy.\n", encoding="utf-8")
+                hits = ch.scan_file(p)
+                self.assertTrue(any(v["phrase"] == "safe to deploy" for v in hits),
+                                f"injected overclaim not caught in {rel}")
+
+    def test_soft_wrapped_negation_is_exonerated(self):
+        # The negation and the forbidden phrase sit on different physical lines of ONE sentence —
+        # exactly docs/NON_CLAIMS.md's real layout. Must NOT flag.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text("- **Safety.** A threshold is a threshold on one suite, not a statement that a\n"
+                         "  model is safe to deploy.\n", encoding="utf-8")
+            self.assertEqual(ch.scan_file(p), [], "a soft-wrapped in-sentence negation must exonerate")
+            # counter-test: the same wrapped layout WITHOUT a negation must still flag
+            p.write_text("- **Safety.** A passing threshold means that a\n  model is safe to deploy.\n",
+                         encoding="utf-8")
+            self.assertTrue(ch.scan_file(p), "soft-unwrap must not swallow a real violation")
+
+    def test_block_boundaries_still_separate_sentences(self):
+        # A negation in a PREVIOUS bullet/heading must NOT exonerate the next block.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text("- It does not prove truth\n- The model is safe to deploy\n", encoding="utf-8")
+            self.assertTrue(ch.scan_file(p), "a new list item is a new sentence — no cross-block exoneration")
+
+    def test_heading_and_table_never_merge_forward(self):
+        # Six-lens 2026-07-11: a heading / table row / setext underline cannot continue into prose —
+        # a negation inside one must NOT exonerate the immediately following paragraph.
+        cases = ("## Never a guarantee of anything\nIt produces a verified result for you.\n",
+                 "| col | not applicable here |\nIt produces a verified result for you.\n",
+                 "This section is never a guarantee\n=====\nIt produces a verified result for you.\n")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            for text in cases:
+                p.write_text(text, encoding="utf-8")
+                self.assertTrue(ch.scan_file(p), f"cross-block exoneration must not pass: {text!r}")
+
+    def test_clause_separator_bounds_the_negation_window(self):
+        # A negation in an earlier, grammatically independent clause must not exonerate a later
+        # positive claim in the same (soft-unwrapped) sentence.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text("A file-only proof is not producible with standard tooling — "
+                         "the practical anchor is trustless.\n", encoding="utf-8")
+            self.assertTrue(ch.scan_file(p), "negation before an em-dash must not exonerate the next clause")
+            p.write_text("It does not prove the anchor is trustless.\n", encoding="utf-8")
+            self.assertEqual(ch.scan_file(p), [], "in-clause negation still exonerates")
+
+    def test_content_violation_exits_one_at_main_level(self):
+        # Six-lens 2026-07-11: only the missing-arm of failed=bool(violations or missing) was pinned;
+        # a mutant returning 0 despite content violations survived. Pin the violations arm.
+        import io
+        import json as _json
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bad.md"
+            p.write_text("The model is safe to deploy.\n", encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = ch.main(["--json", str(p)])
+            self.assertEqual(rc, 1, "a content violation must exit 1")
+            self.assertEqual(_json.loads(buf.getvalue())["verdict"], "FAIL")
+
+    def test_unreadable_listed_doc_fails(self):
+        # Six-lens 2026-07-11: a listed-but-UNREADABLE doc silently counted as scanned + PASS —
+        # the exact silent-skip class N1 eliminates. Now it is a FAIL entry.
+        import io
+        import os
+        from contextlib import redirect_stdout
+        if os.name != "posix" or os.geteuid() == 0:
+            self.skipTest("permission bits not enforceable here")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "locked.md"
+            p.write_text("This is safe to deploy.\n", encoding="utf-8")
+            p.chmod(0)
+            try:
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = ch.main([str(p)])
+            finally:
+                p.chmod(0o644)
+            self.assertEqual(rc, 1, "an unreadable listed doc must FAIL, never count as scanned")
+            self.assertIn("MISSING", buf.getvalue())
+
+    def test_line_numbers_stay_correct_after_soft_unwrap(self):
+        # The 1:1 offset property: soft-unwrap must not shift the reported line numbers.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text("First paragraph wraps over\ntwo lines without claims.\n\n"
+                         "Second paragraph says the model\nis safe to deploy today.\n", encoding="utf-8")
+            hits = ch.scan_file(p)
+            self.assertEqual(len(hits), 1)
+            self.assertEqual(hits[0]["line"], 5, "soft-unwrap must keep raw-text line numbers exact")
+
+    def test_trustless_needs_scoping_or_negation(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text("The timestamp is trustless.\n", encoding="utf-8")
+            self.assertTrue(ch.scan_file(p), "positive 'trustless' must flag")
+            p.write_text("The time is trust-minimized (Bitcoin PoW time).\n", encoding="utf-8")
+            self.assertEqual(ch.scan_file(p), [], "the scoped wording is the allowed form")
+            p.write_text("This does not make the anchor trustless.\n", encoding="utf-8")
+            self.assertEqual(ch.scan_file(p), [], "negated 'trustless' is allowed")
+
+
 if __name__ == "__main__":
     unittest.main()

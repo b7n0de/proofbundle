@@ -8,8 +8,8 @@ NOT wired into the built-in set (``_ensure_builtin_types``) — a third-party ty
 **What it proves.** A ``markovian-provenance/v1`` stamp is an *issuer-attributable* commitment: it binds
 the committed data to a wallet via ``merkle_root = sha256(data_hash ":" salt ":" wallet)``, and the data
 itself is Bitcoin-anchored with OpenTimestamps. A verified anchor therefore says: *the target canonical
-root was committed by wallet W and existed by the OTS-attested Bitcoin block time.* The time is trustless
-(Bitcoin); the issuer binding is self-consistent inside the stamp envelope.
+root was committed by wallet W and existed by the OTS-attested Bitcoin block time.* The time is
+trust-minimized (Bitcoin PoW time); the issuer binding is self-consistent inside the stamp envelope.
 
 **Composition, not reinvention.** The Bitcoin time proof is delegated verbatim to the built-in
 ``opentimestamps`` verifier (:func:`proofbundle.anchors_ots.verify_opentimestamps`), inheriting its exact
