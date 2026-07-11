@@ -102,6 +102,66 @@ class TestHarnessFailsClosed(unittest.TestCase):
         # must return 1 (a FAIL), not raise
         self.assertEqual(self._run_on(root), 1)
 
+    def test_missing_case_dir_is_per_case_fail_not_crash(self):
+        # WP-S1 review (harness lens): a manifest entry pointing at a deleted case dir must be a
+        # per-case FAIL, not an uncaught FileNotFoundError that aborts the whole run and masks other cases.
+        import shutil
+        root = self._copy_corpus()
+        shutil.rmtree(next(root.glob("bundle/*")))
+        self.assertEqual(self._run_on(root), 1)  # returns 1, does not raise
+
+    def test_malformed_case_json_is_per_case_fail_not_crash(self):
+        root = self._copy_corpus()
+        next(root.glob("bundle/*/case.json")).write_text("{ this is not json")
+        self.assertEqual(self._run_on(root), 1)
+
+    def test_case_json_without_kind_is_per_case_fail(self):
+        import json
+        root = self._copy_corpus()
+        cp = next(root.glob("bundle/*/case.json"))
+        case = json.loads(cp.read_text())
+        case.pop("kind", None)
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1)
+
+    def test_native_bundle_input_path_escape_is_rejected(self):
+        import json
+        root = self._copy_corpus()
+        cp = root / "bundle/valid-minimal/case.json"
+        case = json.loads(cp.read_text())
+        case["input"] = "/etc/hostname"
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1, "an input escaping the case dir must FAIL")
+
+    def test_native_bundle_wrong_expected_exitcode_fails(self):
+        import json
+        root = self._copy_corpus()
+        # the valid bundle verifies with exit 0; asserting it must exit 2 must FAIL
+        cp = root / "bundle/valid-minimal/case.json"
+        case = json.loads(cp.read_text())
+        case["expected"]["exitCode"] = 2
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1)
+
+    def test_native_bundle_missing_exitcode_fails(self):
+        import json
+        root = self._copy_corpus()
+        cp = root / "bundle/valid-minimal/case.json"
+        case = json.loads(cp.read_text())
+        case["expected"] = {}
+        cp.write_text(json.dumps(case))
+        self.assertEqual(self._run_on(root), 1, "a native_bundle case without exitCode must FAIL (floor)")
+
+    def test_duplicate_key_bundle_is_rejected(self):
+        # the C1 defense as a conformance property: the dup-key fixture MUST verify to exit 2
+        from proofbundle.cli import main as cli_main
+        import contextlib
+        import io
+        p = _CONF / "bundle/duplicate-json-key/bundle.json"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = cli_main(["verify", str(p)])
+        self.assertEqual(rc, 2, "a bundle with a duplicate JSON key must be rejected as malformed")
+
 
 if __name__ == "__main__":
     unittest.main()
