@@ -333,7 +333,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
 
 
 def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool,
-                                 require_target=None) -> dict:
+                                 require_target=None, rp_trust=None) -> dict:
     """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
     ``proofbundle.anchors`` layer — never a parallel reimplementation. Returns
     ``{ok, status, detail, results}`` where ``ok`` is the anchor layer's ``require_met`` verdict: True
@@ -371,7 +371,8 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
             pass
     try:
         res = verify_anchors(anchors_list, target_roots=target_roots, require=require,
-                             require_target=require_target, allow_pending=allow_pending)
+                             require_target=require_target, allow_pending=allow_pending,
+                             rp_trust=rp_trust)
     except ProofBundleError as exc:   # malformed anchors[] → fail-closed (never a silent pass)
         return {"ok": False, "status": "FAIL", "detail": str(exc), "results": []}
     # WP4 fix (aggregation bug): the requirement verdict follows the anchor layer's `require_met` signal
@@ -380,6 +381,49 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
     # requirement a different anchor satisfies. Fail-closed: a missing signal defaults to not-met.
     return {"ok": bool(res.get("require_met", False)), "status": res["status"], "detail": res["detail"],
             "results": res.get("results", [])}
+
+
+def _build_rp_trust(args: argparse.Namespace) -> dict | None:
+    """WP-A1: assemble the relying party's anchor trust material from CLI flags. Returns None when the
+    relying party supplied nothing (→ a required time anchor is unmet, exit 3 — never a silent frozen
+    pass). Malformed input raises ValueError → the documented malformed-input exit 2."""
+    import base64 as _b64  # noqa: PLC0415
+    rp: dict = {}
+    roots = getattr(args, "trusted_tsa_root", None) or []
+    if roots:
+        from cryptography import x509  # noqa: PLC0415
+        der_b64: list = []
+        for path in roots:
+            try:
+                raw = open(path, "rb").read()  # noqa: SIM115
+            except OSError as exc:
+                raise ValueError(f"--trusted-tsa-root {path!r}: cannot read ({exc})") from exc
+            try:   # accept PEM or DER; normalize to base64 DER (what the verifier loads)
+                cert = x509.load_pem_x509_certificate(raw) if b"-----BEGIN" in raw \
+                    else x509.load_der_x509_certificate(raw)
+            except Exception as exc:
+                raise ValueError(f"--trusted-tsa-root {path!r}: not a valid certificate ({exc})") from exc
+            from cryptography.hazmat.primitives.serialization import Encoding  # noqa: PLC0415
+            der_b64.append(_b64.b64encode(cert.public_bytes(Encoding.DER)).decode("ascii"))
+        rp["trusted_tsa_roots"] = der_b64
+    headers = getattr(args, "bitcoin_header", None) or []
+    if headers:
+        by_height: dict = {}
+        for spec in headers:
+            if ":" not in spec:
+                raise ValueError(f"--bitcoin-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
+            height, _, root_hex = spec.partition(":")
+            height, root_hex = height.strip(), root_hex.strip().lower()
+            if not height.isdigit():
+                raise ValueError(f"--bitcoin-header {spec!r}: height must be a non-negative integer")
+            try:
+                if len(bytes.fromhex(root_hex)) != 32:
+                    raise ValueError
+            except ValueError as exc:
+                raise ValueError(f"--bitcoin-header {spec!r}: merkle root must be 32-byte hex") from exc
+            by_height[height] = root_hex
+        rp["bitcoin_block_headers"] = by_height
+    return rp or None
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
@@ -401,6 +445,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (a silent no-op would hide a mistaken invocation) → the documented malformed-input exit 2.
         if allow_pending and require_anchor is None:
             raise ValueError("--allow-pending only applies together with --require-anchor / --anchor-type")
+        # WP-A1: build the relying-party anchor trust material INSIDE the try so a malformed
+        # --trusted-tsa-root / --bitcoin-header is a clean exit 2 (not a raw traceback), like every other
+        # malformed flag. Built once, used at the anchor-requirement site (which is outside this try).
+        rp_trust_material = _build_rp_trust(args)
         # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
         # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
         bundle = load_bundle(args.bundle)
@@ -470,7 +518,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     if require_anchor is not None and crypto_ok:
         anchor_report = _evaluate_anchor_requirement(
             bundle, require=require_anchor, allow_pending=allow_pending,
-            require_target=anchor_target)
+            require_target=anchor_target, rp_trust=rp_trust_material)
         anchor_required_ok = anchor_report["ok"]
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
@@ -1105,6 +1153,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="with --require-anchor / --anchor-type, also accept a PENDING anchor (e.g. "
                              "an un-upgraded OpenTimestamps proof) as satisfying the requirement — "
                              "weaker, since a pending proof is not yet a full external-time anchor")
+    verify.add_argument("--trusted-tsa-root", action="append", default=None, metavar="PATH",
+                        help="WP-A1: a relying-party-supplied TSA root certificate (DER or PEM), repeatable. "
+                             "This is the ONLY trust source for an rfc3161-tsa anchor — the bundle's own "
+                             "frozen root is producer-controlled evidence, never trusted. Without it a "
+                             "required rfc3161 anchor is unmet (exit 3)")
+    verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
+                        help="WP-A1: a relying-party-supplied Bitcoin block header merkle root for a height "
+                             "(internal/node byte order, as bitcoind returns it), repeatable. The ONLY "
+                             "trust source that CONFIRMS an OpenTimestamps anchor — the bundle's frozen "
+                             "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
