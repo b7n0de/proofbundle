@@ -179,7 +179,8 @@ def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Option
     # exception types (ValueError, ...) misses RecursionError (deeply nested JSON), MemoryError, or a TypeError
     # from a non-bytes canonical_root — all of which a caller-controlled proof could trigger. Catch everything.
     try:
-        proof_obj = json.loads(bytes(proof).decode("utf-8"))
+        from ._strict_json import loads_strict  # noqa: PLC0415 — WP-C1: dup keys fail-closed
+        proof_obj = loads_strict(bytes(proof).decode("utf-8"))
         if not isinstance(proof_obj, dict):
             return {"ok": False, "warn": False, "status": "fail", "detail": "chia-datalayer proof JSON must be an object"}
         res = verify_offline_merkle(proof_obj, bytes(canonical_root))

@@ -121,13 +121,11 @@ def load_bundle(path: str) -> dict:
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
     escaping as a raw RecursionError traceback (verify-lens L3, 2026-07-09)."""
     with open(path, "r", encoding="utf-8") as handle:
-        try:
-            # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle
-            # path silently kept the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic
-            # parser differential across JSON implementations.
-            return loads_strict(handle.read())
-        except RecursionError as exc:
-            raise BundleFormatError("bundle JSON nesting is too deep") from exc
+        # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path
+        # silently kept the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser
+        # differential across JSON implementations. loads_strict ALSO owns the RecursionError →
+        # BundleFormatError mapping for deep nesting (the old outer handler here became dead code).
+        return loads_strict(handle.read())
 
 
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None) -> VerificationResult:

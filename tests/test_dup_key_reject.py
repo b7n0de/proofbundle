@@ -155,10 +155,9 @@ class TestDsseStatementPaths(unittest.TestCase):
             self.assertIn("duplicate JSON key", str(ctx.exception),
                           f"mode={mode}: the STRICT parser must fire, not a downstream mismatch")
 
-    def test_svr_and_test_result_verify_reject_duplicates(self):
-        from proofbundle.bundle import verify_bundle  # noqa: F401 - context import
-        from proofbundle.intoto import (export_intoto_dsse, export_svr_dsse, verify_intoto_dsse,
-                                        verify_svr_dsse)
+    def test_svr_and_test_result_verify_reject_duplicates_both_modes(self):
+        from proofbundle.intoto import (LEGACY_CONTENT_ROOT_ALG, export_intoto_dsse,
+                                        export_svr_dsse, verify_intoto_dsse, verify_svr_dsse)
         from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
         claim, _ = build_eval_claim(
             suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.5",
@@ -166,14 +165,15 @@ class TestDsseStatementPaths(unittest.TestCase):
         signer = generate_signer()
         pub = signer.public_key().public_bytes_raw()
         receipt = emit_eval_receipt(claim, signer)
-        svr_env = export_svr_dsse(receipt, signer)
-        with self.assertRaises(BundleFormatError) as ctx:
-            verify_svr_dsse(self._with_dup_payload(svr_env), pub)
-        self.assertIn("duplicate JSON key", str(ctx.exception))
-        tr_env = export_intoto_dsse(claim, signer)
-        with self.assertRaises(BundleFormatError) as ctx:
-            verify_intoto_dsse(self._with_dup_payload(tr_env), pub)
-        self.assertIn("duplicate JSON key", str(ctx.exception))
+        for mode_kwargs in ({}, {"content_root_alg": LEGACY_CONTENT_ROOT_ALG}):
+            svr_env = export_svr_dsse(receipt, signer, **mode_kwargs)
+            with self.assertRaises(BundleFormatError) as ctx:
+                verify_svr_dsse(self._with_dup_payload(svr_env), pub)
+            self.assertIn("duplicate JSON key", str(ctx.exception), f"svr {mode_kwargs}")
+            tr_env = export_intoto_dsse(claim, signer, **mode_kwargs)
+            with self.assertRaises(BundleFormatError) as ctx:
+                verify_intoto_dsse(self._with_dup_payload(tr_env), pub)
+            self.assertIn("duplicate JSON key", str(ctx.exception), f"test-result {mode_kwargs}")
 
 
 class TestDecisionPath(unittest.TestCase):
@@ -239,6 +239,80 @@ class TestDecisionPath(unittest.TestCase):
                     os.unlink(f)
         self.assertEqual(rc, 2)
         self.assertIn("duplicate JSON key", err)
+
+
+class TestSixLensExtendedPaths(unittest.TestCase):
+    """The six-lens review of the first C1 cut proved these paths still parsed last-wins."""
+
+    def test_trust_policy_file_with_duplicate_key_rejected(self):
+        from proofbundle.policy import PolicyError, load_policy
+        path = _write('{"schema":"proofbundle/trust-policy/v0.1","policy_id":"x",'
+                      '"allowed_issuers":[],"allowed_issuers":[{"public_key_b64":"QQ=="}]}')
+        try:
+            with self.assertRaises(PolicyError) as ctx:
+                load_policy(path)
+        finally:
+            os.unlink(path)
+        self.assertIn("duplicate JSON key", str(ctx.exception))
+
+    def test_persample_disclosure_record_with_duplicate_key_fails(self):
+        # A committed disclosure whose RECORD carries {"verdict":"PASS","verdict":"FAIL"}: the
+        # leaf hash is over the raw string (inclusion passes), but the parsed record was
+        # last-wins — the proven silent split between committed bytes and read record.
+        from proofbundle import merkle
+        from proofbundle.persample import verify_sample_opening
+        disclosure_json = '["c2FsdHNhbHRzYWx0c2FsdA",{"idx":0,"verdict":"PASS","verdict":"FAIL"}]'
+        disclosure = base64.urlsafe_b64encode(disclosure_json.encode()).rstrip(b"=").decode("ascii")
+        root = merkle.merkle_tree_hash([disclosure.encode("ascii")])
+        res = verify_sample_opening({"index": 0, "disclosure": disclosure, "proof_b64": []},
+                                    base64.b64encode(root).decode("ascii"), 1)
+        self.assertFalse(res["ok"])
+        self.assertIn("duplicate JSON key", res["detail"])
+
+    def test_statuslist_duplicate_status_list_key_rejected(self):
+        # The PROVEN revocation split-brain: a signed token whose payload duplicates status_list
+        # read VALID (first-wins) vs INVALID (last-wins). Build a REAL signed token, then inject
+        # the duplicate into the payload segment (signature over the mutated segment re-done).
+        import zlib
+        from proofbundle.statuslist import verify_status_snapshot
+        signer = generate_signer()
+        pub = signer.public_key().public_bytes_raw()
+        lst_valid = base64.urlsafe_b64encode(zlib.compress(bytes([0x00]), 9)).rstrip(b"=").decode()
+        lst_invalid = base64.urlsafe_b64encode(zlib.compress(bytes([0x01]), 9)).rstrip(b"=").decode()
+        payload = ('{"sub":"https://l.example/1","iat":1750000000,'
+                   f'"status_list":{{"bits":1,"lst":"{lst_valid}"}},'
+                   f'"status_list":{{"bits":1,"lst":"{lst_invalid}"}}}}')
+        header = '{"alg":"EdDSA","typ":"statuslist+jwt"}'
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")  # noqa: E731
+        signing_input = b64(header.encode()) + "." + b64(payload.encode())
+        token = signing_input + "." + b64(signer.sign(signing_input.encode("ascii")))
+        res = verify_status_snapshot(token, expected_uri="https://l.example/1", index=0,
+                                     issuer_pubkey=pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("duplicate JSON key", res["detail"])
+
+    def test_enclave_eat_duplicate_claim_rejected(self):
+        from proofbundle.experimental import enclave as enc
+        signer = generate_signer()
+        pub = signer.public_key().public_bytes_raw()
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")  # noqa: E731
+        header = '{"alg":"EdDSA","typ":"eat+jwt"}'
+        claims = '{"eat_nonce":"AAA","eat_nonce":"BBB","eat_profile":"p","tier":"t"}'
+        signing_input = b64(header.encode()) + "." + b64(claims.encode())
+        eat = signing_input + "." + b64(signer.sign(signing_input.encode("ascii")))
+        res = enc.verify_enclave_attestation(eat, verifier_pubkey=pub, expected_binding="BBB")
+        self.assertFalse(res["ok"])
+        self.assertIn("duplicate JSON key", res["detail"])
+
+    def test_anchor_envelopes_reject_duplicates_fail_closed_no_raise(self):
+        from proofbundle.anchors_chia import verify_chia_datalayer
+        from proofbundle.anchors_markovian import verify_markovian
+        chia = verify_chia_datalayer(b'{"key":"00","key":"11"}', b"\x00" * 32, frozen={})
+        self.assertFalse(chia["ok"])
+        mark = verify_markovian(b'{"schema":"markovian-provenance/v1","wallet":"a","wallet":"b"}',
+                                b"\x00" * 32, frozen={})
+        self.assertFalse(mark["ok"])
+        self.assertEqual(mark["status"], "malformed")
 
 
 if __name__ == "__main__":

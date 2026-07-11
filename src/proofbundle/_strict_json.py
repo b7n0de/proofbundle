@@ -9,12 +9,23 @@ INDIRECTLY (a duplicated payload cannot be byte-equal to its own canonical re-se
 but the native bundle path accepted them silently, and an explicit reject with a clear message
 beats an incidental byte-mismatch everywhere.
 
-Rule: EVERY ``json.loads``/``json.load`` on attacker-supplied verify-path input goes through
-:func:`loads_strict`. Emit-side inputs (a claim file the caller authored) use it too — a duplicate
-key in something about to be signed is at best an authoring bug, at worst an attempted differential.
+Converted paths: the native bundle (``load_bundle``, the HF ``pb1.`` token), the DSSE statement
+verifiers (eval-result / test-result / SVR / decision), the trust-policy loader, the per-sample
+disclosure record, the chia-datalayer and markovian anchor envelopes, the status-list token, the
+enclave EAT, and every ``json.load`` in the CLI. Emit-side inputs (a claim/predicate file the
+caller authored) use it too — a duplicate key in something about to be signed is at best an
+authoring bug, at worst an attempted differential.
+
+Known residuals (deliberate, documented): the SD-JWT/KB-JWT payload parses in ``sdjwt.py`` /
+``kbjwt.py`` and the ``bundle._issuer_requires_holder_binding`` helper — there a naive conversion
+would INVERT a fail-closed direction (a rejected ``cnf`` read must not read as "no holder binding
+required"); that group needs its own careful pass. Keys that differ only by Unicode normalization
+(NFC/NFD) or a BOM are DISTINCT JSON keys by spec and stay distinct here — normalization games are
+a downstream concern of the field validators, not of the parser.
 
 Stdlib-only (``object_pairs_hook``), so the base install keeps rejecting duplicates without any
-extra. The hook fires for every nested object, so duplicates are rejected at ANY depth.
+extra. The hook fires for every nested object (including objects inside arrays), so duplicates are
+rejected at ANY depth.
 """
 from __future__ import annotations
 

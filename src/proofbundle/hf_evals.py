@@ -152,6 +152,10 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
             # genuinely NON-eval bundle (different/absent schema) has no verdict to check → skip. The bundle's signature
             # was already verified above (require_verified), so reading the raw payload's schema label is authentic.
             try:
+                # WP-C1, DELIBERATE: a duplicate key here raises BundleFormatError and PROPAGATES
+                # (it is NOT in the tuple below) — the schema label of a dup-key payload cannot be
+                # read reliably, so refusing to publish is the only honest outcome. Adding it to
+                # the except would set _is_eval=False and fail OPEN for dup-key eval claims.
                 _raw = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
                 _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
