@@ -98,6 +98,24 @@ See `examples/decision_receipt_{allow,deny,escalate}.json` and the wrapped State
 `examples/decision_receipt_with_eval_ref.intoto.json`. Machine schema:
 `schemas/decision-receipt-v0.1.schema.json`.
 
+### 6.1 Programmatic validation (the list-vs-raise contract)
+
+`proofbundle.decision.validate_decision_predicate(pred)` **returns** a list of findings;
+an **empty list means valid**. It does **not** raise. Check the list — do **not** wrap
+the call in `try/except`, because "no exception" is not "valid": every predicate, valid
+or not, returns without raising, so a `try/except` idiom reports invalid input as valid.
+
+```python
+errors = validate_decision_predicate(pred)
+if errors:            # non-empty == invalid, fail closed
+    reject(errors)
+```
+
+If you prefer exception control flow, call
+`proofbundle.decision.require_valid_decision_predicate(pred)`, which raises
+`DecisionReceiptError` (with the finding count and messages) on an invalid predicate and
+returns `None` on a valid one. Both accept `strict=True` for the strict-v0.1 rules.
+
 ## 7. Verification
 
 `proofbundle decision verify <statement-or-envelope> [--pub KEY] [--policy trust_policy.json] [--json]`.

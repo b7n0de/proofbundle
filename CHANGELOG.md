@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — decision-receipt validator API hardening + cross-impl gap record (WP-W6 / WP-W1)
+- **`decision.require_valid_decision_predicate(pred)`** — a raising counterpart to
+  `validate_decision_predicate`. The list-returning validator (empty list == valid, never raises)
+  is easy to misuse as `try: validate(...) ; except: ...`, which silently passes every predicate:
+  that idiom produced a public "passes the enforced v0.1 validator as-is" claim for an external
+  cross-implementation fixture that in fact reported 12 findings. The wrapper raises
+  `DecisionReceiptError` (with the finding count) on an invalid predicate, `None` on a valid one.
+  `docs/predicates/decision-receipt.md` §6.1 documents the list-vs-raise contract; a regression
+  test (`tests/test_decision_validator_api.py`) pins that the naive try/except idiom wrongly passes.
+- **`audit_artifacts/crossimpl_fixture_gap_20260711.md`** — No-Overclaim record for the
+  MarkovianProtocol/audit-anchor decision-receipt fixture: the RFC 8785 canonicalization and
+  content-root binding are proven byte-identical cross-implementation (evidence `323adb18…`,
+  decision `ff05e3e0…`), but the external predicate does not yet satisfy the enforced
+  `decision-receipt/v0.1` schema (field mapping thread-prose → v0.1 included). Both statements are
+  recorded so neither is overclaimed nor hidden.
+
 ### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
 - **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
   only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
