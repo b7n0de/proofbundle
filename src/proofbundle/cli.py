@@ -7,6 +7,7 @@ import json
 import sys
 
 from . import SPEC_REVISION, __version__
+from ._strict_json import loads_strict
 from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
@@ -653,7 +654,7 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
     from .persample import verify_sample_opening  # noqa: PLC0415
     try:
         with open(args.opening, encoding="utf-8") as handle:
-            opening = json.load(handle)
+            opening = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         res = verify_sample_opening(opening, args.root, args.n)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -742,7 +743,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     if args.verify:
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = json.load(handle)
+                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError) as exc:
@@ -785,7 +786,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
     if args.verify:
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = json.load(handle)
+                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
         except (OSError, ValueError, ProofBundleError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -828,9 +829,9 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.predicate, encoding="utf-8") as handle:
-            predicate = json.load(handle)
+            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
         env = emit_decision_receipt(predicate, signer, strict=not args.lenient)
-    except (DecisionReceiptError, OSError, ValueError) as exc:
+    except (DecisionReceiptError, ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -858,17 +859,17 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if getattr(args, "anchors", None):
         try:
             with open(args.anchors, encoding="utf-8") as handle:
-                anchors = json.load(handle)
-        except (OSError, ValueError) as exc:
+                anchors = loads_strict(handle.read())   # WP-C1
+        except (ProofBundleError, OSError, ValueError) as exc:
             print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
             return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
-            env = json.load(handle)
+            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=policy, anchors=anchors)
-    except (OSError, ValueError) as exc:
+    except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
@@ -926,11 +927,15 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
         with open(args.receipt, encoding="utf-8") as handle:
-            obj = json.load(handle)
-    except (OSError, ValueError) as exc:
+            obj = loads_strict(handle.read())   # WP-C1
+    except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    statement = json.loads(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    try:
+        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    except (ProofBundleError, ValueError, TypeError) as exc:   # bad base64 / dup key / not JSON → clean exit, not a traceback
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
     print(json.dumps(predicate, indent=2, ensure_ascii=False))
     return 0

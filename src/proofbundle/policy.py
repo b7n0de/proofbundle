@@ -19,10 +19,10 @@ Design invariants:
 from __future__ import annotations
 
 import copy
-import json
 from typing import Union
 
-from .errors import ProofBundleError
+from ._strict_json import loads_strict
+from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
 
@@ -108,8 +108,10 @@ def load_policy(source: Union[str, dict]) -> dict:
     if isinstance(source, str):
         try:
             with open(source, encoding="utf-8") as handle:
-                policy = json.load(handle)
-        except (OSError, ValueError, RecursionError) as exc:   # RecursionError: deeply-nested JSON → fail-closed, not a raw traceback (verify-lens L3)
+                # WP-C1: a duplicated key in a policy is a differential in the TRUST DECISION
+                # itself (two parsers could enforce different allowed_issuers) — reject.
+                policy = loads_strict(handle.read())
+        except (OSError, ValueError, BundleFormatError) as exc:
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object

@@ -163,6 +163,10 @@ MUTATIONS = [
     ("src/proofbundle/anchors.py",
      "if canonical_root != expected_root:", "if False:",
      "anchors: canonicalRoot/target binding disabled (cross-target)", True),
+    # WP-C1 — the duplicate-key reject must fire on every verify path (parser differential).
+    ("src/proofbundle/_strict_json.py",
+     "if key in obj:", "if False:",
+     "strict-json: duplicate-key reject disabled (last-wins differential)", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",

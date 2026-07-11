@@ -17,8 +17,50 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
   policy violations untouched).
 - docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
-  (`tests/test_policy_explain_lint.py`).
+  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
+- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
+  `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
+  `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
+  implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
+  for a signed **status-list token** that was a PROVEN VALID-vs-INVALID revocation split-brain.
+  Converted: the native bundle (`load_bundle`; the `pb1.` HF receipt token), the DSSE statement
+  verifiers (eval-result / test-result / SVR / decision), the **trust-policy loader**, the
+  **per-sample opening's committed disclosure record**, the **chia-datalayer and markovian anchor
+  envelopes**, the **status-list token**, the **enclave EAT**, and every `json.load` in the CLI
+  (`verify-opening`, `intoto --verify`, `svr --verify`, `decision emit/verify/inspect`,
+  `--anchors`). Emit side too: a predicate file carrying a duplicate key is refused before
+  anything is signed. **SPEC §2 now makes duplicate-key rejection normative** (an interoperating
+  implementation that keeps either occurrence is non-conforming); THREAT_MODEL carries the
+  parser-differential row.
+- Deliberate behavior deltas (each stricter, never looser): `to_eval_results_entry` now REFUSES a
+  crypto-valid bundle whose payload carries a duplicate key (previously the entry was built
+  last-wins — refusing to publish an unjudgeable value is the honest outcome);
+  `decision inspect` exits 2 instead of risking a raw traceback on malformed/duplicated payloads.
+- Known residual (documented in `_strict_json`): the SD-JWT/KB-JWT payload parses (`sdjwt.py`,
+  `kbjwt.py`, the `bundle._issuer_requires_holder_binding` helper) — a naive conversion would
+  INVERT a fail-closed direction (a rejected `cnf` read must not read as "no holder binding
+  required"); that group needs its own careful pass. Keys differing only by Unicode normalization
+  or a BOM are distinct JSON keys by spec and stay distinct (a downstream-validator concern).
+- Negative tests `tests/test_dup_key_reject.py` (native bundle signature/merkle/top-level, HF
+  token, all four DSSE verify functions in BOTH content-root modes, decision library+CLI,
+  emit-side refusal, policy/statuslist/persample/enclave/anchor-envelope rejects) + a mutation
+  operator proving the tests kill a disabled guard.
 
+### Added — Ed25519 verify semantics decided, documented, pinned (WP-C2)
+- SPEC.md gains **§4a Verification semantics — the edge-case envelope**: proofbundle's Ed25519
+  verification (via `cryptography`/OpenSSL) matches the **BoringSSL / Dalek (non-strict)** row of
+  the "Taming the Many EdDSAs" corpus exactly (ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10};
+  eprint 2020/1244) — cofactorless, RFC 8032 S-bound enforced, non-canonical R rejected,
+  non-canonical A partially accepted, small-order accepted; NEITHER Dalek-strict (rejects
+  {0,1,2,11}) NOR ZIP-215 (additionally accepts {4,5,9,10}). Honest RFC 8032 signatures are
+  unaffected; the cross-verifier-consensus consequence for crafted signatures is documented here
+  and in THREAT_MODEL.md.
+- The 12-vector corpus is vendored **byte-identical** (`tests/fixtures/ed25519_speccheck_cases.json`,
+  from novifinancial/ed25519-speccheck commit `5e4bfc4…`, blob `8686dcb…`, Apache-2.0 — LICENSE +
+  provenance README beside it) and pinned by `tests/test_ed25519_semantics.py` (content SHA-256 +
+  per-vector verdict) — a fixture tamper OR a backing-library behavior change turns the
+  repository's CI red, demanding a deliberate documented decision, never a silent drift.
+  No behavior change; switching profiles would be a versioned, breaking change.
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and

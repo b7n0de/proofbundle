@@ -31,7 +31,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import json
 from typing import Optional
 
 ANCHOR_TYPE = "markovian-provenance/v1"
@@ -54,13 +53,17 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     The final status/warn mirror the OTS verifier (pending / upgraded_unverified / confirmed); a PASS also
     names the committing wallet and Markovian chain height.
     """
-    # 1. parse
+    # 1. parse (WP-C1: strict — a duplicated key in the envelope is a parser differential over
+    # which wallet/merkle_root was committed; BundleFormatError keeps the never-raise contract)
     try:
-        env = json.loads(proof.decode("utf-8"))
+        from ._strict_json import loads_strict  # noqa: PLC0415
+        env = loads_strict(proof.decode("utf-8"))
         if not isinstance(env, dict):
             raise ValueError("envelope is not a JSON object")
     except (UnicodeDecodeError, ValueError) as exc:
         return _fail("malformed", f"markovian proof is not valid JSON: {exc}")
+    except Exception as exc:   # BundleFormatError (dup key) → clean fail, never a raise
+        return _fail("malformed", f"markovian proof rejected: {exc}")
 
     # 2. schema
     if env.get("schema") != ANCHOR_TYPE:
