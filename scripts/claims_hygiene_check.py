@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 _DEFAULT_DOCS = [
     "README.md", "CITATION.cff", "COMPLIANCE.md", "INTEROP.md", "INTEGRATIONS.md", "SECURITY.md",
     "PREDICATE.md", "THREAT_MODEL.md", "SPEC.md", "CHANGELOG.md", "EVAL_CLAIM.md", "RELEASE.md",
-    "GOVERNANCE.md", "CONTRIBUTING.md",
+    "GOVERNANCE.md", "CONTRIBUTING.md", "MAINTAINERS.md", "TRADEMARK.md",
     "docs/FAQ.md", "docs/GLOSSARY.md", "docs/TRUST_ANCHORS.md", "docs/PROJECT_BRIEF.md",
     "docs/INSPECT_HAPPY_PATH.md", "docs/NON_CLAIMS.md", "docs/DEMO.md", "docs/ANCHORS.md",
     "docs/ANCHORS_MARKOVIAN.md", "docs/REVIEWERS.md", "docs/EXPERIMENTAL_ENCLAVE.md",
