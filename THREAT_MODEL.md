@@ -121,6 +121,16 @@ Decision Receipts (a different layer). [ValiChord](https://github.com/topeuph-ai
 attestation bundles from inspect_ai logs post-hoc (its v1 library is unsigned — signatures are v2 scope).
 Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (SD-JWT Key Binding).
 
+## Ed25519 edge-case envelope (C2) — cross-verifier divergence on crafted signatures
+
+Verification delegates to `cryptography` (OpenSSL): against the eprint 2020/1244 corpus it matches
+the BoringSSL / Dalek (non-strict) row exactly — ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10}
+(SPEC §4a; byte-pinned by `tests/test_ed25519_semantics.py`). An honest RFC 8032 signer is
+unaffected. The residual: for adversarially CRAFTED signatures, an independent verifier with a
+different profile (Dalek-strict, ZIP-215) can disagree with proofbundle about validity — so "N
+verifiers agreed" is only meaningful on hostile inputs when all N pin the same profile. A profile
+switch would be a versioned, breaking change, never silent.
+
 ## Beacon audit mode (v1.9) — residual grinding
 
 The beacon per-sample challenge resists grinding ONLY when the round is pre-committed (a future round) and the receipt's commit-time is corroborated from an INDEPENDENT source. It relies on the self-declared `timestamp` the issuer signs but that `verify` does not prove true — a dishonest issuer can backdate it and grind against an already-public round, so without independent corroboration it is no stronger than the self-challenge mode.
