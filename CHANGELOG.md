@@ -6,7 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
+- **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
+  `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
+  a green `POLICY: OK` that evaluated nothing. Now: `proofbundle policy lint <policy>` exits 1 on
+  such a wirkungslose policy (`--strict` also fails an attributes-to-nobody policy);
+  `proofbundle policy explain <policy>` lists the effective pins (human + `--json`).
+- `verify --policy` marks a PASSING policy that pins no signer inline —
+  `POLICY: OK (WARNING: attributes to nobody)` — plus a machine-readable `policy_warnings[]` JSON
+  field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
+  policy violations untouched).
+- docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
+  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 - **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
   `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
   verified `ok=True` through the verify function of another (a swapped SVR accepted as an
@@ -20,8 +31,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   off-diagonal cell is `ok=False`; plus explicit-expected-type pin, opt-out, and
   wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
 
-### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
-- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
+### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
   `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
   `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
   implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
@@ -64,7 +74,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   per-vector verdict) — a fixture tamper OR a backing-library behavior change turns the
   repository's CI red, demanding a deliberate documented decision, never a silent drift.
   No behavior change; switching profiles would be a versioned, breaking change.
-
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
