@@ -17,8 +17,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
   policy violations untouched).
 - docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
-  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
-- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
+  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+- **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
+  `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
+  verified `ok=True` through the verify function of another (a swapped SVR accepted as an
+  eval-result, a test-result as an SVR, …) — the decision-receipt layer already rejected such
+  confusion, the eval/SVR/test-result layer did not. Each function now pins its own type by default
+  (`expected_predicate_type`, opt out with `None`), returns `ok=False` + a `predicate_type_ok`
+  field + a "confusion attack?" detail on a foreign type. Additive return field; the diagonal
+  (matching type) verifies exactly as before.
+- Cross-predicate matrix test (`tests/test_predicate_type_enforcement.py`): every emitted in-toto
+  type signed and run through every verify function — only the diagonal verifies, every
+  off-diagonal cell is `ok=False`; plus explicit-expected-type pin, opt-out, and
+  wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
+
+### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
   `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
   `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
   implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
