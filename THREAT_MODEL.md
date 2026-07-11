@@ -79,12 +79,13 @@ actually holds:
   (`--policy`, WP-B3); its result is the separate `policy_ok` field and exit code `3` on failure —
   distinct from `1` (crypto failure), so "crypto fine but policy unmet" is never conflated with
   "crypto broken".
-- **"`ASSURANCE: reproduced`, so an independent party reproduced it."** The `ASSURANCE:` line is the
-  issuer's own signed, verbatim self-declaration — tamper-evident and bound to the issuer, but
-  issuer-*declared*. A dishonest issuer can sign `reproduced` on a self-run eval (see "A dishonest
-  self-attested issuer" above). Treat `ASSURANCE` as *what the issuer claims about rigour*, corroborated
-  only by whatever out-of-band anchor (pre-registration, a third-party key, an enclave verifier key)
-  you actually pinned.
+- **"`ASSURANCE: reproduced (issuer-declared)`, so an independent party reproduced it."** The
+  `ASSURANCE:` line is the issuer's own signed, verbatim self-declaration — tamper-evident and bound
+  to the issuer, but issuer-*declared*; the `(issuer-declared)` suffix (and the JSON's
+  `assurance_declared_by: "issuer"`) says exactly that. A dishonest issuer can sign `reproduced` on a
+  self-run eval (see "A dishonest self-attested issuer" above). Treat `ASSURANCE` as *what the issuer
+  claims about rigour*, corroborated only by whatever out-of-band anchor (pre-registration, a
+  third-party key, an enclave verifier key) you actually pinned.
 
 Rule of thumb: **`CRYPTO: OK` answers "are these the bytes that issuer signed?" — nothing else on the
 line answers "should I believe them?".** That second question is a `POLICY` decision you must supply

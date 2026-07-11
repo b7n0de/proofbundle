@@ -41,12 +41,14 @@ The same discipline applies to the decision path. A verified Decision Receipt do
   been altered — a protocol entry, not a verdict on the decision's quality.
 - **Authorization.** A verified ALLOW receipt is a *record* of a decision, **not an authorization
   token, not a bearer token, and not a capability**. Possession of a receipt authorizes nothing; the
-  system executing an action must make its own authorization check. A relying party that treats a
-  replayed ALLOW as permission has misread the format — set `require_audience` / `require_nonce`
-  (`validity.audience` / `validity.nonce`) so a receipt cannot even *verify* outside its intended
-  context.
-- **That the action happened.** `actionOutcome: executed` without a signed outcome reference is
-  self-asserted; the CLI says so (`action_outcome_proven: false`).
+  system executing an action must make its own authorization check. Against cross-context replay:
+  issue receipts with `validity.audience` / `validity.nonce` and verify with `--aud` / `--nonce`
+  (the value binding); a v0.2 trust policy's `require_audience` / `require_nonce` additionally
+  enforce that those fields are *present*, so a receipt cannot silently drop replay protection.
+- **That the action happened.** `actionOutcome: executed` without a digest-bound `outcomeRef` is
+  self-asserted; the CLI says so (`action_outcome_proven: false`). An `outcomeRef` digest pins
+  *which* outcome record is meant — whether that record is itself signed and by whom is a separate
+  trust decision.
 
 ## TEE attestation bridge (experimental)
 

@@ -23,8 +23,10 @@ an afternoon and treat the rest as "does not weaken the core if ignored."
 1. **Run it, then break it (5 min).** `pip install -e ".[eval]" && proofbundle demo` — an honest receipt
    verifies, six tampers each verify FAILED, a swapped sample is caught. The command exits
    non-zero if any tamper verifies; if you can make it exit 0 with a real tamper, that is a break.
-2. **Full suite (5 min).** `make test` → 683 tests. Without optional dev extras you will see a few
-   skips/env errors (`jsonschema`, `pytest`); those are environmental, not code defects.
+2. **Full suite (5 min).** `make test` — the whole test suite (the current count is what CI prints;
+   it is deliberately not hard-coded here, a stale number reads as neglect). Without optional dev
+   extras you will see a few skips/env errors (`jsonschema`, `pytest`); those are environmental,
+   not code defects.
 3. **Correctness is not self-referential (5 min).** Two external anchors are vendored and tested:
    RFC 6962 conformance vectors from `transparency-dev/merkle`
    (`tests/fixtures/rfc6962_vectors.json`) and a real Sigstore Rekor inclusion proof
@@ -32,8 +34,8 @@ an afternoon and treat the rest as "does not weaken the core if ignored."
    recomputed offline by `examples/rekor_interop.py`). The SD-JWT digest is cross-checked against
    the `sd-jwt-python` reference (dev extra).
 4. **The mutation gate (5 min).** `make mutation` — the tests must KILL deliberately broken
-   implementations, not merely be green (anti-Goodhart). 26 operators; one documented-equivalent
-   survivor is expected and asserted.
+   implementations, not merely be green (anti-Goodhart). The operator list lives in
+   `scripts/mutation_check.py`; one documented-equivalent survivor is expected and asserted.
 5. **The per-sample audit (5 min).** `make persample-demo` — a producer signs a samples root into
    a receipt, an auditor challenges random indices with a fresh nonce, openings verify, a swap
    fails. This is the anti-cherry-picking mechanism; try to forge an opening.

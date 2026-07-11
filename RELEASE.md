@@ -42,10 +42,12 @@ The order below is the convention, not a suggestion. A release is a fact about `
 - [ ] Turn the aspirational badges (PyPI version, Python versions, Downloads, SLSA, PEP 740) live
       only AFTER the first successful publish (they render broken/false before that).
 
-## Beta / pre-release (v2.0 line)
+## Beta / pre-release (any future pre-release line)
 
-The v2.0 line ships as a PEP 440 pre-release while the experimental TEE-attestation bridge
-stabilizes. `pip install proofbundle` never pulls a pre-release, so v1.x stays the default.
+Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); since
+then the 2.x line is the stable default and the `[experimental]` extra ships with normal releases.
+The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
+pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
 
 - [ ] Version string is the **PyPI** form, never the SemVer hyphen form: publish `2.0.0b1`
       (alpha `2.0.0a1`, rc `2.0.0rc1`) — `2.0.0-beta.1` is invalid on PyPI (PEP 440).

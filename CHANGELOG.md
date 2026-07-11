@@ -23,18 +23,43 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed — wording and reference hygiene (WP-N2)
 - `verify` labels the assurance source: `ASSURANCE: <level> (issuer-declared)` plus a machine-readable
-  `assurance_declared_by: "issuer"` JSON field (null when the bundle is not an eval receipt) — the
-  level is the issuer's own declaration, never an appraisal.
+  `assurance_declared_by: "issuer"` JSON field (null when the bundle is not an eval receipt, and null
+  when crypto failed — no level to attribute) — the level is the issuer's own declaration, never an
+  appraisal. **Migration note:** a consumer that matched the FULL line (e.g.
+  `^ASSURANCE: reproduced$`) must accept the ` (issuer-declared)` suffix; `assertIn`-style prefix
+  matching keeps working.
 - `trustless` → `trust-minimized (Bitcoin PoW time)` in `anchors_markovian.py` and
   `docs/ANCHORS_MARKOVIAN.md` (the Bitcoin time component is trust-minimized; nothing here is
   trust-free).
 - `docs/NON_CLAIMS.md` gains a **Decision Receipts** section (a verified ALLOW is a *record*, not an
-  authorization/bearer token; set `require_audience`/`require_nonce` against cross-context replay) and
-  a **TEE bridge** section; `decision verify --help` carries the same boundary sentence.
+  authorization/bearer token; against cross-context replay issue receipts with `validity.audience`/
+  `validity.nonce` and verify with `--aud`/`--nonce` — a v0.2 policy's `require_audience`/
+  `require_nonce` enforce their *presence*) and a **TEE bridge** section; `decision verify --help`
+  carries the same boundary, including that `--aud`/`--nonce` only bind a receipt that carries a
+  `validity` object.
 - Reference fixes, pinned by `tests/test_docs_truth.py`: ValiChord URL →
   `github.com/ValiChord/ValiChord` (INTEROP.md, INTEGRATIONS.md); SD-JWT VC citation →
   draft-ietf-oauth-sd-jwt-vc-17 (IESG "Publication Requested"; `dc+sd-jwt` not yet IANA-registered);
   `docs/EXPERIMENTAL_ENCLAVE.md` install no longer pins the stale `2.0.0b1` beta.
+
+### Hardened after the six-lens adversarial review of this change set (2026-07-11)
+- **Gate:** a listed-but-unreadable doc is now a FAIL like a missing one (it silently counted as
+  scanned + PASS); heading/table-row/fence/setext lines no longer merge forward into the next
+  paragraph (a negation inside a heading could exonerate the following prose); clause separators
+  (`;`, `:`, `—`) now bound the negation window (a negation in an earlier, grammatically independent
+  clause no longer exonerates a later positive claim); the scan set additionally covers
+  INTEGRATIONS.md, EVAL_CLAIM.md, RELEASE.md, GOVERNANCE.md, CONTRIBUTING.md (25 docs).
+- **Docs truth:** `docs/ANCHORS.md` no longer asserts a positive `trustless` ("run your own and no
+  third-party trust remains"); `docs/REVIEWERS.md` drops its stale hard-coded test/operator counts
+  (683→ the suite had grown; 26→ the operator list lives in `scripts/mutation_check.py`);
+  RELEASE.md's beta section is reframed as convention-for-future-pre-releases (the "v1.x stays the
+  default" sentence was stale since 2.0.0 final); THREAT_MODEL.md quotes the new `ASSURANCE:` line
+  format; NON_CLAIMS.md says "digest-bound `outcomeRef`" (the verifier checks the digest's presence
+  and binding, not a signature on the outcome record).
+- **Tests:** content-violation ⇒ exit 1 pinned at the `main()` level; unreadable-doc ⇒ FAIL pinned;
+  the exit-2 error path is pinned to carry the FULL `verify --json` field contract (incl.
+  `assurance_declared_by`); the CLI-help assertion is terminal-width-independent; a line-number pin
+  proves soft-unwrap keeps positions 1:1.
 
 ## [2.1.0] - 2026-07-10
 

@@ -16,12 +16,14 @@ class TestDocsTruth(unittest.TestCase):
     def test_readme_carries_no_hardcoded_test_count(self):
         # F5: the README stated "303 tests" while the suite had grown past it. A hardcoded count
         # goes stale on every added test. Removed (not tracked by hand) — this guard keeps it gone:
-        # a "<N> tests" phrase in the README is a stale-metric regression.
-        readme = (REPO / "README.md").read_text(encoding="utf-8")
-        # ignore fenced code blocks (a CLI sample line is not a prose metric)
-        prose = re.sub(r"```.*?```", "", readme, flags=re.DOTALL)
-        hits = re.findall(r"\b\d+\s+tests?\b", prose, flags=re.IGNORECASE)
-        self.assertEqual(hits, [], f"README carries a hardcoded, stale-prone test count: {hits}")
+        # a "<N> tests" phrase is a stale-metric regression. docs/REVIEWERS.md joined the guard
+        # after the six-lens review (2026-07-11) found it saying "683 tests" against a 693 suite.
+        for rel in ("README.md", "docs/REVIEWERS.md"):
+            text = (REPO / rel).read_text(encoding="utf-8")
+            # ignore fenced code blocks (a CLI sample line is not a prose metric)
+            prose = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+            hits = re.findall(r"\b\d+\s+(?:tests?|operators?)\b", prose, flags=re.IGNORECASE)
+            self.assertEqual(hits, [], f"{rel} carries a hardcoded, stale-prone count: {hits}")
 
     def test_citation_version_matches_pyproject(self):
         # F6/SH4: CITATION.cff stated version 0.7.0 while pyproject shipped 1.9.1 — a stale version
@@ -105,7 +107,11 @@ class TestDocsTruth(unittest.TestCase):
                 parser.parse_args(["decision", "verify", "--help"])
         except SystemExit:
             pass
-        self.assertIn("NOT an authorization or bearer token", buf.getvalue())
+        # argparse wraps help text at the terminal width (COLUMNS) — normalize whitespace so this
+        # assertion is width-independent (six-lens review: COLUMNS=60 broke the raw assertIn).
+        normalized = " ".join(buf.getvalue().split())
+        self.assertIn("NOT an authorization or bearer token", normalized)
+        self.assertIn("a receipt without a validity object is not checked against them", normalized)
 
 
 if __name__ == "__main__":

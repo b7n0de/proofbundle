@@ -364,6 +364,11 @@ class TestErrorPathAndRobustness(unittest.TestCase):
         self.assertIn("error", data)
         self.assertFalse(data["crypto_ok"])    # readable without a KeyError on the error path
         self.assertIsNone(data["signature_ok"])
+        # Six-lens review (2026-07-11): the exit-2 path must carry the FULL single-field contract —
+        # this is the test the cli.py "a test pins the union" comment promises.
+        for field in CONTRACT_FIELDS:
+            self.assertIn(field, data, f"error path missing stable field {field!r}")
+        self.assertIsNone(data["assurance_declared_by"])
 
     def test_crypto_fail_assurance_reason_is_distinct(self):   # Fund E
         path = _eval_receipt_file(assurance_level="reproduced")

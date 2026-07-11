@@ -1153,7 +1153,9 @@ def build_parser() -> argparse.ArgumentParser:
                      "predicateType confusion. Without a decision policy the output shows POLICY: NOT_EVALUATED "
                      "and never exits 3. A verified ALLOW receipt is a record of a decision, NOT an "
                      "authorization or bearer token — the executing system makes its own authorization "
-                     "check; set --aud/--nonce so a receipt cannot verify outside its intended context "
+                     "check. --aud/--nonce bind a receipt that CARRIES validity.audience/validity.nonce "
+                     "to this context; a receipt without a validity object is not checked against them, "
+                     "so require their presence via a v0.2 policy's require_audience/require_nonce "
                      "(see docs/NON_CLAIMS.md)."))
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
