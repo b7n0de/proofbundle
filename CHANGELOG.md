@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security — pre-auth DoS: bound oversized integer parsing (WP-D1, 6-lens review)
+- Python caps `int(str)` at `sys.get_int_max_str_digits()` (default 4300) and raises a raw `ValueError`
+  above it (CWE-674 / CVE-2020-10735). A pre-auth parser that fed an unbounded decimal string to
+  `int()` surfaced this as an uncaught traceback. Fixed at three sites: `_strict_json.loads_strict`
+  maps the int-conversion `ValueError` from an oversized JSON integer literal to `BundleFormatError`
+  (covers every JSON verify path — bundle / decision / in-toto / status-list / anchors); `tlogproof`
+  and `checkpoint` bound the tree-size / index digit count (<= 20, i.e. 2**64) BEFORE `int()`; and the
+  CLI `verify-proof` handler catches `ValueError` as a stopgap. Regression-tested; never a raw traceback.
+
 ### Docs — No-Overclaim corrections from the 6-lens review (2026-07-11)
 - **`hf_evals.to_eval_results_entry` docstring + THREAT_MODEL** — the value↔verdict check was described
   as making the published `value` "match" a disclosed score and "stops 0.60 next to 0.99". The signed

@@ -51,12 +51,21 @@ def _reject_duplicate_keys(pairs: list) -> dict:
 def loads_strict(text: Union[str, bytes]) -> Any:
     """``json.loads`` that rejects duplicate object keys at any nesting depth.
 
-    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message) and maps
+    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), maps
     ``RecursionError`` from pathologically deep nesting to the same documented malformed-input
-    error (never a raw traceback) — mirroring :func:`proofbundle.bundle.load_bundle`. Ordinary
-    JSON syntax errors keep raising ``ValueError`` (``json.JSONDecodeError``) so existing
-    ``except (ValueError, ...)`` handling at the call sites stays correct."""
+    error, and maps the ``int``/``str`` conversion-limit ``ValueError`` from a JSON integer literal
+    with more than ``sys.get_int_max_str_digits()`` digits (CWE-674 / CVE-2020-10735) to it too —
+    never a raw traceback — mirroring :func:`proofbundle.bundle.load_bundle`. Ordinary JSON syntax
+    errors keep raising ``ValueError`` (``json.JSONDecodeError``) so existing ``except (ValueError,
+    ...)`` handling at the call sites stays correct."""
     try:
         return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     except RecursionError as exc:
         raise BundleFormatError("JSON nesting is too deep") from exc
+    except ValueError as exc:
+        # The int<->str conversion cap raises a plain ValueError DURING parsing (not a JSONDecodeError),
+        # which a pre-auth caller without a broad `except ValueError` would surface as a raw traceback.
+        # Map only that specific case; a normal JSONDecodeError keeps raising ValueError as documented.
+        if "integer string conversion" in str(exc):
+            raise BundleFormatError("JSON integer literal is implausibly long (fail-closed)") from exc
+        raise
