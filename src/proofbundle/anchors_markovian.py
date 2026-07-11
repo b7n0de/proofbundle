@@ -41,7 +41,7 @@ def _fail(status: str, detail: str) -> dict:
 
 
 def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
-                     now: Optional[int] = None) -> dict:
+                     now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed verifier for a ``markovian-provenance/v1`` anchor. Returns {ok, warn, status, detail}.
 
     Steps (any doubt -> not ok; never raises for an ordinary bad proof):
@@ -105,7 +105,9 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
         return _fail("no_lib",
                      "markovian anchor needs proofbundle[anchors] (opentimestamps) for the Bitcoin proof")
 
-    ots_res = verify_opentimestamps(ots_proof, canonical_root, frozen=frozen, now=now)
+    # WP-A1: forward the relying-party trust material so the composed Bitcoin proof is confirmed only
+    # against RP-supplied block headers, never the bundle's frozen ones.
+    ots_res = verify_opentimestamps(ots_proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
     who = f"Markovian wallet {wallet}"
     chain = env.get("block_height")
     chain_part = f", Markovian chain block {chain}" if chain is not None else ""

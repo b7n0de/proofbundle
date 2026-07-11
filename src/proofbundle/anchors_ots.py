@@ -34,11 +34,18 @@ def _classify(timestamp):
 
 
 def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
-                          now: Optional[int] = None) -> dict:
+                          now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed OTS verify. Returns {ok, detail, warn, status}. A pending proof is warn (status
-    'pending'); an upgraded proof with no supplied block header is not-ok-but-not-warn honest report
-    (status 'upgraded_unverified'); an upgraded proof verified against a supplied header is ok (status
-    'confirmed')."""
+    'pending'); an upgraded proof with no RELYING-PARTY block header is not-ok-but-not-warn honest report
+    (status 'needs_rp_trust'); an upgraded proof verified against an RP-supplied header is ok (status
+    'confirmed').
+
+    WP-A1 (Owner-GO, trust from the relying party): the Bitcoin block header that turns an upgraded proof
+    into a CONFIRMED anchor is trust material and MUST come from the relying party (``rp_trust`` — CLI
+    ``--bitcoin-header`` / policy ``anchors.bitcoin_block_headers``), NEVER from the bundle's own ``frozen``
+    block (which the producer controls and could backdate with a self-committed header). A frozen header is
+    reported as EVIDENCE (``frozenEvidence``) but is never trusted. Without RP trust material an upgraded
+    proof is honestly ``needs_rp_trust`` (ok=False), so ``--require-anchor`` is unmet → exit 3."""
     try:
         from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
         from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
@@ -62,34 +69,47 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                               "run `ots upgrade`; not a full anchor yet"}
         return {"ok": False, "warn": False, "status": "empty",
                 "detail": "OTS proof has no Bitcoin or pending attestation"}
-    # upgraded: to verify offline we need the block's Merkle root for the attested height, supplied by a
-    # trusted (local pruned) Bitcoin node — proofbundle never fetches it. BitcoinBlockHeaderAttestation's
-    # own check is exactly `attestation_message == block_header.hashMerkleRoot`; we do that comparison
-    # directly against the supplied root (equivalent, and avoids reconstructing a full CBlockHeader).
-    headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
+    # upgraded: to verify offline we need the block's Merkle root for the attested height. WP-A1: that root
+    # is TRUST material — it must come from the RELYING PARTY (rp_trust.bitcoin_block_headers, i.e. their
+    # own trusted/pruned Bitcoin node), NEVER from the producer-controlled `frozen` block. A frozen header
+    # is surfaced as evidence only. BitcoinBlockHeaderAttestation's own check is exactly
+    # `attestation_message == block_header.hashMerkleRoot`; we do that comparison directly against the
+    # RP-supplied root (equivalent, and avoids reconstructing a full CBlockHeader).
+    rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
+    frozen_headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
+    if not rp_headers:
+        # no RP trust material → cannot confirm. Frozen alone is NOT trust (it could be a self-committed
+        # backdated header). Honest not-ok report; --require-anchor stays unmet (exit 3).
+        return {"ok": False, "warn": False, "status": "needs_rp_trust", "needs_rp_trust": True,
+                "frozenEvidence": bool(frozen_headers),
+                "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but confirming it needs a "
+                          "relying-party-supplied Bitcoin block header (--bitcoin-header / policy "
+                          "anchors.bitcoin_block_headers). The bundle's own frozen header is producer-"
+                          "controlled evidence, not trust; not claiming a pass"}
     for msg, att in dtf.timestamp.all_attestations():
         height = getattr(att, "height", None)
         if height is None:
             continue
-        merkle_root_hex = headers.get(str(height))
+        merkle_root_hex = rp_headers.get(str(height))
         if not merkle_root_hex:
             continue
         try:
             expected = bytes.fromhex(merkle_root_hex)
         except ValueError:
-            return {"ok": False, "warn": False, "status": "bad_header",
-                    "detail": f"supplied Bitcoin block merkle root for height {height} is not valid hex"}
+            return {"ok": False, "warn": False, "status": "bad_header", "rp_trusted": True,
+                    "detail": f"relying-party Bitcoin block merkle root for height {height} is not valid hex"}
         if msg == expected:
-            return {"ok": True, "warn": False, "status": "confirmed",
+            return {"ok": True, "warn": False, "status": "confirmed", "rp_trusted": True,
                     # WP-A2: a Bitcoin HEIGHT is the proof's native trusted-time unit — reported
                     # structured, never converted to a wall-clock guess (the header time is not
                     # part of the supplied material).
                     "trustedTime": {"source": "bitcoin_block", "height": height},
                     "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
-                              "(merkle root supplied by a trusted node)"}
-        return {"ok": False, "warn": False, "status": "block_mismatch",
-                "detail": f"OTS Bitcoin attestation at height {height} does not match the supplied "
-                          "block merkle root"}
-    return {"ok": False, "warn": False, "status": "upgraded_unverified",
-            "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but no block header was supplied "
-                      "— offline verification needs a local (pruned) Bitcoin node; not claiming a pass"}
+                              "(merkle root supplied by the relying party)"}
+        return {"ok": False, "warn": False, "status": "block_mismatch", "rp_trusted": True,
+                "detail": f"OTS Bitcoin attestation at height {height} does not match the relying-party "
+                          "block merkle root (present-and-wrong)"}
+    return {"ok": False, "warn": False, "status": "upgraded_unverified", "needs_rp_trust": True,
+            "frozenEvidence": bool(frozen_headers),
+            "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but the relying party supplied no "
+                      "block header for that height; not claiming a pass"}
