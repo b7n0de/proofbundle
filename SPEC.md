@@ -368,7 +368,7 @@ Each `anchors[]` entry is a JSON object:
 | `canonicalRoot` | yes | string | Base64 of the canonical root of the anchor's OWN target. |
 | `proof` | yes | string | Base64 of the type-specific proof (an RFC 3161 token, an OpenTimestamps proof, …). |
 | `anchoredAt` | no | string \| null | RFC 3339 Z, **INFORMATIVE only** — the trusted time comes from the proof, never this field. |
-| `frozen` | no | object | OPTIONAL type-specific material bundled at emit time (e.g. the frozen TSA certificate chain; for `rfc3161-tsa` an optional `policyOid` to pin, see below). |
+| `frozen` | no | object | OPTIONAL producer-supplied type-specific EVIDENCE bundled at emit time (e.g. the TSA certificate chain, a Bitcoin block header). **WP-A1 (rev 2026-07-11): `frozen` is producer-controlled and is NEVER a trust source** — it is reported as evidence (`frozenEvidence`) but a confirmed verdict requires the relying party's own trust material (see Trust model). The frozen `intermediateCertsDerB64` / `tsaCertDerB64` are path-building only (validated up to the RP root); an optional `policyOid` still pins stricter-only. |
 
 ### Targets (never mixed)
 
@@ -429,21 +429,40 @@ makes a time-window policy (t₁ < run < t₂) buildable over `verify --json`.
 ### Built-in types (informative)
 
 - **`rfc3161-tsa`** — an RFC 3161 timestamp token, verified **offline** against
-  the TSA certificate chain **frozen** into the anchor at emit time (a TSA can
-  rotate its certificate). The chain is validated at the token's own `gen_time`,
-  not the current wall clock, so a frozen token stays re-verifiable after the
-  TSA certificate has expired or rotated; a certificate that was not valid at
-  `gen_time` fails closed. The TSA **policy OID** is not pinned by default (any
-  policy is accepted); a relying party MAY pin it by setting
-  `frozen.policyOid` to the expected dotted-decimal OID, in which case a token
-  whose `TSTInfo.policy` differs fails closed.
+  a TSA **root certificate the RELYING PARTY supplies** (WP-A1: CLI
+  `--trusted-tsa-root`, policy `anchors.trusted_tsa_roots`), NOT the anchor's
+  own `frozen` root (which the producer controls). The chain is validated at the
+  token's own `gen_time`, not the current wall clock, so a token stays
+  re-verifiable after the TSA certificate has expired or rotated; a certificate
+  that was not valid at `gen_time` fails closed. With no relying-party root the
+  token is `needs_rp_trust` (ok=False). The TSA **policy OID** is not pinned by
+  default; a relying party MAY pin it (`anchors.trusted_tsa_policy_oids`) or the
+  producer MAY declare a stricter-only `frozen.policyOid`; a token whose
+  `TSTInfo.policy` differs fails closed.
 - **`opentimestamps`** — an OpenTimestamps proof anchored in Bitcoin. A fresh
   stamp is **PENDING** (a WARN) until `ots upgrade` embeds the Bitcoin
-  block-header path. A frozen `bitcoinBlockHeaderMerkleRootsByHeight` maps a
-  block height to that block's `hashMerkleRoot` in **internal (node) byte
-  order** as returned by `bitcoind` — NOT the byte-reversed order that block
-  explorers display. A reimplementer MUST use the internal order or every root
-  comparison fails.
+  block-header path. Confirming it needs the block's `hashMerkleRoot` for the
+  attested height — **supplied by the RELYING PARTY** (WP-A1: CLI
+  `--bitcoin-header`, policy `anchors.bitcoin_block_headers`), from their own
+  trusted/pruned Bitcoin node, NOT the anchor's `frozen` header. The root is in
+  **internal (node) byte order** as returned by `bitcoind` — NOT the
+  byte-reversed order block explorers display; a reimplementer MUST use the
+  internal order. With no relying-party header the upgraded proof is
+  `needs_rp_trust` (ok=False), never confirmed.
+
+### Trust model (WP-A1, normative)
+
+An external time anchor's TRUST comes ONLY from the relying party, never from
+the bundle. The `frozen` block is producer-controlled EVIDENCE (surfaced as
+`frozenEvidence`), never a trust source: a malicious producer could freeze its
+own self-signed TSA root, or a self-committed backdated Bitcoin header, and
+self-certify a **backdated** timestamp. Therefore a confirmed verdict requires
+the relying party to supply the matching trust material (`--trusted-tsa-root` /
+`--bitcoin-header`, or the policy `anchors` section); without it the anchor is
+`needs_rp_trust` and `--require-anchor` is unmet → exit 3, never a silent pass.
+A per-entry result carries `rp_trusted` (verified against RP material),
+`needs_rp_trust` (proof present but no RP material), and `frozenEvidence` (the
+bundle carried frozen material, reported but not trusted).
 
 ### Privacy
 

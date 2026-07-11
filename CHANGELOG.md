@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security (BREAKING) — external time-anchor trust comes from the relying party, not the bundle (WP-A1)
+- An external time anchor (`anchors[]`) previously took its trust root from the bundle's own `frozen`
+  block: `anchors_rfc3161` from `frozen.rootCertsDerB64`, `anchors_ots` from
+  `frozen.bitcoinBlockHeaderMerkleRootsByHeight`. That block is producer-controlled, so a malicious
+  producer could freeze its OWN self-signed TSA root (or a self-committed backdated Bitcoin header) and
+  self-certify a **backdated** timestamp — `--require-anchor` passed on nothing but self-consistency.
+  Trust now comes ONLY from the relying party (SPEC.md §7i Trust model, rev 2026-07-11):
+  - **rfc3161-tsa** is verified against `--trusted-tsa-root` (repeatable, DER/PEM) or policy
+    `anchors.trusted_tsa_roots`; the frozen root is evidence (`frozenEvidence`), never trust.
+  - **opentimestamps** is confirmed only against `--bitcoin-header HEIGHT:MERKLEROOT_HEX` (internal byte
+    order) or policy `anchors.bitcoin_block_headers`; the frozen header is never trusted.
+  - Without relying-party trust material a time anchor is `needs_rp_trust` (ok=False) and
+    `--require-anchor` is **unmet → exit 3**, never a silent pass. Per-entry results carry `rp_trusted`,
+    `needs_rp_trust`, `frozenEvidence`.
+  - **Migration.** A relying party that used `--require-anchor` on a TSA/OTS anchor MUST now supply the
+    trust material (`--trusted-tsa-root` / `--bitcoin-header`, or the policy `anchors` section). The
+    bundle's frozen material stays in the format as evidence (TSA rotation) and is reported, so nothing
+    is dropped; only its role as a trust source is removed. Third-party extension anchor verifiers keep
+    working (backward-compatible dispatch); anchor tests are re-pinned; conformance gains
+    `forged-anchor-own-frozen` (exit 3). THREAT_MODEL.md names the backdating attack.
+
 ### Security — pre-auth DoS: bound oversized integer parsing (WP-D1, 6-lens review)
 - Python caps `int(str)` at `sys.get_int_max_str_digits()` (default 4300) and raises a raw `ValueError`
   above it (CWE-674 / CVE-2020-10735). A pre-auth parser that fed an unbounded decimal string to

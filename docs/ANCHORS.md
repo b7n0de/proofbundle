@@ -67,33 +67,52 @@ not-checked set) are committed-to without the anchor itself revealing any of the
 
 ## Built-in types
 
+### Trust model (WP-A1) — trust comes from the relying party, never the bundle
+
+Since revision 2026-07-11, an anchor's TRUST comes ONLY from the relying party, never from the bundle.
+The `frozen` block is producer-controlled **evidence** (reported as `frozenEvidence`), never a trust
+source: a malicious producer could freeze its OWN self-signed TSA root, or a self-committed backdated
+Bitcoin block header, and self-certify a **backdated** timestamp. So a confirmed verdict requires the
+relying party to supply the matching trust material out of band:
+
+- `rfc3161-tsa`: `verify --trusted-tsa-root <PATH>` (repeatable, DER or PEM), or policy
+  `anchors.trusted_tsa_roots`.
+- `opentimestamps`: `verify --bitcoin-header <HEIGHT:MERKLEROOT_HEX>` (internal byte order, from your own
+  Bitcoin node), or policy `anchors.bitcoin_block_headers`.
+
+Without it a time anchor is `needs_rp_trust` (ok=False) and `--require-anchor` is **unmet → exit 3**,
+never a silent pass. Per-entry results carry `rp_trusted` / `needs_rp_trust` / `frozenEvidence`. The
+frozen material still travels with the receipt (TSA rotation evidence) and is reported — only its role as
+a trust source is gone.
+
 ### `rfc3161-tsa`
 
 An RFC 3161 timestamp token from a Time-Stamping Authority. Verification is **offline** (Trail of Bits
-`rfc3161-client`, `VerifierBuilder`) against the TSA's root certificate. **Freeze the chain:** the TSA
-certificate + chain are bundled in the anchor's `frozen` field, because a TSA can rotate its certificate
-(FreeTSA rotated its TSA certificate in March 2026) — after a rotation an old token is only offline
-re-verifiable against the chain that was frozen at emit time, not the TSA's current chain. Suggested
-TSAs: the Sigstore TSA (`https://timestamp.sigstore.dev/api/v1/timestamp`) and FreeTSA as a second,
-independent anchor.
+`rfc3161-client`, `VerifierBuilder`) against a TSA root certificate the **relying party supplies**
+(`--trusted-tsa-root` / policy `anchors.trusted_tsa_roots`), NOT the anchor's own `frozen` root. The
+producer still freezes the chain as EVIDENCE (a TSA can rotate its certificate — FreeTSA rotated in March
+2026 — and the frozen intermediates/tsa-cert are path-building material validated up to the RP root), but
+the trust anchor is the relying party's root. Suggested TSAs: the Sigstore TSA
+(`https://timestamp.sigstore.dev/api/v1/timestamp`) and FreeTSA as a second, independent anchor.
 
 **Verification time (cert expiration).** The chain is validated at the token's own `gen_time`, not at
-the current wall clock — a frozen token therefore stays re-verifiable after the TSA certificate has
-expired or rotated (the whole point of freezing), and a certificate that was not valid at `gen_time`
-fails closed. **Policy OID.** By default no TSA policy OID is pinned (any policy is accepted). A relying
-party who cares which TSA policy issued the timestamp sets `frozen.policyOid` to the expected
-dotted-decimal OID; a token whose `TSTInfo.policy` differs then fails closed (a malformed OID string
-fails closed too).
+the current wall clock — a token therefore stays re-verifiable after the TSA certificate has expired or
+rotated, and a certificate that was not valid at `gen_time` fails closed. **Policy OID.** By default no
+TSA policy OID is pinned. A relying party who cares which TSA policy issued the timestamp pins it via
+`anchors.trusted_tsa_policy_oids`, or the producer declares a stricter-only `frozen.policyOid`; a token
+whose `TSTInfo.policy` differs then fails closed (a malformed OID string fails closed too).
 
 ### `opentimestamps`
 
 An OpenTimestamps proof anchored in the Bitcoin blockchain. Honest lifecycle: a fresh stamp goes to
 public calendars and is initially **PENDING** (a pending proof is a WARN / its own status, never a
 full-strength anchor). `ots upgrade` embeds the Bitcoin block-header path; only then is the proof
-self-contained. Verifying an upgraded proof needs no calendar, but — per the documented client path — a
-**local (pruned) Bitcoin node** for the block header. There is no documented "header-file instead of a
-node" mode, and we do not claim one. Doc wording to reuse verbatim: *"offline verifiable given a local
-(pruned) Bitcoin node; no calendar or account needed for verification."*
+self-contained. Verifying an upgraded proof needs no calendar, but it needs the block's `hashMerkleRoot`
+for the attested height — the **relying party** supplies it (`--bitcoin-header` / policy
+`anchors.bitcoin_block_headers`) from their own **local (pruned) Bitcoin node**, never the bundle's frozen
+header. There is no documented "header-file instead of a node" mode, and we do not claim one. Doc wording
+to reuse verbatim: *"offline verifiable given a local (pruned) Bitcoin node; no calendar or account needed
+for verification."*
 
 **Byte-order warning (for reimplementers).** A frozen `bitcoinBlockHeaderMerkleRootsByHeight` maps a
 block height to that block's `hashMerkleRoot` in **internal (node) byte order** as returned by
