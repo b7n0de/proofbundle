@@ -41,6 +41,43 @@ class PolicyError(ProofBundleError):
     """The trust policy JSON is missing fields, malformed, or carries unknown fields (fail-closed)."""
 
 
+# Low-order Ed25519 public-key encodings (the 8-torsion subgroup, canonical + non-canonical variants —
+# the set libsodium/ed25519-dalek reject). The core verifier deliberately accepts these (SPEC §4a,
+# "Taming the Many EdDSAs"), so a `(pub, sig)` pair with such a key verifies for a large fraction of
+# arbitrary messages with NO private key. A PINNED trusted key must therefore never be one of these,
+# or a relying party's "trusted issuer" identity is forgeable without a secret (WP review, 2026-07-11).
+_LOW_ORDER_ED25519 = frozenset(bytes.fromhex(h) for h in (
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+))
+
+
+def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
+    """Fail-closed check for a PINNED trusted Ed25519 public key. Must decode to exactly 32 bytes and
+    must NOT be a low-order point (which would make a fixed signature verify for many messages without a
+    secret — forgery of a trusted identity). Raises PolicyError on either."""
+    import base64  # noqa: PLC0415
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception as exc:  # noqa: BLE001
+        raise PolicyError(f"{ctx} public_key_b64 is not valid base64") from exc
+    if len(raw) != 32:
+        raise PolicyError(f"{ctx} public_key_b64 must decode to 32 bytes, got {len(raw)}")
+    if raw in _LOW_ORDER_ED25519:
+        raise PolicyError(
+            f"{ctx} public_key_b64 is a low-order Ed25519 point — rejected: a fixed signature under such "
+            "a key verifies for many messages with no private key, so it cannot be a trusted identity")
+
+
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
              "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending"}
@@ -142,6 +179,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         _reject_unknown(issuer, _ISSUER_KEYS, "allowed_issuers[]")
         if not (isinstance(issuer.get("public_key_b64"), str) and issuer["public_key_b64"]):
             raise PolicyError("each allowed_issuers[] entry needs a non-empty public_key_b64")
+        _validate_pinned_ed25519_pubkey(issuer["public_key_b64"], "allowed_issuers[]")
         _require_str_or_null(issuer, "issuer", "allowed_issuers[]")
         _require_str_or_null(issuer, "kid", "allowed_issuers[]")
     if "signature" in policy:
@@ -197,6 +235,7 @@ def load_policy(source: Union[str, dict]) -> dict:
             _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
             if not (isinstance(dm.get("public_key_b64"), str) and dm["public_key_b64"]):
                 raise PolicyError("each trusted_decision_makers[] entry needs a non-empty public_key_b64")
+            _validate_pinned_ed25519_pubkey(dm["public_key_b64"], "trusted_decision_makers[]")
             _require_str_or_null(dm, "id", "trusted_decision_makers[]")
             _require_str_or_null(dm, "kid", "trusted_decision_makers[]")
         for key in ("allowed_decision_types", "allowed_verdicts", "required_evidence_relations",

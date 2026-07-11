@@ -59,6 +59,44 @@ class TestDecisionVerify(unittest.TestCase):
         body["predicate"]["decision"]["verdict"] = "ALLOW"
         self.assertIs(verify_decision_receipt(_repayload(env, body), pub)["crypto_ok"], False)
 
+    def test_forged_envelope_leaves_trust_fields_none_and_aggregate_false(self):
+        # 6-lens review (fail-open lens): a forged/unsigned envelope must not report audience_ok/nonce_ok
+        # true, must record a crypto error, and the aggregate `ok` must be False — a consumer keying off an
+        # individual *_ok field over unauthenticated bytes was the finding.
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        forged = copy.deepcopy(env)
+        forged["signatures"][0]["sig"] = base64.b64encode(b"\x00" * 64).decode()
+        r = verify_decision_receipt(forged, pub,
+                                    expected_audience=p["validity"]["audience"][0],
+                                    expected_nonce=p["validity"]["nonce"])
+        self.assertFalse(r["crypto_ok"])
+        self.assertFalse(r["ok"])                       # aggregate verdict is false
+        self.assertIsNone(r["audience_ok"])             # not computed over unauthenticated bytes
+        self.assertIsNone(r["nonce_ok"])
+        self.assertIsNone(r["evidence_bound"])
+        self.assertTrue(r["errors"])                    # never an empty errors[] on a forged envelope
+
+    def test_valid_receipt_aggregate_ok_true(self):
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s, strict=True)
+        r = verify_decision_receipt(env, pub, strict=True,
+                                    expected_audience=p["validity"]["audience"][0],
+                                    expected_nonce=p["validity"]["nonce"])
+        self.assertTrue(r["ok"])
+
+    def test_empty_evidence_refs_is_none_not_vacuous_true(self):
+        # evidence_bound must be None (nothing to bind), never a vacuous all([]) True.
+        p = _pred("deny")
+        p = copy.deepcopy(p)
+        p["evidenceRefs"] = []
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        r = verify_decision_receipt(env, pub)
+        self.assertIsNone(r["evidence_bound"])
+
     def test_wrong_key_fails(self):
         s, _ = _keys()
         env = emit_decision_receipt(_pred("deny"), s)
