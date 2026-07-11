@@ -21,6 +21,7 @@ not *correctness of the computation*.)
 | **Split view by the log operator** — a witnessed checkpoint whose quorum is stuffed by one key under many names | `verify_witnessed_checkpoint` counts DISTINCT witness public keys, not names (C2SP cosignature/v1 + ML-DSA); the log's own signature stays required | one physical key cannot satisfy `threshold>1`; real split-view resistance still needs INDEPENDENT witness operators (a deployment property) |
 | **Untrusted computation (mitigated only with a TEE, v2.0 preview)** — the eval could have run on tampered software; a software receipt cannot see this | EXPERIMENTAL `assurance_level=enclave_attested`: a RATS Verifier (RFC 9334) appraises TEE evidence and signs an EAT (RFC 9711) whose `eat_nonce` binds this receipt; `verify_enclave_attestation` checks it offline | proofbundle trusts the VERIFIER's key + appraisal (a supplied anchor) — it does not appraise raw TDX/GPU evidence itself, and cannot vouch for the TEE vendor's root of trust; still says nothing about eval quality/honesty |
 | **Edited Hub value next to a minted token** — an `.eval_results` entry whose displayed `value` was changed after the `pb1.` token was created (a Hub reader sees the value, not the token) | `verify_eval_results_entry` (v2.2): token crypto + `value <comparator> threshold == passed` against the DECODED signed claim | an inconsistent value FAILs; **boundary:** the entry's `dataset.id`/`task_id` are NOT bound to the receipt's salted dataset commitment — a consistent-value token replayed onto a different repo/benchmark still verifies; identity binding needs the salt opening (`verify_commitment`) |
+| **Parser differential via duplicate JSON keys** — the same signed bytes parse to DIFFERENT `root_b64`/`sig_b64`/`status_list` values under first-wins vs last-wins JSON parsers (revocation split-brain, cross-verifier "consensus" on different objects) | every verify-path parse goes through the strict duplicate-rejecting parser (`_strict_json.loads_strict`, WP-C1; SPEC §2 makes rejection normative) | a duplicated key is rejected with a clear error at any depth; residual: the SD-JWT/KB-JWT payload parses (documented, needs its own pass — a naive conversion would invert a fail-closed direction) |
 | **Self-issued revocation** — a status-list snapshot signed by the SAME key as the receipt, so the issuer attests its own "still valid" state and can flip it at will | `verify_status_snapshot(receipt_issuer_pubkey=…)` reports `self_issued=True` when the status key equals the receipt-signing key; unbounded snapshots (no `exp`/`ttl`) report `fresh=None` | this is REPORTED, not fatal — an independent, distinctly-operated status authority is the stronger anchor; the relying party decides whether self-issued revocation is acceptable |
 
 ## What it structurally does NOT catch
@@ -120,6 +121,16 @@ SD-JWT / in-toto). [ai-audit-trail](https://pypi.org/project/ai-audit-trail/) re
 Decision Receipts (a different layer). [ValiChord](https://github.com/topeuph-ai/ValiChord) builds
 attestation bundles from inspect_ai logs post-hoc (its v1 library is unsigned — signatures are v2 scope).
 Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (SD-JWT Key Binding).
+
+## Ed25519 edge-case envelope (C2) — cross-verifier divergence on crafted signatures
+
+Verification delegates to `cryptography` (OpenSSL): against the eprint 2020/1244 corpus it matches
+the BoringSSL / Dalek (non-strict) row exactly — ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10}
+(SPEC §4a; byte-pinned by `tests/test_ed25519_semantics.py`). An honest RFC 8032 signer is
+unaffected. The residual: for adversarially CRAFTED signatures, an independent verifier with a
+different profile (Dalek-strict, ZIP-215) can disagree with proofbundle about validity — so "N
+verifiers agreed" is only meaningful on hostile inputs when all N pin the same profile. A profile
+switch would be a versioned, breaking change, never silent.
 
 ## Beacon audit mode (v1.9) — residual grinding
 

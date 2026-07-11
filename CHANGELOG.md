@@ -25,6 +25,74 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the adapter).
 - Hardened after a Tier-1 review (2 P1 privacy findings): the `eee_record_sha256` digest is now computed over a **model-id-stripped** record — an unsalted digest over a record embedding `model_info.id` in cleartext was a model-id confirmation/enumeration oracle (the old "not enumerable" comment was an overclaim); it still binds scores/timestamps/dataset for tamper-evidence. The `run_id` privacy guard now drops the id on ANY model-name component (bare name, slug variants, case-insensitive), not only the full `org/name` id. `verify_eval_results_entry` returns fail-closed (not a raise) for a token-less entry (verifyToken is optional in the HF schema) and rejects a boolean `value` (the builder rejects bool too).
 
+### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
+- **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
+  `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
+  a green `POLICY: OK` that evaluated nothing. Now: `proofbundle policy lint <policy>` exits 1 on
+  such a wirkungslose policy (`--strict` also fails an attributes-to-nobody policy);
+  `proofbundle policy explain <policy>` lists the effective pins (human + `--json`).
+- `verify --policy` marks a PASSING policy that pins no signer inline —
+  `POLICY: OK (WARNING: attributes to nobody)` — plus a machine-readable `policy_warnings[]` JSON
+  field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
+  policy violations untouched).
+- docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
+  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+- **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
+  `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
+  verified `ok=True` through the verify function of another (a swapped SVR accepted as an
+  eval-result, a test-result as an SVR, …) — the decision-receipt layer already rejected such
+  confusion, the eval/SVR/test-result layer did not. Each function now pins its own type by default
+  (`expected_predicate_type`, opt out with `None`), returns `ok=False` + a `predicate_type_ok`
+  field + a "confusion attack?" detail on a foreign type. Additive return field; the diagonal
+  (matching type) verifies exactly as before.
+- Cross-predicate matrix test (`tests/test_predicate_type_enforcement.py`): every emitted in-toto
+  type signed and run through every verify function — only the diagonal verifies, every
+  off-diagonal cell is `ok=False`; plus explicit-expected-type pin, opt-out, and
+  wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
+
+### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
+  `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
+  `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
+  implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
+  for a signed **status-list token** that was a PROVEN VALID-vs-INVALID revocation split-brain.
+  Converted: the native bundle (`load_bundle`; the `pb1.` HF receipt token), the DSSE statement
+  verifiers (eval-result / test-result / SVR / decision), the **trust-policy loader**, the
+  **per-sample opening's committed disclosure record**, the **chia-datalayer and markovian anchor
+  envelopes**, the **status-list token**, the **enclave EAT**, and every `json.load` in the CLI
+  (`verify-opening`, `intoto --verify`, `svr --verify`, `decision emit/verify/inspect`,
+  `--anchors`). Emit side too: a predicate file carrying a duplicate key is refused before
+  anything is signed. **SPEC §2 now makes duplicate-key rejection normative** (an interoperating
+  implementation that keeps either occurrence is non-conforming); THREAT_MODEL carries the
+  parser-differential row.
+- Deliberate behavior deltas (each stricter, never looser): `to_eval_results_entry` now REFUSES a
+  crypto-valid bundle whose payload carries a duplicate key (previously the entry was built
+  last-wins — refusing to publish an unjudgeable value is the honest outcome);
+  `decision inspect` exits 2 instead of risking a raw traceback on malformed/duplicated payloads.
+- Known residual (documented in `_strict_json`): the SD-JWT/KB-JWT payload parses (`sdjwt.py`,
+  `kbjwt.py`, the `bundle._issuer_requires_holder_binding` helper) — a naive conversion would
+  INVERT a fail-closed direction (a rejected `cnf` read must not read as "no holder binding
+  required"); that group needs its own careful pass. Keys differing only by Unicode normalization
+  or a BOM are distinct JSON keys by spec and stay distinct (a downstream-validator concern).
+- Negative tests `tests/test_dup_key_reject.py` (native bundle signature/merkle/top-level, HF
+  token, all four DSSE verify functions in BOTH content-root modes, decision library+CLI,
+  emit-side refusal, policy/statuslist/persample/enclave/anchor-envelope rejects) + a mutation
+  operator proving the tests kill a disabled guard.
+
+### Added — Ed25519 verify semantics decided, documented, pinned (WP-C2)
+- SPEC.md gains **§4a Verification semantics — the edge-case envelope**: proofbundle's Ed25519
+  verification (via `cryptography`/OpenSSL) matches the **BoringSSL / Dalek (non-strict)** row of
+  the "Taming the Many EdDSAs" corpus exactly (ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10};
+  eprint 2020/1244) — cofactorless, RFC 8032 S-bound enforced, non-canonical R rejected,
+  non-canonical A partially accepted, small-order accepted; NEITHER Dalek-strict (rejects
+  {0,1,2,11}) NOR ZIP-215 (additionally accepts {4,5,9,10}). Honest RFC 8032 signatures are
+  unaffected; the cross-verifier-consensus consequence for crafted signatures is documented here
+  and in THREAT_MODEL.md.
+- The 12-vector corpus is vendored **byte-identical** (`tests/fixtures/ed25519_speccheck_cases.json`,
+  from novifinancial/ed25519-speccheck commit `5e4bfc4…`, blob `8686dcb…`, Apache-2.0 — LICENSE +
+  provenance README beside it) and pinned by `tests/test_ed25519_semantics.py` (content SHA-256 +
+  per-vector verdict) — a fixture tamper OR a backing-library behavior change turns the
+  repository's CI red, demanding a deliberate documented decision, never a silent drift.
+  No behavior change; switching profiles would be a versioned, breaking change.
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
