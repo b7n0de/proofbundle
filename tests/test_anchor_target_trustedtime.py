@@ -18,6 +18,12 @@ from proofbundle.anchors import verify_anchors
 from proofbundle.anchors_markovian import register
 from proofbundle.errors import BundleFormatError
 
+try:
+    import opentimestamps  # noqa: F401
+    _HAS_OTS = True
+except ImportError:   # the confirmed markovian fixture needs the [anchors] extra (OTS verify)
+    _HAS_OTS = False
+
 _FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "markovian_anchor_confirmed.json"
 
 
@@ -29,6 +35,7 @@ def _confirmed_anchor():
 
 
 class TestTargetGate(unittest.TestCase):
+    @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_matching_target_satisfies(self):
         anchor, roots = _confirmed_anchor()
         res = verify_anchors([anchor], target_roots=roots, require="any",
@@ -46,6 +53,7 @@ class TestTargetGate(unittest.TestCase):
         self.assertFalse(res["require_met"])
         self.assertIn("target", res["detail"])
 
+    @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_target_requirement_implies_anchor_requirement(self):
         anchor, roots = _confirmed_anchor()
         res = verify_anchors([anchor], target_roots=roots, require_target="preRegistration")
@@ -61,6 +69,7 @@ class TestTargetGate(unittest.TestCase):
 
 
 class TestTrustedTime(unittest.TestCase):
+    @unittest.skipUnless(_HAS_OTS, "needs [anchors]/opentimestamps for a confirmed anchor")
     def test_confirmed_bitcoin_anchor_reports_structured_height(self):
         anchor, roots = _confirmed_anchor()
         res = verify_anchors([anchor], target_roots=roots)
