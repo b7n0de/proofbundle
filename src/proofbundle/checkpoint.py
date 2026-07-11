@@ -128,7 +128,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
-    if size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit())):
+    if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
         root = base64.b64decode(root_b64, validate=True)
@@ -363,7 +363,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
     note_text = _note_text_of(signed_note)
     lines = note_text.split("\n")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
-    if size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit())):
+    if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
         root = base64.b64decode(root_b64, validate=True)
