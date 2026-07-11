@@ -399,7 +399,9 @@ per-entry status:
   chia-datalayer level-i anchor → **WARN**. It is never conflated with a
   confirmed anchor.
 
-A root mismatch, an unknown type, or a broken proof is a hard **FAIL**; a
+A root mismatch, an unknown type, a broken proof, or a valid-but-untrusted anchor
+(**needs_rp_trust** — an upgraded, structurally-bound proof for which the relying
+party supplied no trust material; see Trust model) is a hard **FAIL**; a
 verifier that raises is treated as FAIL. `verify --require-anchor` (optionally
 narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
 into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet

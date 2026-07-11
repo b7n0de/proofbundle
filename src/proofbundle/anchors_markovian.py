@@ -111,16 +111,25 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     who = f"Markovian wallet {wallet}"
     chain = env.get("block_height")
     chain_part = f", Markovian chain block {chain}" if chain is not None else ""
+    # WP-A1: carry the composed OTS proof's trust-provenance fields verbatim so a relying party keying on
+    # rp_trusted / needs_rp_trust / frozenEvidence sees the same truth for a markovian anchor.
+    def _with_provenance(out: dict) -> dict:
+        for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
+            if _f in ots_res:
+                out[_f] = bool(ots_res.get(_f))
+        return out
+
     if ots_res.get("ok"):
         out = {"ok": True, "warn": False, "status": "confirmed",
                "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
         if isinstance(ots_res.get("trustedTime"), dict):   # WP-A2: delegate verbatim (compose)
             out["trustedTime"] = ots_res["trustedTime"]
-        return out
+        return _with_provenance(out)
     # not a full anchor yet — carry the OTS lifecycle status/warn verbatim, framed as Markovian
-    return {"ok": False, "warn": bool(ots_res.get("warn")), "status": ots_res.get("status", "fail"),
-            "detail": f"markovian stamp envelope valid ({who}{chain_part}) but Bitcoin proof not verified: "
-                      f"{ots_res.get('detail', '')}"}
+    return _with_provenance(
+        {"ok": False, "warn": bool(ots_res.get("warn")), "status": ots_res.get("status", "fail"),
+         "detail": f"markovian stamp envelope valid ({who}{chain_part}) but Bitcoin proof not verified: "
+                   f"{ots_res.get('detail', '')}"})
 
 
 def register() -> None:

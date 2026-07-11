@@ -3,6 +3,7 @@
   "kind": "native_bundle",
   "input": "bundle.json",
   "verifyArgs": ["--require-anchor"],
+  "requiresAnchorsExtra": true,
   "attribution": "proofbundle (WP-A1 backdating vector: producer self-committed the Bitcoin block header into frozen)",
   "expected": { "exitCode": 3, "rejected": true },
   "specRefs": ["SPEC.md", "THREAT_MODEL.md"],

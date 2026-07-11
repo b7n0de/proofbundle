@@ -157,31 +157,34 @@ class TestRfc3161PolicyOid(unittest.TestCase):
                              base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
         self.assertTrue(res["ok"], res["detail"])
 
-    def test_mismatched_policy_oid_fails_closed(self):
+    def test_mismatched_policy_oid_fails_closed(self):   # WP-A1: supply rp roots so the OID pin actually runs
         from proofbundle.anchors_rfc3161 import verify_rfc3161
         anchor, _ = _load_fixture()
         frozen = dict(anchor["frozen"])
         real = self._fixture_policy_oid()
         frozen["policyOid"] = real + ".999"   # a policy OID the token does NOT carry
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
-                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
         self.assertFalse(res["ok"], "a pinned policy OID that does not match the token must FAIL closed")
+        self.assertEqual(res["status"], "chain_fail")   # reached the pin (not short-circuited at needs_rp_trust)
 
-    def test_malformed_policy_oid_fails_closed(self):
+    def test_malformed_policy_oid_fails_closed(self):   # WP-A1: supply rp roots so the OID parse actually runs
         # a non-OID string must not crash and must not pass — x509.ObjectIdentifier raises, caught as FAIL.
         from proofbundle.anchors_rfc3161 import verify_rfc3161
         anchor, _ = _load_fixture()
         frozen = dict(anchor["frozen"])
         frozen["policyOid"] = "not-an-oid"
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
-                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen, rp_trust=_rp(anchor))
         self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "chain_fail")
 
-    def test_mismatched_policy_oid_through_generic_layer(self):
+    def test_mismatched_policy_oid_through_generic_layer(self):   # WP-A1: supply rp roots
         anchor, roots = _load_fixture()
         bad = dict(anchor)
         bad["frozen"] = dict(anchor["frozen"], policyOid=self._fixture_policy_oid() + ".999")
-        self.assertEqual(anchors.verify_anchors([bad], target_roots=roots)["status"], "FAIL")
+        self.assertEqual(anchors.verify_anchors([bad], target_roots=roots, rp_trust=_rp(anchor))["status"],
+                         "FAIL")
 
 
 @unittest.skipUnless(_HAS_TSA, "needs proofbundle[anchors] (rfc3161-client)")
@@ -233,11 +236,14 @@ class TestRfc3161CertExpiration(unittest.TestCase):
                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
                    .not_valid_before(datetime.datetime(2000, 1, 1))
                    .not_valid_after(datetime.datetime(2001, 1, 1)).sign(key, hashes.SHA256()))
-        frozen = dict(anchor["frozen"])
-        frozen["rootCertsDerB64"] = [base64.b64encode(expired.public_bytes(Encoding.DER)).decode()]
+        # WP-A1: the expired root is now the RELYING-PARTY root (that is where trust lives) — the RP trusting
+        # an expired-at-gen_time root must still fail closed at the chain build, not short-circuit earlier.
+        expired_b64 = base64.b64encode(expired.public_bytes(Encoding.DER)).decode()
         res = verify_rfc3161(base64.b64decode(anchor["proof"]),
-                             base64.b64decode(anchor["canonicalRoot"]), frozen=frozen)
-        self.assertFalse(res["ok"], "an expired-at-gen-time frozen root must fail closed")
+                             base64.b64decode(anchor["canonicalRoot"]), frozen=anchor["frozen"],
+                             rp_trust={"trusted_tsa_roots": [expired_b64]})
+        self.assertFalse(res["ok"], "an expired-at-gen-time relying-party root must fail closed")
+        self.assertEqual(res["status"], "chain_fail")
 
 
 if __name__ == "__main__":

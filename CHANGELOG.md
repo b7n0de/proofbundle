@@ -20,8 +20,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Without relying-party trust material a time anchor is `needs_rp_trust` (ok=False) and
     `--require-anchor` is **unmet → exit 3**, never a silent pass. Per-entry results carry `rp_trusted`,
     `needs_rp_trust`, `frozenEvidence`.
-  - **Migration.** A relying party that used `--require-anchor` on a TSA/OTS anchor MUST now supply the
-    trust material (`--trusted-tsa-root` / `--bitcoin-header`, or the policy `anchors` section). The
+  - The same flags + policy `anchors` trust apply to `decision verify` (a statement time anchor on a
+    decision receipt): `verify_decision_receipt(..., rp_trust=...)`, `decision verify --trusted-tsa-root /
+    --bitcoin-header`.
+  - **Migration.** A relying party that used `--require-anchor` (or `decision verify --anchors`) on a
+    TSA/OTS anchor MUST now supply the trust material (`--trusted-tsa-root` / `--bitcoin-header`, or the
+    policy `anchors` section). The
     bundle's frozen material stays in the format as evidence (TSA rotation) and is reported, so nothing
     is dropped; only its role as a trust source is removed. Third-party extension anchor verifiers keep
     working (backward-compatible dispatch); anchor tests are re-pinned; conformance gains

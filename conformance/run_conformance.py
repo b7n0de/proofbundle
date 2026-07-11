@@ -56,6 +56,13 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     exp = case["expected"]
     if "exitCode" not in exp:
         return _fail(cid, "native_bundle case under-declares its expectations (fail-closed): missing exitCode")
+    # A case whose intended rejection reason needs the [anchors] extra (e.g. a forged OpenTimestamps anchor
+    # that must reach `needs_rp_trust`) MUST NOT false-pass on a base install, where the proof never parses
+    # (no_lib) and the same exit 3 arises for an unrelated reason. Gate it like decision_crossimpl.
+    if case.get("requiresAnchorsExtra") and not _HAS_OTS:
+        if require_anchors:
+            return _fail(cid, "case needs the [anchors] extra but opentimestamps is not installed")
+        return {"caseId": cid, "ok": True, "detail": "SKIPPED (opentimestamps not installed)"}
     inp = case.get("input", "bundle.json")
     bundle = (case_dir / inp).resolve()
     # confine the fixture to the case directory: a case.json is a reviewed fixture, but an absolute or

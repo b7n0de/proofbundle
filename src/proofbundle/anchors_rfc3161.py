@@ -42,8 +42,9 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     valid at ``gen_time`` fails closed. ``now`` is accepted for interface parity but deliberately unused.
 
     **Policy OID.** No TSA policy OID is pinned by default. A relying party MAY pin one via
-    ``rp_trust.trusted_tsa_policy_oids`` (any one matches) or the producer MAY declare a stricter-only pin
-    via ``frozen.policyOid``; either way the token's ``TSTInfo.policy`` MUST match or it fails closed.
+    ``rp_trust.trusted_tsa_policy_oids`` (the FIRST listed OID is pinned), or the producer MAY declare a
+    stricter-only pin via ``frozen.policyOid``; either way the token's ``TSTInfo.policy`` MUST match or it
+    fails closed.
     """
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
@@ -70,7 +71,7 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
         tsa_b64 = frozen.get("tsaCertDerB64")
         if tsa_b64:
             builder = builder.tsa_certificate(_load_der_cert(tsa_b64))
-        # policy OID pin: RP-supplied (any-of) takes precedence; else the producer's stricter-only frozen pin
+        # policy OID pin: the RP's first listed OID takes precedence; else the producer's stricter-only frozen pin
         policy_oid = rp_policy_oids[0] if rp_policy_oids else frozen.get("policyOid")
         if policy_oid:   # pin the TSA policy OID (fail-closed on mismatch / malformed OID)
             builder = builder.policy_id(ObjectIdentifier(policy_oid))

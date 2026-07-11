@@ -948,8 +948,19 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         with open(args.envelope, encoding="utf-8") as handle:
             env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
+        # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
+        # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
+        rp_trust = _build_rp_trust(args)
+        if policy is not None:
+            from .policy import policy_anchor_trust  # noqa: PLC0415
+            pol_trust = policy_anchor_trust(policy)
+            if pol_trust:
+                merged = dict(pol_trust)
+                merged.update(rp_trust or {})
+                rp_trust = merged
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
-                                         expected_nonce=args.nonce, policy=policy, anchors=anchors)
+                                         expected_nonce=args.nonce, policy=policy, anchors=anchors,
+                                         rp_trust=rp_trust)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1353,6 +1364,12 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--anchors", default=None,
                           help="path to a JSON array of DETACHED anchor evidence for the statement's own "
                                "content root (anchors are never inside the signed predicate)")
+    d_verify.add_argument("--trusted-tsa-root", action="append", default=None, metavar="PATH",
+                          help="WP-A1: a relying-party-supplied TSA root certificate (DER/PEM) that confirms "
+                               "an rfc3161 statement anchor — the bundle's frozen root is never trusted")
+    d_verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
+                          help="WP-A1: a relying-party-supplied Bitcoin block header (internal byte order) "
+                               "that confirms an OpenTimestamps statement anchor — frozen is never trusted")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
