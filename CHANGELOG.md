@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-07-12
 
 ### Security (BREAKING) — SD-JWT disclosures must be signed AND bind their bundle (WP-C1/C2, 6-lens review)
 - An `sd_jwt_vc` block lives OUTSIDE `payload_b64`, so the bundle's Ed25519 signature does not cover it —
@@ -190,7 +190,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pinned spec revision) is recorded in the governance story and the roles registry (no delegated
   rights, like every contributor).
 
-### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 ### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
 - **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
   only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
@@ -238,7 +237,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
   policy violations untouched).
 - docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
-  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+  (`tests/test_policy_explain_lint.py`).
+
+### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 - **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
   `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
   verified `ok=True` through the verify function of another (a swapped SVR accepted as an
@@ -253,8 +254,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
 ### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
 - **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
-
-### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
   `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
   `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
   implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
