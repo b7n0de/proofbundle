@@ -69,7 +69,8 @@ def _safe_line(s: str) -> str:
 _VERIFY_NULLABLE_FIELDS = (
     "schema_ok", "signature_ok", "merkle_ok", "sd_jwt_ok", "sd_jwt_issuer_verified",
     "key_binding_ok", "audience_ok", "nonce_ok", "freshness_ok", "anchor_ok", "witness_ok",
-    "status_ok", "assurance_policy_ok", "policy_ok", "assurance", "assurance_declared_by")
+    "status_ok", "assurance_policy_ok", "policy_ok", "assurance", "assurance_declared_by",
+    "root_authenticity")
 
 
 def _error_verify_fields(error: str) -> dict:

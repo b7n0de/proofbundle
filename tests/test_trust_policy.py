@@ -327,6 +327,22 @@ class TestSchemaConsistency(unittest.TestCase):
         from proofbundle.policy import _TOP_KEYS
         self.assertEqual(set(self._schema()["properties"]), _TOP_KEYS)
 
+    def test_schema_merkle_properties_match_parser(self):
+        # NESTED parity (audit 2026-07-13): the top-level check missed that the new merkle policy keys
+        # require_authenticated_root / trusted_roots were added to the parser (_MERKLE_KEYS) but not the
+        # schema, so an external validator rejected the very policy the code enforces.
+        from proofbundle.policy import _MERKLE_KEYS
+        self.assertEqual(set(self._schema()["properties"]["merkle"]["properties"]), set(_MERKLE_KEYS))
+
+    @unittest.skipIf(jsonschema is None, "jsonschema not installed")
+    def test_schema_accepts_authenticated_root_policy(self):
+        # the production policy that closes the coherent-rewrap must validate against the SCHEMA, not
+        # only the parser (an external / second implementation trusts the schema).
+        pol = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "p",
+               "merkle": {"require_authenticated_root": True, "trusted_roots": ["QQ=="]}}
+        jsonschema.validate(instance=pol, schema=self._schema())   # must not raise
+        load_policy(pol)   # and the parser accepts it too
+
 
 class TestVerifyLensFixes(unittest.TestCase):
     """Regression tests for the six-lens WP-B3 review findings."""

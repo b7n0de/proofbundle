@@ -228,7 +228,9 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                    "stated root matches the expected authenticated root" if root_ok
                    else "stated root does NOT match the expected root — possible root/rewrap substitution")
     if expected_tree_size is not None:
-        size_ok = (not isinstance(expected_tree_size, bool)) and tree_size == expected_tree_size
+        # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
+        size_ok = (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
+                   and tree_size == expected_tree_size)
         result.add("tree-size", size_ok,
                    f"tree_size {tree_size} matches the expected size" if size_ok
                    else f"tree_size {tree_size} != expected {expected_tree_size} — possible tree-size substitution")

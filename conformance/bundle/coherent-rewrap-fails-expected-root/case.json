@@ -1,0 +1,19 @@
+{
+  "caseId": "native-bundle-coherent-rewrap-fails-expected-root",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "verifyArgs": [
+    "--expected-root",
+    "lYN6OaeW1AVBrmEIF0ZoNKdvduoh5/hQCQLBQipfBaw="
+  ],
+  "attribution": "proofbundle (P0-A / ADR 0004: relying-party root authentication)",
+  "expected": {
+    "exitCode": 1,
+    "rejected": true
+  },
+  "specRefs": [
+    "docs/adr/0004-native-root-authenticity.md",
+    "SPEC.md"
+  ],
+  "rationale": "The SAME rewrap FAILS (exit 1) when the relying party authenticates the root with the ORIGINAL single-leaf root via --expected-root: the rewrapped root does not match. Closes the coherent-rewrap; a second implementation MUST reject it too."
+}

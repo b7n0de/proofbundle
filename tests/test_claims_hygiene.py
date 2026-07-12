@@ -220,6 +220,24 @@ class TestP0CAdditions(unittest.TestCase):
         exempt = "### vs Sigstore Rekor\nRekor proves public append-only existence at time T.\n"
         self.assertEqual(self._scan(exempt), [], "append-only describing an external public log is accurate")
 
+    def test_outer_merkle_root_in_per_sample_section_is_not_over_exempted(self):
+        # Six-lens audit 2026-07-13: the earlier SECTION-scoped exemption let a genuine OUTER-root
+        # overclaim slip when co-located with per-sample language. An explicit "signed Merkle/bundle
+        # root" is the outer root and must flag even inside a per-sample section.
+        text = ("## Audit challenge (per-sample)\nEach opening verifies against the signed samples root.\n"
+                "Separately, the signed Merkle root of the whole bundle is publicly anchored.\n")
+        self.assertTrue(self._scan(text), "outer 'signed Merkle root' must flag even in a per-sample section")
+        # bare "signed root" in a per-sample section stays exempt (docs legitimately write it there)
+        self.assertEqual(self._scan("### The per-sample tree\nopenings must bind to the signed root.\n"), [],
+                         "bare 'signed root' in a per-sample section is the samples root")
+
+    def test_first_party_append_only_in_log_section_is_not_over_exempted(self):
+        # The symmetric append-only case: a FIRST-PARTY ("our own / issuer-local") append-only claim
+        # co-located in a Rekor section is the overclaim and must flag; Rekor's own property stays exempt.
+        text = ("### vs Sigstore Rekor\nRekor proves public append-only existence.\n"
+                "But our own issuer-local Merkle tree is also append-only.\n")
+        self.assertTrue(self._scan(text), "first-party append-only must flag even in a log section")
+
     def test_publicly_anchored_and_score_and_secure_and_correct_and_executed(self):
         for text in ("The receipt is publicly anchored.",
                      "This gives you a verified score.",

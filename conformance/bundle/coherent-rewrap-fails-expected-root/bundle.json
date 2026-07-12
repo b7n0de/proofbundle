@@ -1,0 +1,18 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "Y29uZm9ybWFuY2UgY29oZXJlbnQtcmV3cmFwIHZlY3RvciBwYXlsb2Fk",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "uJcyYE8/ZQ5VdPb0Z2Va966zIvyWxtjg+IbJyf5lMWY=",
+    "sig_b64": "63Uo9D7tYWg/A3iUd2vixamTpkRXNb0oQYlGzPaA1KoSJWtOmcNj3MvHw0WInS0oq+ZSPWwQi3JM3Z5KBGx6DA=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 2,
+    "inclusion_proof_b64": [
+      "UmoE65hbRCJfopCqQtKC4dcIJagjPb/kxPBxBh3darw="
+    ],
+    "root_b64": "tGjjQxDAn0Pz9kRcXnLNiuGPsoq2rNOTgE8loZfOpjs="
+  }
+}

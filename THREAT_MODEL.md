@@ -11,7 +11,8 @@ not *correctness of the computation*.)
 | Threat | Caught by | Result |
 |---|---|---|
 | **Payload tampering** — any byte of the claim changed after signing | Ed25519 signature over the canonical payload | `verify` → FAIL |
-| **Merkle-root / inclusion tampering** | RFC 6962 inclusion + consistency proofs | FAIL |
+| **Merkle-root / inclusion tampering** — a forged inclusion path, or a root that is not internally consistent with the proof | RFC 6962 inclusion + consistency proofs | FAIL |
+| **Coherent root rewrap** — the SAME signed payload re-anchored under a different, internally valid root (the native root is NOT in the signature input, so inclusion proves consistency under the *stated* root, not its authenticity) | caught only with a relying-party `--expected-root` / `expected_tree_size`, or a `merkle.require_authenticated_root` / `trusted_roots` policy (ADR 0004) | `NOT_EVALUATED` by default; **FAIL** under an authenticated-root policy or a matching `--expected-root` |
 | **Issuer swap** — re-signing with a different key while keeping the stated `issuer` | `decode_eval_claim` binds the claim `issuer` to the signing key | FAIL |
 | **Model / dataset swap** — a claim silently attributing a result to a different model | salted commitment + `verify_commitment(identifier, salt, commitment)` | mismatch is visible |
 | **Filtered disclosure** — hiding claims behind SD-JWT `_sd` digests | `sd_jwt_hidden_count` surfaces the number of withheld fields | omission is visible |

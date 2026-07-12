@@ -6,6 +6,28 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — six-lens audit hardening (2026-07-13, pre-release)
+- **`THREAT_MODEL.md`** corrected: the "Merkle-root / inclusion tampering → FAIL" row no longer
+  overclaims. A *coherent root rewrap* (the same signed payload re-anchored under a different valid
+  root) is now stated honestly as `NOT_EVALUATED` by default, FAIL only under an authenticated-root
+  policy / `--expected-root`.
+- **`SPEC.md` §7** verification order now documents the additive `root-authenticity` / `tree-size`
+  checks and the separate verdicts, so a second implementation knows they exist.
+- **Shipped profile `strict-eval-authenticated-root-v1`** — the coherent-rewrap protection is now
+  reachable from a NAMED profile (sets `merkle.require_authenticated_root`), not only a bespoke policy;
+  the relying party supplies the authenticated root (`--expected-root` / `trusted_roots`).
+- **`schemas/trust_policy_v0_1.schema.json`** gains `merkle.require_authenticated_root` +
+  `trusted_roots` (they were enforced by the parser but rejected by the schema — a second implementation
+  would have rejected the policy the code accepts). Nested schema↔parser parity test added.
+- **Claims-hygiene** exception tightened: a genuine OUTER "signed Merkle/bundle root" or a first-party
+  "our own tree is append-only" overclaim co-located in a per-sample / Rekor section is no longer
+  over-exempted; `signed samples root` and external-log `append-only` stay exempt.
+- **Cross-implementation corpus** now carries the coherent-rewrap vectors (verifies without policy;
+  FAILs under `--expected-root`), so the finding is cross-checked, not only asserted in unit tests.
+- Fixes: `verify --json` error path carries the `root_authenticity` key (was omitted → KeyError);
+  `verify_bundle(expected_tree_size=)` rejects a float; a CLI-level root-authenticity + exit-code test;
+  a decimal-precision evidence-class test. ADR `docs/adr/0005-eval-semantics-score-vs-threshold.md`.
+
 ### Added — score-vs-threshold evidence classes (P0-B, Hardening 3.0.1 §7)
 - **`proofbundle.evalclaim.eval_evidence_class`** — a receipt today signs a THRESHOLD VERDICT (`passed`
   against the signed `comparator`/`threshold`); the exact score is used at emit to compute `passed` and
@@ -32,7 +54,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plus `safeForAutomation` (true only when the root was affirmatively authenticated). `merkle-inclusion`
   now reads "Merkle-consistent under the STATED root". ADR: `docs/adr/0004-native-root-authenticity.md`.
 - Non-breaking: absent an expected root / policy, root authenticity is NOT_EVALUATED and every existing
-  verdict is unchanged. `expected_checkpoint` / public-log toggles are the separate §10 profile (3.1.0).
+  verdict is unchanged. `expected_checkpoint` / public-log toggles are the separate §10 profile (a later minor).
 
 ### Added — named trust-policy profiles (WP3, v2-audit)
 - **`src/proofbundle/policies/*.json`** — four packaged, loadable trust-policy profiles:
