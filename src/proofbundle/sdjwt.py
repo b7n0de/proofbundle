@@ -124,8 +124,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     for d in disclosures:
         try:
             parsed = loads_strict(_b64url_decode(d))
-        except (BundleFormatError, ValueError, json.JSONDecodeError):
-            # a disclosure value that is an object with a duplicate key is likewise rejected (F12)
+        except BundleFormatError:
+            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set a
+            # duplicate-specific detail so it is not masked by the generic "N disclosure(s)" fall-through.
+            result["detail"] = "duplicate JSON key in an SD-JWT disclosure (parser-differential, rejected)"
+            all_committed = False
+            break
+        except (ValueError, json.JSONDecodeError):
             all_committed = False
             break
         if not (isinstance(parsed, list) and len(parsed) in (2, 3)):

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import os
 import re
 import unicodedata
@@ -394,12 +393,17 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     token = sd if isinstance(sd, str) else (sd.get("compact") or sd.get("sd_jwt") or sd.get("token") or "")
     if not isinstance(token, str) or "." not in token:
         return None
+    from ._strict_json import loads_strict  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
     try:
         jwt = token.split("~", 1)[0]                     # issuer JWT, before any disclosures
         payload_b64 = jwt.split(".")[1]
         payload_b64 += "=" * (-len(payload_b64) % 4)     # restore base64url padding
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-    except (ValueError, KeyError, IndexError):
+        # F12 (release-audit follow-up 2026-07-12): loads_strict, not json.loads — a 5th SD-JWT
+        # issuer-payload parse site of the same parser-differential class. A duplicate key (e.g. two
+        # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.
+        payload = loads_strict(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+    except (BundleFormatError, ValueError, KeyError, IndexError):
         return None
     if not isinstance(payload, dict):                    # a valid-JSON non-object payload → nothing to count
         return None

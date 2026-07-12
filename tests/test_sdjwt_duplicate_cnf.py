@@ -20,6 +20,9 @@ from proofbundle import generate_signer
 from proofbundle.kbjwt import verify_key_binding
 from proofbundle.sdjwt import verify_sd_jwt
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
+from proofbundle.bundle import _issuer_requires_holder_binding
+from proofbundle.sdjwt_issue import check_binds_bundle
+from proofbundle.evalclaim import sd_jwt_hidden_count
 
 IAT = 1_780_000_000
 
@@ -92,6 +95,87 @@ class TestDuplicateCnfRejected(unittest.TestCase):
         res = verify_key_binding(presented, expected_aud="verifier.example", expected_nonce="n-1")
         self.assertTrue(res["ok"], res["detail"])
 
+
+
+# --- release-audit follow-up (2026-07-12) -------------------------------------------------------
+# Covers the 3 belt-and-braces sites Lens A found uncovered (a duplicate is rejected by verify_sd_jwt
+# FIRST, so these guards had no dedicated test), the 5th parse site (sd_jwt_hidden_count), and the
+# F10 demo error branch. These call the functions DIRECTLY so a regression in any one guard is caught
+# even though verify_bundle's pipeline would mask it.
+
+
+def _signed_issuer_jwt(payload_bytes, signer,
+                       header=b'{"alg":"EdDSA","typ":"application/sd-jwt"}'):
+    h, p = _b64url(header), _b64url(payload_bytes)
+    return f"{h}.{p}.{_b64url(signer.sign(f'{h}.{p}'.encode()))}"
+
+
+class TestBeltAndBracesAndFifthSite(unittest.TestCase):
+    def test_issuer_requires_holder_binding_duplicate_cnf_fails_closed(self):
+        """bundle._issuer_requires_holder_binding: a duplicate cnf must read as 'binding REQUIRED' (True),
+        never the inverted 'no binding required' — the exact inversion _strict_json.py warned about."""
+        iss, legit, atk = generate_signer(), generate_signer(), generate_signer()
+        sd_part = _issuer_jwt_with_duplicate_cnf(iss, legit, atk) + "~"
+        self.assertTrue(_issuer_requires_holder_binding(sd_part))
+
+    def test_check_binds_bundle_duplicate_key_is_unbound(self):
+        """sdjwt_issue._jwt_payload (loads_strict): a duplicate key in the issuer payload — even one whose
+        last-wins parse WOULD bind (all fields match) — is rejected as unbound (a parser differential can't bind)."""
+        iss = generate_signer()
+        claim = {"passed": True, "threshold": "0.9", "comparator": ">=", "suite": "s", "issuer": "ed25519:x"}
+        payload = (
+            b'{"passed":true,"threshold":"0.9","comparator":">=","suite":"s","issuer":"ed25519:x",'
+            b'"receipt":{"root_b64":"cm9vdA=="},"suite":"s"}'  # duplicate "suite" -> loads_strict rejects
+        )
+        compact = _signed_issuer_jwt(payload, iss) + "~"
+        self.assertFalse(check_binds_bundle(compact, claim, "cm9vdA=="))
+
+    def test_check_binds_bundle_legit_binds(self):
+        """Bidirectional: a legit single-key payload that matches the claim still binds (no over-rejection)."""
+        iss = generate_signer()
+        claim = {"passed": True, "threshold": "0.9", "comparator": ">=", "suite": "s", "issuer": "ed25519:x"}
+        payload = (
+            b'{"passed":true,"threshold":"0.9","comparator":">=","suite":"s","issuer":"ed25519:x",'
+            b'"receipt":{"root_b64":"cm9vdA=="}}'
+        )
+        compact = _signed_issuer_jwt(payload, iss) + "~"
+        self.assertTrue(check_binds_bundle(compact, claim, "cm9vdA=="))
+
+    def test_sd_jwt_hidden_count_duplicate_key_returns_none(self):
+        """evalclaim.sd_jwt_hidden_count (5th parse site): a duplicate key -> None (honest 'cannot count'),
+        never a silent last-wins count."""
+        iss = generate_signer()
+        payload = b'{"_sd_alg":"sha-256","_sd":["a","b"],"_sd":[]}'  # duplicate "_sd"
+        compact = _signed_issuer_jwt(payload, iss) + "~"
+        self.assertIsNone(sd_jwt_hidden_count({"sd_jwt_vc": {"compact": compact}}))
+
+    def test_sd_jwt_hidden_count_legit_counts(self):
+        """Bidirectional: a legit single-_sd SD-JWT still returns its hidden-field count."""
+        iss = generate_signer()
+        payload = b'{"_sd_alg":"sha-256","_sd":["a","b","c"]}'
+        compact = _signed_issuer_jwt(payload, iss) + "~"
+        self.assertEqual(sd_jwt_hidden_count({"sd_jwt_vc": {"compact": compact}}), 3)
+
+
+class TestDemoWithoutEvalExtra(unittest.TestCase):
+    def test_demo_exits_clean_without_eval_extra(self):
+        """cli._cmd_demo EvalClaimError branch (F10): a demo without the [eval] extra returns a clean exit 2
+        (not a raw traceback). Simulated by forcing run_demo to raise EvalClaimError."""
+        import proofbundle.cli as cli
+        import proofbundle.demo as demo
+        from proofbundle.evalclaim import EvalClaimError
+
+        def _boom(*a, **k):
+            raise EvalClaimError('emitting eval receipts needs an RFC 8785 canonicalizer — '
+                                 'install with: pip install "proofbundle[eval]"')
+
+        orig = demo.run_demo
+        demo.run_demo = _boom
+        try:
+            rc = cli.main(["demo"])
+        finally:
+            demo.run_demo = orig
+        self.assertEqual(rc, 2)
 
 if __name__ == "__main__":
     unittest.main()

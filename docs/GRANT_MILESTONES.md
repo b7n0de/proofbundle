@@ -22,6 +22,12 @@ recorded: external fixture does not yet satisfy the strict v0.1 predicate schema
 
 ## M5 — Public report and hardened release — pending
 
+## M6 — `Development Status :: 5 - Production/Stable` classifier — pending
+
+Gated on M4 (findings remediated) + a passing external audit (Owner decision E1, 2026-07-12: stable
+is evidenced, not asserted). Until then the package stays `4 - Beta` in `pyproject.toml`; the bump is
+a factual milestone here, not a forward promise.
+
 ---
 
 Evidence: the external time-anchor design (canonicalization / content-root

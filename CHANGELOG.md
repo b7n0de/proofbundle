@@ -364,7 +364,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cnf-downgrade check.
 - **SD-JWT / KB-JWT payloads now parse with `loads_strict`** like every other verify path: a DUPLICATE
   JSON key (e.g. a second `cnf` naming an attacker holder key) is rejected fail-closed at the structure
-  gate, closing the last documented parser-differential residual (regression: `tests/test_sdjwt_duplicate_cnf.py`).
+  gate. The release-audit follow-up extended this to the last parse site of the same class, the
+  `evalclaim.sd_jwt_hidden_count` disclosure-transparency helper (a duplicate key now returns `None`,
+  not a last-wins count), closing the documented parser-differential residual in full (regression:
+  `tests/test_sdjwt_duplicate_cnf.py`).
+### Packaging
+- The `Development Status` classifier stays **`4 - Beta`** for 3.0.0 (Owner decision E1, 2026-07-12):
+  stable is evidenced, not asserted. The move to `5 - Production/Stable` is a separate, audit-gated
+  milestone that lands only after the funded external security review passes
+  (tracked in `docs/GRANT_MILESTONES.md`), never claimed pre-audit — even for a breaking security release.
 
 ## [2.1.0] - 2026-07-10
 

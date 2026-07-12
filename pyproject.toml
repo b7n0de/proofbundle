@@ -22,7 +22,10 @@ keywords = [
     "rfc6962",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    # Stays Beta until the funded external security review passes (Owner decision E1, 2026-07-12):
+    # "stable is evidenced, not asserted". The move to "5 - Production/Stable" is a separate,
+    # audit-gated milestone (see docs/GRANT_MILESTONES.md), never claimed pre-audit.
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
