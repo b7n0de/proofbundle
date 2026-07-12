@@ -57,6 +57,16 @@ class TestEvidenceClassifier(unittest.TestCase):
         ev = eval_evidence_class({**self.BASE, "score": "0.10"})
         self.assertEqual(ev["score_evidence"], THRESHOLD_VERDICT_VERIFIED)
 
+    def test_decimal_precision_boundaries(self):
+        # §7.4 decimal-precision boundaries: trailing zeros, differing precision score vs threshold,
+        # and long decimals compare by VALUE (Decimal), so a consistent exact score stays EXACT.
+        for thr, score, passed in (("0.85", "0.850", True), ("0.850", "0.85", True),
+                                    ("0.8500000000000000001", "0.85", False),
+                                    ("0.85", "0.8500000000000000001", True)):
+            ev = eval_evidence_class({"comparator": ">=", "threshold": thr, "score": score, "passed": passed})
+            self.assertEqual(ev["score_evidence"], EXACT_SCORE_VERIFIED,
+                             f"precision boundary {score} >= {thr} (passed={passed}) must stay EXACT")
+
     def test_malformed_score_decimal_degrades_to_threshold(self):
         for bad in ("inf", "1e2", "NaN", "0,85", "abc", "+5"):
             self.assertEqual(eval_evidence_class({**self.BASE, "score": bad})["score_evidence"],

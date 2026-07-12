@@ -79,6 +79,15 @@
         "required_hash_alg": {
           "type": "string",
           "description": "If set, merkle.hash_alg MUST equal this (e.g. \"sha256-rfc6962\")."
+        },
+        "require_authenticated_root": {
+          "type": "boolean",
+          "description": "If true, the stated Merkle root MUST be authenticated — it must match a relying-party --expected-root or a trusted_roots entry — else POLICY FAIL (ADR 0004, coherent-rewrap guard)."
+        },
+        "trusted_roots": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Base64 Merkle roots the relying party trusts out of band; a stated root among them counts as authenticated. A non-empty list enforces on its own."
         }
       }
     },

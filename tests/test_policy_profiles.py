@@ -33,7 +33,8 @@ class TestNamedProfilesLoadExplainLint(unittest.TestCase):
 
     def test_every_profile_loads_explains_and_lints_clean(self):
         self.assertEqual(list_profiles(),
-                         ["decision-receipt-v1", "research-preview-v1", "strict-eval-v1", "strict-prereg-v1"])
+                         ["decision-receipt-v1", "research-preview-v1", "strict-eval-authenticated-root-v1",
+                          "strict-eval-v1", "strict-prereg-v1"])
         for name in list_profiles():
             with self.subTest(profile=name):
                 path = profile_path(name)

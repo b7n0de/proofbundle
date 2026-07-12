@@ -208,6 +208,18 @@ A conforming verifier MUST perform, in this order, and report each result:
 7. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
    signature verified, and the payload is a `proofbundle/eval-claim/v0.1` claim
    (§6, WP-C1; fail-closed against cross-receipt substitution).
+8. **root-authenticity** and **tree-size** — additive relying-party root
+   authentication (ADR 0004, since the root is NOT in the signature input, §5).
+   Performed ONLY when the relying party supplies an expected value: a given
+   `expected_root_b64` MUST equal the stated root's bytes, and a given
+   `expected_tree_size` MUST equal `merkle.tree_size`; a mismatch FAILS. Absent an
+   expected value, root authenticity is `NOT_EVALUATED` (the verdict is unchanged).
+   A trust policy MAY additionally require an authenticated root
+   (`merkle.require_authenticated_root` / `merkle.trusted_roots`), enforced over the
+   crypto result (exit 3, not part of this crypto order). A conforming verifier
+   MUST report `payloadSignature` / `merkleConsistency` / `rootAuthenticity`
+   (PASS/FAIL/NOT_EVALUATED) separately, so Merkle inclusion is never read as root
+   authentication.
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party

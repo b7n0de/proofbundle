@@ -1,6 +1,6 @@
 # ADR 0004 — Native Merkle root authenticity
 
-Status: Accepted (3.0.2, non-breaking layer) · the signed-core option is DEFERRED to the next breaking format version
+Status: Accepted (3.1.0, non-breaking layer) · the signed-core option is DEFERRED to the next breaking format version
 Date: 2026-07-12
 Context: Hardening 3.0.1 audit finding P0-A
 
@@ -22,7 +22,7 @@ This is not a signature break — it is a **scope** problem: Merkle inclusion an
 payload consistent under THIS root?", never "is THIS root the authentic one?". The two must
 be reported as distinct verdicts.
 
-## Decision (3.0.2, non-breaking)
+## Decision (3.1.0, non-breaking)
 
 1. **Report separate verdicts** (`root_authenticity_summary`, `verify` CLI): `payloadSignature`,
    `merkleConsistency`, `rootAuthenticity` (PASS/FAIL/NOT_EVALUATED), `publicTransparency`
@@ -38,13 +38,13 @@ be reported as distinct verdicts.
    FAIL (exit 3), evaluated by BYTES (a malformed trusted entry never matches, fail-closed).
 
 `expected_checkpoint` / `expected_log_origin` and the policy `require_checkpoint` /
-`require_public_log_receipt` toggles are the SEPARATE public-transparency profile (§10, 3.1.0):
+`require_public_log_receipt` toggles are the SEPARATE public-transparency profile (§10, a later minor release):
 they need a signed-checkpoint / public-log receipt verifier and are intentionally NOT shipped in
 this non-breaking patch to avoid a half-implemented checkpoint path.
 
 ## Options considered for the next breaking version
 
-- **A — Root-pinning as a relying-party input only** (what 3.0.2 ships). Zero format change,
+- **A — Root-pinning as a relying-party input only** (what 3.1.0 ships). Zero format change,
   fully backward-compatible, but the relying party must obtain an authentic root out of band.
 - **B — Signed receipt core**: put a Domain Separator, Receipt Profile, Payload Digest, Root,
   Tree Size, Leaf Index, Hash Algorithm (optional Log Origin) INTO the signature input. Then the
@@ -57,9 +57,9 @@ this non-breaking patch to avoid a half-implemented checkpoint path.
 
 ## Consequences and constraints
 
-- 3.0.2 is non-breaking: absent an expected root / policy, root authenticity is NOT_EVALUATED
+- 3.1.0 is non-breaking: absent an expected root / policy, root authenticity is NOT_EVALUATED
   and every existing verdict is unchanged.
 - The signed-core (option B) is a BREAKING format change. It ships only in the next breaking
   version, AFTER: a legacy-verifier path, a migration guide, positive and negative cross-impl
   vectors (including the coherent one-leaf rewrap), an independent second-implementation review,
-  and an Owner-GO / audit decision — none of which are in scope for 3.0.2.
+  and an Owner-GO / audit decision — none of which are in scope for 3.1.0.

@@ -76,7 +76,8 @@ def _check_native_bundle(case: dict, case_dir: pathlib.Path, *, require_anchors:
     # optional extra verify args (e.g. ["--require-anchor"]) — a relying-party gate the case exercises.
     # Confined to a small allowlist so a case cannot make the harness read files or reach the network.
     extra = case.get("verifyArgs") or []
-    _ALLOWED = {"--require-anchor", "--anchor-type", "--allow-pending", "--anchor-target"}
+    _ALLOWED = {"--require-anchor", "--anchor-type", "--allow-pending", "--anchor-target",
+                "--expected-root", "--expected-tree-size"}
     if not isinstance(extra, list) or any(
             not isinstance(a, str) or (a.startswith("--") and a not in _ALLOWED) for a in extra):
         return _fail(cid, f"verifyArgs must be a list drawn from {sorted(_ALLOWED)} (no file/network flags)")

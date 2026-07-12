@@ -9,10 +9,13 @@ import base64
 import copy
 import hashlib
 import unittest
+from pathlib import Path
 
 from proofbundle.bundle import root_authenticity_summary, verify_bundle
 from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.policy import evaluate_policy, explain_policy, load_policy
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 def _b64(b):
@@ -70,10 +73,72 @@ class TestExpectedRootGate(unittest.TestCase):
         self.assertFalse({c.name: c.ok for c in r.checks}["tree-size"])
         self.assertTrue(verify_bundle(orig, expected_tree_size=1).ok)
 
-    def test_expected_tree_size_rejects_bool(self):
-        orig, _ = _make_orig_and_coherent_rewrap()  # tree_size 1; True == 1 must NOT satisfy the size check
-        r = verify_bundle(orig, expected_tree_size=True)
-        self.assertFalse({c.name: c.ok for c in r.checks}["tree-size"])
+    def test_expected_tree_size_rejects_bool_and_float(self):
+        orig, _ = _make_orig_and_coherent_rewrap()  # tree_size 1; True==1 and 1.0==1 must NOT satisfy it
+        self.assertFalse({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=True).checks}["tree-size"])
+        self.assertFalse({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=1.0).checks}["tree-size"])
+        self.assertTrue({c.name: c.ok for c in verify_bundle(orig, expected_tree_size=1).checks}["tree-size"])
+
+
+class TestCLIRootAuthenticity(unittest.TestCase):
+    """Audit 2026-07-13 (§16 CLI + exit-code tests): exercise --expected-root through the real
+    argparse/CLI path and the JSON contract, not only verify_bundle() directly."""
+
+    def _emit_single_leaf(self, d):
+        import subprocess
+        import sys
+        payload = Path(d) / "payload.json"
+        payload.write_text('{"claim":"cli root-auth test"}', encoding="utf-8")
+        out = Path(d) / "b.json"
+        key = Path(d) / "k.seed"
+        env = {"PYTHONPATH": str(REPO / "src")}
+        subprocess.run([sys.executable, "-m", "proofbundle.cli", "emit", "--payload-file", str(payload),
+                        "--out", str(out), "--new-key", str(key)], check=True, cwd=REPO, env=env,
+                       capture_output=True)
+        import json as _json
+        return out, _json.loads(out.read_text())["merkle"]["root_b64"]
+
+    def _run(self, *args):
+        import subprocess
+        import sys
+        return subprocess.run([sys.executable, "-m", "proofbundle.cli", *args], cwd=REPO,
+                              env={"PYTHONPATH": str(REPO / "src")}, capture_output=True, text=True)
+
+    def test_cli_expected_root_exit_codes_and_json(self):
+        import json as _json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            bundle, root = self._emit_single_leaf(d)
+            # match → exit 0, ROOT-AUTHENTICITY: PASS, safe-for-automation true
+            ok = self._run("verify", str(bundle), "--expected-root", root)
+            self.assertEqual(ok.returncode, 0)
+            self.assertIn("ROOT-AUTHENTICITY: PASS", ok.stdout)
+            self.assertIn("safe-for-automation true", ok.stdout)
+            # mismatch → exit 1, FAIL
+            bad = self._run("verify", str(bundle), "--expected-root", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+            self.assertEqual(bad.returncode, 1)
+            self.assertIn("ROOT-AUTHENTICITY: FAIL", bad.stdout)
+            # JSON contract: root_authenticity present with the five verdict keys
+            js = self._run("verify", str(bundle), "--expected-root", root, "--json")
+            obj = _json.loads(js.stdout)
+            self.assertEqual(obj["root_authenticity"]["rootAuthenticity"], "PASS")
+            self.assertTrue(obj["root_authenticity"]["safeForAutomation"])
+            for k in ("payloadSignature", "merkleConsistency", "rootAuthenticity",
+                      "publicTransparency", "safeForAutomation"):
+                self.assertIn(k, obj["root_authenticity"])
+
+    def test_cli_malformed_json_error_path_carries_root_authenticity_key(self):
+        import json as _json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "bad.json"
+            bad.write_text("{ not valid json", encoding="utf-8")
+            r = self._run("verify", str(bad), "--json")
+            self.assertEqual(r.returncode, 2)
+            obj = _json.loads(r.stdout)
+            # audit L1: the error path must carry the key (None), never omit it (KeyError for integrators)
+            self.assertIn("root_authenticity", obj)
+            self.assertIsNone(obj["root_authenticity"])
 
 
 class TestSummary(unittest.TestCase):
@@ -149,6 +214,24 @@ class TestPolicyAuthenticatedRoot(unittest.TestCase):
         pol = self._policy(["!!!not base64!!!"])
         res = evaluate_policy(orig, verify_bundle(orig), pol)
         self.assertFalse(res["policy_ok"], "a malformed trusted_root must never authenticate (fail-closed)")
+
+    def test_shipped_authenticated_root_profile_activates_protection(self):
+        # Audit 2026-07-13 (§18a): a SHIPPED profile must actually activate the rewrap protection —
+        # not only a bespoke inline test policy. strict-eval-authenticated-root-v1 sets
+        # require_authenticated_root, so a relying party who loads it (and supplies the authenticated
+        # root) is protected against the coherent rewrap.
+        from proofbundle.policy_profiles import profile_path
+        prof = load_policy(profile_path("strict-eval-authenticated-root-v1"))
+        self.assertTrue(prof["merkle"]["require_authenticated_root"])
+        orig, rewrap = _make_orig_and_coherent_rewrap()
+        # with the authentic root trusted, orig's root authenticates; the rewrap's does not
+        prof_trusted = dict(prof)
+        prof_trusted["merkle"] = {**prof["merkle"], "trusted_roots": [orig["merkle"]["root_b64"]]}
+        self.assertTrue(evaluate_policy(orig, verify_bundle(orig), prof_trusted)["root_authenticated"])
+        self.assertFalse(evaluate_policy(rewrap, verify_bundle(rewrap), prof_trusted)["root_authenticated"])
+        # and with NO root source at all, the profile fails closed (demands an authenticated root)
+        res = evaluate_policy(orig, verify_bundle(orig), prof)
+        self.assertFalse(res["root_authenticated"])
 
     def test_explain_lists_the_new_pins(self):
         lines = explain_policy(self._policy(["AAAA"]))

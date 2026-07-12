@@ -40,6 +40,7 @@ PROFILE_ID_PREFIX = "proofbundle-policy/"
 PROFILE_NAMES: dict[str, str] = {
     "research-preview-v1": "research-preview-v1.json",
     "strict-eval-v1": "strict-eval-v1.json",
+    "strict-eval-authenticated-root-v1": "strict-eval-authenticated-root-v1.json",
     "strict-prereg-v1": "strict-prereg-v1.json",
     "decision-receipt-v1": "decision-receipt-v1.json",
 }

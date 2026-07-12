@@ -1,0 +1,16 @@
+{
+  "caseId": "native-bundle-coherent-rewrap-verifies-no-policy",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (P0-A / ADR 0004: the SAME signed payload re-anchored under a foreign 2-leaf root)",
+  "expected": {
+    "exitCode": 0,
+    "rejected": false
+  },
+  "specRefs": [
+    "docs/adr/0004-native-root-authenticity.md",
+    "THREAT_MODEL.md",
+    "SPEC.md"
+  ],
+  "rationale": "A coherent one-leaf rewrap VERIFIES without a policy (exit 0): the native Merkle root is not in the signature input, so inclusion proves consistency under the STATED root, not its authenticity. A second implementation MUST reproduce this (root authenticity NOT_EVALUATED), so the finding is cross-checked, not just asserted in the reference."
+}

@@ -97,16 +97,28 @@ _FORBIDDEN = [
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
 
-# §5.4 per-sample exception: the SAMPLES root and prereg_sha256 ARE fields of the signed eval-claim
-# payload, so "signed root" is CORRECT in that per-sample context (docs/DEMO.md audit-challenge). Only
-# the OUTER bundle Merkle root must never be called signed. A signed-root match is exempt when its
-# enclosing Markdown section carries the per-sample vocabulary; flagged everywhere else.
-_CONTEXT_EXEMPT = {
-    _SIGNED_ROOT_LABEL: re.compile(r"per-sample|samples[ -]root|audit-challenge|prereg", re.IGNORECASE),
-    # append-only is accurate WHEN describing an external public transparency log.
-    _APPEND_ONLY_LABEL: re.compile(r"rekor|transparency[- ]?log|public[- ]?log|certificate\s+transparency|c2sp|tlog",
-                                   re.IGNORECASE),
-}
+# §5.4 exceptions, TIGHTENED after the six-lens audit (2026-07-13) found the earlier SECTION-scoped
+# exemption unsound: a genuine outer-root or own-tree overclaim co-located in the SAME section as
+# legitimate per-sample / external-log language was silently exempted (exactly the risk §5.4 names).
+#
+# signed-root: the SAMPLES root and prereg_sha256 ARE fields of the signed eval-claim payload. A match
+# that EXPLICITLY names the OUTER root ("signed MERKLE root" / "signed BUNDLE root") is NEVER exempt —
+# even inside a per-sample section — because the outer root is precisely what must not be called signed
+# (this closes the audit's over-exemption: "the signed Merkle root of the whole bundle" in a per-sample
+# section is now flagged). "signed SAMPLES root" is always exempt (a real signed field); a bare
+# "signed root" / "signed tree root" stays exempt only inside a per-sample section (docs legitimately
+# write it there, e.g. FAQ.md audit openings, CHANGELOG per-sample entries).
+_PERSAMPLE_CTX = re.compile(r"per-sample|samples[ -]root|audit[- ]challenge|prereg", re.IGNORECASE)
+#
+# append-only: a CORRECT property of an EXTERNAL public transparency log (Rekor, CT); an overclaim only
+# for proofbundle's OWN issuer-local tree. Exempt when the enclosing section discusses such a log, UNLESS
+# the match's own CLAUSE names a FIRST-PARTY subject (our / issuer-local / this tree) — that clause is the
+# overclaim, and it is flagged even inside a Rekor section.
+_PUBLIC_LOG_CTX = re.compile(
+    r"rekor|transparency[- ]?log|public[- ]?log|certificate\s+transparency|c2sp|tlog", re.IGNORECASE)
+_FIRST_PARTY_SUBJECT = re.compile(
+    r"\b(?:our|we|us|its\s+own|issuer[- ]local|proofbundle'?s?\s+own|this\s+bundle|this\s+tree|"
+    r"this\s+receipt|own\s+(?:merkle\s+)?tree)\b", re.IGNORECASE)
 _HEADING_RE = re.compile(r"(?m)^#{1,6}\s")
 
 
@@ -198,9 +210,20 @@ def scan_file(path: Path) -> list[dict]:
             sentence = _sentence_around(text, m.start(), m.end())
             if _NEGATION_RE.search(sentence):
                 continue   # negated → allowed
-            exempt = _CONTEXT_EXEMPT.get(label)
-            if exempt is not None and exempt.search(_section_around(text, m.start())):
-                continue   # §5.4 per-sample section → allowed (the samples root IS signed)
+            # §5.4 exceptions (tightened 2026-07-13, see the constants block above).
+            if label is _SIGNED_ROOT_LABEL:
+                mtext = m.group(0).lower()
+                if "samples" in mtext:
+                    continue   # "signed samples root" is a real signed field
+                if "merkle" not in mtext and "bundle" not in mtext \
+                        and _PERSAMPLE_CTX.search(_section_around(text, m.start())):
+                    continue   # bare "signed root" in a per-sample section = the samples root
+                # an explicit "signed MERKLE/BUNDLE root" is the OUTER root → never exempt (flag)
+            elif label is _APPEND_ONLY_LABEL:
+                clause = _sentence_around(text, m.start(), m.end())
+                if (_PUBLIC_LOG_CTX.search(_section_around(text, m.start()))
+                        and not _FIRST_PARTY_SUBJECT.search(clause)):
+                    continue   # accurate for an external public log, and not a first-party overclaim
             line = raw.count("\n", 0, m.start()) + 1
             try:
                 rel = str(path.relative_to(REPO))
