@@ -190,5 +190,73 @@ class TestGateHonesty(unittest.TestCase):
             self.assertEqual(ch.scan_file(p), [], "negated 'trustless' is allowed")
 
 
+class TestP0CAdditions(unittest.TestCase):
+    """P0-C §5.2/§5.4 (Hardening 3.0.1) — the new forbidden phrasings and the per-sample /
+    external-public-log context exceptions, both directions."""
+
+    def _scan(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text(text, encoding="utf-8")
+            return [v["phrase"] for v in ch.scan_file(p)]
+
+    def test_outer_signed_root_flagged(self):
+        self.assertTrue(self._scan("The signed Merkle root proves membership."))
+        self.assertTrue(self._scan("Each opening verifies against the signed root."))
+
+    def test_per_sample_signed_root_exempt(self):
+        # The samples root IS a field of the signed eval-claim payload (docs/DEMO.md audit-challenge).
+        text = "## Per-sample audit\nEach opening verifies against the signed root.\n"
+        self.assertEqual(self._scan(text), [], "per-sample section must exempt 'signed root'")
+
+    def test_signed_root_exempt_only_inside_its_section(self):
+        # A per-sample section must NOT exonerate a signed-root claim in a LATER, unrelated section.
+        text = ("## Per-sample audit\nEverything here is per-sample.\n\n"
+                "## Bundle format\nThe signed Merkle root anchors the bundle.\n")
+        self.assertTrue(self._scan(text), "signed-root in a non-per-sample section must still flag")
+
+    def test_append_only_own_output_flagged_external_log_exempt(self):
+        self.assertTrue(self._scan("Our receipts form an append-only ledger."))
+        exempt = "### vs Sigstore Rekor\nRekor proves public append-only existence at time T.\n"
+        self.assertEqual(self._scan(exempt), [], "append-only describing an external public log is accurate")
+
+    def test_publicly_anchored_and_score_and_secure_and_correct_and_executed(self):
+        for text in ("The receipt is publicly anchored.",
+                     "This gives you a verified score.",
+                     "The exact score verified here is 0.9.",
+                     "The benchmark is secure.",
+                     "The evaluation is correct.",
+                     "The action was executed by the tool."):
+            self.assertTrue(self._scan(text), f"must flag: {text!r}")
+
+    def test_regulatory_compliant_flagged_technical_compliant_clean(self):
+        for text in ("It is AI Act compliant.", "A GDPR-compliant pipeline.",
+                     "compliant with the EU AI Act"):
+            self.assertTrue(self._scan(text), f"regulatory-compliant must flag: {text!r}")
+        for text in ("The Merkle proof is RFC 9162-compliant.",
+                     "a spec-compliant verifier", "C2SP-compliant checkpoint"):
+            self.assertEqual(self._scan(text), [], f"technical-compliant must be clean: {text!r}")
+
+    def test_article_12_compliant_is_an_allowed_anti_pattern_quote(self):
+        # COMPLIANCE.md legitimately QUOTES this under "Anti-patterns (do not claim these)". The
+        # positive Article-12 overclaim is covered by "satisfies article 12" instead.
+        text = '- "proofbundle makes us Article 12 compliant" — no single artifact does'
+        self.assertEqual(self._scan(text), [], "quoting 'Article 12 compliant' as an anti-pattern must not flag")
+
+    def test_truth_as_claim_flagged_idioms_clean(self):
+        for text in ("The receipt verifies the truth of the score.", "It guarantees truth.",
+                     "This certifies truth."):
+            self.assertTrue(self._scan(text), f"truth-as-claim must flag: {text!r}")
+        for text in ("The single source of truth is pyproject.toml.",
+                     "We compare against ground truth.", "To move toward truth you pre-register.",
+                     "Nothing here is a claim about truth."):
+            self.assertEqual(self._scan(text), [], f"truth idiom/disclaimer must be clean: {text!r}")
+
+    def test_negated_new_phrases_allowed(self):
+        for text in ("The receipts are not append-only.", "This is not publicly anchored.",
+                     "It does not give a verified score.", "The benchmark is not secure by this alone."):
+            self.assertEqual(self._scan(text), [], f"negated form must be allowed: {text!r}")
+
+
 if __name__ == "__main__":
     unittest.main()
