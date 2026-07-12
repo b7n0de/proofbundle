@@ -1,0 +1,9 @@
+{
+  "schema": "proofbundle/trust-policy/v0.2",
+  "policy_id": "proofbundle-policy/strict-prereg-v1",
+  "allowed_schema_versions": ["proofbundle/v0.1"],
+  "signature": {"allowed_algs": ["ed25519"]},
+  "merkle": {"required_hash_alg": "sha256-rfc6962"},
+  "assurance": {"reject_self_attested_without_prereg": true},
+  "anchors": {"require_anchor": "any", "require_anchor_target": "preRegistration", "allow_pending": false}
+}

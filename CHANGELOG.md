@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — named trust-policy profiles (WP3, v2-audit)
+- **`src/proofbundle/policies/*.json`** — four packaged, loadable trust-policy profiles:
+  `research-preview-v1` (baseline structural pins only), `strict-eval-v1` (`assurance.minimum_level:
+  reproduced`, `reject_self_attested_without_prereg`, KB-JWT required when `cnf` present),
+  `strict-prereg-v1` (v0.2, requires a confirmed — not merely pending — external time anchor stamping
+  the `preRegistration` target), and `decision-receipt-v1` (v0.2, pins `decision_receipt` structural
+  requirements). Every profile is a REAL policy: it loads, `policy explain` lists real pins, and
+  `policy lint` passes (non-strict) — see `docs/POLICY_PROFILES.md` for the honest scope (no profile
+  pins a signer identity, since that is inherently deployment-specific; each carries the expected
+  "attributes to nobody" warning as shipped).
+- **`proofbundle.policy_profiles`** (`list_profiles`, `profile_path`, `resolve_policy_source`) — the
+  loader. `resolve_policy_source` lets `policy explain` / `policy lint` / `verify --policy` accept a
+  bare or `proofbundle-policy/`-prefixed profile name anywhere a policy path is accepted; a real file
+  on disk always wins over a same-named packaged profile (never silently shadowed).
+- **`proofbundle policy list-profiles`** — a new CLI subcommand listing the shipped profiles.
+- **`explain_policy` now reports the `anchors` section as a real pin** (`policy.py`). Previously a
+  policy whose ONLY pin was `anchors.require_anchor` / `require_anchor_target` looked "wirkungslos" to
+  `policy lint` even though `verify --policy`'s anchor-requirement reconciliation genuinely gates exit
+  code 3 on it (`_cmd_verify` reads `policy["anchors"]` directly) — a false vacuous-policy verdict for
+  a pin that was, in fact, enforced. `evaluate_policy` itself (and the CLI's own anchor-requirement
+  logic) is unchanged; only what `explain`/`lint` REPORT about an already-enforced pin was corrected.
+  Tests: `tests/test_policy_profiles.py`.
+
+### Added — v2-audit documentation deliverables (WP5/WP6/WP7/WP9)
+- **`docs/PUBLIC_TRANSPARENCY_PROFILE.md`** — the distinction between a bundle's own local Merkle root
+  and public transparency-log inclusion (already-implemented C2SP checkpoint/cosignature/tlog-proof
+  support, SPEC.md §7c/§7d/§7e); documents the proposed (not implemented) `public-log-required-v1`
+  trust-policy section honestly as a gap, not a shipped capability.
+- **`docs/SD_JWT_VC_PROFILE.md`** (progresses issue #27) — the implemented SD-JWT core (RFC 9901) plus
+  the 3.0.0 secure-by-default hardening (unsigned-fails, issuer-identity, bundle-binding), the emitted-
+  but-unenforced SD-JWT VC syntactic markers (`typ: dc+sd-jwt`, `vct`, status-list pointer), and the
+  three still-open items from issue #27 (type-metadata resolution, OAuth WG conformance vectors, a
+  `vct`-requiring verifier flag) — none of which are implemented in this change; scoped as a follow-up.
+- **`docs/MIGRATION_EVAL_PREDICATE.md`** (progresses issue #26) — the content-root canonicalization
+  migration (`jcs-sha256-v1` vs. `legacy-sortkeys-json-v0`, already released in 2.1.0/ADR 0002) as a
+  practitioner migration guide, plus an honest status check on issue #26's literal ask (an official
+  upstream in-toto eval predicate): `in-toto/attestation#565` remains open/unmerged, so there is no
+  official type to migrate to yet; the vendored `predicateType` is unchanged.
+- **`docs/adr/0003-hybrid-payload-signatures.md`** (WP9) — a forward-looking ADR: a decision to DEFER
+  payload-level post-quantum signatures (not implemented), comparing four options (A: status quo
+  Ed25519 + hash anchors, B: Ed25519+ML-DSA-44 hybrid, C: DSSE multi-signature, D: COSE/JWS profile)
+  and sketching four future trust-policy modes (`require_classical` / `require_pq` /
+  `require_hybrid_both` / `allow_legacy_with_confirmed_hash_anchor`) as a design record, not a schema
+  change — `policy.py`'s `signature` section is unchanged by this ADR.
+- `scripts/claims_hygiene_check.py` scan set gains the four new user-facing docs (33 docs scanned, was
+  29) — ADRs stay out of the scan set, matching 0001/0002 precedent.
+
 ## [3.0.0] - 2026-07-12
 
 ### Security (BREAKING) — SD-JWT disclosures must be signed AND bind their bundle (WP-C1/C2, 6-lens review)

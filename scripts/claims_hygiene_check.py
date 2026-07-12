@@ -34,6 +34,11 @@ _DEFAULT_DOCS = [
     "docs/INSPECT_HAPPY_PATH.md", "docs/NON_CLAIMS.md", "docs/DEMO.md", "docs/ANCHORS.md",
     "docs/ANCHORS_MARKOVIAN.md", "docs/REVIEWERS.md", "docs/EXPERIMENTAL_ENCLAVE.md",
     "docs/OPERATIONS_SECURITY.md", "docs/GRANT_MILESTONES.md",
+    # v2-audit deliverables (WP3/WP5/WP6/WP7): user-facing docs, held to the same discipline.
+    # ADRs (docs/adr/*) are deliberately NOT in this list, matching 0001/0002's precedent — a design
+    # record's freeform "options considered" prose is not the same genre as a capability claim.
+    "docs/POLICY_PROFILES.md", "docs/PUBLIC_TRANSPARENCY_PROFILE.md", "docs/SD_JWT_VC_PROFILE.md",
+    "docs/MIGRATION_EVAL_PREDICATE.md",
 ]
 
 # Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.

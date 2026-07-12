@@ -432,6 +432,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     from .policy import (  # noqa: PLC0415
         evaluate_policy, load_policy, policy_anchor_trust, policy_expected_aud,
     )
+    from .policy_profiles import resolve_policy_source  # noqa: PLC0415
 
     flag_aud = getattr(args, "aud", None)
     flag_nonce = getattr(args, "nonce", None)
@@ -460,7 +461,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # expected_aud are set and DIFFER, that is ambiguous → exit 2 (never a silent override).
         effective_aud = flag_aud
         if getattr(args, "policy", None):
-            policy = load_policy(args.policy)
+            policy = load_policy(resolve_policy_source(args.policy))
             pol_aud = policy_expected_aud(policy)
             if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
                 from .policy import PolicyError  # noqa: PLC0415
@@ -1076,8 +1077,9 @@ def _cmd_decision_init(args: argparse.Namespace) -> int:
 
 def _cmd_policy_explain(args: argparse.Namespace) -> int:
     from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
+    from .policy_profiles import resolve_policy_source  # noqa: PLC0415
     try:
-        policy = load_policy(args.policy)
+        policy = load_policy(resolve_policy_source(args.policy))
     except PolicyError as exc:   # malformed policy → exit 2; in --json emit an error object (six-lens
         if args.json:            # review: an empty stdout on the error path breaks a JSON consumer)
             print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
@@ -1103,8 +1105,9 @@ def _cmd_policy_explain(args: argparse.Namespace) -> int:
 
 def _cmd_policy_lint(args: argparse.Namespace) -> int:
     from .policy import PolicyError, lint_policy, load_policy  # noqa: PLC0415
+    from .policy_profiles import resolve_policy_source  # noqa: PLC0415
     try:
-        policy = load_policy(args.policy)
+        policy = load_policy(resolve_policy_source(args.policy))
     except PolicyError as exc:   # malformed policy is a lint failure too, with the parse reason
         if args.json:            # emit an error object in --json (mirror _cmd_verify; exit 2 unchanged)
             print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
@@ -1122,6 +1125,22 @@ def _cmd_policy_lint(args: argparse.Namespace) -> int:
         for w in res["warnings"]:
             print(f"  WARN  {w}")
     return 0 if res["ok"] else 1
+
+
+def _cmd_policy_list_profiles(args: argparse.Namespace) -> int:
+    from .policy import explain_policy, load_policy  # noqa: PLC0415
+    from .policy_profiles import list_profiles, profile_path  # noqa: PLC0415
+    rows = []
+    for name in list_profiles():
+        policy = load_policy(profile_path(name))
+        rows.append({"name": name, "policy_id": policy.get("policy_id"),
+                    "schema": policy.get("schema"), "pin_count": len(explain_policy(policy))})
+    if args.json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return 0
+    for row in rows:
+        print(f"{row['name']:22} {row['schema']:32} {row['pin_count']} pin(s)   {row['policy_id']}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1157,7 +1176,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--nonce", default=None,
                         help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
     verify.add_argument("--policy", default=None,
-                        help="path to a trust-policy JSON (proofbundle/trust-policy/v0.1). Applies a "
+                        help="path to a trust-policy JSON (proofbundle/trust-policy/v0.1), OR the name "
+                             "of a packaged profile (WP3, e.g. strict-eval-v1 — see "
+                             "docs/POLICY_PROFILES.md; `policy list-profiles` lists them all). Applies a "
                              "fail-closed, offline trust decision OVER the crypto result: without it "
                              "POLICY reads NOT_EVALUATED; a policy failure is exit 3, distinct from a "
                              "crypto failure (exit 1)")
@@ -1313,19 +1334,26 @@ def build_parser() -> argparse.ArgumentParser:
     policy_cmd = sub.add_parser(
         "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
     psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
+    _profile_help = ("path to a trust-policy JSON, OR the name of a packaged profile (WP3, "
+                     "see docs/POLICY_PROFILES.md) such as strict-eval-v1 — a real file of the "
+                     "same name always wins over a packaged profile")
     p_explain = psub.add_parser(
         "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)")
-    p_explain.add_argument("policy", help="path to the trust-policy JSON")
+    p_explain.add_argument("policy", help=_profile_help)
     p_explain.add_argument("--json", action="store_true", help="machine readable output")
     p_explain.set_defaults(func=_cmd_policy_explain)
     p_lint = psub.add_parser(
         "lint", help="fail (exit 1) on a WIRKUNGSLOSE policy that would produce a vacuous "
                      "POLICY: OK; --strict also fails on attributes-to-nobody")
-    p_lint.add_argument("policy", help="path to the trust-policy JSON")
+    p_lint.add_argument("policy", help=_profile_help)
     p_lint.add_argument("--strict", action="store_true",
                         help="promote warnings (attributes to nobody) to lint failures")
     p_lint.add_argument("--json", action="store_true", help="machine readable output")
     p_lint.set_defaults(func=_cmd_policy_lint)
+    p_list = psub.add_parser(
+        "list-profiles", help="list the named trust-policy profiles shipped with this package (WP3)")
+    p_list.add_argument("--json", action="store_true", help="machine readable output")
+    p_list.set_defaults(func=_cmd_policy_list_profiles)
 
     prereg = sub.add_parser(
         "prereg",
