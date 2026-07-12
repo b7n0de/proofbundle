@@ -21,7 +21,8 @@ Merkle, one file, no server, no network.
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21230467.svg)](https://doi.org/10.5281/zenodo.21230467)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/scripts/mutation_check.py)
-<!-- SLSA / PEP 740 attestation badges follow once the first attested release lands, see RELEASE.md. -->
+[![PyPI attestations](https://img.shields.io/badge/PyPI-PEP_740_attested-D6248A.svg)](https://pypi.org/project/proofbundle/#files)
+[![SLSA provenance](https://img.shields.io/badge/SLSA-build_provenance-D6248A.svg)](https://slsa.dev/spec/v1.0/provenance)
 
 **Reviewing this for adoption?** Start with the 30-minute adversarial audit path: **[docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md)**.
 
