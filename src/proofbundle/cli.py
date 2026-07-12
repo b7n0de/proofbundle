@@ -300,7 +300,8 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
-        DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, sd_jwt_hidden_count,
+        DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, eval_evidence_class,
+        sd_jwt_hidden_count,
     )
     try:
         # Resolve the path to a dict ONCE and pass that object to every reader — a second per-function re-read of
@@ -316,6 +317,9 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     print(f"suite      {claim['suite']} ({claim['suite_version']})")
     print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
     print(f"passed     {claim['passed']}   (n={claim['n']})")
+    ev = eval_evidence_class(claim)
+    print(f"evidence   {ev['score_evidence']} ({ev['detail']})")
+    print(f"note       {ev['methodology']} (the receipt never judges whether the suite is well designed)")
     print(f"assurance  {claim.get('assurance_level', DEFAULT_ASSURANCE)}")
     print(f"model      commit {claim['model_id_commit']}")
     print(f"dataset    commit {claim['dataset_id_commit']}")
