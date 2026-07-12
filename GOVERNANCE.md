@@ -60,10 +60,11 @@ process is owed for revocation of a delegated right; the default state is no rig
 
 ## Contributors
 
-proofbundle's first external contribution is issue **#28** (the CLI `--version` printing the pinned
-spec revision, WP-B1), from **[@onxxdatas](https://github.com/onxxdatas)**. It is recorded in the
-roles registry for the governance story; like every contributor, they hold no delegated rights
-(DEFAULT DENY) — the change went through the same review and CI as any other.
+proofbundle's first external contributor engagement is issue **#28** (the CLI `--version` printing the
+pinned spec revision, WP-B1), raised by **[@onxxdatas](https://github.com/onxxdatas)**. The issue was
+implemented by the maintainer through the standard review and CI (no external pull request was
+submitted); onxxdatas is credited for the engagement and recorded in the roles registry for the
+governance story. Like every contributor, they hold no delegated rights (DEFAULT DENY).
 
 ## Provenance and AI assistance
 
