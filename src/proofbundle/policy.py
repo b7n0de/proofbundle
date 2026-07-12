@@ -18,7 +18,9 @@ Design invariants:
 
 from __future__ import annotations
 
+import base64
 import copy
+import hmac
 from typing import Union
 
 from ._strict_json import loads_strict
@@ -120,7 +122,7 @@ _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation",
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _ISSUER_KEYS = {"issuer", "public_key_b64", "kid"}
 _SIG_KEYS = {"allowed_algs", "require_expected_signer"}
-_MERKLE_KEYS = {"required_hash_alg"}
+_MERKLE_KEYS = {"required_hash_alg", "require_authenticated_root", "trusted_roots"}
 _SDJWT_KEYS = {"require_key_binding_when_cnf_present", "expected_aud", "require_nonce",
                "max_iat_age_seconds"}
 _STATUS_KEYS = {"reject_self_issued", "allowed_status_authorities"}
@@ -214,6 +216,8 @@ def load_policy(source: Union[str, dict]) -> dict:
         mk = _require_dict(policy["merkle"], "merkle")
         _reject_unknown(mk, _MERKLE_KEYS, "merkle")
         _require_str_or_null(mk, "required_hash_alg", "merkle")
+        _require_bool(mk, "require_authenticated_root", "merkle")   # P0-A §6.2
+        _require_list_of_str(mk, "trusted_roots", "merkle")          # base64 roots the RP trusts, out of band
     if "sd_jwt" in policy:
         sdj = _require_dict(policy["sd_jwt"], "sd_jwt")
         _reject_unknown(sdj, _SDJWT_KEYS, "sd_jwt")
@@ -472,12 +476,49 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 else "signer public key is NOT in allowed_issuers")
 
     # 4. merkle required hash alg
-    required_hash = (policy.get("merkle") or {}).get("required_hash_alg")
+    mk_pol = policy.get("merkle") or {}
+    required_hash = mk_pol.get("required_hash_alg")
     if required_hash is not None:
         got = (bundle.get("merkle") or {}).get("hash_alg")
         add("policy:merkle_hash_alg", got == required_hash,
             f"merkle.hash_alg {got!r} != required {required_hash!r}" if got != required_hash
             else f"merkle.hash_alg {got!r} matches")
+
+    # 4b. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
+    # rewrap re-anchors the same payload under a different root. Require the root be authenticated —
+    # either the relying party supplied a matching --expected-root (a passing root-authenticity check
+    # ran in verify_bundle) OR the stated root is one of the policy's trusted_roots (compared by BYTES;
+    # a malformed trusted entry never matches, fail-closed). ``root_authenticated`` is surfaced so the
+    # CLI can fold it into the structured rootAuthenticity verdict even when no --expected-root was given.
+    require_auth_root = bool(mk_pol.get("require_authenticated_root"))
+    trusted_roots = mk_pol.get("trusted_roots") or []
+    root_authenticated = None
+    if require_auth_root or trusted_roots:
+        ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
+        via_expected = ra_check is not None and ra_check.ok
+        stated_root_b64 = (bundle.get("merkle") or {}).get("root_b64")
+        try:
+            stated_root = base64.b64decode(stated_root_b64, validate=True) if isinstance(stated_root_b64, str) else b""
+        except (ValueError, TypeError):
+            stated_root = b""
+        via_trusted = False
+        for tr in trusted_roots:
+            try:
+                cand = base64.b64decode(tr, validate=True)
+            except (ValueError, TypeError):
+                continue   # a malformed trusted_root never matches (fail-closed)
+            if stated_root and hmac.compare_digest(stated_root, cand):
+                via_trusted = True
+                break
+        root_authenticated = bool(via_expected or via_trusted)
+        # A non-empty trusted_roots ENFORCES on its own (not only when require_authenticated_root is set):
+        # listing the roots you trust means the stated root MUST be one of them, else a policy that pins
+        # trusted_roots but forgets the boolean would silently pass a foreign root (fail-open footgun,
+        # 6-lens review 2026-07-12). explain_policy lists both, so explain⟺enforce parity holds.
+        add("policy:authenticated_root", root_authenticated,
+            "stated root authenticated (matches --expected-root or a trusted_roots entry)" if root_authenticated
+            else "policy requires an AUTHENTICATED merkle root, but the stated root matches neither "
+                 "--expected-root nor any trusted_roots entry (coherent-rewrap guard, fail-closed)")
 
     # 5. SD-JWT / KB-JWT policy. The aud VALUE was already bound by verify_bundle (the CLI passed the
     #    reconciled effective aud); here we enforce the remaining presence/structure requirements.
@@ -562,7 +603,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     policy_ok = all(c["ok"] for c in checks)
     reason = "" if policy_ok else next((c["detail"] for c in checks if not c["ok"]), "policy not satisfied")
-    return {"policy_ok": policy_ok, "checks": checks, "reason": reason}
+    return {"policy_ok": policy_ok, "checks": checks, "reason": reason,
+            "root_authenticated": root_authenticated}
 
 
 # ── WP-TP1: explain / lint / vacuous-pass warning ────────────────────────────
@@ -590,6 +632,10 @@ def explain_policy(policy: dict) -> list:
         # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
         # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
         lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
+    if mk.get("require_authenticated_root"):
+        lines.append("merkle root MUST be authenticated (--expected-root or trusted_roots; coherent-rewrap guard)")
+    if mk.get("trusted_roots"):
+        lines.append(f"merkle root in trusted_roots ({len(mk['trusted_roots'])} pinned)")
     sdj = policy.get("sd_jwt") or {}
     if sdj.get("require_key_binding_when_cnf_present"):
         lines.append("SD-JWT: key binding required when cnf present")

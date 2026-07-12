@@ -18,6 +18,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so the CLI never implies an exact score. Docs: `EVAL_CLAIM.md` §1a. Tests:
   `tests/test_eval_evidence_class.py`. No schema / wire / API break (additive read-side classifier).
 
+### Added — native Merkle root authenticity (P0-A, Hardening 3.0.1 §6)
+- The native Merkle root is NOT in the signature input, so the SAME signed payload verifies under
+  DIFFERENT roots (a **coherent one-leaf rewrap**, reproduced in `tests/test_root_authenticity.py`).
+  Merkle inclusion proves CONSISTENCY under the stated root, never its authenticity.
+- **`verify_bundle(..., expected_root_b64=, expected_tree_size=)`** and CLI **`--expected-root` /
+  `--expected-tree-size`** — relying-party root authentication, enforced bit-exactly; a mismatch FAILS.
+- **Trust-policy `merkle.require_authenticated_root` + `trusted_roots`** — a policy can DEMAND an
+  authenticated root; a stated root matching neither `--expected-root` nor a `trusted_roots` entry is a
+  POLICY FAIL (exit 3, compared by bytes, malformed entries never match — fail-closed).
+- **`root_authenticity_summary`** + a `ROOT-AUTHENTICITY` CLI line and JSON `root_authenticity` field —
+  separate `payloadSignature` / `merkleConsistency` / `rootAuthenticity` / `publicTransparency` verdicts
+  plus `safeForAutomation` (true only when the root was affirmatively authenticated). `merkle-inclusion`
+  now reads "Merkle-consistent under the STATED root". ADR: `docs/adr/0004-native-root-authenticity.md`.
+- Non-breaking: absent an expected root / policy, root authenticity is NOT_EVALUATED and every existing
+  verdict is unchanged. `expected_checkpoint` / public-log toggles are the separate §10 profile (3.1.0).
+
 ### Added — named trust-policy profiles (WP3, v2-audit)
 - **`src/proofbundle/policies/*.json`** — four packaged, loadable trust-policy profiles:
   `research-preview-v1` (baseline structural pins only), `strict-eval-v1` (`assurance.minimum_level:
