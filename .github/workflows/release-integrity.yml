@@ -1,0 +1,31 @@
+name: release-integrity
+
+# Release-integrity gate: version single-sourcing (pyproject == __init__ == CITATION.cff), CHANGELOG
+# documents the current version, and no undelivered post-tag drift (non-trivial commits since the last
+# tag without a version bump or an [Unreleased] section). Closes the "merged but never released" class
+# that let the M2 security fix and the 811-vs-817 changelog typo sit unreleased on main.
+# Actions are pinned to full commit SHAs (Scorecard/supply-chain hardening), matching ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-and-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0          # full history for the post-tag-drift check
+      - name: Fetch tags
+        run: git fetch --tags --force
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Version and changelog integrity
+        run: python3 scripts/check_version_and_changelog.py --repo .
