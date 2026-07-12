@@ -37,8 +37,9 @@ The order below is the convention, not a suggestion. A release is a fact about `
       **required reviewers** — so pushing a `v*` tag cannot publish to PyPI without human approval.
 - [ ] Enable **branch protection** on `main`: required CI (`test`, `crypto-floor`, `mutation`),
       required review, no force-push. Consider required signed commits.
-- [ ] Verify the README assets exist (`assets/b7n0de-logo.svg`, `-dark.svg`, `demo.svg`) — the repo
-      references them; a release with broken image links reads as abandonment. (They ship today; keep them present.)
+- [ ] Verify the README assets exist (`assets/b7n0de-hase-logo.png`, `-dark.png` — the Hase lockup the
+      README links; plus `demo.svg`) — the repo references them; a release with broken image links reads
+      as abandonment. (They ship today; the old `b7n0de-logo.svg`/`-dark.svg` are kept as a fallback.)
 - [ ] Turn the aspirational badges (PyPI version, Python versions, Downloads, SLSA, PEP 740) live
       only AFTER the first successful publish (they render broken/false before that).
 
