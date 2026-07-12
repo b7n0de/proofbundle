@@ -52,6 +52,9 @@ __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
     "emit_eval_receipt", "decode_eval_claim", "salted_commit", "issuer_fingerprint",
     "claim_warnings", "verify_commitment", "check_freshness", "sd_jwt_hidden_count",
+    "eval_evidence_class", "SCORE_EVIDENCE_CLASSES", "EXACT_SCORE_VERIFIED",
+    "THRESHOLD_VERDICT_VERIFIED", "SCORE_COMMITMENT_PRESENT", "SCORE_WITHHELD",
+    "METHODOLOGY_NOT_EVALUATED",
 ]
 
 
@@ -335,6 +338,67 @@ def claim_warnings(claim: dict) -> list:
                    "issuer, who could publish the best of many runs. Pre-register (prereg_sha256) or use a "
                    "higher assurance_level (reproduced / enclave_attested) to strengthen it.")
     return out
+
+
+# P0-B (Hardening 3.0.1 §7.1) — the machine-readable SCORE-evidence verdicts. A receipt today signs a
+# THRESHOLD VERDICT (`passed` against the signed `comparator`/`threshold`): the exact score is used at
+# emit time to COMPUTE `passed` and is then DISCARDED (build_eval_claim never stores it), so no output
+# may imply an exact score was verified. The other classes are reachable only through the optional,
+# additive exact-score profile (§7.2, EXPERIMENTAL, NOT part of the frozen 3.x core).
+EXACT_SCORE_VERIFIED = "EXACT_SCORE_VERIFIED"
+THRESHOLD_VERDICT_VERIFIED = "THRESHOLD_VERDICT_VERIFIED"
+SCORE_COMMITMENT_PRESENT = "SCORE_COMMITMENT_PRESENT"
+SCORE_WITHHELD = "SCORE_WITHHELD"
+METHODOLOGY_NOT_EVALUATED = "METHODOLOGY_NOT_EVALUATED"
+SCORE_EVIDENCE_CLASSES = (EXACT_SCORE_VERIFIED, THRESHOLD_VERDICT_VERIFIED,
+                          SCORE_COMMITMENT_PRESENT, SCORE_WITHHELD)
+
+
+def eval_evidence_class(claim: dict) -> dict:
+    """Classify what SCORE evidence a VERIFIED eval claim carries (never call on an unverified claim).
+
+    Returns ``{"score_evidence": <class>, "methodology": METHODOLOGY_NOT_EVALUATED, "detail": <str>}``.
+
+    Today every receipt is ``THRESHOLD_VERDICT_VERIFIED``: the frozen v0.1 schema has no ``score``
+    field, so a receipt proves only that ``passed`` holds for the signed ``comparator``/``threshold``.
+    ``methodology`` is ALWAYS ``METHODOLOGY_NOT_EVALUATED`` — a receipt never judges whether the suite
+    measures what it claims (No-Overclaim §0.5).
+
+    The remaining classes are reachable only through the optional, additive exact-score profile (§7.2,
+    field names provisional pending its ADR, EXPERIMENTAL, not in the 3.x core): a signed decimal-string
+    ``score`` whose recomputed ``passed`` AGREES → ``EXACT_SCORE_VERIFIED`` (a score present but
+    inconsistent with ``passed`` is a decode-time FAIL; if seen here it degrades to the threshold
+    verdict, never a false EXACT); a signed score COMMITMENT → ``SCORE_COMMITMENT_PRESENT`` (a binding,
+    NOT a range proof: it does not prove the hidden score crossed the threshold, §7.3); an explicit
+    withheld marker → ``SCORE_WITHHELD``.
+    """
+    methodology = METHODOLOGY_NOT_EVALUATED
+    comparator = claim.get("comparator")
+    threshold = claim.get("threshold")
+    passed = claim.get("passed")
+    score = claim.get("score")
+    if (isinstance(score, str) and _DECIMAL_RE.match(score) and comparator in _COMPARATORS
+            and isinstance(threshold, str) and _DECIMAL_RE.match(threshold) and isinstance(passed, bool)):
+        from decimal import Decimal, InvalidOperation  # noqa: PLC0415
+        try:
+            recomputed = {">=": Decimal(score) >= Decimal(threshold), ">": Decimal(score) > Decimal(threshold),
+                          "<=": Decimal(score) <= Decimal(threshold), "<": Decimal(score) < Decimal(threshold)}[comparator]
+        except InvalidOperation:
+            recomputed = None
+        if recomputed is passed:
+            return {"score_evidence": EXACT_SCORE_VERIFIED, "methodology": methodology,
+                    "detail": "exact score signed and consistent with the threshold verdict"}
+        return {"score_evidence": THRESHOLD_VERDICT_VERIFIED, "methodology": methodology,
+                "detail": "score present but not consistent with `passed` — only the threshold verdict stands"}
+    if claim.get("score_commit") or claim.get("score_commitment"):
+        return {"score_evidence": SCORE_COMMITMENT_PRESENT, "methodology": methodology,
+                "detail": "a score COMMITMENT is present — a binding, NOT a range proof: it does not "
+                          "prove the hidden score crossed the threshold"}
+    if claim.get("score_withheld") is True:
+        return {"score_evidence": SCORE_WITHHELD, "methodology": methodology,
+                "detail": "the exact score is deliberately withheld; only the threshold verdict is signed"}
+    return {"score_evidence": THRESHOLD_VERDICT_VERIFIED, "methodology": methodology,
+            "detail": "proves `passed` against the signed threshold, not an exact score"}
 
 
 def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:

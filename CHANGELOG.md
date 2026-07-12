@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — score-vs-threshold evidence classes (P0-B, Hardening 3.0.1 §7)
+- **`proofbundle.evalclaim.eval_evidence_class`** — a receipt today signs a THRESHOLD VERDICT (`passed`
+  against the signed `comparator`/`threshold`); the exact score is used at emit to compute `passed` and
+  then discarded, so no output may imply an exact score was verified. The classifier returns one of
+  `THRESHOLD_VERDICT_VERIFIED` (the only class the frozen v0.1 schema produces), `EXACT_SCORE_VERIFIED`,
+  `SCORE_COMMITMENT_PRESENT` (a binding, NOT a range proof), `SCORE_WITHHELD`, plus the always-present
+  `METHODOLOGY_NOT_EVALUATED`. The last four are forward-compatible with the optional, additive
+  exact-score profile (§7.2, EXPERIMENTAL, not in the frozen 3.x core).
+- **`show-eval`** now prints an `evidence` line declaring the class and a `note` line for methodology,
+  so the CLI never implies an exact score. Docs: `EVAL_CLAIM.md` §1a. Tests:
+  `tests/test_eval_evidence_class.py`. No schema / wire / API break (additive read-side classifier).
+
 ### Added — named trust-policy profiles (WP3, v2-audit)
 - **`src/proofbundle/policies/*.json`** — four packaged, loadable trust-policy profiles:
   `research-preview-v1` (baseline structural pins only), `strict-eval-v1` (`assurance.minimum_level:

@@ -14,6 +14,21 @@ It does **not** prove that the evaluation was well designed, that the suite
 measures what it claims, or that the reported score is itself correct. Those are
 human judgements. What it removes is the need to simply *trust the number*.
 
+### 1a. Score evidence classes
+
+The exact score is used only to compute `passed` and is then discarded, so a receipt carries a
+**threshold verdict**, not an exact score. `show-eval` declares this explicitly, and the
+machine-readable classifier `proofbundle.evalclaim.eval_evidence_class` returns one of:
+
+- `THRESHOLD_VERDICT_VERIFIED` — the signed claim proves `passed` for the stated
+  `comparator`/`threshold`. This is the ONLY class the frozen v0.1 schema produces.
+- `EXACT_SCORE_VERIFIED` — reachable only through the optional, additive exact-score profile (a signed
+  decimal-string `score` whose recomputed `passed` agrees). Not part of the frozen 3.x core; EXPERIMENTAL.
+- `SCORE_COMMITMENT_PRESENT` — a signed score commitment is a **binding, not a range proof**: it does
+  not prove the hidden score crossed the threshold.
+- `SCORE_WITHHELD` — the exact score is deliberately withheld; only the threshold verdict is signed.
+- `METHODOLOGY_NOT_EVALUATED` — always present: a receipt never judges whether the suite is well designed.
+
 ## 2. Data minimization
 
 The payload contains only salted commitments, the threshold, and `passed` — never
