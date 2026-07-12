@@ -92,7 +92,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: python -m pip install -e ".[dev,pq]"
+        # [anchors] is required so the WP-A1 mutation operators (needs_rp_trust self-trust) are actually
+        # KILLED — without the rfc3161-client/opentimestamps libs the anchor code short-circuits at no_lib
+        # and the A-1 defenses would go untested by the mutation gate (release-audit F13).
+        run: python -m pip install -e ".[dev,pq,anchors]"
       - name: Mutation check
         run: python scripts/mutation_check.py
 

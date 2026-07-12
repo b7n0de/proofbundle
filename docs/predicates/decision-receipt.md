@@ -1,6 +1,6 @@
 # Decision Receipt predicate `decision-receipt/v0.1`
 
-Status: draft for proofbundle 2.1.0. Vendored predicate under the b7n0de namespace. Design of record:
+Status: shipped in proofbundle 2.1.0 (vendored `decision-receipt/v0.1`, stable). Vendored predicate under the b7n0de namespace. Design of record:
 [`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
 
 **Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
@@ -128,8 +128,11 @@ structure_ok, crypto_ok, signer_trusted, predicate_type_ok, policy_ok, evidence_
 audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings[], errors[]
 ```
 
-Non-applicable checks are `null`. `action_outcome_proven` is `false` (with a warning) when
-`actionOutcome.status = executed` without a signed/digest-bound `outcomeRef`.
+Non-applicable checks are `null`. `freshness_ok` is **always `null` for decision receipts** — a
+pure-offline verifier has no trusted clock, so statement-time freshness is a relying-party policy
+concern, not something this path decides (it is a live check only on the eval-claim policy path).
+`action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
+signed/digest-bound `outcomeRef`.
 
 Exit codes (identical to the Phase B `verify` contract):
 `0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input ·

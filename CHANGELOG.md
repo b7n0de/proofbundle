@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-07-12
 
 ### Security (BREAKING) — SD-JWT disclosures must be signed AND bind their bundle (WP-C1/C2, 6-lens review)
 - An `sd_jwt_vc` block lives OUTSIDE `payload_b64`, so the bundle's Ed25519 signature does not cover it —
@@ -136,7 +136,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a checklist, not a claim: `[Owner]` items are the maintainer's to verify and are not asserted done;
   `[repo]` items are enforced by files in the repo. Distinct from `SECURITY.md` (which is about
   receiving vulnerability reports).
-- All three docs are now in the `claims_hygiene_check` scanned set (28 docs), so they are held to the
+- **`docs/GRANT_MILESTONES.md`** — the public deliverable/status tracker for the funded independent
+  security-review track (M1–M…), factual and linked to repo evidence, never aspirational.
+- All four docs are now in the `claims_hygiene_check` scanned set (29 docs), so they are held to the
   same No-Overclaim discipline as the rest of the documentation.
 
 ### Added — offline conformance corpus with cross-implementation decision vectors (WP-W2)
@@ -190,7 +192,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pinned spec revision) is recorded in the governance story and the roles registry (no delegated
   rights, like every contributor).
 
-### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 ### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
 - **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
   only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
@@ -226,7 +227,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A7 regressions closed:** a v0.1 bundle carrying `anchors[].target: "statement"` is now
   rejected as malformed (exit 2) by the verifier itself — the docs promised it, the code never
   enforced it (`statement` is exclusively for DETACHED decision evidence); a non-string
-  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.
 ### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
 - **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
   `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
@@ -238,7 +239,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
   policy violations untouched).
 - docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
-  (`tests/test_policy_explain_lint.py`).### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+  (`tests/test_policy_explain_lint.py`).
+
+### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
 - **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
   `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
   verified `ok=True` through the verify function of another (a swapped SVR accepted as an
@@ -253,8 +256,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
 ### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
 - **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
-
-### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
   `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
   `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
   implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
@@ -351,6 +352,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the exit-2 error path is pinned to carry the FULL `verify --json` field contract (incl.
   `assurance_declared_by`); the CLI-help assertion is terminal-width-independent; a line-number pin
   proves soft-unwrap keeps positions 1:1.
+### Verification discipline
+- **811 tests** (was 683 at 2.1.0) across the 3.10–3.14 CI matrix, all green. A pre-release audit
+  hardened the two anti-regression instruments so they actually cover the code this release adds:
+  the mutation gate (`scripts/mutation_check.py`, Anti-Goodhart) now carries an operator for **each of
+  the four new breaking defenses** — WP-C2 unsigned-fail, WP-C1 issuer-identity and bundle-binding,
+  WP-A1 needs-rp-trust — so a future accidental revert of any of them goes red (the mutation CI job now
+  installs `[anchors]` so the WP-A1 operators are exercised, not short-circuited at `no_lib`). The
+  offline conformance corpus's `sd-jwt-unsigned-unauthenticated` vector is now **cnf-free so it isolates
+  WP-C2** (disabling that defense flips the vector to exit 0), instead of riding on the older v1.6
+  cnf-downgrade check.
+- **SD-JWT / KB-JWT payloads now parse with `loads_strict`** like every other verify path: a DUPLICATE
+  JSON key (e.g. a second `cnf` naming an attacker holder key) is rejected fail-closed at the structure
+  gate. The release-audit follow-up extended this to the last parse site of the same class, the
+  `evalclaim.sd_jwt_hidden_count` disclosure-transparency helper (a duplicate key now returns `None`,
+  not a last-wins count), closing the documented parser-differential residual in full (regression:
+  `tests/test_sdjwt_duplicate_cnf.py`).
+### Packaging
+- The `Development Status` classifier stays **`4 - Beta`** for 3.0.0 (Owner decision E1, 2026-07-12):
+  stable is evidenced, not asserted. The move to `5 - Production/Stable` is a separate, audit-gated
+  milestone that lands only after the funded external security review passes
+  (tracked in `docs/GRANT_MILESTONES.md`), never claimed pre-audit — even for a breaking security release.
 
 ## [2.1.0] - 2026-07-10
 

@@ -16,10 +16,11 @@ enclave EAT, and every ``json.load`` in the CLI. Emit-side inputs (a claim/predi
 caller authored) use it too — a duplicate key in something about to be signed is at best an
 authoring bug, at worst an attempted differential.
 
-Known residuals (deliberate, documented): the SD-JWT/KB-JWT payload parses in ``sdjwt.py`` /
-``kbjwt.py`` and the ``bundle._issuer_requires_holder_binding`` helper — there a naive conversion
-would INVERT a fail-closed direction (a rejected ``cnf`` read must not read as "no holder binding
-required"); that group needs its own careful pass. Keys that differ only by Unicode normalization
+Resolved 2026-07-12 (F12, release-audit): the SD-JWT/KB-JWT payload sites in ``sdjwt.py`` /
+``kbjwt.py``, ``bundle._issuer_requires_holder_binding``, ``sdjwt_issue._jwt_payload`` and
+``evalclaim.sd_jwt_hidden_count`` now parse with ``loads_strict`` too, each routed fail-closed —
+a duplicate ``cnf`` is rejected, and ``_issuer_requires_holder_binding`` returns True on a duplicate
+(binding REQUIRED), never the inverted "no holder binding required". Keys that differ only by Unicode normalization
 (NFC/NFD) or a BOM are DISTINCT JSON keys by spec and stay distinct here — normalization games are
 a downstream concern of the field validators, not of the parser.
 

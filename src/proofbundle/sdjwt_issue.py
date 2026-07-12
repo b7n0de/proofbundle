@@ -29,6 +29,9 @@ from typing import Optional, Sequence
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from ._strict_json import loads_strict
+from .errors import BundleFormatError
+
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
 # issuer payload, so the presenter MUST hash with the same algorithm (not a hardcoded sha256). Release-review fix.
@@ -160,11 +163,15 @@ def issuer_matches(claim: dict, signer: Ed25519PrivateKey) -> bool:
 
 
 def _jwt_payload(compact: str) -> dict:
-    """Decode the always-open JWT payload of a compact SD-JWT (the part before the first '~')."""
+    """Decode the always-open JWT payload of a compact SD-JWT (the part before the first '~').
+
+    F12 (2026-07-12): loads_strict, so a DUPLICATE key raises BundleFormatError (the always-open claims
+    read here — issuer/passed/threshold/... — must not silently last-wins across implementations). The
+    verify-time callers (check_binds_bundle, bundle.py's identity check) catch it fail-closed."""
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-    return json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    return loads_strict(base64.urlsafe_b64decode(padded).decode("utf-8"))
 
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
@@ -172,7 +179,8 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected."""
     try:
         p = _jwt_payload(compact)
-    except (ValueError, KeyError, IndexError):
+    except (BundleFormatError, ValueError, KeyError, IndexError):
+        # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12)
         return False
     # `claim` is an attacker-controllable, only-schema-checked bundle payload — read every field with
     # .get() (WP-C1 6-lens review): a missing field must yield a mismatch (unbound → False), never a

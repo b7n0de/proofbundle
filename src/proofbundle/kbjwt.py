@@ -36,6 +36,8 @@ import hashlib
 import json
 from typing import Optional, Tuple
 
+from ._strict_json import loads_strict
+from .errors import BundleFormatError
 from .signature import verify_ed25519
 
 __all__ = ["split_key_binding", "verify_key_binding", "holder_key_from_cnf"]
@@ -121,11 +123,18 @@ def verify_key_binding(
         result["detail"] = "not a compact SD-JWT"
         return result
     try:
-        issuer_payload = json.loads(_b64url_decode(issuer_jwt.split(".")[1]))
+        # F12 (2026-07-12): loads_strict rejects a DUPLICATE key fail-closed. The issuer payload's `cnf`
+        # is the holder-binding key source (holder_key_from_cnf below); with plain last-wins json.loads a
+        # duplicated `cnf` let an attacker-controlled key win. BundleFormatError is NOT a ValueError, so it
+        # is caught explicitly here → the KB-JWT verification fails (ok stays False), never a raw traceback.
+        issuer_payload = loads_strict(_b64url_decode(issuer_jwt.split(".")[1]))
         kb_header_b64, kb_payload_b64, kb_sig_b64 = kb.split(".")
-        kb_header = json.loads(_b64url_decode(kb_header_b64))
-        kb_payload = json.loads(_b64url_decode(kb_payload_b64))
+        kb_header = loads_strict(_b64url_decode(kb_header_b64))
+        kb_payload = loads_strict(_b64url_decode(kb_payload_b64))
         kb_sig = _b64url_decode(kb_sig_b64)
+    except BundleFormatError:
+        result["detail"] = "duplicate JSON key in KB-JWT or issuer JWT (parser-differential, rejected)"
+        return result
     except (ValueError, TypeError, json.JSONDecodeError):
         result["detail"] = "malformed KB-JWT or issuer JWT"
         return result

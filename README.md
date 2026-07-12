@@ -148,7 +148,8 @@ flowchart LR
 - **Eval receipts** — a signed claim (`metric ⋈ threshold`, `n`, salted model/dataset commitments,
   assurance level, provenance) from your run. See [EVAL_CLAIM.md](https://github.com/b7n0de/proofbundle/blob/main/EVAL_CLAIM.md).
 - **Selective disclosure** — SD-JWT ([RFC 9901](https://datatracker.ietf.org/doc/rfc9901/)) with Key
-  Binding: prove a threshold while withholding the exact score.
+  Binding: prove a threshold while withholding the exact score. Secure-by-default in 3.0.0 (breaking): an
+  unsigned SD-JWT, or one whose disclosures do not bind this bundle, now fails verification (was warn-only).
 - **Transparency-log interop** — C2SP `tlog-checkpoint` / cosignature / `.tlog-proof`, with
   post-quantum **ML-DSA-44** witness cosignatures. Optional Token-Status-List revocation snapshots.
 - **Per-sample audit** — commit to every sample; an auditor challenges random indices (with a fresh
@@ -164,17 +165,21 @@ flowchart LR
   [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
 - **External time anchors** *(v2.0 beta, the `[anchors]` extra)* — an optional `anchors[]` layer that
   attaches external evidence of *when* a commitment or receipt existed, from a party the producer does not
-  control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a frozen cert chain) and
-  **OpenTimestamps** Bitcoin proofs (honest pending → confirmed lifecycle). A `register_anchor_type`
+  control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a relying-party-supplied TSA
+  root, see the 3.0.0 trust note below) and **OpenTimestamps** Bitcoin proofs (honest pending → confirmed lifecycle). A `register_anchor_type`
   extension interface lets a third party ship its own fail-closed type; two worked examples ship — a
   first-party **`chia-datalayer/v1`** (offline Merkle inclusion of a canonical root under a published Chia
   DataLayer root) and a third-party **`markovian-provenance/v1`** (a wallet-attributable, Bitcoin-anchored
-  stamp). **New in 2.1:** a `verify --require-anchor` relying-party gate (optionally narrowed by
+  stamp). **Since 2.1:** a `verify --require-anchor` relying-party gate (optionally narrowed by
   `--anchor-type`) turns "no verifying anchor of that type" into a failure layered over the crypto result
   (exit 3, like `--policy`); a pending anchor does not satisfy it unless `--allow-pending`. Plus RFC 3161
   hardening — the frozen cert chain is validated at the token's own `gen_time`, with optional `policyOid`
-  pinning. An anchor stays detached from the content root, and the `statement` target is RESERVED for
-  decision receipts. See [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
+  pinning. **Breaking in 3.0.0:** an anchor's TRUST now comes only from the relying party — supply a TSA
+  root (`--trusted-tsa-root`) or a Bitcoin block header (`--bitcoin-header`), or the equivalent `anchors`
+  policy keys; the bundle's producer-controlled `frozen` block is evidence, never a trust source, so
+  `--require-anchor` without relying-party trust material is unmet (exit 3). An anchor stays detached from
+  the content root, and the `statement` target is RESERVED for decision receipts.
+  See [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 - **Universal content root** *(2.1, `jcs-sha256-v1`, [ADR 0002](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0002-universal-content-root.md))* — one shared primitive now underlies both the
   decision-receipt path and the in-toto eval-result / test-result / SVR exports: SHA-256 over the RFC 8785
   (JCS) canonical bytes of the full pre-signature Statement, so a content root survives counter-signing and
