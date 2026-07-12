@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples all
+.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance all
 
 PYTHON ?= python3
 
@@ -36,5 +36,8 @@ examples:  ## run every offline example (those without optional extras)
 	          examples/tlog_proof_example.py examples/rekor_interop.py \
 	          examples/persample_audit.py; do \
 		echo "== $$f =="; PYTHONPATH=src $(PYTHON) $$f || exit 1; done
+
+conformance:  ## offline conformance corpus (anchor sub-checks need the [anchors] extra)
+	PYTHONPATH=src $(PYTHON) conformance/run_conformance.py
 
 all: lint typecheck test

@@ -49,30 +49,40 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
         self.assertTrue(res["warn"])      # but it is a WARN, not a hard fail
         self.assertEqual(res["status"], "pending")
 
-    def test_upgraded_without_header_is_honest_not_pass(self):
-        from proofbundle.anchors_ots import verify_opentimestamps
-        res = verify_opentimestamps(_upgraded_proof(), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
-        self.assertFalse(res["warn"])
-        self.assertEqual(res["status"], "upgraded_unverified")
-        self.assertIn("Bitcoin node", res["detail"])
-
-    def test_confirmed_when_supplied_block_merkle_root_matches(self):
-        # An upgraded proof + the block's Merkle root (from a trusted node) whose value matches the
-        # attestation message → confirmed. Here the attestation sits directly on the root, so the
-        # supplied merkle root IS the root.
+    def test_upgraded_without_rp_header_is_honest_not_pass(self):   # WP-A1 re-pin
+        # No relying-party header → not confirmed. WP-A1: a frozen header in the bundle is NOT trust,
+        # so even with one present the verdict without rp_trust is needs_rp_trust.
         from proofbundle.anchors_ots import verify_opentimestamps
         frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": _ROOT.hex()}}
         res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
-        self.assertTrue(res["ok"], res["detail"])
-        self.assertEqual(res["status"], "confirmed")
-
-    def test_block_mismatch_when_supplied_root_is_wrong(self):
-        from proofbundle.anchors_ots import verify_opentimestamps
-        frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": ("00" * 32)}}
-        res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
         self.assertFalse(res["ok"])
-        self.assertEqual(res["status"], "block_mismatch")
+        self.assertFalse(res["warn"])
+        self.assertEqual(res["status"], "needs_rp_trust")
+        self.assertTrue(res["needs_rp_trust"])
+        self.assertTrue(res["frozenEvidence"])        # the frozen header is reported as evidence…
+        self.assertIn("relying-party", res["detail"])  # …but never trusted
+
+    def test_confirmed_only_against_relying_party_block_merkle_root(self):   # WP-A1 re-pin
+        # An upgraded proof + the block's Merkle root supplied by the RELYING PARTY → confirmed. The same
+        # value frozen in the bundle does NOT confirm (frozen is producer-controlled = not trust).
+        from proofbundle.anchors_ots import verify_opentimestamps
+        frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        confirmed = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen={}, rp_trust=rp)
+        self.assertTrue(confirmed["ok"], confirmed["detail"])
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertTrue(confirmed["rp_trusted"])
+        # frozen-only (no rp_trust) with the SAME value must NOT confirm — the whole point of A-1
+        frozen_only = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
+        self.assertFalse(frozen_only["ok"])
+        self.assertEqual(frozen_only["status"], "needs_rp_trust")
+
+    def test_block_mismatch_when_relying_party_root_is_wrong(self):   # WP-A1 re-pin
+        from proofbundle.anchors_ots import verify_opentimestamps
+        rp = {"bitcoin_block_headers": {"800000": ("00" * 32)}}
+        res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen={}, rp_trust=rp)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "block_mismatch")   # present-and-wrong (RP material supplied)
 
     def test_pending_and_upgraded_are_distinguished(self):
         # Paket 1 test 7: the two states must be told apart, never collapsed.

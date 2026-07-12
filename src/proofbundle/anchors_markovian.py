@@ -31,7 +31,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import json
 from typing import Optional
 
 ANCHOR_TYPE = "markovian-provenance/v1"
@@ -42,7 +41,7 @@ def _fail(status: str, detail: str) -> dict:
 
 
 def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
-                     now: Optional[int] = None) -> dict:
+                     now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed verifier for a ``markovian-provenance/v1`` anchor. Returns {ok, warn, status, detail}.
 
     Steps (any doubt -> not ok; never raises for an ordinary bad proof):
@@ -54,13 +53,17 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     The final status/warn mirror the OTS verifier (pending / upgraded_unverified / confirmed); a PASS also
     names the committing wallet and Markovian chain height.
     """
-    # 1. parse
+    # 1. parse (WP-C1: strict — a duplicated key in the envelope is a parser differential over
+    # which wallet/merkle_root was committed; BundleFormatError keeps the never-raise contract)
     try:
-        env = json.loads(proof.decode("utf-8"))
+        from ._strict_json import loads_strict  # noqa: PLC0415
+        env = loads_strict(proof.decode("utf-8"))
         if not isinstance(env, dict):
             raise ValueError("envelope is not a JSON object")
     except (UnicodeDecodeError, ValueError) as exc:
         return _fail("malformed", f"markovian proof is not valid JSON: {exc}")
+    except Exception as exc:   # BundleFormatError (dup key) → clean fail, never a raise
+        return _fail("malformed", f"markovian proof rejected: {exc}")
 
     # 2. schema
     if env.get("schema") != ANCHOR_TYPE:
@@ -102,17 +105,31 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
         return _fail("no_lib",
                      "markovian anchor needs proofbundle[anchors] (opentimestamps) for the Bitcoin proof")
 
-    ots_res = verify_opentimestamps(ots_proof, canonical_root, frozen=frozen, now=now)
+    # WP-A1: forward the relying-party trust material so the composed Bitcoin proof is confirmed only
+    # against RP-supplied block headers, never the bundle's frozen ones.
+    ots_res = verify_opentimestamps(ots_proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
     who = f"Markovian wallet {wallet}"
     chain = env.get("block_height")
     chain_part = f", Markovian chain block {chain}" if chain is not None else ""
+    # WP-A1: carry the composed OTS proof's trust-provenance fields verbatim so a relying party keying on
+    # rp_trusted / needs_rp_trust / frozenEvidence sees the same truth for a markovian anchor.
+    def _with_provenance(out: dict) -> dict:
+        for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
+            if _f in ots_res:
+                out[_f] = bool(ots_res.get(_f))
+        return out
+
     if ots_res.get("ok"):
-        return {"ok": True, "warn": False, "status": "confirmed",
-                "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
+        out = {"ok": True, "warn": False, "status": "confirmed",
+               "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
+        if isinstance(ots_res.get("trustedTime"), dict):   # WP-A2: delegate verbatim (compose)
+            out["trustedTime"] = ots_res["trustedTime"]
+        return _with_provenance(out)
     # not a full anchor yet — carry the OTS lifecycle status/warn verbatim, framed as Markovian
-    return {"ok": False, "warn": bool(ots_res.get("warn")), "status": ots_res.get("status", "fail"),
-            "detail": f"markovian stamp envelope valid ({who}{chain_part}) but Bitcoin proof not verified: "
-                      f"{ots_res.get('detail', '')}"}
+    return _with_provenance(
+        {"ok": False, "warn": bool(ots_res.get("warn")), "status": ots_res.get("status", "fail"),
+         "detail": f"markovian stamp envelope valid ({who}{chain_part}) but Bitcoin proof not verified: "
+                   f"{ots_res.get('detail', '')}"})
 
 
 def register() -> None:

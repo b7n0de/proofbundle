@@ -22,47 +22,81 @@ def _load_der_cert(b64: str):
     return x509.load_der_x509_certificate(base64.b64decode(b64))
 
 
-def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None) -> dict:
-    """Fail-closed offline verify of an RFC 3161 token against the frozen chain. Returns {ok, detail}.
+def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
+                   rp_trust: Optional[dict] = None) -> dict:
+    """Fail-closed offline verify of an RFC 3161 token. Returns {ok, detail}.
+
+    **WP-A1 (Owner-GO, trust from the relying party).** The TSA **root certificate(s)** are the TRUST
+    anchor and MUST come from the relying party (``rp_trust.trusted_tsa_roots`` — CLI ``--trusted-tsa-root``
+    / policy ``anchors.trusted_tsa_roots``), NEVER from the bundle's own ``frozen`` block: a malicious
+    producer could freeze its OWN self-signed root and a backdated token and self-certify. The frozen root
+    is surfaced as EVIDENCE (``frozenEvidence``) but is never trusted. Without RP roots the token cannot be
+    verified → ``needs_rp_trust`` (ok=False), so ``--require-anchor`` is unmet → exit 3. The frozen
+    ``intermediateCertsDerB64`` / ``tsaCertDerB64`` are only path-building material (they are still
+    validated up to the RP root), so they stay in ``frozen``.
 
     **Certificate expiration / verification time.** The chain is validated at the token's OWN
-    ``gen_time`` (the trusted TSA-asserted time inside the token), NOT at the current wall clock — this
-    is the whole point of freezing the chain: an old token stays offline re-verifiable after the TSA
-    certificate has since expired or rotated, because the certificate only has to have been valid WHEN
-    the timestamp was created. A certificate that was NOT valid at ``gen_time`` fails closed. ``now`` is
-    accepted for interface parity with the generic anchor layer but is deliberately unused here; the
-    trusted time comes from the token, never from the caller's clock.
+    ``gen_time`` (the trusted TSA-asserted time inside the token), NOT at the current wall clock — an old
+    token stays offline re-verifiable after the TSA certificate has since expired or rotated, because the
+    certificate only has to have been valid WHEN the timestamp was created. A certificate that was NOT
+    valid at ``gen_time`` fails closed. ``now`` is accepted for interface parity but deliberately unused.
 
-    **Policy OID.** By default no TSA policy OID is pinned (any policy is accepted). If the anchor's
-    ``frozen`` block declares ``policyOid`` (a dotted-decimal string), it is pinned: the token's
-    ``TSTInfo.policy`` MUST equal it or verification fails closed — a relying party who cares which TSA
-    policy issued the timestamp opts in this way. A malformed OID string fails closed too.
+    **Policy OID.** No TSA policy OID is pinned by default. A relying party MAY pin one via
+    ``rp_trust.trusted_tsa_policy_oids`` (the FIRST listed OID is pinned), or the producer MAY declare a
+    stricter-only pin via ``frozen.policyOid``; either way the token's ``TSTInfo.policy`` MUST match or it
+    fails closed.
     """
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:
         return {"ok": False, "detail": "rfc3161-tsa anchor needs proofbundle[anchors] (rfc3161-client)"}
-    roots = frozen.get("rootCertsDerB64") or []
+    rp = rp_trust or {}
+    roots = rp.get("trusted_tsa_roots") or []
     if not roots:
-        return {"ok": False, "detail": "frozen chain is missing rootCertsDerB64 (cannot verify offline)"}
+        frozen_roots = frozen.get("rootCertsDerB64") or []
+        return {"ok": False, "status": "needs_rp_trust", "needs_rp_trust": True,
+                "frozenEvidence": bool(frozen_roots),
+                "detail": "RFC 3161 token needs a relying-party-supplied TSA root certificate "
+                          "(--trusted-tsa-root / policy anchors.trusted_tsa_roots). The bundle's own frozen "
+                          "root is producer-controlled evidence, not trust; not claiming a pass"}
+    rp_policy_oids = rp.get("trusted_tsa_policy_oids") or []
     try:
         from cryptography.x509 import ObjectIdentifier  # noqa: PLC0415
         response = tsp.decode_timestamp_response(proof)
         builder = tsp.VerifierBuilder()
-        for rb in roots:
+        for rb in roots:   # WP-A1: trust anchors are the RP roots, never the frozen ones
             builder = builder.add_root_certificate(_load_der_cert(rb))
         for ib in frozen.get("intermediateCertsDerB64", []) or []:
             builder = builder.add_intermediate_certificate(_load_der_cert(ib))
         tsa_b64 = frozen.get("tsaCertDerB64")
         if tsa_b64:
             builder = builder.tsa_certificate(_load_der_cert(tsa_b64))
-        policy_oid = frozen.get("policyOid")
-        if policy_oid:   # opt-in: pin the TSA policy OID (fail-closed on mismatch / malformed OID)
+        # policy OID pin: the RP's first listed OID takes precedence; else the producer's stricter-only frozen pin
+        policy_oid = rp_policy_oids[0] if rp_policy_oids else frozen.get("policyOid")
+        if policy_oid:   # pin the TSA policy OID (fail-closed on mismatch / malformed OID)
             builder = builder.policy_id(ObjectIdentifier(policy_oid))
         builder.build().verify_message(response, canonical_root)
     except Exception as exc:   # any verify failure is a FAIL, never a silent pass (fail-closed)
-        return {"ok": False, "detail": f"RFC 3161 token did not verify against the frozen chain: {exc}"}
-    return {"ok": True, "detail": "RFC 3161 token verified offline against the frozen TSA chain"}
+        return {"ok": False, "status": "chain_fail", "rp_trusted": True,
+                "detail": f"RFC 3161 token did not verify against the relying-party TSA root: {exc}"}
+    out = {"ok": True, "rp_trusted": True,
+           "detail": "RFC 3161 token verified offline against the relying-party TSA root"}
+    # WP-A2: structured trusted time from the VERIFIED token's own gen_time (the TSA-asserted time
+    # the whole anchor exists to establish). Best-effort extraction from the verified response —
+    # if the library exposes no gen_time, the field is simply absent (never guessed, never taken
+    # from the informative anchoredAt).
+    try:
+        from datetime import timezone  # noqa: PLC0415
+        gen_time = response.tst_info.gen_time
+        # WP-A2 (six-lens review): normalize to UTC before formatting with a literal 'Z'. RFC 3161
+        # genTime is Zulu, but the parsed value may be naive (assume UTC) or tz-aware in another
+        # zone (convert) — a bare strftime('…Z') on a non-UTC-aware value would mis-label the time.
+        gt = gen_time.replace(tzinfo=timezone.utc) if gen_time.tzinfo is None else gen_time.astimezone(timezone.utc)
+        out["trustedTime"] = {"source": "rfc3161_gen_time",
+                              "time": gt.strftime("%Y-%m-%dT%H:%M:%SZ"), "tz": "Z"}
+    except Exception:   # noqa: BLE001 — structured time is additive; its absence is honest
+        pass
+    return out
 
 
 def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
@@ -95,7 +129,11 @@ def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
     if intermediate_certs_der:
         frozen["intermediateCertsDerB64"] = [base64.b64encode(c).decode("ascii")
                                              for c in intermediate_certs_der]
-    check = verify_rfc3161(token, canonical_root, frozen=frozen)
+    # self-check at emit time: the producer HAS the roots it just used, so verify against them as the
+    # RP-trust material (WP-A1: frozen roots are no longer a trust source at verify time; a relying party
+    # must supply their own — but the emitter legitimately trusts the roots it stamped with).
+    check = verify_rfc3161(token, canonical_root, frozen=frozen,
+                           rp_trust={"trusted_tsa_roots": frozen["rootCertsDerB64"]})
     if not check["ok"]:
         raise RuntimeError(f"refusing to build anchor: fresh token did not verify — {check['detail']}")
     return {

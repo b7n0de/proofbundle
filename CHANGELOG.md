@@ -14,6 +14,300 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   opened by the OWNER (or after the owner's explicit go), never by automation — the same owner-only
   rule that governs every comment on in-toto/attestation#565 / proofbundle#7.
 
+## [3.0.0] - 2026-07-12
+
+### Security (BREAKING) — SD-JWT disclosures must be signed AND bind their bundle (WP-C1/C2, 6-lens review)
+- An `sd_jwt_vc` block lives OUTSIDE `payload_b64`, so the bundle's Ed25519 signature does not cover it —
+  only the issuer signature authenticates its disclosures. Two verify-path holes are now closed
+  (secure-by-default; SPEC.md §6/§7 revision 2026-07-11):
+  - **Unsigned SD-JWT now FAILS (was null-and-warn).** A bundle carrying an `sd_jwt_vc` with **no**
+    `issuer_public_key_b64` previously verified with a warning and a null `sd_jwt_ok`; its disclosures were
+    unauthenticated yet the bundle passed. It now fails verification (exit 1) with a failing
+    **sd-jwt-issuer-signature** check, `sd_jwt_ok: false`, `sd_jwt_issuer_verified: false`, reason
+    `unsigned`. There is no opt-out flag that lets an unsigned SD-JWT verify.
+  - **Cross-receipt substitution now FAILS (new sd-jwt-bundle-binding check).** For a
+    `proofbundle/eval-claim/v0.1` payload, a *validly issuer-signed* SD-JWT whose always-open disclosures
+    (passed/threshold/comparator/suite/issuer + committed merkle root) describe a **different** bundle —
+    a receipt lifted and grafted on — now fails (exit 1, `sd-jwt-bundle-binding: false`,
+    `sd_jwt_ok: false`, reason `unbound`/`mismatch`).
+  - **Forged issuer identity now FAILS (new sd-jwt-issuer-identity check).** A self-signed SD-JWT whose
+    issuer signature verifies under an attacker-chosen key while its always-open `issuer` claim names a
+    *trusted* party now fails (exit 1, `sd-jwt-issuer-signature: true` but `sd-jwt-issuer-identity: false`,
+    `sd_jwt_ok: false`, reason `issuer-key-mismatch`): the verifying key is bound to the disclosed issuer
+    (`fingerprint(issuer_public_key_b64) == issuer`).
+  - **Migration.** If you emit bundles with an `sd_jwt_vc`, add `sd_jwt_vc.issuer_public_key_b64`
+    (Base64 of the 32-byte raw Ed25519 issuer key) so verifiers can authenticate the disclosures, and
+    ensure the SD-JWT's disclosed claims + `receipt.root_b64` match the bundle they ship in. Bundles that
+    carry no `sd_jwt_vc` are unaffected. The three prior backward-compat tests are re-pinned as negative
+    tests of the new secure behaviour; conformance corpus gains `bundle/sd-jwt-unsigned-unauthenticated`,
+    `bundle/sd-jwt-signed-but-unbound` and `bundle/sd-jwt-forged-issuer-identity` (all expect exit 1).
+### Docs — No-Overclaim scope corrections from the 6-lens review (MED)
+- **`intoto.svr_properties` / `export_svr_dsse`** (WP-E1) — PROOFBUNDLE_PREREG_BOUND / PROOFBUNDLE_ANCHOR_VALID
+  are emitted from the caller's flags (the function does not call verify_anchors) — caller-attested.
+- **`decision.build_decision_statement`** (WP-E2) — a caller-supplied subject_sha256 is verbatim, not
+  cross-checked against the predicate (nor re-derived at verify).
+- **`merkle.verify_inclusion`** (WP-D2) — documented the RFC 6962 precondition: tree_size + root must come
+  atomically from one authenticated source.
+- **`policy` sd_jwt.max_iat_age_seconds** (WP-C3) — bounds the eval claim timestamp, NOT the KB-JWT iat.
+### Security (BREAKING) — external time-anchor trust comes from the relying party, not the bundle (WP-A1)
+- An external time anchor (`anchors[]`) previously took its trust root from the bundle's own `frozen`
+  block: `anchors_rfc3161` from `frozen.rootCertsDerB64`, `anchors_ots` from
+  `frozen.bitcoinBlockHeaderMerkleRootsByHeight`. That block is producer-controlled, so a malicious
+  producer could freeze its OWN self-signed TSA root (or a self-committed backdated Bitcoin header) and
+  self-certify a **backdated** timestamp — `--require-anchor` passed on nothing but self-consistency.
+  Trust now comes ONLY from the relying party (SPEC.md §7i Trust model, rev 2026-07-11):
+  - **rfc3161-tsa** is verified against `--trusted-tsa-root` (repeatable, DER/PEM) or policy
+    `anchors.trusted_tsa_roots`; the frozen root is evidence (`frozenEvidence`), never trust.
+  - **opentimestamps** is confirmed only against `--bitcoin-header HEIGHT:MERKLEROOT_HEX` (internal byte
+    order) or policy `anchors.bitcoin_block_headers`; the frozen header is never trusted.
+  - Without relying-party trust material a time anchor is `needs_rp_trust` (ok=False) and
+    `--require-anchor` is **unmet → exit 3**, never a silent pass. Per-entry results carry `rp_trusted`,
+    `needs_rp_trust`, `frozenEvidence`.
+  - The same flags + policy `anchors` trust apply to `decision verify` (a statement time anchor on a
+    decision receipt): `verify_decision_receipt(..., rp_trust=...)`, `decision verify --trusted-tsa-root /
+    --bitcoin-header`.
+  - **Migration.** A relying party that used `--require-anchor` (or `decision verify --anchors`) on a
+    TSA/OTS anchor MUST now supply the trust material (`--trusted-tsa-root` / `--bitcoin-header`, or the
+    policy `anchors` section). The
+    bundle's frozen material stays in the format as evidence (TSA rotation) and is reported, so nothing
+    is dropped; only its role as a trust source is removed. Third-party extension anchor verifiers keep
+    working (backward-compatible dispatch); anchor tests are re-pinned; conformance gains
+    `forged-anchor-own-frozen` (exit 3). THREAT_MODEL.md names the backdating attack.
+
+### Security — pre-auth DoS: bound oversized integer parsing (WP-D1, 6-lens review)
+- Python caps `int(str)` at `sys.get_int_max_str_digits()` (default 4300) and raises a raw `ValueError`
+  above it (CWE-674 / CVE-2020-10735). A pre-auth parser that fed an unbounded decimal string to
+  `int()` surfaced this as an uncaught traceback. Fixed at three sites: `_strict_json.loads_strict`
+  maps the int-conversion `ValueError` from an oversized JSON integer literal to `BundleFormatError`
+  (covers every JSON verify path — bundle / decision / in-toto / status-list / anchors); `tlogproof`
+  and `checkpoint` bound the tree-size / index digit count (<= 20, i.e. 2**64) BEFORE `int()`; and the
+  CLI `verify-proof` handler catches `ValueError` as a stopgap. Regression-tested; never a raw traceback.
+### Security — verify-path hardening from a 6-lens adversarial review (2026-07-11)
+- **Trust policy rejects a low-order / non-canonical pinned key** (`policy.py`) — the core verifier
+  deliberately accepts low-order and non-canonical Ed25519 encodings (SPEC §4a). A policy that PINS such
+  a key as a trusted issuer / decision-maker would accept a fixed `(pub, sig)` pair for many messages
+  (for the identity encodings, ALL messages) with no private key — forgery of a trusted identity without
+  a secret. `load_policy` now fail-closed rejects the whole class by the point's **y-value**
+  (sign-independent, so no encoding variant slips past — an earlier hand-kept byte-string blocklist
+  missed three) plus the non-canonical (`y >= p`) class, in `allowed_issuers` and
+  `trusted_decision_makers`; a low-order key is also refused at the evaluation layer
+  (`evaluate_policy` / `evaluate_decision_policy`) as defense-in-depth, so a policy dict that skipped
+  `load_policy` gets no trust from it either. (Scope: a genuine full-order key from an honest keygen is
+  accepted; MIXED-order keys are accepted and are not forgeable via this attack — a full prime-subgroup
+  membership check is a follow-up.)
+- **`verify_decision_receipt` no longer reports trust fields over unauthenticated bytes** (`decision.py`)
+  — a forged/unsigned envelope previously left `audience_ok`/`nonce_ok`/`evidence_bound` computed
+  (potentially True) with an empty `errors[]`. Now an aggregate **`ok`** field is the single verdict, the
+  trust-derived fields stay `None` when `crypto_ok` is False (mirroring the anchors/policy gates), an
+  error is recorded on a crypto failure, and `evidence_bound` is `None` (not a vacuous `all([])` True)
+  when there are no evidence refs.
+- **Decision trust policy surfaces the "attributes to nobody" warning** (`decision.py`) — a decision
+  policy that constrains the verdict/type but pins no `trusted_decision_makers` means `POLICY: OK` proves
+  integrity by an unknown signer. `policy_warnings()` (already decision-aware) is now wired into the
+  decision verify path, matching the eval path.
+- **`evalclaim.load_claim_text` uses the shared strict parser** (`evalclaim.py`) — it reimplemented
+  duplicate-key rejection and did not map `RecursionError`, so a pathologically deep-nested claim payload
+  crashed `decode_eval_claim` uncaught (CWE-674) — reachable from the batch verifier
+  `hf_evals.verify_eval_results_entry`, `policy.evaluate_policy`, and CLI `emit-eval`. It now delegates to
+  `loads_strict` (deep nesting and duplicate keys become a clean `EvalClaimError`, never a raw traceback).
+
+### Docs — No-Overclaim corrections from the 6-lens review (2026-07-11)
+- **`hf_evals.to_eval_results_entry` docstring + THREAT_MODEL** — the value↔verdict check was described
+  as making the published `value` "match" a disclosed score and "stops 0.60 next to 0.99". The signed
+  claim carries `threshold`/`comparator`/`passed`, not the exact score, so the check binds the value to
+  the correct SIDE of the threshold, not to a true magnitude: an inflated value on the passing side (a
+  true `0.81` published as `99.9`, both `>= 0.80`) still verifies. Docstring corrected and a
+  value-magnitude boundary row added to THREAT_MODEL.
+- **`docs/OPERATIONS_SECURITY.md`** — the `[Owner]` checklist items read as accomplished present-tense
+  fact ("account on 2FA", "tags are protected", "Scorecard is enabled"), contradicting the document's
+  own "does not assert they are done" preamble. The marker is now **`[Owner · to verify]`** on every
+  line so the unverified status survives a reader skimming the list.
+
+### Added — native-bundle conformance vectors (WP-S1)
+- **`conformance/bundle/`** — four native proofbundle bundle cases (kind `native_bundle`) checked
+  against the CLI verify exit-code contract: `valid-minimal` (a valid bundle verifies, exit 0),
+  `duplicate-json-key` (a bundle whose raw JSON carries a duplicate top-level key is rejected as
+  malformed, exit 2 — locking the C1 Bishop-Fox parser-differential defense onto the conformance
+  gate), `tampered-payload` (a valid bundle with one payload byte flipped fails the signature, exit 1),
+  and `corrupted-signature` (payload intact but the signature bytes corrupted, exit 1). The harness `native_bundle` handler runs `proofbundle verify` and asserts the exact exit
+  code, with the same fail-closed floor (a case must declare `exitCode`). Anti-tautology regression
+  tests: a wrong expected exit code fails, a missing exitCode fails, and the duplicate-key bundle is
+  proven rejected.
+### Added — MAINTAINERS.md + TRADEMARK.md + OPERATIONS_SECURITY.md governance docs (WP-W5 phase 1-2)
+- **`MAINTAINERS.md`** — the conventional human-readable maintainer file: names the single maintainer,
+  points to `GOVERNANCE.md`, the DEFAULT-DENY `oss_maintainer_roles.json`, `.github/CODEOWNERS`, and
+  `SECURITY.md`. No delegated maintainers today.
+- **`TRADEMARK.md`** — an honest use-of-name policy: the MIT-licensed code is free to use and fork; the
+  "proofbundle" / "b7n0de" names are **not registered trademarks** (no ® claim) but should not be used
+  to name a competing fork/package or imply official status. Protects the one thing the project cannot
+  fork away: that a receipt under this name comes from the reviewed, gated releases.
+- **`docs/OPERATIONS_SECURITY.md`** — the supply-chain posture checklist (accounts/2FA, PyPI trusted
+  publishing, signing-key custody, SHA-pinned CI actions, fork-PR secret isolation, domain lock). It is
+  a checklist, not a claim: `[Owner]` items are the maintainer's to verify and are not asserted done;
+  `[repo]` items are enforced by files in the repo. Distinct from `SECURITY.md` (which is about
+  receiving vulnerability reports).
+- **`docs/GRANT_MILESTONES.md`** — the public deliverable/status tracker for the funded independent
+  security-review track (M1–M…), factual and linked to repo evidence, never aspirational.
+- All four docs are now in the `claims_hygiene_check` scanned set (29 docs), so they are held to the
+  same No-Overclaim discipline as the rest of the documentation.
+
+### Added — offline conformance corpus with cross-implementation decision vectors (WP-W2)
+- **`conformance/`** — a versioned, digest-pinned corpus verified fully offline by
+  `conformance/run_conformance.py` (`make conformance`). Each case declares what it proves AND what
+  it does not, so a green run never overclaims. Two cross-implementation decision-receipt vectors
+  from MarkovianProtocol/audit-anchor (credited, pure data):
+  - `decision/crossimpl/confirmed-anchor-lifecycle` — proves RFC 8785 canonicalization + content-root
+    binding cross-implementation **and** a confirmed Bitcoin anchor at block 957504: the OTS proof's
+    committed root matches the real block merkle root (independently fetched, frozen in the case,
+    verified offline; a wrong frozen root is rejected — `block_mismatch`, covered by `test_anchors_ots.py`).
+    Does not prove `decision-receipt/v0.1` schema conformance (predicate reports 12 findings, expected-fail).
+  - `decision/crossimpl/canonicalization-root-binding` — proves canonicalization + root binding; anchor
+    still pending and predicate not yet schema-conformant (both recorded as expected, not hidden).
+  Anchor sub-checks run in the `anchors` CI job (`[anchors]` extra, `--require-anchors`); the corpus's
+  non-anchor checks run in every matrix leg. README §Interop precised: canonicalization interop proven,
+  full decision-receipt conformance of the external fixture still pending. The harness is fail-closed by a
+  required-expectations floor: a `decision_crossimpl` case that under-declares its bindings FAILS rather
+  than passing green asserting nothing, and its defining checks (JCS byte-identity, content-root match,
+  evidenceRef binding, anchor when a `.ots` ships) run unconditionally; a missing fixture is a per-case
+  FAIL, not a run-aborting crash. Hardened further after a 6-lens review: a missing case dir,
+  a malformed case.json, or a case.json with no `kind` is now a per-case FAIL (the outer parse was
+  outside the try before), and a native_bundle `input` cannot escape its case directory.
+
+### Added — decision-receipt validator API hardening + cross-impl gap record (WP-W6 / WP-W1)
+- **`decision.require_valid_decision_predicate(pred)`** — a raising counterpart to
+  `validate_decision_predicate`. The list-returning validator (empty list == valid, never raises)
+  is easy to misuse as `try: validate(...) ; except: ...`, which silently passes every predicate:
+  that idiom produced a public "passes the enforced v0.1 validator as-is" claim for an external
+  cross-implementation fixture that in fact reported 12 findings. The wrapper raises
+  `DecisionReceiptError` (with the finding count) on an invalid predicate, `None` on a valid one.
+  `docs/predicates/decision-receipt.md` §6.1 documents the list-vs-raise contract; a regression
+  test (`tests/test_decision_validator_api.py`) pins that the naive try/except idiom wrongly passes.
+- **`audit_artifacts/crossimpl_fixture_gap_20260711.md`** — No-Overclaim record for the
+  MarkovianProtocol/audit-anchor decision-receipt fixture: the RFC 8785 canonicalization and
+  content-root binding are proven byte-identical cross-implementation (evidence `323adb18…`,
+  decision `ff05e3e0…`), but the external predicate does not yet satisfy the enforced
+  `decision-receipt/v0.1` schema (field mapping thread-prose → v0.1 included). Both statements are
+  recorded so neither is overclaimed nor hidden.
+
+### Added — CODEOWNERS + roles registry, dead governance link fixed (WP-G2)
+- **`.github/CODEOWNERS`** for the trusted core, `SPEC.md`, `schemas/`, `docs/predicates`,
+  `docs/adr`, and the CI/release wiring — a change to those paths requires the maintainer's review
+  ("more eyes, not weaker gates", GOVERNANCE.md). Single-maintainer today; co-maintainers are added
+  per-person, never implicitly.
+- **`oss_maintainer_roles.json`** at the repo root — the delegated-rights registry GOVERNANCE.md
+  referenced but which pointed at a non-existent `office/governance/` path (a monorepo path that
+  never shipped here). DEFAULT DENY: nobody holds merge/release/secret rights without an explicit
+  entry. GOVERNANCE.md now links the real file and CODEOWNERS.
+- The project's **first external contributor** (@onxxdatas, issue #28 — `--version` prints the
+  pinned spec revision) is recorded in the governance story and the roles registry (no delegated
+  rights, like every contributor).
+
+### Added — HF entry verifier-side binding + EEE source digest (WP-I2 / WP-I3)
+- **`hf_evals.verify_eval_results_entry(entry)`** — the value↔verdict consistency was emit-side
+  only: an `.eval_results` entry whose displayed `value` was edited AFTER the `pb1.` token was
+  minted verified fine (the token check covers only the embedded bundle, and a Hub reader sees the
+  value, not the token). Now the verifier side checks token crypto AND
+  `value <comparator> threshold == passed` against the decoded, issuer-bound claim (fail-closed:
+  a non-eval bundle or a non-finite value never judges as consistent). **Documented replay
+  boundary** (module + THREAT_MODEL row): the entry's `dataset.id`/`task_id` are NOT bound to the
+  receipt's salted dataset commitment — that binding needs the salt opening; this function is a
+  value check, never a repo-binding check.
+- **`adapters.from_eee_dataset` now binds the receipt to its exact source record** (it was the
+  only adapter without a provenance binding): `provenance.eee_record_sha256` =
+  `sha256-jcs:<hex>` over the RFC-8785-canonical record (labeled `sha256-sortkeys` fallback,
+  mirroring `adapters/_provenance.config_hash`), plus the RESULT-level `evaluation_result_id` as
+  `run_id` — guarded: dropped if a producer embedded the cleartext model id in it (the TOP-level
+  `evaluation_id` stays excluded for exactly that reason; digest-privacy consideration documented
+  in the adapter).
+- Hardened after a Tier-1 review (2 P1 privacy findings): the `eee_record_sha256` digest is now computed over a **model-id-stripped** record — an unsalted digest over a record embedding `model_info.id` in cleartext was a model-id confirmation/enumeration oracle (the old "not enumerable" comment was an overclaim); it still binds scores/timestamps/dataset for tamper-evidence. The `run_id` privacy guard now drops the id on ANY model-name component (bare name, slug variants, case-insensitive), not only the full `org/name` id. `verify_eval_results_entry` returns fail-closed (not a raise) for a token-less entry (verifyToken is optional in the HF schema) and rejects a boolean `value` (the builder rejects bool too).
+
+### Added — anchor TARGET gate + structured trustedTime (WP-A1 / WP-A2 / WP-A7)
+- **`verify --anchor-target receipt|preRegistration|statement`** (implies `--require-anchor`) and
+  the trust-policy **v0.2 `anchors` section** (`require_anchor`, `require_anchor_target`,
+  `allow_pending`): the anchor requirement matched the TYPE only, so a `receipt` anchor stamped
+  today satisfied a relying party who demanded backdating protection — existence-now proves
+  nothing about existence-before-the-run. Matched is now ok ∧ ¬warn ∧ type ∧ **target**; a
+  CLI/policy conflict is exit 2 (mirrors `expected_aud`), never a silent override.
+- **Structured `trustedTime` in per-anchor results** (SPEC §7i): `{source: rfc3161_gen_time,
+  time, tz}` from a verified token's own gen_time; `{source: bitcoin_block, height}` from a
+  confirmed OTS attestation (native unit, no wall-clock guess); the markovian type carries the
+  delegated OTS time through. Present ONLY when the proof carries it — never derived from the
+  informative `anchoredAt` (a tampered `anchoredAt` changes neither verdict nor trustedTime,
+  pinned by regression test). Time-window policies over `verify --json` become buildable.
+- **A7 regressions closed:** a v0.1 bundle carrying `anchors[].target: "statement"` is now
+  rejected as malformed (exit 2) by the verifier itself — the docs promised it, the code never
+  enforced it (`statement` is exclusively for DETACHED decision evidence); a non-string
+  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.
+### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
+- **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
+  `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
+  a green `POLICY: OK` that evaluated nothing. Now: `proofbundle policy lint <policy>` exits 1 on
+  such a wirkungslose policy (`--strict` also fails an attributes-to-nobody policy);
+  `proofbundle policy explain <policy>` lists the effective pins (human + `--json`).
+- `verify --policy` marks a PASSING policy that pins no signer inline —
+  `POLICY: OK (WARNING: attributes to nobody)` — plus a machine-readable `policy_warnings[]` JSON
+  field. Exit codes unchanged (a warning, never a new failure mode; fail-closed behavior of real
+  policy violations untouched).
+- docs/TRUST_ANCHORS.md documents the new subcommands; +9 tests
+  (`tests/test_policy_explain_lint.py`).
+
+### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+- **`verify_eval_result_dsse` / `verify_svr_dsse` / `verify_intoto_dsse` now ENFORCE the
+  `predicateType`, not just return it.** Previously a validly-signed envelope of one predicate type
+  verified `ok=True` through the verify function of another (a swapped SVR accepted as an
+  eval-result, a test-result as an SVR, …) — the decision-receipt layer already rejected such
+  confusion, the eval/SVR/test-result layer did not. Each function now pins its own type by default
+  (`expected_predicate_type`, opt out with `None`), returns `ok=False` + a `predicate_type_ok`
+  field + a "confusion attack?" detail on a foreign type. Additive return field; the diagonal
+  (matching type) verifies exactly as before.
+- Cross-predicate matrix test (`tests/test_predicate_type_enforcement.py`): every emitted in-toto
+  type signed and run through every verify function — only the diagonal verifies, every
+  off-diagonal cell is `ok=False`; plus explicit-expected-type pin, opt-out, and
+  wrong-signature-still-fails. A mutation operator (disable the check ⇒ red).
+### Fixed — duplicate JSON keys rejected on the verify paths (WP-C1)
+- **`json.loads` last-wins duplicate keys are rejected fail-closed** (new stdlib-only
+  `proofbundle._strict_json.loads_strict`, `object_pairs_hook`, any nesting depth, clear
+  `duplicate JSON key '<k>'` message). A duplicated key is a classic parser differential: two JSON
+  implementations can disagree about which `root_b64`/`sig_b64`/`predicateType` they verified —
+  for a signed **status-list token** that was a PROVEN VALID-vs-INVALID revocation split-brain.
+  Converted: the native bundle (`load_bundle`; the `pb1.` HF receipt token), the DSSE statement
+  verifiers (eval-result / test-result / SVR / decision), the **trust-policy loader**, the
+  **per-sample opening's committed disclosure record**, the **chia-datalayer and markovian anchor
+  envelopes**, the **status-list token**, the **enclave EAT**, and every `json.load` in the CLI
+  (`verify-opening`, `intoto --verify`, `svr --verify`, `decision emit/verify/inspect`,
+  `--anchors`). Emit side too: a predicate file carrying a duplicate key is refused before
+  anything is signed. **SPEC §2 now makes duplicate-key rejection normative** (an interoperating
+  implementation that keeps either occurrence is non-conforming); THREAT_MODEL carries the
+  parser-differential row.
+- Deliberate behavior deltas (each stricter, never looser): `to_eval_results_entry` now REFUSES a
+  crypto-valid bundle whose payload carries a duplicate key (previously the entry was built
+  last-wins — refusing to publish an unjudgeable value is the honest outcome);
+  `decision inspect` exits 2 instead of risking a raw traceback on malformed/duplicated payloads.
+- Known residual (documented in `_strict_json`): the SD-JWT/KB-JWT payload parses (`sdjwt.py`,
+  `kbjwt.py`, the `bundle._issuer_requires_holder_binding` helper) — a naive conversion would
+  INVERT a fail-closed direction (a rejected `cnf` read must not read as "no holder binding
+  required"); that group needs its own careful pass. Keys differing only by Unicode normalization
+  or a BOM are distinct JSON keys by spec and stay distinct (a downstream-validator concern).
+- Negative tests `tests/test_dup_key_reject.py` (native bundle signature/merkle/top-level, HF
+  token, all four DSSE verify functions in BOTH content-root modes, decision library+CLI,
+  emit-side refusal, policy/statuslist/persample/enclave/anchor-envelope rejects) + a mutation
+  operator proving the tests kill a disabled guard.
+
+### Added — Ed25519 verify semantics decided, documented, pinned (WP-C2)
+- SPEC.md gains **§4a Verification semantics — the edge-case envelope**: proofbundle's Ed25519
+  verification (via `cryptography`/OpenSSL) matches the **BoringSSL / Dalek (non-strict)** row of
+  the "Taming the Many EdDSAs" corpus exactly (ACCEPT {0,1,2,3,11}, REJECT {4,5,6,7,8,9,10};
+  eprint 2020/1244) — cofactorless, RFC 8032 S-bound enforced, non-canonical R rejected,
+  non-canonical A partially accepted, small-order accepted; NEITHER Dalek-strict (rejects
+  {0,1,2,11}) NOR ZIP-215 (additionally accepts {4,5,9,10}). Honest RFC 8032 signatures are
+  unaffected; the cross-verifier-consensus consequence for crafted signatures is documented here
+  and in THREAT_MODEL.md.
+- The 12-vector corpus is vendored **byte-identical** (`tests/fixtures/ed25519_speccheck_cases.json`,
+  from novifinancial/ed25519-speccheck commit `5e4bfc4…`, blob `8686dcb…`, Apache-2.0 — LICENSE +
+  provenance README beside it) and pinned by `tests/test_ed25519_semantics.py` (content SHA-256 +
+  per-vector verdict) — a fixture tamper OR a backing-library behavior change turns the
+  repository's CI red, demanding a deliberate documented decision, never a silent drift.
+  No behavior change; switching profiles would be a versioned, breaking change.
 ### Fixed — claims-hygiene gate honesty (WP-N1)
 - **`scripts/claims_hygiene_check.py` no longer skips missing docs silently.** Six of sixteen
   `_DEFAULT_DOCS` entries did not exist (four lacked the `docs/` prefix; `docs/MATURITY.md` and
@@ -68,6 +362,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the exit-2 error path is pinned to carry the FULL `verify --json` field contract (incl.
   `assurance_declared_by`); the CLI-help assertion is terminal-width-independent; a line-number pin
   proves soft-unwrap keeps positions 1:1.
+### Verification discipline
+- **811 tests** (was 683 at 2.1.0) across the 3.10–3.14 CI matrix, all green. A pre-release audit
+  hardened the two anti-regression instruments so they actually cover the code this release adds:
+  the mutation gate (`scripts/mutation_check.py`, Anti-Goodhart) now carries an operator for **each of
+  the four new breaking defenses** — WP-C2 unsigned-fail, WP-C1 issuer-identity and bundle-binding,
+  WP-A1 needs-rp-trust — so a future accidental revert of any of them goes red (the mutation CI job now
+  installs `[anchors]` so the WP-A1 operators are exercised, not short-circuited at `no_lib`). The
+  offline conformance corpus's `sd-jwt-unsigned-unauthenticated` vector is now **cnf-free so it isolates
+  WP-C2** (disabling that defense flips the vector to exit 0), instead of riding on the older v1.6
+  cnf-downgrade check.
+- **SD-JWT / KB-JWT payloads now parse with `loads_strict`** like every other verify path: a DUPLICATE
+  JSON key (e.g. a second `cnf` naming an attacker holder key) is rejected fail-closed at the structure
+  gate. The release-audit follow-up extended this to the last parse site of the same class, the
+  `evalclaim.sd_jwt_hidden_count` disclosure-transparency helper (a duplicate key now returns `None`,
+  not a last-wins count), closing the documented parser-differential residual in full (regression:
+  `tests/test_sdjwt_duplicate_cnf.py`).
+### Packaging
+- The `Development Status` classifier stays **`4 - Beta`** for 3.0.0 (Owner decision E1, 2026-07-12):
+  stable is evidenced, not asserted. The move to `5 - Production/Stable` is a separate, audit-gated
+  milestone that lands only after the funded external security review passes
+  (tracked in `docs/GRANT_MILESTONES.md`), never claimed pre-audit — even for a breaking security release.
 
 ## [2.1.0] - 2026-07-10
 

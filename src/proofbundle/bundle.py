@@ -22,10 +22,10 @@ malformed exit code, not a crash.
 from __future__ import annotations
 
 import base64
-import json
 from typing import Union
 
 from . import merkle
+from ._strict_json import loads_strict
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -37,13 +37,20 @@ __all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64"
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
     """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
     issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
-    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible)."""
+    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible).
+    A DUPLICATE key → True (fail-closed, F12): treating an ambiguous-because-duplicated payload as
+    'no binding required' would be the exact inversion _strict_json.py warns about."""
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
+        payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
-    except Exception:
+    except BundleFormatError:
+        # A duplicated key in the issuer payload must NOT read as "no cnf ⇒ no binding required" (that
+        # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
+        # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
+        return True
+    except Exception:  # noqa: BLE001 — any other malformed/absent payload ⇒ no binding required (backward-compat)
         return False
 
 SCHEMA = "proofbundle/v0.1"
@@ -120,10 +127,11 @@ def load_bundle(path: str) -> dict:
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
     escaping as a raw RecursionError traceback (verify-lens L3, 2026-07-09)."""
     with open(path, "r", encoding="utf-8") as handle:
-        try:
-            return json.load(handle)
-        except RecursionError as exc:
-            raise BundleFormatError("bundle JSON nesting is too deep") from exc
+        # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path
+        # silently kept the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser
+        # differential across JSON implementations. loads_strict ALSO owns the RecursionError →
+        # BundleFormatError mapping for deep nesting (the old outer handler here became dead code).
+        return loads_strict(handle.read())
 
 
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None) -> VerificationResult:
@@ -144,6 +152,22 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     if schema != SCHEMA:
         raise UnsupportedError(f"unsupported schema {schema!r}, expected {SCHEMA!r}")
     _reject_unknown(bundle, _TOP_KEYS, "bundle")
+    # WP-A7: the anchors field stays UNVERIFIED here (crypto verdict identical with/without it),
+    # but its STRUCTURE follows the published JSON Schema — in a v0.1 bundle `target` is the enum
+    # receipt|preRegistration only (SPEC §7i: `statement` is exclusively for DETACHED decision
+    # evidence). The docs promised "rejected as malformed (exit 2)"; the code now matches them.
+    anchors_field = bundle.get("anchors")
+    if anchors_field is not None:
+        if not isinstance(anchors_field, list):
+            raise BundleFormatError("field anchors must be a list")
+        for i, entry in enumerate(anchors_field):
+            if not isinstance(entry, dict):
+                raise BundleFormatError(f"anchors[{i}] must be a JSON object")
+            tgt = entry.get("target")
+            if tgt not in ("receipt", "preRegistration"):
+                raise BundleFormatError(
+                    f"anchors[{i}].target {tgt!r} is not allowed in a proofbundle/v0.1 bundle "
+                    "(receipt|preRegistration only; 'statement' is for detached decision evidence)")
 
     result = VerificationResult()
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
@@ -197,6 +221,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                 sd_res["sig_ok"],
                 "issuer signature valid" if sd_res["sig_ok"] else "issuer signature invalid",
             )
+        else:
+            # WP-C2 (6-lens review, Owner-GO breaking / secure-by-default): sd_jwt_vc sits OUTSIDE
+            # payload_b64, so the bundle's Ed25519 signature does NOT cover it. A present sd_jwt_vc whose
+            # ISSUER SIGNATURE was never verified (no sd_jwt_vc.issuer_public_key_b64) carries disclosures
+            # anyone could have authored — previously .ok could still be True over attacker-chosen
+            # "disclosed" values. Now a FAILING check makes .ok False (reason: unsigned); there is no
+            # opt-out. Supply issuer_public_key_b64 to authenticate the disclosures.
+            result.add(
+                "sd-jwt-issuer-signature", False,
+                "sd_jwt_vc present but no issuer_public_key_b64 — its disclosures are unauthenticated "
+                "(reason: unsigned; the bundle signature does not cover sd_jwt_vc). Supply the issuer key.")
         # v1.2/v1.3, fail-closed: a KB-JWT that is PRESENT must verify (RFC 9901 §4.3), AND if the issuer
         # bound a `cnf` holder key (proof-of-possession REQUIRED) a presentation with NO KB-JWT is a bearer
         # downgrade — anyone who sees the disclosed SD-JWT could replay it — so that MUST fail. expected_aud/
@@ -233,6 +268,54 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
                     "binding is unverifiable, refusing (fail-closed; supply "
                     "sd_jwt_vc.issuer_public_key_b64)")
+
+        # WP-C1 (6-lens review, Owner-GO): bind the sd_jwt_vc to THIS bundle. sd_jwt_vc is outside the
+        # signed payload, so an issuer-VALID SD-JWT from bundle B can be swapped into bundle A (cross-receipt
+        # credential substitution) — its always-open claims (passed/threshold/comparator/suite/issuer +
+        # receipt root) must match A's own signed claim + merkle root, else the disclosures do NOT belong to
+        # this bundle. Only meaningful once the issuer signature verified (an unsigned SD-JWT already fails C2).
+        if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
+            import json as _json  # noqa: PLC0415
+            from .sdjwt_issue import _jwt_payload as _sd_payload  # noqa: PLC0415
+            from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
+            try:
+                _sd_p = _sd_payload(compact)
+            except (BundleFormatError, ValueError, KeyError, IndexError):
+                # F12: a duplicate-key payload yields {} here → the issuer-identity check is skipped, but the
+                # bundle already fails at the sd-jwt-disclosures structure gate (verify_sd_jwt rejects the
+                # duplicate) and check_binds_bundle returns False → net fail-closed.
+                _sd_p = {}
+
+            # WP-C1 (2nd-lens fix): the issuer signature verifies under sd_jwt_vc.issuer_public_key_b64,
+            # but that key is ATTACKER-CHOSEN — it lives outside the bundle signature. A self-signed SD-JWT
+            # that NAMES a trusted issuer in its always-open `issuer` claim while being signed by a DIFFERENT
+            # key is a forged identity (valid signature, wrong signer). Bind the verifying key to the claimed
+            # issuer: fingerprint(issuer_pub) MUST equal the disclosed `issuer`. Only when an issuer is
+            # actually disclosed (an SD-JWT with no issuer claim asserts no identity to forge).
+            _disc_issuer = _sd_p.get("issuer") if isinstance(_sd_p, dict) else None
+            if _disc_issuer is not None and issuer_pub is not None:
+                _verifying_fp = "ed25519:" + base64.b64encode(issuer_pub).decode("ascii")
+                result.add(
+                    "sd-jwt-issuer-identity", _disc_issuer == _verifying_fp,
+                    "SD-JWT issuer key matches the disclosed issuer" if _disc_issuer == _verifying_fp else
+                    "sd_jwt_vc issuer signature verifies under a key that is NOT the disclosed issuer "
+                    "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
+
+            try:
+                _claim = _json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+            except (ValueError, KeyError, TypeError):
+                _claim = None
+            _root = (bundle.get("merkle") or {}).get("root_b64")
+            # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
+            # non-eval payload with an sd_jwt_vc is out of scope for this binding (nothing to bind against).
+            if isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:
+                bound = check_binds_bundle(compact, _claim, _root)
+                result.add(
+                    "sd-jwt-bundle-binding", bound,
+                    "sd_jwt_vc always-open claims + receipt root match this bundle" if bound else
+                    "sd_jwt_vc disclosures do NOT bind this bundle (reason: unbound/mismatch — cross-receipt "
+                    "substitution; the SD-JWT's passed/threshold/comparator/suite/issuer/root differ from the "
+                    "signed claim)")
 
     # F4 (v1.9.2, fail-closed): supplying expected_aud/expected_nonce asks for RFC 9901 §7.3
     # replay/audience binding. A bundle with no verifiable KB-JWT (no sd_jwt_vc at all, or an

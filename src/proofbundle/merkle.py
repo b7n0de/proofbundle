@@ -132,7 +132,15 @@ def verify_inclusion(
     proof: List[bytes],
     expected_root: bytes,
 ) -> bool:
-    """Return True iff ``leaf_data`` is included at ``leaf_index`` under ``expected_root``."""
+    """Return True iff ``leaf_data`` is included at ``leaf_index`` under ``expected_root`` in a tree of
+    ``tree_size`` leaves.
+
+    **Trust precondition (RFC 6962; No-Overclaim, 6-lens review):** ``tree_size`` and ``expected_root``
+    MUST be obtained ATOMICALLY from ONE authenticated source (a signed checkpoint / STH) — never
+    independently. This function verifies the audit path for the given ``(leaf_index, tree_size, root)``
+    triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
+    can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
+    read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
     try:
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
     except ValueError:

@@ -1,6 +1,6 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
-Revision: 2026-07-10
+Revision: 2026-07-11
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
@@ -32,6 +32,13 @@ bytes* were signed and anchored, not what they mean.
   uses base64url per the SD-JWT spec.)
 - Hashes are SHA-256 (32 bytes).
 - Integers are JSON numbers with no fractional part.
+- **Duplicate object keys MUST be rejected** (WP-C1), at any nesting depth, in
+  the bundle document and in every other JSON input a verifier parses. JSON
+  parsers disagree on duplicates (first-wins vs last-wins), so two
+  implementations could verify DIFFERENT `root_b64`/`sig_b64` values from the
+  same bytes — an interoperating implementation that silently keeps either
+  occurrence is non-conforming. (RFC 8785 forbids duplicates outright; this
+  extends the rule to the non-canonical inputs too.)
 
 ## 3. Object fields
 
@@ -63,6 +70,42 @@ Check **ed25519-signature**: decode `payload_b64` to `P`, verify the Ed25519
 signature `sig_b64` over `P` under `public_key_b64`. The message is the raw
 payload bytes — no pre-hashing, no domain separation.
 
+### 4a. Verification semantics — the edge-case envelope (normative for this implementation)
+
+Ed25519 implementations disagree on adversarially crafted edge-case signatures
+(cofactored vs cofactorless verification, the RFC 8032 S-bound, non-canonical
+point encodings, small-order components — "Taming the Many EdDSAs",
+[eprint 2020/1244](https://eprint.iacr.org/2020/1244)). proofbundle delegates
+verification to `cryptography` (OpenSSL) and PINS that behavior as a documented
+property rather than an undocumented accident:
+
+- **cofactorless** verification;
+- the RFC 8032 **S-bound is enforced** (a signature whose S ≥ L is rejected);
+- a **non-canonical R** encoding is rejected;
+- a **non-canonical A** (public key) encoding is *partially* accepted (one of
+  the two published variants verifies);
+- **small-/mixed-order components are accepted** (no torsion check).
+
+Against the "Taming the Many EdDSAs" 12-vector corpus this profile matches the
+**BoringSSL / Dalek (non-strict)** row exactly — ACCEPT {0,1,2,3,11}, REJECT
+{4,5,6,7,8,9,10} — observed identically from `cryptography` 42.0.8 (the declared
+floor) through the current release. It is NEITHER **Dalek-strict** (which
+rejects {0,1,2,11} and accepts only vector 3, whose rejection would need a
+full-order check no surveyed library performs) NOR **ZIP-215** (Zebra, which
+additionally accepts {4,5,9,10}). The divergence from Dalek-strict is exactly
+{0,1,2,11}; from ZIP-215 exactly {4,5,9,10}. Signatures produced by an honest
+RFC 8032 signer over a canonical public key verify identically under all of
+these profiles — the divergence envelope exists ONLY for adversarially crafted
+signatures. **Consequence for cross-verifier consensus:** an independent
+verifier using a different profile (e.g. ZIP-215) MAY disagree with proofbundle
+on such crafted signatures; a relying party that needs multi-implementation
+agreement on hostile inputs must pin one profile across its verifiers. The exact
+12-vector envelope is vendored (byte-pinned) and asserted by
+`tests/test_ed25519_semantics.py` — a change in the backing library turns the
+repository's CI red (a deliberate, documented decision), never a silent drift.
+No wire or behavior change is made by documenting this; switching profiles would
+be a breaking, versioned change.
+
 ### 5. `merkle`
 
 | field | required | type | meaning |
@@ -90,12 +133,41 @@ expected length for `(leaf_index, tree_size)`.
 | field | required | type | meaning |
 |---|---|---|---|
 | `compact` | yes | string | SD-JWT in compact serialization: an issuer-signed JWT followed by `~`-separated disclosures. |
-| `issuer_public_key_b64` | no | string | If present, Base64 of the 32-byte raw Ed25519 issuer key. |
+| `issuer_public_key_b64` | yes¹ | string | Base64 of the 32-byte raw Ed25519 issuer key. ¹Structurally optional for backward wire-compatibility, but **its absence now fails the bundle** — see below. |
+
+The `sd_jwt_vc` block lives **outside** `payload_b64`, so the bundle's Ed25519
+signature (§4) does **not** cover it; the only thing that authenticates the
+SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
+2026-07-11, WP-C1/C2 — a breaking change from the prior null-and-warn behaviour):
 
 Check **sd-jwt-disclosures**: the compact string is well formed and every
 presented disclosure is committed (its digest appears in the issuer-signed
-payload's `_sd` array). If `issuer_public_key_b64` is present, additionally check
-**sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under it.
+payload's `_sd` array). This is self-consistency only — it proves nothing about
+provenance and is forgeable without any key.
+
+Check **sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under
+`issuer_public_key_b64`. When `sd_jwt_vc` is present but `issuer_public_key_b64`
+is **absent**, this check **FAILS** (reason: `unsigned`) — the disclosures are
+unauthenticated and MUST NOT be treated as a passing credential. There is no
+opt-out that lets an unsigned SD-JWT verify.
+
+Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
+its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
+verified the signature MUST be the key it names (`issuer_public_key_b64` is already
+the Base64 of the 32-byte raw key, per §6):
+`"ed25519:" + issuer_public_key_b64 == disclosed issuer`. A signature that
+verifies under an **attacker-chosen** key while the always-open `issuer` names a
+*trusted* party is a forged identity (valid signature, wrong signer) and **FAILS**
+(reason: `issuer-key-mismatch`).
+
+Check **sd-jwt-bundle-binding** (WP-C1): performed **iff** `sd_jwt_vc` is present,
+its issuer signature verified, and `payload_b64` decodes to a
+`proofbundle/eval-claim/v0.1` claim with a `merkle.root_b64`. The SD-JWT's
+always-open disclosures (`passed`, `threshold`, `comparator`, `suite`, `issuer`)
+and its committed `receipt.root_b64` MUST match the bundle payload bit-exact and
+bind **this** bundle's Merkle root. A valid issuer signature over disclosures that
+describe a *different* bundle (a receipt lifted and grafted on — cross-receipt
+substitution) **FAILS** (reason: `unbound`/`mismatch`).
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
@@ -125,9 +197,17 @@ A conforming verifier MUST perform, in this order, and report each result:
 2. **ed25519-signature** (§4).
 3. **merkle-inclusion** (§5).
 4. **sd-jwt-disclosures** and **sd-jwt-issuer-signature** — only if `sd_jwt_vc`
-   is present (§6).
+   is present (§6). Since revision 2026-07-11, a present `sd_jwt_vc` with **no**
+   `issuer_public_key_b64` makes **sd-jwt-issuer-signature** FAIL (unsigned →
+   unauthenticated); it is not a skipped or warning-only check.
 5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
    serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
+6. **sd-jwt-issuer-identity** — only if `sd_jwt_vc` is present, its issuer
+   signature verified, and it discloses an `issuer` (§6, WP-C1; fail-closed against
+   a forged issuer identity).
+7. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
+   signature verified, and the payload is a `proofbundle/eval-claim/v0.1` claim
+   (§6, WP-C1; fail-closed against cross-receipt substitution).
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
@@ -325,7 +405,7 @@ Each `anchors[]` entry is a JSON object:
 | `canonicalRoot` | yes | string | Base64 of the canonical root of the anchor's OWN target. |
 | `proof` | yes | string | Base64 of the type-specific proof (an RFC 3161 token, an OpenTimestamps proof, …). |
 | `anchoredAt` | no | string \| null | RFC 3339 Z, **INFORMATIVE only** — the trusted time comes from the proof, never this field. |
-| `frozen` | no | object | OPTIONAL type-specific material bundled at emit time (e.g. the frozen TSA certificate chain; for `rfc3161-tsa` an optional `policyOid` to pin, see below). |
+| `frozen` | no | object | OPTIONAL producer-supplied type-specific EVIDENCE bundled at emit time (e.g. the TSA certificate chain, a Bitcoin block header). **WP-A1 (rev 2026-07-11): `frozen` is producer-controlled and is NEVER a trust source** — it is reported as evidence (`frozenEvidence`) but a confirmed verdict requires the relying party's own trust material (see Trust model). The frozen `intermediateCertsDerB64` / `tsaCertDerB64` are path-building only (validated up to the RP root); an optional `policyOid` still pins stricter-only. |
 
 ### Targets (never mixed)
 
@@ -356,31 +436,72 @@ per-entry status:
   chia-datalayer level-i anchor → **WARN**. It is never conflated with a
   confirmed anchor.
 
-A root mismatch, an unknown type, or a broken proof is a hard **FAIL**; a
+A root mismatch, an unknown type, a broken proof, or a valid-but-untrusted anchor
+(**needs_rp_trust** — an upgraded, structurally-bound proof for which the relying
+party supplied no trust material; see Trust model) is a hard **FAIL**; a
 verifier that raises is treated as FAIL. `verify --require-anchor` (optionally
 narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
 into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet
 (distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending**
 anchor does NOT satisfy `--require-anchor` unless `--allow-pending` is given.
 
+**Target gate (WP-A1).** `--anchor-target receipt|preRegistration|statement`
+(implies `--require-anchor`) additionally requires the verifying anchor to
+stamp THAT target: matched = ok ∧ ¬warn ∧ type ∧ **target**. Without it the
+requirement matches the TYPE alone — a `receipt` anchor stamped today would
+satisfy a relying party who meant backdating protection (`preRegistration`),
+although existence-now proves nothing about existence-before-the-run. The same
+requirement is expressible as a policy key (trust-policy **v0.2** `anchors`
+section: `require_anchor`, `require_anchor_target`, `allow_pending`); a CLI
+flag conflicting with the policy value is an ambiguity error (exit 2), never a
+silent override.
+
+**Structured trusted time (WP-A2).** A verifying anchor's per-entry result MAY
+carry `trustedTime` — `{source: "rfc3161_gen_time", time: <RFC 3339>, tz: "Z"}`
+from a verified RFC 3161 token's own `gen_time`, or
+`{source: "bitcoin_block", height: <int>}` from a confirmed OpenTimestamps
+attestation (the block HEIGHT is the proof's native unit; no wall-clock value
+is guessed for it). The field is present ONLY when the proof genuinely carries
+the time; it is never derived from the informative `anchoredAt`. This is what
+makes a time-window policy (t₁ < run < t₂) buildable over `verify --json`.
+
 ### Built-in types (informative)
 
 - **`rfc3161-tsa`** — an RFC 3161 timestamp token, verified **offline** against
-  the TSA certificate chain **frozen** into the anchor at emit time (a TSA can
-  rotate its certificate). The chain is validated at the token's own `gen_time`,
-  not the current wall clock, so a frozen token stays re-verifiable after the
-  TSA certificate has expired or rotated; a certificate that was not valid at
-  `gen_time` fails closed. The TSA **policy OID** is not pinned by default (any
-  policy is accepted); a relying party MAY pin it by setting
-  `frozen.policyOid` to the expected dotted-decimal OID, in which case a token
-  whose `TSTInfo.policy` differs fails closed.
+  a TSA **root certificate the RELYING PARTY supplies** (WP-A1: CLI
+  `--trusted-tsa-root`, policy `anchors.trusted_tsa_roots`), NOT the anchor's
+  own `frozen` root (which the producer controls). The chain is validated at the
+  token's own `gen_time`, not the current wall clock, so a token stays
+  re-verifiable after the TSA certificate has expired or rotated; a certificate
+  that was not valid at `gen_time` fails closed. With no relying-party root the
+  token is `needs_rp_trust` (ok=False). The TSA **policy OID** is not pinned by
+  default; a relying party MAY pin it (`anchors.trusted_tsa_policy_oids`) or the
+  producer MAY declare a stricter-only `frozen.policyOid`; a token whose
+  `TSTInfo.policy` differs fails closed.
 - **`opentimestamps`** — an OpenTimestamps proof anchored in Bitcoin. A fresh
   stamp is **PENDING** (a WARN) until `ots upgrade` embeds the Bitcoin
-  block-header path. A frozen `bitcoinBlockHeaderMerkleRootsByHeight` maps a
-  block height to that block's `hashMerkleRoot` in **internal (node) byte
-  order** as returned by `bitcoind` — NOT the byte-reversed order that block
-  explorers display. A reimplementer MUST use the internal order or every root
-  comparison fails.
+  block-header path. Confirming it needs the block's `hashMerkleRoot` for the
+  attested height — **supplied by the RELYING PARTY** (WP-A1: CLI
+  `--bitcoin-header`, policy `anchors.bitcoin_block_headers`), from their own
+  trusted/pruned Bitcoin node, NOT the anchor's `frozen` header. The root is in
+  **internal (node) byte order** as returned by `bitcoind` — NOT the
+  byte-reversed order block explorers display; a reimplementer MUST use the
+  internal order. With no relying-party header the upgraded proof is
+  `needs_rp_trust` (ok=False), never confirmed.
+
+### Trust model (WP-A1, normative)
+
+An external time anchor's TRUST comes ONLY from the relying party, never from
+the bundle. The `frozen` block is producer-controlled EVIDENCE (surfaced as
+`frozenEvidence`), never a trust source: a malicious producer could freeze its
+own self-signed TSA root, or a self-committed backdated Bitcoin header, and
+self-certify a **backdated** timestamp. Therefore a confirmed verdict requires
+the relying party to supply the matching trust material (`--trusted-tsa-root` /
+`--bitcoin-header`, or the policy `anchors` section); without it the anchor is
+`needs_rp_trust` and `--require-anchor` is unmet → exit 3, never a silent pass.
+A per-entry result carries `rp_trusted` (verified against RP material),
+`needs_rp_trust` (proof present but no RP material), and `frozenEvidence` (the
+bundle carried frozen material, reported but not trusted).
 
 ### Privacy
 

@@ -22,7 +22,7 @@ credit are named in the advisory and CHANGELOG.
 
 ## Supported versions
 
-During the 1.x phase, only the latest released minor version receives fixes.
+Only the latest released minor version of the current major line receives fixes.
 
 ## Handling signing keys
 
@@ -34,8 +34,8 @@ seed can forge signatures under your key.
 ## Release integrity
 
 Releases are published to PyPI via **Trusted Publishing** (OIDC, no long-lived token) with
-`pypa/gh-action-pypi-publish` (>= v1.11.0). Once the first release is published, each release file
-**will carry PEP 740 digital attestations** generated automatically, verifiable on PyPI (the Integrity
+`pypa/gh-action-pypi-publish` (>= v1.11.0). Each published release file
+**carries PEP 740 digital attestations** generated automatically, verifiable on PyPI (the Integrity
 API exposes the attestation bundle, publisher = GitHub) or with `pip install`'s attestation verification,
 plus an SLSA build-provenance attestation (SLSA v1.2 attestation model). The release workflow builds the
 artifact ONCE and gates the PyPI upload on a sha256 match against the attested subject, so the published

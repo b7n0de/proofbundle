@@ -27,11 +27,12 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
-           "to_eval_results_entry", "eval_results_yaml"]
+           "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
 
 TOKEN_PREFIX = "pb1."
 _MAX_TOKEN_BYTES = 262_144   # 256 KiB decompressed cap — a receipt is a few KB; refuse zip bombs
@@ -66,7 +67,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         raw = decomp.decompress(_b64url_decode(token[len(TOKEN_PREFIX):]), _MAX_TOKEN_BYTES)
         if decomp.unconsumed_tail:
             raise BundleFormatError("receipt token exceeds the decompression cap")
-        bundle = json.loads(raw)
+        bundle = loads_strict(raw)   # WP-C1: duplicate keys rejected fail-closed
     except BundleFormatError:
         raise
     except (ValueError, TypeError, zlib.error) as exc:
@@ -79,6 +80,81 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         return verify_bundle(bundle), bundle
     except UnsupportedError as exc:
         raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+
+
+def verify_eval_results_entry(entry: dict) -> dict:
+    """VERIFIER-side check of one ``.eval_results`` entry (WP-I2): the builder's value↔verdict
+    consistency was emit-side only, so an entry whose ``value`` was edited AFTER the token was
+    minted verified fine (``verify_receipt_token`` checks only the bundle inside the token, and a
+    Hub reader sees the value, not the token). This closes that: token crypto + the published
+    ``value`` must be consistent with the signed claim's threshold verdict.
+
+    Returns ``{ok, crypto_ok, value_consistent, entry_value, claim, warnings[], detail}``:
+
+    * ``crypto_ok`` — the embedded receipt verifies (Ed25519 + Merkle, offline);
+    * ``value_consistent`` — ``value <comparator> threshold == passed`` against the DECODED,
+      issuer-bound eval claim. Fail-closed: a token whose bundle is not a decodable eval receipt
+      yields ``False`` (an eval_results entry claims to publish an eval result — refusing to judge
+      it would be the silent skip this project eliminates), as does a missing/non-finite value.
+    * ``ok`` — both of the above.
+
+    **Replay boundary (documented, not silently claimed):** the receipt's model/dataset are SALTED
+    COMMITMENTS, so this check binds the VALUE to the signed verdict — it can NOT bind the entry's
+    ``dataset.id``/``task_id`` to the receipt's committed dataset. A token replayed onto a
+    DIFFERENT Hub repo/benchmark with a consistent value still verifies here; binding the identity
+    needs the salt opening (``verify_commitment``) out of band. THREAT_MODEL.md carries the same
+    row — this function must never be read as a repo-binding check."""
+    import math as _math  # noqa: PLC0415
+    if not isinstance(entry, dict):
+        raise BundleFormatError("verify_eval_results_entry needs an entry dict")
+    out: dict = {"ok": False, "crypto_ok": False, "value_consistent": False, "entry_value": None,
+                 "claim": None, "detail": "",
+                 "warnings": ["value↔verdict bound; dataset/task identity NOT bound (salted "
+                              "commitments — needs the salt opening, see THREAT_MODEL)"]}
+    # verifyToken is OPTIONAL in the HF schema (six-lens review): a batch verifier over a mixed list
+    # must not crash on a token-less entry. It is simply not verifiable → fail-closed ok=False, not
+    # a raised error. A malformed (non-string) token is likewise reported, not raised.
+    token = entry.get("verifyToken")
+    if not isinstance(token, str) or not token:
+        out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
+        return out
+    result, bundle = verify_receipt_token(token)
+    out["crypto_ok"] = bool(result.ok)
+    if not result.ok:
+        out["detail"] = "embedded receipt does not verify"
+        return out
+    _val = entry.get("value")
+    if _val is None:   # narrow None out before float() (mypy) — a missing value is not verifiable
+        out["detail"] = "entry carries no value to check against the signed verdict"
+        return out
+    if isinstance(_val, bool):   # six-lens review: float(True)==1.0 would sneak a bool past the check;
+        out["detail"] = "entry value is a boolean, not a metric number"   # the builder rejects bool too
+        return out
+    try:
+        numeric = float(_val)
+    except (TypeError, ValueError, OverflowError):
+        out["detail"] = f"entry value {_val!r} is not a number"
+        return out
+    if not _math.isfinite(numeric):
+        out["detail"] = "entry value is not finite"
+        return out
+    out["entry_value"] = numeric
+    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    claim = decode_eval_claim(bundle)
+    if claim is None:
+        out["detail"] = ("token bundle is not a decodable, issuer-bound eval receipt — cannot "
+                         "judge the published value (fail-closed)")
+        return out
+    out["claim"] = {k: claim[k] for k in ("suite", "metric", "comparator", "threshold", "passed", "n")}
+    thr = float(claim["threshold"])
+    cmp_ok = {">=": numeric >= thr, ">": numeric > thr,
+              "<=": numeric <= thr, "<": numeric < thr}[claim["comparator"]]
+    out["value_consistent"] = (cmp_ok == bool(claim["passed"]))
+    if not out["value_consistent"]:
+        out["detail"] = (f"published value {numeric} contradicts the signed claim: passed="
+                         f"{claim['passed']} for {claim['comparator']} {claim['threshold']}")
+    out["ok"] = out["crypto_ok"] and out["value_consistent"]
+    return out
 
 
 def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
@@ -98,10 +174,14 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     ``verifyToken`` (schema-valid, proofbundle-verifiable; NOT the HF-internal badge token — HF's
     "verified" badge is HF's server-side decision, and this module makes no claim about it).
 
-    v1.8 (external review): if the bundle is an eval receipt whose claim discloses a ``score``,
-    the published ``value`` MUST match it (a Hub reader sees the value, not the token) — a
-    mismatch raises unless ``allow_value_mismatch=True``. This stops a receipt saying 0.60 from
-    being published next to a displayed 0.99.
+    v1.8 (external review): if the bundle is an eval receipt, the published ``value`` MUST be
+    CONSISTENT with the signed pass/fail verdict — ``value <comparator> threshold == passed`` — a
+    mismatch raises unless ``allow_value_mismatch=True``. **Scope (do not overclaim):** the signed
+    claim minimizes data (it carries ``threshold``/``comparator``/``passed``, NOT the exact score),
+    so this binds the value to the correct SIDE of the threshold, not to a true magnitude. It stops
+    a value that CONTRADICTS the verdict (a "passed" receipt published with a failing value); it does
+    NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
+    ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
     """
     if require_verified:
         result = verify_bundle(bundle)
@@ -151,7 +231,11 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
             # genuinely NON-eval bundle (different/absent schema) has no verdict to check → skip. The bundle's signature
             # was already verified above (require_verified), so reading the raw payload's schema label is authentic.
             try:
-                _raw = json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                # WP-C1, DELIBERATE: a duplicate key here raises BundleFormatError and PROPAGATES
+                # (it is NOT in the tuple below) — the schema label of a dup-key payload cannot be
+                # read reliably, so refusing to publish is the only honest outcome. Adding it to
+                # the except would set _is_eval=False and fail OPEN for dup-key eval claims.
+                _raw = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
                 _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
                 _is_eval = False

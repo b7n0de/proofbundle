@@ -163,6 +163,15 @@ MUTATIONS = [
     ("src/proofbundle/anchors.py",
      "if canonical_root != expected_root:", "if False:",
      "anchors: canonicalRoot/target binding disabled (cross-target)", True),
+    # WP-C1 — the duplicate-key reject must fire on every verify path (parser differential).
+    ("src/proofbundle/_strict_json.py",
+     "if key in obj:", "if False:",
+     "strict-json: duplicate-key reject disabled (last-wins differential)", True),
+    # WP-I1 — predicateType-confusion defense: disabling the type check must go red.
+    ("src/proofbundle/intoto.py",
+     "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
+     "    ok = bool(sig_ok) and binding_ok",
+     "intoto: predicateType-confusion enforcement disabled", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",
@@ -173,6 +182,35 @@ MUTATIONS = [
     ("src/proofbundle/anchors_chia.py",
      "if clvm_atom_hash(key_bytes) != key_clvm:", "if False:",
      "chia-datalayer: key_clvm_hash binding disabled (relabel forgery)", True),
+    # v3.0.0 — the four NEW breaking security defenses (release-audit F13): each disabled defense must
+    # go red. Without these the mutation gate covered every check EXCEPT the ones 3.0.0 was cut to add.
+    # WP-C2 — an unsigned sd_jwt_vc (no issuer_public_key_b64) must FAIL, not pass secure-by-default.
+    ("src/proofbundle/bundle.py",
+     '"sd-jwt-issuer-signature", False,', '"sd-jwt-issuer-signature", True,',
+     "bundle: WP-C2 unsigned SD-JWT now-fails defense disabled", True),
+    # WP-C1 (2nd lens) — a self-signed SD-JWT whose verifying key is NOT the disclosed issuer is a forged
+    # identity; the fingerprint(issuer_pub) == disclosed issuer bind must hold.
+    ("src/proofbundle/bundle.py",
+     '"sd-jwt-issuer-identity", _disc_issuer == _verifying_fp,',
+     '"sd-jwt-issuer-identity", True,',
+     "bundle: WP-C1 SD-JWT issuer-identity bind disabled (forged identity)", True),
+    # WP-C1 — cross-receipt credential substitution: the SD-JWT's always-open claims + root must match
+    # THIS bundle; disabling the field comparison lets a lifted receipt bind to a foreign bundle.
+    ("src/proofbundle/sdjwt_issue.py",
+     "if field not in claim or p.get(field) != claim.get(field):", "if False:",
+     "sdjwt_issue: WP-C1 bundle-binding field comparison disabled (cross-receipt substitution)", True),
+    # WP-A1 — external time-anchor trust comes from the relying party; a self-frozen anchor with no RP
+    # trust material must stay ok=False (needs_rp_trust). Re-enabling own-frozen self-trust must go red.
+    # (killed by tests.test_anchors_ots / .test_anchors_rfc3161 + the forged-anchor-own-frozen conformance
+    #  vector — all require the [anchors] extra, which the mutation CI job installs.)
+    ("src/proofbundle/anchors_ots.py",
+     '"ok": False, "warn": False, "status": "needs_rp_trust"',
+     '"ok": True, "warn": False, "status": "needs_rp_trust"',
+     "anchors_ots: WP-A1 needs_rp_trust self-trust re-enabled (backdating)", True),
+    ("src/proofbundle/anchors_rfc3161.py",
+     '"ok": False, "status": "needs_rp_trust"',
+     '"ok": True, "status": "needs_rp_trust"',
+     "anchors_rfc3161: WP-A1 needs_rp_trust self-trust re-enabled (backdating)", True),
 ]
 
 

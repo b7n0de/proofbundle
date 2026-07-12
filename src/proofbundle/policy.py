@@ -19,14 +19,15 @@ Design invariants:
 from __future__ import annotations
 
 import copy
-import json
 from typing import Union
 
-from .errors import ProofBundleError
+from ._strict_json import loads_strict
+from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
 
-__all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy"]
+__all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy",
+           "explain_policy", "lint_policy", "policy_warnings"]
 
 POLICY_SCHEMA = "proofbundle/trust-policy/v0.1"
 POLICY_SCHEMA_V0_2 = "proofbundle/trust-policy/v0.2"
@@ -40,8 +41,70 @@ class PolicyError(ProofBundleError):
     """The trust policy JSON is missing fields, malformed, or carries unknown fields (fail-closed)."""
 
 
+_ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
+_ED25519_SIGN_MASK = 1 << 255         # bit 255 is the x sign, not part of y
+_ED25519_Y_MASK = _ED25519_SIGN_MASK - 1
+
+
+def _low_order_ed25519_y() -> frozenset:
+    """The y-coordinates of the Ed25519 8-torsion subgroup (identity y=1, order-2 y=p-1, order-4 y=0,
+    and the two order-8 y-values). Checking the y-VALUE (sign-independent) rejects a low-order key under
+    ANY encoding — both sign variants — where a hand-kept byte-string blocklist misses the sign/field
+    variants (6-lens fix-review re-break found 3 missing). Computed from the known order-8 encodings."""
+    ys = {0, 1, _ED25519_P - 1}
+    for h in ("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+              "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"):
+        ys.add(int.from_bytes(bytes.fromhex(h), "little") & _ED25519_Y_MASK)
+    return frozenset(ys)
+
+
+_LOW_ORDER_ED25519_Y = _low_order_ed25519_y()
+
+
+def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
+    """Fail-closed check for a PINNED trusted Ed25519 public key. Must decode to 32 bytes, be a CANONICAL
+    encoding (y < p), and NOT be a low-order point. The core verifier deliberately accepts small-order,
+    mixed-order and non-canonical keys (SPEC §4a, "Taming the Many EdDSAs"); pinning any of them as a
+    trusted identity lets a fixed signature verify for many (for the identity encodings, ALL) messages
+    with no private key — forgery of a trusted identity without a secret. Rejects the whole low-order
+    class by the y-value (sign-independent) plus the non-canonical (y >= p) class, so no encoding variant
+    slips past. Raises PolicyError."""
+    import base64  # noqa: PLC0415
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception as exc:  # noqa: BLE001
+        raise PolicyError(f"{ctx} public_key_b64 is not valid base64") from exc
+    if len(raw) != 32:
+        raise PolicyError(f"{ctx} public_key_b64 must decode to 32 bytes, got {len(raw)}")
+    y = int.from_bytes(raw, "little") & _ED25519_Y_MASK   # strip the x sign bit
+    if y >= _ED25519_P:
+        raise PolicyError(
+            f"{ctx} public_key_b64 is a non-canonical Ed25519 encoding (y >= p) — rejected: it encodes a "
+            "low-order/identity point that a fixed signature verifies against with no private key")
+    if y in _LOW_ORDER_ED25519_Y:
+        raise PolicyError(
+            f"{ctx} public_key_b64 is a low-order Ed25519 point — rejected: a fixed signature under such "
+            "a key verifies for many messages with no private key, so it cannot be a trusted identity")
+
+
+def _pinned_key_forgeable(b64: str) -> bool:
+    """True iff the pinned key is a low-order / non-canonical / malformed encoding that must never grant
+    trust. Non-raising defense-in-depth for the EVALUATION layer (fix-review Finding 2): load_policy
+    already rejects such keys, but evaluate_policy / evaluate_decision_policy are public and a caller
+    could hand them a policy dict that never went through load_policy — a matched-but-forgeable pinned
+    key must not yield signer_trusted=True there either."""
+    try:
+        _validate_pinned_ed25519_pubkey(b64, "pinned key")
+        return False
+    except PolicyError:
+        return True
+
+
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance", "decision_receipt"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
+_ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
+                 "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
+_ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
                   "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
@@ -107,8 +170,10 @@ def load_policy(source: Union[str, dict]) -> dict:
     if isinstance(source, str):
         try:
             with open(source, encoding="utf-8") as handle:
-                policy = json.load(handle)
-        except (OSError, ValueError, RecursionError) as exc:   # RecursionError: deeply-nested JSON → fail-closed, not a raw traceback (verify-lens L3)
+                # WP-C1: a duplicated key in a policy is a differential in the TRUST DECISION
+                # itself (two parsers could enforce different allowed_issuers) — reject.
+                policy = loads_strict(handle.read())
+        except (OSError, ValueError, BundleFormatError) as exc:
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object
@@ -137,6 +202,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         _reject_unknown(issuer, _ISSUER_KEYS, "allowed_issuers[]")
         if not (isinstance(issuer.get("public_key_b64"), str) and issuer["public_key_b64"]):
             raise PolicyError("each allowed_issuers[] entry needs a non-empty public_key_b64")
+        _validate_pinned_ed25519_pubkey(issuer["public_key_b64"], "allowed_issuers[]")
         _require_str_or_null(issuer, "issuer", "allowed_issuers[]")
         _require_str_or_null(issuer, "kid", "allowed_issuers[]")
     if "signature" in policy:
@@ -169,6 +235,37 @@ def load_policy(source: Union[str, dict]) -> dict:
         if lvl is not None and lvl not in ASSURANCE_LEVELS:
             raise PolicyError(f"assurance.minimum_level must be one of {list(ASSURANCE_LEVELS)} or null")
         _require_bool(asr, "reject_self_attested_without_prereg", "assurance")
+    if "anchors" in policy:
+        # WP-A1: the anchor requirement as a POLICY key (v0.2-gated like decision_receipt) — so a
+        # relying party pins "must carry a verifying preRegistration anchor" in the policy file
+        # instead of remembering CLI flags.
+        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+            raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
+        anc = _require_dict(policy["anchors"], "anchors")
+        _reject_unknown(anc, _ANCHORS_KEYS, "anchors")
+        _require_str_or_null(anc, "require_anchor", "anchors")
+        rt = anc.get("require_anchor_target")
+        if rt is not None and rt not in _ANCHOR_TARGETS:
+            raise PolicyError(f"anchors.require_anchor_target must be one of {list(_ANCHOR_TARGETS)} or null")
+        _require_bool(anc, "allow_pending", "anchors")
+        # WP-A1: relying-party anchor TRUST material carried in the policy file (self-contained, no file
+        # paths). trusted_tsa_roots = list of base64 DER cert strings; bitcoin_block_headers = {height(str):
+        # merkleRootHex}; trusted_tsa_policy_oids = list of dotted-decimal strings. All optional + fail-closed.
+        if "trusted_tsa_roots" in anc:
+            roots = anc["trusted_tsa_roots"]
+            if not isinstance(roots, list) or not all(isinstance(r, str) and r for r in roots):
+                raise PolicyError("anchors.trusted_tsa_roots must be a list of base64 DER certificate strings")
+        if "trusted_tsa_policy_oids" in anc:
+            oids = anc["trusted_tsa_policy_oids"]
+            if not isinstance(oids, list) or not all(isinstance(o, str) and o for o in oids):
+                raise PolicyError("anchors.trusted_tsa_policy_oids must be a list of dotted-decimal strings")
+        if "bitcoin_block_headers" in anc:
+            hdrs = anc["bitcoin_block_headers"]
+            if not isinstance(hdrs, dict) or not all(
+                    isinstance(k, str) and k.isdigit() and isinstance(v, str) and len(v) == 64
+                    for k, v in hdrs.items()):
+                raise PolicyError("anchors.bitcoin_block_headers must map a decimal height string to a "
+                                  "64-char hex merkle root")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
@@ -179,6 +276,7 @@ def load_policy(source: Union[str, dict]) -> dict:
             _reject_unknown(dm, _DECISION_MAKER_KEYS, "trusted_decision_makers[]")
             if not (isinstance(dm.get("public_key_b64"), str) and dm["public_key_b64"]):
                 raise PolicyError("each trusted_decision_makers[] entry needs a non-empty public_key_b64")
+            _validate_pinned_ed25519_pubkey(dm["public_key_b64"], "trusted_decision_makers[]")
             _require_str_or_null(dm, "id", "trusted_decision_makers[]")
             _require_str_or_null(dm, "kid", "trusted_decision_makers[]")
         for key in ("allowed_decision_types", "allowed_verdicts", "required_evidence_relations",
@@ -223,6 +321,12 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         signer_trusted = match is not None
         if match is None:
             errors.append("signer key is not in trusted_decision_makers")
+        elif _pinned_key_forgeable(match.get("public_key_b64") or ""):
+            # defense-in-depth (fix-review Finding 2): even if this policy dict never went through
+            # load_policy, a matched low-order/non-canonical pinned key must not grant trust.
+            signer_trusted = False
+            errors.append("trusted_decision_makers entry is a low-order/non-canonical key (forgeable) "
+                          "— refusing to trust it")
         elif match.get("id") is not None and claimed_id is not None and match["id"] != claimed_id:
             signer_trusted = False
             errors.append("decisionMaker.id does not match the trusted entry for this signer key")
@@ -294,6 +398,22 @@ def policy_expected_aud(policy: dict):
     return (policy.get("sd_jwt") or {}).get("expected_aud")
 
 
+def policy_anchor_trust(policy: dict) -> dict | None:
+    """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
+    ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
+    None when the policy declares none. Mirrors the CLI ``--trusted-tsa-root`` / ``--bitcoin-header``; the
+    CLI unions the two. Validated already in ``load_policy`` (fail-closed), so this is a pure projection."""
+    anc = policy.get("anchors") or {}
+    rp: dict = {}
+    if anc.get("trusted_tsa_roots"):
+        rp["trusted_tsa_roots"] = list(anc["trusted_tsa_roots"])
+    if anc.get("bitcoin_block_headers"):
+        rp["bitcoin_block_headers"] = {str(k): v.lower() for k, v in anc["bitcoin_block_headers"].items()}
+    if anc.get("trusted_tsa_policy_oids"):
+        rp["trusted_tsa_policy_oids"] = list(anc["trusted_tsa_policy_oids"])
+    return rp or None
+
+
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """Evaluate a trust policy OVER a completed crypto verification.
 
@@ -338,7 +458,10 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     require_signer = bool((policy.get("signature") or {}).get("require_expected_signer"))
     if allowed_issuers or require_signer:
         signer_key = sig.get("public_key_b64")
-        allowed_keys = {i.get("public_key_b64") for i in allowed_issuers}
+        # defense-in-depth (fix-review Finding 2): a low-order/non-canonical allowed_issuers key is
+        # forgeable — never let it match, even if this policy dict skipped load_policy.
+        allowed_keys = {i.get("public_key_b64") for i in allowed_issuers
+                        if not _pinned_key_forgeable(i.get("public_key_b64") or "")}
         matched = signer_key in allowed_keys and signer_key is not None
         if not allowed_issuers and require_signer:
             add("policy:signer_allowed", False,
@@ -404,6 +527,11 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             "input — evaluate revocation separately with verify_status_snapshot (fail-closed)")
 
     # 7. assurance + freshness — only meaningful for an issuer-bound eval receipt. Decode once.
+    # NOTE (No-Overclaim, 6-lens review): despite the RFC-9901-evoking name, `sd_jwt.max_iat_age_seconds`
+    # bounds the EVAL CLAIM's own `timestamp` (via check_freshness below), NOT the KB-JWT `iat`. It does
+    # NOT give KB-JWT presentation-replay freshness (kbjwt.py carries no clock-based iat window); a
+    # captured KB-JWT presentation still replays as long as the underlying claim is within this age.
+    # explain_policy() labels it "eval claim freshness" for exactly this reason.
     asr = policy.get("assurance") or {}
     max_age = sdj.get("max_iat_age_seconds")
     needs_claim = (asr.get("minimum_level") is not None
@@ -435,3 +563,101 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     policy_ok = all(c["ok"] for c in checks)
     reason = "" if policy_ok else next((c["detail"] for c in checks if not c["ok"]), "policy not satisfied")
     return {"policy_ok": policy_ok, "checks": checks, "reason": reason}
+
+
+# ── WP-TP1: explain / lint / vacuous-pass warning ────────────────────────────
+
+def explain_policy(policy: dict) -> list:
+    """Human-readable list of the EFFECTIVE pins a (already load_policy-validated) policy makes.
+
+    One line per active constraint; an empty list means the policy pins nothing (see
+    :func:`lint_policy` — such a policy is wirkungslos and `POLICY: OK` under it attributes the
+    bytes to nobody)."""
+    lines: list = []
+    if policy.get("allowed_schema_versions"):
+        lines.append(f"schema version in {policy['allowed_schema_versions']}")
+    for issuer in policy.get("allowed_issuers", []) or []:
+        who = issuer.get("issuer") or issuer.get("kid") or "(unnamed)"
+        key = issuer.get("public_key_b64", "")
+        lines.append(f"issuer {who}: public key pinned ({key[:12]}…)")
+    sig = policy.get("signature") or {}
+    if sig.get("allowed_algs"):
+        lines.append(f"signature alg in {sig['allowed_algs']}")
+    if sig.get("require_expected_signer"):
+        lines.append("signer MUST match an allowed_issuers entry (require_expected_signer)")
+    mk = policy.get("merkle") or {}
+    if mk.get("required_hash_alg") is not None:
+        # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
+        # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
+        lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
+    sdj = policy.get("sd_jwt") or {}
+    if sdj.get("require_key_binding_when_cnf_present"):
+        lines.append("SD-JWT: key binding required when cnf present")
+    if sdj.get("expected_aud") is not None:
+        lines.append(f"SD-JWT: audience == {sdj['expected_aud']!r}")
+    if sdj.get("require_nonce"):
+        lines.append("SD-JWT: nonce required from a VERIFIED key binding")
+    if sdj.get("max_iat_age_seconds") is not None:
+        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+    st = policy.get("status") or {}
+    if st.get("reject_self_issued") or (st.get("allowed_status_authorities") or []):
+        lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")
+    asr = policy.get("assurance") or {}
+    if asr.get("minimum_level") is not None:
+        lines.append(f"assurance_level >= {asr['minimum_level']!r}")
+    if asr.get("reject_self_attested_without_prereg"):
+        lines.append("self_attested without prereg_sha256 rejected")
+    dr = policy.get("decision_receipt") or {}
+    if dr:
+        active = [k for k in dr if dr.get(k)]
+        lines.append(f"decision_receipt section active ({len(active)} knob(s): {sorted(active)})")
+    return lines
+
+
+def _attributes_to_nobody(policy: dict) -> bool:
+    """True iff the policy pins NO signer identity: no allowed_issuers AND no
+    require_expected_signer (eval side) AND no trusted_decision_makers (decision side). Crypto OK
+    under such a policy proves integrity by an UNKNOWN party — 'attribution to nobody'
+    (docs/TRUST_ANCHORS.md's first row)."""
+    has_issuers = bool(policy.get("allowed_issuers"))
+    has_require = bool((policy.get("signature") or {}).get("require_expected_signer"))
+    has_dm = bool((policy.get("decision_receipt") or {}).get("trusted_decision_makers"))
+    return not (has_issuers or has_require or has_dm)
+
+
+def policy_warnings(policy: dict) -> list:
+    """Non-fatal honesty warnings for a valid policy (surfaced by `verify` next to POLICY: OK)."""
+    warnings: list = []
+    if _attributes_to_nobody(policy):
+        warnings.append(
+            "attributes to nobody: the policy pins no signer (no allowed_issuers, no "
+            "require_expected_signer) — POLICY: OK then proves integrity by an UNKNOWN party. "
+            "Pin the expected issuer key(s).")
+    return warnings
+
+
+def lint_policy(policy: dict, *, strict: bool = False) -> dict:
+    """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
+
+    Returns ``{ok, errors, warnings, pins}``. ``errors`` (lint failures, exit != 0 in the CLI):
+    the policy makes NO effective pin at all — `evaluate_policy` would return ``policy_ok=True``
+    with an EMPTY check list (``all([]) is True``), the exact vacuous-pass trap TP1 closes.
+    ``strict`` additionally promotes the attributes-to-nobody warning to an error."""
+    pins = explain_policy(policy)
+    errors: list = []
+    warnings = policy_warnings(policy)
+    if not pins:
+        errors.append(
+            "policy pins nothing (only schema/policy_id): every verify would report POLICY: OK "
+            "with zero checks evaluated — a vacuous pass, not a trust decision")
+    # UNSATISFIABLE (six-lens review): require_expected_signer with no allowed_issuers can NEVER pass
+    # (no signer key can match an empty list) — evaluate_policy fail-closes every verify to exit 3.
+    # That is a policy bug, not a valid pin, so it is a lint ERROR (always, not just --strict).
+    if (policy.get("signature") or {}).get("require_expected_signer") and not policy.get("allowed_issuers"):
+        errors.append(
+            "require_expected_signer is set but allowed_issuers is empty — unsatisfiable: no signer "
+            "key can ever match, so every verify FAILs (exit 3). Add the expected issuer key(s).")
+    if strict:
+        errors.extend(warnings)
+        warnings = []
+    return {"ok": not errors, "errors": errors, "warnings": warnings, "pins": pins}

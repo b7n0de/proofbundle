@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-tampered-payload",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (tamper vector: valid bundle with one payload byte flipped)",
+  "expected": { "exitCode": 1, "rejected": true },
+  "specRefs": ["SPEC.md", "THREAT_MODEL.md"],
+  "rationale": "A valid bundle with a single payload byte changed must FAIL verification (exit 1): the Ed25519 signature no longer matches. Proves the signature actually binds the payload, not just that it parses."
+}

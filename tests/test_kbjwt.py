@@ -282,9 +282,12 @@ class TestBundleIntegration(unittest.TestCase):
             self.assertEqual(len(kb), 1, f"{kwargs}: must record exactly one refused binding check")
             self.assertFalse(kb[0].ok)
 
-    def test_bundle_no_cnf_no_issuer_key_still_backward_compatible(self):
-        # The fix must NOT break plain SD-JWTs that carry no cnf and no KB — they verify as
-        # structure-only exactly as before (no spurious key-binding verdict).
+    def test_bundle_no_issuer_key_now_fails_secure(self):
+        # WP-C2 (6-lens review, Owner-GO breaking / secure-by-default): re-pinned from the former
+        # "backward compatible" behavior. An sd_jwt_vc with NO issuer key is UNAUTHENTICATED — its
+        # disclosures sit outside the bundle's signed payload, so anyone could author them. The bundle
+        # now does NOT verify (a real, FAILING sd-jwt-issuer-signature check with reason 'unsigned'),
+        # instead of the old .ok=True over attacker-chosen disclosed values. There is no opt-out.
         issuer = generate_signer()
         claim = dict(CLAIM)
         claim["issuer"] = "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")
@@ -292,9 +295,11 @@ class TestBundleIntegration(unittest.TestCase):
         b = emit_bundle(b'{"x":1}', generate_signer(), sd_jwt_vc={"compact": compact})  # no issuer key
         result = verify_bundle(b)
         names = [c.name for c in result.checks]
-        self.assertNotIn("sd-jwt-key-binding", names)
-        self.assertNotIn("sd-jwt-issuer-signature", names)
-        self.assertTrue(result.ok)
+        self.assertIn("sd-jwt-issuer-signature", names)   # now a real check, not silently absent
+        self.assertFalse(result.ok)                        # unsigned sd_jwt_vc -> bundle does not verify
+        sig = next(c for c in result.checks if c.name == "sd-jwt-issuer-signature")
+        self.assertFalse(sig.ok)
+        self.assertIn("unsigned", sig.detail)
 
 
 class TestPresentGuards(unittest.TestCase):

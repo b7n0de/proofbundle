@@ -1,0 +1,9 @@
+{
+  "caseId": "native-bundle-duplicate-json-key",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (C1 hardening vector, Bishop Fox 2021 parser differential)",
+  "expected": { "exitCode": 2, "rejected": true },
+  "specRefs": ["SPEC.md", "CHANGELOG.md"],
+  "rationale": "A bundle whose raw JSON carries a DUPLICATE top-level key must be rejected as malformed (exit 2), not silently last-wins parsed. This locks the C1 duplicate-key defense (loads_strict / object_pairs_hook) onto the conformance gate: an implementation that accepts this bundle has a parser differential and is non-conformant."
+}

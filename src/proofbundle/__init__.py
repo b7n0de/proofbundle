@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
 
 # The `proofbundle/v0.1` normative spec revision this build implements — kept in sync with the
 # `Revision:` line at the top of SPEC.md by tests/test_docs_truth.py (WP-B1, closes #28). Bump
 # both together whenever SPEC.md's normative text changes (not on every package release).
-SPEC_REVISION = "2026-07-10"
+SPEC_REVISION = "2026-07-11"
 
 __all__ = [
     "__version__",

@@ -7,6 +7,7 @@ import json
 import sys
 
 from . import SPEC_REVISION, __version__
+from ._strict_json import loads_strict
 from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import ProofBundleError
@@ -110,28 +111,29 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
     by_name = {c.name: c.ok for c in result.checks}
     warnings = [f"{c.name}: {c.detail}" for c in result.checks if not c.ok]
 
-    # sd_jwt_ok is fail-closed against the "reading OK as truth" trap (verify-lens L1/L2, 2026-07-09):
-    # `sd_jwt_vc` lives OUTSIDE payload_b64, so the Ed25519 signature does NOT cover it — the only thing
-    # that authenticates the SD-JWT is its ISSUER signature. `sd-jwt-disclosures` alone proves only that
-    # the disclosures hash to their own committed digests (self-consistent, forgeable without any key).
-    # So a bundle carrying an SD-JWT with NO issuer_public_key_b64 runs no issuer-signature check
-    # (sd_iss is None) — and that must NOT read as a passing credential. sd_jwt_issuer_verified carries
-    # the granular truth (True/False/None) so the single sd_jwt_ok cannot be misread.
+    # sd_jwt_ok is fail-closed against the "reading OK as truth" trap (verify-lens L1/L2, 2026-07-09;
+    # WP-C1/C2, 2026-07-11): `sd_jwt_vc` lives OUTSIDE payload_b64, so the Ed25519 signature does NOT cover
+    # it — only the SD-JWT's ISSUER signature authenticates its disclosures. Since WP-C2 a present sd_jwt_vc
+    # ALWAYS runs sd-jwt-issuer-signature (it FAILS with reason `unsigned` when no issuer key is supplied),
+    # so sd_iss is never None once an SD-JWT is present. sd_jwt_issuer_verified carries the granular truth
+    # (True checked+valid / False checked+invalid / None no SD-JWT) so the single sd_jwt_ok cannot be misread.
     sd_disc = by_name.get("sd-jwt-disclosures")
-    sd_iss = by_name.get("sd-jwt-issuer-signature")   # present only when an issuer key was supplied
-    sd_jwt_issuer_verified = sd_iss                   # True checked+valid / False checked+invalid / None not checked
+    sd_iss = by_name.get("sd-jwt-issuer-signature")   # present (True/False) whenever an sd_jwt_vc is present
+    sd_jwt_issuer_verified = sd_iss
     if sd_disc is None:
         sd_jwt_ok = None                              # no SD-JWT → not applicable
     elif not sd_disc:
         sd_jwt_ok = False                             # disclosure structure malformed → definitely failed
-    elif sd_iss is None:
-        sd_jwt_ok = None                              # structure ok BUT issuer signature UNVERIFIED (no key)
-        warnings.append(
-            "sd-jwt-issuer-signature: NOT checked — no issuer key supplied. sd_jwt_ok is null: the "
-            "disclosure structure is well-formed but issuer provenance is UNVERIFIED. Supply "
-            "sd_jwt_vc.issuer_public_key_b64 to authenticate it.")
     else:
-        sd_jwt_ok = bool(sd_iss)                      # structure ok AND issuer signature checked → its verdict
+        sd_jwt_ok = bool(sd_iss)                      # structure ok → the issuer-signature verdict…
+        # WP-C1: …folded with every further sd-jwt sub-check that actually ran. A valid issuer signature is
+        # not enough if the SD-JWT binds a DIFFERENT bundle (sd-jwt-bundle-binding=False), was signed by a
+        # key that is not the disclosed issuer (sd-jwt-issuer-identity=False, forged identity), or its holder
+        # key-binding is invalid (sd-jwt-key-binding=False) — none of those may read as sd_jwt_ok=True
+        # (No-Fake). `is False` only, so a not-applicable (None) sub-check never downgrades.
+        if any(by_name.get(n) is False for n in
+               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding")):
+            sd_jwt_ok = False
 
     key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
 
@@ -331,7 +333,8 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     return 0
 
 
-def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool) -> dict:
+def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool,
+                                 require_target=None, rp_trust=None) -> dict:
     """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
     ``proofbundle.anchors`` layer — never a parallel reimplementation. Returns
     ``{ok, status, detail, results}`` where ``ok`` is the anchor layer's ``require_met`` verdict: True
@@ -369,7 +372,8 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
             pass
     try:
         res = verify_anchors(anchors_list, target_roots=target_roots, require=require,
-                             allow_pending=allow_pending)
+                             require_target=require_target, allow_pending=allow_pending,
+                             rp_trust=rp_trust)
     except ProofBundleError as exc:   # malformed anchors[] → fail-closed (never a silent pass)
         return {"ok": False, "status": "FAIL", "detail": str(exc), "results": []}
     # WP4 fix (aggregation bug): the requirement verdict follows the anchor layer's `require_met` signal
@@ -380,16 +384,63 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
             "results": res.get("results", [])}
 
 
+def _build_rp_trust(args: argparse.Namespace) -> dict | None:
+    """WP-A1: assemble the relying party's anchor trust material from CLI flags. Returns None when the
+    relying party supplied nothing (→ a required time anchor is unmet, exit 3 — never a silent frozen
+    pass). Malformed input raises ValueError → the documented malformed-input exit 2."""
+    import base64 as _b64  # noqa: PLC0415
+    rp: dict = {}
+    roots = getattr(args, "trusted_tsa_root", None) or []
+    if roots:
+        from cryptography import x509  # noqa: PLC0415
+        der_b64: list = []
+        for path in roots:
+            try:
+                raw = open(path, "rb").read()  # noqa: SIM115
+            except OSError as exc:
+                raise ValueError(f"--trusted-tsa-root {path!r}: cannot read ({exc})") from exc
+            try:   # accept PEM or DER; normalize to base64 DER (what the verifier loads)
+                cert = x509.load_pem_x509_certificate(raw) if b"-----BEGIN" in raw \
+                    else x509.load_der_x509_certificate(raw)
+            except Exception as exc:
+                raise ValueError(f"--trusted-tsa-root {path!r}: not a valid certificate ({exc})") from exc
+            from cryptography.hazmat.primitives.serialization import Encoding  # noqa: PLC0415
+            der_b64.append(_b64.b64encode(cert.public_bytes(Encoding.DER)).decode("ascii"))
+        rp["trusted_tsa_roots"] = der_b64
+    headers = getattr(args, "bitcoin_header", None) or []
+    if headers:
+        by_height: dict = {}
+        for spec in headers:
+            if ":" not in spec:
+                raise ValueError(f"--bitcoin-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
+            height, _, root_hex = spec.partition(":")
+            height, root_hex = height.strip(), root_hex.strip().lower()
+            if not height.isdigit():
+                raise ValueError(f"--bitcoin-header {spec!r}: height must be a non-negative integer")
+            try:
+                if len(bytes.fromhex(root_hex)) != 32:
+                    raise ValueError
+            except ValueError as exc:
+                raise ValueError(f"--bitcoin-header {spec!r}: merkle root must be 32-byte hex") from exc
+            by_height[height] = root_hex
+        rp["bitcoin_block_headers"] = by_height
+    return rp or None
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
-    from .policy import evaluate_policy, load_policy, policy_expected_aud  # noqa: PLC0415
+    from .policy import (  # noqa: PLC0415
+        evaluate_policy, load_policy, policy_anchor_trust, policy_expected_aud,
+    )
 
     flag_aud = getattr(args, "aud", None)
     flag_nonce = getattr(args, "nonce", None)
     # WP4 (additive): resolve the anchor requirement to the value the anchor layer expects — None (no
     # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
     anchor_type = getattr(args, "anchor_type", None)
-    require_anchor = anchor_type if anchor_type else ("any" if getattr(args, "require_anchor", False) else None)
+    anchor_target = getattr(args, "anchor_target", None)   # WP-A1: implies --require-anchor
+    require_anchor = anchor_type if anchor_type else (
+        "any" if (getattr(args, "require_anchor", False) or anchor_target) else None)
     allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
@@ -397,6 +448,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (a silent no-op would hide a mistaken invocation) → the documented malformed-input exit 2.
         if allow_pending and require_anchor is None:
             raise ValueError("--allow-pending only applies together with --require-anchor / --anchor-type")
+        # WP-A1: build the relying-party anchor trust material INSIDE the try so a malformed
+        # --trusted-tsa-root / --bitcoin-header is a clean exit 2 (not a raw traceback), like every other
+        # malformed flag. Built once, used at the anchor-requirement site (which is outside this try).
+        rp_trust_material = _build_rp_trust(args)
         # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
         # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
         bundle = load_bundle(args.bundle)
@@ -413,6 +468,33 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                     f"--aud {flag_aud!r} conflicts with the policy's sd_jwt.expected_aud {pol_aud!r} "
                     "— ambiguous; supply only one, or make them equal")
             effective_aud = flag_aud if flag_aud is not None else pol_aud
+            # WP-A1: the policy's anchors section supplies the anchor requirement when no CLI flag
+            # does; a CONFLICTING flag/policy pair is ambiguous → exit 2 (mirrors expected_aud).
+            pol_anc = policy.get("anchors") or {}
+            if pol_anc:
+                from .policy import PolicyError  # noqa: PLC0415
+                p_req = pol_anc.get("require_anchor")
+                p_tgt = pol_anc.get("require_anchor_target")
+                if p_req is not None and require_anchor is not None and p_req != require_anchor:
+                    raise PolicyError(
+                        f"anchor requirement conflict: CLI wants {require_anchor!r}, the policy's "
+                        f"anchors.require_anchor is {p_req!r} — ambiguous; align them")
+                if p_tgt is not None and anchor_target is not None and p_tgt != anchor_target:
+                    raise PolicyError(
+                        f"anchor target conflict: CLI wants {anchor_target!r}, the policy's "
+                        f"anchors.require_anchor_target is {p_tgt!r} — ambiguous; align them")
+                require_anchor = require_anchor if require_anchor is not None else p_req
+                anchor_target = anchor_target if anchor_target is not None else p_tgt
+                if anchor_target and require_anchor is None:
+                    require_anchor = "any"
+                if pol_anc.get("allow_pending"):
+                    allow_pending = True
+            # WP-A1: union the policy's anchor TRUST material with the CLI's (a CLI value wins per key).
+            pol_trust = policy_anchor_trust(policy)
+            if pol_trust:
+                merged = dict(pol_trust)
+                merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
+                rp_trust_material = merged
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
@@ -444,7 +526,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     anchor_report = None
     if require_anchor is not None and crypto_ok:
         anchor_report = _evaluate_anchor_requirement(
-            bundle, require=require_anchor, allow_pending=allow_pending)
+            bundle, require=require_anchor, allow_pending=allow_pending,
+            require_target=anchor_target, rp_trust=rp_trust_material)
         anchor_required_ok = anchor_report["ok"]
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
@@ -456,6 +539,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         assurance=assurance, policy_ok=policy_ok)
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
+        # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged.
+        # Mirror the human line (six-lens review): the warning is meaningful only for a PASSING
+        # policy (a POLICY: OK that attributes to nobody); on FAIL / crypto-FAIL the FAIL is the
+        # message, so the JSON field is empty too — the key stays present for contract stability.
+        from .policy import policy_warnings  # noqa: PLC0415
+        fields["policy_warnings"] = policy_warnings(policy) if policy_ok else []
     if policy_result is not None:
         fields["policy_checks"] = policy_result["checks"]
     if anchor_report is not None:
@@ -506,7 +595,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print("POLICY: NOT_EVALUATED (crypto failed — policy not checked)")
         else:
             reason = _safe_line(policy_result["reason"]) if policy_result else ""
-            print(f"POLICY: {_policy_line(policy_ok, reason)}")
+            line = _policy_line(policy_ok, reason)
+            # WP-TP1: a passing policy that pins no signer says so INLINE — never a bare OK that
+            # reads as an attribution. Exit code unchanged (warning, not failure).
+            warns = fields.get("policy_warnings") or []
+            if policy_ok and warns:
+                line += f" (WARNING: {_safe_line(warns[0].split(':', 1)[0])})"
+            print(f"POLICY: {line}")
         print(f"ASSURANCE: {assurance_line}")
         print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
         # WP4: the ANCHOR line is printed ONLY when --require-anchor was given (default output unchanged).
@@ -549,7 +644,7 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             leaf = handle.read()
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
-    except (ProofBundleError, OSError) as exc:
+    except (ProofBundleError, OSError, ValueError) as exc:  # ValueError stopgap: never a raw traceback (D-1)
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
@@ -641,7 +736,7 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
     from .persample import verify_sample_opening  # noqa: PLC0415
     try:
         with open(args.opening, encoding="utf-8") as handle:
-            opening = json.load(handle)
+            opening = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         res = verify_sample_opening(opening, args.root, args.n)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -658,7 +753,15 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
 
 def _cmd_demo(args: argparse.Namespace) -> int:
     from .demo import run_demo  # noqa: PLC0415
-    return run_demo(as_json=args.json)
+    from .evalclaim import EvalClaimError  # noqa: PLC0415
+    try:
+        return run_demo(as_json=args.json)
+    except EvalClaimError as exc:
+        # F10 (2026-07-12): `demo` emits an eval receipt, which needs the RFC 8785 canonicalizer from the
+        # [eval] extra. On a bare install that raised a raw traceback; surface the clean, actionable message
+        # (it already names the install command) with a non-zero exit instead.
+        print(f"proofbundle demo: {exc}", file=sys.stderr)
+        return 2
 
 
 def _cmd_prereg(args: argparse.Namespace) -> int:
@@ -730,7 +833,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     if args.verify:
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = json.load(handle)
+                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError) as exc:
@@ -773,7 +876,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
     if args.verify:
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = json.load(handle)
+                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
         except (OSError, ValueError, ProofBundleError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -816,9 +919,9 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.predicate, encoding="utf-8") as handle:
-            predicate = json.load(handle)
+            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
         env = emit_decision_receipt(predicate, signer, strict=not args.lenient)
-    except (DecisionReceiptError, OSError, ValueError) as exc:
+    except (DecisionReceiptError, ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -846,17 +949,28 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if getattr(args, "anchors", None):
         try:
             with open(args.anchors, encoding="utf-8") as handle:
-                anchors = json.load(handle)
-        except (OSError, ValueError) as exc:
+                anchors = loads_strict(handle.read())   # WP-C1
+        except (ProofBundleError, OSError, ValueError) as exc:
             print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
             return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
-            env = json.load(handle)
+            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
+        # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
+        # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
+        rp_trust = _build_rp_trust(args)
+        if policy is not None:
+            from .policy import policy_anchor_trust  # noqa: PLC0415
+            pol_trust = policy_anchor_trust(policy)
+            if pol_trust:
+                merged = dict(pol_trust)
+                merged.update(rp_trust or {})
+                rp_trust = merged
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
-                                         expected_nonce=args.nonce, policy=policy, anchors=anchors)
-    except (OSError, ValueError) as exc:
+                                         expected_nonce=args.nonce, policy=policy, anchors=anchors,
+                                         rp_trust=rp_trust)
+    except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
@@ -865,7 +979,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # opaque verify object verbatim, so a public-key value cannot flow into a clear-text log (CodeQL
         # py/clear-text-logging-sensitive-data).
         report = {k: result[k] for k in (
-            "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
+            "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
             "action_outcome_proven", "warnings", "errors",
         )}
@@ -905,6 +1019,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # like the eval verify path, never a silent exit 0 (lens 3 defect).
     if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
+    # A supplied anchor that FAILS to verify (broken / root-mismatched / unknown type) is a tamper
+    # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
+    if result["anchors_ok"] is False:
+        return 1
     if result["policy_ok"] is False:
         return 3
     return 0
@@ -914,11 +1032,15 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
         with open(args.receipt, encoding="utf-8") as handle:
-            obj = json.load(handle)
-    except (OSError, ValueError) as exc:
+            obj = loads_strict(handle.read())   # WP-C1
+    except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    statement = json.loads(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    try:
+        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    except (ProofBundleError, ValueError, TypeError) as exc:   # bad base64 / dup key / not JSON → clean exit, not a traceback
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
     print(json.dumps(predicate, indent=2, ensure_ascii=False))
     return 0
@@ -950,6 +1072,56 @@ def _cmd_decision_init(args: argparse.Namespace) -> int:
     else:
         print(out)
     return 0
+
+
+def _cmd_policy_explain(args: argparse.Namespace) -> int:
+    from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
+    try:
+        policy = load_policy(args.policy)
+    except PolicyError as exc:   # malformed policy → exit 2; in --json emit an error object (six-lens
+        if args.json:            # review: an empty stdout on the error path breaks a JSON consumer)
+            print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    pins = explain_policy(policy)
+    warns = policy_warnings(policy)
+    if args.json:
+        print(json.dumps({"policy_id": policy.get("policy_id"), "schema": policy.get("schema"),
+                          "pins": pins, "warnings": warns}, indent=2, ensure_ascii=False))
+        return 0
+    print(f"policy   {policy.get('policy_id')}  ({policy.get('schema')})")
+    if pins:
+        for line in pins:
+            print(f"  pins   {line}")
+    else:
+        print("  pins   (none — this policy is wirkungslos; see `policy lint`)")
+    for w in warns:
+        print(f"  WARN   {w}")
+    return 0
+
+
+def _cmd_policy_lint(args: argparse.Namespace) -> int:
+    from .policy import PolicyError, lint_policy, load_policy  # noqa: PLC0415
+    try:
+        policy = load_policy(args.policy)
+    except PolicyError as exc:   # malformed policy is a lint failure too, with the parse reason
+        if args.json:            # emit an error object in --json (mirror _cmd_verify; exit 2 unchanged)
+            print(json.dumps({"ok": False, "policy_id": None, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    res = lint_policy(policy, strict=args.strict)
+    if args.json:
+        print(json.dumps({"policy_id": policy.get("policy_id"), **res}, indent=2, ensure_ascii=False))
+    else:
+        print(f"[policy-lint] {'PASS' if res['ok'] else 'FAIL'} · {len(res['pins'])} pin(s) · "
+              f"{len(res['errors'])} error(s) · {len(res['warnings'])} warning(s)")
+        for e in res["errors"]:
+            print(f"  ERROR {e}")
+        for w in res["warnings"]:
+            print(f"  WARN  {w}")
+    return 0 if res["ok"] else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -999,10 +1171,26 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--anchor-type", default=None, metavar="TYPE",
                         help="require a verifying anchor of THIS type specifically (e.g. rfc3161-tsa, "
                              "opentimestamps); implies --require-anchor")
+    verify.add_argument("--anchor-target", default=None,
+                        choices=("receipt", "preRegistration", "statement"),
+                        help="require the verifying anchor to stamp THIS target (WP-A1; implies "
+                             "--require-anchor). Without it --require-anchor matches the TYPE only — "
+                             "a receipt anchor stamped today would satisfy a relying party who meant "
+                             "backdating protection (preRegistration)")
     verify.add_argument("--allow-pending", action="store_true",
                         help="with --require-anchor / --anchor-type, also accept a PENDING anchor (e.g. "
                              "an un-upgraded OpenTimestamps proof) as satisfying the requirement — "
                              "weaker, since a pending proof is not yet a full external-time anchor")
+    verify.add_argument("--trusted-tsa-root", action="append", default=None, metavar="PATH",
+                        help="WP-A1: a relying-party-supplied TSA root certificate (DER or PEM), repeatable. "
+                             "This is the ONLY trust source for an rfc3161-tsa anchor — the bundle's own "
+                             "frozen root is producer-controlled evidence, never trusted. Without it a "
+                             "required rfc3161 anchor is unmet (exit 3)")
+    verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
+                        help="WP-A1: a relying-party-supplied Bitcoin block header merkle root for a height "
+                             "(internal/node byte order, as bitcoind returns it), repeatable. The ONLY "
+                             "trust source that CONFIRMS an OpenTimestamps anchor — the bundle's frozen "
+                             "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
@@ -1122,6 +1310,23 @@ def build_parser() -> argparse.ArgumentParser:
     svr.add_argument("--pub", help="verifier Ed25519 public key (base64) to verify against")
     svr.set_defaults(func=_cmd_svr)
 
+    policy_cmd = sub.add_parser(
+        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
+    psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
+    p_explain = psub.add_parser(
+        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)")
+    p_explain.add_argument("policy", help="path to the trust-policy JSON")
+    p_explain.add_argument("--json", action="store_true", help="machine readable output")
+    p_explain.set_defaults(func=_cmd_policy_explain)
+    p_lint = psub.add_parser(
+        "lint", help="fail (exit 1) on a WIRKUNGSLOSE policy that would produce a vacuous "
+                     "POLICY: OK; --strict also fails on attributes-to-nobody")
+    p_lint.add_argument("policy", help="path to the trust-policy JSON")
+    p_lint.add_argument("--strict", action="store_true",
+                        help="promote warnings (attributes to nobody) to lint failures")
+    p_lint.add_argument("--json", action="store_true", help="machine readable output")
+    p_lint.set_defaults(func=_cmd_policy_lint)
+
     prereg = sub.add_parser(
         "prereg",
         help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)")
@@ -1168,6 +1373,12 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--anchors", default=None,
                           help="path to a JSON array of DETACHED anchor evidence for the statement's own "
                                "content root (anchors are never inside the signed predicate)")
+    d_verify.add_argument("--trusted-tsa-root", action="append", default=None, metavar="PATH",
+                          help="WP-A1: a relying-party-supplied TSA root certificate (DER/PEM) that confirms "
+                               "an rfc3161 statement anchor — the bundle's frozen root is never trusted")
+    d_verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
+                          help="WP-A1: a relying-party-supplied Bitcoin block header (internal byte order) "
+                               "that confirms an OpenTimestamps statement anchor — frozen is never trusted")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")

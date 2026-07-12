@@ -8,10 +8,11 @@ proves nothing to you.
 | Anchor | Where it lives | Who must supply / pin it | If you don't |
 |---|---|---|---|
 | **Bundle issuer key** (`signature.public_key_b64`) | IN-BAND in the bundle — self-asserting | The relying party MUST pin the expected key out of band (e.g. a known lab key). The receipt only proves "signed by *this* key"; it cannot tell you the key is *the right one*. | You've verified an internally-consistent signature by an unknown party — attribution to nobody. |
-| **SD-JWT issuer key** (`sd_jwt_vc.issuer_public_key_b64`) | IN-BAND optional; the real anchor is your expectation | Supply/pin the expected issuer key. Since v1.6 a `cnf`-bound SD-JWT with **no** issuer key is refused (fail-closed) — no silent bearer downgrade. | The SD-JWT's issuer signature and any holder binding are unverifiable → refused. |
+| **SD-JWT issuer key** (`sd_jwt_vc.issuer_public_key_b64`) | IN-BAND optional; the real anchor is your expectation | Supply/pin the expected issuer key. Since rev 2026-07-11 (WP-C2) **any** `sd_jwt_vc` with no issuer key is refused (fail-closed, reason `unsigned`) — not only `cnf`-bound ones. The verifying key is bound to the disclosed `issuer` (WP-C1, reason `issuer-key-mismatch`), and for an eval-claim bundle the disclosures + receipt root are bound to the bundle (reason `unbound`). | The SD-JWT's disclosures are unauthenticated → refused. Still pin the expected key out of band: a valid self-signature under an *unknown* key names nobody you trust. |
 | **Holder key** (`cnf.jwk`, RFC 7800) | IN-BAND inside the issuer-signed SD-JWT | Nothing extra — it is authenticated by the (pinned) issuer signature; the KB-JWT proves possession. | n/a (bound transitively to the issuer key). |
 | **Log key** (`verify_tlog_proof(log_vkey=…)`, checkpoint vkey) | OUT-OF-BAND | Supply the log's C2SP vkey and, optionally, `expected_origin`. | A validly-signed checkpoint from an *unexpected* log would be accepted — pass `expected_origin`. |
 | **Witness keys** (cosignatures) | OUT-OF-BAND | Supply the witness vkeys + a k-of-n `threshold`. Quorum is deduped by **key material**, not name. | No split-view resistance; witness count means nothing. |
+| **External time anchor** — TSA root / Bitcoin block header (`anchors[]`, WP-A1) | OUT-OF-BAND | Supply the TSA root (`--trusted-tsa-root` / policy `anchors.trusted_tsa_roots`) and/or the Bitcoin block header (`--bitcoin-header` / policy `anchors.bitcoin_block_headers`) from your own node. The anchor's `frozen` block is producer-controlled EVIDENCE, never trust. | A required time anchor is `needs_rp_trust` → `--require-anchor` unmet (exit 3); you can never be backdated by a producer's self-frozen root/header. |
 | **Status-list issuer key** (`verify_status_snapshot(issuer_pubkey=…)`) | OUT-OF-BAND | Supply it, and it **SHOULD be a distinct anchor from the receipt issuer** — a self-issued status list carries no independent revocation assurance. | An issuer can sign its own "still valid" state; freshness without `exp`/`ttl` is reported as `None`, not judged. |
 | **Samples root** (`claim.samples.root_b64`) | IN-BAND, **signed** | Nothing extra — it is covered by the bundle signature; the verifier re-checks `samples.n == n`. Audit challenges use a **fresh nonce you choose** (or a public beacon). | A self-challenge (no nonce) is grindable by re-salting — use a fresh nonce for real audits. |
 | **TEE Verifier key** (`verify_enclave_attestation(verifier_pubkey=…)`, v2.0 preview) | OUT-OF-BAND | Supply the RATS Verifier's key; you also implicitly trust that its appraisal of the raw TEE evidence is sound. | An enclave attestation is only as good as the Verifier you trust; proofbundle checks its signature + receipt binding, not the raw hardware quote. |
@@ -46,6 +47,14 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` | RFC 9901 audience / replay / holder binding on the KB-JWT | Holder key |
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
+
+**Inspecting a policy (`policy explain` / `policy lint`, TP1):** `proofbundle policy explain
+<policy>` lists the effective pins a policy makes (what a green `POLICY: OK` will actually mean);
+`proofbundle policy lint <policy>` fails (exit 1) on a policy that pins NOTHING — such a policy
+would produce a vacuous `POLICY: OK` with zero checks evaluated. `--strict` additionally fails a
+policy that pins no signer. In `verify` itself, a PASSING policy that pins no signer prints
+`POLICY: OK (WARNING: attributes to nobody)` and carries the machine-readable `policy_warnings[]`
+— the exit code stays 0 (a warning, not a failure), but the attribution gap is never silent.
 
 **Honest boundaries (v0.1):**
 

@@ -101,6 +101,11 @@ def parse_tlog_proof(text: str) -> dict:
     # Arabic-Indic), which int() would then reject or mis-parse — mirror checkpoint.py's ASCII-only guard.
     if not (index_s.isascii() and index_s.isdigit()) or (index_s != "0" and index_s.startswith("0")):
         raise BundleFormatError("tlog-proof index must be ASCII decimal with no leading zeros")
+    # Bound the digit count BEFORE int() (6-lens review, CWE-674/CVE-2020-10735): Python caps int()<->str
+    # at 4300 digits and raises a raw ValueError above it, which this pre-auth parser would surface as an
+    # uncaught traceback. A real log index fits in far fewer than 20 digits (2**64 ~ 20 digits).
+    if len(index_s) > 20:
+        raise BundleFormatError("tlog-proof index is implausibly large (fail-closed)")
     pos += 1
     proof = []
     for line in lines[pos:]:

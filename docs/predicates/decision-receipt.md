@@ -1,6 +1,6 @@
 # Decision Receipt predicate `decision-receipt/v0.1`
 
-Status: draft for proofbundle 2.1.0. Vendored predicate under the b7n0de namespace. Design of record:
+Status: shipped in proofbundle 2.1.0 (vendored `decision-receipt/v0.1`, stable). Vendored predicate under the b7n0de namespace. Design of record:
 [`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
 
 **Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
@@ -98,6 +98,24 @@ See `examples/decision_receipt_{allow,deny,escalate}.json` and the wrapped State
 `examples/decision_receipt_with_eval_ref.intoto.json`. Machine schema:
 `schemas/decision-receipt-v0.1.schema.json`.
 
+### 6.1 Programmatic validation (the list-vs-raise contract)
+
+`proofbundle.decision.validate_decision_predicate(pred)` **returns** a list of findings;
+an **empty list means valid**. It does **not** raise. Check the list — do **not** wrap
+the call in `try/except`, because "no exception" is not "valid": every predicate, valid
+or not, returns without raising, so a `try/except` idiom reports invalid input as valid.
+
+```python
+errors = validate_decision_predicate(pred)
+if errors:            # non-empty == invalid, fail closed
+    reject(errors)
+```
+
+If you prefer exception control flow, call
+`proofbundle.decision.require_valid_decision_predicate(pred)`, which raises
+`DecisionReceiptError` (with the finding count and messages) on an invalid predicate and
+returns `None` on a valid one. Both accept `strict=True` for the strict-v0.1 rules.
+
 ## 7. Verification
 
 `proofbundle decision verify <statement-or-envelope> [--pub KEY] [--policy trust_policy.json] [--json]`.
@@ -110,8 +128,11 @@ structure_ok, crypto_ok, signer_trusted, predicate_type_ok, policy_ok, evidence_
 audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings[], errors[]
 ```
 
-Non-applicable checks are `null`. `action_outcome_proven` is `false` (with a warning) when
-`actionOutcome.status = executed` without a signed/digest-bound `outcomeRef`.
+Non-applicable checks are `null`. `freshness_ok` is **always `null` for decision receipts** — a
+pure-offline verifier has no trusted clock, so statement-time freshness is a relying-party policy
+concern, not something this path decides (it is a live check only on the eval-claim policy path).
+`action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
+signed/digest-bound `outcomeRef`.
 
 Exit codes (identical to the Phase B `verify` contract):
 `0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input ·

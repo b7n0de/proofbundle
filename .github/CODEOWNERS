@@ -1,0 +1,40 @@
+# Code owners for proofbundle (G2).
+# The trusted core, the normative spec, the schemas, and the CI/release wiring require the
+# maintainer's review on every change — this is the "more eyes, not weaker gates" rule from
+# GOVERNANCE.md, encoded so a PR touching them cannot merge without that review once branch
+# protection requires code-owner review. Single-maintainer today; co-maintainers are added here
+# per-person, never implicitly (DEFAULT DENY, see GOVERNANCE.md and oss_maintainer_roles.json).
+
+# Fallback: everything is owned by the maintainer unless a more specific rule below overrides it.
+*                                   @b7n0de
+
+# The trusted core — the code whose correctness the whole tool rests on (docs/REVIEWERS.md).
+/src/proofbundle/signature.py       @b7n0de
+/src/proofbundle/merkle.py          @b7n0de
+/src/proofbundle/bundle.py          @b7n0de
+/src/proofbundle/canonical.py       @b7n0de
+/src/proofbundle/_strict_json.py    @b7n0de
+/src/proofbundle/dsse.py            @b7n0de
+/src/proofbundle/kbjwt.py           @b7n0de
+/src/proofbundle/decision.py        @b7n0de
+/src/proofbundle/intoto.py          @b7n0de
+/src/proofbundle/policy.py          @b7n0de
+/src/proofbundle/anchors.py         @b7n0de
+/src/proofbundle/anchors_rfc3161.py @b7n0de
+/src/proofbundle/anchors_ots.py     @b7n0de
+/src/proofbundle/anchors_chia.py    @b7n0de
+/src/proofbundle/anchors_markovian.py @b7n0de
+
+# The normative surface: the spec, the machine-readable schemas, the predicate definitions.
+/SPEC.md                            @b7n0de
+/schemas/                           @b7n0de
+/docs/predicates/                   @b7n0de
+/docs/adr/                          @b7n0de
+
+# CI / release / supply-chain wiring — a change here can weaken every downstream gate.
+/.github/workflows/                 @b7n0de
+/.github/CODEOWNERS                 @b7n0de
+/scripts/mutation_check.py          @b7n0de
+/scripts/claims_hygiene_check.py    @b7n0de
+/RELEASE.md                         @b7n0de
+/pyproject.toml                     @b7n0de

@@ -27,6 +27,8 @@ import hashlib
 import json
 from typing import Optional, Set
 
+from ._strict_json import loads_strict
+from .errors import BundleFormatError
 from .signature import verify_ed25519
 
 __all__ = ["verify_sd_jwt"]
@@ -84,8 +86,16 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
 
     header_b64, payload_b64, sig_b64 = parts[0].split(".")
     try:
-        header = json.loads(_b64url_decode(header_b64))
-        payload = json.loads(_b64url_decode(payload_b64))
+        header = loads_strict(_b64url_decode(header_b64))
+        payload = loads_strict(_b64url_decode(payload_b64))
+    except BundleFormatError:
+        # WP-C1 (F12, 2026-07-12): a DUPLICATE JSON key in the issuer-signed JWT header/payload is a
+        # parser differential — plain json.loads is last-wins, so a duplicated `cnf` lets an attacker
+        # holder key silently win over the intended one (kbjwt.holder_key_from_cnf). Every other verify
+        # path already parses with loads_strict; this closes the documented SD-JWT residual at the
+        # structure gate — structure_ok stays False, so the bundle fails fail-closed.
+        result["detail"] = "duplicate JSON key in SD-JWT header/payload (parser-differential, rejected)"
+        return result
     except (ValueError, json.JSONDecodeError):
         result["detail"] = "malformed JWT header or payload"
         return result
@@ -113,7 +123,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     all_committed = True
     for d in disclosures:
         try:
-            parsed = json.loads(_b64url_decode(d))
+            parsed = loads_strict(_b64url_decode(d))
+        except BundleFormatError:
+            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set a
+            # duplicate-specific detail so it is not masked by the generic "N disclosure(s)" fall-through.
+            result["detail"] = "duplicate JSON key in an SD-JWT disclosure (parser-differential, rejected)"
+            all_committed = False
+            break
         except (ValueError, json.JSONDecodeError):
             all_committed = False
             break

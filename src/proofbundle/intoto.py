@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError
 
@@ -282,24 +283,47 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=TEST_RESULT_PAYLOAD_TYPE, keyid=keyid)
 
 
-def verify_intoto_dsse(envelope: dict, public_key: bytes) -> dict:
+def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
+    """Shared verify-result builder for the three DSSE verify functions (WP-I1). ``ok`` conjuncts the
+    signature, the content-root binding, AND — unless ``expected_predicate_type`` is None — that the
+    statement's ``predicateType`` equals it (predicate-confusion defense). ``predicate_type_ok`` carries
+    the granular verdict; ``predicate_type`` the value found."""
+    got = statement.get("predicateType") if isinstance(statement, dict) else None
+    if expected_predicate_type is None:
+        type_ok = None
+        merged_detail = detail
+    else:
+        type_ok = (got == expected_predicate_type)
+        merged_detail = detail if type_ok else (
+            (detail + "; " if detail else "")
+            + f"predicateType {got!r} != expected {expected_predicate_type!r} (confusion attack?)")
+    ok = bool(sig_ok) and binding_ok and (type_ok is not False)
+    return {"ok": ok, "statement": statement, "predicate_type": got,
+            "predicate_type_ok": type_ok, "content_root_alg": alg,
+            "content_root_ok": binding_ok, "content_root_detail": merged_detail}
+
+
+def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
+                       expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
-    {ok, statement, predicate_type, content_root_alg, content_root_ok, content_root_detail}. ``ok`` is True
-    iff the Ed25519 signature over the DSSE PAE verifies, the payloadType is the pinned test-result media
-    type, AND the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
+    {ok, statement, predicate_type, predicate_type_ok, content_root_alg, content_root_ok,
+    content_root_detail}. ``ok`` is True iff the Ed25519 signature over the DSSE PAE verifies, the
+    payloadType is the pinned test-result media type, the payload is canonical for its DECLARED
+    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's ``predicateType`` equals
+    ``expected_predicate_type`` (WP-I1: the type was previously only RETURNED, so ``ok`` was True for a
+    swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
+    Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before)."""
     from . import dsse  # noqa: PLC0415
     from .errors import BundleFormatError  # noqa: PLC0415
 
     ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:   # valid base64 but not a JSON Statement → malformed
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return {"ok": bool(ok) and binding_ok, "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
-            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
+    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -448,23 +472,25 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
-def verify_eval_result_dsse(envelope: dict, public_key: bytes) -> dict:
+def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
+                            expected_predicate_type: str = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
-    content_root_alg, content_root_ok, content_root_detail}. `ok` is True iff the Ed25519 signature over the
-    DSSE PAE verifies, payloadType is the pinned in-toto Statement media type, AND the payload is canonical
-    for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
+    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail}. `ok` is True iff the
+    Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement media type,
+    the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), AND the
+    statement's `predicateType` equals `expected_predicate_type` (WP-I1: predicate-confusion defense —
+    the type was previously only returned, so a swapped SVR/test-result envelope was accepted as an
+    eval-result). Pass `expected_predicate_type=None` to opt out."""
     from . import dsse  # noqa: PLC0415
 
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return {"ok": bool(ok) and binding_ok, "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
-            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
+    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -488,9 +514,16 @@ def _now_rfc3339z() -> str:
 def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
                    anchor_verified: bool = False) -> list:
     """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
-    passed. A missing optional check produces NO property (never a placeholder). PROOFBUNDLE_PREREG_BOUND
-    and PROOFBUNDLE_ANCHOR_VALID are asserted ONLY when the caller confirms that verification actually
-    ran offline (a present prereg hash or an anchors[] block alone is NOT a verified binding)."""
+    passed. A missing optional check produces NO property (never a placeholder).
+
+    **No-Overclaim scope (6-lens review):** `PROOFBUNDLE_SIGNATURE_VALID` / `PROOFBUNDLE_RECEIPT_UNCHANGED`
+    / `PROOFBUNDLE_THRESHOLD_MET` / `PROOFBUNDLE_SAMPLE_ROOT_VALID` are derived from the passed
+    `VerificationResult`/`claim` here. But `PROOFBUNDLE_PREREG_BOUND` and `PROOFBUNDLE_ANCHOR_VALID` are
+    emitted PURELY from the caller's `prereg_verified` / `anchor_verified` flags — this function does NOT
+    call `anchors.verify_anchors()` and does not check the anchor itself. They are CALLER-ATTESTED: the
+    caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
+    asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
+    verified binding."""
     checks = {c.name: c.ok for c in result.checks}
     props = []
     if checks.get("ed25519-signature"):
@@ -512,12 +545,18 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,
                     content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
-    """Emit an in-toto SVR (svr/v0.1) for a receipt — ONLY after a real, passing verification.
+    """Emit an in-toto SVR (svr/v0.1) for a receipt — after a real, passing signature/merkle/threshold
+    verification (done here).
 
     Refuses (fail-closed) if the receipt is not a valid eval receipt, does not cryptographically verify,
     OR did not pass its threshold. SVR carries only PASSING property strings; there is no FAILED form
     (that would be a VSA with a PASSED|FAILED verdict — deliberately NOT implemented here, see docs). The
-    subject is the receipt digest; no secrets ever enter the statement."""
+    subject is the receipt digest; no secrets ever enter the statement.
+
+    **Caller-attested properties (No-Overclaim, 6-lens review):** `prereg_verified` / `anchor_verified`
+    are NOT verified by this function — it does not call `anchors.verify_anchors()`. If you pass them, the
+    signed SVR asserts `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID` on your word; run a real
+    offline anchor verification first, or leave them False."""
     from . import dsse  # noqa: PLC0415
     from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
@@ -557,19 +596,20 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
-def verify_svr_dsse(envelope: dict, public_key: bytes) -> dict:
-    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, content_root_alg,
-    content_root_ok, content_root_detail}. `ok` requires the signature AND that the payload is canonical for
-    its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002)."""
+def verify_svr_dsse(envelope: dict, public_key: bytes, *,
+                    expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
+    """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,
+    content_root_alg, content_root_ok, content_root_detail}. `ok` requires the signature, the canonical
+    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
+    (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
+    SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out."""
     from . import dsse  # noqa: PLC0415
 
     ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
     body = dsse.load_payload(envelope)
     try:
-        statement = json.loads(body.decode("utf-8"))
+        statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ValueError, UnicodeDecodeError) as exc:
         raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return {"ok": bool(ok) and binding_ok, "statement": statement,
-            "predicate_type": statement.get("predicateType") if isinstance(statement, dict) else None,
-            "content_root_alg": alg, "content_root_ok": binding_ok, "content_root_detail": detail}
+    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
