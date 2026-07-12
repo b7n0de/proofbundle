@@ -44,6 +44,8 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `signature.allowed_algs` | the signature algorithm (e.g. `ed25519`) | Bundle issuer key |
 | `allowed_schema_versions` | the bundle `schema` version | — |
 | `merkle.required_hash_alg` | the Merkle hashing algorithm (anti-alg-confusion) | Samples/Merkle |
+| `merkle.require_authenticated_root` | the stated root MUST be authenticated (matches `--expected-root` or a `trusted_roots` entry); closes the coherent one-leaf rewrap (ADR 0004) | Samples/Merkle |
+| `merkle.trusted_roots` | base64 Merkle roots the relying party trusts out of band; a stated root among them counts as authenticated | Samples/Merkle |
 | `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` | RFC 9901 audience / replay / holder binding on the KB-JWT | Holder key |
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
