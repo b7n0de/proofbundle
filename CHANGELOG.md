@@ -136,7 +136,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a checklist, not a claim: `[Owner]` items are the maintainer's to verify and are not asserted done;
   `[repo]` items are enforced by files in the repo. Distinct from `SECURITY.md` (which is about
   receiving vulnerability reports).
-- All three docs are now in the `claims_hygiene_check` scanned set (28 docs), so they are held to the
+- **`docs/GRANT_MILESTONES.md`** — the public deliverable/status tracker for the funded independent
+  security-review track (M1–M…), factual and linked to repo evidence, never aspirational.
+- All four docs are now in the `claims_hygiene_check` scanned set (29 docs), so they are held to the
   same No-Overclaim discipline as the rest of the documentation.
 
 ### Added — offline conformance corpus with cross-implementation decision vectors (WP-W2)
@@ -225,7 +227,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A7 regressions closed:** a v0.1 bundle carrying `anchors[].target: "statement"` is now
   rejected as malformed (exit 2) by the verifier itself — the docs promised it, the code never
   enforced it (`statement` is exclusively for DETACHED decision evidence); a non-string
-  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.### Fixed — predicateType enforcement on the in-toto verify paths (WP-I1)
+  `anchoredAt` on a detached anchor fails closed; anchoredAt-tamper invariance is pinned.
 ### Added — `policy explain` / `policy lint` + the vacuous-pass warning (WP-TP1)
 - **A policy that pins nothing no longer passes silently.** `evaluate_policy` returns
   `policy_ok = all(checks)`; with an empty/id-only policy `checks` is empty and `all([])` is True —
@@ -350,6 +352,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the exit-2 error path is pinned to carry the FULL `verify --json` field contract (incl.
   `assurance_declared_by`); the CLI-help assertion is terminal-width-independent; a line-number pin
   proves soft-unwrap keeps positions 1:1.
+### Verification discipline
+- **811 tests** (was 683 at 2.1.0) across the 3.10–3.14 CI matrix, all green. A pre-release audit
+  hardened the two anti-regression instruments so they actually cover the code this release adds:
+  the mutation gate (`scripts/mutation_check.py`, Anti-Goodhart) now carries an operator for **each of
+  the four new breaking defenses** — WP-C2 unsigned-fail, WP-C1 issuer-identity and bundle-binding,
+  WP-A1 needs-rp-trust — so a future accidental revert of any of them goes red (the mutation CI job now
+  installs `[anchors]` so the WP-A1 operators are exercised, not short-circuited at `no_lib`). The
+  offline conformance corpus's `sd-jwt-unsigned-unauthenticated` vector is now **cnf-free so it isolates
+  WP-C2** (disabling that defense flips the vector to exit 0), instead of riding on the older v1.6
+  cnf-downgrade check.
+- **SD-JWT / KB-JWT payloads now parse with `loads_strict`** like every other verify path: a DUPLICATE
+  JSON key (e.g. a second `cnf` naming an attacker holder key) is rejected fail-closed at the structure
+  gate, closing the last documented parser-differential residual (regression: `tests/test_sdjwt_duplicate_cnf.py`).
 
 ## [2.1.0] - 2026-07-10
 

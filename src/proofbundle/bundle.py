@@ -22,7 +22,6 @@ malformed exit code, not a crash.
 from __future__ import annotations
 
 import base64
-import json
 from typing import Union
 
 from . import merkle
@@ -38,13 +37,20 @@ __all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64"
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
     """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
     issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
-    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible)."""
+    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible).
+    A DUPLICATE key → True (fail-closed, F12): treating an ambiguous-because-duplicated payload as
+    'no binding required' would be the exact inversion _strict_json.py warns about."""
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
+        payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
-    except Exception:
+    except BundleFormatError:
+        # A duplicated key in the issuer payload must NOT read as "no cnf ⇒ no binding required" (that
+        # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
+        # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
+        return True
+    except Exception:  # noqa: BLE001 — any other malformed/absent payload ⇒ no binding required (backward-compat)
         return False
 
 SCHEMA = "proofbundle/v0.1"
@@ -274,7 +280,10 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
             try:
                 _sd_p = _sd_payload(compact)
-            except (ValueError, KeyError, IndexError):
+            except (BundleFormatError, ValueError, KeyError, IndexError):
+                # F12: a duplicate-key payload yields {} here → the issuer-identity check is skipped, but the
+                # bundle already fails at the sd-jwt-disclosures structure gate (verify_sd_jwt rejects the
+                # duplicate) and check_binds_bundle returns False → net fail-closed.
                 _sd_p = {}
 
             # WP-C1 (2nd-lens fix): the issuer signature verifies under sd_jwt_vc.issuer_public_key_b64,

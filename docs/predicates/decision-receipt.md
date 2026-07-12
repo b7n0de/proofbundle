@@ -128,8 +128,11 @@ structure_ok, crypto_ok, signer_trusted, predicate_type_ok, policy_ok, evidence_
 audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings[], errors[]
 ```
 
-Non-applicable checks are `null`. `action_outcome_proven` is `false` (with a warning) when
-`actionOutcome.status = executed` without a signed/digest-bound `outcomeRef`.
+Non-applicable checks are `null`. `freshness_ok` is **always `null` for decision receipts** — a
+pure-offline verifier has no trusted clock, so statement-time freshness is a relying-party policy
+concern, not something this path decides (it is a live check only on the eval-claim policy path).
+`action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
+signed/digest-bound `outcomeRef`.
 
 Exit codes (identical to the Phase B `verify` contract):
 `0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input ·

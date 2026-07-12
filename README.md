@@ -165,8 +165,8 @@ flowchart LR
   [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) — run an eval, get a receipt, verify it offline.
 - **External time anchors** *(v2.0 beta, the `[anchors]` extra)* — an optional `anchors[]` layer that
   attaches external evidence of *when* a commitment or receipt existed, from a party the producer does not
-  control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a frozen cert chain) and
-  **OpenTimestamps** Bitcoin proofs (honest pending → confirmed lifecycle). A `register_anchor_type`
+  control. Two built-in types verify offline: **RFC 3161** TSA tokens (against a relying-party-supplied TSA
+  root, see the 3.0.0 trust note below) and **OpenTimestamps** Bitcoin proofs (honest pending → confirmed lifecycle). A `register_anchor_type`
   extension interface lets a third party ship its own fail-closed type; two worked examples ship — a
   first-party **`chia-datalayer/v1`** (offline Merkle inclusion of a canonical root under a published Chia
   DataLayer root) and a third-party **`markovian-provenance/v1`** (a wallet-attributable, Bitcoin-anchored

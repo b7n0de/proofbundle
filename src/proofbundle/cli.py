@@ -753,7 +753,15 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
 
 def _cmd_demo(args: argparse.Namespace) -> int:
     from .demo import run_demo  # noqa: PLC0415
-    return run_demo(as_json=args.json)
+    from .evalclaim import EvalClaimError  # noqa: PLC0415
+    try:
+        return run_demo(as_json=args.json)
+    except EvalClaimError as exc:
+        # F10 (2026-07-12): `demo` emits an eval receipt, which needs the RFC 8785 canonicalizer from the
+        # [eval] extra. On a bare install that raised a raw traceback; surface the clean, actionable message
+        # (it already names the install command) with a non-zero exit instead.
+        print(f"proofbundle demo: {exc}", file=sys.stderr)
+        return 2
 
 
 def _cmd_prereg(args: argparse.Namespace) -> int:
