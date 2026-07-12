@@ -500,7 +500,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
                 rp_trust_material = merged
-        result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce)
+        result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
+                               expected_root_b64=getattr(args, "expected_root", None),
+                               expected_tree_size=getattr(args, "expected_tree_size", None))
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
@@ -542,6 +544,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         aud_requested=effective_aud is not None,
         nonce_requested=flag_nonce is not None,
         assurance=assurance, policy_ok=policy_ok)
+    # P0-A §6.3: structured root-authenticity verdicts, folding the policy layer's trusted_roots verdict
+    # in when no --expected-root was given. Always separate, so merkle-inclusion is never read as root
+    # authentication (additive JSON field + a human line).
+    from .bundle import root_authenticity_summary  # noqa: PLC0415
+    root_summary = root_authenticity_summary(
+        result, policy_authenticated_root=(policy_result or {}).get("root_authenticated"),
+        policy_ok=policy_ok, anchor_ok=anchor_required_ok)
+    fields["root_authenticity"] = root_summary
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
         # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged.
@@ -596,6 +606,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         else:
             assurance_line = "n/a (not an eval receipt)"    # a well-verified bundle that is not an eval receipt
         print(f"CRYPTO: {'OK' if crypto_ok else 'FAILED'}")
+        # P0-A §6.3: separate the root-authenticity verdicts — merkle-inclusion proves CONSISTENCY under
+        # the STATED root, never that the root is authentic. safe-for-automation is true only when the
+        # root was affirmatively authenticated (--expected-root or a policy trusted_roots).
+        print(f"ROOT-AUTHENTICITY: {root_summary['rootAuthenticity']} "
+              f"(payload-signature {root_summary['payloadSignature']}, "
+              f"merkle-consistency {root_summary['merkleConsistency']}, "
+              f"safe-for-automation {str(root_summary['safeForAutomation']).lower()})")
         if policy is not None and not crypto_ok:
             print("POLICY: NOT_EVALUATED (crypto failed — policy not checked)")
         else:
@@ -1179,6 +1196,15 @@ def build_parser() -> argparse.ArgumentParser:
                              "bind a Key Binding JWT presentation to this verifier")
     verify.add_argument("--nonce", default=None,
                         help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
+    verify.add_argument("--expected-root", dest="expected_root", default=None, metavar="B64",
+                        help="authenticate the merkle root against a base64 value the relying party "
+                             "obtained OUT OF BAND (a pinned root, a signed checkpoint). The stated root "
+                             "is NOT signed, so a coherent one-leaf rewrap verifies under a different "
+                             "root; supplying this closes it — a mismatch FAILS (exit 1). Without it, "
+                             "root authenticity reads NOT_EVALUATED")
+    verify.add_argument("--expected-tree-size", dest="expected_tree_size", default=None, type=int,
+                        metavar="N", help="require the merkle tree_size to equal N (guards tree-size "
+                             "substitution); a mismatch FAILS")
     verify.add_argument("--policy", default=None,
                         help="path to a trust-policy JSON (proofbundle/trust-policy/v0.1), OR the name "
                              "of a packaged profile (WP3, e.g. strict-eval-v1 — see "

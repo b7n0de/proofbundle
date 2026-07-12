@@ -22,7 +22,8 @@ malformed exit code, not a crash.
 from __future__ import annotations
 
 import base64
-from typing import Union
+import hmac
+from typing import Optional, Union
 
 from . import merkle
 from ._strict_json import loads_strict
@@ -31,7 +32,8 @@ from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
 
-__all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64"]
+__all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64",
+           "root_authenticity_summary"]
 
 
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
@@ -134,7 +136,9 @@ def load_bundle(path: str) -> dict:
         return loads_strict(handle.read())
 
 
-def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None) -> VerificationResult:
+def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
+                  expected_root_b64: Optional[str] = None,
+                  expected_tree_size: Optional[int] = None) -> VerificationResult:
     """Verify an evidence bundle (a dict or a path to a JSON file).
 
     ``expected_aud`` / ``expected_nonce`` (v1.3): when the bundle carries a Key Binding JWT, these enforce
@@ -142,6 +146,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     ``nonce`` MUST match ``expected_nonce``. If omitted, the KB-JWT signature + disclosure binding are still
     checked, but the relying party has NOT bound the presentation to itself/this transaction — a stale or
     cross-audience replay would still verify. A relying party doing challenge-response MUST pass both.
+
+    ``expected_root_b64`` / ``expected_tree_size`` (P0-A, Hardening 3.0.1 §6.2): RELYING-PARTY root
+    authentication. The native Merkle root is NOT part of the signature input (SPEC §5), so the SAME
+    signed payload verifies under DIFFERENT roots — a *coherent one-leaf rewrap* re-anchors the payload
+    at index 0 of a 2-leaf tree with a foreign sibling, and inclusion still holds. Merkle inclusion alone
+    therefore proves CONSISTENCY under the stated root, NOT that the root is authentic. When the relying
+    party supplies an authenticated root / tree size (out of band: a pinned value, a signed checkpoint,
+    the trusted_roots of a policy), these are enforced bit-exactly and a mismatch FAILS (adds the
+    ``root-authenticity`` / ``tree-size`` checks). ``expected_root_b64`` is decoded and compared to the
+    stated root's BYTES (canonicalization-agnostic). Absent, root authenticity stays NOT_EVALUATED and
+    the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
     """
     if isinstance(bundle, str):
         bundle = load_bundle(bundle)
@@ -198,8 +213,25 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     result.add(
         "merkle-inclusion",
         incl_ok,
-        f"anchored at index {leaf_index} of {tree_size}" if incl_ok else "inclusion proof failed",
+        f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
+        if incl_ok else "inclusion proof failed",
     )
+
+    # 2b. P0-A (§6.2): relying-party root authentication. The stated root is NOT signed, so inclusion
+    # alone does not authenticate it; only a bit-exact match against a root/size the relying party
+    # obtained out of band does. Adds a check ONLY when the RP supplies an expectation — absent, root
+    # authenticity is NOT_EVALUATED and the verdict is unchanged (backward-compatible).
+    if expected_root_b64 is not None:
+        exp_root = _b64d(expected_root_b64, "expected_root_b64")
+        root_ok = hmac.compare_digest(root, exp_root)
+        result.add("root-authenticity", root_ok,
+                   "stated root matches the expected authenticated root" if root_ok
+                   else "stated root does NOT match the expected root — possible root/rewrap substitution")
+    if expected_tree_size is not None:
+        size_ok = (not isinstance(expected_tree_size, bool)) and tree_size == expected_tree_size
+        result.add("tree-size", size_ok,
+                   f"tree_size {tree_size} matches the expected size" if size_ok
+                   else f"tree_size {tree_size} != expected {expected_tree_size} — possible tree-size substitution")
 
     # 3. optional SD-JWT selective disclosure credential
     sd = bundle.get("sd_jwt_vc")
@@ -330,6 +362,54 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             "Binding JWT — the requested replay/audience binding cannot be enforced (fail-closed)")
 
     return result
+
+
+def root_authenticity_summary(result: VerificationResult, *,
+                              policy_authenticated_root: Optional[bool] = None,
+                              policy_ok: Optional[bool] = None,
+                              anchor_ok: Optional[bool] = None) -> dict:
+    """Structured root-authenticity verdicts (P0-A §6.3), derived from a completed VerificationResult.
+
+    Separates what Merkle inclusion actually proves from what it does NOT, as three-state strings so a
+    consumer never mistakes 'not checked' for 'passed':
+
+      payloadSignature   PASS/FAIL         — the payload is signed by the stated key
+      merkleConsistency  PASS/FAIL         — the payload is Merkle-consistent under the STATED root
+      rootAuthenticity   PASS/FAIL/NOT_EVALUATED — was the stated root authenticated against a
+                         relying-party value (``expected_root``, or a policy's ``trusted_roots``)?
+      publicTransparency NOT_EVALUATED     — a public-log receipt is the separate §10 profile
+      safeForAutomation  bool              — True ONLY if the whole crypto verdict passed, the root was
+                                             affirmatively authenticated, AND no supplied trust policy /
+                                             anchor requirement FAILED (§6.3: root authenticity AND policy)
+
+    ``policy_authenticated_root`` folds the policy layer's root verdict in when no explicit
+    ``root-authenticity`` check ran (e.g. the root matched a policy ``trusted_roots`` entry).
+    ``policy_ok`` / ``anchor_ok`` are the relying-party gate verdicts (True/False/None=not-evaluated); a
+    FAILED gate makes ``safeForAutomation`` false even when the root itself authenticated, so a consumer
+    keying off this flag can never auto-trust a bundle its own policy rejected.
+    """
+    by = {c.name: c.ok for c in result.checks}
+
+    def _tri(name: str) -> str:
+        return "PASS" if by.get(name) else ("FAIL" if name in by else "NOT_EVALUATED")
+
+    if "root-authenticity" in by:
+        root_auth = "PASS" if by["root-authenticity"] else "FAIL"
+    elif policy_authenticated_root is True:
+        root_auth = "PASS"
+    elif policy_authenticated_root is False:
+        root_auth = "FAIL"
+    else:
+        root_auth = "NOT_EVALUATED"
+    safe = (bool(result.ok) and root_auth == "PASS"
+            and policy_ok is not False and anchor_ok is not False)
+    return {
+        "payloadSignature": _tri("ed25519-signature"),
+        "merkleConsistency": _tri("merkle-inclusion"),
+        "rootAuthenticity": root_auth,
+        "publicTransparency": "NOT_EVALUATED",
+        "safeForAutomation": safe,
+    }
 
 
 def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
