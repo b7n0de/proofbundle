@@ -35,6 +35,7 @@ Merkle, one file, no server, no network.
 - [The problem](#the-problem)
 - [What a receipt proves, and what it doesn't](#what-a-receipt-proves-and-what-it-doesnt)
 - [How it fits together](#how-it-fits-together)
+- [Cite this work](#cite-this-work)
 - [Post-quantum posture](#post-quantum-posture-honest-two-layers)
 - [What's in the box](#whats-in-the-box)
 - [Docs](#docs)
@@ -128,6 +129,28 @@ flowchart LR
     style V fill:#D6248A,stroke:#D6248A,color:#fff
     style OK fill:#D6248A,stroke:#D6248A,color:#fff
 ```
+
+### Where it sits in the research neighbourhood
+
+proofbundle is a **practical, released, offline verifier — complementary to TEE and zero-knowledge
+approaches**, not a replacement for any of them. It is honest about the line each neighbour crosses
+that a receipt does not. Maturity labels are stated so nothing reads as a settled standard when it is
+a preprint.
+
+| Neighbour | What it contributes that a receipt does not | Maturity | Where proofbundle draws the line |
+|---|---|---|---|
+| **K-Veritas** ([arXiv 2605.08586](https://arxiv.org/abs/2605.08586)) — nonrepudiable experimental results | the academic case for tamper-evident, execution-bound experiment reports | preprint | proofbundle is a released, offline, eval-shaped receipt for exactly this problem, not the only take on it |
+| **Attestable Audits** ([arXiv 2506.23706](https://arxiv.org/abs/2506.23706)) — TEE-verified safety audits | that the computation actually ran, inside a trusted enclave | preprint (research prototype) | a receipt proves authorship + integrity, **not** that the computation was correct — that needs a TEE or independent reproduction |
+| **BenchJack** ([arXiv 2605.12673](https://arxiv.org/abs/2605.12673)) — auditing agent benchmarks | whether the benchmark itself is gameable (reward-hacking) | preprint | a receipt over a gameable benchmark is honestly still just a receipt; it says nothing about whether the eval was well designed |
+| **Evaluation Cards** ([arXiv 2606.09809](https://arxiv.org/abs/2606.09809)) — reporting / interpretation layer | a structured, human-facing account of what a result means | preprint | a receipt can bind a card's integrity, not its quality |
+| in-toto / Sigstore, SCITT / Rekor v2, OpenSSF Model Signing (stable standards / production) | artifact-provenance, public transparency, model-artifact signing | — | see [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) for the honest tool-by-tool comparison |
+
+## Cite this work
+
+If proofbundle helped your evaluation pipeline, please cite it. Machine-readable metadata is in
+[`CITATION.cff`](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff); the archival record and
+concept DOI are on Zenodo ([10.5281/zenodo.21230467](https://doi.org/10.5281/zenodo.21230467)), and the
+current design write-up is the Technical Note linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
 
 ## Post-quantum posture (honest, two layers)
 
