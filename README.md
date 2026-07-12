@@ -28,6 +28,21 @@ Merkle, one file, no server, no network.
 
 </div>
 
+## Contents
+
+- [60-second try](#60-second-try-offline)
+- [Inspect-native?](#inspect-native-metr-task-standard-uk-aisi-ecosystem)
+- [The problem](#the-problem)
+- [What a receipt proves, and what it doesn't](#what-a-receipt-proves-and-what-it-doesnt)
+- [How it fits together](#how-it-fits-together)
+- [Post-quantum posture](#post-quantum-posture-honest-two-layers)
+- [What's in the box](#whats-in-the-box)
+- [Docs](#docs)
+- [Install](#install)
+- [Status, scope and roadmap](#status-scope-and-roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## 60-second try (offline)
 
 ```bash
@@ -38,21 +53,9 @@ git clone https://github.com/b7n0de/proofbundle && cd proofbundle
 pip install -e ".[eval,inspect]" && make demo   # or `make full-demo` for log -> receipt -> verify
 ```
 
-## The problem
-
-Every AI eval number you read — a safety benchmark, a capability score, a leaderboard entry — is an
-**unverifiable claim**. You trust the lab. There's no portable way to check, offline, that a result
-was signed by a stated party, hasn't been altered, and covers the samples it claims.
-
-proofbundle is that check. It's a small MIT-licensed Python tool (a compact, auditable trusted core,
-depends only on [`cryptography`](https://cryptography.io)) that turns a result into a signed
-receipt anyone can verify from a single file — and it's honest about the line it does not cross.
-
-## What the demo shows
-
-You'll see an honest receipt verify `=> OK`, then six independent tampers each verify `FAILED`, then
-a swapped sample get caught — all in memory. `proofbundle demo` exits non-zero if any tamper slips through,
-so it's also a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)**.
+The demo runs entirely in memory: an honest receipt verifies `=> OK`, six independent tampers each
+verify `FAILED`, and a swapped sample gets caught. `proofbundle demo` exits non-zero if any tamper
+slips through, so it doubles as a self-test. Full walkthrough: **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)**.
 
 ```bash
 # verify a real hosted receipt without writing any code:
@@ -67,7 +70,7 @@ proofbundle verify receipt.json        # exit 0 = crypto OK, 1 = crypto/verifica
 proofbundle verify receipt.json --policy trust_policy.json   # POLICY: OK | FAIL (exit 3) | NOT_EVALUATED
 ```
 
-## Inspect-native? (METR Task Standard / UK-AISI ecosystem)
+## Inspect-native? (METR Task Standard, UK-AISI ecosystem)
 
 The receipt layer runs directly on [Inspect AI](https://inspect.aisi.org.uk/) — and the proof is
 reproducible offline in minutes:
@@ -82,7 +85,22 @@ In your own pipeline the end-of-task hook signs every run automatically. Walkthr
 **[docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md)** · worked example:
 **[examples/inspect_receipt.py](https://github.com/b7n0de/proofbundle/blob/main/examples/inspect_receipt.py)**.
 
-## What a receipt proves — and what it doesn't
+## The problem
+
+Every AI eval number you read — a safety benchmark, a capability score, a leaderboard entry — is an
+**unverifiable claim**. You trust the lab. There's no portable way to check, offline, that a result
+was signed by a stated party, hasn't been altered, and covers the samples it claims.
+
+proofbundle is that check. It's a small MIT-licensed Python tool (a compact, auditable trusted core,
+depends only on [`cryptography`](https://cryptography.io)) that turns a result into a signed
+receipt anyone can verify from a single file — and it's honest about the line it does not cross.
+
+In plain language: a proofbundle receipt is the cash-register receipt of an AI test result. It shows
+who claimed the number and that nobody quietly changed it afterwards. It does not show the test was
+good — the way a cash-register receipt does not show the meal was good — but without a receipt there
+is nothing to check at all.
+
+## What a receipt proves, and what it doesn't
 
 | ✅ It proves | ❌ It does **not** prove |
 |---|---|
@@ -95,6 +113,21 @@ In your own pipeline the end-of-task hook signs every run automatically. Walkthr
 This boundary is the point, not a weakness. A receipt makes a claim **attributable, tamper-evident,
 and — with pre-registration and per-sample auditing — bounded and spot-checkable**. Full detail:
 **[THREAT_MODEL.md](https://github.com/b7n0de/proofbundle/blob/main/THREAT_MODEL.md)**.
+
+## How it fits together
+
+*(diagram renders on GitHub — [view it there](https://github.com/b7n0de/proofbundle#how-it-fits-together); PyPI shows the source)*
+
+```mermaid
+flowchart LR
+    H["eval harness<br/>inspect_ai · lm-eval · promptfoo · pytest"] --> A["adapter → signed claim<br/>salted commitments · provenance · samples root"]
+    A --> R["receipt<br/>one portable file"]
+    R --> V{{"proofbundle verify — offline"}}
+    V --> C["signature · Merkle inclusion · SD-JWT/KB ·<br/>witness quorum · status list · sample openings"]
+    C --> OK(["CRYPTO: OK / FAILED"])
+    style V fill:#D6248A,stroke:#D6248A,color:#fff
+    style OK fill:#D6248A,stroke:#D6248A,color:#fff
+```
 
 ## Post-quantum posture (honest, two layers)
 
@@ -119,28 +152,6 @@ does not carry this property.
 On the witness side, C2SP checkpoints already carry post-quantum **ML-DSA-44** (FIPS 204) cosignatures
 (`proofbundle[pq]`); a post-quantum *payload* signature — crypto-agility for the receipt itself — is on the
 roadmap.
-
-## In plain language
-
-A proofbundle receipt is the cash-register receipt of an AI test result: it shows who claimed the
-number and that nobody quietly changed it afterwards. It does not show the test was good — the way a
-cash-register receipt does not show the meal was good — but without a receipt there is nothing to
-check at all.
-
-## How it fits together
-
-*(diagram renders on GitHub — [view it there](https://github.com/b7n0de/proofbundle#how-it-fits-together); PyPI shows the source)*
-
-```mermaid
-flowchart LR
-    H["eval harness<br/>inspect_ai · lm-eval · promptfoo · pytest"] --> A["adapter → signed claim<br/>salted commitments · provenance · samples root"]
-    A --> R["receipt<br/>one portable file"]
-    R --> V{{"proofbundle verify — offline"}}
-    V --> C["signature · Merkle inclusion · SD-JWT/KB ·<br/>witness quorum · status list · sample openings"]
-    C --> OK(["CRYPTO: OK / FAILED"])
-    style V fill:#D6248A,stroke:#D6248A,color:#fff
-    style OK fill:#D6248A,stroke:#D6248A,color:#fff
-```
 
 ## What's in the box
 
@@ -232,13 +243,20 @@ pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witnes
 Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 comes from
 `cryptography`; Merkle hashing is RFC 6962.
 
-## Status & scope
+## Status, scope and roadmap
 
 Beta, SemVer-committed, with a CI test suite behind a mutation gate + property-based parser fuzzing. Correctness
 is anchored to external RFC 6962 vectors and a real Rekor proof, not just its own bundles. It is
 **not** a log service, a full in-toto client, a TEE, a consensus network, or a compliance product
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:
 [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
+
+**Roadmap (stated honestly, all forward-looking):**
+
+- A post-quantum *payload* signature (crypto-agility for the receipt itself) is on the roadmap; today the
+  post-quantum coverage is witness-side ML-DSA-44 cosignatures only.
+- A CLI flag to select the content-root algorithm is still deferred (`jcs-sha256-v1` is the signed default).
+- **Preview:** a TEE-attestation bridge — see [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md).
 
 ## Contributing
 
