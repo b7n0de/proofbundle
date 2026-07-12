@@ -6,10 +6,9 @@ name: fork-pr-isolation
 # fork-exfiltration vector fails here before it lands.
 # The guard runs its own anti-tautology selfcheck first: a broken guard can't pass silently.
 #
-# NOTE (honest, 2026-07-08): this check is NOT yet a required status check — the main ruleset
-# currently enforces only deletion + non-fast-forward, so a red run here does not block a
-# merge today. Making it required (repo Settings → Branches / ruleset required_status_checks)
-# is an Owner action tracked in the runbook. Until then this guard is advisory-but-loud.
+# NOTE (updated 2026-07-12): this check IS a required status check on `main`. The ruleset
+# `protect-main` lists `guard` under required_status_checks (verified via
+# `gh api repos/b7n0de/proofbundle/rules/branches/main`), so a red run here blocks the merge.
 
 on:
   push:

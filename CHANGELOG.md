@@ -52,6 +52,29 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   change — `policy.py`'s `signature` section is unchanged by this ADR.
 - `scripts/claims_hygiene_check.py` scan set gains the four new user-facing docs (33 docs scanned, was
   29) — ADRs stay out of the scan set, matching 0001/0002 precedent.
+## [3.0.1] - 2026-07-12
+
+### Security — close the residual model-id oracle in the EEE digest (M2)
+- The `every_eval_ever` (EEE) digest stripped `model_info.id` and the top-level `evaluation_id`, but left the
+  per-result `evaluation_result_id` (nested in `evaluation_results[*]`) inside the digest, while the `run_id`
+  provenance path already guards that same id. An `evaluation_result_id` can embed or correlate the cleartext
+  model id, so a digest over it was a model-id confirmation/enumeration oracle, asymmetric to the guarded
+  provenance path. `_model_id_stripped` now also strips `evaluation_result_id` from each result. Tamper-evidence
+  over scores/timestamps/dataset is unchanged (a tampered score still changes the digest); the id stays available
+  for `run_id` provenance with its own leak guard. This closes the gap that shipped in 3.0.0.
+
+### Documentation
+- README: add PEP 740 (attestations) and SLSA build-provenance badges now that the first attested release is live.
+- README: restructure for scannability (table of contents, deduplication, roadmap section).
+- Erratum for the frozen 3.0.0 artifact: its `CHANGELOG.md` stated "811 tests" for the 3.0.0 line; the correct
+  count is **817** (corrected on `main` post-tag). Tags are immutable, so the shipped 3.0.0 changelog keeps the
+  typo; this 3.0.1 changelog carries the correction.
+
+### CI / release hygiene
+- Add a version-and-changelog integrity gate (`.github/workflows` + `scripts/check_version_and_changelog.py`):
+  fails CI when `pyproject.toml`, `src/proofbundle/__init__.py` and `CITATION.cff` disagree on the version, or
+  when the top changelog heading does not match that version. Closes the "merged but never released / version
+  drift" class that let the M2 fix and the 811-vs-817 typo sit unreleased.
 
 ## [3.0.0] - 2026-07-12
 
