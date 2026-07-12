@@ -52,6 +52,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   change — `policy.py`'s `signature` section is unchanged by this ADR.
 - `scripts/claims_hygiene_check.py` scan set gains the four new user-facing docs (33 docs scanned, was
   29) — ADRs stay out of the scan set, matching 0001/0002 precedent.
+
+### Added — claims-hygiene overclaim vocabulary (P0-C, Hardening 3.0.1 §5.4)
+- `scripts/claims_hygiene_check.py` now also bans, unless negated: `signed (Merkle) root` (the outer
+  root is a commitment, not the signed object), `publicly anchored`, `append-only`, `verified score` /
+  `exact score verified`, `benchmark is secure`, `evaluation is correct`, `action was executed`,
+  `<EU AI Act|AI Act|GDPR>-compliant`, and `<verifies|guarantees|certifies|…> truth`.
+- Two precision exceptions keep the gate honest (a gate that cries wolf gets ignored):
+  the **per-sample** exception exempts `signed root` inside a section carrying `per-sample` /
+  `samples root` / `audit-challenge` / `prereg` (the samples root IS a field of the signed eval-claim
+  payload, docs/DEMO.md); the **external-public-log** exception exempts `append-only` inside a section
+  discussing Rekor / a transparency log (it is a correct property there, an overclaim only for a lone
+  issuer-local tree). `truth` bans the claim VERBS, never the idioms `source of truth` / `ground truth`;
+  `compliant` bans the regulatory sense, never `spec-`/`RFC 9162-`/`C2SP-compliant`. Tests:
+  `tests/test_claims_hygiene.py` (`TestP0CAdditions`, both directions).
+
 ## [3.0.1] - 2026-07-12
 
 ### Security — close the residual model-id oracle in the EEE digest (M2)

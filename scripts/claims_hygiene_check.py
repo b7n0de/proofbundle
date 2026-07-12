@@ -41,6 +41,17 @@ _DEFAULT_DOCS = [
     "docs/MIGRATION_EVAL_PREDICATE.md",
 ]
 
+# The signed-root rule (P0-C §5.4) carries a per-sample SECTION exception (see `_CONTEXT_EXEMPT`), so
+# its pattern + label are named constants shared with that map.
+_SIGNED_ROOT_PATTERN = r"signed\s+(?:merkle\s+|bundle\s+|tree\s+|samples\s+)?root"
+_SIGNED_ROOT_LABEL = ("signed (Merkle) root — the root is a commitment, not the signed object "
+                      "(per-sample samples-root excepted)")
+# "append-only" is a CORRECT property of an external public transparency log (Rekor, CT); it is an
+# overclaim only for proofbundle's OWN issuer-local tree. Exempt it inside a section that discusses
+# such an external public log (see `_CONTEXT_EXEMPT`).
+_APPEND_ONLY_PATTERN = r"append[- ]only"
+_APPEND_ONLY_LABEL = "append-only (needs a public transparency log)"
+
 # Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.
 _FORBIDDEN = [
     (r"proves?\s+(?:the\s+)?(?:truth|correctness)", "proves truth/correctness"),
@@ -61,8 +72,56 @@ _FORBIDDEN = [
     (r"correct\s+decision", "correct decision"),
     (r"authorized\s+action", "authorized action"),
     (r"\btrustless\b", 'trustless (say "trust-minimized (Bitcoin PoW time)" or negate it)'),
+    # P0-C additions (Hardening 3.0.1 §5.2/§5.4, 2026-07-12). The audit found these drifting on the
+    # website: the OUTER Merkle root is a commitment, not a signed object and not a public anchor; a
+    # threshold verdict is not an exact score; a decision is not an execution. Each is a VIOLATION
+    # unless its sentence is negated (and, for signed-root, unless its section is the per-sample one).
+    (_SIGNED_ROOT_PATTERN, _SIGNED_ROOT_LABEL),
+    (r"publicly\s+anchored", "publicly anchored (needs a public-log receipt)"),
+    (_APPEND_ONLY_PATTERN, _APPEND_ONLY_LABEL),
+    (r"exact\s+score\s+verified", "exact score verified"),
+    (r"verified\s+score", "verified score (only a signed threshold verdict, unless the exact-score profile is used)"),
+    (r"benchmark\s+is\s+secure", "benchmark is secure"),
+    (r"evaluation\s+is\s+correct", "evaluation is correct"),
+    (r"action\s+(?:was\s+)?executed", "action was executed (needs a signed action-outcome receipt)"),
+    # 'compliant' ONLY in the regulatory sense — spec-/RFC-/C2SP-compliant are honest technical claims,
+    # and "Article 12 compliant" is deliberately NOT here (the positive overclaim is covered by
+    # "satisfies article 12"; COMPLIANCE.md legitimately QUOTES "Article 12 compliant" as an anti-pattern).
+    (r"(?:EU\s+AI\s+Act|AI\s+Act|GDPR)[- ]?compliant", "regulatory-compliant (a receipt cannot prove regulation)"),
+    (r"compliant\s+with\s+(?:the\s+)?(?:EU\s+AI\s+Act|AI\s+Act|GDPR)", "compliant with a regulation"),
+    # 'truth' ONLY as a proof CLAIM (extends "proves truth" on L52). Bare 'truth' is deliberately NOT
+    # banned: it over-fires on the honest idioms "source of truth", "ground truth", "toward truth" and
+    # on NON_CLAIMS.md's own disclaimers. Ban the claim VERBS instead — that is the §5.2 intent.
+    (r"(?:verif(?:ies|y|ied)|guarantees?|certif(?:ies|y)|establish(?:es)?|reveals?|delivers?)\s+(?:the\s+|semantic\s+)?truth",
+     "truth as a claim (a receipt proves authorship + integrity, never truth)"),
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
+
+# §5.4 per-sample exception: the SAMPLES root and prereg_sha256 ARE fields of the signed eval-claim
+# payload, so "signed root" is CORRECT in that per-sample context (docs/DEMO.md audit-challenge). Only
+# the OUTER bundle Merkle root must never be called signed. A signed-root match is exempt when its
+# enclosing Markdown section carries the per-sample vocabulary; flagged everywhere else.
+_CONTEXT_EXEMPT = {
+    _SIGNED_ROOT_LABEL: re.compile(r"per-sample|samples[ -]root|audit-challenge|prereg", re.IGNORECASE),
+    # append-only is accurate WHEN describing an external public transparency log.
+    _APPEND_ONLY_LABEL: re.compile(r"rekor|transparency[- ]?log|public[- ]?log|certificate\s+transparency|c2sp|tlog",
+                                   re.IGNORECASE),
+}
+_HEADING_RE = re.compile(r"(?m)^#{1,6}\s")
+
+
+def _section_around(text: str, pos: int) -> str:
+    """The enclosing Markdown section (previous heading up to the next heading) around ``pos`` — the
+    §5.4 'same section' scope for the per-sample signed-root exception. Headings survive `_strip_code`
+    and `_soft_unwrap`, so this is computed on the same text scan_file matches against."""
+    left = 0
+    for m in _HEADING_RE.finditer(text):
+        if m.start() <= pos:
+            left = m.start()
+        else:
+            return text[left:m.start()]
+    return text[left:]
+
 
 # A negation anywhere in the same sentence exonerates the match (the docs say "does not prove ...").
 _NEGATION_RE = re.compile(
@@ -139,6 +198,9 @@ def scan_file(path: Path) -> list[dict]:
             sentence = _sentence_around(text, m.start(), m.end())
             if _NEGATION_RE.search(sentence):
                 continue   # negated → allowed
+            exempt = _CONTEXT_EXEMPT.get(label)
+            if exempt is not None and exempt.search(_section_around(text, m.start())):
+                continue   # §5.4 per-sample section → allowed (the samples root IS signed)
             line = raw.count("\n", 0, m.start()) + 1
             try:
                 rel = str(path.relative_to(REPO))
