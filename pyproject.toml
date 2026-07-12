@@ -100,7 +100,7 @@ proofbundle = "proofbundle.pytest_plugin"
 where = ["src"]
 
 [tool.setuptools.package-data]
-proofbundle = ["py.typed", "eee_eval_schema.json"]
+proofbundle = ["py.typed", "eee_eval_schema.json", "policies/*.json"]
 
 [tool.ruff]
 line-length = 100

@@ -607,6 +607,23 @@ def explain_policy(policy: dict) -> list:
         lines.append(f"assurance_level >= {asr['minimum_level']!r}")
     if asr.get("reject_self_attested_without_prereg"):
         lines.append("self_attested without prereg_sha256 rejected")
+    # WP3 (v2-audit): the anchors section is a REAL pin — the CLI (`_cmd_verify`) reads
+    # policy["anchors"] to populate the --require-anchor / --anchor-target / --allow-pending gate
+    # (exit 3 when unmet), but explain_policy previously never listed it: a policy whose ONLY pin was
+    # `anchors.require_anchor` looked "wirkungslos" to `policy lint` (a false vacuous-policy verdict for
+    # a pin `verify --policy` genuinely enforces). Listed here so explain/lint agree with what verify
+    # actually gates on; evaluate_policy() itself is unchanged (the anchor gate lives in the CLI, not in
+    # evaluate_policy, exactly as before).
+    anc = policy.get("anchors") or {}
+    req_anchor = anc.get("require_anchor")
+    req_target = anc.get("require_anchor_target")
+    if req_anchor is not None or req_target is not None:
+        detail = f"type={req_anchor!r}" if req_anchor is not None else "any type"
+        if req_target is not None:
+            detail += f", target={req_target!r}"
+        if anc.get("allow_pending"):
+            detail += " (pending accepted)"
+        lines.append(f"external time anchor required ({detail})")
     dr = policy.get("decision_receipt") or {}
     if dr:
         active = [k for k in dr if dr.get(k)]

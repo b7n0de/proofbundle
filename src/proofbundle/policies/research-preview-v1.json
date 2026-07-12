@@ -1,0 +1,7 @@
+{
+  "schema": "proofbundle/trust-policy/v0.1",
+  "policy_id": "proofbundle-policy/research-preview-v1",
+  "allowed_schema_versions": ["proofbundle/v0.1"],
+  "signature": {"allowed_algs": ["ed25519"]},
+  "merkle": {"required_hash_alg": "sha256-rfc6962"}
+}
