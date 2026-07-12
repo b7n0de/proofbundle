@@ -353,7 +353,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `assurance_declared_by`); the CLI-help assertion is terminal-width-independent; a line-number pin
   proves soft-unwrap keeps positions 1:1.
 ### Verification discipline
-- **811 tests** (was 683 at 2.1.0) across the 3.10–3.14 CI matrix, all green. A pre-release audit
+- **817 tests** (was 683 at 2.1.0) across the 3.10–3.14 CI matrix, all green. A pre-release audit
   hardened the two anti-regression instruments so they actually cover the code this release adds:
   the mutation gate (`scripts/mutation_check.py`, Anti-Goodhart) now carries an operator for **each of
   the four new breaking defenses** — WP-C2 unsigned-fail, WP-C1 issuer-identity and bundle-binding,
