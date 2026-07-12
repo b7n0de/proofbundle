@@ -4,7 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-07-13
+
+Minor release: native Merkle **root authenticity** (relying-party root pinning + a trust-policy
+requirement + separate verdicts, ADR 0004), score-vs-**threshold-verdict** evidence classes (P0-B),
+**named trust-policy profiles** (WP3), claims-hygiene overclaim vocabulary, and the pre-release
+six-lens audit hardening below. All additive and backward-compatible.
 
 ### Changed — six-lens audit hardening (2026-07-13, pre-release)
 - **`THREAT_MODEL.md`** corrected: the "Merkle-root / inclusion tampering → FAIL" row no longer
