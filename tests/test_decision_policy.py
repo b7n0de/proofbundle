@@ -179,5 +179,78 @@ class TestDecisionPolicyKnobs(unittest.TestCase):
                          "decision_receipt": {"require_audience": "false"}})
 
 
+class TestDecisionPathTemplateAndExpiryGate(unittest.TestCase):
+    """L5 pre-land audit — the decision path mirrors the eval-path AP-1/AP-2 guards, which previously had NO
+    analog here: a RAW template (requiresIdentityOverlay:true) authorised a receipt signed by any key, and an
+    EXPIRED policy still authorised. Both are now fail-closed → policy_ok=False → CLI exit 3."""
+
+    def _policy_top(self, pub, **top):
+        pol = _policy_trusting(pub)   # an otherwise-passing decision policy for _pred("deny")
+        pol.update(top)               # add TOP-LEVEL fields (requiresIdentityOverlay / valid_until)
+        return pol
+
+    def _verify(self, s, pub, **top):
+        env = emit_decision_receipt(_pred("deny"), s, strict=True)
+        return verify_decision_receipt(env, s.public_key().public_bytes_raw(), strict=True,
+                                       policy=load_policy(self._policy_top(pub, **top)))
+
+    def test_baseline_instantiated_policy_authorises(self):
+        # positive control: a pinned, non-template, non-expired decision policy authorises the matching signer
+        s, pub = _keys()
+        r = self._verify(s, pub, requiresIdentityOverlay=False, valid_until="2099-01-01T00:00:00Z")
+        self.assertTrue(r["policy_ok"] and r["signer_trusted"])
+
+    def test_raw_template_flag_does_not_authorise(self):
+        s, pub = _keys()
+        r = self._verify(s, pub, requiresIdentityOverlay=True)   # raw template, un-instantiated
+        self.assertIs(r["policy_ok"], False)
+        self.assertIs(r["ok"], False)
+        self.assertTrue(any("raw template" in e for e in r["errors"]))
+
+    def test_expired_decision_policy_does_not_authorise(self):
+        s, pub = _keys()
+        r = self._verify(s, pub, valid_until="2020-01-01T00:00:00Z")   # instantiated but expired
+        self.assertIs(r["policy_ok"], False)
+        self.assertIs(r["ok"], False)
+        self.assertTrue(any("expired" in e for e in r["errors"]))
+
+    def test_shipped_raw_decision_template_refused(self):
+        # the ACTUAL shipped template (not a synthetic flag) refuses to authorise a decision as-shipped
+        from proofbundle.policy_profiles import profile_path  # noqa: PLC0415
+        raw = load_policy(profile_path("decision-receipt-template-v1"))
+        self.assertIs(raw.get("requiresIdentityOverlay"), True)
+        s, pub = _keys()
+        res = evaluate_decision_policy(build_decision_statement(_pred("deny")), {}, raw,
+                                       signer_public_key_b64=pub)
+        self.assertIs(res["policy_ok"], False)
+        self.assertTrue(any("raw template" in e for e in res["errors"]))
+
+    def test_decision_verify_cli_resolves_profile_name(self):
+        # L5-F3: `decision verify --policy <profile-name>` resolves the packaged profile (parity with the eval
+        # path) instead of erroring "cannot read trust policy". The shipped template then refuses (exit 3), so
+        # this one test proves BOTH resolve_policy_source parity AND the raw-template gate end-to-end.
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import os  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        from proofbundle.cli import main  # noqa: PLC0415
+        s, _pub = _keys()
+        env = emit_decision_receipt(_pred("deny"), s, strict=True)
+        pubk = base64.b64encode(s.public_key().public_bytes_raw()).decode()
+        fd, epath = tempfile.mkstemp(suffix=".json")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(env, f)
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                rc = main(["decision", "verify", epath, "--pub", pubk,
+                           "--policy", "decision-receipt-template-v1"])
+        finally:
+            os.unlink(epath)
+        self.assertNotIn("cannot read trust policy", err.getvalue())   # resolved, not a file-not-found
+        self.assertEqual(rc, 3)                                         # raw template → policy not satisfied
+
+
 if __name__ == "__main__":
     unittest.main()

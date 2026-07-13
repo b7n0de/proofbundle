@@ -14,11 +14,14 @@ import unittest
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from proofbundle import generate_signer
+from pathlib import Path
+
+from proofbundle import emit_bundle, generate_signer, verify_bundle
 from proofbundle.cli import main
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 
+_REPO = Path(__file__).resolve().parents[1]
 _IAT = 1_780_000_000
 
 
@@ -166,3 +169,93 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestN1UnbindableEvalSdJwt(unittest.TestCase):
+    """N1 (audit 2026-07-13, L1 live PoC): an EVAL SD-JWT (always-open passed/threshold/comparator/suite/
+    root) grafted onto a NON-eval-claim payload has nothing to bind to and is refused fail-closed. A
+    GENERIC SD-JWT-VC (iss/vct, no eval fields) carries no eval claim to substitute and stays in scope."""
+
+    @staticmethod
+    def _raw(k):
+        return k.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+    def test_eval_sd_jwt_on_non_eval_payload_is_refused(self):
+        signer = generate_signer()
+        sd_claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
+                    "issuer": "ed25519:" + base64.b64encode(self._raw(signer)).decode()}
+        # issued with a root from ELSEWHERE (the graft) — issuer-VALID but bound to no real bundle
+        compact = issue_sd_jwt(sd_claim, signer, root_b64="c29tZS1vdGhlci1yb290", exact_score="0.9")
+        vc = {"compact": compact, "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}
+        bundle = emit_bundle(b'{"x":1}', signer, sd_jwt_vc=vc)   # NON-eval-claim payload
+        r = verify_bundle(bundle)
+        by = {c.name: c.ok for c in r.checks}
+        self.assertIn("sd-jwt-bundle-binding", by, "an unbindable eval SD-JWT must add a FAILING binding check")
+        self.assertFalse(by["sd-jwt-bundle-binding"])
+        self.assertFalse(r.ok, "an unbindable eval SD-JWT graft must fail the whole bundle (CRYPTO: FAILED)")
+
+    def test_generic_sd_jwt_vc_on_non_eval_payload_stays_out_of_scope(self):
+        # examples/example_bundle.json is a generic SD-JWT-VC (iss/vct, no eval fields) on a non-eval
+        # payload and MUST still verify — N1 refuses only the eval-carrying graft, never a generic VC.
+        bundle = json.loads((_REPO / "examples" / "example_bundle.json").read_text())
+        r = verify_bundle(bundle)
+        self.assertTrue(r.ok, "a generic SD-JWT-VC on a non-eval payload must stay valid (backward-compatible)")
+        self.assertNotIn("sd-jwt-bundle-binding", [c.name for c in r.checks],
+                         "a generic VC carries no eval fields → the eval binding check is skipped")
+
+    @staticmethod
+    def _sd_jwt(signer, payload: dict) -> str:
+        """A minimal signed, disclosure-free compact SD-JWT with an arbitrary always-open payload —
+        mirrors sdjwt_issue's JWT signing so a test can shape the always-open claims directly."""
+        from proofbundle.sdjwt_issue import _b64url  # noqa: PLC0415
+        header = {"alg": "EdDSA", "typ": "dc+sd-jwt"}
+        signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+        sig = signer.sign(signing_input.encode("ascii"))
+        return signing_input + "." + _b64url(sig) + "~"
+
+    def test_generic_vc_with_marker_word_but_no_receipt_stays_valid(self):
+        # L1 pre-land review F2: the OLD discriminator was a word-match on {passed,threshold,comparator,
+        # suite,root}; a legitimate generic VC that merely carries one of those common words (here an exam
+        # credential with `passed`) but NO receipt.root_b64 commitment must NOT be false-refused.
+        signer = generate_signer()
+        payload = {"iss": "https://university.example", "vct": "https://university.example/exam-credential",
+                   "iat": _IAT, "passed": True, "suite": "chemistry-101"}   # marker WORDS, no receipt commitment
+        vc = {"compact": self._sd_jwt(signer, payload),
+              "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}
+        bundle = emit_bundle(b'{"generic":"vc"}', signer, sd_jwt_vc=vc)   # non-eval payload
+        r = verify_bundle(bundle)
+        self.assertTrue(r.ok, "a generic VC with a marker WORD but no receipt commitment must stay valid")
+        self.assertNotIn("sd-jwt-bundle-binding", [c.name for c in r.checks])
+
+    def test_eval_root_commitment_without_open_markers_is_refused(self):
+        # L1 pre-land review F1/F3: the hardened discriminator keys on the real substitution vector
+        # (receipt.root_b64), NOT on passed/threshold — so an eval SD-JWT whose only always-open eval signal
+        # is the root commitment (its pass/threshold facts moved into disclosures) is STILL refused on a
+        # non-eval payload.
+        signer = generate_signer()
+        payload = {"iss": "ed25519:x", "vct": "https://b7n0de.com/proofbundle/vct/eval-receipt/v1",
+                   "iat": _IAT, "receipt": {"root_b64": "c29tZS1vdGhlci1yb290"}}   # only the root commitment
+        vc = {"compact": self._sd_jwt(signer, payload),
+              "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}
+        bundle = emit_bundle(b'{"x":1}', signer, sd_jwt_vc=vc)   # NON-eval payload
+        r = verify_bundle(bundle)
+        by = {c.name: c.ok for c in r.checks}
+        self.assertIn("sd-jwt-bundle-binding", by, "a root-committing eval SD-JWT graft must add a FAILING check")
+        self.assertFalse(by["sd-jwt-bundle-binding"])
+        self.assertFalse(r.ok, "an unbindable eval root commitment must fail the whole bundle")
+
+    def test_empty_root_commitment_still_refused(self):
+        # L1 pre-land audit F3: an always-open receipt.root_b64 == "" also carries the eval-binding SHAPE and
+        # must not evade N1 (the earlier bool()-non-empty guard let it through). A generic VC has no receipt
+        # object at all, so firing on a present-but-empty root never false-refuses one.
+        signer = generate_signer()
+        payload = {"iss": "ed25519:x", "vct": "https://b7n0de.com/proofbundle/vct/eval-receipt/v1",
+                   "iat": _IAT, "receipt": {"root_b64": ""}}
+        vc = {"compact": self._sd_jwt(signer, payload),
+              "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}
+        bundle = emit_bundle(b'{"x":1}', signer, sd_jwt_vc=vc)
+        r = verify_bundle(bundle)
+        by = {c.name: c.ok for c in r.checks}
+        self.assertIn("sd-jwt-bundle-binding", by)
+        self.assertFalse(by["sd-jwt-bundle-binding"])
+        self.assertFalse(r.ok)

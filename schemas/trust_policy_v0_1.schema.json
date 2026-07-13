@@ -22,6 +22,21 @@
       "minLength": 1,
       "description": "A stable human-readable identifier for this policy, echoed in verify output so a logged decision names the policy it applied."
     },
+    "deploymentReady": {
+      "type": "boolean",
+      "description": "AP-2 §6.2 template metadata. false = a raw TEMPLATE, not a deployment-ready policy (it pins no signer identity); `policy lint --strict` fails on it and verify can never yield safeForAutomation:true. Set true only by `policy instantiate` once every required field is pinned. Absent on a hand-written production policy."
+    },
+    "requiresIdentityOverlay": {
+      "type": "boolean",
+      "description": "AP-2 §6.2 template metadata. true = this profile is a template that MUST be completed with a signer-identity overlay (allowed_issuers / trusted_decision_makers) before use; while true, verify never sets signer_trusted (so never safeForAutomation:true). `policy instantiate` sets it false."
+    },
+    "valid_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "AP-2 §6.4 lifecycle expiry (ISO-8601 UTC, e.g. 2027-01-01T00:00:00Z). Optional; when present `policy lint` fails once it is in the past. null/absent = no expiry."
+    },
     "allowed_schema_versions": {
       "type": "array",
       "items": {

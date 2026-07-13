@@ -159,7 +159,7 @@ No-Overclaim violation, not a convenience. Building it for real means:
    above, fail-closed, with its own positive/negative tests, mirroring how
    `anchors.require_anchor` was added; and
 3. deciding whether "confirmed public inclusion" ever becomes a
-   *precondition* for a `strict-*` profile the way `strict-prereg-v1`
+   *precondition* for a `strict-*` profile the way `strict-prereg-template-v1`
    already requires a confirmed pre-registration anchor.
 
 None of that is built in this change; this document is the honest

@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from proofbundle import emit_bundle, generate_signer
+from proofbundle import generate_signer
 from proofbundle.cli import main
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 from proofbundle.policy import PolicyError, evaluate_policy, load_policy
@@ -39,17 +39,27 @@ def _sd_jwt_bundle(*, with_issuer_key: bool = True, with_cnf: bool = True,
                    aud: str = "verifier.example", nonce: str = "n-1") -> str:
     """A bundle carrying a real key-bound SD-JWT presentation. ``with_issuer_key=False`` is exactly
     the class where the issuer signature is never checked (the require_nonce fail-open, L1/L2)."""
+    from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
     issuer = generate_signer()
     holder = generate_signer()
+    # N1 (audit 2026-07-13): bind the eval-carrying SD-JWT to a real eval-claim bundle (grafting onto a
+    # non-eval {"x":1} payload is now refused fail-closed).
+    ev_claim, _ = build_eval_claim(
+        suite="demo-suite", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
+        score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+        timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+    plain = emit_eval_receipt(ev_claim, issuer)
+    root = plain["merkle"]["root_b64"]
+    issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
     claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-             "issuer": "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")}
-    compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.9",
+             "issuer": issuer_field}
+    compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.9",
                            holder_public_key=_raw_pub(holder) if with_cnf else None)
     presented = present_with_key_binding(compact, holder, aud=aud, nonce=nonce, iat=_IAT)
     sd_jwt_vc = {"compact": presented}
     if with_issuer_key:
         sd_jwt_vc["issuer_public_key_b64"] = base64.b64encode(_raw_pub(issuer)).decode("ascii")
-    bundle = emit_bundle(b'{"x":1}', issuer, sd_jwt_vc=sd_jwt_vc)
+    bundle = emit_eval_receipt(ev_claim, issuer, sd_jwt=sd_jwt_vc)
     fd, path = tempfile.mkstemp(suffix=".json")
     with os.fdopen(fd, "w") as f:
         json.dump(bundle, f)

@@ -1,9 +1,0 @@
-{
-  "schema": "proofbundle/trust-policy/v0.1",
-  "policy_id": "proofbundle-policy/strict-eval-v1",
-  "allowed_schema_versions": ["proofbundle/v0.1"],
-  "signature": {"allowed_algs": ["ed25519"]},
-  "merkle": {"required_hash_alg": "sha256-rfc6962"},
-  "sd_jwt": {"require_key_binding_when_cnf_present": true},
-  "assurance": {"minimum_level": "reproduced", "reject_self_attested_without_prereg": true}
-}

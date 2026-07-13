@@ -549,18 +549,54 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # in when no --expected-root was given. Always separate, so merkle-inclusion is never read as root
     # authentication (additive JSON field + a human line).
     from .bundle import root_authenticity_summary  # noqa: PLC0415
+    # P0-B (audit 2026-07-13): thread the vacuous-policy lint into the summary — a PASSING policy that
+    # pins no signer ('attributes to nobody') must NOT set safeForAutomation. Computed once here, reused
+    # for fields["policy_warnings"] below (no double lint).
+    from .policy import policy_warnings as _policy_warnings  # noqa: PLC0415
+    pol_warns = _policy_warnings(policy) if (policy is not None and policy_ok) else []
+    # AP-1 §5 (+ L2 pre-land review fix): signer_trusted requires an ACTUALLY-PASSED signer-binding check
+    # on THIS (eval/verify) path — a passing `policy:signer_allowed` from evaluate_policy — NOT merely the
+    # absence of the 'attributes to nobody' warning. That warning counts
+    # decision_receipt.trusted_decision_makers as a signer pin, but evaluate_policy (the verify path) never
+    # matches the bundle signer against it (that is the verify-decision path); keying off the warning would
+    # let a decision-maker-only policy FAKE a trusted signer and yield safeForAutomation:true against an
+    # unpinned bundle signer (fail-open). Key off the positive verdict instead.
+    # AP-2 §6.2: a RAW template (requiresIdentityOverlay:true) never qualifies (no identity overlay applied).
+    _signer_checks = [c for c in (policy_result or {}).get("checks", [])
+                      if c.get("name") == "policy:signer_allowed"]
+    signer_matched = bool(_signer_checks) and all(c.get("ok") for c in _signer_checks)
+    signer_trusted = bool(policy_ok) and signer_matched
+    # AP-2 §6.2/§6.4 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) and an EXPIRED policy
+    # each force safeForAutomation:false with their OWN honest blocker (TEMPLATE_NOT_INSTANTIATED /
+    # POLICY_EXPIRED) — not a mislabelled SIGNER_NOT_PINNED. signer_trusted now reflects ONLY whether a signer
+    # was actually matched; the template/expiry conditions are surfaced as distinct blockers.
+    _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
+    from .policy import policy_expired as _policy_expired  # noqa: PLC0415
+    pol_expired = bool(policy is not None and _policy_expired(policy))
     root_summary = root_authenticity_summary(
         result, policy_authenticated_root=(policy_result or {}).get("root_authenticated"),
-        policy_ok=policy_ok, anchor_ok=anchor_required_ok)
+        policy_ok=policy_ok, anchor_ok=anchor_required_ok,
+        signer_trusted=signer_trusted, policy_warnings=pol_warns, policy_expired=pol_expired,
+        requires_identity_overlay=_requires_overlay)
     fields["root_authenticity"] = root_summary
+    # P0-A (audit 2026-07-13): surface --expected-tree-size as a machine-readable object. The check
+    # itself already runs INDEPENDENTLY in verify_bundle (never gated on --expected-root), so a mismatch
+    # already fails the crypto verdict; this makes status/expected/actual explicit so an integrator can
+    # confirm the gate ran rather than inferring it from a check name. NOT_REQUESTED when the flag is absent.
+    _ets = getattr(args, "expected_tree_size", None)
+    _tsc = next((c for c in result.checks if c.name == "tree-size"), None)
+    fields["treeSizeExpectation"] = {
+        "status": (("PASS" if _tsc.ok else "FAIL") if _tsc is not None else "NOT_REQUESTED"),
+        "expected": _ets,
+        "actual": (bundle.get("merkle") or {}).get("tree_size") if isinstance(bundle, dict) else None,
+    }
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
         # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged.
         # Mirror the human line (six-lens review): the warning is meaningful only for a PASSING
         # policy (a POLICY: OK that attributes to nobody); on FAIL / crypto-FAIL the FAIL is the
         # message, so the JSON field is empty too — the key stays present for contract stability.
-        from .policy import policy_warnings  # noqa: PLC0415
-        fields["policy_warnings"] = policy_warnings(policy) if policy_ok else []
+        fields["policy_warnings"] = pol_warns   # P0-B: computed once above (no double lint)
     if policy_result is not None:
         fields["policy_checks"] = policy_result["checks"]
     if anchor_report is not None:
@@ -614,6 +650,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
               f"(payload-signature {root_summary['payloadSignature']}, "
               f"merkle-consistency {root_summary['merkleConsistency']}, "
               f"safe-for-automation {str(root_summary['safeForAutomation']).lower()})")
+        # AP-1 §5.3: a dedicated, human-legible automation verdict — YES, or NO with the reason(s). The
+        # reasons are derived one-for-one from root_summary['automationBlockers'] via the SSOT map, so the
+        # human and JSON forms of safeForAutomation can never disagree (Iteration F).
+        from .bundle import AUTOMATION_BLOCKER_REASONS  # noqa: PLC0415
+        if root_summary["safeForAutomation"]:
+            print("SAFE_FOR_AUTOMATION: YES")
+        else:
+            print("SAFE_FOR_AUTOMATION: NO")
+            print("Reason:")
+            for _blk in root_summary["automationBlockers"]:
+                print(f"  {AUTOMATION_BLOCKER_REASONS.get(_blk, _blk)}")
         if policy is not None and not crypto_ok:
             print("POLICY: NOT_EVALUATED (crypto failed — policy not checked)")
         else:
@@ -963,8 +1010,11 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     policy = None
     if args.policy:
         from .policy import PolicyError, load_policy  # noqa: PLC0415
+        from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
-            policy = load_policy(args.policy)
+            # parity with the eval verify path (L5 audit L5-F3): accept a packaged profile NAME
+            # (e.g. decision-receipt-template-v1), not only a file path, via resolve_policy_source.
+            policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
@@ -1151,17 +1201,91 @@ def _cmd_policy_lint(args: argparse.Namespace) -> int:
 
 def _cmd_policy_list_profiles(args: argparse.Namespace) -> int:
     from .policy import explain_policy, load_policy  # noqa: PLC0415
-    from .policy_profiles import list_profiles, profile_path  # noqa: PLC0415
+    from .policy_profiles import list_profiles, profile_aliases, profile_path  # noqa: PLC0415
+    aliases = profile_aliases()
+    # canonical -> [deprecated old names] so each canonical row can list what still resolves to it.
+    canonical_aliases: dict = {}
+    for old, canonical in aliases.items():
+        canonical_aliases.setdefault(canonical, []).append(old)
     rows = []
-    for name in list_profiles():
+    for name in list_profiles():   # AP-2 §6.1: canonical names FIRST
+        # load via the packaged file directly (no alias, no deprecation line) for the metadata
         policy = load_policy(profile_path(name))
         rows.append({"name": name, "policy_id": policy.get("policy_id"),
-                    "schema": policy.get("schema"), "pin_count": len(explain_policy(policy))})
+                     "schema": policy.get("schema"), "pin_count": len(explain_policy(policy)),
+                     "deploymentReady": policy.get("deploymentReady"),
+                     "requiresIdentityOverlay": policy.get("requiresIdentityOverlay"),
+                     "is_template": policy.get("requiresIdentityOverlay") is True
+                                    or policy.get("deploymentReady") is False,
+                     "deprecated_aliases": sorted(canonical_aliases.get(name, []))})
     if args.json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
         return 0
     for row in rows:
-        print(f"{row['name']:22} {row['schema']:32} {row['pin_count']} pin(s)   {row['policy_id']}")
+        kind = "template" if row["is_template"] else "profile "
+        print(f"{row['name']:44} {kind} {row['schema']:32} {row['pin_count']} pin(s)   {row['policy_id']}")
+        if row["deprecated_aliases"]:
+            print(f"{'':44} (deprecated aliases: {', '.join(row['deprecated_aliases'])})")
+    return 0
+
+
+def _read_pubkey_line(text: str) -> str:
+    """Extract a base64 Ed25519 public key from a key file's content: accepts a bare base64 string, an
+    ``ed25519:<b64>`` issuer string, or a JSON object with ``public_key_b64`` / ``issuer_public_key_b64``.
+    Returns the base64 string (empty if none found — the caller fail-closes on that)."""
+    s = text.strip()
+    if s.startswith("{"):
+        try:
+            obj = json.loads(s)
+        except ValueError:
+            return ""
+        return obj.get("public_key_b64") or obj.get("issuer_public_key_b64") or ""
+    if s.startswith("ed25519:"):
+        return s[len("ed25519:"):].strip()
+    return s
+
+
+def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
+    """AP-2 §6.3: turn a shipped template into a deployment-ready org policy, offline. Reads the issuer
+    key file(s) and optional expected-root file, pins them, and writes the instantiated policy JSON."""
+    from .policy import PolicyError  # noqa: PLC0415
+    from .policy_profiles import instantiate_template  # noqa: PLC0415
+    try:
+        keys = []
+        for kf in args.issuer_key:
+            with open(kf, encoding="utf-8") as fh:
+                key = _read_pubkey_line(fh.read())
+            if not key:
+                raise PolicyError(f"issuer key file {kf!r} carries no public key")
+            keys.append(key)
+        expected_root = None
+        if args.expected_root_file:
+            with open(args.expected_root_file, encoding="utf-8") as fh:
+                expected_root = fh.read().strip()
+        inst = instantiate_template(args.template, issuer_keys=keys, policy_id=args.policy_id,
+                                    expected_root=expected_root, valid_until=args.valid_until)
+    except (PolicyError, OSError, ValueError) as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    out = json.dumps(inst, indent=2, ensure_ascii=False)
+    if not inst.get("deploymentReady"):
+        # honest, loud: the instance is missing a required field (e.g. an authenticated-root template
+        # instantiated without --expected-root-file). It is written so it can be completed, but it is NOT
+        # production-ready and `policy lint --strict` will refuse it (No-Fake).
+        print("[policy-instantiate] WARNING: result is deploymentReady=false — a required field is "
+              "missing (this template needs --expected-root-file); complete it before deploying.",
+              file=sys.stderr)
+    if args.output and args.output != "-":
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(out + "\n")
+        print(f"[policy-instantiate] {args.template} -> {args.output}  "
+              f"deploymentReady={inst.get('deploymentReady')}  policy_id={inst.get('policy_id')}",
+              file=sys.stderr)
+    else:
+        print(out)
     return 0
 
 
@@ -1382,9 +1506,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_lint.add_argument("--json", action="store_true", help="machine readable output")
     p_lint.set_defaults(func=_cmd_policy_lint)
     p_list = psub.add_parser(
-        "list-profiles", help="list the named trust-policy profiles shipped with this package (WP3)")
+        "list-profiles", help="list the named trust-policy profiles shipped with this package (WP3); "
+                              "canonical template names first, deprecated aliases marked")
     p_list.add_argument("--json", action="store_true", help="machine readable output")
     p_list.set_defaults(func=_cmd_policy_list_profiles)
+    p_inst = psub.add_parser(
+        "instantiate", help="AP-2 §6.3: turn a shipped TEMPLATE into a deployment-ready org policy by "
+                            "pinning your signer identity (and root, when required); offline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example:\n"
+               "  proofbundle policy instantiate strict-eval-template-v1 \\\n"
+               "    --issuer-key org-eval.pub --policy-id org/strict-eval-v1 \\\n"
+               "    --output org-strict-eval-v1.json\n"
+               "The result pins the issuer key(s), sets requiresIdentityOverlay=false, and is\n"
+               "deploymentReady=true only when every required field is filled (an authenticated-root\n"
+               "template also needs --expected-root-file). Exit 0 on success, 2 on any error.")
+    p_inst.add_argument("template", help="a template profile name, e.g. strict-eval-template-v1 "
+                                         "(deprecated aliases resolve with a warning)")
+    p_inst.add_argument("--issuer-key", action="append", required=True, metavar="FILE",
+                        help="file with a base64 Ed25519 public key to pin (repeat to pin several)")
+    p_inst.add_argument("--policy-id", required=True,
+                        help="the new policy_id in YOUR organisation namespace (must differ from the "
+                             "template's)")
+    p_inst.add_argument("--expected-root-file", metavar="FILE",
+                        help="file with a base64 merkle root to pin as trusted_roots — REQUIRED for a "
+                             "template that sets merkle.require_authenticated_root, optional otherwise")
+    p_inst.add_argument("--valid-until", metavar="ISO8601",
+                        help="optional expiry stamped onto the instance (e.g. 2027-01-01T00:00:00Z); "
+                             "policy lint --strict fails once it is in the past")
+    p_inst.add_argument("--output", "-o", metavar="FILE",
+                        help="write the instantiated policy JSON here (default: stdout)")
+    p_inst.add_argument("--json", action="store_true",
+                        help="on error, emit a JSON error object instead of a stderr line")
+    p_inst.set_defaults(func=_cmd_policy_instantiate)
 
     prereg = sub.add_parser(
         "prereg",

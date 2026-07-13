@@ -109,11 +109,11 @@ class TestCLIRootAuthenticity(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             bundle, root = self._emit_single_leaf(d)
-            # match → exit 0, ROOT-AUTHENTICITY: PASS, safe-for-automation true
+            # match → exit 0, ROOT-AUTHENTICITY: PASS; P0-B: safe-for-automation FALSE without a policy
             ok = self._run("verify", str(bundle), "--expected-root", root)
             self.assertEqual(ok.returncode, 0)
             self.assertIn("ROOT-AUTHENTICITY: PASS", ok.stdout)
-            self.assertIn("safe-for-automation true", ok.stdout)
+            self.assertIn("safe-for-automation false", ok.stdout)
             # mismatch → exit 1, FAIL
             bad = self._run("verify", str(bundle), "--expected-root", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
             self.assertEqual(bad.returncode, 1)
@@ -122,10 +122,41 @@ class TestCLIRootAuthenticity(unittest.TestCase):
             js = self._run("verify", str(bundle), "--expected-root", root, "--json")
             obj = _json.loads(js.stdout)
             self.assertEqual(obj["root_authenticity"]["rootAuthenticity"], "PASS")
-            self.assertTrue(obj["root_authenticity"]["safeForAutomation"])
+            # P0-B: root authenticated but no policy → NOT safe, with an explicit blocker
+            self.assertFalse(obj["root_authenticity"]["safeForAutomation"])
+            self.assertIn("POLICY_NOT_EVALUATED", obj["root_authenticity"]["automationBlockers"])
             for k in ("payloadSignature", "merkleConsistency", "rootAuthenticity",
-                      "publicTransparency", "safeForAutomation"):
+                      "publicTransparency", "safeForAutomation", "automationBlockers"):
                 self.assertIn(k, obj["root_authenticity"])
+
+    def test_p0a_expected_tree_size_without_root_is_enforced_and_surfaced(self):
+        # P0-A (audit 2026-07-13): --expected-tree-size must be enforced ON ITS OWN, never a silent no-op
+        # gated on --expected-root, and surfaced as a machine-readable treeSizeExpectation object.
+        import json as _json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            bundle, _root = self._emit_single_leaf(d)   # single leaf → tree_size 1
+            # (a) MATCH without --expected-root → exit 0, treeSizeExpectation PASS
+            js = self._run("verify", str(bundle), "--expected-tree-size", "1", "--json")
+            self.assertEqual(js.returncode, 0)
+            obj = _json.loads(js.stdout)
+            self.assertEqual(obj["treeSizeExpectation"]["status"], "PASS")
+            self.assertEqual(obj["treeSizeExpectation"]["expected"], 1)
+            self.assertEqual(obj["treeSizeExpectation"]["actual"], 1)
+            # (b) MISMATCH without --expected-root → exit 1 (ENFORCED, not silently ignored)
+            bad = self._run("verify", str(bundle), "--expected-tree-size", "999")
+            self.assertEqual(bad.returncode, 1)
+            self.assertIn("tree_size 1 != expected 999", bad.stdout)
+            jbad = _json.loads(self._run("verify", str(bundle), "--expected-tree-size", "999", "--json").stdout)
+            self.assertEqual(jbad["treeSizeExpectation"]["status"], "FAIL")
+            # (c) flag absent → NOT_REQUESTED, actual still surfaced
+            none = _json.loads(self._run("verify", str(bundle), "--json").stdout)
+            self.assertEqual(none["treeSizeExpectation"]["status"], "NOT_REQUESTED")
+            self.assertIsNone(none["treeSizeExpectation"]["expected"])
+            self.assertEqual(none["treeSizeExpectation"]["actual"], 1)
+            # (d) bool/float rejected at the CLI (argparse type=int rejects non-ints → exit 2)
+            fl = self._run("verify", str(bundle), "--expected-tree-size", "1.0")
+            self.assertEqual(fl.returncode, 2)
 
     def test_cli_malformed_json_error_path_carries_root_authenticity_key(self):
         import json as _json
@@ -152,7 +183,9 @@ class TestSummary(unittest.TestCase):
         # authenticated → PASS + safe
         s = root_authenticity_summary(verify_bundle(orig, expected_root_b64=orig["merkle"]["root_b64"]))
         self.assertEqual(s["rootAuthenticity"], "PASS")
-        self.assertTrue(s["safeForAutomation"])
+        # P0-B (audit 2026-07-13): root PASS alone is NOT automation-safe without a passing trust policy.
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("POLICY_NOT_EVALUATED", s["automationBlockers"])
         # mismatched → FAIL, not safe, but signature + consistency still PASS
         s = root_authenticity_summary(verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"]))
         self.assertEqual(s["rootAuthenticity"], "FAIL")
@@ -162,19 +195,68 @@ class TestSummary(unittest.TestCase):
 
     def test_summary_folds_policy_trusted_root(self):
         orig, _ = _make_orig_and_coherent_rewrap()
-        s = root_authenticity_summary(verify_bundle(orig), policy_authenticated_root=True)
+        # AP-1 §5: root authenticated by the policy's trusted_roots AND the policy passed with a pinned signer → safe.
+        s = root_authenticity_summary(verify_bundle(orig), policy_authenticated_root=True,
+                                      policy_ok=True, signer_trusted=True)
         self.assertEqual(s["rootAuthenticity"], "PASS")
         self.assertTrue(s["safeForAutomation"])
 
-    def test_safe_for_automation_false_when_policy_or_anchor_fails(self):
-        # §6.3: safeForAutomation requires root authenticity AND policy. A failing policy/anchor gate
-        # makes it false even when the root itself authenticated (6-lens review 2026-07-12).
-        orig, _ = _make_orig_and_coherent_rewrap()
-        r = verify_bundle(orig, expected_root_b64=orig["merkle"]["root_b64"])  # root authenticated
-        self.assertTrue(root_authenticity_summary(r)["safeForAutomation"])
-        self.assertFalse(root_authenticity_summary(r, policy_ok=False)["safeForAutomation"])
-        self.assertFalse(root_authenticity_summary(r, anchor_ok=False)["safeForAutomation"])
-        self.assertTrue(root_authenticity_summary(r, policy_ok=True)["safeForAutomation"])
+    def test_p0b_safe_for_automation_requires_passing_policy(self):
+        # P0-B (audit 2026-07-13): safeForAutomation is a GLOBAL trust verdict. A crypto-valid, root-
+        # authenticated receipt is NOT automation-safe unless a supplied trust policy PASSED with a real
+        # signer pin. The former `policy_ok is not False` let policy_ok=None (no policy) through — the bug.
+        orig, rewrap = _make_orig_and_coherent_rewrap()
+        r = verify_bundle(orig, expected_root_b64=orig["merkle"]["root_b64"])  # crypto OK, root authenticated
+        # (1) expected_root without any policy → NOT safe (POLICY_NOT_EVALUATED)
+        s = root_authenticity_summary(r)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertEqual(s["automationBlockers"], ["POLICY_NOT_EVALUATED"])
+        # (2) an explicitly FAILED policy → NOT safe (POLICY_FAILED)
+        s = root_authenticity_summary(r, policy_ok=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("POLICY_FAILED", s["automationBlockers"])
+        # (3) AP-1 §5: a PASSING policy that pins no trusted signer → NOT safe (SIGNER_NOT_PINNED).
+        # test_policy_without_signer_pin_never_sets_safe_true / test_untrusted_signer_forces_safe_false
+        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("SIGNER_NOT_PINNED", s["automationBlockers"])
+        # (3b) test_policy_warning_forces_safe_false — signer pinned but a residual policy warning present
+        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=True, policy_warnings=["residual"])
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("POLICY_WARNINGS_PRESENT", s["automationBlockers"])
+        # (4) test_missing_required_anchor_forces_safe_false — a FAILED anchor gate blocks even a good policy
+        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=True, anchor_ok=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("ANCHOR_REQUIRED_FAILED", s["automationBlockers"])
+        # (4b) required public-transparency / replay gates (forward-compat blockers)
+        self.assertIn("PUBLIC_TRANSPARENCY_REQUIRED_FAILED",
+                      root_authenticity_summary(r, policy_ok=True, signer_trusted=True,
+                                                public_transparency_ok=False)["automationBlockers"])
+        self.assertIn("REPLAY_BINDING_REQUIRED_FAILED",
+                      root_authenticity_summary(r, policy_ok=True, signer_trusted=True,
+                                                replay_ok=False)["automationBlockers"])
+        # (5) test_all_required_gates_pass_sets_safe_true — passing policy + pinned signer + root + anchor
+        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=True, anchor_ok=True)
+        self.assertTrue(s["safeForAutomation"])
+        self.assertEqual(s["automationBlockers"], [])
+        # (6) crypto FAIL dominates → NOT safe (CRYPTO_FAILED), even with a passing policy
+        rf = verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"])   # root mismatch → crypto FAIL
+        self.assertFalse(rf.ok)
+        s = root_authenticity_summary(rf, policy_ok=True, signer_trusted=True)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("CRYPTO_FAILED", s["automationBlockers"])
+
+    def test_ap1_automation_blockers_enumerate_every_false_reason(self):
+        # §5.4 test_automation_blockers_enumerate_every_false_reason: a fully-failing state lists ALL reasons.
+        orig, rewrap = _make_orig_and_coherent_rewrap()
+        rf = verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"])  # crypto FAIL + root FAIL
+        s = root_authenticity_summary(rf, policy_ok=False, anchor_ok=False,
+                                      public_transparency_ok=False, replay_ok=False)
+        for b in ("CRYPTO_FAILED", "ROOT_NOT_AUTHENTICATED", "POLICY_FAILED",
+                  "ANCHOR_REQUIRED_FAILED", "PUBLIC_TRANSPARENCY_REQUIRED_FAILED",
+                  "REPLAY_BINDING_REQUIRED_FAILED"):
+            self.assertIn(b, s["automationBlockers"])
+        self.assertFalse(s["safeForAutomation"])
 
 
 class TestPolicyAuthenticatedRoot(unittest.TestCase):
@@ -217,11 +299,11 @@ class TestPolicyAuthenticatedRoot(unittest.TestCase):
 
     def test_shipped_authenticated_root_profile_activates_protection(self):
         # Audit 2026-07-13 (§18a): a SHIPPED profile must actually activate the rewrap protection —
-        # not only a bespoke inline test policy. strict-eval-authenticated-root-v1 sets
+        # not only a bespoke inline test policy. strict-eval-authenticated-root-template-v1 sets
         # require_authenticated_root, so a relying party who loads it (and supplies the authenticated
         # root) is protected against the coherent rewrap.
         from proofbundle.policy_profiles import profile_path
-        prof = load_policy(profile_path("strict-eval-authenticated-root-v1"))
+        prof = load_policy(profile_path("strict-eval-authenticated-root-template-v1"))
         self.assertTrue(prof["merkle"]["require_authenticated_root"])
         orig, rewrap = _make_orig_and_coherent_rewrap()
         # with the authentic root trusted, orig's root authenticates; the rewrap's does not
@@ -238,6 +320,359 @@ class TestPolicyAuthenticatedRoot(unittest.TestCase):
         joined = " ".join(lines).lower()
         self.assertIn("authenticated", joined)
         self.assertIn("trusted_roots", joined)
+
+
+class TestAP3TreeSizeExpectation(unittest.TestCase):
+    """AP-3 §7.2 — the expected-tree-size rest package: additive regressions for negative/zero/huge
+    values, the non-integer CLI usage error, and the NOT_REQUESTED JSON status when the flag is absent.
+    The core (tree-size checked INDEPENDENTLY of the root) is already proven in TestExpectedRootGate."""
+
+    @staticmethod
+    def _bundle_path():
+        import json
+        import os
+        import tempfile
+        b = emit_bundle(b"AP-3 tree-size", generate_signer())   # a real single-leaf receipt (tree_size 1)
+        fd, p = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump(b, f)
+        return p
+
+    def _verify(self, *extra):
+        import contextlib
+        import io
+        import json
+        from proofbundle.cli import main
+        p = self._bundle_path()
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    rc = main(["verify", "--json", p, *extra])
+                except SystemExit as exc:   # argparse usage errors sys.exit() instead of returning
+                    rc = exc.code if isinstance(exc.code, int) else 2
+        finally:
+            import os
+            os.unlink(p)
+        data = None
+        try:
+            data = json.loads(out.getvalue())
+        except ValueError:
+            pass
+        return rc, data, err.getvalue()
+
+    def test_expected_tree_size_negative_fails(self):
+        rc, data, err = self._verify("--expected-tree-size", "-1")
+        self.assertEqual(rc, 1)                                  # crypto verdict FAIL, not a crash
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(data["treeSizeExpectation"]["status"], "FAIL")
+        self.assertEqual(data["treeSizeExpectation"]["expected"], -1)
+
+    def test_expected_tree_size_zero_fails_or_matches_only_empty_tree(self):
+        # a real 1-leaf receipt has tree_size 1, so an expectation of 0 must FAIL (0 could only match an
+        # empty tree, which is not a producible receipt here).
+        rc, data, _ = self._verify("--expected-tree-size", "0")
+        self.assertEqual(rc, 1)
+        self.assertEqual(data["treeSizeExpectation"]["status"], "FAIL")
+
+    def test_expected_tree_size_huge_value_fails_cleanly(self):
+        rc, data, err = self._verify("--expected-tree-size", "1" + "0" * 40)   # 10**40, absurdly large
+        self.assertIn(rc, (1, 2))                                # a clean FAIL/usage exit, never a crash
+        self.assertNotIn("Traceback", err)
+        if data is not None:
+            self.assertEqual(data["treeSizeExpectation"]["status"], "FAIL")
+
+    def test_cli_expected_tree_size_non_integer_rejected_with_usage_error(self):
+        rc, _, err = self._verify("--expected-tree-size", "1.5")
+        self.assertEqual(rc, 2)                                  # argparse usage error
+        self.assertIn("invalid int value", err)
+
+    def test_json_tree_size_expectation_not_requested_when_flag_absent(self):
+        rc, data, _ = self._verify()
+        self.assertEqual(rc, 0)
+        tse = data["treeSizeExpectation"]
+        self.assertEqual(tse["status"], "NOT_REQUESTED")
+        self.assertIsNone(tse["expected"])
+        self.assertEqual(tse["actual"], 1)
+
+
+class TestAP1PreLandReviewRegressions(unittest.TestCase):
+    """Regressions for the pre-land L2 review findings on the safeForAutomation signer gate."""
+
+    def test_decision_maker_only_policy_does_not_fake_a_trusted_signer_on_verify_path(self):
+        # L2-F1 (HIGH, fail-open): a v0.2 policy that pins ONLY decision_receipt.trusted_decision_makers
+        # (a DIFFERENT key than the bundle signer) must NOT yield safeForAutomation:true on the verify
+        # (bundle) path — evaluate_policy never matches the bundle signer against trusted_decision_makers
+        # (that is the verify-decision path), so the signer was authorised by nobody. Before the fix, the
+        # absence of the 'attributes to nobody' warning (which counts trusted_decision_makers as a pin)
+        # made signer_trusted=True → SAFE_FOR_AUTOMATION: YES against an unpinned signer.
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        from proofbundle.cli import main
+        from proofbundle.emit import emit_bundle, generate_signer
+
+        signer_a = generate_signer()                     # the bundle's actual signer
+        key_b = _b64(generate_signer().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        bundle = emit_bundle(b"L2-F1 decision-maker-only policy", signer_a)
+        policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/dm-only",
+                  "allowed_schema_versions": ["proofbundle/v0.1"],
+                  "signature": {"allowed_algs": ["ed25519"]},
+                  "merkle": {"trusted_roots": [bundle["merkle"]["root_b64"]]},   # root authenticates legitimately
+                  "decision_receipt": {"trusted_decision_makers": [{"public_key_b64": key_b}]}}
+        bfd, bpath = tempfile.mkstemp(suffix=".json")
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        try:
+            with os.fdopen(bfd, "w") as f:
+                json.dump(bundle, f)
+            with os.fdopen(pfd, "w") as f:
+                json.dump(policy, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                main(["verify", "--json", bpath, "--policy", ppath])
+            data = json.loads(out.getvalue())
+        finally:
+            os.unlink(bpath)
+            os.unlink(ppath)
+        ra = data["root_authenticity"]
+        self.assertFalse(ra["safeForAutomation"],
+                         "a decision-maker-only policy must not fake a trusted signer on the verify path")
+        self.assertIn("SIGNER_NOT_PINNED", ra["automationBlockers"])
+
+    def test_allowed_issuers_matching_signer_still_sets_safe_true(self):
+        # regression-guard the other direction: a real eval policy that pins the matching signer + an
+        # authenticated root STILL yields safeForAutomation:true (the fix must not over-tighten).
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        from proofbundle.cli import main
+        from proofbundle.emit import emit_bundle, generate_signer
+
+        signer = generate_signer()
+        pub = _b64(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        bundle = emit_bundle(b"L2-F1 positive control", signer)
+        root = bundle["merkle"]["root_b64"]
+        policy = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "org/pinned",
+                  "allowed_schema_versions": ["proofbundle/v0.1"],
+                  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
+                  "allowed_issuers": [{"public_key_b64": pub}],
+                  "merkle": {"trusted_roots": [root]}}
+        bfd, bpath = tempfile.mkstemp(suffix=".json")
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        try:
+            with os.fdopen(bfd, "w") as f:
+                json.dump(bundle, f)
+            with os.fdopen(pfd, "w") as f:
+                json.dump(policy, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                main(["verify", "--json", bpath, "--policy", ppath])
+            data = json.loads(out.getvalue())
+        finally:
+            os.unlink(bpath)
+            os.unlink(ppath)
+        ra = data["root_authenticity"]
+        self.assertTrue(ra["safeForAutomation"], f"a pinned matching signer must stay safe: {ra}")
+        self.assertEqual(ra["automationBlockers"], [])
+
+    def test_pinned_signer_but_requires_overlay_is_template_not_instantiated(self):
+        # L2 pre-land audit F1: a policy that DOES pin+match the signer but still carries
+        # requiresIdentityOverlay:true (an un-cleared template-lifecycle flag) must be safeForAutomation:false
+        # with the HONEST blocker TEMPLATE_NOT_INSTANTIATED — never the factually-wrong SIGNER_NOT_PINNED (a
+        # signer IS pinned here). Fail-closed direction; the point is honest attribution.
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        from proofbundle.cli import main
+        from proofbundle.emit import emit_bundle, generate_signer
+
+        signer = generate_signer()
+        pub = _b64(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        bundle = emit_bundle(b"L2-F1 template flag with real pin", signer)
+        root = bundle["merkle"]["root_b64"]
+        policy = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "org/half-baked",
+                  "requiresIdentityOverlay": True,   # left set — the un-cleared template flag
+                  "allowed_schema_versions": ["proofbundle/v0.1"],
+                  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
+                  "allowed_issuers": [{"public_key_b64": pub}],   # a REAL signer IS pinned + matches
+                  "merkle": {"trusted_roots": [root]}}
+        bfd, bpath = tempfile.mkstemp(suffix=".json")
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        try:
+            with os.fdopen(bfd, "w") as f:
+                json.dump(bundle, f)
+            with os.fdopen(pfd, "w") as f:
+                json.dump(policy, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                main(["verify", "--json", bpath, "--policy", ppath])
+            data = json.loads(out.getvalue())
+        finally:
+            os.unlink(bpath)
+            os.unlink(ppath)
+        ra = data["root_authenticity"]
+        self.assertFalse(ra["safeForAutomation"])
+        self.assertIn("TEMPLATE_NOT_INSTANTIATED", ra["automationBlockers"])
+        self.assertNotIn("SIGNER_NOT_PINNED", ra["automationBlockers"])
+
+
+class TestAP1S54NamedRegressions(unittest.TestCase):
+    """AP-1 §5.4 — the mandatory safeForAutomation regressions as individually-named tests. The unit
+    matrix is also covered inside TestP0BSafeForAutomation; these give each §5.4 name a discrete home
+    and add the two end-to-end cases (expiry, human⟷JSON parity) that only the CLI path exercises."""
+
+    def _authenticated_result(self):
+        orig, _ = _make_orig_and_coherent_rewrap()
+        return verify_bundle(orig, expected_root_b64=orig["merkle"]["root_b64"])
+
+    def test_expected_root_without_policy_never_sets_safe_true(self):
+        s = root_authenticity_summary(self._authenticated_result())
+        self.assertFalse(s["safeForAutomation"])
+        self.assertEqual(s["automationBlockers"], ["POLICY_NOT_EVALUATED"])
+
+    def test_policy_none_never_sets_safe_true(self):
+        self.assertFalse(root_authenticity_summary(self._authenticated_result(),
+                                                   policy_ok=None)["safeForAutomation"])
+
+    def test_policy_without_signer_pin_never_sets_safe_true(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True, signer_trusted=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("SIGNER_NOT_PINNED", s["automationBlockers"])
+
+    def test_policy_warning_forces_safe_false(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True,
+                                      signer_trusted=True, policy_warnings=["residual"])
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("POLICY_WARNINGS_PRESENT", s["automationBlockers"])
+
+    def test_expired_policy_forces_safe_false(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True,
+                                      signer_trusted=True, policy_expired=True)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("POLICY_EXPIRED", s["automationBlockers"])
+
+    def test_untrusted_signer_forces_safe_false(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True, signer_trusted=False)
+        self.assertFalse(s["safeForAutomation"])
+
+    def test_missing_required_anchor_forces_safe_false(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True,
+                                      signer_trusted=True, anchor_ok=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("ANCHOR_REQUIRED_FAILED", s["automationBlockers"])
+
+    def test_missing_required_public_transparency_forces_safe_false(self):
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True,
+                                      signer_trusted=True, public_transparency_ok=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("PUBLIC_TRANSPARENCY_REQUIRED_FAILED", s["automationBlockers"])
+
+    def test_missing_required_nonce_forces_safe_false(self):
+        # a required replay/nonce binding gate that FAILED forces safe false (forward-compat blocker)
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True,
+                                      signer_trusted=True, replay_ok=False)
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("REPLAY_BINDING_REQUIRED_FAILED", s["automationBlockers"])
+
+    def test_all_required_gates_pass_sets_safe_true(self):
+        # mutation-gated (§15): the ONE true-path — passing policy + pinned signer + authenticated root +
+        # a satisfied anchor gate, no warnings, not expired. Flip any single input and safe must go false.
+        s = root_authenticity_summary(self._authenticated_result(), policy_ok=True, signer_trusted=True,
+                                      anchor_ok=True, policy_expired=False)
+        self.assertTrue(s["safeForAutomation"])
+        self.assertEqual(s["automationBlockers"], [])
+
+    def test_automation_blockers_enumerate_every_false_reason(self):
+        orig, rewrap = _make_orig_and_coherent_rewrap()
+        rf = verify_bundle(rewrap, expected_root_b64=orig["merkle"]["root_b64"])   # crypto + root FAIL
+        s = root_authenticity_summary(rf, policy_ok=False, anchor_ok=False,
+                                      public_transparency_ok=False, replay_ok=False)
+        for b in ("CRYPTO_FAILED", "ROOT_NOT_AUTHENTICATED", "POLICY_FAILED",
+                  "ANCHOR_REQUIRED_FAILED", "PUBLIC_TRANSPARENCY_REQUIRED_FAILED",
+                  "REPLAY_BINDING_REQUIRED_FAILED"):
+            self.assertIn(b, s["automationBlockers"])
+
+    def test_human_and_json_safe_flag_never_disagree(self):
+        # AP-1 §5.3 / Iteration F: the human SAFE_FOR_AUTOMATION line and the JSON flag are derived from
+        # the same summary, so across a range of scenarios they must always agree. Exercised via the real
+        # CLI on a signed eval receipt, with and without a pinning policy + matching --expected-root.
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        from proofbundle.cli import main
+        from proofbundle.emit import generate_signer as _gen
+        from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
+        from proofbundle.policy_profiles import instantiate_template
+
+        def _run(argv):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                main(argv)
+            return out.getvalue()
+
+        signer = _gen()
+        pub = base64.b64encode(
+            signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
+        claim, _ = build_eval_claim(
+            suite="safety", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
+            score="0.9", n=10, model_id="m", dataset_id="d", issuer="placeholder",
+            timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+        bundle = emit_eval_receipt(claim, signer)
+        root_b64 = bundle["merkle"]["root_b64"]
+
+        pinned = instantiate_template("strict-eval-template-v1", issuer_keys=[pub], policy_id="org/e2e-v1")
+        expired = instantiate_template("strict-eval-template-v1", issuer_keys=[pub], policy_id="org/e2e-exp-v1",
+                                       valid_until="2020-01-01T00:00:00Z")
+
+        tmp = []
+        try:
+            def _w(obj, suffix):
+                fd, p = tempfile.mkstemp(suffix=suffix)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(obj, f)
+                tmp.append(p)
+                return p
+            bpath = _w(bundle, ".json")
+            ppath = _w(pinned, ".policy.json")
+            xpath = _w(expired, ".policy.json")
+
+            scenarios = [
+                ["verify", bpath],                                                       # no policy → NO
+                ["verify", bpath, "--policy", ppath],                                    # pinned but no root → NO
+                ["verify", bpath, "--policy", ppath, "--expected-root", root_b64],       # all gates pass → YES
+                ["verify", bpath, "--policy", xpath, "--expected-root", root_b64],       # expired → NO
+            ]
+            for argv in scenarios:
+                human = _run(argv + [])
+                data = json.loads(_run(argv + ["--json"]))
+                json_safe = data["root_authenticity"]["safeForAutomation"]
+                human_yes = "SAFE_FOR_AUTOMATION: YES" in human
+                human_no = "SAFE_FOR_AUTOMATION: NO" in human
+                self.assertTrue(human_yes ^ human_no, f"exactly one verdict line expected for {argv}")
+                self.assertEqual(json_safe, human_yes, f"human/JSON safe flag disagree for {argv}")
+        finally:
+            for p in tmp:
+                os.unlink(p)
 
 
 if __name__ == "__main__":

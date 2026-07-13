@@ -1,0 +1,15 @@
+{
+  "caseId": "native-bundle-n1-eval-sdjwt-graft-non-eval",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (N1, 2026-07-13: eval SD-JWT root-commitment grafted onto a non-eval payload)",
+  "expected": {
+    "exitCode": 1,
+    "rejected": true
+  },
+  "specRefs": [
+    "SPEC.md",
+    "THREAT_MODEL.md"
+  ],
+  "rationale": "The sd_jwt_vc carries an eval-binding root commitment (receipt.root_b64) but the signed payload is NOT a proofbundle/eval-claim/v0.1 claim, so there is nothing on this bundle for that commitment to bind to. verify MUST reject it (exit 1, sd-jwt-bundle-binding=False, reason 'unbindable eval SD-JWT'). A second implementation MUST refuse this graft; keying only on eval-claim payloads leaves it vulnerable. N1."
+}

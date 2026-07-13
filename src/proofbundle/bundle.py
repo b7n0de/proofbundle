@@ -33,7 +33,27 @@ from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
 
 __all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64",
-           "root_authenticity_summary"]
+           "root_authenticity_summary", "AUTOMATION_BLOCKER_REASONS"]
+
+# AP-1 §5.3: the human-legible reason for each automationBlockers enum value. Kept HERE, next to the
+# blocker logic in root_authenticity_summary, so the human `SAFE_FOR_AUTOMATION` line and the JSON flag
+# can never drift apart (one source of truth — Iteration F). A blocker with no entry falls back to its
+# raw enum string, so a future blocker is never silently unexplained.
+AUTOMATION_BLOCKER_REASONS = {
+    "CRYPTO_FAILED": "Cryptographic verification did not pass",
+    "ROOT_NOT_AUTHENTICATED": "The Merkle root was not authenticated against a relying-party value "
+                              "(--expected-root or a policy trusted_roots entry)",
+    "POLICY_NOT_EVALUATED": "No trust policy was evaluated (supply --policy to authorise a signer)",
+    "POLICY_FAILED": "The supplied trust policy was not satisfied",
+    "SIGNER_NOT_PINNED": "The trust policy pins no trusted signer identity (attributes to nobody)",
+    "TEMPLATE_NOT_INSTANTIATED": "The trust policy is a raw template (requiresIdentityOverlay:true) — "
+                                 "instantiate it with a signer identity before depending on it for automation",
+    "POLICY_EXPIRED": "The trust policy has expired (its valid_until is in the past)",
+    "POLICY_WARNINGS_PRESENT": "The trust policy carries a warning that blocks automation",
+    "ANCHOR_REQUIRED_FAILED": "A required external time anchor did not verify",
+    "PUBLIC_TRANSPARENCY_REQUIRED_FAILED": "A required public-transparency proof did not verify",
+    "REPLAY_BINDING_REQUIRED_FAILED": "A required replay/audience binding did not verify",
+}
 
 
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
@@ -68,6 +88,27 @@ _TOP_KEYS = {"schema", "payload_b64", "signature", "merkle", "sd_jwt_vc", "ancho
 _SIG_KEYS = {"alg", "public_key_b64", "sig_b64"}
 _MERKLE_KEYS = {"hash_alg", "leaf_index", "tree_size", "inclusion_proof_b64", "root_b64"}
 _SD_KEYS = {"compact", "issuer_public_key_b64"}
+
+
+def _sd_jwt_carries_eval_root_commitment(sd_payload) -> bool:
+    """N1 (audit 2026-07-13; discriminator hardened after pre-land L1 review): True iff an SD-JWT issuer
+    payload carries the eval-binding ROOT COMMITMENT (``receipt.root_b64``, a non-empty base64 string)
+    that ``check_binds_bundle`` binds against — i.e. it CLAIMS to be anchored to a proofbundle merkle
+    root. That commitment is the exact cross-receipt substitution vector, so it (NOT a heuristic
+    word-match on generic keys like ``passed``/``suite``/``threshold``) is what marks an eval SD-JWT
+    grafted onto a non-eval payload. `issue_sd_jwt` always writes ``receipt.root_b64`` always-open, so a
+    genuine eval SD-JWT is caught even if its ``passed``/``threshold`` facts are moved into selective
+    disclosures; a generic SD-JWT-VC (``iss``/``vct``, no receipt commitment) is not an eval graft and
+    stays in scope (backward-compatible). Residual (documented, out of scope): a SELF-SIGNED credential
+    that hides even ``receipt.root_b64`` in a disclosure asserts no always-open anchoring claim and cannot
+    forge a trusted-issuer graft (the genuine emitter never does this)."""
+    if not isinstance(sd_payload, dict):
+        return False
+    receipt = sd_payload.get("receipt")
+    # Fire on the PRESENCE of a receipt.root_b64 string, INCLUDING "" (L1 pre-land audit F3): an empty root
+    # commits nothing concrete, but "an eval-shaped commitment present yet evading N1" should not exist. A
+    # generic SD-JWT-VC has no receipt object at all, so this never false-refuses one.
+    return isinstance(receipt, dict) and isinstance(receipt.get("root_b64"), str)
 
 
 def _b64d(value: str, field: str) -> bytes:
@@ -350,6 +391,25 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "sd_jwt_vc disclosures do NOT bind this bundle (reason: unbound/mismatch — cross-receipt "
                     "substitution; the SD-JWT's passed/threshold/comparator/suite/issuer/root differ from the "
                     "signed claim)")
+            elif _sd_jwt_carries_eval_root_commitment(_sd_p):
+                # N1 (audit 2026-07-13, L1 live PoC; discriminator hardened after pre-land L1 review): an
+                # EVAL SD-JWT (issue_sd_jwt writes the always-open root commitment receipt.root_b64) MUST
+                # bind to a proofbundle/eval-claim/v0.1 payload — check_binds_bundle above is the only
+                # binding for it. Grafted onto a NON-eval payload it has nothing to bind against, so
+                # previously the exact same issuer-valid eval SD-JWT verified CRYPTO: OK on ANY
+                # opaque-payload bundle (cross-receipt substitution, sd_jwt_ok stayed true, zero operator
+                # signal). Fail-closed (Reifegradpolitik §0.6: never a silent PASS for insecure legacy
+                # behaviour). Keying on receipt.root_b64 (the real substitution vector) rather than a
+                # word-match on generic keys catches a graft even when passed/threshold are moved into
+                # disclosures, and never false-refuses a GENERIC SD-JWT-VC (iss/vct, no receipt commitment,
+                # e.g. examples/example_bundle.json), which carries no eval anchoring claim and is out of
+                # scope (backward-compatible).
+                result.add(
+                    "sd-jwt-bundle-binding", False,
+                    "sd_jwt_vc carries an eval-claim root commitment (receipt.root_b64) but the signed "
+                    "payload is not a proofbundle/eval-claim/v0.1 claim, so that anchoring claim cannot be "
+                    "bound to this bundle (reason: unbindable eval SD-JWT — a valid issuer signature does not "
+                    "make an unbound eval anchoring claim belong to this receipt; refused fail-closed)")
 
     # F4 (v1.9.2, fail-closed): supplying expected_aud/expected_nonce asks for RFC 9901 §7.3
     # replay/audience binding. A bundle with no verifiable KB-JWT (no sd_jwt_vc at all, or an
@@ -369,7 +429,13 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
 def root_authenticity_summary(result: VerificationResult, *,
                               policy_authenticated_root: Optional[bool] = None,
                               policy_ok: Optional[bool] = None,
-                              anchor_ok: Optional[bool] = None) -> dict:
+                              anchor_ok: Optional[bool] = None,
+                              signer_trusted: Optional[bool] = None,
+                              policy_warnings: Optional[list] = None,
+                              policy_expired: Optional[bool] = None,
+                              requires_identity_overlay: Optional[bool] = None,
+                              public_transparency_ok: Optional[bool] = None,
+                              replay_ok: Optional[bool] = None) -> dict:
     """Structured root-authenticity verdicts (P0-A §6.3), derived from a completed VerificationResult.
 
     Separates what Merkle inclusion actually proves from what it does NOT, as three-state strings so a
@@ -381,14 +447,18 @@ def root_authenticity_summary(result: VerificationResult, *,
                          relying-party value (``expected_root``, or a policy's ``trusted_roots``)?
       publicTransparency NOT_EVALUATED     — a public-log receipt is the separate §10 profile
       safeForAutomation  bool              — True ONLY if the whole crypto verdict passed, the root was
-                                             affirmatively authenticated, AND no supplied trust policy /
-                                             anchor requirement FAILED (§6.3: root authenticity AND policy)
+                                             affirmatively authenticated, AND a supplied trust policy
+                                             PASSED with a real signer pin (P0-B, audit 2026-07-13)
+      automationBlockers list[str]         — every reason safeForAutomation is false, so a consumer
+                                             keying off the flag sees exactly WHY (fail-closed)
 
     ``policy_authenticated_root`` folds the policy layer's root verdict in when no explicit
     ``root-authenticity`` check ran (e.g. the root matched a policy ``trusted_roots`` entry).
-    ``policy_ok`` / ``anchor_ok`` are the relying-party gate verdicts (True/False/None=not-evaluated); a
-    FAILED gate makes ``safeForAutomation`` false even when the root itself authenticated, so a consumer
-    keying off this flag can never auto-trust a bundle its own policy rejected.
+    ``policy_ok`` / ``anchor_ok`` are the relying-party gate verdicts (True/False/None=not-evaluated).
+    P0-B: ``safeForAutomation`` is a GLOBAL trust verdict, so ``policy_ok`` must be True (a policy that
+    passed) — ``None`` (no policy evaluated) can never make it true. ``policy_warnings`` (the vacuous
+    'attributes to nobody' lint) forces it false too: a policy that pins no signer authorises no
+    identity, so a crypto-valid, root-pinned receipt under it is NOT automation-safe.
     """
     by = {c.name: c.ok for c in result.checks}
 
@@ -403,14 +473,56 @@ def root_authenticity_summary(result: VerificationResult, *,
         root_auth = "FAIL"
     else:
         root_auth = "NOT_EVALUATED"
-    safe = (bool(result.ok) and root_auth == "PASS"
-            and policy_ok is not False and anchor_ok is not False)
+    # P0-B (audit 2026-07-13): the former `policy_ok is not False` let policy_ok=None (no policy
+    # evaluated) through → a crypto-valid, root-pinned receipt looked automation-safe though NO trusted
+    # signer was ever authorised. safeForAutomation is now a GLOBAL trust verdict: policy_ok must be True
+    # AND carry no vacuous 'attributes to nobody' warning. Every failed condition is surfaced in
+    # automationBlockers (fail-closed, so the flag is never a silent yes).
+    # P0-B / AP-1 §5 (audit 2026-07-13): safeForAutomation is a GLOBAL trust verdict. Variant A (strict):
+    # true ONLY when crypto passed, the root was authenticated, a supplied policy PASSED (policy_ok is
+    # True — None/no-policy never qualifies), that policy actually PINS a trusted signer (signer_trusted),
+    # and no required anchor / public-transparency / replay gate FAILED. automationBlockers enumerates
+    # every reason it is false (fail-closed, never a silent yes). NOTE for 3.1.1: public_transparency_ok
+    # and replay_ok are relying-party gates that are None (not-requested) on the current core — the §10
+    # public-transparency policy section is 3.2.0, and replay (aud/nonce) already fails the crypto verdict
+    # (CRYPTO_FAILED) when a required KB-JWT is absent — so these two blockers are defined for forward
+    # compatibility and stay dormant unless a future policy layer supplies a False verdict.
+    blockers: list[str] = []
+    if not bool(result.ok):
+        blockers.append("CRYPTO_FAILED")
+    if root_auth != "PASS":
+        blockers.append("ROOT_NOT_AUTHENTICATED")
+    if policy_ok is None:
+        blockers.append("POLICY_NOT_EVALUATED")
+    elif policy_ok is False:
+        blockers.append("POLICY_FAILED")
+    elif requires_identity_overlay:
+        # AP-2 §6.2 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) is never automation-safe
+        # — reported as its OWN blocker, not SIGNER_NOT_PINNED, which would be factually wrong when the template
+        # actually does match a signer (the real reason is the un-cleared template-lifecycle flag).
+        blockers.append("TEMPLATE_NOT_INSTANTIATED")
+    elif signer_trusted is not True:
+        blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
+    elif policy_warnings:
+        blockers.append("POLICY_WARNINGS_PRESENT")   # signer pinned yet the policy still warns (forward-compat)
+    # AP-2 §6.4 lifecycle: an EXPIRED policy is unsafe to automate on even if it otherwise passed (a stale
+    # signer pin the relying party has since rotated away from). Independent of the signer/warning chain so
+    # it is reported alongside, never in place of, another reason.
+    if policy_expired is True:
+        blockers.append("POLICY_EXPIRED")
+    if anchor_ok is False:
+        blockers.append("ANCHOR_REQUIRED_FAILED")
+    if public_transparency_ok is False:
+        blockers.append("PUBLIC_TRANSPARENCY_REQUIRED_FAILED")
+    if replay_ok is False:
+        blockers.append("REPLAY_BINDING_REQUIRED_FAILED")
     return {
         "payloadSignature": _tri("ed25519-signature"),
         "merkleConsistency": _tri("merkle-inclusion"),
         "rootAuthenticity": root_auth,
         "publicTransparency": "NOT_EVALUATED",
-        "safeForAutomation": safe,
+        "safeForAutomation": not blockers,
+        "automationBlockers": blockers,
     }
 
 

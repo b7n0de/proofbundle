@@ -160,14 +160,25 @@ verifies under an **attacker-chosen** key while the always-open `issuer` names a
 *trusted* party is a forged identity (valid signature, wrong signer) and **FAILS**
 (reason: `issuer-key-mismatch`).
 
-Check **sd-jwt-bundle-binding** (WP-C1): performed **iff** `sd_jwt_vc` is present,
-its issuer signature verified, and `payload_b64` decodes to a
-`proofbundle/eval-claim/v0.1` claim with a `merkle.root_b64`. The SD-JWT's
-always-open disclosures (`passed`, `threshold`, `comparator`, `suite`, `issuer`)
-and its committed `receipt.root_b64` MUST match the bundle payload bit-exact and
-bind **this** bundle's Merkle root. A valid issuer signature over disclosures that
-describe a *different* bundle (a receipt lifted and grafted on — cross-receipt
-substitution) **FAILS** (reason: `unbound`/`mismatch`).
+Check **sd-jwt-bundle-binding** (WP-C1 + N1): performed when `sd_jwt_vc` is present
+and its issuer signature verified, in **two** cases:
+1. `payload_b64` decodes to a `proofbundle/eval-claim/v0.1` claim with a
+   `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
+   `comparator`, `suite`, `issuer`) and its committed `receipt.root_b64` MUST match
+   the bundle payload bit-exact and bind **this** bundle's Merkle root. A valid
+   issuer signature over disclosures that describe a *different* bundle (a receipt
+   lifted and grafted on — cross-receipt substitution) **FAILS** (reason:
+   `unbound`/`mismatch`).
+2. **N1 (since 3.1.1):** `payload_b64` is **not** an eval-claim, but the SD-JWT
+   carries an eval-binding root commitment (a `receipt.root_b64` string in its
+   always-open payload). There is nothing on this bundle for that commitment to bind
+   to, so the check is added and **FAILS** fail-closed (reason: `unbindable eval
+   SD-JWT`). The discriminator is the presence of `receipt.root_b64` (the real
+   substitution vector `check_binds_bundle` uses), **not** a heuristic word-match on
+   `passed`/`threshold`/etc. A **generic** SD-JWT-VC (`iss`/`vct`, no `receipt.root_b64`
+   commitment) carries no eval anchoring claim and is out of scope — it does not add
+   this check (backward-compatible). A conforming verifier MUST implement case 2, or
+   it remains vulnerable to grafting a signed eval SD-JWT onto an arbitrary payload.
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
@@ -205,9 +216,13 @@ A conforming verifier MUST perform, in this order, and report each result:
 6. **sd-jwt-issuer-identity** — only if `sd_jwt_vc` is present, its issuer
    signature verified, and it discloses an `issuer` (§6, WP-C1; fail-closed against
    a forged issuer identity).
-7. **sd-jwt-bundle-binding** — only if `sd_jwt_vc` is present, its issuer
-   signature verified, and the payload is a `proofbundle/eval-claim/v0.1` claim
-   (§6, WP-C1; fail-closed against cross-receipt substitution).
+7. **sd-jwt-bundle-binding** — if `sd_jwt_vc` is present and its issuer signature
+   verified, in EITHER of two cases (§6): the payload is a
+   `proofbundle/eval-claim/v0.1` claim (WP-C1; fail-closed against cross-receipt
+   substitution), OR the payload is NOT an eval-claim but the SD-JWT carries an
+   eval-binding `receipt.root_b64` commitment (N1, since 3.1.1; fail-closed against
+   grafting a signed eval SD-JWT onto an arbitrary payload). A generic SD-JWT-VC with
+   no `receipt.root_b64` is out of scope.
 8. **root-authenticity** and **tree-size** — additive relying-party root
    authentication (ADR 0004, since the root is NOT in the signature input, §5).
    Performed ONLY when the relying party supplies an expected value: a given
@@ -224,6 +239,46 @@ A conforming verifier MUST perform, in this order, and report each result:
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
 supplies out of band; the verifier does not fetch anything.
+
+### Automation-safety verdict and additive output objects (since 3.1.1)
+
+`safeForAutomation` is a **global** "safe to act on automatically" verdict, distinct from the crypto
+verdict. It is `true` ONLY when: the crypto verification passed; the Merkle root was affirmatively
+authenticated (`expected_root` or a policy `trusted_roots` / `require_authenticated_root`); a supplied
+trust policy PASSED (`policy_ok is True` — no policy, i.e. `None`, never qualifies); that policy pins a
+trusted signer identity; the policy is not a raw template (`requiresIdentityOverlay` is not set); the
+policy carries no blocking warning and is not expired; and no required anchor / public-transparency /
+replay gate FAILED. Expiry is INCLUSIVE: a policy is valid up to and including its `valid_until` instant
+and expired strictly after it. A conforming verifier that emits the field MUST also emit
+`automationBlockers` — an array naming every reason it is false, drawn from at least:
+`POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `TEMPLATE_NOT_INSTANTIATED`,
+`ROOT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
+`PUBLIC_TRANSPARENCY_REQUIRED_FAILED`, `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`. The human and
+machine forms of the verdict MUST agree.
+
+**Enforcement status of the gate conditions (No-Overclaim).** `ANCHOR_REQUIRED_FAILED`,
+`POLICY_EXPIRED`, `TEMPLATE_NOT_INSTANTIATED`, `SIGNER_NOT_PINNED`, `POLICY_FAILED`,
+`POLICY_NOT_EVALUATED`, `POLICY_WARNINGS_PRESENT`, `ROOT_NOT_AUTHENTICATED` and `CRYPTO_FAILED` are LIVE:
+the reference verifier wires each to a real verdict. `PUBLIC_TRANSPARENCY_REQUIRED_FAILED` and
+`REPLAY_BINDING_REQUIRED_FAILED` are **forward-compatible/dormant in the current core**: the reference
+CLI never supplies a `False` value for them (public-transparency policy enforcement is the §10 profile,
+not yet built — see `docs/PUBLIC_TRANSPARENCY_PROFILE.md`; replay/audience binding already fails the
+CRYPTO verdict when a required KB-JWT is absent). They are enumerated so a future policy layer can flip
+them without a format change; today they never fire.
+
+`treeSizeExpectation` is an additive object `{status: PASS|FAIL|NOT_REQUESTED, expected, actual}` making
+the tree-size gate's outcome explicit (`NOT_REQUESTED` when no `expected_tree_size` was supplied). The
+tree-size check is evaluated INDEPENDENTLY of the root: a mismatch fails the crypto verdict on its own,
+and without a pinned root the root itself remains unauthenticated.
+
+A trust policy MAY carry additive metadata: `deploymentReady` / `requiresIdentityOverlay` (a policy is a
+raw TEMPLATE until instantiated with a signer overlay) and `valid_until` (an ISO-8601 UTC expiry).
+`requiresIdentityOverlay: true` is a HARD gate on the automation verdict — such a policy can never yield
+`safeForAutomation: true` (blocker `TEMPLATE_NOT_INSTANTIATED`), and an expired `valid_until` yields
+`POLICY_EXPIRED` — not merely `policy lint --strict` advisories; they never change the crypto verdict.
+The same template-not-instantiated and expiry gates are ALSO enforced on the `decision verify` path
+(over `decision_receipt.trusted_decision_makers`), so a raw or expired decision policy cannot authorise a
+decision (exit 3).
 
 ## 7a. Scope guardrail (honest)
 

@@ -133,4 +133,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel pip-audit
           python -m pip install -e ".[dev,eval,anchors]"
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --desc
+        # PYSEC-2026-2132 (click 8.2.1 command injection in click.edit()) is accepted, not fixable here:
+        # click is NOT a proofbundle runtime dependency (`dependencies = ["cryptography>=42"]`, zero
+        # `import click` in src/) — it arrives only transitively via the dev/eval/inspect extras'
+        # inspect_ai, whose own pin caps it at click<8.2.2 (so a local bump is impossible without an
+        # inspect_ai release), and click.edit() is never reached from the offline verify path. The scoped
+        # ignore keeps the job blocking for a REAL finding in `cryptography` (the one dependency that
+        # matters for this project's trust model). Re-evaluate when inspect_ai relaxes its click cap.
+        run: pip-audit --desc --ignore-vuln PYSEC-2026-2132
