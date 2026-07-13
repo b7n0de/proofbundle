@@ -490,6 +490,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         expected_root = getattr(args, "expected_root", None)
         expected_tree_size = getattr(args, "expected_tree_size", None)
         if cp_supplied:
+            assert cp_vkey is not None   # the guard above ties cp_supplied ⇔ cp_vkey present (mypy narrowing)
             import base64 as _b64mod  # noqa: PLC0415
             from .checkpoint import verify_checkpoint  # noqa: PLC0415
             with open(args.trusted_checkpoint, encoding="utf-8") as handle:
