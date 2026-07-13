@@ -703,9 +703,12 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             if root_match and size_match:
                 matched = True
                 break
-            reasons.append(f"[{i}] authenticated checkpoint does not match this bundle "
-                           f"(root match: {root_match}, tree_size match: {size_match} — "
-                           "an atomic pair, a partial match is a substitution signal)")
+            # STATIC reason (no root_match/size_match interpolation): both derive from the checkpoint
+            # entry (key-adjacent input), so echoing them into the operator-facing POLICY log is flagged
+            # py/clear-text-logging-sensitive-data (CodeQL). The message stays informative without the
+            # entry-derived booleans.
+            reasons.append(f"[{i}] authenticated checkpoint does not match this bundle's "
+                           "(root, tree_size) — an atomic pair, a partial match is a substitution signal")
         # checkpoint_authenticity reports whether a checkpoint authenticated AND MATCHED this bundle —
         # NOT merely that some pinned checkpoint's signature verified (Lens-3/4 review: a verified but
         # NON-matching checkpoint must not read PASS, else rootTrustLevel would overclaim CHECKPOINT).
