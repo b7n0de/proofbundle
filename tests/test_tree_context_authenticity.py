@@ -301,6 +301,29 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
         self.assertEqual(ra["rootTrustLevel"], "ROOT_AND_TREE_SIZE_PINNED")
         self.assertEqual(ra["checkpointAuthenticity"], "NOT_EVALUATED")
 
+    def test_disagreeing_policy_checkpoint_dominates_a_passing_pair(self):
+        # Lens-1 review F1 (fail-closed / No-Fake): a pinned policy checkpoint that DISAGREES with the
+        # bundle must force treeContextAuthenticity=FALSE even when a separately-supplied
+        # --expected-root/--expected-tree-size pair passes — the relying party contradicted their own
+        # trusted inputs, and PASS would be a dishonest verdict (the checkpoint they pinned says no).
+        bundle, _relabel, root = _two_leaf_bundle()
+        bfd, bpath = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(bfd, "w") as f:
+            json.dump(bundle, f)
+        self.addCleanup(os.unlink, bpath)
+        # a policy pinning a checkpoint for the SAME root but a WRONG tree size (3, bundle is 2)
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        with os.fdopen(pfd, "w") as f:
+            json.dump({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "contra",
+                       "merkle": {"trusted_checkpoints": [_checkpoint_entry(root, 3)]}}, f)
+        self.addCleanup(os.unlink, ppath)
+        rc, out, _ = self._run(["verify", "--json", bpath, "--policy", ppath,
+                                "--expected-root", _b64(root), "--expected-tree-size", "2"])
+        ra = json.loads(out)["root_authenticity"]
+        self.assertEqual(ra["treeContextAuthenticity"], "FAIL")   # the disagreeing checkpoint dominates
+        self.assertFalse(ra["safeForAutomation"])
+        self.assertEqual(rc, 3)   # policy checkpoint check failed → exit 3
+
 
 if __name__ == "__main__":
     unittest.main()

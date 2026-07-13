@@ -285,7 +285,7 @@ anchor / public-transparency / replay gate FAILED. Expiry is INCLUSIVE: a policy
 including its `valid_until` instant and expired strictly after it. A conforming verifier that emits the
 field MUST also emit `automationBlockers` — an array naming every reason it is false, drawn from at
 least: `POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `TEMPLATE_NOT_INSTANTIATED`,
-`ROOT_NOT_AUTHENTICATED`, `TREE_CONTEXT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`,
+`ROOT_NOT_AUTHENTICATED`, `TREE_CONTEXT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`, `POLICY_NOT_YET_VALID`,
 `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`, `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`,
 `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`. The human and machine forms of the verdict MUST
 agree.
@@ -296,8 +296,13 @@ whose `valid_until` is in the past, whose `valid_from` is still in the future, o
 template (`requiresIdentityOverlay: true`) FAILS the policy (`POLICY: FAIL`, exit 3). Historical
 verification never happens silently: only an explicit `--verification-time <ISO-8601>` (together with
 `--policy`) evaluates the lifecycle AS OF that instant, and the output is labelled
-(`VERIFICATION_TIME: HISTORICAL`, `CURRENT_POLICY_STATUS`, `HISTORICAL_POLICY_STATUS`); a policy that
-is expired TODAY keeps `safeForAutomation: false` (`POLICY_EXPIRED`) even in historical mode. A policy
+(`VERIFICATION_TIME: HISTORICAL`, `CURRENT_POLICY_STATUS`, `HISTORICAL_POLICY_STATUS`). Historical mode
+relaxes ONLY the POLICY verdict (exit code + label); `safeForAutomation` is a PRESENT-tense verdict
+whose lifecycle and tree-context inputs are always evaluated at the REAL current time, so a policy that
+is expired OR not-yet-valid TODAY, or a `trusted_checkpoints` entry whose `validUntil` is past TODAY,
+keeps `safeForAutomation: false` (`POLICY_EXPIRED` / `POLICY_NOT_YET_VALID` /
+`TREE_CONTEXT_NOT_AUTHENTICATED`) even in historical mode. `--verification-time` MUST be a PAST instant
+(a historical query); a future instant is a usage error (exit 2). A policy
 MAY declare `policyPurpose` ∈ `eval` / `decision` / `outcome` / `trust-pack` / `public-transparency`:
 the eval verify path accepts only `eval`, the decision path only `decision`; the wrong purpose FAILS
 the policy (exit 3). A policy without the field is treated as a transitional legacy policy (no purpose
@@ -306,8 +311,9 @@ standard base64 decoding to exactly 32 bytes — a malformed pin is a load-time 
 reason, never a silent never-matches (A-P0-5).
 
 **Enforcement status of the gate conditions (No-Overclaim).** `ANCHOR_REQUIRED_FAILED`,
-`POLICY_EXPIRED`, `TEMPLATE_NOT_INSTANTIATED`, `SIGNER_NOT_PINNED`, `POLICY_FAILED`,
-`POLICY_NOT_EVALUATED`, `POLICY_WARNINGS_PRESENT`, `ROOT_NOT_AUTHENTICATED` and `CRYPTO_FAILED` are LIVE:
+`POLICY_EXPIRED`, `POLICY_NOT_YET_VALID`, `TEMPLATE_NOT_INSTANTIATED`, `SIGNER_NOT_PINNED`,
+`POLICY_FAILED`, `POLICY_NOT_EVALUATED`, `POLICY_WARNINGS_PRESENT`, `ROOT_NOT_AUTHENTICATED`,
+`TREE_CONTEXT_NOT_AUTHENTICATED` and `CRYPTO_FAILED` are LIVE:
 the reference verifier wires each to a real verdict. `PUBLIC_TRANSPARENCY_REQUIRED_FAILED` and
 `REPLAY_BINDING_REQUIRED_FAILED` are **forward-compatible/dormant in the current core**: the reference
 CLI never supplies a `False` value for them (public-transparency policy enforcement is the §10 profile,

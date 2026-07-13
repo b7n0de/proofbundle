@@ -304,12 +304,16 @@ def load_policy(source: Union[str, dict]) -> dict:
     if _vf is not None and _vu is not None and _vf > _vu:
         raise PolicyError("valid_from is after valid_until — an empty validity window can never "
                           "authorise anything (fail-closed)")
-    # A-P0-4 §8.1: purpose binding. When present it MUST be one of the registered purposes; the
-    # verifier paths enforce the match (eval path accepts only "eval", decision only "decision").
-    if "policyPurpose" in policy:
+    # A-P0-4 §8.1: purpose binding. A present, non-null value MUST be one of the registered purposes;
+    # the verifier paths enforce the match (eval path accepts only "eval", decision only "decision").
+    # An explicit ``null`` is treated EXACTLY like absent (the transitional legacy default) — matching
+    # the schema's nullable enum and the sibling nullable fields valid_until/valid_from/
+    # generatedFromTemplate, so a policy that validates against the schema also loads (Lens-4 F1).
+    if policy.get("policyPurpose") is not None:
         if policy["policyPurpose"] not in POLICY_PURPOSES:
             raise PolicyError(
-                f"policyPurpose must be one of {list(POLICY_PURPOSES)}, got {policy['policyPurpose']!r}")
+                f"policyPurpose must be one of {list(POLICY_PURPOSES)} or null, "
+                f"got {policy['policyPurpose']!r}")
     # A-P0-5 §9.2: template provenance is a string (stamped by `policy instantiate`), display/audit only.
     _require_str_or_null(policy, "generatedFromTemplate", "trust policy")
 
@@ -458,7 +462,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
                       "cannot authorise a decision (A-P0-2 lifecycle parity)")
     # A-P0-4 §8.2: the decision verifier accepts only a decision-purpose policy. Absent = transitional
     # default (documented), matching the eval path's treatment of legacy policies without the field.
-    if "policyPurpose" in policy and policy["policyPurpose"] != "decision":
+    if policy.get("policyPurpose") is not None and policy["policyPurpose"] != "decision":  # null == absent
         errors.append(f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the "
                       "decision verify path (wrong purpose, fail-closed)")
 
@@ -595,7 +599,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # 0. A-P0-2 §6 + A-P0-4 §8: policy LIFECYCLE and PURPOSE are part of the policy evaluation
     # itself (POLICY: FAIL, exit 3) — parity with the decision path's AP-2 sibling gate. Previously
     # an expired eval policy still produced POLICY: OK while only safeForAutomation went false.
-    if "policyPurpose" in policy:
+    if policy.get("policyPurpose") is not None:   # null == absent (Lens-4 F1)
         purpose_ok = policy["policyPurpose"] == "eval"
         add("policy:purpose", purpose_ok,
             f"policyPurpose {policy['policyPurpose']!r} accepted on the eval verify path" if purpose_ok
@@ -661,15 +665,69 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             f"merkle.hash_alg {got!r} != required {required_hash!r}" if got != required_hash
             else f"merkle.hash_alg {got!r} matches")
 
-    # 4b. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
+    root_authenticated = None
+
+    # 4b. A-P0-1 §5: trusted CHECKPOINTS — root and tree size authenticated ATOMICALLY from one signed
+    # source. A naked root pin (4c) can never tell a (index, tree_size) relabel apart (the relabelled
+    # proof carries the SAME root); only a match of BOTH fields against ONE authenticated checkpoint sets
+    # tree_context_authenticated. Evaluated BEFORE 4c (Lens-6 review) so a matching checkpoint — which
+    # cryptographically authenticates the root, strictly stronger than a trusted_roots byte-pin — also
+    # satisfies a belt-and-suspenders require_authenticated_root. Non-empty trusted_checkpoints ENFORCE
+    # on their own, exactly like trusted_roots.
+    tree_context_authenticated = None
+    checkpoint_authenticity = None
+    _cp_matched = False
+    trusted_checkpoints = mk_pol.get("trusted_checkpoints") or []
+    if trusted_checkpoints:
+        stated_root_b64 = (bundle.get("merkle") or {}).get("root_b64")
+        try:
+            stated_root = base64.b64decode(stated_root_b64, validate=True) \
+                if isinstance(stated_root_b64, str) else b""
+        except (ValueError, TypeError):
+            stated_root = b""
+        stated_size = (bundle.get("merkle") or {}).get("tree_size")
+        matched = False
+        reasons: list = []
+        for i, entry in enumerate(trusted_checkpoints):
+            cp_ok, cp_reason = _authenticate_trusted_checkpoint(entry, now=now)
+            if not cp_ok:
+                reasons.append(f"[{i}] {cp_reason}")
+                continue
+            try:
+                entry_root = base64.b64decode(entry["root"], validate=True)
+            except (ValueError, TypeError):
+                reasons.append(f"[{i}] pinned root is not decodable")   # load_policy prevents this
+                continue
+            root_match = bool(stated_root) and hmac.compare_digest(stated_root, entry_root)
+            size_match = stated_size == entry["treeSize"] and not isinstance(stated_size, bool)
+            if root_match and size_match:
+                matched = True
+                break
+            reasons.append(f"[{i}] authenticated checkpoint does not match this bundle "
+                           f"(root match: {root_match}, tree_size match: {size_match} — "
+                           "an atomic pair, a partial match is a substitution signal)")
+        # checkpoint_authenticity reports whether a checkpoint authenticated AND MATCHED this bundle —
+        # NOT merely that some pinned checkpoint's signature verified (Lens-3/4 review: a verified but
+        # NON-matching checkpoint must not read PASS, else rootTrustLevel would overclaim CHECKPOINT).
+        checkpoint_authenticity = "PASS" if matched else "FAIL"
+        tree_context_authenticated = matched
+        _cp_matched = matched
+        add("policy:trusted_checkpoint", matched,
+            "stated (root, tree_size) atomically authenticated by a pinned signed checkpoint" if matched
+            else "no pinned trusted checkpoint atomically authenticates this bundle's "
+                 f"(root, tree_size): {'; '.join(reasons) or 'no entries'}")
+        if matched:
+            root_authenticated = True   # the checkpoint authenticates the root bytes too
+
+    # 4c. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
     # rewrap re-anchors the same payload under a different root. Require the root be authenticated —
     # either the relying party supplied a matching --expected-root (a passing root-authenticity check
     # ran in verify_bundle) OR the stated root is one of the policy's trusted_roots (compared by BYTES;
-    # a malformed trusted entry never matches, fail-closed). ``root_authenticated`` is surfaced so the
-    # CLI can fold it into the structured rootAuthenticity verdict even when no --expected-root was given.
+    # a malformed trusted entry never matches, fail-closed) OR a pinned checkpoint matched (4b, above).
+    # ``root_authenticated`` is surfaced so the CLI can fold it into the structured rootAuthenticity
+    # verdict even when no --expected-root was given.
     require_auth_root = bool(mk_pol.get("require_authenticated_root"))
     trusted_roots = mk_pol.get("trusted_roots") or []
-    root_authenticated = None
     if require_auth_root or trusted_roots:
         ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
         via_expected = ra_check is not None and ra_check.ok
@@ -687,62 +745,19 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             if stated_root and hmac.compare_digest(stated_root, cand):
                 via_trusted = True
                 break
-        root_authenticated = bool(via_expected or via_trusted)
+        # A matching checkpoint (4b) authenticates the root too (Lens-6 review): a belt-and-suspenders
+        # require_authenticated_root + trusted_checkpoints config must not fail closed on a real match.
+        root_authenticated = bool(via_expected or via_trusted or _cp_matched)
         # A non-empty trusted_roots ENFORCES on its own (not only when require_authenticated_root is set):
         # listing the roots you trust means the stated root MUST be one of them, else a policy that pins
         # trusted_roots but forgets the boolean would silently pass a foreign root (fail-open footgun,
         # 6-lens review 2026-07-12). explain_policy lists both, so explain⟺enforce parity holds.
         add("policy:authenticated_root", root_authenticated,
-            "stated root authenticated (matches --expected-root or a trusted_roots entry)" if root_authenticated
+            "stated root authenticated (matches --expected-root, a trusted_roots entry, or a pinned "
+            "checkpoint)" if root_authenticated
             else "policy requires an AUTHENTICATED merkle root, but the stated root matches neither "
-                 "--expected-root nor any trusted_roots entry (coherent-rewrap guard, fail-closed)")
-
-    # 4c. A-P0-1 §5: trusted CHECKPOINTS — root and tree size authenticated ATOMICALLY from one
-    # signed source. A naked root pin (4b) can never tell a (index, tree_size) relabel apart (the
-    # relabelled proof carries the SAME root); only a match of BOTH fields against ONE authenticated
-    # checkpoint sets tree_context_authenticated. Non-empty trusted_checkpoints ENFORCE on their own,
-    # exactly like trusted_roots.
-    tree_context_authenticated = None
-    checkpoint_authenticity = None
-    trusted_checkpoints = mk_pol.get("trusted_checkpoints") or []
-    if trusted_checkpoints:
-        stated_root_b64 = (bundle.get("merkle") or {}).get("root_b64")
-        try:
-            stated_root = base64.b64decode(stated_root_b64, validate=True) \
-                if isinstance(stated_root_b64, str) else b""
-        except (ValueError, TypeError):
-            stated_root = b""
-        stated_size = (bundle.get("merkle") or {}).get("tree_size")
-        matched = False
-        reasons: list = []
-        any_authentic = False
-        for i, entry in enumerate(trusted_checkpoints):
-            cp_ok, cp_reason = _authenticate_trusted_checkpoint(entry, now=now)
-            if not cp_ok:
-                reasons.append(f"[{i}] {cp_reason}")
-                continue
-            any_authentic = True
-            try:
-                entry_root = base64.b64decode(entry["root"], validate=True)
-            except (ValueError, TypeError):
-                reasons.append(f"[{i}] pinned root is not decodable")   # load_policy prevents this
-                continue
-            root_match = bool(stated_root) and hmac.compare_digest(stated_root, entry_root)
-            size_match = stated_size == entry["treeSize"] and not isinstance(stated_size, bool)
-            if root_match and size_match:
-                matched = True
-                break
-            reasons.append(f"[{i}] authenticated checkpoint does not match this bundle "
-                           f"(root match: {root_match}, tree_size match: {size_match} — "
-                           "an atomic pair, a partial match is a substitution signal)")
-        checkpoint_authenticity = "PASS" if any_authentic else "FAIL"
-        tree_context_authenticated = matched
-        add("policy:trusted_checkpoint", matched,
-            "stated (root, tree_size) atomically authenticated by a pinned signed checkpoint" if matched
-            else "no pinned trusted checkpoint atomically authenticates this bundle's "
-                 f"(root, tree_size): {'; '.join(reasons) or 'no entries'}")
-        if matched:
-            root_authenticated = True   # the checkpoint authenticates the root bytes too
+                 "--expected-root nor any trusted_roots entry nor a pinned checkpoint (coherent-rewrap "
+                 "guard, fail-closed)")
 
     # 5. SD-JWT / KB-JWT policy. The aud VALUE was already bound by verify_bundle (the CLI passed the
     #    reconciled effective aud); here we enforce the remaining presence/structure requirements.
@@ -843,9 +858,12 @@ def explain_policy(policy: dict) -> list:
     :func:`lint_policy` — such a policy is wirkungslos and `POLICY: OK` under it attributes the
     bytes to nobody)."""
     lines: list = []
-    # A-P0-4/A-P0-2: purpose and lifecycle are ENFORCED by evaluate_policy (exit 3), so explain
-    # MUST list them (explain⟺enforce parity — else lint calls a policy vacuous that verify FAILs).
-    if "policyPurpose" in policy:
+    # A-P0-4/A-P0-2: purpose, lifecycle and the raw-template flag are ENFORCED by evaluate_policy (exit
+    # 3), so explain MUST list them (explain⟺enforce parity — else lint calls a policy vacuous that
+    # verify FAILs, Lens-2 review).
+    if policy.get("requiresIdentityOverlay") is True:
+        lines.append("raw template (requiresIdentityOverlay:true) — must be instantiated (policy:not_template)")
+    if policy.get("policyPurpose") is not None:
         lines.append(f"policyPurpose == {policy['policyPurpose']!r} (wrong verifier path fails)")
     if policy.get("valid_from") is not None:
         lines.append(f"not valid before {policy['valid_from']} (policy:not_before)")
@@ -999,7 +1017,10 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
         res = verify_checkpoint(signed_note, entry["checkpointSigner"])
     except ProofBundleError as exc:
         return False, f"trusted checkpoint does not authenticate: {exc}"
-    except (ValueError, TypeError, KeyError) as exc:
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        # AttributeError (Lens-6 review): a non-string checkpointSigner (.split) in a raw dict that
+        # bypassed load_policy must fail closed here, never escape as a traceback — the evaluate layer
+        # stays robust for library callers who hand evaluate_policy an unvalidated policy dict.
         return False, f"trusted checkpoint is malformed: {exc}"
     if not res.get("ok"):
         return False, "trusted checkpoint signature does not verify under the pinned " \
@@ -1039,7 +1060,7 @@ def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     if strict:
         # A-P0-4 §8.3: in strict mode a policy MUST declare its purpose — an un-purposed policy is
         # usable on any verifier path, exactly the confusion the field exists to close.
-        if "policyPurpose" not in policy:
+        if policy.get("policyPurpose") is None:   # absent OR explicit null (Lens-4 F1)
             errors.append(
                 "policyPurpose is missing — declare which verifier path this policy is for "
                 f"(one of {list(POLICY_PURPOSES)}); required in strict mode")

@@ -54,6 +54,7 @@ AUTOMATION_BLOCKER_REASONS = {
     "TEMPLATE_NOT_INSTANTIATED": "The trust policy is a raw template (requiresIdentityOverlay:true) — "
                                  "instantiate it with a signer identity before depending on it for automation",
     "POLICY_EXPIRED": "The trust policy has expired (its valid_until is in the past)",
+    "POLICY_NOT_YET_VALID": "The trust policy is not yet valid (its valid_from is in the future)",
     "POLICY_WARNINGS_PRESENT": "The trust policy carries a warning that blocks automation",
     "ANCHOR_REQUIRED_FAILED": "A required external time anchor did not verify",
     "PUBLIC_TRANSPARENCY_REQUIRED_FAILED": "A required public-transparency proof did not verify",
@@ -438,6 +439,7 @@ def root_authenticity_summary(result: VerificationResult, *,
                               signer_trusted: Optional[bool] = None,
                               policy_warnings: Optional[list] = None,
                               policy_expired: Optional[bool] = None,
+                              policy_not_yet_valid: Optional[bool] = None,
                               requires_identity_overlay: Optional[bool] = None,
                               public_transparency_ok: Optional[bool] = None,
                               replay_ok: Optional[bool] = None,
@@ -545,6 +547,11 @@ def root_authenticity_summary(result: VerificationResult, *,
     # it is reported alongside, never in place of, another reason.
     if policy_expired is True:
         blockers.append("POLICY_EXPIRED")
+    # A-P0-2 not-before mirror (Lens-2/3/4/6 review): a policy whose valid_from is in the FUTURE at the
+    # real current time is not in force, so a crypto-valid receipt under it is not automation-safe even
+    # when historically verified — the symmetric case to POLICY_EXPIRED. Reported at current time.
+    if policy_not_yet_valid is True:
+        blockers.append("POLICY_NOT_YET_VALID")
     if anchor_ok is False:
         blockers.append("ANCHOR_REQUIRED_FAILED")
     if public_transparency_ok is False:
