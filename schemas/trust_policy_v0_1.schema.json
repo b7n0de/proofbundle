@@ -35,7 +35,32 @@
         "string",
         "null"
       ],
-      "description": "AP-2 §6.4 lifecycle expiry (ISO-8601 UTC, e.g. 2027-01-01T00:00:00Z). Optional; when present `policy lint` fails once it is in the past. null/absent = no expiry."
+      "description": "AP-2 §6.4 lifecycle expiry (ISO-8601 UTC, e.g. 2027-01-01T00:00:00Z). Optional; since 3.1.3 ENFORCED by the policy evaluation on both paths (POLICY: FAIL, exit 3), and `policy lint` fails once it is in the past. null/absent = no expiry."
+    },
+    "valid_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A-P0-2 lifecycle not-before (ISO-8601 UTC). Optional; a policy whose valid_from is still in the future FAILS evaluation on both paths (POLICY: FAIL, exit 3). null/absent = no lower bound."
+    },
+    "policyPurpose": {
+      "enum": [
+        "eval",
+        "decision",
+        "outcome",
+        "trust-pack",
+        "public-transparency",
+        null
+      ],
+      "description": "A-P0-4 purpose binding: which verifier path this policy is for. The eval verify path accepts only 'eval', the decision path only 'decision'; 'outcome'/'trust-pack'/'public-transparency' are reserved for the 3.2.0 verifiers. Absent = transitional legacy default; strict lint requires the field."
+    },
+    "generatedFromTemplate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A-P0-5 template provenance, stamped by `policy instantiate` (the canonical template name). Display/audit only; reserved — an instantiate overlay can never set it."
     },
     "allowed_schema_versions": {
       "type": "array",
@@ -102,7 +127,26 @@
         "trusted_roots": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "Base64 Merkle roots the relying party trusts out of band; a stated root among them counts as authenticated. A non-empty list enforces on its own."
+          "description": "Base64 Merkle roots the relying party trusts out of band (each MUST decode to exactly 32 bytes — hard-validated at load since 3.1.3, A-P0-5); a stated root among them counts as ROOT-BYTES authenticated (never tree context). A non-empty list enforces on its own."
+        },
+        "trusted_checkpoints": {
+          "type": "array",
+          "description": "A-P0-1: signed checkpoints pinning (origin, treeSize, root) ATOMICALLY. Only a bundle whose root AND tree_size both match one authenticated (signature-valid, unexpired, supported-alg) entry reaches TREE_CONTEXT_AUTHENTICITY: PASS. A non-empty list enforces on its own.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["origin", "root", "treeSize", "hashAlg", "checkpointSigner", "signature"],
+            "properties": {
+              "origin": {"type": "string", "minLength": 1, "description": "The C2SP checkpoint origin (schemeless log identity, no whitespace, no '+')."},
+              "root": {"type": "string", "description": "Standard base64 of the 32-byte Merkle root at treeSize."},
+              "treeSize": {"type": "integer", "minimum": 0, "description": "The tree size the root is stated at — authenticated TOGETHER with the root."},
+              "hashAlg": {"type": "string", "description": "Tree hashing algorithm; this format version authenticates sha256-rfc6962 only (anything else fails closed)."},
+              "checkpointSigner": {"type": "string", "description": "The log's C2SP verifier key (name+hexKeyID+base64(0x01‖pubkey), SPEC §7c)."},
+              "issuedAt": {"type": ["string", "null"], "description": "ISO-8601, informative."},
+              "validUntil": {"type": ["string", "null"], "description": "ISO-8601; an expired checkpoint never authenticates (fail-closed)."},
+              "signature": {"type": "string", "description": "Base64 of the checkpoint signature line blob: keyID[4] ‖ Ed25519 signature[64] over the reconstructed note text."}
+            }
+          }
         }
       }
     },

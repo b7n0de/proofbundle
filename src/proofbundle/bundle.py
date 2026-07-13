@@ -43,12 +43,18 @@ AUTOMATION_BLOCKER_REASONS = {
     "CRYPTO_FAILED": "Cryptographic verification did not pass",
     "ROOT_NOT_AUTHENTICATED": "The Merkle root was not authenticated against a relying-party value "
                               "(--expected-root or a policy trusted_roots entry)",
+    "TREE_CONTEXT_NOT_AUTHENTICATED": "Root and tree size were not authenticated ATOMICALLY from one "
+                                      "source (a signed checkpoint via --trusted-checkpoint / policy "
+                                      "trusted_checkpoints, or an --expected-root + "
+                                      "--expected-tree-size pair) — a root-bytes-only pin cannot "
+                                      "detect a tree-size/leaf-index relabel (A-P0-1)",
     "POLICY_NOT_EVALUATED": "No trust policy was evaluated (supply --policy to authorise a signer)",
     "POLICY_FAILED": "The supplied trust policy was not satisfied",
     "SIGNER_NOT_PINNED": "The trust policy pins no trusted signer identity (attributes to nobody)",
     "TEMPLATE_NOT_INSTANTIATED": "The trust policy is a raw template (requiresIdentityOverlay:true) — "
                                  "instantiate it with a signer identity before depending on it for automation",
     "POLICY_EXPIRED": "The trust policy has expired (its valid_until is in the past)",
+    "POLICY_NOT_YET_VALID": "The trust policy is not yet valid (its valid_from is in the future)",
     "POLICY_WARNINGS_PRESENT": "The trust policy carries a warning that blocks automation",
     "ANCHOR_REQUIRED_FAILED": "A required external time anchor did not verify",
     "PUBLIC_TRANSPARENCY_REQUIRED_FAILED": "A required public-transparency proof did not verify",
@@ -433,9 +439,12 @@ def root_authenticity_summary(result: VerificationResult, *,
                               signer_trusted: Optional[bool] = None,
                               policy_warnings: Optional[list] = None,
                               policy_expired: Optional[bool] = None,
+                              policy_not_yet_valid: Optional[bool] = None,
                               requires_identity_overlay: Optional[bool] = None,
                               public_transparency_ok: Optional[bool] = None,
-                              replay_ok: Optional[bool] = None) -> dict:
+                              replay_ok: Optional[bool] = None,
+                              tree_context_authenticated: Optional[bool] = None,
+                              checkpoint_authenticity: Optional[str] = None) -> dict:
     """Structured root-authenticity verdicts (P0-A §6.3), derived from a completed VerificationResult.
 
     Separates what Merkle inclusion actually proves from what it does NOT, as three-state strings so a
@@ -473,6 +482,28 @@ def root_authenticity_summary(result: VerificationResult, *,
         root_auth = "FAIL"
     else:
         root_auth = "NOT_EVALUATED"
+
+    # A-P0-1 §5.3: the differentiated tree-context verdicts. `root_auth` above is the root-BYTES
+    # verdict; TREE_CONTEXT_AUTHENTICITY additionally requires that root and tree_size were
+    # authenticated ATOMICALLY from one source (a signed checkpoint, a policy trusted_checkpoints
+    # match, or an RP-supplied root+size PAIR). A naked root pin reaches at most
+    # ROOT_BYTES_AUTHENTICITY: PASS — never TREE_CONTEXT_AUTHENTICITY: PASS (§5.5).
+    if tree_context_authenticated is True:
+        tree_context = "PASS"
+    elif tree_context_authenticated is False:
+        tree_context = "FAIL"
+    else:
+        tree_context = "NOT_EVALUATED"
+    cp_auth = checkpoint_authenticity if checkpoint_authenticity in ("PASS", "FAIL") \
+        else "NOT_EVALUATED"
+    if tree_context == "PASS" and cp_auth == "PASS":
+        root_trust_level = "CHECKPOINT"
+    elif tree_context == "PASS":
+        root_trust_level = "ROOT_AND_TREE_SIZE_PINNED"
+    elif root_auth == "PASS":
+        root_trust_level = "ROOT_BYTES_ONLY"
+    else:
+        root_trust_level = "NONE"
     # P0-B (audit 2026-07-13): the former `policy_ok is not False` let policy_ok=None (no policy
     # evaluated) through → a crypto-valid, root-pinned receipt looked automation-safe though NO trusted
     # signer was ever authorised. safeForAutomation is now a GLOBAL trust verdict: policy_ok must be True
@@ -492,24 +523,35 @@ def root_authenticity_summary(result: VerificationResult, *,
         blockers.append("CRYPTO_FAILED")
     if root_auth != "PASS":
         blockers.append("ROOT_NOT_AUTHENTICATED")
+    if tree_context != "PASS":
+        # A-P0-1 §5.4: safeForAutomation requires the ATOMIC (root, tree_size) authentication —
+        # root bytes alone cannot detect the 2→3-leaf relabel, so they never authorise automation.
+        blockers.append("TREE_CONTEXT_NOT_AUTHENTICATED")
     if policy_ok is None:
         blockers.append("POLICY_NOT_EVALUATED")
     elif policy_ok is False:
         blockers.append("POLICY_FAILED")
-    elif requires_identity_overlay:
+    elif signer_trusted is not True and not requires_identity_overlay:
+        blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
+    elif signer_trusted is True and policy_warnings:
+        blockers.append("POLICY_WARNINGS_PRESENT")   # signer pinned yet the policy still warns (forward-compat)
+    if requires_identity_overlay:
         # AP-2 §6.2 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) is never automation-safe
         # — reported as its OWN blocker, not SIGNER_NOT_PINNED, which would be factually wrong when the template
-        # actually does match a signer (the real reason is the un-cleared template-lifecycle flag).
+        # actually does match a signer (the real reason is the un-cleared template-lifecycle flag). Independent
+        # of the policy_ok chain since A-P0-2: the eval path now FAILS a raw template (policy:not_template →
+        # POLICY_FAILED), and the honest template blocker must still be reported alongside it.
         blockers.append("TEMPLATE_NOT_INSTANTIATED")
-    elif signer_trusted is not True:
-        blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
-    elif policy_warnings:
-        blockers.append("POLICY_WARNINGS_PRESENT")   # signer pinned yet the policy still warns (forward-compat)
     # AP-2 §6.4 lifecycle: an EXPIRED policy is unsafe to automate on even if it otherwise passed (a stale
     # signer pin the relying party has since rotated away from). Independent of the signer/warning chain so
     # it is reported alongside, never in place of, another reason.
     if policy_expired is True:
         blockers.append("POLICY_EXPIRED")
+    # A-P0-2 not-before mirror (Lens-2/3/4/6 review): a policy whose valid_from is in the FUTURE at the
+    # real current time is not in force, so a crypto-valid receipt under it is not automation-safe even
+    # when historically verified — the symmetric case to POLICY_EXPIRED. Reported at current time.
+    if policy_not_yet_valid is True:
+        blockers.append("POLICY_NOT_YET_VALID")
     if anchor_ok is False:
         blockers.append("ANCHOR_REQUIRED_FAILED")
     if public_transparency_ok is False:
@@ -519,7 +561,14 @@ def root_authenticity_summary(result: VerificationResult, *,
     return {
         "payloadSignature": _tri("ed25519-signature"),
         "merkleConsistency": _tri("merkle-inclusion"),
+        # A-P0-1 §5.3: differentiated statuses. `rootAuthenticity` is kept as a WIRE-COMPAT ALIAS of
+        # the root-BYTES verdict (it never asserted more than bytes); the undifferentiated reading
+        # of it as full root trust is retired — automation keys off treeContextAuthenticity.
         "rootAuthenticity": root_auth,
+        "rootBytesAuthenticity": root_auth,
+        "treeContextAuthenticity": tree_context,
+        "checkpointAuthenticity": cp_auth,
+        "rootTrustLevel": root_trust_level,
         "publicTransparency": "NOT_EVALUATED",
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,

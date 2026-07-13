@@ -439,7 +439,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         _val = predicate.get("validity")
         _validity = _val if isinstance(_val, dict) else {}
         if expected_audience is not None:
-            r["audience_ok"] = expected_audience in (_validity.get("audience") or [])
+            # audience MUST be a real JSON array: with a STRING value Python's `in` degrades to
+            # SUBSTRING matching ("rp.example" in "rp.example" is True) — a wrong-TYPE audience
+            # would satisfy the binding (found by the 3.1.3 regression corpus, fail-closed now).
+            _aud = _validity.get("audience")
+            r["audience_ok"] = isinstance(_aud, list) and expected_audience in _aud
             if not r["audience_ok"]:
                 r["errors"].append(
                     "audience mismatch or absent validity.audience — requested audience binding cannot be "

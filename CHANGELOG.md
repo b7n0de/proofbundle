@@ -4,6 +4,110 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.3] - 2026-07-13
+
+Security hardening release: the remaining P0 findings of the 3.1.1 audit round (verified live
+against 3.1.2). Additive wire format; one deliberate, security-motivated tightening of
+`safeForAutomation` (see below). SPEC revision `2026-07-13`.
+
+### Changed — `safeForAutomation` requires the ATOMIC (root, tree size) authentication (A-P0-1, security)
+- The sharp audit vector: an RFC 6962 inclusion proof constrains `(leaf_index, tree_size)` only up
+  to path-shape equivalence — a real 2-leaf receipt (index 1) relabelled as `(index 2, tree_size 3)`
+  verifies with the SAME payload, signature, root and proof. A root-BYTES pin cannot tell the two
+  apart (both share the root), so `rootAuthenticity: PASS` + `safeForAutomation: true` was reachable
+  for a forged tree context. Now `safeForAutomation` additionally requires
+  `TREE_CONTEXT_AUTHENTICITY: PASS`: root AND tree size authenticated atomically from ONE source —
+  a signed C2SP checkpoint (`--trusted-checkpoint`/`--checkpoint-vkey`, or a policy
+  `merkle.trusted_checkpoints` entry) or an `--expected-root` + `--expected-tree-size` PAIR. A naked
+  root pin is reported as `rootTrustLevel: ROOT_BYTES_ONLY` and never automation-safe
+  (new blocker `TREE_CONTEXT_NOT_AUTHENTICATED`).
+- New additive verdict keys: `rootBytesAuthenticity` (the legacy `rootAuthenticity` key stays as its
+  wire-compat alias), `treeContextAuthenticity`, `checkpointAuthenticity`, `rootTrustLevel`
+  (`CHECKPOINT` / `ROOT_AND_TREE_SIZE_PINNED` / `ROOT_BYTES_ONLY` / `NONE`).
+- New policy section `merkle.trusted_checkpoints[]`: pins a SIGNED `(origin, treeSize, root)` triple
+  (C2SP vkey + signature blob, optional `validUntil`); signature-verified, expiry-checked,
+  `hashAlg`-checked at evaluation — origin/size/root tamper invalidates the signature. A non-empty
+  list enforces on its own, exactly like `trusted_roots`.
+
+### Fixed — expired eval policy now FAILS the policy evaluation (A-P0-2, security)
+- The decision path already rejected an expired policy (exit 3); the EVAL path did not — an expired
+  eval policy still produced `POLICY: OK` / exit 0 (only `safeForAutomation` went false). Lifecycle
+  is now part of `evaluate_policy` itself: `policy:not_template`, `policy:not_expired`,
+  `policy:not_before` (new additive `valid_from` field) → `POLICY: FAIL`, exit 3, path parity.
+- Historical verification is explicit-only: `verify --verification-time <ISO-8601> --policy …`
+  evaluates the policy lifecycle AS OF that instant with labelled output
+  (`VERIFICATION_TIME: HISTORICAL`, `CURRENT_POLICY_STATUS`, `HISTORICAL_POLICY_STATUS`); an
+  expired-today policy keeps `safeForAutomation: false` even in historical mode. No silent
+  backdating, no silent acceptance.
+
+### Fixed — decision `validity.audience` type confusion (found by the new regression corpus, security)
+- A wrong-TYPE `validity.audience` (a STRING instead of the required array) satisfied a requested
+  audience binding via Python substring matching (`"rp.example" in "rp.example"`). The check now
+  requires a real JSON array (fail-closed).
+
+### Added — `policyPurpose` binds a policy to ONE verifier path (A-P0-4)
+- New additive field `policyPurpose` ∈ `eval` / `decision` / `outcome` / `trust-pack` /
+  `public-transparency` (the latter three reserved for the 3.2.0 verifiers). The eval verify path
+  accepts only `eval`, the decision path only `decision`; the wrong purpose is exit 3. Policies
+  without the field keep working (documented transitional default); `policy lint --strict` requires
+  it. All five shipped profiles now declare their purpose.
+
+### Added — hardened policy metadata (A-P0-5)
+- `merkle.trusted_roots` entries are hard-validated at load (standard base64, exactly 32 bytes) with
+  their OWN error — never a silent never-matches.
+- Reserved metadata (`deploymentReady`, `requiresIdentityOverlay`, `policyPurpose`, `schema`,
+  `generatedFromTemplate`) can no longer be set by an instantiate overlay (loud `PolicyError`);
+  `deploymentReady` is DERIVED from the final instance (identity pinned AND trust material valid AND
+  purpose defined AND lifecycle valid AND not a template), and instances record their
+  `generatedFromTemplate` provenance. Contradictory metadata (`deploymentReady: true` +
+  `requiresIdentityOverlay: true`) is refused at load.
+
+### Hardened after the 6-lens adversarial review (folded back before release)
+- **Historical mode is present-tense-safe (was the one release-blocker).** `safeForAutomation` is a
+  "safe to act on now" verdict, so its lifecycle and tree-context inputs are always evaluated at the
+  REAL current time — even under `--verification-time`. Previously only `valid_until` had a current-time
+  backstop, so a not-yet-valid policy or an expired-today `trusted_checkpoints` entry read
+  automation-safe when a past (or future) instant was supplied. Now: `--verification-time` MUST be a
+  past instant (a future one is exit 2); a new `POLICY_NOT_YET_VALID` blocker mirrors `POLICY_EXPIRED`;
+  and the policy is evaluated twice in historical mode (the historical instant for the exit code + label,
+  the current time for `safeForAutomation`). `CURRENT_POLICY_STATUS` now surfaces `NOT_YET_VALID`.
+- **No `rootTrustLevel: CHECKPOINT` / `checkpointAuthenticity: PASS` overclaim.** `checkpointAuthenticity`
+  now reports whether a checkpoint authenticated AND matched this bundle, not merely that some pinned
+  checkpoint's signature verified; a verified-but-non-matching checkpoint reads FAIL and never labels a
+  pair-derived context `CHECKPOINT`.
+- **A matching `trusted_checkpoints` pin satisfies `require_authenticated_root`** (a checkpoint
+  cryptographically authenticates the root, strictly stronger than a `trusted_roots` byte-pin) — the
+  checkpoint match is now evaluated before the authenticated-root check.
+- `treeSizeExpectation` reports `FAIL` (not `NOT_REQUESTED`) when a checkpoint was supplied but its
+  signature did not verify. `policyPurpose: null` now loads and is treated exactly like absent
+  (schema⟺parser parity). `evaluate_policy` fails closed (no traceback) on a non-string
+  `checkpointSigner` in a raw dict that bypassed `load_policy`. `policy explain` lists the raw-template
+  pin so `policy lint` no longer calls a minimal template vacuous.
+
+### Migration notes
+- A `merkle.trusted_roots` list mixing a valid 32-byte root with a malformed entry now fails to LOAD
+  (exit 2) instead of silently skipping the bad entry (A-P0-5 hard validation); fix the malformed pin.
+- `policy lint --strict` now FAILs any policy without `policyPurpose` (declare the verifier path); plain
+  `verify` and non-strict `lint` are unaffected.
+- Policy artifacts produced by 3.1.3 `policy instantiate` carry `policyPurpose` / `generatedFromTemplate`
+  and are refused (fail-closed unknown-field) by 3.1.2 verifiers. In a mixed-version fleet, upgrade
+  verifiers to 3.1.3 before re-instantiating policies. Bundles and verify output stay additive.
+- `instantiate_template(..., overlay={...})` now rejects the reserved keys `deploymentReady`,
+  `requiresIdentityOverlay`, `policyPurpose`, `schema`, `generatedFromTemplate` (they are derived or
+  lifecycle-fixed); a `valid_until` overlay still works.
+
+### Regression corpus (A-P0-1 … A-P0-5, plus the A-P0-3 vectors closed in 3.1.2)
+- `tests/test_tree_context_authenticity.py` (relabel reproduction, checkpoint pin closes it, origin/
+  signer/expiry/hashAlg mismatch vectors, legacy-root-pin-never-tree-context, CLI checkpoint path),
+  `tests/test_policy_lifecycle_purpose.py` (lifecycle, historical mode, purpose matrix, metadata
+  hardening, and the named decision aud/nonce fail-closed vectors), and
+  `tests/test_lens_review_fixes_3_1_3.py` (the historical fail-open, future-instant rejection,
+  expired-today checkpoint, require-auth-root-by-checkpoint, lib robustness, explain parity,
+  policyPurpose null). Note: decision-receipt/v0.1 `validity` carries only `audience`+`nonce` — there
+  is no predicate-level time window to expire; time-windowing lives on the policy
+  (`valid_from`/`valid_until`), a predicate-level window would be a format change for the next breaking
+  version.
+
 ## [3.1.2] - 2026-07-13
 
 Patch release: one fail-closed security fix on the decision-verify path. No new API, no wire-format

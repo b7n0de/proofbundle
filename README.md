@@ -73,9 +73,11 @@ proofbundle verify receipt.json --policy trust_policy.json   # POLICY: OK | FAIL
 # start from a shipped TEMPLATE and pin your own signer — offline, no network:
 proofbundle policy instantiate strict-eval-template-v1 \
   --issuer-key org-eval.pub --policy-id org/strict-eval-v1 --output org.json
-proofbundle verify receipt.json --json --policy org.json --expected-root <b64>
-# → root_authenticity.safeForAutomation: true only when the policy pins a trusted signer AND the
-#   root is authenticated (else false, with automationBlockers naming every reason)
+proofbundle verify receipt.json --json --policy org.json \
+  --expected-root <b64> --expected-tree-size <n>   # or: --trusted-checkpoint note.txt --checkpoint-vkey <vkey>
+# → root_authenticity.safeForAutomation: true only when the policy pins a trusted signer AND root
+#   plus tree size are authenticated ATOMICALLY from one source (a root-bytes-only pin is
+#   rootTrustLevel: ROOT_BYTES_ONLY — never automation-safe; automationBlockers names every reason)
 ```
 
 ## Inspect-native? (METR Task Standard, UK-AISI ecosystem)

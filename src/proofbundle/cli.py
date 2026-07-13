@@ -458,6 +458,65 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # --trusted-tsa-root / --bitcoin-header is a clean exit 2 (not a raw traceback), like every other
         # malformed flag. Built once, used at the anchor-requirement site (which is outside this try).
         rp_trust_material = _build_rp_trust(args)
+        # A-P0-2 §6.3: historical verification only via an EXPLICIT instant — never silent backdating.
+        verification_time = None
+        if getattr(args, "verification_time", None) is not None:
+            from .policy import _parse_iso_utc  # noqa: PLC0415
+            if not getattr(args, "policy", None):
+                raise ValueError("--verification-time only applies together with --policy (it sets "
+                                 "the instant the policy lifecycle is evaluated at)")
+            verification_time = _parse_iso_utc(args.verification_time)
+            if verification_time is None:
+                raise ValueError(f"--verification-time {args.verification_time!r} is not an "
+                                 "ISO-8601 timestamp (e.g. 2026-01-01T00:00:00Z)")
+            # It is HISTORICAL: a FUTURE instant is not a historical query and would let a policy that
+            # is not-yet-valid TODAY be forward-dated into force (Lens-2/3/4/6 review). Reject it — the
+            # honest present-tense verdict for a not-yet-valid policy is exit 3 in current mode.
+            from datetime import datetime, timezone  # noqa: PLC0415
+            if verification_time >= datetime.now(timezone.utc):
+                raise ValueError("--verification-time must be in the past — it evaluates the policy AS "
+                                 "OF a historical instant; a future instant is not a historical query")
+        # A-P0-1: a signed C2SP checkpoint is the ONE authenticated source of BOTH the expected root
+        # AND the expected tree size (the atomic tree context). Both flags belong together; a note
+        # that parses but does not verify is a verification failure (exit 1), a malformed note is
+        # malformed input (exit 2), and an explicit flag conflicting with the checkpoint is ambiguous.
+        cp_supplied = getattr(args, "trusted_checkpoint", None) is not None
+        cp_vkey = getattr(args, "checkpoint_vkey", None)
+        if cp_supplied != (cp_vkey is not None):
+            raise ValueError("--trusted-checkpoint and --checkpoint-vkey belong together (the "
+                             "signed note and the key that authenticates it)")
+        cp_ok = None
+        cp_detail = ""
+        expected_root = getattr(args, "expected_root", None)
+        expected_tree_size = getattr(args, "expected_tree_size", None)
+        if cp_supplied:
+            assert cp_vkey is not None   # the guard above ties cp_supplied ⇔ cp_vkey present (mypy narrowing)
+            import base64 as _b64mod  # noqa: PLC0415
+            from .checkpoint import verify_checkpoint  # noqa: PLC0415
+            with open(args.trusted_checkpoint, encoding="utf-8") as handle:
+                note = handle.read()
+            cp_res = verify_checkpoint(note, cp_vkey)   # malformed note/vkey → BundleFormatError → exit 2
+            cp_ok = bool(cp_res["ok"])
+            if cp_ok:
+                cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
+                if expected_root is not None:
+                    try:
+                        explicit_root = _b64mod.b64decode(expected_root, validate=True)
+                    except (ValueError, TypeError) as exc:
+                        raise ValueError("--expected-root is not valid base64") from exc
+                    if explicit_root != cp_res["root"]:
+                        raise ValueError("--expected-root conflicts with the trusted checkpoint's "
+                                         "root — ambiguous; supply only one, or make them equal")
+                if expected_tree_size is not None and expected_tree_size != cp_res["tree_size"]:
+                    raise ValueError("--expected-tree-size conflicts with the trusted checkpoint's "
+                                     "tree size — ambiguous; supply only one, or make them equal")
+                expected_root = cp_root_b64
+                expected_tree_size = cp_res["tree_size"]
+                cp_detail = (f"checkpoint origin {cp_res['origin']!r} authenticates "
+                             f"(root, tree_size={cp_res['tree_size']}) atomically")
+            else:
+                cp_detail = ("checkpoint signature does not verify under the supplied vkey — the "
+                             "expected root/tree size could not be authenticated (fail-closed)")
         # Resolve the path to a dict ONCE and pass it to both verify_bundle and recompute — a second per-function
         # re-read of the same path reopens a TOCTOU window (release-review consistency fix, mirrors show-eval).
         bundle = load_bundle(args.bundle)
@@ -502,8 +561,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
                 rp_trust_material = merged
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
-                               expected_root_b64=getattr(args, "expected_root", None),
-                               expected_tree_size=getattr(args, "expected_tree_size", None))
+                               expected_root_b64=expected_root,
+                               expected_tree_size=expected_tree_size)
+        if cp_supplied:
+            # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
+            result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
@@ -522,10 +584,19 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # never a reason to trust bytes whose signature/merkle failed (fail-closed): policy_ok stays None
     # (NOT_EVALUATED) and exit 1 dominates.
     policy_ok = None
-    policy_result = None
+    policy_result = None       # HISTORICAL evaluation (now=verification_time): drives the exit code + POLICY line
+    policy_result_now = None   # CURRENT evaluation (now=None): drives safeForAutomation + the tree-context inputs
     if policy is not None and crypto_ok:
-        policy_result = evaluate_policy(bundle, result, policy)
+        # A-P0-2 §6.3: in historical mode `now` is the explicit --verification-time — the POLICY verdict +
+        # exit code answer "was it valid THEN". But safeForAutomation is a PRESENT-tense "safe to act on now"
+        # verdict, so its inputs (lifecycle, tree-context, checkpoint validity) MUST use the real current time
+        # (Lens-2/3/4/6 review: a not-yet-valid policy or an expired-today checkpoint must never read
+        # automation-safe just because a past instant was supplied). We therefore evaluate TWICE in historical
+        # mode; in current mode the two coincide (one evaluation, no behaviour change).
+        policy_result = evaluate_policy(bundle, result, policy, now=verification_time)
         policy_ok = policy_result["policy_ok"]
+        policy_result_now = (policy_result if verification_time is None
+                             else evaluate_policy(bundle, result, policy, now=None))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -553,7 +624,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # pins no signer ('attributes to nobody') must NOT set safeForAutomation. Computed once here, reused
     # for fields["policy_warnings"] below (no double lint).
     from .policy import policy_warnings as _policy_warnings  # noqa: PLC0415
-    pol_warns = _policy_warnings(policy) if (policy is not None and policy_ok) else []
+    # safeForAutomation is a PRESENT-tense verdict, so it reads the CURRENT-time policy evaluation
+    # (policy_result_now); in current mode that IS policy_result (Lens-2/3/4/6 review). policy_ok_now is
+    # the current-time policy verdict; the exit code + POLICY line keep using the historical policy_ok.
+    policy_ok_now = (policy_result_now or {}).get("policy_ok")
+    pol_warns = _policy_warnings(policy) if (policy is not None and policy_ok_now) else []
     # AP-1 §5 (+ L2 pre-land review fix): signer_trusted requires an ACTUALLY-PASSED signer-binding check
     # on THIS (eval/verify) path — a passing `policy:signer_allowed` from evaluate_policy — NOT merely the
     # absence of the 'attributes to nobody' warning. That warning counts
@@ -562,31 +637,105 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # let a decision-maker-only policy FAKE a trusted signer and yield safeForAutomation:true against an
     # unpinned bundle signer (fail-open). Key off the positive verdict instead.
     # AP-2 §6.2: a RAW template (requiresIdentityOverlay:true) never qualifies (no identity overlay applied).
-    _signer_checks = [c for c in (policy_result or {}).get("checks", [])
+    _signer_checks = [c for c in (policy_result_now or {}).get("checks", [])
                       if c.get("name") == "policy:signer_allowed"]
     signer_matched = bool(_signer_checks) and all(c.get("ok") for c in _signer_checks)
-    signer_trusted = bool(policy_ok) and signer_matched
+    signer_trusted = bool(policy_ok_now) and signer_matched
     # AP-2 §6.2/§6.4 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) and an EXPIRED policy
     # each force safeForAutomation:false with their OWN honest blocker (TEMPLATE_NOT_INSTANTIATED /
     # POLICY_EXPIRED) — not a mislabelled SIGNER_NOT_PINNED. signer_trusted now reflects ONLY whether a signer
     # was actually matched; the template/expiry conditions are surfaced as distinct blockers.
     _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
     from .policy import policy_expired as _policy_expired  # noqa: PLC0415
-    pol_expired = bool(policy is not None and _policy_expired(policy))
+    from .policy import policy_not_yet_valid as _policy_not_yet_valid  # noqa: PLC0415
+    pol_expired = bool(policy is not None and _policy_expired(policy))          # at the REAL current time
+    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy))  # A-P0-2 not-before mirror
+    # A-P0-1 §5.3/§5.4: the atomic tree context. True via (a) a verified --trusted-checkpoint whose
+    # (root, size) both match, (b) a policy trusted_checkpoints match at CURRENT time (policy_result_now,
+    # so an expired-today checkpoint never authenticates even in historical mode), or (c) an RP-supplied
+    # --expected-root + --expected-tree-size PAIR that both passed. A naked root pin stays
+    # ROOT_BYTES_ONLY and never authorises automation.
+    _by_rs = {c.name: c.ok for c in result.checks}
+    _pair_requested = expected_root is not None and expected_tree_size is not None
+    _pair_passed = bool(_by_rs.get("root-authenticity")) and bool(_by_rs.get("tree-size"))
+    _pol_ctx = (policy_result_now or {}).get("tree_context_authenticated")
+    # Any authenticated source that DISAGREES dominates (fail-closed, No-Fake, Lens-1 review F1): if a
+    # pinned policy checkpoint says the (root, tree_size) do not match, treeContextAuthenticity is FALSE
+    # even when a separately-supplied --expected-root/--expected-tree-size pair happens to pass — the
+    # relying party contradicted their own trusted inputs, and the safe verdict is "not authenticated".
+    _ctx_false = ((_pol_ctx is False) or (cp_supplied and not cp_ok)
+                  or (_pair_requested and not _pair_passed))
+    _ctx_true = ((_pol_ctx is True)
+                 or (_pair_requested and _pair_passed and (not cp_supplied or cp_ok)))
+    if _ctx_false:
+        tree_ctx = False
+    elif _ctx_true:
+        tree_ctx = True
+    else:
+        tree_ctx = None
+    # checkpointAuthenticity reports whether a checkpoint authenticated AND MATCHED this bundle's
+    # (root, tree_size) — NOT merely that some pinned checkpoint's signature verified (Lens-3/4 review:
+    # a verified-but-non-matching checkpoint must not read PASS, else rootTrustLevel would overclaim
+    # CHECKPOINT). PASS only when the checkpoint is the source of a PASS tree context; FAIL when a
+    # checkpoint was supplied/pinned but did not authenticate-and-match; NOT_EVALUATED when none supplied.
+    _cli_cp_matched = cp_supplied and cp_ok and _pair_passed
+    _pol_cp_matched = (policy_result_now or {}).get("tree_context_authenticated") is True
+    _cp_present = cp_supplied or ((policy_result_now or {}).get("checkpoint_authenticity") in ("PASS", "FAIL"))
+    if not _cp_present:
+        cpa = None
+    elif _cli_cp_matched or _pol_cp_matched:
+        cpa = "PASS"
+    else:
+        cpa = "FAIL"
     root_summary = root_authenticity_summary(
-        result, policy_authenticated_root=(policy_result or {}).get("root_authenticated"),
-        policy_ok=policy_ok, anchor_ok=anchor_required_ok,
+        result, policy_authenticated_root=(policy_result_now or {}).get("root_authenticated"),
+        policy_ok=policy_ok_now, anchor_ok=anchor_required_ok,
         signer_trusted=signer_trusted, policy_warnings=pol_warns, policy_expired=pol_expired,
-        requires_identity_overlay=_requires_overlay)
+        policy_not_yet_valid=pol_not_yet_valid,
+        requires_identity_overlay=_requires_overlay,
+        tree_context_authenticated=tree_ctx, checkpoint_authenticity=cpa)
     fields["root_authenticity"] = root_summary
+    # A-P0-2 §6.3: the labelled historical-verification report (additive; absent in current mode).
+    verification_time_report = None
+    if verification_time is not None:
+        # CURRENT_POLICY_STATUS is the present-tense lifecycle verdict (why safeForAutomation can be NO
+        # even when the historical verification passes). Expiry and not-before are BOTH surfaced now
+        # (Lens-2/3/4/6: not-yet-valid was previously reported as NO_EXPIRY, hiding the real state).
+        if pol_expired:
+            current_status = "EXPIRED"
+        elif pol_not_yet_valid:
+            current_status = "NOT_YET_VALID"
+        elif policy is not None and _policy_expired(policy) is None and _policy_not_yet_valid(policy) is None:
+            current_status = "NO_LIFECYCLE_WINDOW"
+        else:
+            current_status = "VALID"
+        verification_time_report = {
+            "mode": "HISTORICAL",
+            "time": args.verification_time,
+            "current_policy_status": current_status,
+            "historical_policy_status": ("PASS" if policy_ok
+                                         else "FAIL" if policy_ok is False else "NOT_EVALUATED"),
+        }
+        fields["verification_time"] = verification_time_report
     # P0-A (audit 2026-07-13): surface --expected-tree-size as a machine-readable object. The check
     # itself already runs INDEPENDENTLY in verify_bundle (never gated on --expected-root), so a mismatch
     # already fails the crypto verdict; this makes status/expected/actual explicit so an integrator can
     # confirm the gate ran rather than inferring it from a check name. NOT_REQUESTED when the flag is absent.
-    _ets = getattr(args, "expected_tree_size", None)
+    _ets = expected_tree_size   # effective: an explicit flag OR the checkpoint-derived size (A-P0-1)
     _tsc = next((c for c in result.checks if c.name == "tree-size"), None)
+    # A tree-size authentication WAS requested via a checkpoint whose signature did not verify: the
+    # checkpoint never yielded an expected size, so no `tree-size` check ran — but reporting
+    # NOT_REQUESTED would be dishonest (a request was made, it could not be evaluated). Report FAIL, the
+    # honest "requested but unauthenticated" verdict (Lens-3 review; the run already exits 1 on the
+    # checkpoint-authenticity failure).
+    if _tsc is not None:
+        _ts_status = "PASS" if _tsc.ok else "FAIL"
+    elif cp_supplied and not cp_ok:
+        _ts_status = "FAIL"
+    else:
+        _ts_status = "NOT_REQUESTED"
     fields["treeSizeExpectation"] = {
-        "status": (("PASS" if _tsc.ok else "FAIL") if _tsc is not None else "NOT_REQUESTED"),
+        "status": _ts_status,
         "expected": _ets,
         "actual": (bundle.get("merkle") or {}).get("tree_size") if isinstance(bundle, dict) else None,
     }
@@ -649,6 +798,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(f"ROOT-AUTHENTICITY: {root_summary['rootAuthenticity']} "
               f"(payload-signature {root_summary['payloadSignature']}, "
               f"merkle-consistency {root_summary['merkleConsistency']}, "
+              f"tree-context {root_summary['treeContextAuthenticity']}, "
+              f"root-trust-level {root_summary['rootTrustLevel']}, "
               f"safe-for-automation {str(root_summary['safeForAutomation']).lower()})")
         # AP-1 §5.3: a dedicated, human-legible automation verdict — YES, or NO with the reason(s). The
         # reasons are derived one-for-one from root_summary['automationBlockers'] via the SSOT map, so the
@@ -672,6 +823,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             if policy_ok and warns:
                 line += f" (WARNING: {_safe_line(warns[0].split(':', 1)[0])})"
             print(f"POLICY: {line}")
+        if verification_time_report is not None:
+            # A-P0-2 §6.3: historical mode is LABELLED — the current and the as-of status both show.
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(args.verification_time))})")
+            print(f"CURRENT_POLICY_STATUS: {verification_time_report['current_policy_status']}")
+            print(f"HISTORICAL_POLICY_STATUS: {verification_time_report['historical_policy_status']}")
         print(f"ASSURANCE: {assurance_line}")
         print(f"LIMITATIONS: {VERIFY_NON_MEANING}")
         # WP4: the ANCHOR line is printed ONLY when --require-anchor was given (default output unchanged).
@@ -1330,6 +1486,25 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--expected-tree-size", dest="expected_tree_size", default=None, type=int,
                         metavar="N", help="require the merkle tree_size to equal N (guards tree-size "
                              "substitution); a mismatch FAILS")
+    verify.add_argument("--trusted-checkpoint", dest="trusted_checkpoint", default=None, metavar="FILE",
+                        help="A-P0-1: a signed C2SP checkpoint note file (SPEC §7c) as the ONE "
+                             "authenticated source of BOTH the expected root AND tree size — the "
+                             "atomic tree context. Needs --checkpoint-vkey. A bundle whose root or "
+                             "tree_size differs from the checkpoint FAILS (exit 1); a checkpoint "
+                             "that does not verify under the vkey FAILS (exit 1). Only this (or a "
+                             "policy trusted_checkpoints match, or supplying BOTH --expected-root "
+                             "and --expected-tree-size) reaches TREE_CONTEXT_AUTHENTICITY: PASS")
+    verify.add_argument("--checkpoint-vkey", dest="checkpoint_vkey", default=None, metavar="VKEY",
+                        help="the checkpoint log's C2SP verifier key (name+hexKeyID+base64KeyMaterial) "
+                             "for --trusted-checkpoint")
+    verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                        help="A-P0-2 §6.3: verify the supplied --policy AS OF this explicit PAST "
+                             "instant (e.g. 2026-01-01T00:00:00Z; a future instant is a usage error). "
+                             "Output is labelled VERIFICATION_TIME: HISTORICAL with both the CURRENT and "
+                             "the HISTORICAL policy status — never a silent backdating. safeForAutomation "
+                             "is a present-tense verdict and stays false for a policy expired OR "
+                             "not-yet-valid TODAY (or an expired-today checkpoint), even in historical "
+                             "mode. Requires --policy")
     verify.add_argument("--policy", default=None,
                         help="path to a trust-policy JSON (proofbundle/trust-policy/v0.1), OR the name "
                              "of a packaged profile (WP3, e.g. strict-eval-v1 — see "

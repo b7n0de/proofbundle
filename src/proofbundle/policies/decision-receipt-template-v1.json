@@ -1,6 +1,7 @@
 {
   "schema": "proofbundle/trust-policy/v0.2",
   "policy_id": "proofbundle-policy/decision-receipt-template-v1",
+  "policyPurpose": "decision",
   "deploymentReady": false,
   "requiresIdentityOverlay": true,
   "allowed_schema_versions": [
