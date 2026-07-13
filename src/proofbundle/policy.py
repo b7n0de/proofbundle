@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import copy
 import hmac
+from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import loads_strict
@@ -29,7 +30,7 @@ from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
 
 __all__ = ["POLICY_SCHEMA", "PolicyError", "load_policy", "evaluate_policy",
-           "explain_policy", "lint_policy", "policy_warnings"]
+           "explain_policy", "lint_policy", "policy_warnings", "policy_expired"]
 
 POLICY_SCHEMA = "proofbundle/trust-policy/v0.1"
 POLICY_SCHEMA_V0_2 = "proofbundle/trust-policy/v0.2"
@@ -103,7 +104,25 @@ def _pinned_key_forgeable(b64: str) -> bool:
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors"}
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors",
+             "deploymentReady", "requiresIdentityOverlay",   # AP-2 §6.2 template metadata
+             "valid_until"}                                  # AP-2 §6.4 lifecycle expiry
+
+
+def _parse_iso_utc(s):
+    """Parse an ISO-8601 string to an aware UTC datetime, or None if unparseable. A naive value is
+    assumed UTC. A trailing ``Z`` is normalised to ``+00:00`` first so this works on Python 3.10
+    (whose ``datetime.fromisoformat`` does not accept ``Z``) as well as 3.11+."""
+    if not isinstance(s, str):
+        return None
+    norm = s[:-1] + "+00:00" if s.endswith("Z") else s
+    try:
+        dt = datetime.fromisoformat(norm)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
@@ -192,6 +211,17 @@ def load_policy(source: Union[str, dict]) -> dict:
         raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
+    # AP-2 §6.2: template metadata. `deploymentReady`/`requiresIdentityOverlay` are optional additive
+    # booleans (a hand-written production policy omits them); when present they MUST be real booleans.
+    for _meta in ("deploymentReady", "requiresIdentityOverlay"):
+        if _meta in policy:
+            _require_bool(policy, _meta, "trust policy")
+    # AP-2 §6.4: an optional ISO-8601 expiry an instantiated policy may carry. A present value MUST parse
+    # to a real timestamp (fail-closed); `policy lint --strict` then fails once it is in the past.
+    if "valid_until" in policy and policy["valid_until"] is not None:
+        if not isinstance(policy["valid_until"], str) or _parse_iso_utc(policy["valid_until"]) is None:
+            raise PolicyError(
+                "valid_until must be an ISO-8601 timestamp string (e.g. 2027-01-01T00:00:00Z)")
 
     # Every declared field's TYPE is enforced (verify-lens L4/L3), not just its presence — the schema
     # declares these types and the hand-rolled parser must match it, or a mistyped field silently
@@ -699,13 +729,31 @@ def policy_warnings(policy: dict) -> list:
     return warnings
 
 
-def lint_policy(policy: dict, *, strict: bool = False) -> dict:
+def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
+    """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
+    in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
+    (defaults to the current UTC time). An unparseable value is treated as None here — load_policy already
+    rejects a malformed ``valid_until`` fail-closed, so this projection never sees one from a loaded policy."""
+    vu = policy.get("valid_until")
+    if vu is None:
+        return None
+    parsed = _parse_iso_utc(vu)
+    if parsed is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current > parsed
+
+
+def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
 
     Returns ``{ok, errors, warnings, pins}``. ``errors`` (lint failures, exit != 0 in the CLI):
     the policy makes NO effective pin at all — `evaluate_policy` would return ``policy_ok=True``
     with an EMPTY check list (``all([]) is True``), the exact vacuous-pass trap TP1 closes.
-    ``strict`` additionally promotes the attributes-to-nobody warning to an error."""
+    ``strict`` additionally promotes the attributes-to-nobody warning to an error AND rejects a raw
+    template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests."""
     pins = explain_policy(policy)
     errors: list = []
     warnings = policy_warnings(policy)
@@ -720,7 +768,25 @@ def lint_policy(policy: dict, *, strict: bool = False) -> dict:
         errors.append(
             "require_expected_signer is set but allowed_issuers is empty — unsatisfiable: no signer "
             "key can ever match, so every verify FAILs (exit 3). Add the expected issuer key(s).")
+    # AP-2 §6.4: an EXPIRED policy is unsafe to depend on — a hard lint failure in BOTH modes (it is a
+    # correctness/lifecycle failure, not a strictness preference). valid_until is a new additive field, so
+    # no pre-existing policy is affected.
+    if policy_expired(policy, now=now):
+        errors.append(
+            f"policy valid_until {policy.get('valid_until')!r} is in the past — expired, do not deploy "
+            "(re-instantiate the template with a current validity window)")
     if strict:
+        # AP-2 §6.4: a raw TEMPLATE must never back a productive automation decision. deploymentReady:false
+        # (an un-instantiated template) and a still-set requiresIdentityOverlay:true (no identity overlay
+        # applied) are both lint failures under --strict.
+        if policy.get("deploymentReady") is False:
+            errors.append(
+                "deploymentReady:false — this is a raw trust-policy TEMPLATE, not a deployment-ready "
+                "policy; instantiate it first (`proofbundle policy instantiate <name> …`)")
+        if policy.get("requiresIdentityOverlay") is True and _attributes_to_nobody(policy):
+            errors.append(
+                "requiresIdentityOverlay:true but the policy pins no signer identity — a template used "
+                "without its identity overlay; pin allowed_issuers (or trusted_decision_makers) first")
         errors.extend(warnings)
         warnings = []
     return {"ok": not errors, "errors": errors, "warnings": warnings, "pins": pins}

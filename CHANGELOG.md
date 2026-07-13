@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2026-07-13
+
+Patch release: automation-safety hardening. Three additive gates plus one fail-closed security fix,
+all backward-compatible at the wire-format level. The one behaviour change is deliberate and
+security-motivated: `safeForAutomation` is now stricter (see the note below).
+
+### Changed — `safeForAutomation` is a stricter, global trust verdict (AP-1, behaviour change)
+- `safeForAutomation` is now `true` **only** when the crypto verdict passed, the Merkle root was
+  affirmatively authenticated, a supplied trust policy PASSED (`policy_ok is True` — no policy, i.e.
+  `None`, never qualifies), that policy actually **pins a trusted signer**, it carries no blocking
+  warning, it is **not expired**, and no required anchor / public-transparency / replay gate FAILED.
+  A verify that previously reported `safeForAutomation: true` on a crypto-valid, root-pinned receipt
+  **without** an evaluated, signer-pinning policy now reports `false`. This is intended: the flag is a
+  global "safe to act on automatically" verdict, not a crypto-only verdict.
+- New machine-readable `automationBlockers` array names every reason the flag is false
+  (`POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `ROOT_NOT_AUTHENTICATED`,
+  `POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
+  `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`, `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`).
+- New human `SAFE_FOR_AUTOMATION: YES/NO` line with per-blocker reasons, derived from the same summary
+  so the human and JSON forms can never disagree.
+- Migration: `MIGRATION_3.1.0_TO_3.1.1.md`.
+
+### Added — trust-policy templates and instantiation (AP-2)
+- The four `strict-*` profiles are renamed `*-template-v1` and carry `deploymentReady: false` +
+  `requiresIdentityOverlay: true`. The old names remain resolvable as **deprecated aliases** (a
+  deprecation line on stderr, no break); `policy list-profiles` marks them.
+- New `proofbundle policy instantiate <template> --issuer-key <pub> [--expected-root-file <f>]
+  --policy-id <id> [--valid-until <iso8601>] [--output <f>]` turns a template into a deployment-ready
+  org policy that pins your signer identity, offline. It is `deploymentReady: true` only when every
+  required field is filled; unknown overlay fields fail closed.
+- `policy lint --strict` now fails on a raw template (`deploymentReady: false`) and a still-set
+  `requiresIdentityOverlay: true` with no signer pin. An expired `valid_until` fails `policy lint` in
+  BOTH modes (strict and non-strict) — it is a lifecycle failure, not a strictness preference.
+- New optional policy field `valid_until` (ISO-8601 UTC lifecycle expiry). A raw template used
+  productively can never yield `safeForAutomation: true` (AP-1 + AP-2 §6.2).
+- `schemas/trust_policy_v0_1.schema.json` gains `deploymentReady`, `requiresIdentityOverlay`,
+  `valid_until` (kept in sync with the parser's allow-list).
+
+### Added — `expected-tree-size` machine-readable status (AP-3)
+- Verify JSON now carries a `treeSizeExpectation` object (`status: PASS|FAIL|NOT_REQUESTED`,
+  `expected`, `actual`), so an integrator never has to infer from a missing line whether the check ran.
+  The check itself still runs INDEPENDENTLY of the root (a mismatch already fails the crypto verdict).
+- Added regressions for negative / zero / absurdly large expected values, the non-integer CLI usage
+  error, and the `NOT_REQUESTED` status when the flag is absent.
+
+### Fixed — unbindable eval SD-JWT graft refused fail-closed (N1, security)
+- An **eval** SD-JWT (carrying the always-open `passed` / `threshold` / `comparator` / `suite` /
+  `root` markers) grafted onto a **non-eval-claim** payload has nothing to bind to and is now refused
+  fail-closed (`sd-jwt-bundle-binding` FAIL → the whole bundle FAILs). A **generic** SD-JWT-VC
+  (`iss` / `vct`, no eval markers) on a non-eval payload carries no eval claim to substitute and stays
+  in scope (backward-compatible). Regression: `tests/test_sdjwt_verify_binding.py::TestN1UnbindableEvalSdJwt`.
+
 ## [3.1.0] - 2026-07-13
 
 Minor release: native Merkle **root authenticity** (relying-party root pinning + a trust-policy

@@ -32,9 +32,12 @@ class TestNamedProfilesLoadExplainLint(unittest.TestCase):
     another's failure."""
 
     def test_every_profile_loads_explains_and_lints_clean(self):
+        # AP-2 §6.1: the four strict profiles were renamed *-template-v1; research-preview-v1 kept its
+        # name (it is a preview, not a template). The old names remain resolvable as deprecated aliases.
         self.assertEqual(list_profiles(),
-                         ["decision-receipt-v1", "research-preview-v1", "strict-eval-authenticated-root-v1",
-                          "strict-eval-v1", "strict-prereg-v1"])
+                         ["decision-receipt-template-v1", "research-preview-v1",
+                          "strict-eval-authenticated-root-template-v1", "strict-eval-template-v1",
+                          "strict-prereg-template-v1"])
         for name in list_profiles():
             with self.subTest(profile=name):
                 path = profile_path(name)
@@ -59,7 +62,7 @@ class TestNamedProfilesLoadExplainLint(unittest.TestCase):
                 self.assertFalse(strict["ok"])
 
     def test_decision_receipt_profile_needs_v0_2_schema(self):
-        policy = load_policy(profile_path("decision-receipt-v1"))
+        policy = load_policy(profile_path("decision-receipt-template-v1"))
         self.assertEqual(policy["schema"], "proofbundle/trust-policy/v0.2")
         self.assertIn("decision_receipt", policy)
 
@@ -68,7 +71,7 @@ class TestNamedProfilesLoadExplainLint(unittest.TestCase):
         # section is a REAL pin the CLI's --policy path enforces (see _cmd_verify), so it must show up
         # in explain_policy — otherwise `policy lint` on an anchors-only policy would wrongly call it
         # vacuous even though `verify --policy` genuinely gates exit 3 on it.
-        policy = load_policy(profile_path("strict-prereg-v1"))
+        policy = load_policy(profile_path("strict-prereg-template-v1"))
         self.assertEqual(policy["schema"], "proofbundle/trust-policy/v0.2")
         pins = explain_policy(policy)
         self.assertTrue(any("external time anchor required" in p for p in pins))
@@ -103,13 +106,13 @@ class TestExplainPolicyAnchorsPin(unittest.TestCase):
 
 class TestResolvePolicySource(unittest.TestCase):
     def test_bare_name_resolves_to_packaged_profile(self):
-        resolved = resolve_policy_source("strict-eval-v1")
+        resolved = resolve_policy_source("strict-eval-template-v1")
         self.assertTrue(os.path.isfile(resolved))
-        self.assertEqual(load_policy(resolved)["policy_id"], "proofbundle-policy/strict-eval-v1")
+        self.assertEqual(load_policy(resolved)["policy_id"], "proofbundle-policy/strict-eval-template-v1")
 
     def test_prefixed_name_resolves_the_same_profile(self):
-        self.assertEqual(resolve_policy_source("strict-eval-v1"),
-                         resolve_policy_source("proofbundle-policy/strict-eval-v1"))
+        self.assertEqual(resolve_policy_source("strict-eval-template-v1"),
+                         resolve_policy_source("proofbundle-policy/strict-eval-template-v1"))
 
     def test_unknown_name_is_returned_unchanged_and_load_policy_still_fails_closed(self):
         unresolved = resolve_policy_source("not-a-real-profile-or-file")
@@ -151,9 +154,18 @@ class TestCliIntegration(unittest.TestCase):
         self.assertTrue(data["pins"])
 
     def test_policy_lint_by_name(self):
-        rc, out, _ = _run(["policy", "lint", "--json", "strict-eval-v1"])
+        # non-strict lint of a raw template is OK (it has real pins); the template-rawness failure is a
+        # --strict concern (see TestPolicyTemplatesAP2.test_lint_strict_fails_on_raw_template).
+        rc, out, _ = _run(["policy", "lint", "--json", "strict-eval-template-v1"])
         self.assertEqual(rc, 0)
         self.assertTrue(json.loads(out)["ok"])
+
+    def test_policy_lint_deprecated_alias_still_resolves_with_warning(self):
+        # AP-2 §6.1: the old name resolves (deprecation period) and prints a deprecation line on stderr.
+        rc, out, err = _run(["policy", "lint", "--json", "strict-eval-v1"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(json.loads(out)["ok"])
+        self.assertIn("deprecated alias", err)
 
     def test_policy_list_profiles(self):
         rc, out, _ = _run(["policy", "list-profiles", "--json"])

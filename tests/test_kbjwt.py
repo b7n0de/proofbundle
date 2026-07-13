@@ -9,12 +9,29 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle import emit_bundle, generate_signer, verify_bundle
 from proofbundle.errors import BundleFormatError
+from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 from proofbundle.kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 
 IAT = 1_780_000_000
 CLAIM = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
          "issuer": "ed25519:placeholder"}
+
+# N1 (audit 2026-07-13): an eval-carrying SD-JWT must BIND to an eval-claim payload — the old fixtures
+# grafted an eval SD-JWT onto a non-eval {"x":1} bundle (the exact substitution hole verify_bundle now
+# refuses fail-closed). This shared, deterministic eval-claim lets _issue_presented / _bundle_with commit
+# the SD-JWT to the SAME bundle root (emit_eval_receipt is deterministic per (claim, signer)).
+_EV_CLAIM, _ = build_eval_claim(
+    suite="demo-suite", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
+    score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+    timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+
+
+def _bound_root_and_issuer_field(issuer):
+    """The deterministic merkle root + resolved issuer fingerprint of the shared eval bundle for `issuer`."""
+    plain = emit_eval_receipt(_EV_CLAIM, issuer)
+    pc = json.loads(base64.b64decode(plain["payload_b64"]))
+    return plain["merkle"]["root_b64"], pc["issuer"]
 
 
 def _b64url(b: bytes) -> str:
@@ -34,9 +51,10 @@ def _issue_presented(holder=None, *, exact_score="0.92", aud="verifier.example",
     """Issue an SD-JWT (issuer == holder-binding optional) and present it with a KB-JWT."""
     issuer = generate_signer()
     holder = holder or generate_signer()
+    root, issuer_field = _bound_root_and_issuer_field(issuer)   # N1: bind the SD-JWT to the eval bundle
     claim = dict(CLAIM)
-    claim["issuer"] = "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")
-    compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score=exact_score,
+    claim["issuer"] = issuer_field
+    compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score=exact_score,
                            holder_public_key=_raw_pub(holder))
     presented = present_with_key_binding(compact, holder, aud=aud, nonce=nonce, iat=IAT)
     return presented, issuer, holder
@@ -188,10 +206,12 @@ class TestKbAdversarial(unittest.TestCase):
 
 class TestBundleIntegration(unittest.TestCase):
     def _bundle_with(self, compact, issuer):
-        return emit_bundle(b'{"x":1}', issuer,
-                           sd_jwt_vc={"compact": compact,
-                                      "issuer_public_key_b64":
-                                          base64.b64encode(_raw_pub(issuer)).decode("ascii")})
+        # N1: emit the SAME deterministic eval-claim bundle the SD-JWT was bound to (emit_eval_receipt is
+        # deterministic per (claim, signer)), so an eval-carrying SD-JWT binds instead of being refused.
+        return emit_eval_receipt(_EV_CLAIM, issuer,
+                                 sd_jwt={"compact": compact,
+                                         "issuer_public_key_b64":
+                                             base64.b64encode(_raw_pub(issuer)).decode("ascii")})
 
     def test_bundle_kb_check_green(self):
         presented, issuer, _ = _issue_presented()
@@ -216,9 +236,10 @@ class TestBundleIntegration(unittest.TestCase):
     def test_bundle_without_kb_unchanged(self):
         # v0.9 bundles (no KB-JWT) get NO extra check — backwards compatible.
         issuer = generate_signer()
+        root, issuer_field = _bound_root_and_issuer_field(issuer)   # N1: bind to the eval bundle
         claim = dict(CLAIM)
-        claim["issuer"] = "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")
-        compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.9")
+        claim["issuer"] = issuer_field
+        compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.9")
         result = verify_bundle(self._bundle_with(compact, issuer))
         names = [c.name for c in result.checks]
         self.assertNotIn("sd-jwt-key-binding", names)

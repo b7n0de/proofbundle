@@ -225,6 +225,31 @@ The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
 supplies out of band; the verifier does not fetch anything.
 
+### Automation-safety verdict and additive output objects (since 3.1.1)
+
+`safeForAutomation` is a **global** "safe to act on automatically" verdict, distinct from the crypto
+verdict. It is `true` ONLY when: the crypto verification passed; the Merkle root was affirmatively
+authenticated (`expected_root` or a policy `trusted_roots` / `require_authenticated_root`); a supplied
+trust policy PASSED (`policy_ok is True` — no policy, i.e. `None`, never qualifies); that policy pins a
+trusted signer identity; the policy carries no blocking warning and is not expired (`valid_until` in the
+future); and no required anchor / public-transparency / replay gate FAILED. A conforming verifier that
+emits the field MUST also emit `automationBlockers` — an array naming every reason it is false, drawn
+from at least: `POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `ROOT_NOT_AUTHENTICATED`,
+`POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
+`PUBLIC_TRANSPARENCY_REQUIRED_FAILED`, `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`. The human and
+machine forms of the verdict MUST agree.
+
+`treeSizeExpectation` is an additive object `{status: PASS|FAIL|NOT_REQUESTED, expected, actual}` making
+the tree-size gate's outcome explicit (`NOT_REQUESTED` when no `expected_tree_size` was supplied). The
+tree-size check is evaluated INDEPENDENTLY of the root: a mismatch fails the crypto verdict on its own,
+and without a pinned root the root itself remains unauthenticated.
+
+A trust policy MAY carry additive metadata: `deploymentReady` / `requiresIdentityOverlay` (a policy is a
+raw TEMPLATE until instantiated with a signer overlay — a template can never yield
+`safeForAutomation: true`) and `valid_until` (an ISO-8601 UTC expiry). These are advisory to the
+verifier's automation verdict and enforced by `policy lint --strict`; they never change the crypto
+verdict.
+
 ## 7a. Scope guardrail (honest)
 
 A bundle attests the **authenticity and integrity** of the exact `payload` bytes — signed by the stated

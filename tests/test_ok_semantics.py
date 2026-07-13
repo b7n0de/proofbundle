@@ -41,17 +41,27 @@ def _sd_jwt_bundle_file(*, with_issuer_key: bool = True, aud: str = "verifier.ex
     """A bundle carrying a real, key-bound SD-JWT presentation (built like tests/test_kbjwt.py).
     ``with_issuer_key`` controls whether sd_jwt_vc.issuer_public_key_b64 is present — its absence is
     exactly the case where the issuer signature is never checked (Fund A)."""
+    from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
     issuer = generate_signer()
     holder = generate_signer()
+    # N1 (audit 2026-07-13): an eval-carrying SD-JWT must BIND to an eval-claim payload — grafting it onto a
+    # non-eval {"x":1} bundle is now refused fail-closed. Bind the SD-JWT to a real eval bundle's root.
+    ev_claim, _ = build_eval_claim(
+        suite="demo-suite", suite_version="1", metric="acc", comparator=">=", threshold="0.80",
+        score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+        timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+    plain = emit_eval_receipt(ev_claim, issuer)
+    root = plain["merkle"]["root_b64"]
+    issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
     claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-             "issuer": "ed25519:" + base64.b64encode(_raw_pub(issuer)).decode("ascii")}
-    compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.92",
+             "issuer": issuer_field}
+    compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.92",
                            holder_public_key=_raw_pub(holder))
     presented = present_with_key_binding(compact, holder, aud=aud, nonce=nonce, iat=_IAT)
     sd_jwt_vc = {"compact": presented}
     if with_issuer_key:
         sd_jwt_vc["issuer_public_key_b64"] = base64.b64encode(_raw_pub(issuer)).decode("ascii")
-    bundle = emit_bundle(b'{"x":1}', issuer, sd_jwt_vc=sd_jwt_vc)
+    bundle = emit_eval_receipt(ev_claim, issuer, sd_jwt=sd_jwt_vc)
     fd, path = tempfile.mkstemp(suffix=".json")
     with os.fdopen(fd, "w") as f:
         json.dump(bundle, f)
