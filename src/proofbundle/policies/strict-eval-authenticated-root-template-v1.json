@@ -1,6 +1,7 @@
 {
   "schema": "proofbundle/trust-policy/v0.1",
   "policy_id": "proofbundle-policy/strict-eval-authenticated-root-template-v1",
+  "policyPurpose": "eval",
   "deploymentReady": false,
   "requiresIdentityOverlay": true,
   "allowed_schema_versions": [

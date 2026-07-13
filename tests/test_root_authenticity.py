@@ -195,10 +195,20 @@ class TestSummary(unittest.TestCase):
 
     def test_summary_folds_policy_trusted_root(self):
         orig, _ = _make_orig_and_coherent_rewrap()
-        # AP-1 §5: root authenticated by the policy's trusted_roots AND the policy passed with a pinned signer → safe.
+        # AP-1 §5: root BYTES authenticated by the policy's trusted_roots → rootAuthenticity PASS.
+        # A-P0-1 (3.1.3): bytes alone are NOT tree context — a naked root pin is ROOT_BYTES_ONLY and
+        # never automation-safe (the 2→3-leaf relabel shares the root). Automation needs the atomic
+        # (root, tree_size) authentication (trusted_checkpoints / --trusted-checkpoint / root+size pair).
         s = root_authenticity_summary(verify_bundle(orig), policy_authenticated_root=True,
                                       policy_ok=True, signer_trusted=True)
         self.assertEqual(s["rootAuthenticity"], "PASS")
+        self.assertEqual(s["rootTrustLevel"], "ROOT_BYTES_ONLY")
+        self.assertFalse(s["safeForAutomation"])
+        self.assertIn("TREE_CONTEXT_NOT_AUTHENTICATED", s["automationBlockers"])
+        # with the atomic tree context authenticated, the same gates DO reach safe (positive control)
+        s = root_authenticity_summary(verify_bundle(orig), policy_authenticated_root=True,
+                                      policy_ok=True, signer_trusted=True,
+                                      tree_context_authenticated=True)
         self.assertTrue(s["safeForAutomation"])
 
     def test_p0b_safe_for_automation_requires_passing_policy(self):
@@ -207,10 +217,12 @@ class TestSummary(unittest.TestCase):
         # signer pin. The former `policy_ok is not False` let policy_ok=None (no policy) through — the bug.
         orig, rewrap = _make_orig_and_coherent_rewrap()
         r = verify_bundle(orig, expected_root_b64=orig["merkle"]["root_b64"])  # crypto OK, root authenticated
-        # (1) expected_root without any policy → NOT safe (POLICY_NOT_EVALUATED)
+        # (1) expected_root without any policy → NOT safe (POLICY_NOT_EVALUATED; since 3.1.3 a
+        # root-bytes-only pin additionally reports TREE_CONTEXT_NOT_AUTHENTICATED, A-P0-1)
         s = root_authenticity_summary(r)
         self.assertFalse(s["safeForAutomation"])
-        self.assertEqual(s["automationBlockers"], ["POLICY_NOT_EVALUATED"])
+        self.assertIn("POLICY_NOT_EVALUATED", s["automationBlockers"])
+        self.assertIn("TREE_CONTEXT_NOT_AUTHENTICATED", s["automationBlockers"])
         # (2) an explicitly FAILED policy → NOT safe (POLICY_FAILED)
         s = root_authenticity_summary(r, policy_ok=False)
         self.assertFalse(s["safeForAutomation"])
@@ -235,8 +247,10 @@ class TestSummary(unittest.TestCase):
         self.assertIn("REPLAY_BINDING_REQUIRED_FAILED",
                       root_authenticity_summary(r, policy_ok=True, signer_trusted=True,
                                                 replay_ok=False)["automationBlockers"])
-        # (5) test_all_required_gates_pass_sets_safe_true — passing policy + pinned signer + root + anchor
-        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=True, anchor_ok=True)
+        # (5) test_all_required_gates_pass_sets_safe_true — passing policy + pinned signer + root +
+        # anchor + ATOMIC tree context (A-P0-1: without it, bytes-only is never automation-safe)
+        s = root_authenticity_summary(r, policy_ok=True, signer_trusted=True, anchor_ok=True,
+                                      tree_context_authenticated=True)
         self.assertTrue(s["safeForAutomation"])
         self.assertEqual(s["automationBlockers"], [])
         # (6) crypto FAIL dominates → NOT safe (CRYPTO_FAILED), even with a passing policy
@@ -292,9 +306,17 @@ class TestPolicyAuthenticatedRoot(unittest.TestCase):
         self.assertFalse(res["policy_ok"])
 
     def test_malformed_trusted_root_never_matches(self):
+        from proofbundle.policy import PolicyError
         orig, _ = _make_orig_and_coherent_rewrap()
-        pol = self._policy(["!!!not base64!!!"])
-        res = evaluate_policy(orig, verify_bundle(orig), pol)
+        # A-P0-5 §9.1 (3.1.3): a malformed pin is its OWN loud load error now, never a silent
+        # never-matches — load_policy refuses it outright.
+        with self.assertRaises(PolicyError):
+            self._policy(["!!!not base64!!!"])
+        # defense-in-depth: a raw dict that BYPASSED load_policy still never authenticates on the
+        # evaluate layer (the silent-skip stays as the second net).
+        raw = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "p",
+               "merkle": {"require_authenticated_root": True, "trusted_roots": ["!!!not base64!!!"]}}
+        res = evaluate_policy(orig, verify_bundle(orig), raw)
         self.assertFalse(res["policy_ok"], "a malformed trusted_root must never authenticate (fail-closed)")
 
     def test_shipped_authenticated_root_profile_activates_protection(self):
@@ -316,7 +338,8 @@ class TestPolicyAuthenticatedRoot(unittest.TestCase):
         self.assertFalse(res["root_authenticated"])
 
     def test_explain_lists_the_new_pins(self):
-        lines = explain_policy(self._policy(["AAAA"]))
+        root32 = base64.b64encode(b"\x0a" * 32).decode("ascii")   # A-P0-5: pins must be 32-byte roots
+        lines = explain_policy(self._policy([root32]))
         joined = " ".join(lines).lower()
         self.assertIn("authenticated", joined)
         self.assertIn("trusted_roots", joined)
@@ -446,7 +469,9 @@ class TestAP1PreLandReviewRegressions(unittest.TestCase):
 
     def test_allowed_issuers_matching_signer_still_sets_safe_true(self):
         # regression-guard the other direction: a real eval policy that pins the matching signer + an
-        # authenticated root STILL yields safeForAutomation:true (the fix must not over-tighten).
+        # atomically authenticated (root, tree_size) STILL yields safeForAutomation:true (the fix must
+        # not over-tighten). Since A-P0-1 the atomic pair (--expected-root AND --expected-tree-size,
+        # or a trusted checkpoint) is required — a policy trusted_roots pin alone is bytes-only.
         import contextlib
         import io
         import json
@@ -476,7 +501,8 @@ class TestAP1PreLandReviewRegressions(unittest.TestCase):
                 json.dump(policy, f)
             out = io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-                main(["verify", "--json", bpath, "--policy", ppath])
+                main(["verify", "--json", bpath, "--policy", ppath,
+                      "--expected-root", root, "--expected-tree-size", "1"])
             data = json.loads(out.getvalue())
         finally:
             os.unlink(bpath)
@@ -484,6 +510,7 @@ class TestAP1PreLandReviewRegressions(unittest.TestCase):
         ra = data["root_authenticity"]
         self.assertTrue(ra["safeForAutomation"], f"a pinned matching signer must stay safe: {ra}")
         self.assertEqual(ra["automationBlockers"], [])
+        self.assertEqual(ra["rootTrustLevel"], "ROOT_AND_TREE_SIZE_PINNED")
 
     def test_pinned_signer_but_requires_overlay_is_template_not_instantiated(self):
         # L2 pre-land audit F1: a policy that DOES pin+match the signer but still carries
@@ -543,7 +570,9 @@ class TestAP1S54NamedRegressions(unittest.TestCase):
     def test_expected_root_without_policy_never_sets_safe_true(self):
         s = root_authenticity_summary(self._authenticated_result())
         self.assertFalse(s["safeForAutomation"])
-        self.assertEqual(s["automationBlockers"], ["POLICY_NOT_EVALUATED"])
+        self.assertIn("POLICY_NOT_EVALUATED", s["automationBlockers"])
+        # A-P0-1 (3.1.3): the root-only expectation additionally lacks the atomic tree context
+        self.assertIn("TREE_CONTEXT_NOT_AUTHENTICATED", s["automationBlockers"])
 
     def test_policy_none_never_sets_safe_true(self):
         self.assertFalse(root_authenticity_summary(self._authenticated_result(),
@@ -591,9 +620,11 @@ class TestAP1S54NamedRegressions(unittest.TestCase):
 
     def test_all_required_gates_pass_sets_safe_true(self):
         # mutation-gated (§15): the ONE true-path — passing policy + pinned signer + authenticated root +
-        # a satisfied anchor gate, no warnings, not expired. Flip any single input and safe must go false.
+        # ATOMIC tree context (A-P0-1) + a satisfied anchor gate, no warnings, not expired. Flip any
+        # single input and safe must go false.
         s = root_authenticity_summary(self._authenticated_result(), policy_ok=True, signer_trusted=True,
-                                      anchor_ok=True, policy_expired=False)
+                                      anchor_ok=True, policy_expired=False,
+                                      tree_context_authenticated=True)
         self.assertTrue(s["safeForAutomation"])
         self.assertEqual(s["automationBlockers"], [])
 

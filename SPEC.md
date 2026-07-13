@@ -1,6 +1,6 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
-Revision: 2026-07-11
+Revision: 2026-07-13
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
 An independent implementation that follows this document MUST interoperate with
@@ -235,26 +235,75 @@ A conforming verifier MUST perform, in this order, and report each result:
    MUST report `payloadSignature` / `merkleConsistency` / `rootAuthenticity`
    (PASS/FAIL/NOT_EVALUATED) separately, so Merkle inclusion is never read as root
    authentication.
+9. **checkpoint-authenticity** (since 3.1.3, A-P0-1) — performed ONLY when the relying
+   party supplies a trusted checkpoint (`--trusted-checkpoint` + `--checkpoint-vkey`,
+   a signed C2SP note per §7c). The checkpoint signature MUST verify under the
+   supplied verifier key; the checkpoint's `(root, tree size)` pair then becomes the
+   expected root AND expected tree size ATOMICALLY (feeding check 8). A checkpoint
+   that does not verify FAILS the verdict — the expectations it would have carried
+   are never used unauthenticated.
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party
 supplies out of band; the verifier does not fetch anything.
 
+### Atomic tree context (normative, since 3.1.3 — A-P0-1)
+
+**Root and tree size MUST be authenticated atomically for production trust.** An RFC 6962
+inclusion proof constrains `(leaf_index, tree_size)` only up to path-shape equivalence: a
+receipt honestly anchored at index 1 of a 2-leaf tree also verifies relabelled as index 2 of
+a claimed 3-leaf tree — same payload, same signature, same root, same proof. A root-BYTES
+pin (bare `expected_root`, or a policy `trusted_roots` entry) cannot distinguish the two,
+because both labelings share the root. Therefore:
+
+- `TREE_CONTEXT_AUTHENTICITY: PASS` requires that the stated root AND the stated
+  `tree_size` both match ONE authenticated source: a verified signed checkpoint
+  (`--trusted-checkpoint`/`--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints`
+  entry — signature-valid under its pinned `checkpointSigner`, unexpired, supported
+  `hashAlg`), or a relying-party-supplied `expected_root` + `expected_tree_size` PAIR.
+- A naked root pin reaches at most `ROOT_BYTES_AUTHENTICITY: PASS` — NEVER
+  `TREE_CONTEXT_AUTHENTICITY: PASS` and never `safeForAutomation: true`
+  (`rootTrustLevel: ROOT_BYTES_ONLY`).
+- The verifier reports `rootTrustLevel` ∈ `CHECKPOINT` (atomic pair from a verified
+  signed checkpoint) / `ROOT_AND_TREE_SIZE_PINNED` (atomic pair supplied directly by the
+  relying party) / `ROOT_BYTES_ONLY` / `NONE`, and `checkpointAuthenticity`
+  (PASS/FAIL/NOT_EVALUATED). The legacy `rootAuthenticity` key remains as a wire-compat
+  ALIAS of `rootBytesAuthenticity`; it never asserted more than root bytes and MUST NOT
+  be read as tree-context or automation trust.
+
 ### Automation-safety verdict and additive output objects (since 3.1.1)
 
 `safeForAutomation` is a **global** "safe to act on automatically" verdict, distinct from the crypto
 verdict. It is `true` ONLY when: the crypto verification passed; the Merkle root was affirmatively
-authenticated (`expected_root` or a policy `trusted_roots` / `require_authenticated_root`); a supplied
+authenticated (`expected_root` or a policy `trusted_roots` / `require_authenticated_root`); root and
+tree size were authenticated ATOMICALLY from one source (`TREE_CONTEXT_AUTHENTICITY: PASS`, since
+3.1.3 — see "Atomic tree context" above; a root-bytes-only pin never qualifies); a supplied
 trust policy PASSED (`policy_ok is True` — no policy, i.e. `None`, never qualifies); that policy pins a
 trusted signer identity; the policy is not a raw template (`requiresIdentityOverlay` is not set); the
-policy carries no blocking warning and is not expired; and no required anchor / public-transparency /
-replay gate FAILED. Expiry is INCLUSIVE: a policy is valid up to and including its `valid_until` instant
-and expired strictly after it. A conforming verifier that emits the field MUST also emit
-`automationBlockers` — an array naming every reason it is false, drawn from at least:
-`POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `TEMPLATE_NOT_INSTANTIATED`,
-`ROOT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
-`PUBLIC_TRANSPARENCY_REQUIRED_FAILED`, `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`. The human and
-machine forms of the verdict MUST agree.
+policy carries no blocking warning, is not expired and is not yet-to-become-valid; and no required
+anchor / public-transparency / replay gate FAILED. Expiry is INCLUSIVE: a policy is valid up to and
+including its `valid_until` instant and expired strictly after it. A conforming verifier that emits the
+field MUST also emit `automationBlockers` — an array naming every reason it is false, drawn from at
+least: `POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `TEMPLATE_NOT_INSTANTIATED`,
+`ROOT_NOT_AUTHENTICATED`, `TREE_CONTEXT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`,
+`POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`, `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`,
+`REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`. The human and machine forms of the verdict MUST
+agree.
+
+**Policy lifecycle and purpose (normative since 3.1.3 — A-P0-2 / A-P0-4).** Policy lifecycle is part
+of the policy EVALUATION itself on BOTH verify paths, not only of the automation verdict: a policy
+whose `valid_until` is in the past, whose `valid_from` is still in the future, or which is a raw
+template (`requiresIdentityOverlay: true`) FAILS the policy (`POLICY: FAIL`, exit 3). Historical
+verification never happens silently: only an explicit `--verification-time <ISO-8601>` (together with
+`--policy`) evaluates the lifecycle AS OF that instant, and the output is labelled
+(`VERIFICATION_TIME: HISTORICAL`, `CURRENT_POLICY_STATUS`, `HISTORICAL_POLICY_STATUS`); a policy that
+is expired TODAY keeps `safeForAutomation: false` (`POLICY_EXPIRED`) even in historical mode. A policy
+MAY declare `policyPurpose` ∈ `eval` / `decision` / `outcome` / `trust-pack` / `public-transparency`:
+the eval verify path accepts only `eval`, the decision path only `decision`; the wrong purpose FAILS
+the policy (exit 3). A policy without the field is treated as a transitional legacy policy (no purpose
+check); `policy lint --strict` requires the field. Pinned `merkle.trusted_roots` entries MUST be valid
+standard base64 decoding to exactly 32 bytes — a malformed pin is a load-time error with its own
+reason, never a silent never-matches (A-P0-5).
 
 **Enforcement status of the gate conditions (No-Overclaim).** `ANCHOR_REQUIRED_FAILED`,
 `POLICY_EXPIRED`, `TEMPLATE_NOT_INSTANTIATED`, `SIGNER_NOT_PINNED`, `POLICY_FAILED`,

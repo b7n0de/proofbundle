@@ -347,9 +347,11 @@ class TestSchemaConsistency(unittest.TestCase):
     @unittest.skipIf(jsonschema is None, "jsonschema not installed")
     def test_schema_accepts_authenticated_root_policy(self):
         # the production policy that closes the coherent-rewrap must validate against the SCHEMA, not
-        # only the parser (an external / second implementation trusts the schema).
+        # only the parser (an external / second implementation trusts the schema). A-P0-5: pins must
+        # be real 32-byte roots since 3.1.3 (the parser hard-validates them at load).
+        root32 = base64.b64encode(b"\x0b" * 32).decode("ascii")
         pol = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "p",
-               "merkle": {"require_authenticated_root": True, "trusted_roots": ["QQ=="]}}
+               "merkle": {"require_authenticated_root": True, "trusted_roots": [root32]}}
         jsonschema.validate(instance=pol, schema=self._schema())   # must not raise
         load_policy(pol)   # and the parser accepts it too
 

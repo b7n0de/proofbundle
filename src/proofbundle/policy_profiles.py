@@ -68,6 +68,11 @@ PROFILE_ALIASES: dict[str, str] = {
     "decision-receipt-v1": "decision-receipt-template-v1",
 }
 
+# A-P0-5 §9.2: metadata an instantiate overlay may NEVER set — deploymentReady is derived (§9.3),
+# the rest is fixed by the template lifecycle (see instantiate_template).
+_RESERVED_OVERLAY_KEYS = {"deploymentReady", "requiresIdentityOverlay", "policyPurpose",
+                          "schema", "generatedFromTemplate"}
+
 
 def list_profiles() -> list:
     """The sorted list of CANONICAL profile short names (no prefix, no aliases)."""
@@ -214,22 +219,41 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
 
     inst["policy_id"] = policy_id
     inst["requiresIdentityOverlay"] = False
+    # A-P0-5 §9.2: the instance records its template provenance (display/audit; reserved below).
+    inst["generatedFromTemplate"] = canonical
     if valid_until is not None:
         inst["valid_until"] = valid_until
     if overlay is not None:
         if not isinstance(overlay, dict):
             raise PolicyError("overlay must be a JSON object")
+        # A-P0-5 §9.2: RESERVED metadata is never overlay-writable — an overlay that sets
+        # deploymentReady would ASSERT readiness (it is derived, §9.3), one that clears
+        # requiresIdentityOverlay would skip the identity step, one that changes
+        # policyPurpose/schema/generatedFromTemplate would repurpose or re-badge the instance.
+        # Loud PolicyError, never a silent drop (fail-closed).
+        reserved = _RESERVED_OVERLAY_KEYS & set(overlay)
+        if reserved:
+            raise PolicyError(
+                f"overlay may not set reserved metadata {sorted(reserved)} — deploymentReady is "
+                "DERIVED (§9.3) and requiresIdentityOverlay/policyPurpose/schema/"
+                "generatedFromTemplate are fixed by the template lifecycle")
         inst.update(overlay)   # unknown fields caught fail-closed by the load_policy re-validation below
 
-    # deploymentReady reflects the FINAL policy (after any overlay), not the input args: identity pinned
-    # AND (root pinned when the template requires an authenticated root). Deriving it from the resulting
-    # inst — not from the local `entries` / `root_complete` — means an overlay that WIPES the just-pinned
-    # identity or root cannot leave the policy labelled production-ready (L2 pre-land review). An incomplete
-    # instance stays deploymentReady:false so `policy lint --strict` still refuses it (No-Fake).
+    # A-P0-5 §9.3 — deploymentReady is DERIVED from the FINAL policy (after any overlay), never
+    # asserted: purposeDefined AND identityPinned AND trustMaterialValid AND policyLifecycleValid
+    # AND notTemplate. Deriving from the resulting inst — not from the local `entries` — means an
+    # overlay that WIPES the just-pinned identity or root cannot leave the policy labelled
+    # production-ready (L2 pre-land review). An incomplete instance stays deploymentReady:false so
+    # `policy lint --strict` still refuses it (No-Fake).
+    from .policy import POLICY_PURPOSES, policy_expired, policy_not_yet_valid  # noqa: PLC0415
     final_identity = ((inst.get("decision_receipt") or {}).get("trusted_decision_makers")
                       if is_decision else inst.get("allowed_issuers"))
     final_root_ok = (not require_auth_root) or bool((inst.get("merkle") or {}).get("trusted_roots"))
-    inst["deploymentReady"] = bool(final_identity) and final_root_ok
+    purpose_defined = inst.get("policyPurpose") in POLICY_PURPOSES
+    lifecycle_ok = policy_expired(inst) is not True and policy_not_yet_valid(inst) is not True
+    not_template = inst.get("requiresIdentityOverlay") is not True
+    inst["deploymentReady"] = (bool(final_identity) and final_root_ok and purpose_defined
+                               and lifecycle_ok and not_template)
 
     # re-validate the RESULT fail-closed: unknown overlay fields, a malformed pinned key or a bad expiry
     # become a PolicyError here rather than a policy that only LOOKS instantiated.
