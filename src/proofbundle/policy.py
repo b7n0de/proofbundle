@@ -998,9 +998,15 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     ``hashAlg`` must be the one algorithm of this format version and ``validUntil`` (when present)
     must not be in the past. Fail-closed: any parse/crypto error is (False, reason)."""
     from .checkpoint import checkpoint_note, verify_checkpoint  # noqa: PLC0415 — lazy, avoids import cycles
+    # The returned reason strings are STATIC (no interpolation of `entry` field values): a
+    # trusted_checkpoints entry carries `signature` + `checkpointSigner` key material, so echoing ANY
+    # of its fields into a reason that reaches the operator-facing POLICY log is flagged
+    # `py/clear-text-logging-sensitive-data` (CodeQL, HIGH) even for a non-secret field — and matches
+    # the repo convention of never letting key-adjacent input flow into a clear-text log. The entry is
+    # identified by its index in the caller's aggregate reason.
     if entry.get("hashAlg") != "sha256-rfc6962":
-        return False, f"unsupported checkpoint hashAlg {entry.get('hashAlg')!r} (this format " \
-                      "version authenticates sha256-rfc6962 trees only)"
+        return False, "unsupported checkpoint hashAlg (this format version authenticates " \
+                      "sha256-rfc6962 trees only)"
     vu = entry.get("validUntil")
     if vu is not None:
         parsed = _parse_iso_utc(vu)
@@ -1008,20 +1014,21 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
         if parsed is not None and current > parsed:
-            return False, f"trusted checkpoint expired (validUntil {vu})"
+            return False, "trusted checkpoint expired (validUntil is in the past)"
     try:
         root = base64.b64decode(entry["root"], validate=True)
         keyname = entry["checkpointSigner"].split("+", 1)[0]
         note = checkpoint_note(entry["origin"], entry["treeSize"], root)
         signed_note = f"{note}\n— {keyname} {entry['signature']}\n"
         res = verify_checkpoint(signed_note, entry["checkpointSigner"])
-    except ProofBundleError as exc:
-        return False, f"trusted checkpoint does not authenticate: {exc}"
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+    except ProofBundleError:
+        return False, "trusted checkpoint does not authenticate (checkpoint note or signature rejected)"
+    except (ValueError, TypeError, KeyError, AttributeError):
         # AttributeError (Lens-6 review): a non-string checkpointSigner (.split) in a raw dict that
         # bypassed load_policy must fail closed here, never escape as a traceback — the evaluate layer
-        # stays robust for library callers who hand evaluate_policy an unvalidated policy dict.
-        return False, f"trusted checkpoint is malformed: {exc}"
+        # stays robust for library callers who hand evaluate_policy an unvalidated policy dict. Static
+        # reason (no exception text) so no entry-derived value flows to the operator log.
+        return False, "trusted checkpoint is malformed (missing or invalid field)"
     if not res.get("ok"):
         return False, "trusted checkpoint signature does not verify under the pinned " \
                       "checkpointSigner (origin/size/root tamper or signer mismatch)"
