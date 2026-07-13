@@ -565,15 +565,19 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     _signer_checks = [c for c in (policy_result or {}).get("checks", [])
                       if c.get("name") == "policy:signer_allowed"]
     signer_matched = bool(_signer_checks) and all(c.get("ok") for c in _signer_checks)
-    signer_trusted = (bool(policy_ok) and signer_matched
-                      and (policy or {}).get("requiresIdentityOverlay") is not True)
-    # AP-2 §6.4: an expired policy must force safeForAutomation false (POLICY_EXPIRED blocker).
+    signer_trusted = bool(policy_ok) and signer_matched
+    # AP-2 §6.2/§6.4 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) and an EXPIRED policy
+    # each force safeForAutomation:false with their OWN honest blocker (TEMPLATE_NOT_INSTANTIATED /
+    # POLICY_EXPIRED) — not a mislabelled SIGNER_NOT_PINNED. signer_trusted now reflects ONLY whether a signer
+    # was actually matched; the template/expiry conditions are surfaced as distinct blockers.
+    _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
     from .policy import policy_expired as _policy_expired  # noqa: PLC0415
     pol_expired = bool(policy is not None and _policy_expired(policy))
     root_summary = root_authenticity_summary(
         result, policy_authenticated_root=(policy_result or {}).get("root_authenticated"),
         policy_ok=policy_ok, anchor_ok=anchor_required_ok,
-        signer_trusted=signer_trusted, policy_warnings=pol_warns, policy_expired=pol_expired)
+        signer_trusted=signer_trusted, policy_warnings=pol_warns, policy_expired=pol_expired,
+        requires_identity_overlay=_requires_overlay)
     fields["root_authenticity"] = root_summary
     # P0-A (audit 2026-07-13): surface --expected-tree-size as a machine-readable object. The check
     # itself already runs INDEPENDENTLY in verify_bundle (never gated on --expected-root), so a mismatch
@@ -1006,8 +1010,11 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     policy = None
     if args.policy:
         from .policy import PolicyError, load_policy  # noqa: PLC0415
+        from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
-            policy = load_policy(args.policy)
+            # parity with the eval verify path (L5 audit L5-F3): accept a packaged profile NAME
+            # (e.g. decision-receipt-template-v1), not only a file path, via resolve_policy_source.
+            policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2

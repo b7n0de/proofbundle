@@ -13,6 +13,8 @@
     "bundle/sd-jwt-forged-issuer-identity",
     "bundle/forged-anchor-own-frozen",
     "bundle/coherent-rewrap-verifies-no-policy",
-    "bundle/coherent-rewrap-fails-expected-root"
+    "bundle/coherent-rewrap-fails-expected-root",
+    "bundle/n1-eval-sdjwt-graft-non-eval",
+    "bundle/tree-size-expectation-mismatch"
   ]
 }

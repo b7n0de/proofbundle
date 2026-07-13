@@ -46,6 +46,8 @@ AUTOMATION_BLOCKER_REASONS = {
     "POLICY_NOT_EVALUATED": "No trust policy was evaluated (supply --policy to authorise a signer)",
     "POLICY_FAILED": "The supplied trust policy was not satisfied",
     "SIGNER_NOT_PINNED": "The trust policy pins no trusted signer identity (attributes to nobody)",
+    "TEMPLATE_NOT_INSTANTIATED": "The trust policy is a raw template (requiresIdentityOverlay:true) — "
+                                 "instantiate it with a signer identity before depending on it for automation",
     "POLICY_EXPIRED": "The trust policy has expired (its valid_until is in the past)",
     "POLICY_WARNINGS_PRESENT": "The trust policy carries a warning that blocks automation",
     "ANCHOR_REQUIRED_FAILED": "A required external time anchor did not verify",
@@ -103,8 +105,10 @@ def _sd_jwt_carries_eval_root_commitment(sd_payload) -> bool:
     if not isinstance(sd_payload, dict):
         return False
     receipt = sd_payload.get("receipt")
-    return (isinstance(receipt, dict) and isinstance(receipt.get("root_b64"), str)
-            and bool(receipt["root_b64"]))
+    # Fire on the PRESENCE of a receipt.root_b64 string, INCLUDING "" (L1 pre-land audit F3): an empty root
+    # commits nothing concrete, but "an eval-shaped commitment present yet evading N1" should not exist. A
+    # generic SD-JWT-VC has no receipt object at all, so this never false-refuses one.
+    return isinstance(receipt, dict) and isinstance(receipt.get("root_b64"), str)
 
 
 def _b64d(value: str, field: str) -> bytes:
@@ -429,6 +433,7 @@ def root_authenticity_summary(result: VerificationResult, *,
                               signer_trusted: Optional[bool] = None,
                               policy_warnings: Optional[list] = None,
                               policy_expired: Optional[bool] = None,
+                              requires_identity_overlay: Optional[bool] = None,
                               public_transparency_ok: Optional[bool] = None,
                               replay_ok: Optional[bool] = None) -> dict:
     """Structured root-authenticity verdicts (P0-A §6.3), derived from a completed VerificationResult.
@@ -491,6 +496,11 @@ def root_authenticity_summary(result: VerificationResult, *,
         blockers.append("POLICY_NOT_EVALUATED")
     elif policy_ok is False:
         blockers.append("POLICY_FAILED")
+    elif requires_identity_overlay:
+        # AP-2 §6.2 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) is never automation-safe
+        # — reported as its OWN blocker, not SIGNER_NOT_PINNED, which would be factually wrong when the template
+        # actually does match a signer (the real reason is the un-cleared template-lifecycle flag).
+        blockers.append("TEMPLATE_NOT_INSTANTIATED")
     elif signer_trusted is not True:
         blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
     elif policy_warnings:

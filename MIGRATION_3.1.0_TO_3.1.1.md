@@ -16,13 +16,19 @@ In 3.1.1, `safeForAutomation` is `true` **only** when all of the following hold:
 - the Merkle root was affirmatively authenticated (`--expected-root` or a policy `trusted_roots` /
   `require_authenticated_root`);
 - a trust policy was supplied and **passed** (`policy_ok is True` — no policy at all never qualifies);
-- that policy actually **pins a trusted signer** (a real `allowed_issuers` /
-  `trusted_decision_makers` entry, not the "attributes to nobody" case);
-- the policy carries no blocking warning and is **not expired** (`valid_until` in the future);
-- no required anchor / public-transparency / replay gate FAILED.
+- that policy actually **pins a trusted signer** (a real `allowed_issuers` entry, not the "attributes to
+  nobody" case) and is **not a raw template** (`requiresIdentityOverlay` not set → blocker
+  `TEMPLATE_NOT_INSTANTIATED`);
+- the policy carries no blocking warning and is **not expired** (`valid_until`; expiry is inclusive —
+  valid up to and including that instant, expired strictly after);
+- no required anchor gate FAILED. (The `PUBLIC_TRANSPARENCY_REQUIRED_FAILED` and
+  `REPLAY_BINDING_REQUIRED_FAILED` blockers exist for forward compatibility but are **dormant** in this
+  release — nothing supplies a `False` value for them yet.)
 
 Every reason the flag is false is now listed in the new `automationBlockers` array, and the human
-output gains a `SAFE_FOR_AUTOMATION: YES/NO` line with per-blocker reasons.
+output gains a `SAFE_FOR_AUTOMATION: YES/NO` line with per-blocker reasons. The same
+template-not-instantiated and expiry gates are ALSO enforced on the `decision verify` path (a raw or
+expired decision policy cannot authorise a decision → exit 3).
 
 **What to do:** if you keyed automation off `safeForAutomation`, make sure you pass a trust policy that
 pins your expected issuer key(s). The easiest path is to instantiate a shipped template (see below):
@@ -67,7 +73,9 @@ deployment-ready); `policy lint <raw-template>` (non-strict) still passes. See
 
 ## 4. SD-JWT graft refused fail-closed (N1, security)
 
-An **eval** SD-JWT (carrying `passed` / `threshold` / `comparator` / `suite` / `root`) grafted onto a
-**non-eval** payload is now refused fail-closed. A **generic** SD-JWT-VC (`iss` / `vct`, no eval
-markers) on a non-eval payload is unaffected and stays valid. If you produce eval SD-JWTs, keep them on
-eval-claim receipts (the normal `emit-eval` path already does).
+An eval SD-JWT that carries an eval-binding **root commitment** (a `receipt.root_b64` string) grafted
+onto a **non-eval** payload is now refused fail-closed. The check keys on that commitment (the real
+substitution vector), not on a word-match of `passed`/`threshold`/etc., so it holds even if those facts
+are selectively disclosed. A **generic** SD-JWT-VC (`iss` / `vct`, no `receipt.root_b64`) on a non-eval
+payload is unaffected and stays valid. If you produce eval SD-JWTs, keep them on eval-claim receipts (the
+normal `emit-eval` path already does).

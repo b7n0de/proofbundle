@@ -341,6 +341,20 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         return {"policy_ok": False, "signer_trusted": False, "errors": ["statement has no predicate object"]}
     errors: list[str] = []
 
+    # AP-2 SIBLING GATE (L5 pre-land audit): the decision path mirrors the eval-path AP-1/AP-2 guards, which
+    # previously had NO analog here — a raw, un-instantiated decision template authorised a receipt signed by
+    # ANY key, and an expired policy still authorised. A RAW template (requiresIdentityOverlay:true) pins no
+    # decision maker and is not deployment-ready → it must never authorise a decision; an EXPIRED policy
+    # (valid_until in the past) must not either. Both fail-closed here → policy_ok=False → CLI exit 3
+    # (mirrors the eval TEMPLATE_NOT_INSTANTIATED / POLICY_EXPIRED blockers). signer_trusted below stays the
+    # by-key match verdict; policy_ok gates the aggregate regardless.
+    if policy.get("requiresIdentityOverlay") is True:
+        errors.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it with "
+                      "decision_receipt.trusted_decision_makers before using it to authorise a decision")
+    if policy_expired(policy):
+        errors.append(f"policy valid_until {policy.get('valid_until')!r} is in the past — expired, cannot "
+                      "authorise a decision (re-instantiate with a current validity window)")
+
     # predicateType allow-list (confusion defense at the policy layer)
     apt = section.get("accepted_predicate_types")
     if apt and statement.get("predicateType") not in apt:

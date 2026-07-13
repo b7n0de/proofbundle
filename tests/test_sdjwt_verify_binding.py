@@ -243,3 +243,19 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
         self.assertIn("sd-jwt-bundle-binding", by, "a root-committing eval SD-JWT graft must add a FAILING check")
         self.assertFalse(by["sd-jwt-bundle-binding"])
         self.assertFalse(r.ok, "an unbindable eval root commitment must fail the whole bundle")
+
+    def test_empty_root_commitment_still_refused(self):
+        # L1 pre-land audit F3: an always-open receipt.root_b64 == "" also carries the eval-binding SHAPE and
+        # must not evade N1 (the earlier bool()-non-empty guard let it through). A generic VC has no receipt
+        # object at all, so firing on a present-but-empty root never false-refuses one.
+        signer = generate_signer()
+        payload = {"iss": "ed25519:x", "vct": "https://b7n0de.com/proofbundle/vct/eval-receipt/v1",
+                   "iat": _IAT, "receipt": {"root_b64": ""}}
+        vc = {"compact": self._sd_jwt(signer, payload),
+              "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}
+        bundle = emit_bundle(b'{"x":1}', signer, sd_jwt_vc=vc)
+        r = verify_bundle(bundle)
+        by = {c.name: c.ok for c in r.checks}
+        self.assertIn("sd-jwt-bundle-binding", by)
+        self.assertFalse(by["sd-jwt-bundle-binding"])
+        self.assertFalse(r.ok)

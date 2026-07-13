@@ -39,8 +39,8 @@ Each template therefore carries two machine-readable flags:
 
 | Field | Meaning |
 |---|---|
-| `deploymentReady: false` | a raw template, not a deployment-ready policy — `policy lint --strict` fails on it, and `verify` under it can never report `safeForAutomation: true` |
-| `requiresIdentityOverlay: true` | this profile must be completed with a signer-identity overlay before use; while it is set, `verify` never marks the signer trusted (so never `safeForAutomation: true`) |
+| `deploymentReady: false` | a raw template, not a deployment-ready policy — `policy lint --strict` fails on it, and `verify` under it can never report `safeForAutomation: true` (blocker `TEMPLATE_NOT_INSTANTIATED`) |
+| `requiresIdentityOverlay: true` | this profile must be completed with a signer-identity overlay before use; while it is set, `verify` never marks the signer trusted (eval path: never `safeForAutomation: true`; `decision verify`: a raw decision template cannot authorise a decision → exit 3) |
 
 You turn a template into a deployment-ready policy with **`policy instantiate`**
 — fully local, offline, no network:

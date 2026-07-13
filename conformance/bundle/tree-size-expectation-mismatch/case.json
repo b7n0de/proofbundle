@@ -1,0 +1,18 @@
+{
+  "caseId": "native-bundle-tree-size-expectation-mismatch",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "verifyArgs": [
+    "--expected-tree-size",
+    "999"
+  ],
+  "attribution": "proofbundle (AP-3, 2026-07-13: expected-tree-size checked INDEPENDENTLY of the root)",
+  "expected": {
+    "exitCode": 1,
+    "rejected": true
+  },
+  "specRefs": [
+    "SPEC.md"
+  ],
+  "rationale": "A single-leaf receipt has merkle.tree_size 1; a relying party asserting --expected-tree-size 999 gets exit 1 (tree-size FAIL) with NO --expected-root supplied \u2014 proving the tree-size gate runs independently of root authentication. treeSizeExpectation.status=FAIL. A second implementation MUST reject the mismatch."
+}

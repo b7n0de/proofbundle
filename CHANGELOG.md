@@ -19,9 +19,12 @@ security-motivated: `safeForAutomation` is now stricter (see the note below).
   **without** an evaluated, signer-pinning policy now reports `false`. This is intended: the flag is a
   global "safe to act on automatically" verdict, not a crypto-only verdict.
 - New machine-readable `automationBlockers` array names every reason the flag is false
-  (`POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `ROOT_NOT_AUTHENTICATED`,
-  `POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
+  (`POLICY_NOT_EVALUATED`, `POLICY_FAILED`, `SIGNER_NOT_PINNED`, `TEMPLATE_NOT_INSTANTIATED`,
+  `ROOT_NOT_AUTHENTICATED`, `POLICY_EXPIRED`, `POLICY_WARNINGS_PRESENT`, `ANCHOR_REQUIRED_FAILED`,
   `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`, `REPLAY_BINDING_REQUIRED_FAILED`, `CRYPTO_FAILED`).
+  `PUBLIC_TRANSPARENCY_REQUIRED_FAILED` and `REPLAY_BINDING_REQUIRED_FAILED` are forward-compatible and
+  **dormant** in this release (no reference call site supplies a `False` value yet); every other blocker
+  is live. See SPEC.md "Enforcement status of the gate conditions".
 - New human `SAFE_FOR_AUTOMATION: YES/NO` line with per-blocker reasons, derived from the same summary
   so the human and JSON forms can never disagree.
 - Migration: `MIGRATION_3.1.0_TO_3.1.1.md`.
@@ -50,11 +53,24 @@ security-motivated: `safeForAutomation` is now stricter (see the note below).
   error, and the `NOT_REQUESTED` status when the flag is absent.
 
 ### Fixed — unbindable eval SD-JWT graft refused fail-closed (N1, security)
-- An **eval** SD-JWT (carrying the always-open `passed` / `threshold` / `comparator` / `suite` /
-  `root` markers) grafted onto a **non-eval-claim** payload has nothing to bind to and is now refused
-  fail-closed (`sd-jwt-bundle-binding` FAIL → the whole bundle FAILs). A **generic** SD-JWT-VC
-  (`iss` / `vct`, no eval markers) on a non-eval payload carries no eval claim to substitute and stays
-  in scope (backward-compatible). Regression: `tests/test_sdjwt_verify_binding.py::TestN1UnbindableEvalSdJwt`.
+- An eval SD-JWT that carries an eval-binding **root commitment** (a `receipt.root_b64` string, the real
+  cross-receipt substitution vector) grafted onto a **non-eval-claim** payload has nothing to bind to and
+  is now refused fail-closed (`sd-jwt-bundle-binding` FAIL → the whole bundle FAILs). The discriminator is
+  the presence of `receipt.root_b64`, NOT a word-match on `passed`/`threshold`/`comparator`/`suite`, so
+  the guard catches a graft even when those facts are moved into selective disclosures and never
+  false-refuses a **generic** SD-JWT-VC (`iss` / `vct`, no `receipt.root_b64`) — which stays in scope
+  (backward-compatible). Regression: `tests/test_sdjwt_verify_binding.py::TestN1UnbindableEvalSdJwt`.
+
+### Fixed — pre-land 6-lens audit hardening (2026-07-13, security + honesty)
+- **Decision path sibling gates (HIGH):** `decision verify` now enforces the same AP-1/AP-2 guards as the
+  eval path — a raw, un-instantiated `decision-receipt-template-v1` (or any `requiresIdentityOverlay:true`
+  policy) and an expired (`valid_until` past) decision policy no longer authorise a decision (both
+  fail-closed → exit 3). `decision verify --policy` also accepts a packaged profile name (parity with
+  eval `verify`). Regressions: `tests/test_decision_policy.py::TestDecisionPathTemplateAndExpiryGate`.
+- **Honest automation blocker (AP-1):** a policy that DOES pin the signer but still carries an un-cleared
+  `requiresIdentityOverlay:true` now reports the distinct `TEMPLATE_NOT_INSTANTIATED` blocker instead of a
+  factually-wrong `SIGNER_NOT_PINNED`.
+- **N1 empty-root hardening:** an always-open `receipt.root_b64: ""` no longer evades the graft check.
 
 ## [3.1.0] - 2026-07-13
 

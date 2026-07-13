@@ -70,7 +70,8 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
 
     def test_template_without_identity_overlay_never_safe_for_automation(self):
         # AP-1 §5 + AP-2 §6.2: a raw template pins no signer, so verify under it must report
-        # safeForAutomation:false with SIGNER_NOT_PINNED among the blockers — even if every other pin passes.
+        # safeForAutomation:false with TEMPLATE_NOT_INSTANTIATED among the blockers — its OWN honest reason
+        # (L2 pre-land audit fixed the earlier mislabel as SIGNER_NOT_PINNED) — even if every other pin passes.
         claim, _ = build_eval_claim(
             suite="safety", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
             score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
@@ -87,7 +88,7 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
         ra = data["root_authenticity"]
         self.assertFalse(ra["safeForAutomation"],
                          "a raw template must never yield safeForAutomation:true")
-        self.assertIn("SIGNER_NOT_PINNED", ra["automationBlockers"])
+        self.assertIn("TEMPLATE_NOT_INSTANTIATED", ra["automationBlockers"])
 
     def test_instantiated_profile_pins_signer(self):
         inst = instantiate_template("strict-eval-template-v1", issuer_keys=[self.pub],

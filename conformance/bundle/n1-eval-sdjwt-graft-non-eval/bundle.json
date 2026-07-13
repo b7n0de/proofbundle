@@ -1,0 +1,20 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "eyJ4IjoxfQ==",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "PbkdxZcmd0WLnHzZiprXM/atzNqRuLu4Wyf/e7o7o3w=",
+    "sig_b64": "GYGxYhhBsvppVm2kgvMnE3qcXmMGHqR6SyUblmgA0pclt97AvXRpVQw910LEhAxqK16cKge9f1VDdn8a7r/eCQ=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 1,
+    "inclusion_proof_b64": [],
+    "root_b64": "42s5WHp6a8Ka4Av593O2lKVCCMFT80AieH7JaR7Si6o="
+  },
+  "sd_jwt_vc": {
+    "compact": "eyJhbGciOiAiRWREU0EiLCAidHlwIjogImRjK3NkLWp3dCJ9.eyJpc3MiOiAiZWQyNTUxOTp4IiwgInZjdCI6ICJodHRwczovL2I3bjBkZS5jb20vcHJvb2ZidW5kbGUvdmN0L2V2YWwtcmVjZWlwdC92MSIsICJpYXQiOiAxNzgwMDAwMDAwLCAicmVjZWlwdCI6IHsicm9vdF9iNjQiOiAiYzI5dFpTMXZkR2hsY2kxeWIyOTAifX0.4_DKIF4oFSejQ9Tdg1r1dIRvdVPgWKbGfxunEFt6Y0MXfoXKRtFtPR7ENfnOz_exbbk9DrQziQ33CpHMyU-1BQ~",
+    "issuer_public_key_b64": "PbkdxZcmd0WLnHzZiprXM/atzNqRuLu4Wyf/e7o7o3w="
+  }
+}

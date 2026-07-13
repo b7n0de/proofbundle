@@ -485,6 +485,51 @@ class TestAP1PreLandReviewRegressions(unittest.TestCase):
         self.assertTrue(ra["safeForAutomation"], f"a pinned matching signer must stay safe: {ra}")
         self.assertEqual(ra["automationBlockers"], [])
 
+    def test_pinned_signer_but_requires_overlay_is_template_not_instantiated(self):
+        # L2 pre-land audit F1: a policy that DOES pin+match the signer but still carries
+        # requiresIdentityOverlay:true (an un-cleared template-lifecycle flag) must be safeForAutomation:false
+        # with the HONEST blocker TEMPLATE_NOT_INSTANTIATED — never the factually-wrong SIGNER_NOT_PINNED (a
+        # signer IS pinned here). Fail-closed direction; the point is honest attribution.
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        from proofbundle.cli import main
+        from proofbundle.emit import emit_bundle, generate_signer
+
+        signer = generate_signer()
+        pub = _b64(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        bundle = emit_bundle(b"L2-F1 template flag with real pin", signer)
+        root = bundle["merkle"]["root_b64"]
+        policy = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "org/half-baked",
+                  "requiresIdentityOverlay": True,   # left set — the un-cleared template flag
+                  "allowed_schema_versions": ["proofbundle/v0.1"],
+                  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
+                  "allowed_issuers": [{"public_key_b64": pub}],   # a REAL signer IS pinned + matches
+                  "merkle": {"trusted_roots": [root]}}
+        bfd, bpath = tempfile.mkstemp(suffix=".json")
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        try:
+            with os.fdopen(bfd, "w") as f:
+                json.dump(bundle, f)
+            with os.fdopen(pfd, "w") as f:
+                json.dump(policy, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                main(["verify", "--json", bpath, "--policy", ppath])
+            data = json.loads(out.getvalue())
+        finally:
+            os.unlink(bpath)
+            os.unlink(ppath)
+        ra = data["root_authenticity"]
+        self.assertFalse(ra["safeForAutomation"])
+        self.assertIn("TEMPLATE_NOT_INSTANTIATED", ra["automationBlockers"])
+        self.assertNotIn("SIGNER_NOT_PINNED", ra["automationBlockers"])
+
 
 class TestAP1S54NamedRegressions(unittest.TestCase):
     """AP-1 §5.4 — the mandatory safeForAutomation regressions as individually-named tests. The unit
