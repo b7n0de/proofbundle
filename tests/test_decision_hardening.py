@@ -96,6 +96,23 @@ class TestDecisionHardening(unittest.TestCase):
                       "--nonce", "deadbeefdeadbeef"])
         self.assertEqual(rc, 2)
 
+    def test_missing_validity_with_expected_aud_nonce_fails_closed(self):
+        # 3.1.2 fail-closed fix (audit 2026-07-13): a receipt with NO validity object must NOT silently pass
+        # when the relying party requested --aud/--nonce binding. The previous `if isinstance(val, dict):`
+        # guard skipped the checks → audience_ok/nonce_ok stayed None → exit 0 (a requested binding silently
+        # unenforced, fail-OPEN). Now an absent validity/audience/nonce is a FAIL (exit 2).
+        from proofbundle.decision import emit_decision_receipt  # noqa: PLC0415
+        pred = _pred("deny")
+        pred.pop("validity", None)
+        env = emit_decision_receipt(pred, self.signer, strict=False)
+        r = verify_decision_receipt(env, self.pub, expected_audience="https://relying.example",
+                                    expected_nonce="n-123")
+        self.assertIs(r["audience_ok"], False, "absent validity must fail the requested audience binding")
+        self.assertIs(r["nonce_ok"], False, "absent validity must fail the requested nonce binding")
+        rc, _ = _run(["decision", "verify", self._write_env(env), "--pub", self.pub_b64,
+                      "--aud", "https://relying.example", "--nonce", "n-123"])
+        self.assertEqual(rc, 2, "a requested binding that cannot be enforced must not exit 0")
+
     def test_crypto_fail_has_no_positive_trailer(self):
         env = copy.deepcopy(self.env)
         body = json.loads(base64.b64decode(env["payload"]))
