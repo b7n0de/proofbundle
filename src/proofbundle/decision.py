@@ -429,16 +429,27 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # confirmation is a separate step (resolve_evidence_ref), never implied by evidence_bound.
         if isinstance(ev, list) and ev:
             r["evidence_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in ev)
-        val = predicate.get("validity")
-        if isinstance(val, dict):
-            if expected_audience is not None:
-                r["audience_ok"] = expected_audience in (val.get("audience") or [])
-                if not r["audience_ok"]:
-                    r["errors"].append("audience mismatch (cross-audience replay?)")
-            if expected_nonce is not None:
-                r["nonce_ok"] = val.get("nonce") == expected_nonce
-                if not r["nonce_ok"]:
-                    r["errors"].append("nonce mismatch (replay?)")
+        # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
+        # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
+        # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
+        # non-dict one), the previous `if isinstance(val, dict):` guard SKIPPED the checks entirely →
+        # audience_ok/nonce_ok stayed None → the CLI exit gate (None is not False) let it pass exit 0: a
+        # requested binding silently unenforced (fail-OPEN downgrade). Evaluate against {} instead, so an
+        # absent validity/audience/nonce is a FAIL (fail-closed), never a silent pass.
+        _val = predicate.get("validity")
+        _validity = _val if isinstance(_val, dict) else {}
+        if expected_audience is not None:
+            r["audience_ok"] = expected_audience in (_validity.get("audience") or [])
+            if not r["audience_ok"]:
+                r["errors"].append(
+                    "audience mismatch or absent validity.audience — requested audience binding cannot be "
+                    "enforced (cross-audience replay?, fail-closed)")
+        if expected_nonce is not None:
+            r["nonce_ok"] = _validity.get("nonce") == expected_nonce
+            if not r["nonce_ok"]:
+                r["errors"].append(
+                    "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
+                    "(replay?, fail-closed)")
 
     # Detached anchors (Fix 2): verify anchor evidence for the statement's OWN content root — sha256 over the
     # EXACT signed payload bytes (never re-canonicalized), computed only once the bytes are authentic+canonical.

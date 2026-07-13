@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2] - 2026-07-13
+
+Patch release: one fail-closed security fix on the decision-verify path. No new API, no wire-format
+change, fully backward-compatible.
+
+### Fixed — `decision verify` audience/nonce binding is fail-closed on an absent validity object (security)
+- A relying party that supplies `--aud` / `--nonce` (or `expected_audience` / `expected_nonce`) is
+  asking for RFC-9901-§7.3-style replay/audience binding. Previously, if the decision receipt carried
+  **no `validity` object** (or a non-dict one), the checks were skipped entirely — `audience_ok` /
+  `nonce_ok` stayed `None`, the CLI exit gate (`None is not False`) let it pass **exit 0**, and the
+  requested binding was silently unenforced (a fail-OPEN downgrade). Now an absent
+  `validity` / `audience` / `nonce` is a FAIL (`audience_ok` / `nonce_ok` = `False`, exit 2) — the
+  requested binding is never silently dropped. This mirrors the eval-path F4 hardening and the 3.1.1
+  decision-path template/expiry gates. Regression:
+  `tests/test_decision_hardening.py::test_missing_validity_with_expected_aud_nonce_fails_closed`.
+
 ## [3.1.1] - 2026-07-13
 
 Patch release: automation-safety hardening. Three additive gates plus one fail-closed security fix,
