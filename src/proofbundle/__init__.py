@@ -53,6 +53,17 @@ __all__ = [
     "build_evidence_pack",
     "verify_evidence_pack",
     "ots_upgraded_proof_is_self_contained",
+    "build_initial_sequence",
+    "renew_timestamp",
+    "renew_hashtree",
+    "verify_sequence",
+    "last_ats",
+    "evaluate_renewal_policy",
+    "ArchiveTimeStamp",
+    "RenewalPolicy",
+    "verify_mldsa",
+    "verify_slhdsa",
+    "verify_hybrid",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -87,6 +98,17 @@ _LAZY = {
     "build_evidence_pack": ".evidence_pack",
     "verify_evidence_pack": ".evidence_pack",
     "ots_upgraded_proof_is_self_contained": ".evidence_pack",
+    "build_initial_sequence": ".renewal",
+    "renew_timestamp": ".renewal",
+    "renew_hashtree": ".renewal",
+    "verify_sequence": ".renewal",
+    "last_ats": ".renewal",
+    "evaluate_renewal_policy": ".renewal",
+    "ArchiveTimeStamp": ".renewal",
+    "RenewalPolicy": ".renewal",
+    "verify_mldsa": ".pqsig",
+    "verify_slhdsa": ".pqsig",
+    "verify_hybrid": ".pqsig",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -103,6 +125,10 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .hashalg import compute_dual_hash, resolve_hash_alg, verify_dual_hash
     from .evidence_pack import (build_evidence_pack, ots_upgraded_proof_is_self_contained,
                                 verify_evidence_pack)
+    from .renewal import (ArchiveTimeStamp, RenewalPolicy, build_initial_sequence,
+                          evaluate_renewal_policy, last_ats, renew_hashtree, renew_timestamp,
+                          verify_sequence)
+    from .pqsig import verify_hybrid, verify_mldsa, verify_slhdsa
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
