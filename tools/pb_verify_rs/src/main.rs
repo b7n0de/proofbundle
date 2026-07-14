@@ -443,6 +443,17 @@ fn verify_bundle(
     Ok(true)
 }
 
+// WP-A1 anchor trust: a bundle's own `frozen` block header is producer-controlled and is NEVER trusted
+// (reported as evidence only). An anchor is CONFIRMED only by relying-party trust material (a supplied
+// Bitcoin block header for the attested height) — which this offline CLI does not accept — so under
+// `--require-anchor` no anchor confirms and the requirement is unmet (exit 3), exactly like Python's
+// _anchor_required_ok=False. This faithfully reproduces the SECURITY DECISION (reject own-frozen); it does
+// not parse the OTS binary proof or verify a real block header, which would be needed to CONFIRM a genuine
+// RP-supplied anchor (no corpus case exercises that — `--bitcoin-header` is not an allowed verifyArg).
+fn anchor_rp_confirmed(_bundle: &serde_json::Value) -> bool {
+    false
+}
+
 fn read_file(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
 }
@@ -496,6 +507,7 @@ fn main() {
             let path = args.get(2).unwrap_or_else(|| fatal("verify-bundle needs a bundle file"));
             let mut expected_root: Option<String> = None;
             let mut expected_tree_size: Option<u64> = None;
+            let mut require_anchor = false;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
@@ -513,10 +525,16 @@ fn main() {
                         );
                         i += 2;
                     }
-                    // anchor flags are accepted but the anchor policy slice is not implemented yet;
-                    // a case that DEPENDS on them is not claimed as reproduced (see CROSS_IMPLEMENTATION_REPORT).
-                    "--require-anchor" | "--allow-pending" => i += 1,
-                    "--anchor-type" | "--anchor-target" => i += 2,
+                    // --anchor-type / --anchor-target imply --require-anchor (WP-A1).
+                    "--require-anchor" => {
+                        require_anchor = true;
+                        i += 1;
+                    }
+                    "--allow-pending" => i += 1,
+                    "--anchor-type" | "--anchor-target" => {
+                        require_anchor = true;
+                        i += 2;
+                    }
                     other => fatal(&format!("unknown verify-bundle flag: {other}")),
                 }
             }
@@ -530,6 +548,11 @@ fn main() {
             };
             match verify_bundle(&v, expected_root.as_deref(), expected_tree_size) {
                 Ok(true) => {
+                    // relying-party --require-anchor gate layered over the crypto result (exit 3 policy unmet).
+                    if require_anchor && !anchor_rp_confirmed(&v) {
+                        println!("POLICY_UNMET");
+                        exit(3);
+                    }
                     println!("OK");
                     exit(0);
                 }

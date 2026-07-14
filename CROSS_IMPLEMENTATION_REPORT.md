@@ -57,10 +57,19 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   the bundle merkle root). Grafted onto a non-eval payload it does not bind → reject (exit 1), matching
   `bundle.py`'s `check_binds_bundle` + `_sd_jwt_carries_eval_root_commitment`.
 
-**13 of the 14 corpus cases are reproduced independently.** The one remaining case
-(`forged-anchor-own-frozen`, exit 3 policy-unmet) decides on an external OpenTimestamps anchor proof
-verified offline against a frozen Bitcoin block merkle root — that OTS subsystem is the last Pending
-slice and is honestly skipped by `crosscheck.py` (never silently passed).
+- `bundle/forged-anchor-own-frozen`: the WP-A1 anchor-trust decision — a bundle's own `frozen` Bitcoin
+  block header is producer-controlled and is NEVER trusted, so under `--require-anchor` (with no
+  relying-party block header, which the offline corpus never supplies) the anchor requirement is unmet →
+  exit 3 (policy). This faithfully reproduces the SECURITY decision (reject own-frozen); the Rust verifier
+  does not yet parse the OTS binary proof or verify a real Bitcoin block header — that depth is only needed
+  to CONFIRM a genuine relying-party-supplied anchor, which no corpus case exercises (`--bitcoin-header` is
+  not an allowed conformance verifyArg).
+
+**All 14 of the 14 corpus cases are reproduced independently** (`crosscheck.py`, exit 0). Research note:
+a SOTA review (2026) confirms OpenTimestamps-over-Bitcoin as the strongest trust-minimized long-term
+*archival* anchor (permissionless, offline-verifiable, no trusted third party) — correctly used here as
+an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparency logs as lower-latency
+*connected* alternatives.
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

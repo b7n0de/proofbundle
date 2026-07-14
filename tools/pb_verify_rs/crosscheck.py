@@ -123,7 +123,7 @@ def main() -> int:
             # The Rust verify-bundle reproduces the exit-code contract on the signature + RFC 6962 merkle
             # + relying-party root/tree-size surface. Cases whose DECIDING check is the sd_jwt_vc block or an
             # external anchor need the not-yet-built sd-jwt / anchor slices and are honestly skipped.
-            if any(t in cid for t in ("anchor",)):
+            if False:  # all native_bundle cases now covered
                 skipped.append(cid)
                 continue
             args = case.get("verifyArgs") or []
@@ -139,9 +139,9 @@ def main() -> int:
             print("  -", f)
         return 1
     total = len(manifest.get("cases", []))
+    tail = f" ({len(skipped)} skipped: {', '.join(skipped)})" if skipped else ""
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle agree; "
-          f"{reproduced}/{total} conformance-corpus case(s) reproduced independently "
-          f"({len(skipped)} skipped — need the pending sd-jwt/anchor slices: {', '.join(skipped)})")
+          f"{reproduced}/{total} conformance-corpus case(s) reproduced independently{tail}")
     return 0
 
 
