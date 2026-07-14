@@ -23,13 +23,20 @@ missing / unknown / deprecated algorithm — a renewal never introduces a weak h
 """
 from __future__ import annotations
 
+import base64
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HashAlgError, compute_digest, resolve_hash_alg
+from .pqsig import sign_mldsa, verify_hybrid, verify_mldsa
+from .signature import verify_ed25519
+
+# ATS signature algorithms (the RFC-4998 TimeStampToken role, B3↔B5 wiring). A renewal may UPGRADE the
+# algorithm (ed25519 → hybrid → mldsa65) so the signature layer migrates toward PQ before it weakens.
+_SIG_ALGS = ("ed25519", "hybrid-ed25519-mldsa65", "mldsa65")
 
 # A digest is lowercase hex — this excludes the _SEP separator, closing the delimiter-injection where a
 # single crafted string equal to _SEP.join(real_digests) would hash identically to the multi-object set.
@@ -57,20 +64,87 @@ class RenewalError(ProofBundleError):
 
 @dataclass(frozen=True)
 class ArchiveTimeStamp:
-    """One RFC-4998 ArchiveTimeStamp: a covered digest under a hash algorithm, at a time, with an anchor.
+    """One RFC-4998 ArchiveTimeStamp: a covered digest under a hash algorithm, at a time, authenticated by
+    a time-authority SIGNATURE (the RFC-4998 TimeStampToken role).
 
     ``covered_digest`` is the hex digest this ATS commits to (a hash-tree root over its covered objects).
-    ``anchor_status`` models the backing time anchor (``confirmed`` = the OTS/RFC-3161 proof is verified;
-    ``pending`` = not yet). ``time`` orders the sequence and drives expiry."""
+    ``sig_alg`` is the signature algorithm (``ed25519`` | ``hybrid-ed25519-mldsa65`` | ``mldsa65``; ``""``
+    = unsigned/legacy) and ``signatures`` a tuple of ``(alg-part, base64-signature)`` pairs over the ATS
+    CONTENT (``_ats_content``). The signature is the real trust anchor: renewal migrates it toward PQ.
+    ``anchor_status`` is the legacy structural marker, used only when no ``authority_keys`` are supplied to
+    ``verify_sequence`` (a real signature check supersedes it). ``time`` orders the sequence + drives expiry."""
 
     hash_alg: str
     covered_digest: str
     time: int
     anchor_status: str = _CONFIRMED
+    sig_alg: str = ""
+    signatures: tuple = field(default_factory=tuple)
 
     def token(self) -> str:
-        """The stable string a later ATS covers when it renews this one (the timestamp token stand-in)."""
-        return f"{self.hash_alg}:{self.covered_digest}:{self.time}"
+        """The stable string a later ATS covers when it renews this one — RFC 4998 timestamp renewal covers
+        the prior timestamp token INCLUDING its signature. Unsigned ATS keep the legacy (base) form so
+        existing sequences are unaffected."""
+        base = f"{self.hash_alg}:{self.covered_digest}:{self.time}"
+        if not self.sig_alg:
+            return base
+        sig_part = ";".join(f"{a}={s}" for a, s in sorted(self.signatures))
+        return f"{base}:{self.sig_alg}:{sig_part}"
+
+
+def _ats_content(hash_alg: str, covered_digest: str, time: int) -> bytes:
+    """The exact bytes a time authority SIGNS for an ATS (domain-separated, pre-signature)."""
+    return f"archivetimestamp/v1\n{hash_alg}\n{covered_digest}\n{time}".encode()
+
+
+def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
+    """Produce the ``signatures`` tuple for ``content`` under ``sig_alg`` from ``signers`` (a dict
+    ``{"ed25519": ed25519_private_key, "mldsa65": mldsa65_private_key}``). Fail-closed on a missing signer
+    or an unknown algorithm."""
+    if sig_alg not in _SIG_ALGS:
+        raise RenewalError(f"unknown ATS signature algorithm {sig_alg!r} (one of {_SIG_ALGS})")
+    sigs: list[tuple[str, str]] = []
+    if sig_alg in ("ed25519", "hybrid-ed25519-mldsa65"):
+        ed = signers.get("ed25519")
+        if ed is None:
+            raise RenewalError(f"sig_alg {sig_alg!r} needs an 'ed25519' signer")
+        sigs.append(("ed25519", base64.b64encode(bytes(ed.sign(content))).decode("ascii")))
+    if sig_alg in ("mldsa65", "hybrid-ed25519-mldsa65"):
+        m = signers.get("mldsa65")
+        if m is None:
+            raise RenewalError(f"sig_alg {sig_alg!r} needs an 'mldsa65' signer")
+        sigs.append(("mldsa65", base64.b64encode(sign_mldsa(m, content)).decode("ascii")))
+    return tuple(sigs)
+
+
+def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
+    """True iff the ATS carries a valid time-authority signature under ``authority_keys`` (a dict of raw
+    public keys ``{"ed25519": bytes, "mldsa65": bytes}``). Fail-closed: an unsigned ATS, a missing key for
+    the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
+    if not ats.sig_alg:
+        return False
+    content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time)
+    sigmap = {a: s for a, s in ats.signatures if isinstance(a, str) and isinstance(s, str)}
+
+    def _dec(part: str) -> bytes:
+        try:
+            return base64.b64decode(sigmap.get(part, ""), validate=True)
+        except (ValueError, TypeError):
+            return b""
+
+    if ats.sig_alg == "ed25519":
+        pub = authority_keys.get("ed25519")
+        return isinstance(pub, (bytes, bytearray)) and verify_ed25519(bytes(pub), _dec("ed25519"), content)
+    if ats.sig_alg == "mldsa65":
+        pub = authority_keys.get("mldsa65")
+        return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
+    if ats.sig_alg == "hybrid-ed25519-mldsa65":
+        edp, mp = authority_keys.get("ed25519"), authority_keys.get("mldsa65")
+        if edp is None or mp is None:
+            return False
+        return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
+                             pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
+    return False
 
 
 def _validate_digests(data_digests: Sequence[str]) -> None:
@@ -99,15 +173,26 @@ def _cover_prior_and_data(prior: Sequence[ArchiveTimeStamp], data_digests: Seque
     return compute_digest(_SEP.join(items).encode(), hash_alg, allow_deprecated=allow_deprecated)
 
 
+def _make_ats(hash_alg: str, covered: str, time: int, anchor_status: str,
+              sig_alg: str, signers: Optional[dict]) -> ArchiveTimeStamp:
+    """Construct an ATS, signing its content when ``sig_alg`` is set (the RFC-4998 TimeStampToken)."""
+    sigs: tuple = ()
+    if sig_alg:
+        sigs = _sign_ats_content(_ats_content(hash_alg, covered, time), sig_alg, signers or {})
+    return ArchiveTimeStamp(hash_alg, covered, time, anchor_status, sig_alg, sigs)
+
+
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
-                           anchor_status: str = _CONFIRMED) -> list[list[ArchiveTimeStamp]]:
+                           anchor_status: str = _CONFIRMED, sig_alg: str = "",
+                           signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
     """The original evidence: one chain with one ATS over the data objects' hash-tree root.
 
-    The sequence is a list of chains; each chain a list of ATS. Fail-closed on a weak/unknown hash."""
+    When ``sig_alg`` + ``signers`` are given the ATS is authenticated by a time-authority signature (the
+    RFC-4998 TimeStampToken; verify with ``authority_keys``). Fail-closed on a weak/unknown hash."""
     resolve_hash_alg(hash_alg)  # current-only: never seed a sequence with a deprecated hash
     if not data_digests:
         raise RenewalError("cannot anchor an empty set of data objects")
-    ats = ArchiveTimeStamp(hash_alg, _cover_data(data_digests, hash_alg), time, anchor_status)
+    ats = _make_ats(hash_alg, _cover_data(data_digests, hash_alg), time, anchor_status, sig_alg, signers)
     return [[ats]]
 
 
@@ -131,35 +216,42 @@ def _require_prior_anchor(prior: ArchiveTimeStamp) -> None:
 
 
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
-                    anchor_status: str = _CONFIRMED) -> list[list[ArchiveTimeStamp]]:
+                    anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
+                    signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
     """Timestamp renewal: append an ATS to the LAST chain (SAME hash algorithm), covering the prior ATS.
 
-    Used when a timestamp's key/signature algorithm weakens but the hash is still strong. Time must be
-    strictly greater than the prior ATS. Fail-closed if the prior anchor is not confirmed."""
+    Used when a timestamp's key/signature algorithm weakens but the hash is still strong. This is where the
+    signature layer MIGRATES: pass a stronger ``sig_alg`` (e.g. ``hybrid-ed25519-mldsa65`` → ``mldsa65``)
+    + ``signers`` to re-sign the covered prior token under the upgraded algorithm. ``sig_alg=None`` keeps
+    the prior algorithm. Time strictly after the prior; fail-closed if the prior anchor is not confirmed."""
     prior = _newest(sequence)
     _require_prior_anchor(prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
-    new = ArchiveTimeStamp(prior.hash_alg, compute_digest(prior.token().encode(), prior.hash_alg),
-                           time, anchor_status)
+    covered = compute_digest(prior.token().encode(), prior.hash_alg)
+    new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
+    new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers)
     out = [list(chain) for chain in sequence]
     out[-1].append(new)
     return out
 
 
 def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
-                   new_hash_alg: str, time: int,
-                   anchor_status: str = _CONFIRMED) -> list[list[ArchiveTimeStamp]]:
+                   new_hash_alg: str, time: int, anchor_status: str = _CONFIRMED,
+                   sig_alg: Optional[str] = None,
+                   signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
     """Hash-tree renewal: start a NEW chain whose first ATS covers all prior ATS + the data objects under
-    ``new_hash_alg``. Used when the hash algorithm weakens. Time strictly after the prior ATS; fail-closed
-    on a weak/unknown new hash or an unconfirmed prior anchor."""
+    ``new_hash_alg``. Used when the hash algorithm weakens. Like ``renew_timestamp`` the signature layer may
+    migrate (``sig_alg`` + ``signers``). Time strictly after the prior; fail-closed on a weak/unknown new
+    hash or an unconfirmed prior anchor."""
     resolve_hash_alg(new_hash_alg)  # current-only
     prior = _newest(sequence)
     _require_prior_anchor(prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
-    new_chain = [ArchiveTimeStamp(new_hash_alg, covered, time, anchor_status)]
+    new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
+    new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers)]
     return [list(chain) for chain in sequence] + [new_chain]
 
 
@@ -169,6 +261,7 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
 
 
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
+                    authority_keys: Optional[dict] = None,
                     anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None
                     ) -> VerificationResult:
     """Verify an ArchiveTimeStampSequence end-to-end, walking the newest strong anchor back to the origin.
@@ -179,18 +272,33 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
       * each timestamp-renewal ATS covers exactly the prior ATS in its chain, and each new chain's first
         ATS covers all-prior-ATS + the data objects (``break_in_sequence_fails``);
       * the covered data recomputes from ``data_digests`` (``tamper_after_renewal_fails``);
-      * the newest ATS has a confirmed anchor (``anchor_verifier``; default: anchor_status == confirmed).
+      * the newest ATS is authenticated (see the anchor modes below).
 
-    SECURITY — ``anchor_verifier``: the DEFAULT only checks the bare ``anchor_status`` string, which is
-    NOT cryptographically bound (it is deliberately excluded from ``token()``, so no hash in the chain
-    covers it — anyone who can construct/edit the sequence JSON can set it to "confirmed"). The default is
-    a STRUCTURAL check only. For real trust a caller MUST pass an ``anchor_verifier`` that verifies each
-    ATS against an actual external time-anchor proof (e.g. an RFC-3161 token or an OTS proof via
-    ``anchors_ots.verify_opentimestamps``). Treat a PASS under the default anchor_verifier as
-    "structurally consistent", never as "cryptographically anchored".
+    ANCHOR — three modes, most-trusted first:
+      * ``authority_keys`` (RECOMMENDED, B3↔B5 wiring): a dict of the relying party's trusted time-authority
+        public keys ``{"ed25519": bytes, "mldsa65": bytes}``. The newest ATS MUST carry a valid signature
+        (``_verify_ats_signature``) under those keys — a real cryptographic anchor, PQ-capable. A hybrid ATS
+        needs both legs. The key material comes from the relying party (WP-A1), never the sequence itself.
+      * ``anchor_verifier``: a caller callback bound to an external proof (e.g. an OTS proof), when the
+        anchor is not a native ATS signature.
+      * DEFAULT (neither given): only the bare ``anchor_status`` string, which is NOT cryptographically
+        bound (excluded from ``token()``) — a STRUCTURAL check only. Treat a PASS here as "structurally
+        consistent", never "cryptographically anchored"; supply ``authority_keys`` for real trust.
     """
     result = VerificationResult()
-    verify_anchor = anchor_verifier or (lambda a: a.anchor_status == _CONFIRMED)
+
+    def _default_anchor(a: ArchiveTimeStamp) -> bool:
+        return a.anchor_status == _CONFIRMED
+
+    def _signature_anchor(a: ArchiveTimeStamp) -> bool:
+        return _verify_ats_signature(a, authority_keys or {})
+
+    if authority_keys is not None:
+        verify_anchor: Callable[[ArchiveTimeStamp], bool] = _signature_anchor
+    elif anchor_verifier is not None:
+        verify_anchor = anchor_verifier
+    else:
+        verify_anchor = _default_anchor
     flat = _all_ats(sequence)
     if not flat:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))

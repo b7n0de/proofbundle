@@ -82,7 +82,8 @@ age*. BASELINE_ANCHOR.md verifies the gap: there is no renewal chain and no docu
 | B6 evidence pack | `evidence_pack.py` | BUILT (mechanism) — self-contained classifier + offline verify (no socket); a REAL confirmed-receipt pack is OPEN (calendar submit + Bitcoin confirmation = human-gated) |
 | B3 renewal chain | `renewal.py` | BUILT — ArchiveTimeStampSequence, two-stage verifies offline; 8 named regressions across 10 tests. ASN.1/XMLERS export OPEN (needs an offline reference validator for the differential) |
 | B4 renewal policy | `renewal.py` | BUILT — `RenewalPolicy`, watch-only-last-ATS, no network; example policy + tests |
-| B5 PQ primitives | `pqsig.py` | BUILT — ML-DSA (FIPS 204) real + hybrid Ed25519+ML-DSA verify/sign; SLH-DSA (FIPS 205) OPEN (`PQUnavailable`, not in this build); LMS/XMSS out of scope. **B3↔B5 wiring OPEN**: `renewal.py` has no signature field and does not call `pqsig` yet — the modules ship as independent primitives; re-signing a migrated receipt is the intended, not-yet-built integration |
+| B5 PQ primitives | `pqsig.py` | BUILT — ML-DSA (FIPS 204) real + hybrid Ed25519+ML-DSA verify/sign; SLH-DSA (FIPS 205) OPEN (`PQUnavailable`, not in this build); LMS/XMSS out of scope |
+| B3↔B5 wiring | `renewal.py` | BUILT — each `ArchiveTimeStamp` carries a real time-authority signature (`sig_alg` + `signatures`, the RFC-4998 TimeStampToken role); `renew_timestamp`/`renew_hashtree` MIGRATE the algorithm (ed25519 → hybrid → mldsa65); `verify_sequence(authority_keys=…)` checks the newest ATS's signature against the relying party's trusted keys (WP-A1). The bare `anchor_status` remains only as the legacy structural fallback. **OPEN**: binding an ATS to a real external RFC-3161 token / OTS proof (vs a directly-signed authority) + the full ASN.1 ERS export |
 
 OPEN items are tracked honestly and never reported as shipped. None is on the default verify path; all
 new surfaces are EXPERIMENTAL and fail-closed.
