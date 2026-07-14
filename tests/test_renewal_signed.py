@@ -12,8 +12,8 @@ import dataclasses
 import hashlib
 import unittest
 
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle.pqsig import generate_mldsa
 from proofbundle.renewal import (
@@ -24,6 +24,14 @@ from proofbundle.renewal import (
     renew_timestamp,
     verify_sequence,
 )
+
+try:
+    from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: F401
+    _HAS_MLDSA = True
+except ImportError:  # ML-DSA (FIPS 204) needs a newer cryptography than the declared floor (42.x)
+    _HAS_MLDSA = False
+
+_SKIP = unittest.skipUnless(_HAS_MLDSA, "signed renewal path needs cryptography with FIPS 204 (ML-DSA)")
 
 DATA = [hashlib.sha256(b"a").hexdigest(), hashlib.sha256(b"b").hexdigest()]
 
@@ -38,6 +46,7 @@ def _authority():
     return signers, keys
 
 
+@_SKIP
 class TestSignedRenewal(unittest.TestCase):
     def test_ed25519_signed_sequence_verifies(self):
         signers, keys = _authority()
@@ -119,6 +128,7 @@ class TestSignedRenewal(unittest.TestCase):
         self.assertTrue(verify_sequence(seq, DATA, allow_unauthenticated_anchor=True).ok)
 
 
+@_SKIP
 class TestSigAlgDowngradeCritical(unittest.TestCase):
     """The CRITICAL finding: sig_alg is bound into _ats_content, so a hybrid/mldsa65 ATS cannot be
     relabeled down to its (post-quantum-forgeable) ed25519 leg without breaking the signature."""
@@ -177,6 +187,7 @@ class TestSigAlgDowngradeCritical(unittest.TestCase):
         self.assertFalse(verify_sequence(broken, DATA, authority_keys=keys).ok)
 
 
+@_SKIP
 class TestSignedRobustness(unittest.TestCase):
     """Malformed signed input must return ok=False, never raise (the 'never raise' contract)."""
 

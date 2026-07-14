@@ -39,6 +39,12 @@ def verify_sequence(seq, data, **kw):
     return _verify_sequence(seq, data, **kw)
 
 
+try:
+    from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: F401
+    _HAS_MLDSA = True
+except ImportError:  # ML-DSA (FIPS 204) needs a newer cryptography than the declared floor (42.x)
+    _HAS_MLDSA = False
+
 _CURRENT = [a for a, spec in HASH_REGISTRY.items() if spec.status == "current"]
 _DEPRECATED = [a for a, spec in HASH_REGISTRY.items() if spec.status == "deprecated"]
 _HEX = "0123456789abcdef"
@@ -126,6 +132,7 @@ if given is not None:
             tampered[0] = "f" * 64 if tampered[0] != "f" * 64 else "e" * 64
             self.assertFalse(verify_sequence(seq, tampered).ok)
 
+    @unittest.skipUnless(_HAS_MLDSA, "signed migration needs cryptography with FIPS 204 (ML-DSA)")
     class TestSignedMigrationProperties(unittest.TestCase):
         @settings(max_examples=60, deadline=None)
         @given(st.lists(st.tuples(st.sampled_from(["ts", "ht"]),
