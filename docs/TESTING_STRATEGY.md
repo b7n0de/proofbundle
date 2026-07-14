@@ -26,6 +26,8 @@ methods in use, why, and the honest state of each (SOTA references at the end).
 | hash agility (B2) | `test_anchor_longevity_property.py` | every current alg round-trips; any single mismatched leg fails; unknown ids fail closed |
 | renewal chain (B3) | `test_anchor_longevity_property.py` | any ascending mixed-mode sequence verifies; any data-object tamper fails |
 | SD-JWT (adversarial) | `test_sdjwt_adversarial.py` | algorithm confusion (`none`/`HS256`/absent) never yields sig_ok; disclosure tamper / uncommitted disclosure breaks structure |
+| DSSE (adversarial) | `test_dsse_adversarial.py` | multi-sig array (valid-among-forged verifies, forged-only rejected); PAE length-prefix prevents type/body collision; payloadType bound into signed bytes; url-safe b64 accepted |
+| Merkle consistency | `test_merkle_consistency_property.py` | consistency roundtrip; tampered proof element / swapped roots / wrong second root rejected |
 
 A property test earns its keep by *finding* spec imprecision: writing the subject-binding property
 immediately surfaced that a literal `None` predicate is (correctly) treated as unbindable — the property
@@ -33,11 +35,12 @@ was refined to match the real contract, which a fixed vector would not have expo
 
 ## Ranked remaining gaps (from the 2026-07-14 coverage survey)
 
-Highest-ROI variation coverage still to add, most-critical first: `dsse.verify_envelope` multi-signature
-array + PAE framing; `checkpoint.witness_quorum` key-material dedup (one key, many names → one witness) +
-domain separation; `anchors_ots` frozen-vs-relying-party backdating vectors; `merkle.verify_consistency`
-tamper (only inclusion is tamper-tested today); `tlogproof.verify_tlog_proof` verdict-conjunction
-independence; `kbjwt` disclosure-set drop/swap metamorphic. These are tracked, not done.
+Done in the first two waves: content root, subject binding, hash agility, renewal, SD-JWT, DSSE
+multi-signature, Merkle consistency. Still to add, most-critical first: `checkpoint.witness_quorum`
+key-material dedup (one key, many names → one witness) + domain separation (a log key must never be
+accepted as a witness); `anchors_ots` frozen-vs-relying-party backdating vectors;
+`tlogproof.verify_tlog_proof` verdict-conjunction independence; `kbjwt` disclosure-set drop/swap
+metamorphic. These are tracked, not done.
 
 ## Mutation testing — evaluated, follow-up
 
