@@ -316,8 +316,9 @@ reason, never a silent never-matches (A-P0-5).
 `TREE_CONTEXT_NOT_AUTHENTICATED` and `CRYPTO_FAILED` are LIVE:
 the reference verifier wires each to a real verdict. `PUBLIC_TRANSPARENCY_REQUIRED_FAILED` and
 `REPLAY_BINDING_REQUIRED_FAILED` are **forward-compatible/dormant in the current core**: the reference
-CLI never supplies a `False` value for them (public-transparency policy enforcement is the §10 profile,
-not yet built — see `docs/PUBLIC_TRANSPARENCY_PROFILE.md`; replay/audience binding already fails the
+CLI never supplies a `False` value for them (the §10 public-transparency policy-evaluation library is built
+EXPERIMENTAL as `public_transparency.py` in 3.2.0, but is not yet wired into the reference CLI's `--policy`
+enforcement — see `docs/PUBLIC_TRANSPARENCY_PROFILE.md`; replay/audience binding already fails the
 CRYPTO verdict when a required KB-JWT is absent). They are enumerated so a future policy layer can flip
 them without a format change; today they never fire.
 

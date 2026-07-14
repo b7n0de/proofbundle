@@ -2,12 +2,21 @@
 
 **Status: split.** The cryptographic mechanics of public log inclusion — a
 signed C2SP checkpoint, witness cosignatures, and a full inclusion proof —
-are **implemented and normative** (SPEC.md §7c/§7d/§7e). What is **not**
-implemented is a trust-*policy* knob that lets a relying party declare "I
-require public log inclusion" in a policy file the way `--policy` already
-lets them declare "I require this signer" or "I require this assurance
-level." That policy-file section is **proposed**, not built, and is
-described honestly as such below.
+are **implemented and normative** (SPEC.md §7c/§7d/§7e). The trust-*policy*
+evaluation that composes them into one relying-party verdict is now built as
+an **EXPERIMENTAL library** (3.2.0 O3): `public_transparency.py::evaluate_public_transparency`
+takes a policy object (`requireSignedCheckpoint`, `trustedLogOrigins`/`trustedLogKeys`,
+`requireConsistencyProof`, `witnessQuorum`) and returns named statuses
+(`LOG_ORIGIN`, `CHECKPOINT_SIGNATURE`, `ROOT_BYTES_AUTHENTICITY`,
+`TREE_CONTEXT_AUTHENTICITY`, `CONSISTENCY`, `WITNESS_QUORUM`,
+`PUBLIC_TRANSPARENCY`), fail-closed (a required-but-unevaluable check is FAIL,
+an optional un-requested check is `NOT_EVALUATED` and stays visible). What is
+still **proposed, not built** is wiring that library into the `--policy` FILE
+of `proofbundle verify` the way `--policy` already lets a relying party
+declare "I require this signer" or "I require this assurance level" — so the
+core CLI still never supplies a `False` value for `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`
+(SPEC.md §10). The proposed policy-file section is described honestly as such
+below.
 
 ## The one thing this document exists to prevent
 
