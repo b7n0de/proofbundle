@@ -19,11 +19,39 @@ import os
 import shutil
 import subprocess
 import time
-from typing import Optional
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator, Optional
 
 from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
 
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
+
+
+@contextmanager
+def _anchor_in_progress_lock(lock_path: Optional[str]) -> Iterator[None]:
+    """Advisory 'anchor in progress' marker held around the on-chain batch_update + confirmation.
+
+    While an anchor's wallet-using transaction is submitted and confirmed, write a marker FILE at
+    ``lock_path`` (or the ``PROOFBUNDLE_ANCHOR_LOCK_PATH`` env). A SEPARATE process — e.g. a wallet-switch
+    guard that must not log the wallet out from under the transaction — can treat the file's PRESENCE as
+    'an anchor is running'. Removed on completion; a crash leaves it stale, which a conservative guard
+    treats as still-active (fail-safe, never breaks a possibly-live anchor). No-op when no path is set, so
+    the default anchor flow is unchanged and proofbundle stays free of any consumer-specific naming."""
+    path = lock_path or os.getenv("PROOFBUNDLE_ANCHOR_LOCK_PATH")
+    if not path:
+        yield
+        return
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(str(os.getpid()))
+    try:
+        yield
+    finally:
+        try:
+            p.unlink()
+        except OSError:
+            pass
 
 
 class ChiaRpcError(RuntimeError):
@@ -125,11 +153,15 @@ def _wait_confirmed(store_id: str, prev_root: Optional[str], *, timeout: int = 1
 
 def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Optional[str] = None,
                target: str = "receipt", network: str = "mainnet", fee: int = 100_000_000,
-               wait: bool = True) -> dict:
+               wait: bool = True, lock_path: Optional[str] = None) -> dict:
     """Full flow: insert ``key=canonicalRoot`` (value = ``value_digest`` or the canonicalRoot itself) into the
     store, wait for on-chain confirmation, then export the anchor. Idempotent: a key already present ("Key
     already present") is treated as "already anchored" and re-exported, not an error. Fail-closed: a network
-    failure raises ChiaRpcError and writes NOTHING partial (the caller keeps its receipt untouched)."""
+    failure raises ChiaRpcError and writes NOTHING partial (the caller keeps its receipt untouched).
+
+    ``lock_path`` (or the ``PROOFBUNDLE_ANCHOR_LOCK_PATH`` env) holds an advisory 'anchor in progress' marker
+    file AUTOMATICALLY around the wallet-using batch_update + confirmation, so a separate wallet-switch guard
+    never logs the wallet out mid-anchor. No path → unchanged behaviour."""
     canonical_root_hex = canonical_root_hex if canonical_root_hex.startswith(("0x", "0X")) else "0x" + canonical_root_hex
     canonical_root = bytes.fromhex(canonical_root_hex[2:])
     if len(canonical_root) != 32:
@@ -137,18 +169,19 @@ def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Opti
     value_hex = value_digest_hex or canonical_root_hex
     value_hex = value_hex if value_hex.startswith(("0x", "0X")) else "0x" + value_hex
 
-    prev_root = _rpc("data_layer", "get_root", {"id": store_id}).get("hash")
-    changelist = [{"action": "insert", "key": canonical_root_hex, "value": value_hex}]
-    already = False
-    try:
-        _rpc("data_layer", "batch_update",
-             {"id": store_id, "changelist": changelist, "fee": fee, "submit_on_chain": True})
-    except ChiaRpcError as exc:
-        if "already present" in str(exc).lower():
-            already = True                        # idempotent: the digest is already anchored
-        else:
-            raise                                 # any other failure → clean abort, nothing written
-    if wait and not already:
-        _wait_confirmed(store_id, prev_root)
-    return export_anchor(store_id, canonical_root=canonical_root,
-                         target=target, network=network, value=value_hex)
+    with _anchor_in_progress_lock(lock_path):
+        prev_root = _rpc("data_layer", "get_root", {"id": store_id}).get("hash")
+        changelist = [{"action": "insert", "key": canonical_root_hex, "value": value_hex}]
+        already = False
+        try:
+            _rpc("data_layer", "batch_update",
+                 {"id": store_id, "changelist": changelist, "fee": fee, "submit_on_chain": True})
+        except ChiaRpcError as exc:
+            if "already present" in str(exc).lower():
+                already = True                    # idempotent: the digest is already anchored
+            else:
+                raise                             # any other failure → clean abort, nothing written
+        if wait and not already:
+            _wait_confirmed(store_id, prev_root)
+        return export_anchor(store_id, canonical_root=canonical_root,
+                             target=target, network=network, value=value_hex)
