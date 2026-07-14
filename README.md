@@ -246,6 +246,10 @@ roadmap.
   a signed outcome is self-assertion. See
   [docs/predicates/decision-receipt.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/decision-receipt.md)
   and [ADR 0001](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0001-decision-receipt-separate-predicate.md).
+  That signed outcome is the `action-outcome/v0.1` predicate (EXPERIMENTAL, 3.2.0): an executor signs what was
+  actually done, bound by content root to the Decision Receipt, with role separation (executor ≠ decision maker)
+  and `execution_proven` only when an effect digest backs an `executed` status. See
+  [docs/predicates/action-outcome.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/action-outcome.md).
 
 ## Docs
 
