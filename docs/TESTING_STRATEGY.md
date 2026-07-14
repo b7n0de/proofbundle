@@ -15,6 +15,8 @@ methods in use, why, and the honest state of each (SOTA references at the end).
    asserted. This is the primary "catch all variations" mechanism — a single property replaces an
    unbounded set of hand vectors.
 4. **Fuzz (never-crash).** `test_fuzz_parsers.py` asserts the parsers never raw-crash on arbitrary bytes.
+5. **Mutation (anti-Goodhart).** `scripts/mutation_check.py` breaks each security check and requires the
+   suite to go red — proving the green suite means something (see below).
 
 ## Property-based coverage
 
@@ -42,15 +44,25 @@ accepted as a witness); `anchors_ots` frozen-vs-relying-party backdating vectors
 `tlogproof.verify_tlog_proof` verdict-conjunction independence; `kbjwt` disclosure-set drop/swap
 metamorphic. These are tracked, not done.
 
-## Mutation testing — evaluated, follow-up
+## Mutation testing — the anti-Goodhart gate (already in CI)
 
-Mutation testing (mutate the source, require the suite to KILL each mutant) is the meta-check that proves
-the tests actually catch variations. `mutmut` 3.6 was evaluated: its sandbox copies only the configured
-`source_paths` into a `mutants/` tree, which breaks a `src/`-layout package's intra-package imports
-(`hashalg` importing `.errors` fails to resolve). Shipping a config that does not run cleanly would be a
-false green, so no `[tool.mutmut]` config is committed. The resolution path (copy the whole package into
-the sandbox, or a tool that mutates the installed package in place, e.g. cosmic-ray) is a tracked
-follow-up. Until then, property-based generation is the working variation-coverage layer.
+Mutation testing (break the code, require the suite to go RED) is the meta-check that proves the tests
+catch variations. proofbundle does NOT use an off-the-shelf mutator; it ships a curated, differential
+gate `scripts/mutation_check.py` (the CI `mutation` job). Each operator disables ONE security check
+(binding, framing, key-domain separation, quorum counting, fail-open, output truthfulness) and the gate
+asserts every non-equivalent mutant is KILLED (strictly more red than the baseline); documented-equivalent
+mutants are asserted to SURVIVE (honesty both ways — a curation an untargeted mutator cannot express).
+
+The anchor-longevity work added three operators for the new modules (killed by the unittest property
+tests, which is what `unittest discover` runs): B2 dual-hash digest comparison disabled → forged bytes
+verify; B2 deprecated-algorithm reject disabled; B3 ArchiveTimeStamp covering check disabled → tamper /
+break survives. Extend this list whenever a new fail-closed check ships.
+
+Aside: the generic tool `mutmut` 3.6 was tried and does not fit this `src/`-layout — its sandbox copies
+only the configured module and breaks intra-package imports (`hashalg` importing `.errors`). No
+`[tool.mutmut]` config is committed (a config that does not run cleanly would be a false green). The
+curated `mutation_check.py` gate is the working mechanism and is stronger here because it is targeted and
+false-positive-free.
 
 ## References (SOTA, 2026)
 

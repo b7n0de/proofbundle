@@ -32,6 +32,7 @@ from proofbundle.renewal import (
 )
 
 _CURRENT = [a for a, spec in HASH_REGISTRY.items() if spec.status == "current"]
+_DEPRECATED = [a for a, spec in HASH_REGISTRY.items() if spec.status == "deprecated"]
 _HEX = "0123456789abcdef"
 
 
@@ -72,6 +73,15 @@ if given is not None:
                 return
             with self.assertRaises(Exception):
                 resolve_hash_alg(name)
+
+        @settings(max_examples=50, deadline=None)
+        @given(st.sampled_from(_DEPRECATED) if _DEPRECATED else st.just("sha1"))
+        def test_deprecated_always_fails_closed_by_default(self, alg):
+            # the algorithm-confusion defense: a deprecated hash must never resolve by default
+            with self.assertRaises(Exception):
+                resolve_hash_alg(alg)
+            # …but a legacy verifier may opt in explicitly (the id is known, just weak)
+            self.assertEqual(resolve_hash_alg(alg, allow_deprecated=True).status, "deprecated")
 
     class TestRenewalProperties(unittest.TestCase):
         @settings(max_examples=150, deadline=None)

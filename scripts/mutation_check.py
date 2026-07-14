@@ -211,6 +211,24 @@ MUTATIONS = [
      '"ok": False, "status": "needs_rp_trust"',
      '"ok": True, "status": "needs_rp_trust"',
      "anchors_rfc3161: WP-A1 needs_rp_trust self-trust re-enabled (backdating)", True),
+    # 3.2.0 anchor-longevity (ADR 0006) — the new fail-closed defenses. Killed by the unittest property
+    # tests in tests/test_anchor_longevity_property.py (which run under unittest discover).
+    # B2 — a dual-hash leg that never actually compares the digest lets forged bytes verify.
+    ("src/proofbundle/hashalg.py",
+     "        match = isinstance(expected, str) and actual == expected.lower()",
+     "        match = True",
+     "hashalg: B2 dual-hash digest comparison disabled (forged bytes verify)", True),
+    # B2 — a deprecated hash must never resolve by default (algorithm-confusion / RFC 7696).
+    ("src/proofbundle/hashalg.py",
+     '    if spec.status == "deprecated" and not allow_deprecated:',
+     "    if False:",
+     "hashalg: B2 deprecated-algorithm reject disabled", True),
+    # B3 — the renewal covering check binds each ATS to its prior objects + data; disabling it lets a
+    # tampered data object or a broken sequence verify silently.
+    ("src/proofbundle/renewal.py",
+     "            if a.covered_digest != expect:",
+     "            if False:",
+     "renewal: B3 ArchiveTimeStamp covering check disabled (tamper/break survives)", True),
 ]
 
 
