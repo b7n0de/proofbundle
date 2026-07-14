@@ -71,6 +71,28 @@ only the configured module and breaks intra-package imports (`hashalg` importing
 curated `mutation_check.py` gate is the working mechanism and is stronger here because it is targeted and
 false-positive-free.
 
+## Maximal-completeness pass (2026-07-14, 3-agent research: coverage / comparative / official-vectors)
+
+Added this pass: a CI **coverage ratchet** (`--fail-under`, comparable to python-tuf's tox / sigstore-python's
+Makefile) so coverage cannot silently regress; **structured-input never-crash fuzz** for the 3.2.0
+verify functions (found + hardened two real crashes: `verify_sequence`/`verify_dual_hash` on malformed
+input); **trust_pack fail-open gaps** (duplicate-signature threshold-inflation, fractional-expires,
+revocation); a **fixed vacuous-PASS** (the RFC-6962 consistency external-vector test iterated an empty
+array — now real consistency proofs anchored to the externally-published canonical root + a nonempty
+assertion + a tampered-proof negative); **official spec vectors** (DSSE PAE, RFC 8032 §7.1 Ed25519 KATs);
+**statuslist alg-confusion** (none/HS256/ES256 rejected, status never leaks) + wrong-length-key never-crash.
+
+Honestly tracked (NOT yet done — for the follow-up / final-audit round): coverage-guided continuous
+fuzzing with a persistent corpus (`fuzz/` Atheris harness, ClusterFuzzLite) — the single biggest category
+gap vs sigstore/pyca; a client-under-test conformance protocol (like sigstore-conformance / tuf-conformance)
+so third parties can run the corpus; a TUF-style multi-step attack simulator for trust_pack; NIST ACVP
+ML-DSA sigVer KATs (FIPS 204) — today all ML-DSA tests use freshly-generated keys, no KAT; the
+cyberphone/json-canonicalization (RFC 8785) number-serialization corpus; a C2SP signed-note KAT
+(golang.org/x/mod) + the real Rekor checkpoint signature; a real `.ots` fixture; SD-JWT-VC vectors from the
+OAuth-WG examples; the statuslist decompression-bomb (CWE-409) test (heavy 64 MB construction); and the
+remaining coverage-driven negatives (outcome nonce-mismatch, public_transparency FAIL side, sdjwt
+`_sd_alg`-downgrade + F12 duplicate-key-in-disclosure, run_ledger `link_runs`).
+
 ## References (SOTA, 2026)
 
 Property-based testing is fuzzing that asserts semantic relations, not just no-crash
