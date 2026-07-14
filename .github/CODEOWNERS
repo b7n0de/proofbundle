@@ -25,6 +25,17 @@
 /src/proofbundle/anchors_chia.py    @b7n0de
 /src/proofbundle/anchors_markovian.py @b7n0de
 
+# 3.2.0 EXPERIMENTAL surfaces (O9): outcome, trust pack, transparency policy, subject binding,
+# run ledger, verification summary — each carries signature input / role trust / policy / decision /
+# outcome / canonicalization logic, so it requires code-owner review before merge (no self-merge for a
+# security path, prompt §O9). Graduates to the stable REVIEWERS list per module as it leaves EXPERIMENTAL.
+/src/proofbundle/outcome.py         @b7n0de
+/src/proofbundle/trust_pack.py      @b7n0de
+/src/proofbundle/public_transparency.py @b7n0de
+/src/proofbundle/subject_binding.py @b7n0de
+/src/proofbundle/run_ledger.py      @b7n0de
+/src/proofbundle/verification_summary.py @b7n0de
+
 # The normative surface: the spec, the machine-readable schemas, the predicate definitions.
 /SPEC.md                            @b7n0de
 /schemas/                           @b7n0de
