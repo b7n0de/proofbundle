@@ -8,8 +8,15 @@ from __future__ import annotations
 
 import unittest
 
+from proofbundle.canonical import canonicalize_statement
 from proofbundle.dsse import pae
 from proofbundle.signature import verify_ed25519
+
+try:
+    import rfc8785  # noqa: F401
+    _HAS_JCS = True
+except ImportError:
+    _HAS_JCS = False
 
 
 class TestDsseOfficialPae(unittest.TestCase):
@@ -55,6 +62,32 @@ class TestEd25519Rfc8032Section71(unittest.TestCase):
         raw = bytearray(bytes.fromhex(sig))
         raw[0] ^= 0xFF
         self.assertFalse(verify_ed25519(bytes.fromhex(pk), bytes(raw), bytes.fromhex(msg)))
+
+
+@unittest.skipUnless(_HAS_JCS, "RFC 8785 canonicalizer (proofbundle[eval]) not installed")
+class TestJcsRfc8785(unittest.TestCase):
+    """RFC 8785 (JCS) canonical-output vectors — key sorting + number serialization (the classic JCS
+    break-point). proofbundle canonicalizes via the rfc8785 lib; these pin its canonical bytes."""
+
+    _CASES = [
+        # (input object, expected canonical UTF-8 bytes)
+        ({"b": 1, "a": 2}, b'{"a":2,"b":1}'),                          # keys sorted lexicographically
+        ({"a": {"y": 1, "x": 2}}, b'{"a":{"x":2,"y":1}}'),            # nested keys sorted
+        ({"n": 1.0}, b'{"n":1}'),                                      # 1.0 serializes as 1
+        ({"n": 100.0}, b'{"n":100}'),                                  # 100.0 -> 100
+        ({"n": -0.0}, b'{"n":0}'),                                     # negative zero normalizes to 0
+        ({"s": "ü"}, b'{"s":"\xc3\xbc"}'),                        # unicode stays UTF-8, not \u-escaped
+        ({"z": True, "a": None}, b'{"a":null,"z":true}'),             # literals + sorting
+    ]
+
+    def test_canonical_output_vectors(self):
+        for obj, want in self._CASES:
+            self.assertEqual(canonicalize_statement(obj), want, msg=f"JCS mismatch for {obj!r}")
+
+    def test_key_order_does_not_change_output(self):
+        # the whole point of canonicalization: insertion order is irrelevant
+        self.assertEqual(canonicalize_statement({"b": 1, "a": 2}),
+                         canonicalize_statement({"a": 2, "b": 1}))
 
 
 if __name__ == "__main__":
