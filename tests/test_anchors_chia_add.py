@@ -164,5 +164,37 @@ class TestRpcErrorPaths(unittest.TestCase):
                 anchors_chia_add._rpc("data_layer", "get_root", {"id": STORE})
 
 
+class TestAnchorInProgressLock(unittest.TestCase):
+    """anchor_add automatically holds an advisory 'anchor in progress' marker file around the wallet-using
+    batch_update + confirmation, so a separate wallet-switch guard never logs the wallet out mid-anchor."""
+
+    def test_lock_present_during_batch_update_and_removed_after(self):
+        import pathlib
+        import tempfile
+        cr_hex = "0x" + hashlib.sha256(b"lock").hexdigest()
+        proof, root = _synthetic_proof(cr_hex, cr_hex)
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "sub" / "anchor.lock"
+        seen = {"present_during_batch": None}
+        base = _mock_rpc_factory(published_root=root, proof=proof, prev_root="0x" + "77" * 32)
+
+        def fake(service, method, payload, *, timeout=60):
+            if method == "batch_update":
+                seen["present_during_batch"] = tmp.exists()
+            return base(service, method, payload, timeout=timeout)
+
+        with mock.patch.object(anchors_chia_add, "_rpc", fake):
+            anchor_add(cr_hex, store_id=STORE, wait=True, lock_path=str(tmp))
+        self.assertTrue(seen["present_during_batch"], "lock must exist DURING batch_update")
+        self.assertFalse(tmp.exists(), "lock must be removed after anchor_add completes")
+
+    def test_no_lock_path_is_backward_compatible(self):
+        cr_hex = "0x" + hashlib.sha256(b"nolock").hexdigest()
+        proof, root = _synthetic_proof(cr_hex, cr_hex)
+        fake = _mock_rpc_factory(published_root=root, proof=proof, prev_root="0x" + "88" * 32)
+        with mock.patch.object(anchors_chia_add, "_rpc", fake):
+            anchor = anchor_add(cr_hex, store_id=STORE, wait=True)   # kein lock_path → unveraendert
+        self.assertEqual(anchor["type"], ANCHOR_TYPE)
+
+
 if __name__ == "__main__":
     unittest.main()

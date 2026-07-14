@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/proofbundle/schemas/trust-pack-v0.1.schema.json",
+  "title": "proofbundle trust-pack predicate v0.1",
+  "description": "External/docs schema for the vendored trust-pack/v0.1 predicate (3.2.0 O2, EXPERIMENTAL). A TUF-inspired, signed root of trust: role -> {keyIds, threshold} for root/evalIssuers/decisionMakers/outcomeExecutors/timeAuthorities/witnesses, a keyId->publicKey map, a monotone version, an expiry, a previous-version digest binding, and an offline revocation list. The enforced validator is src/proofbundle/trust_pack.py (hand-rolled, fail-closed). Threshold-of-root signatures authenticate the pack. lowerCamelCase (ITE-9). No-Overclaim: the pack names which keys hold which role, not that those key holders are honest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "trustPackId", "version", "expires", "prevVersionDigest", "roles", "keys", "nonClaims"],
+  "$defs": {
+    "sha256Digest": {
+      "type": "object",
+      "required": ["sha256"],
+      "additionalProperties": false,
+      "properties": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "rfc3339z": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"},
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyIds", "threshold"],
+      "properties": {
+        "keyIds": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "threshold": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "properties": {
+    "schemaVersion": {"type": "string", "pattern": "^0\\.1\\.\\d+$"},
+    "trustPackId": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1, "description": "monotone version; verify rejects a version <= a supplied previous (rollback/freeze protection)"},
+    "expires": {"$ref": "#/$defs/rfc3339z"},
+    "prevVersionDigest": {
+      "oneOf": [{"$ref": "#/$defs/sha256Digest"}, {"type": "null"}],
+      "description": "content root of the previous trust pack (chain), or null for the first pack"
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {
+        "root": {"$ref": "#/$defs/role"},
+        "evalIssuers": {"$ref": "#/$defs/role"},
+        "decisionMakers": {"$ref": "#/$defs/role"},
+        "outcomeExecutors": {"$ref": "#/$defs/role"},
+        "timeAuthorities": {"$ref": "#/$defs/role"},
+        "witnesses": {"$ref": "#/$defs/role"}
+      }
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["publicKey"],
+        "properties": {
+          "publicKey": {"type": "string", "description": "base64 raw Ed25519 public key (32 bytes)"},
+          "scheme": {"const": "ed25519"}
+        }
+      }
+    },
+    "revoked": {"type": "array", "items": {"type": "string"}, "description": "offline revocation: keyIds that must not count toward any threshold"},
+    "nonClaims": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

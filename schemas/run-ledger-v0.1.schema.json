@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/proofbundle/schemas/run-ledger-v0.1.schema.json",
+  "title": "proofbundle run-ledger predicate v0.1",
+  "description": "External/docs schema for the vendored run-ledger/v0.1 predicate (3.2.0 O5, EXPERIMENTAL). A signed ledger of ALL runs of a study against best-of-many cherry-picking: a monotone sequence with a digest chain, aborted runs kept visible, a run budget declared up front, and explicit non-claims. The enforced validator is src/proofbundle/run_ledger.py (hand-rolled, fail-closed). No-Overclaim: the ledger records which runs happened and their order, never that the selected run is representative or that no run outside the ledger exists. lowerCamelCase (ITE-9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "studyId", "runBudget", "runs", "nonClaims"],
+  "$defs": {
+    "sha256Digest": {
+      "type": "object",
+      "required": ["sha256"],
+      "additionalProperties": false,
+      "properties": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "rfc3339z": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"},
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seq", "status", "resultDigest", "prevDigest"],
+      "properties": {
+        "seq": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["completed", "aborted", "failed"]},
+        "resultDigest": {"$ref": "#/$defs/sha256Digest", "description": "content root of this run's result/receipt"},
+        "prevDigest": {
+          "oneOf": [{"$ref": "#/$defs/sha256Digest"}, {"type": "null"}],
+          "description": "digest chain link: the resultDigest of run seq-1, or null for the first run"
+        },
+        "startedAt": {"$ref": "#/$defs/rfc3339z"},
+        "note": {"type": "string"}
+      }
+    }
+  },
+  "properties": {
+    "schemaVersion": {"type": "string", "pattern": "^0\\.1\\.\\d+$"},
+    "studyId": {"type": "string", "minLength": 1},
+    "runBudget": {"type": "integer", "minimum": 1, "description": "the maximum number of runs declared BEFORE the study (guards against unbounded best-of-many)"},
+    "externalRandomnessRef": {"$ref": "#/$defs/sha256Digest", "description": "optional commitment to a future/external randomness beacon that ordered or seeded the runs"},
+    "selectedSeq": {"type": "integer", "minimum": 1, "description": "optional: which run was selected for publication (the ledger keeps all runs regardless)"},
+    "runs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/run"}},
+    "nonClaims": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

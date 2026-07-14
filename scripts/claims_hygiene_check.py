@@ -39,6 +39,10 @@ _DEFAULT_DOCS = [
     # record's freeform "options considered" prose is not the same genre as a capability claim.
     "docs/POLICY_PROFILES.md", "docs/PUBLIC_TRANSPARENCY_PROFILE.md", "docs/SD_JWT_VC_PROFILE.md",
     "docs/MIGRATION_EVAL_PREDICATE.md",
+    # 3.2.0 O-predicate + profile docs (release-review scan-gap fix): capability-claim genre, same discipline.
+    "docs/predicates/README.md", "docs/predicates/action-outcome.md", "docs/predicates/decision-receipt.md",
+    "docs/predicates/run-ledger.md", "docs/predicates/trust-pack.md", "docs/predicates/verification-summary.md",
+    "docs/SDJWT_VC_PROFILE.md", "docs/SUBJECT_BINDING.md",
 ]
 
 # The signed-root rule (P0-C §5.4) carries a per-sample SECTION exception (see `_CONTEXT_EXEMPT`), so

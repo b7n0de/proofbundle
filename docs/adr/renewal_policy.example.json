@@ -1,0 +1,8 @@
+{
+  "_comment": "B4 renewal policy example (ADR 0006). Purely local: the verifier NEVER fetches anything to evaluate this. Only the newest ArchiveTimeStamp is examined (RFC 4998 operating rule).",
+  "deprecated_algs": ["sha1", "md5"],
+  "max_ats_age": 220752000,
+  "_max_ats_age_comment": "about 7 years in seconds — renew the newest ATS before this age, well inside any realistic algorithm-ageing horizon.",
+  "strictness": "warn",
+  "_strictness_comment": "'warn' = an overdue renewal is a WARN (evidence still usable, renewal due); 'fail' = an overdue renewal is a hard FAIL (strict archives)."
+}

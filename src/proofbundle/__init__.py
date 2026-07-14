@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "3.1.3"
+__version__ = "3.2.0"
 
 # The `proofbundle/v0.1` normative spec revision this build implements — kept in sync with the
 # `Revision:` line at the top of SPEC.md by tests/test_docs_truth.py (WP-B1, closes #28). Bump
@@ -47,6 +47,23 @@ __all__ = [
     "beacon_audit_challenge",
     "canonicalize_statement",
     "statement_content_root",
+    "resolve_hash_alg",
+    "compute_dual_hash",
+    "verify_dual_hash",
+    "build_evidence_pack",
+    "verify_evidence_pack",
+    "ots_upgraded_proof_is_self_contained",
+    "build_initial_sequence",
+    "renew_timestamp",
+    "renew_hashtree",
+    "verify_sequence",
+    "last_ats",
+    "evaluate_renewal_policy",
+    "ArchiveTimeStamp",
+    "RenewalPolicy",
+    "verify_mldsa",
+    "verify_slhdsa",
+    "verify_hybrid",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -75,6 +92,23 @@ _LAZY = {
     "beacon_audit_challenge": ".beacon",
     "canonicalize_statement": ".canonical",
     "statement_content_root": ".canonical",
+    "resolve_hash_alg": ".hashalg",
+    "compute_dual_hash": ".hashalg",
+    "verify_dual_hash": ".hashalg",
+    "build_evidence_pack": ".evidence_pack",
+    "verify_evidence_pack": ".evidence_pack",
+    "ots_upgraded_proof_is_self_contained": ".evidence_pack",
+    "build_initial_sequence": ".renewal",
+    "renew_timestamp": ".renewal",
+    "renew_hashtree": ".renewal",
+    "verify_sequence": ".renewal",
+    "last_ats": ".renewal",
+    "evaluate_renewal_policy": ".renewal",
+    "ArchiveTimeStamp": ".renewal",
+    "RenewalPolicy": ".renewal",
+    "verify_mldsa": ".pqsig",
+    "verify_slhdsa": ".pqsig",
+    "verify_hybrid": ".pqsig",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -88,6 +122,13 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
                             verify_sample_opening)
     from .beacon import beacon_audit_challenge
     from .canonical import canonicalize_statement, statement_content_root
+    from .hashalg import compute_dual_hash, resolve_hash_alg, verify_dual_hash
+    from .evidence_pack import (build_evidence_pack, ots_upgraded_proof_is_self_contained,
+                                verify_evidence_pack)
+    from .renewal import (ArchiveTimeStamp, RenewalPolicy, build_initial_sequence,
+                          evaluate_renewal_policy, last_ats, renew_hashtree, renew_timestamp,
+                          verify_sequence)
+    from .pqsig import verify_hybrid, verify_mldsa, verify_slhdsa
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/proofbundle/schemas/action-outcome-v0.1.schema.json",
+  "title": "proofbundle action-outcome predicate v0.1",
+  "description": "External/docs schema for the vendored action-outcome/v0.1 predicate (Outcome Receipt, 3.2.0 core). The enforced validator is src/proofbundle/outcome.py (hand-rolled, fail-closed). An Outcome Receipt is signed by an EXECUTOR (a policy role distinct from the decisionMaker) attesting what was actually done, bound by digest to a Decision Receipt (decisionRef). lowerCamelCase (ITE-9). No-Overclaim: status=executed attests who signed what happened, never that the effect was good or desired.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "outcomeId", "decisionRef", "executor", "requestedActionDigest",
+    "status", "performedAt"
+  ],
+  "$defs": {
+    "sha256Digest": {
+      "type": "object",
+      "required": ["sha256"],
+      "additionalProperties": false,
+      "properties": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "rfc3339z": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"}
+  },
+  "properties": {
+    "schemaVersion": {"type": "string", "pattern": "^0\\.1\\.\\d+$"},
+    "outcomeId": {"type": "string", "minLength": 1},
+    "decisionRef": {
+      "$ref": "#/$defs/sha256Digest",
+      "description": "content root: sha256 over the RFC-8785 canonical Statement bytes of the bound Decision Receipt (Stufe 2). Replay against a different decision fails."
+    },
+    "executor": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {"id": {"type": "string", "minLength": 1}, "keyId": {"type": "string"}}
+    },
+    "requestedActionDigest": {"$ref": "#/$defs/sha256Digest", "description": "sha256 of the action that was requested (binds to the decision's proposedAction)"},
+    "actualActionDigest": {"$ref": "#/$defs/sha256Digest", "description": "sha256 of the action actually performed"},
+    "responseDigest": {"$ref": "#/$defs/sha256Digest"},
+    "effectDigest": {"$ref": "#/$defs/sha256Digest"},
+    "status": {"enum": ["executed", "refused", "failed", "partial"]},
+    "performedAt": {"$ref": "#/$defs/rfc3339z"},
+    "recordedAt": {"$ref": "#/$defs/rfc3339z"},
+    "policyPurpose": {"const": "outcome"},
+    "traceContext": {
+      "type": "object",
+      "properties": {"traceparent": {"type": "string"}}
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "validity": {"type": "object", "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}}
+  }
+}
