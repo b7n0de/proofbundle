@@ -30,12 +30,14 @@ These operate over predicates or over C2SP checkpoints; they are verification la
   CHECKPOINT_SIGNATURE, ROOT_BYTES_AUTHENTICITY, TREE_CONTEXT_AUTHENTICITY, CONSISTENCY, WITNESS_QUORUM,
   PUBLIC_TRANSPARENCY). Fail-closed: a required-but-unevaluable check is FAIL, an optional un-requested check is
   NOT_EVALUATED and stays visible.
-- **subject-binding** ([`subject_binding.py`](../../src/proofbundle/subject_binding.py)) — classifies a
-  Statement's subject as `DERIVED` (re-derives from the RFC-8785 canonical predicate and matches) vs
-  `EXTERNAL_ATTESTED` (override / tamper / malformed, fail-closed).
-- **sdjwt-vc** ([`sdjwt_vc.py`](../../src/proofbundle/sdjwt_vc.py)) — an SD-JWT VC relying-party profile
-  (`typ = dc+sd-jwt`, `vct` allowlist, offline type-metadata integrity, holder-binding required). SSRF-safe by
-  construction: no network I/O — a URL `vct` is an opaque identifier, never dereferenced.
+- **subject-binding** ([`subject_binding.py`](../../src/proofbundle/subject_binding.py) ·
+  [doc](../SUBJECT_BINDING.md)) — classifies a Statement's subject as `DERIVED` (re-derives from the RFC-8785
+  canonical predicate and matches) vs `EXTERNAL_ATTESTED` (override / tamper / malformed, fail-closed); plus
+  nested schema closure.
+- **sdjwt-vc** ([`sdjwt_vc.py`](../../src/proofbundle/sdjwt_vc.py) · [doc](../SDJWT_VC_PROFILE.md)) — an SD-JWT
+  VC relying-party profile (`typ = dc+sd-jwt`, `vct` allowlist, offline type-metadata integrity, holder-binding
+  required). SSRF-safe by construction: no network I/O — a URL `vct` is an opaque identifier, never
+  dereferenced.
 
 EXPERIMENTAL predicates and layers are a v3 preview: API and wire format may change without deprecation.
 Do not depend on them in production.
