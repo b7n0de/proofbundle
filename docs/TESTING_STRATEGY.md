@@ -71,6 +71,34 @@ only the configured module and breaks intra-package imports (`hashalg` importing
 curated `mutation_check.py` gate is the working mechanism and is stronger here because it is targeted and
 false-positive-free.
 
+## Maximal-completeness pass (2026-07-14, 3-agent research: coverage / comparative / official-vectors)
+
+Added this pass: a CI **coverage ratchet** (`--fail-under`, comparable to python-tuf's tox / sigstore-python's
+Makefile) so coverage cannot silently regress; **structured-input never-crash fuzz** for the 3.2.0
+verify functions (found + hardened two real crashes: `verify_sequence`/`verify_dual_hash` on malformed
+input); **trust_pack fail-open gaps** (duplicate-signature threshold-inflation, fractional-expires,
+revocation); a **fixed vacuous-PASS** (the RFC-6962 consistency external-vector test iterated an empty
+array — now real consistency proofs anchored to the externally-published canonical root + a nonempty
+assertion + a tampered-proof negative); **official spec vectors** (DSSE PAE, RFC 8032 §7.1 Ed25519 KATs);
+**statuslist alg-confusion** (none/HS256/ES256 rejected, status never leaks) + wrong-length-key never-crash.
+
+Done in the 2026-07-14 maximal pass (17 test/CI commits): the coverage-ratchet gate; deep-shaped fuzz
+(reaching past the parser shape-gate); the TUF-style multi-step attack simulator for trust_pack (rotation
+lifecycle / rollback-after-acceptance / fast-forward-jump-then-recovery); the RFC 8785 (JCS) number-
+serialization vectors; the DSSE + RFC 8032 §7.1 official vectors; and the coverage-driven negatives
+(trust_pack dedup/expires/revocation, statuslist alg-confusion, outcome nonce-mismatch, public_transparency
+FAIL side, sdjwt `_sd_alg` + F12, evalclaim issuer-binding, run_ledger `link_runs`). kbjwt disclosure
+drop/swap was already covered.
+
+Tracked, and each ATTEMPTED with the limit found (BLOCKED_EVIDENCE_INSUFFICIENT_AFTER_SAFE_RESEARCH — for
+the final-audit round with dedicated setup): **NIST ACVP ML-DSA KATs** — C2SP/wycheproof has no ML-DSA
+vectors yet, and the NIST ACVP JSONs are large; needs a curated vendored slice + encoding validation.
+**A real `.ots` fixture** — the opentimestamps hello-world.txt.ots uses a ripemd160 op the installed
+`opentimestamps` version rejects on parse (`unsupported hash type ripemd160`); needs a different fixture
+or lib version. **Coverage-guided Atheris/OSS-Fuzz corpus** — needs a native toolchain (`fuzz/` + ClusterFuzzLite).
+**C2SP signed-note KAT** (golang.org/x/mod) + the real Rekor checkpoint signature and **SD-JWT-VC vectors**
+(OAuth-WG examples) remain open. (The statuslist decompression-bomb (CWE-409) is now done.)
+
 ## References (SOTA, 2026)
 
 Property-based testing is fuzzing that asserts semantic relations, not just no-crash

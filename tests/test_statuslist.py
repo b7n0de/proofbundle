@@ -87,6 +87,52 @@ class TestStatusList(unittest.TestCase):
                                      issuer_pubkey=self.pub)
         self.assertFalse(res["ok"])
 
+    def _reheadered(self, **header_over):
+        # rebuild the token with a mutated header, RE-SIGNED so the (valid) signature cannot be the reason
+        # for rejection — isolating the header guard under test.
+        import base64
+        import json
+        h, p, _s = self.token.split(".")
+        header = json.loads(base64.urlsafe_b64decode(h + "=" * (-len(h) % 4)))
+        header.update(header_over)
+        h2 = base64.urlsafe_b64encode(json.dumps(header).encode()).rstrip(b"=").decode()
+        sig2 = base64.urlsafe_b64encode(
+            self.signer.sign(f"{h2}.{p}".encode("ascii"))).rstrip(b"=").decode()
+        return f"{h2}.{p}.{sig2}"
+
+    def test_red_alg_confusion_none_and_hs256(self):
+        # JWT alg-downgrade: a validly-re-signed token with alg 'none'/'HS256' must be rejected (EdDSA only),
+        # and status must stay None (never leak a status from an unverified token).
+        for bad_alg in ("none", "HS256", "ES256"):
+            res = verify_status_snapshot(self._reheadered(alg=bad_alg), expected_uri=URI, index=0,
+                                         issuer_pubkey=self.pub)
+            self.assertFalse(res["ok"], bad_alg)
+            self.assertIsNone(res.get("status"), bad_alg)
+
+    def test_red_wrong_length_issuer_key_never_crashes(self):
+        # a 31-byte issuer key makes verify_ed25519 raise ValueError internally — must be a clean fail, not
+        # an uncaught crash (the 'never crashes' contract).
+        res = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=b"\x00" * 31)
+        self.assertFalse(res["ok"])
+
+    def test_red_decompression_bomb_rejected(self):
+        # CWE-409: a validly-SIGNED token whose status_list.lst decompresses beyond the cap must be rejected
+        # (the signature check happens first, so the token is genuinely re-signed to reach the guard).
+        import base64
+        import json
+        import zlib
+
+        from proofbundle.statuslist import _MAX_STATUS_LIST_BYTES
+        h, p, _s = self.token.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        bomb = zlib.compress(b"\x00" * (_MAX_STATUS_LIST_BYTES + 1))   # decompresses just over the cap
+        payload["status_list"]["lst"] = base64.urlsafe_b64encode(bomb).rstrip(b"=").decode()
+        p2 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        sig2 = base64.urlsafe_b64encode(self.signer.sign(f"{h}.{p2}".encode("ascii"))).rstrip(b"=").decode()
+        res = verify_status_snapshot(f"{h}.{p2}.{sig2}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("maximum decompressed size", res["detail"])
+
     def test_red_status_flip_needs_resign(self):
         # Flipping a bit in lst breaks the signature — a snapshot is tamper-evident.
         import base64

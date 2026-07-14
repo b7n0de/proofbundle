@@ -61,12 +61,27 @@ class TestExternalRfc6962Vectors(unittest.TestCase):
             self.assertEqual(merkle.merkle_tree_hash(leaves), root, f"tree-hash mismatch on vector #{i}")
 
     def test_consistency_vectors(self):
-        for i, c in enumerate(self.data.get("consistency", [])):
+        # NOTE: transparency-dev's testdata/consistency/ files are EMPTY at the pinned commit, so these
+        # consistency vectors are computed for the SAME canonical 8-leaf tree; each `second_root_hex` is
+        # anchored to the EXTERNALLY-published size-8 root (see the assertion below), so a broken
+        # consistency verifier fails against external truth — not merely self-consistent.
+        cases = self.data.get("consistency", [])
+        self.assertTrue(cases, "expected at least one consistency vector (must not be a vacuous pass)")
+        external_size8_root = self.data["inclusion"][0]["root_hex"]
+        for i, c in enumerate(cases):
             proof = [bytes.fromhex(h) for h in c["proof_hex"]]
-            self.assertTrue(
-                merkle.verify_consistency(c["first"], c["second"], proof,
-                                          bytes.fromhex(c["first_root_hex"]), bytes.fromhex(c["second_root_hex"])),
-                msg=f"external consistency vector #{i} failed")
+            fr, sr = bytes.fromhex(c["first_root_hex"]), bytes.fromhex(c["second_root_hex"])
+            # the target (size-8) root MUST be the externally-published canonical root
+            self.assertEqual(c["second_root_hex"], external_size8_root,
+                             f"consistency vector #{i} second_root is not the external published root")
+            self.assertTrue(merkle.verify_consistency(c["first"], c["second"], proof, fr, sr),
+                            msg=f"consistency vector #{i} failed")
+            # negative: a tampered proof element must be rejected (the verifier is not trivially accepting)
+            if proof:
+                bad = list(proof)
+                bad[0] = bytes((bad[0][0] ^ 0xFF,)) + bad[0][1:]
+                self.assertFalse(merkle.verify_consistency(c["first"], c["second"], bad, fr, sr),
+                                 msg=f"consistency vector #{i} accepted a tampered proof")
 
 
 if __name__ == "__main__":

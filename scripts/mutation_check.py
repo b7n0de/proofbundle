@@ -229,6 +229,12 @@ MUTATIONS = [
      "            if a.covered_digest != expect:",
      "            if False:",
      "renewal: B3 ArchiveTimeStamp covering check disabled (tamper/break survives)", True),
+    # B3↔B5 — the ATS time-authority signature is the real anchor; forcing it True lets a forged/absent
+    # signature pass as an authenticated anchor.
+    ("src/proofbundle/renewal.py",
+     "        return pub is not None and verify_mldsa(pub, _dec(\"mldsa65\"), content)",
+     "        return True",
+     "renewal: B3<->B5 ATS ML-DSA signature check disabled (forged anchor)", True),
 ]
 
 

@@ -148,8 +148,9 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     receipt has lost its force and must be renewed, not silently accepted). A deprecated leg is checked
     (``allow_deprecated``) so its presence is visible, but it cannot by itself carry a PASS."""
     result = VerificationResult()
-    if not digests:
-        result.checks.append(Check("hashalg:dual", False, "no digests declared"))
+    if not isinstance(digests, Mapping) or not digests:
+        result.checks.append(Check("hashalg:dual", False,
+                                   "digests must be a non-empty mapping of alg -> hex"))
         return result
 
     current_ok = 0

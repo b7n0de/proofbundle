@@ -207,6 +207,20 @@ class TestOutcomeVerify(unittest.TestCase):
         self.assertFalse(r3["audience_ok"])
         self.assertFalse(r3["ok"])
 
+    def test_nonce_mismatch_is_fail_closed(self):
+        # replay protection (the untested sibling of the audience-mismatch case): a receipt bound to nonce
+        # n-1, verified with expected_nonce n-2, must fail closed — and requesting a nonce the receipt lacks
+        # must not silently pass.
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(validity={"audience": ["rp.example"], "nonce": "n-1"}), s)
+        r = verify_outcome_receipt(env, pub, expected_nonce="n-2")
+        self.assertFalse(r["nonce_ok"])
+        self.assertFalse(r["ok"])
+        env_no = emit_outcome_receipt(_pred(), s)
+        r2 = verify_outcome_receipt(env_no, pub, expected_nonce="n-1")
+        self.assertFalse(r2["nonce_ok"])
+        self.assertFalse(r2["ok"])
+
 
 class TestOutcomeSubjectBinding(unittest.TestCase):
     """#4 (release-review): a subject that does not commit to the predicate (subject-rehang) must not be

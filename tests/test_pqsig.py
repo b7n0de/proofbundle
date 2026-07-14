@@ -95,6 +95,20 @@ class TestHybrid:
                              pq_pub=_mldsa_raw_pub(pq_sk), pq_sig=bytes(bad_pq), message=MSG) is False
 
 
+def test_verify_ed25519_returns_false_on_non_bytes_not_raise() -> None:
+    # audit fix (LOW): the documented "malformed input returns False, never raises" contract must hold for
+    # non-bytes (e.g. None) input, not only wrong-length bytes.
+    from proofbundle.signature import verify_ed25519
+    assert verify_ed25519(None, b"x" * 64, b"m") is False  # type: ignore[arg-type]
+    assert verify_ed25519(b"x" * 32, None, b"m") is False  # type: ignore[arg-type]
+
+
+def test_verify_hybrid_returns_false_on_none_classical_leg_not_raise() -> None:
+    # verify_hybrid's classical leg must not raise on None input (matching the module's stated contract)
+    assert verify_hybrid(classical_pub=None, classical_sig=b"x" * 64,  # type: ignore[arg-type]
+                         pq_pub=b"x", pq_sig=b"x", message=b"m") is False
+
+
 def test_pq_signature_verify_slhdsa_optional() -> None:
     # SLH-DSA (FIPS 205) is optional; with no library it must raise a clear PQUnavailable, NEVER fake a
     # verify (No-Fake). If a future build provides it, the call would instead verify.

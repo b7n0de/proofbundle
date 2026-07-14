@@ -60,6 +60,24 @@ jobs:
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
 
+  coverage:
+    # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):
+    # a floor that prevents a silent coverage regression. Conservative (below the current ~84%) to avoid
+    # flakiness from extras-dependent line counts; raise it over time. Runs the FULL pytest suite (the
+    # unittest-discover CI job runs only TestCase classes, so this counts the pytest-function tests too).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install with all test extras
+        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest
+      - name: Coverage with a --fail-under ratchet floor
+        run: |
+          python -m coverage run --source=src/proofbundle -m pytest -q
+          python -m coverage report -m --fail-under=83
+
   crypto-floor:
     # v1.7: prove the declared dependency FLOOR actually works, not just the latest. `cryptography`
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support

@@ -10,6 +10,7 @@ import json
 import pathlib
 
 from proofbundle.renewal import (
+    RenewalError,
     RenewalPolicy,
     build_initial_sequence,
     evaluate_renewal_policy,
@@ -95,5 +96,5 @@ def test_shipped_example_policy_loads_and_evaluates() -> None:
 
 def test_from_dict_rejects_bad_strictness() -> None:
     import pytest
-    with pytest.raises(Exception):
+    with pytest.raises(RenewalError):
         RenewalPolicy.from_dict({"strictness": "explode"})
