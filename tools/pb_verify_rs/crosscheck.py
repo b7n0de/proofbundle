@@ -123,7 +123,7 @@ def main() -> int:
             # The Rust verify-bundle reproduces the exit-code contract on the signature + RFC 6962 merkle
             # + relying-party root/tree-size surface. Cases whose DECIDING check is the sd_jwt_vc block or an
             # external anchor need the not-yet-built sd-jwt / anchor slices and are honestly skipped.
-            if any(t in cid for t in ("sd-jwt", "anchor", "graft")):
+            if any(t in cid for t in ("graft", "anchor")):
                 skipped.append(cid)
                 continue
             args = case.get("verifyArgs") or []

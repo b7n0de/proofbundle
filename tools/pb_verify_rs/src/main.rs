@@ -266,6 +266,70 @@ fn root_from_inclusion(
     Ok(r)
 }
 
+fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(s.trim_end_matches('='))
+        .map_err(|e| format!("base64url decode failed: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// SD-JWT VC issuer-authenticity slice (partial): verifies the issuer Ed25519 signature over the
+// compact SD-JWT and fail-closes on a holder-bound (`cnf`) credential whose Key Binding JWT this
+// slice does not yet verify. Reproduces the sd-jwt-unsigned / forged-issuer / signed-but-unbound
+// corpus verdicts; the eval-root-graft and KB-JWT-detail checks are pending slices.
+// Ok(true) => the sd-jwt part is acceptable; Ok(false) => reject (contributes exit 1).
+// ---------------------------------------------------------------------------
+fn verify_sdjwt_issuer(sd: &serde_json::Value) -> Result<bool, String> {
+    let compact = sd
+        .get("compact")
+        .and_then(|v| v.as_str())
+        .ok_or("sd_jwt_vc.compact must be a string")?;
+    // No issuer public key supplied => the disclosures are unauthenticated (bundle.py WP-C2) => reject.
+    let Some(issuer_pub_b64) = sd.get("issuer_public_key_b64").and_then(|v| v.as_str()) else {
+        return Ok(false);
+    };
+    let parts: Vec<&str> = compact.split('~').collect();
+    let jwt: Vec<&str> = parts[0].split('.').collect();
+    if jwt.len() != 3 {
+        return Ok(false);
+    }
+    let (hdr_b64, pl_b64, sig_b64) = (jwt[0], jwt[1], jwt[2]);
+    // strict-parse header + payload (a duplicate JSON key here is a parser-differential => reject).
+    let header = match strict_parse(&b64url_nopad(hdr_b64)?) {
+        Ok(h) => h,
+        Err(_) => return Ok(false),
+    };
+    let payload = match strict_parse(&b64url_nopad(pl_b64)?) {
+        Ok(p) => p,
+        Err(_) => return Ok(false),
+    };
+    if !header.is_object() || !payload.is_object() {
+        return Ok(false);
+    }
+    if header.get("alg").and_then(|v| v.as_str()) != Some("EdDSA") {
+        return Ok(false);
+    }
+    // issuer Ed25519 signature over the signing input `header_b64.payload_b64`.
+    let pk = b64_std(issuer_pub_b64)?;
+    let pk_arr: [u8; 32] = pk.as_slice().try_into().map_err(|_| "issuer key not 32 bytes")?;
+    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad issuer key: {e}"))?;
+    let signing_input = format!("{hdr_b64}.{pl_b64}");
+    let sig_bytes = b64url_nopad(sig_b64)?;
+    let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
+        return Ok(false);
+    };
+    if vk.verify(signing_input.as_bytes(), &Signature::from_bytes(&sig_arr)).is_err() {
+        return Ok(false);
+    }
+    // Holder binding: an issuer-bound `cnf` requires proof-of-possession (a valid KB-JWT). This slice
+    // does not yet verify the KB-JWT, so it fail-closes on any `cnf`-bound credential rather than pass an
+    // unverified holder binding (this is the correct fail-closed posture; the true KB-JWT check is pending).
+    if payload.get("cnf").is_some() {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------
 // Native bundle verify — the CLI exit-code contract (0 crypto OK · 1 verification
 // failure · 2 malformed · 3 policy unmet). This slice covers Ed25519 signature over
@@ -343,6 +407,12 @@ fn verify_bundle(
     }
     if let Some(ets) = expected_tree_size {
         if tree_size != ets {
+            return Ok(false);
+        }
+    }
+    // optional SD-JWT VC block (issuer authenticity slice; see verify_sdjwt_issuer for its scope).
+    if let Some(sd) = b.get("sd_jwt_vc") {
+        if !verify_sdjwt_issuer(sd)? {
             return Ok(false);
         }
     }

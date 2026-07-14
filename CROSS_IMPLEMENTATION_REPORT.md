@@ -45,12 +45,16 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   `verify-bundle` produces the same exit code (0/1/2) as the Python CLI for each, using the case's own
   `verifyArgs` (`--expected-root` / `--expected-tree-size`).
 
-**9 of the 14 corpus cases are reproduced independently.** The remaining 5
-(`sd-jwt-unsigned-unauthenticated`, `sd-jwt-signed-but-unbound`, `sd-jwt-forged-issuer-identity`,
-`n1-eval-sdjwt-graft-non-eval`, `forged-anchor-own-frozen`) decide on the `sd_jwt_vc` block or an
-external anchor — they need the Pending slices below and are honestly skipped by `crosscheck.py`
-(never silently passed). The exit-0 bundles carry a valid `sd_jwt_vc` that this slice does not yet
-independently verify (the exit code agrees; the sd-jwt authentication is a pending slice).
+- `bundle/{sd-jwt-unsigned-unauthenticated, sd-jwt-signed-but-unbound, sd-jwt-forged-issuer-identity}`:
+  the SD-JWT issuer-authenticity slice reproduces exit 1 — no issuer key → unauthenticated, a forged
+  issuer Ed25519 signature → reject, and a holder-bound (`cnf`) credential fail-closes (its KB-JWT is
+  not yet verified, so it is refused rather than passed). `valid-minimal` (a `cnf`-free, issuer-signed
+  SD-JWT) stays exit 0.
+
+**12 of the 14 corpus cases are reproduced independently.** The remaining 2
+(`n1-eval-sdjwt-graft-non-eval`, `forged-anchor-own-frozen`) decide on the eval-root-graft check and
+an external OpenTimestamps anchor (exit 3 policy) — they need the Pending slices below and are
+honestly skipped by `crosscheck.py` (never silently passed).
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 
