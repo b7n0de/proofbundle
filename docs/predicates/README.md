@@ -13,8 +13,8 @@ predicate widens the attestation surface, so each states its **non-claims** as e
 | `decision-receipt/v0.1` | shipped (2.1.0) | this gate made this verdict over this evidence (never that it was *correct*) | [decision-receipt.md](decision-receipt.md) |
 | `action-outcome/v0.1` | EXPERIMENTAL (3.2.0) | this executor did this, bound to a decision, with role separation + `execution_proven` | [action-outcome.md](action-outcome.md) |
 | `trust-pack/v0.1` | EXPERIMENTAL (3.2.0) | a TUF-inspired role→key trust root: threshold-of-root, revocation, monotone version, rollback protection | [trust-pack.md](trust-pack.md) |
-| `verification-summary/v0.1` | EXPERIMENTAL (3.2.0) | per-level (eval/decision/outcome) receiptRef + status + evidenceClass, with mandatory `nonClaims` | schema |
-| `run-ledger/v0.1` | EXPERIMENTAL (3.2.0) | a monotone, prevDigest-chained run history (aborted runs kept visible) against best-of-many cherry-picking | schema |
+| `verification-summary/v0.1` | EXPERIMENTAL (3.2.0) | per-level (eval/decision/outcome) receiptRef + status + evidenceClass, with mandatory `nonClaims` | [verification-summary.md](verification-summary.md) |
+| `run-ledger/v0.1` | EXPERIMENTAL (3.2.0) | a monotone, prevDigest-chained run history (aborted runs kept visible) against best-of-many cherry-picking | [run-ledger.md](run-ledger.md) |
 
 **Content-root coupling (one-directional):** an outcome references its decision, a decision references its
 evidence — never the reverse. Each `*.digest.sha256` is the SHA-256 over the referenced Statement's exact
