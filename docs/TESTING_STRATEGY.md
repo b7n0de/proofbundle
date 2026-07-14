@@ -30,6 +30,7 @@ methods in use, why, and the honest state of each (SOTA references at the end).
 | SD-JWT (adversarial) | `test_sdjwt_adversarial.py` | algorithm confusion (`none`/`HS256`/absent) never yields sig_ok; disclosure tamper / uncommitted disclosure breaks structure |
 | DSSE (adversarial) | `test_dsse_adversarial.py` | multi-sig array (valid-among-forged verifies, forged-only rejected); PAE length-prefix prevents type/body collision; payloadType bound into signed bytes; url-safe b64 accepted |
 | Merkle consistency | `test_merkle_consistency_property.py` | consistency roundtrip; tampered proof element / swapped roots / wrong second root rejected |
+| Witness quorum dedup | `test_checkpoint_quorum_property.py` | one key under ANY number of names counts as one witness; distinct-key count is name-independent (split-view resistance, generalizing the fixed 2-name case) |
 
 A property test earns its keep by *finding* spec imprecision: writing the subject-binding property
 immediately surfaced that a literal `None` predicate is (correctly) treated as unbindable — the property
@@ -37,12 +38,18 @@ was refined to match the real contract, which a fixed vector would not have expo
 
 ## Ranked remaining gaps (from the 2026-07-14 coverage survey)
 
-Done in the first two waves: content root, subject binding, hash agility, renewal, SD-JWT, DSSE
-multi-signature, Merkle consistency. Still to add, most-critical first: `checkpoint.witness_quorum`
-key-material dedup (one key, many names → one witness) + domain separation (a log key must never be
-accepted as a witness); `anchors_ots` frozen-vs-relying-party backdating vectors;
-`tlogproof.verify_tlog_proof` verdict-conjunction independence; `kbjwt` disclosure-set drop/swap
-metamorphic. These are tracked, not done.
+Done across three waves: content root, subject binding, hash agility, renewal, SD-JWT, DSSE
+multi-signature, Merkle consistency, witness-quorum dedup (generative).
+
+The other survey items turned out to be **already covered** by fixed adversarial tests PLUS a mutation
+operator (verified, not a defer): `anchors_ots` WP-A1 backdating (`test_anchors_ots.py`
+frozen-vs-relying-party cases + the `anchors_ots: WP-A1 needs_rp_trust self-trust` mutation operator);
+`tlogproof` verdict conjunction (each leg's failure is a fixed red case — `test_red_wrong_leaf` /
+`_wrong_log_key` / `_quorum_not_met` — plus the `tlogproof: verdict conjunction -> disjunction` mutation
+operator); `checkpoint` domain separation (`test_red_log_vkey_is_not_a_witness_vkey` + the `cosign: keyID
+domain separation` operator); `kbjwt` (27 adversarial tests + the `kbjwt: sd_hash binding` operator). A
+generative version of these would be complementary but low marginal value given the fixed + mutation
+coverage. Genuinely-thin coverage has been closed.
 
 ## Mutation testing — the anti-Goodhart gate (already in CI)
 
