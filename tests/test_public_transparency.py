@@ -129,6 +129,24 @@ class TestEvaluate(unittest.TestCase):
             note, {"requireSignedCheckpoint": True, "witnessQuorum": {"threshold": 1}}, log_vkey=lv)
         self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "FAIL")
 
+    def test_witness_quorum_count_not_met_fails(self):
+        # threshold 2 but only ONE valid witness cosignature → quorum not met (distinct from zero-witnesses)
+        note, lv = _signed_note()
+        note2, wv = _witnessed(note)
+        r = evaluate_public_transparency(
+            note2, {"requireSignedCheckpoint": True, "witnessQuorum": {"threshold": 2}},
+            log_vkey=lv, witness_vkeys=[wv])
+        self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "FAIL")
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")
+
+    def test_malformed_note_checkpoint_signature_fails_not_crash(self):
+        # a note that is not a well-formed signed checkpoint → CHECKPOINT_SIGNATURE FAIL, never a crash
+        _note, lv = _signed_note()
+        r = evaluate_public_transparency("not\na\ncheckpoint", {"requireSignedCheckpoint": True},
+                                         log_vkey=lv)
+        self.assertEqual(r["statuses"]["CHECKPOINT_SIGNATURE"], "FAIL")
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")
+
     def test_empty_policy_evaluates_nothing_is_fail(self):
         note, _ = _signed_note()
         r = evaluate_public_transparency(note, {})
