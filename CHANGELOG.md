@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.0] - unreleased
+## [3.2.0] - 2026-07-14
 
 The eval → decision → **outcome** chain, plus a trust root and transparency/credential layers. Everything in
 this release is **EXPERIMENTAL** (a v3 preview: API and wire format may change without deprecation; do not
