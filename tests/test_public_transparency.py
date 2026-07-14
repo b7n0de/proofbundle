@@ -135,6 +135,41 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")
         self.assertTrue(all(v == "NOT_EVALUATED" for v in r["statuses"].values()))
 
+    def test_plaintext_only_without_crypto_anchor_is_fail(self):
+        # release-review #5: origin/root/tree-size are PLAINTEXT claims from the note. Without a verified
+        # CHECKPOINT_SIGNATURE or WITNESS_QUORUM the aggregate must NOT be PASS, even though no status FAILs —
+        # an attacker could author any origin/root/tree-size on an unsigned note.
+        import base64
+        note, _lv = _signed_note()  # a real note, but the policy does NOT require/verify the signature
+        r = evaluate_public_transparency(
+            note, {"trustedLogOrigins": [_ORIGIN]},
+            expected_root_b64=base64.b64encode(_ROOT).decode(),
+            expected_tree_size=_SIZE)
+        self.assertEqual(r["statuses"]["LOG_ORIGIN"], "PASS")
+        self.assertEqual(r["statuses"]["CHECKPOINT_SIGNATURE"], "NOT_EVALUATED")
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
+        self.assertTrue(any("not cryptographically anchored" in e for e in r["errors"]), r["errors"])
+
+    def test_signed_anchor_lets_plaintext_checks_pass(self):
+        # with the signature required + verified (a crypto anchor), the same plaintext checks aggregate to PASS.
+        import base64
+        note, lv = _signed_note()
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "trustedLogOrigins": [_ORIGIN]},
+            log_vkey=lv, expected_root_b64=base64.b64encode(_ROOT).decode(), expected_tree_size=_SIZE)
+        self.assertEqual(r["statuses"]["CHECKPOINT_SIGNATURE"], "PASS")
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "PASS", r)
+
+    def test_witness_quorum_alone_is_a_valid_crypto_anchor(self):
+        # WITNESS_QUORUM==PASS also anchors the aggregate (no separate log-signature requirement needed).
+        note, _lv = _signed_note()
+        note2, wv = _witnessed(note)
+        r = evaluate_public_transparency(
+            note2, {"trustedLogOrigins": [_ORIGIN], "witnessQuorum": {"threshold": 1}},
+            witness_vkeys=[wv])
+        self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "PASS")
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "PASS", r)
+
 
 if __name__ == "__main__":
     unittest.main()

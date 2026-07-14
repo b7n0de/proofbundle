@@ -248,6 +248,20 @@ class TestOutcomeSubjectBinding(unittest.TestCase):
         self.assertTrue(r["subject_derived_ok"])
         self.assertTrue(r["ok"], r)
 
+    def test_require_derived_subject_fail_closed_when_classify_raises(self):
+        # #4 hardening: if classify_subject raises, require_derived_subject must fail-closed EXPLICITLY, not
+        # pass the gate on a coincidence elsewhere. (Patch classify to raise and assert the hard fail.)
+        import unittest.mock as mock
+
+        from proofbundle import subject_binding
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        with mock.patch.object(subject_binding, "classify_subject", side_effect=RuntimeError("boom")):
+            r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT,
+                                       require_derived_subject=True)
+        self.assertFalse(r["subject_derived_ok"])
+        self.assertFalse(r["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

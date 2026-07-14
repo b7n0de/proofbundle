@@ -406,6 +406,14 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
                 f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+    elif _is_digest(predicate.get("prevVersionDigest")):
+        # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the previous
+        # root role, so two-stage rotation authorization was NOT checked — a standalone verify only proves this
+        # pack is self-signed by its own declared root. Warn so a relying party does not mistake that for an
+        # authorized rotation of a pinned previous pack (release-review footgun mitigation).
+        r["warnings"].append(
+            "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization was NOT "
+            "verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches for it")
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

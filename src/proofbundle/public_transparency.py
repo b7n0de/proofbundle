@@ -175,12 +175,23 @@ def evaluate_public_transparency(
                 statuses["WITNESS_QUORUM"] = "FAIL"
                 errors.append("witness quorum check raised (malformed witness vkey)")
 
-    # Aggregate: PASS iff no status is FAIL and at least one status was actually evaluated.
+    # Aggregate: PASS requires (a) at least one status evaluated, (b) no status FAIL, AND (c) the checkpoint's
+    # authenticity is CRYPTOGRAPHICALLY anchored — at least one of CHECKPOINT_SIGNATURE / WITNESS_QUORUM == PASS
+    # (release-review #5, fail-closed). Without a signature or witness quorum the origin/root/tree-size are just
+    # PLAINTEXT claims parsed from an unsigned note an attacker could author, so a green LOG_ORIGIN/ROOT_BYTES/
+    # TREE_CONTEXT on such a note must NOT aggregate to PASS. Enforced even though the module is EXPERIMENTAL/
+    # unwired, so the aggregate name can never mislead once it is wired.
     any_fail = any(v == "FAIL" for v in statuses.values())
     any_eval = any(v != "NOT_EVALUATED" for v in statuses.values())
-    public_transparency = "PASS" if (any_eval and not any_fail) else "FAIL"
+    crypto_anchored = statuses.get("CHECKPOINT_SIGNATURE") == "PASS" or statuses.get("WITNESS_QUORUM") == "PASS"
+    public_transparency = "PASS" if (any_eval and not any_fail and crypto_anchored) else "FAIL"
     if not any_eval:
         errors.append("no public-transparency check was requested by the policy (nothing evaluated)")
+    elif not any_fail and not crypto_anchored:
+        errors.append(
+            "public-transparency is not cryptographically anchored: neither CHECKPOINT_SIGNATURE nor "
+            "WITNESS_QUORUM verified — origin/root/tree-size are plaintext claims from an unsigned note, so the "
+            "aggregate cannot PASS (fail-closed)")
 
     return {
         "PUBLIC_TRANSPARENCY": public_transparency,

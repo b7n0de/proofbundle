@@ -337,6 +337,13 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                         r["errors"].append(
                             "require_derived_subject: subject is not a DERIVED commitment to the predicate "
                             "(fail-closed)")
+            elif require_derived_subject:
+                # classify_subject raised (e.g. a predicate the JCS canonicalizer rejects). Do NOT silently pass
+                # the gate on a coincidence elsewhere — make the fail-closed explicit (release-review #4 hardening).
+                r["subject_derived_ok"] = False
+                r["errors"].append(
+                    "require_derived_subject: could not classify the subject binding (canonicalization raised) "
+                    "— fail-closed")
         elif require_derived_subject:
             r["subject_derived_ok"] = False
             r["errors"].append(

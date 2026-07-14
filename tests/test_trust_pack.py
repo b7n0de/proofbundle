@@ -291,6 +291,16 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         self.assertIsNone(r["rotation_authorized"])
         self.assertTrue(r["ok"], r)
 
+    def test_rotation_claim_without_prev_root_warns(self):
+        # a pack that DECLARES a prevVersionDigest but is verified WITHOUT prev_root_keys → warn, not silent
+        # (a standalone verify only proves self-signing, not an authorized rotation of a pinned previous pack).
+        new_pred, new_sks = _pack("new", threshold=1, version=4)
+        new_pred["prevVersionDigest"] = {"sha256": "a" * 64}
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertIsNone(r["rotation_authorized"])
+        self.assertTrue(any("rotation authorization was NOT verified" in w for w in r["warnings"]), r["warnings"])
+
 
 if __name__ == "__main__":
     unittest.main()

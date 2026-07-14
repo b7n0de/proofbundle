@@ -192,5 +192,31 @@ def _hand_jwt2_alg_none() -> str:
     return _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps({"vct": _VCT}).encode()) + "." + _b64url(b"") + "~"
 
 
+def _hand_jwt_alg(alg) -> str:
+    header = {"alg": alg, "typ": SD_JWT_VC_TYP}
+    return _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps({"vct": _VCT}).encode()) + "." + _b64url(b"sig") + "~"
+
+
+class TestProfileAlgCasing(unittest.TestCase):
+    """#3 hardening: check_vc_profile must reject a 'none' alg in ANY casing and a non-string alg."""
+
+    def test_alg_none_uppercase_rejected(self):
+        r = check_vc_profile(_hand_jwt_alg("NONE"), {"vctAllowlist": [_VCT]})
+        self.assertFalse(r["ok"])
+        self.assertTrue(any("alg" in e for e in r["errors"]))
+
+    def test_alg_mixed_case_rejected(self):
+        r = check_vc_profile(_hand_jwt_alg("nOnE"), {"vctAllowlist": [_VCT]})
+        self.assertFalse(r["ok"])
+
+    def test_alg_non_string_rejected(self):
+        r = check_vc_profile(_hand_jwt_alg(123), {"vctAllowlist": [_VCT]})
+        self.assertFalse(r["ok"])
+
+    def test_alg_eddsa_still_ok(self):
+        r = check_vc_profile(_hand_jwt_alg("EdDSA"), {"vctAllowlist": [_VCT]})
+        self.assertTrue(r["ok"], r)
+
+
 if __name__ == "__main__":
     unittest.main()
