@@ -1,0 +1,96 @@
+{
+  "suite": "ots",
+  "note": "Real OpenTimestamps example proofs, vendored verbatim (byte-identical) from the opentimestamps/javascript-opentimestamps repo's examples/ directory, plus one independently-sourced Bitcoin block header used as the relying-party trust material for the confirmed-path test.",
+  "files": [
+    {
+      "filename": "incomplete.txt",
+      "sha256": "05c4f616a8e5310d19d938cfd769864d7f4ccdc2ca8b479b10af83564b097af9",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/incomplete.txt",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "incomplete.txt.ots",
+      "sha256": "95673f2878cbcfdddded530bd2ad5f3fb04e13d2e659760d7c1386346fdd036c",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/incomplete.txt.ots",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "merkle2.txt",
+      "sha256": "8bd5a5f07b4451c29756df5eb51d194fb5b20c7e89812d877bbad30d871c582f",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/merkle2.txt",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "merkle2.txt.ots",
+      "sha256": "3603fe0d3de5cde8408c1ce2c79210c9428a4e30c24a79b702f99ff1702f02f5",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/merkle2.txt.ots",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "two-calendars.txt",
+      "sha256": "efaa174f68e59705757460f4f7d204bd2b535cfd194d9d945418732129404ddb",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/two-calendars.txt",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "two-calendars.txt.ots",
+      "sha256": "1f0fe002dc50f6bc96bcab1fffa9d22f8fa71ac1f99b91bd5ece04d06d8b4d64",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/two-calendars.txt.ots",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "known-and-unknown-notary.txt",
+      "sha256": "d288b2ee212b01e3e5f6d333df3a4d53f292cc3f07b09013c0b40c8e7dcb9c03",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/known-and-unknown-notary.txt",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "known-and-unknown-notary.txt.ots",
+      "sha256": "f49b05b941c4d2512b0f0569b57c2592d501ef6036f7965d667eae07b80721aa",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/known-and-unknown-notary.txt.ots",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "hello-world.txt",
+      "sha256": "03ba204e50d126e4674c005e04d82e84c21366780af1f43bd54a37816b6ab340",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/hello-world.txt",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0"
+    },
+    {
+      "filename": "hello-world.txt.ots",
+      "sha256": "be61ecb940db2e4a6f89fbed59c8d4f7f74fa756cbc1fad1ad7aabcb2bf59c30",
+      "source_url": "https://github.com/opentimestamps/javascript-opentimestamps/blob/2684a0c6c09cda1903b2439aefb7db7ac3080396/examples/hello-world.txt.ots",
+      "source_ref_or_commit": "2684a0c6c09cda1903b2439aefb7db7ac3080396",
+      "fetched": "2026-07-14",
+      "license": "LGPL-3.0",
+      "note": "OTS proof that is upgraded (Bitcoin-attested). Deserializing/verifying it needs ripemd160 (OpenSSL legacy provider); the test is @skipUnless(ripemd160 available)."
+    },
+    {
+      "filename": "block358391.json",
+      "sha256": "d144579b3d9ba2a887d9f6e5bfb44bfa14be8a1b9cf686853b57b54c075f24d7",
+      "source_url": "https://blockstream.info/api/block/000000000000000003e892881a8cdcdc117c06d444057c98b6f04a9ee75a2319",
+      "source_ref_or_commit": "Bitcoin block height 358391 (immutable consensus data; Esplora/Blockstream API response captured verbatim)",
+      "fetched": "2026-07-14",
+      "license": "public Bitcoin blockchain consensus data (no copyright license asserted); the merkle_root field is used, byte-reversed to Bitcoin's internal little-endian wire order, as the relying-party trust header for the OTS confirmed-path test",
+      "verification": "the block's height/merkle_root pairing was independently confirmed live against https://blockstream.info/api/block-height/358391 and the resulting little-endian merkle root was confirmed to make proofbundle.anchors_ots.verify_opentimestamps() return status=confirmed/ok=True against hello-world.txt.ots (manual out-of-band check with the OpenSSL legacy provider enabled for ripemd160; see test module docstring)"
+    }
+  ]
+}

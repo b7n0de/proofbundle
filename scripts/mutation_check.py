@@ -235,6 +235,33 @@ MUTATIONS = [
      "        return pub is not None and verify_mldsa(pub, _dec(\"mldsa65\"), content)",
      "        return True",
      "renewal: B3<->B5 ATS ML-DSA signature check disabled (forged anchor)", True),
+    # 3.2.1 hardening (final-audit findings) — each new fail-closed guard must be killed by its test.
+    # F1 — require_pq reverted to a LABEL check accepts a PQ label with an unverified anchor (No-Fake).
+    ("src/proofbundle/renewal.py",
+     'pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in (newest.sig_alg or "")',
+     'pq_verified = "mldsa" in (newest.sig_alg or "")',
+     "renewal: F1 require_pq reverted to label-only (unverified PQ label passes)", True),
+    # F2 — dropping the future-time guard lets a future-dated newest ATS read as perpetually fresh.
+    ("src/proofbundle/renewal.py",
+     "    if _ints and newest.time > now:",
+     "    if False and _ints and newest.time > now:",
+     "renewal: F2 future-dated ATS guard disabled (never overdue)", True),
+    # R1 — forcing the hash-strength check green ignores require_current_hash on a deprecated newest hash.
+    ("src/proofbundle/renewal.py",
+     "        hash_ok = newest_current if require_current_hash else True",
+     "        hash_ok = True",
+     "renewal: R1 require_current_hash floor disabled (deprecated/unknown newest passes)", True),
+    # R2 — dropping the version>1 chain requirement re-opens the version-2-genesis rotation bypass.
+    ("src/proofbundle/trust_pack.py",
+     "    if _is_int(ver) and ver >= 2 and pv is None:",
+     "    if False and _is_int(ver) and ver >= 2 and pv is None:",
+     "trust_pack: R2 version>1 prevVersionDigest requirement disabled (v2-genesis bypass)", True),
+    # F7 — not collecting nested digests from a committed disclosure's value breaks recursive disclosures
+    # AND (the security direction) would let nothing further be rooted; the recursive test kills it.
+    ("src/proofbundle/sdjwt.py",
+     "                    _collect_committed_digests(parsed[-1], committed)",
+     "                    pass",
+     "sdjwt: F7 recursive-disclosure collection disabled (valid recursive vectors fail)", True),
 ]
 
 

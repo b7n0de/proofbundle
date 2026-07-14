@@ -121,6 +121,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     _collect_committed_digests(payload, committed)
 
     all_committed = True
+    parsed_disclosures: list = []
     for d in disclosures:
         try:
             parsed = loads_strict(_b64url_decode(d))
@@ -136,9 +137,31 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         if not (isinstance(parsed, list) and len(parsed) in (2, 3)):
             all_committed = False
             break
-        if _digest(d, sd_alg) not in committed:
+        parsed_disclosures.append((d, parsed))
+
+    if all_committed:
+        # Recursive disclosures (RFC 9901): a disclosure's VALUE may itself carry ``_sd``/``...`` digests that
+        # commit to FURTHER disclosures. Resolve to a fixpoint — a disclosure is committed iff its digest is
+        # already in ``committed``; each newly-committed disclosure then contributes the ``_sd``/``...`` digests
+        # inside its own value (the last array element). Disclosure order is not guaranteed parent-first, hence
+        # the loop. Security is preserved: the fixpoint only ever GROWS ``committed`` from the issuer-signed
+        # payload outward, so a self-referential or otherwise unrooted disclosure never bootstraps itself. At the
+        # end EVERY disclosure must be committed (transitively rooted in the signed payload) — fail-closed.
+        pending = list(parsed_disclosures)
+        progressed = True
+        while progressed and pending:
+            progressed = False
+            still = []
+            for d, parsed in pending:
+                if _digest(d, sd_alg) in committed:
+                    _collect_committed_digests(parsed[-1], committed)
+                    progressed = True
+                else:
+                    still.append((d, parsed))
+            pending = still
+        if pending:  # a disclosure never became committed — uncommitted / not rooted in the signed payload
             all_committed = False
-            break
+
     result["structure_ok"] = all_committed and bool(parts[0])
 
     if issuer_pubkey is not None:

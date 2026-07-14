@@ -55,13 +55,34 @@ def _is_int(v: Any) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def _parse_rfc3339_z(s: str) -> datetime:
+    """Parse an RFC-3339 UTC 'Z' timestamp, tolerating optional fractional seconds of ANY length.
+
+    ``_RFC3339_Z`` accepts ``(\\.\\d+)?`` fractional seconds, but ``strptime`` with ``%S`` (no ``%f``) rejects
+    them, and ``%f`` itself caps at 6 digits — so an ``expires`` like ``...T00:00:00.5Z`` (regex-valid) would
+    raise and be read as EXPIRED (a false-closed availability bug). This parser splits off the fractional part
+    and truncates it to microseconds (enough for an expiry comparison). Raises ``ValueError`` on a non-match."""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$", s)
+    if not m:
+        raise ValueError(f"not an RFC-3339 UTC 'Z' timestamp: {s!r}")
+    dt = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    frac = m.group(2)
+    if frac:
+        dt = dt.replace(microsecond=int((frac + "000000")[:6]))
+    return dt
+
+
 def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``trust-pack/v0.1`` predicate (empty = valid).
 
     Beyond shape this enforces: threshold in 1..len(keyIds) per role; every keyId referenced by a role is
     present in ``keys``; ``revoked`` entries are known keyIds; a role's threshold is not already impossible
-    once revoked keys are removed (a pack whose root can never meet threshold is dead-on-arrival, fail-closed).
-    """
+    once revoked keys are removed (a pack whose root can never meet threshold is dead-on-arrival, fail-closed);
+    a ``version`` > 1 pack MUST carry a non-null ``prevVersionDigest`` (only version 1 may be a genesis).
+
+    ``strict`` currently adds no extra predicate-level required fields (the trust-pack predicate is small and
+    fully required by default); it is kept for signature parity with the emit/verify entry points, where it
+    additionally makes RFC-8785 canonicality fail-closed in ``verify_trust_pack`` (mirrors ``outcome.py``)."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -88,6 +109,13 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
     pv = predicate.get("prevVersionDigest")
     if "prevVersionDigest" in predicate and pv is not None and not _is_digest(pv):
         errors.append("prevVersionDigest must be a sha256 digest object or null")
+    # A version > 1 pack MUST chain to a predecessor (fail-closed, No-Fake): a "version-2 genesis" declaring
+    # prevVersionDigest=null evades two-stage rotation authorization entirely — verify_trust_pack only enters
+    # the rotation-vouch branch when prevVersionDigest is a digest, so a null predecessor on a v>=2 pack passes
+    # on its own self-signature. Only version 1 (the genuine genesis) may have a null prevVersionDigest.
+    if _is_int(ver) and ver >= 2 and pv is None:
+        errors.append("version > 1 requires a non-null prevVersionDigest (a version-N pack must chain to its "
+                      "predecessor; only version 1 may have a null prevVersionDigest)")
 
     keys = predicate.get("keys")
     key_ids: set[str] = set()
@@ -349,9 +377,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # Expiry.
     _now = now or datetime.now(timezone.utc)
     try:
-        exp = datetime.strptime(predicate["expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        exp = _parse_rfc3339_z(predicate["expires"])
         r["not_expired"] = exp > _now
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError):
         r["not_expired"] = False
     if r["not_expired"] is False:
         r["errors"].append("trust pack is expired (expires <= now, fail-closed)")

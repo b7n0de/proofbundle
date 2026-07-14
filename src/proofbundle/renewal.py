@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .errors import Check, ProofBundleError, VerificationResult
-from .hashalg import HashAlgError, compute_digest, resolve_hash_alg
+from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import sign_mldsa, verify_hybrid, verify_mldsa
 from .signature import verify_ed25519
 
@@ -159,6 +159,13 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     return False
 
 
+def _is_deprecated_hash(alg: str) -> bool:
+    """True iff ``alg`` is a KNOWN but deprecated registry hash (sha1/md5). An unknown/absent alg is not
+    'deprecated' (it fails the resolvable-hash check instead)."""
+    spec = HASH_REGISTRY.get(alg)
+    return spec is not None and spec.status == "deprecated"
+
+
 def _validate_digests(data_digests: Sequence[str]) -> None:
     """Fail closed unless every data digest is lowercase hex — this excludes the ``_SEP`` separator, so a
     single crafted string cannot masquerade as ``_SEP.join`` of several real digests (set/cardinality
@@ -276,7 +283,8 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                     authority_keys: Optional[dict] = None,
                     anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None,
                     allow_unauthenticated_anchor: bool = False,
-                    require_pq: bool = False
+                    require_pq: bool = False,
+                    require_current_hash: bool = False
                     ) -> VerificationResult:
     """Verify an ArchiveTimeStampSequence end-to-end, walking the newest strong anchor back to the origin.
 
@@ -301,6 +309,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         A PASS here means "structurally consistent", never "cryptographically anchored".
       * NONE of the above: fail closed — the newest-anchor check is FALSE with a clear message. This makes
         a naive ``verify_sequence(seq, data)`` refuse to certify an unauthenticated anchor (API-safety audit).
+
+    ``require_pq`` (PQ floor): the newest ATS's PQ signature must be VERIFIED, not merely labeled. A PQ leg
+    is only cryptographically checked in ``authority_keys`` mode (``_verify_ats_signature`` verifies the
+    hybrid/mldsa65 signature); in ``anchor_verifier`` / unauthenticated / no-anchor modes the ATS signature
+    is never checked, so a ``sig_alg`` label alone is not proof — ``require_pq`` fails closed there (No-Fake).
+
+    ``require_current_hash`` (hash-strength floor): by default a DEPRECATED newest hash is TOLERATED (a
+    hash-tree-renewed sequence must stay verifiable while its once-used hash ages; ``evaluate_renewal_policy``
+    is what flags a deprecated newest as renewal-overdue). A deprecated newest hash is always SURFACED as a
+    ``renewal:current_hash`` check so ``.ok`` alone never hides it; ``require_current_hash=True`` makes it a
+    hard fail-closed error for a relying party that wants one call to reject a weak-hash anchor.
     """
     result = VerificationResult()
 
@@ -418,10 +437,40 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    hybrid), so a relying party that wants PQ protection is not satisfied by a (forgeable-after-quantum)
     #    ed25519-only anchor even while it still holds the ed25519 key for legacy validation.
     if require_pq:
-        pq_ok = "mldsa" in (newest.sig_alg or "")
-        result.checks.append(Check("renewal:pq_floor", pq_ok,
-                                   f"newest ATS sig_alg {newest.sig_alg!r} carries a PQ leg" if pq_ok
-                                   else f"newest ATS sig_alg {newest.sig_alg!r} has no PQ leg (require_pq)"))
+        # No-Fake: require_pq means the PQ leg was actually VERIFIED, not merely labeled. The mldsa leg is
+        # only cryptographically checked in authority-signature mode (_verify_ats_signature verifies the
+        # hybrid/mldsa65 signature over _ats_content); in anchor_verifier / unauthenticated / no-anchor modes
+        # the ATS signature is never checked, so a PQ label on newest.sig_alg proves nothing — fail closed.
+        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in (newest.sig_alg or "")
+        if pq_verified:
+            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {newest.sig_alg!r}, authority "
+                         "signature)")
+        elif anchor_mode != "authority signature":
+            pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
+                         f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
+        else:
+            pq_detail = f"newest ATS sig_alg {newest.sig_alg!r} has no verified PQ leg (require_pq)"
+        result.checks.append(Check("renewal:pq_floor", pq_verified, pq_detail))
+
+    # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
+    # must never be hidden behind .ok — surface it as a check, and fail closed when require_current_hash.
+    # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
+    # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
+    newest_dep = _is_deprecated_hash(newest.hash_alg)
+    _spec = HASH_REGISTRY.get(newest.hash_alg)
+    newest_current = _spec is not None and _spec.status == "current"
+    if newest_dep or require_current_hash:
+        hash_ok = newest_current if require_current_hash else True
+        if newest_dep:
+            hash_detail = (f"newest ATS hash {newest.hash_alg!r} is deprecated"
+                           + (" (require_current_hash, fail-closed)" if require_current_hash
+                              else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
+                                   "or pass require_current_hash=True to reject"))
+        elif newest_current:
+            hash_detail = f"newest ATS hash {newest.hash_alg!r} is current"
+        else:
+            hash_detail = f"newest ATS hash {newest.hash_alg!r} is not a known current hash (require_current_hash)"
+        result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 
 
@@ -467,6 +516,12 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     reasons = []
     if newest.hash_alg in policy.deprecated_algs:
         reasons.append(f"newest ATS uses policy-deprecated hash {newest.hash_alg!r}")
+    # Future-dated guard (No-Fake): a newest.time AFTER `now` is anomalous — the freshness/age test below
+    # ((now - newest.time) > max_ats_age) goes NEGATIVE for a future time and would report it as perpetually
+    # fresh, so a future date could otherwise permanently evade the renewal-due signal. Flag it as overdue.
+    _ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (newest.time, now))
+    if _ints and newest.time > now:
+        reasons.append(f"newest ATS time {newest.time} is in the future (now={now}) — anomalous, not fresh")
     if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
         reasons.append(f"newest ATS age {now - newest.time} exceeds max {policy.max_ats_age}")
 
