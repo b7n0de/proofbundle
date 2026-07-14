@@ -82,16 +82,23 @@ array — now real consistency proofs anchored to the externally-published canon
 assertion + a tampered-proof negative); **official spec vectors** (DSSE PAE, RFC 8032 §7.1 Ed25519 KATs);
 **statuslist alg-confusion** (none/HS256/ES256 rejected, status never leaks) + wrong-length-key never-crash.
 
-Honestly tracked (NOT yet done — for the follow-up / final-audit round): coverage-guided continuous
-fuzzing with a persistent corpus (`fuzz/` Atheris harness, ClusterFuzzLite) — the single biggest category
-gap vs sigstore/pyca; a client-under-test conformance protocol (like sigstore-conformance / tuf-conformance)
-so third parties can run the corpus; a TUF-style multi-step attack simulator for trust_pack; NIST ACVP
-ML-DSA sigVer KATs (FIPS 204) — today all ML-DSA tests use freshly-generated keys, no KAT; the
-cyberphone/json-canonicalization (RFC 8785) number-serialization corpus; a C2SP signed-note KAT
-(golang.org/x/mod) + the real Rekor checkpoint signature; a real `.ots` fixture; SD-JWT-VC vectors from the
-OAuth-WG examples; the statuslist decompression-bomb (CWE-409) test (heavy 64 MB construction); and the
-remaining coverage-driven negatives (outcome nonce-mismatch, public_transparency FAIL side, sdjwt
-`_sd_alg`-downgrade + F12 duplicate-key-in-disclosure, run_ledger `link_runs`).
+Done in the 2026-07-14 maximal pass (17 test/CI commits): the coverage-ratchet gate; deep-shaped fuzz
+(reaching past the parser shape-gate); the TUF-style multi-step attack simulator for trust_pack (rotation
+lifecycle / rollback-after-acceptance / fast-forward-jump-then-recovery); the RFC 8785 (JCS) number-
+serialization vectors; the DSSE + RFC 8032 §7.1 official vectors; and the coverage-driven negatives
+(trust_pack dedup/expires/revocation, statuslist alg-confusion, outcome nonce-mismatch, public_transparency
+FAIL side, sdjwt `_sd_alg` + F12, evalclaim issuer-binding, run_ledger `link_runs`). kbjwt disclosure
+drop/swap was already covered.
+
+Tracked, and each ATTEMPTED with the limit found (BLOCKED_EVIDENCE_INSUFFICIENT_AFTER_SAFE_RESEARCH — for
+the final-audit round with dedicated setup): **NIST ACVP ML-DSA KATs** — C2SP/wycheproof has no ML-DSA
+vectors yet, and the NIST ACVP JSONs are large; needs a curated vendored slice + encoding validation.
+**A real `.ots` fixture** — the opentimestamps hello-world.txt.ots uses a ripemd160 op the installed
+`opentimestamps` version rejects on parse (`unsupported hash type ripemd160`); needs a different fixture
+or lib version. **Coverage-guided Atheris/OSS-Fuzz corpus** — needs a native toolchain (`fuzz/` + ClusterFuzzLite).
+**C2SP signed-note KAT** (golang.org/x/mod) + the real Rekor checkpoint signature, **SD-JWT-VC vectors**
+(OAuth-WG examples), and the **statuslist decompression-bomb** (CWE-409, heavy 64 MB construction) remain
+open.
 
 ## References (SOTA, 2026)
 
