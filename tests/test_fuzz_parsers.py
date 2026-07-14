@@ -25,6 +25,9 @@ from proofbundle.statuslist import verify_status_snapshot
 from proofbundle.kbjwt import split_key_binding, verify_key_binding
 from proofbundle.sdjwt import verify_sd_jwt
 from proofbundle.experimental.enclave import verify_enclave_attestation
+from proofbundle.hashalg import verify_dual_hash
+from proofbundle.evidence_pack import verify_evidence_pack
+from proofbundle.renewal import verify_sequence
 
 _ALLOWED = (ProofBundleError, ValueError)   # the documented "malformed input" surface
 
@@ -98,6 +101,37 @@ if given is not None:
             # zu brechen (der symmetrische Typ-Guard fängt non-bytes → self_issued=False statt TypeError).
             _must_not_crash(verify_status_snapshot, token, expected_uri="u", index=0,
                             issuer_pubkey=b"\x00" * 32, receipt_issuer_pubkey=rk)
+
+    # arbitrary JSON-ish values for the STRUCTURED-input verify functions (3.2.0 surface) — the never-crash
+    # contract must hold for dict/list/scalar/None, not only for text parsers.
+    _json = st.recursive(
+        st.none() | st.booleans() | st.integers() | st.floats(allow_nan=True) | _texts,
+        lambda c: st.lists(c, max_size=4) | st.dictionaries(_texts, c, max_size=4),
+        max_leaves=12,
+    )
+
+    class TestStructuredVerifyRobustness(unittest.TestCase):
+        @settings(max_examples=300, deadline=None)
+        @given(st.binary(max_size=64), _json)
+        def test_verify_dual_hash_never_crashes(self, data, digests):
+            _must_not_crash(verify_dual_hash, data, digests)
+
+        @settings(max_examples=300, deadline=None)
+        @given(_json)
+        def test_verify_evidence_pack_never_crashes(self, pack):
+            _must_not_crash(verify_evidence_pack, pack)
+
+        @settings(max_examples=300, deadline=None)
+        @given(_json)
+        def test_verify_sequence_never_crashes(self, sequence):
+            _must_not_crash(verify_sequence, sequence, ["a" * 64],
+                            allow_unauthenticated_anchor=True)
+
+        @settings(max_examples=200, deadline=None)
+        @given(_json)
+        def test_verify_sequence_never_crashes_with_authority_keys(self, sequence):
+            _must_not_crash(verify_sequence, sequence, ["a" * 64],
+                            authority_keys={"ed25519": b"\x00" * 32})
 
 
 if __name__ == "__main__":

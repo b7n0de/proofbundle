@@ -304,6 +304,16 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     """
     result = VerificationResult()
 
+    # shape guard: an untrusted/deserialized sequence must be a list of chains (lists) of ArchiveTimeStamp
+    # — a malformed shape fails closed, never an uncaught crash (the never-raise contract).
+    if not isinstance(sequence, (list, tuple)) or not all(
+            isinstance(chain, (list, tuple)) and all(isinstance(a, ArchiveTimeStamp) for a in chain)
+            for chain in sequence):
+        result.checks.append(Check(
+            "renewal:shape", False,
+            "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
+        return result
+
     def _default_anchor(a: ArchiveTimeStamp) -> bool:
         return a.anchor_status == _CONFIRMED
 
