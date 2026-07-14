@@ -50,6 +50,9 @@ __all__ = [
     "resolve_hash_alg",
     "compute_dual_hash",
     "verify_dual_hash",
+    "build_evidence_pack",
+    "verify_evidence_pack",
+    "ots_upgraded_proof_is_self_contained",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -81,6 +84,9 @@ _LAZY = {
     "resolve_hash_alg": ".hashalg",
     "compute_dual_hash": ".hashalg",
     "verify_dual_hash": ".hashalg",
+    "build_evidence_pack": ".evidence_pack",
+    "verify_evidence_pack": ".evidence_pack",
+    "ots_upgraded_proof_is_self_contained": ".evidence_pack",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -95,6 +101,8 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
     from .beacon import beacon_audit_challenge
     from .canonical import canonicalize_statement, statement_content_root
     from .hashalg import compute_dual_hash, resolve_hash_alg, verify_dual_hash
+    from .evidence_pack import (build_evidence_pack, ots_upgraded_proof_is_self_contained,
+                                verify_evidence_pack)
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
