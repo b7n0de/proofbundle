@@ -29,7 +29,8 @@ from ._strict_json import loads_strict
 from .errors import ProofBundleError
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
-_POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding"}
+_POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding",
+                "requireIssuerSignature"}
 
 
 class SdjwtVcError(ProofBundleError):
@@ -51,7 +52,7 @@ def validate_vc_policy(policy: Any) -> list[str]:
     va = policy.get("vctAllowlist")
     if not (isinstance(va, list) and va and all(isinstance(x, str) and x for x in va)):
         errors.append("vctAllowlist must be a non-empty list of allowed vct strings")
-    for b in ("requireTypeMetadataIntegrity", "requireKeyBinding"):
+    for b in ("requireTypeMetadataIntegrity", "requireKeyBinding", "requireIssuerSignature"):
         if b in policy and not isinstance(policy[b], bool):
             errors.append(f"{b} must be a boolean")
     return errors
@@ -132,17 +133,39 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
     return r
 
 
-def verify_sdjwt_vc(compact: str, policy: dict, *, holder_pubkey: bytes | None = None,
+def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None = None,
+                    holder_pubkey: bytes | None = None,
                     expected_aud: str | None = None, expected_nonce: str | None = None,
                     offline_metadata: dict | None = None) -> dict:
-    """Full SD-JWT VC relying-party check: the VC PROFILE (check_vc_profile) AND, when the policy requires it,
-    the holder KEY BINDING (kbjwt.verify_key_binding). NO network I/O.
+    """Full SD-JWT VC relying-party check: the ISSUER SIGNATURE (sdjwt.verify_sd_jwt) AND the VC PROFILE
+    (check_vc_profile) AND, when the policy requires it, the holder KEY BINDING (kbjwt.verify_key_binding).
+    NO network I/O.
 
-    ``requireKeyBinding`` defaults to True (a VC under this profile without a valid binding is FAIL — an
-    unknown/unbound presentation does not verify). Returns ``{ok, profile, binding}``; read ``ok``."""
-    from . import kbjwt  # noqa: PLC0415
+    ISSUER AUTHENTICITY (release-review fix): ``requireIssuerSignature`` defaults to True. The RP MUST supply
+    ``issuer_pubkey`` — its trusted anchor for the issuer (this module never fetches issuer metadata: SSRF-safe).
+    Without it the check is FAIL (``ok=False``): a credential whose issuer signature is not verified is not
+    authenticated, no matter how well-formed. Earlier this function returned ok=True for a fully self-issued,
+    garbage-signed credential because it only parsed the issuer JWT; it now cryptographically verifies it.
+
+    ``requireKeyBinding`` defaults to True (a VC without a valid holder binding is FAIL — the holder key is taken
+    from ``cnf.jwk`` inside the issuer payload, so it is only trustworthy once the issuer signature above is
+    verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone."""
+    from . import kbjwt, sdjwt  # noqa: PLC0415
     require_binding = policy.get("requireKeyBinding", True)
+    require_issuer_sig = policy.get("requireIssuerSignature", True)
     profile = check_vc_profile(compact, policy, offline_metadata=offline_metadata)
+
+    issuer = None
+    issuer_ok = True
+    if require_issuer_sig:
+        if issuer_pubkey is None:
+            issuer = {"sig_checked": False, "sig_ok": None,
+                      "detail": "issuer_pubkey (trust anchor) required — the issuer signature cannot be "
+                                "verified without it, so the credential is not authenticated (fail-closed)"}
+            issuer_ok = False
+        else:
+            issuer = sdjwt.verify_sd_jwt(compact, issuer_pubkey)
+            issuer_ok = bool(issuer.get("sig_checked") and issuer.get("sig_ok"))
 
     binding = None
     binding_ok = True
@@ -151,4 +174,5 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, holder_pubkey: bytes | None =
                                            expected_aud=expected_aud, expected_nonce=expected_nonce)
         binding_ok = bool(binding.get("present") and binding.get("ok"))
 
-    return {"ok": bool(profile["ok"] and binding_ok), "profile": profile, "binding": binding}
+    return {"ok": bool(profile["ok"] and issuer_ok and binding_ok),
+            "profile": profile, "issuer": issuer, "binding": binding}

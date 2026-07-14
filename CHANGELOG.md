@@ -60,7 +60,8 @@ and states its non-claims as explicitly as its guarantees. Predicate docs under
   is an opaque identifier and never dereferenced. Doc: [`docs/SDJWT_VC_PROFILE.md`](docs/SDJWT_VC_PROFILE.md).
 
 ### Governance
-- CODEOWNERS covers the six new EXPERIMENTAL security modules (no self-merge for a security path).
+- CODEOWNERS covers the seven new EXPERIMENTAL security modules (outcome, trust-pack, public-transparency,
+  subject-binding, run-ledger, verification-summary, sdjwt-vc) — no self-merge for a security path.
 
 ## [3.1.3] - 2026-07-13
 

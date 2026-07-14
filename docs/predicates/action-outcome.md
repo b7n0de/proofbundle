@@ -59,7 +59,7 @@ mixes into the other.
 | `schemaVersion` | yes | `0.1.0` |
 | `outcomeId` | yes | stable id of this outcome record |
 | `decisionRef.sha256` | yes | content root of the authorizing Decision Receipt |
-| `executor.id` | yes | who executed (MUST differ from the decision maker — role separation) |
+| `executor.id` | yes | who executed (checked to differ from the decision maker — role separation — when a `decision_maker_id` is supplied to verify) |
 | `requestedActionDigest.sha256` | yes | digest of the action that was requested |
 | `status` | yes | `executed` / `refused` / `failed` / `partial` |
 | `performedAt` | yes | RFC-3339 UTC (`…Z`), fail-closed on non-Z / malformed |
@@ -80,7 +80,9 @@ the crypto step fails:
 2. **predicate_type_ok** — vendored `action-outcome/v0.1`.
 3. **hash_binding** — `rfc8785(statement)` equals the transmitted body bytes (no re-canonicalization drift).
 4. **decision_bound** — embedded `decisionRef.sha256` equals `expected_decision_ref` (when supplied).
-5. **role_separation_ok** — `decision_maker_id != executor.id` (an executor may not authorize its own action).
+5. **role_separation_ok** — `decision_maker_id != executor.id` (an executor may not authorize its own action),
+   checked **when `decision_maker_id` is supplied** to verify (like `decision_bound`); not supplied → not
+   enforced (`role_separation_ok` stays `None`).
 6. **execution_proven** — `status == executed` AND an effect/actual digest is present. Self-asserted
    (`executed` without an effect digest) → `False` + warning.
 7. **audience / nonce** — fail-closed when the caller pins them and the statement does not match.

@@ -208,5 +208,46 @@ class TestOutcomeVerify(unittest.TestCase):
         self.assertFalse(r3["ok"])
 
 
+class TestOutcomeSubjectBinding(unittest.TestCase):
+    """#4 (release-review): a subject that does not commit to the predicate (subject-rehang) must not be
+    silent — it is always warned, and require_derived_subject makes it a hard fail-closed error."""
+
+    def test_derived_subject_default_green(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)  # subject derived from the predicate
+        r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT)
+        self.assertEqual(r["subject_binding"]["mode"], "DERIVED")
+        self.assertTrue(r["subject_binding"]["matches"])
+        self.assertFalse(any("subject-rehang" in w for w in r["warnings"]))
+        self.assertTrue(r["ok"], r)
+
+    def test_external_attested_subject_is_warned_not_silent(self):
+        # the PoC: a validly-signed outcome whose subject points elsewhere. It must no longer verify with ZERO
+        # signal — the classification + a warning are always present (ok still True by default, override is a
+        # documented self-attest feature).
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s, subject_sha256="d" * 64)
+        r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT)
+        self.assertEqual(r["subject_binding"]["mode"], "EXTERNAL_ATTESTED")
+        self.assertFalse(r["subject_binding"]["matches"])
+        self.assertTrue(any("subject-rehang" in w for w in r["warnings"]), r["warnings"])
+
+    def test_require_derived_subject_rejects_rehang(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s, subject_sha256="d" * 64)
+        r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT,
+                                   require_derived_subject=True)
+        self.assertFalse(r["subject_derived_ok"])
+        self.assertFalse(r["ok"])
+
+    def test_require_derived_subject_green(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT,
+                                   require_derived_subject=True)
+        self.assertTrue(r["subject_derived_ok"])
+        self.assertTrue(r["ok"], r)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,8 @@ still **proposed, not built** is wiring that library into the `--policy` FILE
 of `proofbundle verify` the way `--policy` already lets a relying party
 declare "I require this signer" or "I require this assurance level" — so the
 core CLI still never supplies a `False` value for `PUBLIC_TRANSPARENCY_REQUIRED_FAILED`
-(SPEC.md §10). The proposed policy-file section is described honestly as such
-below.
+(see SPEC.md §7, the reference-verifier verdict list). The proposed policy-file
+section is described honestly as such below.
 
 ## The one thing this document exists to prevent
 

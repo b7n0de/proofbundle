@@ -64,10 +64,17 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 
 ## 5. How the other predicates use it
 
-`verification-summary` and the decision/outcome verify paths take a Trust Pack to resolve *who* is trusted for
-a role — e.g. `outcomeExecutors` names the key ids allowed to sign an `action-outcome` as the executor. The
-Trust Pack answers WHO; the individual predicate answers WHAT and WHETHER-THRESHOLD-SIGNED. The two are
-deliberately separate (a claim's content root binds its identity; trust in its signer is this pack's job).
+A Trust Pack is DESIGNED to resolve *who* is trusted for a role — e.g. `outcomeExecutors` names the key ids
+allowed to sign an `action-outcome` as the executor. The intended split: the Trust Pack answers WHO; the
+individual predicate answers WHAT and WHETHER-THRESHOLD-SIGNED (a claim's content root binds its identity;
+trust in its signer is this pack's job).
+
+**Not yet wired (honest status).** As of 3.2.0 the verify paths do NOT consult a Trust Pack: `verify_outcome_
+receipt` checks role separation only against a caller-supplied `decision_maker_id`, and `verification-summary`
+does not resolve role identities against a pack. Binding `outcomeExecutors` (and the other roles) into the
+verify paths — a live registry / trust-anchor resolution for executors — is future work (see
+`action-outcome.md` §7). The pack primitive itself (threshold-of-root, distinct-key-material counting,
+two-stage rotation authorization) is built and verified; only the cross-predicate role resolution is pending.
 
 ## 6. Open (honest)
 

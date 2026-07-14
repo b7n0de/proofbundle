@@ -170,5 +170,127 @@ class TestTrustPackVerify(unittest.TestCase):
             sign_trust_pack(pred, {"stranger": generate_signer()})
 
 
+def _pack(prefix: str, *, threshold: int = 2, n: int = 3, version: int = 3):
+    """A pack whose keyIds carry ``prefix`` (so old/new packs don't collide in one envelope)."""
+    sks = {f"{prefix}-{i}": generate_signer() for i in range(n)}
+    keys = {kid: {"publicKey": _pub(sk), "scheme": "ed25519"} for kid, sk in sks.items()}
+    pred = {
+        "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": version,
+        "expires": "2027-01-01T00:00:00Z", "prevVersionDigest": None,
+        "roles": {"root": {"keyIds": list(keys), "threshold": threshold},
+                  "outcomeExecutors": {"keyIds": [f"{prefix}-0"], "threshold": 1}},
+        "keys": keys,
+        "nonClaims": ["names which keys hold which role, not that the holders are honest"],
+    }
+    return pred, sks
+
+
+def _external_sign(env: dict, kid: str, sk) -> None:
+    """Append a signature under ``kid`` over the envelope's exact PAE (a key NOT in the pack's own keys map,
+    e.g. an OLD-root key vouching for a rotation)."""
+    from proofbundle import dsse
+    from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
+    body = base64.b64decode(env["payload"])
+    msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
+    env["signatures"].append({"keyid": kid, "sig": base64.b64encode(sk.sign(msg)).decode("ascii")})
+
+
+def _aliased_pred():
+    """A pack where two keyIds (root-a, root-a-alias) map to the SAME key material (the Sybil vector)."""
+    sk, other = generate_signer(), generate_signer()
+    shared = _pub(sk)
+    keys = {"root-a": {"publicKey": shared, "scheme": "ed25519"},
+            "root-a-alias": {"publicKey": shared, "scheme": "ed25519"},
+            "root-b": {"publicKey": _pub(other), "scheme": "ed25519"}}
+    pred = {
+        "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": 3,
+        "expires": "2027-01-01T00:00:00Z", "prevVersionDigest": None,
+        "roles": {"root": {"keyIds": ["root-a", "root-a-alias", "root-b"], "threshold": 2},
+                  "outcomeExecutors": {"keyIds": ["root-b"], "threshold": 1}},
+        "keys": keys,
+        "nonClaims": ["names which keys hold which role, not that the holders are honest"],
+    }
+    return pred, sk
+
+
+class TestTrustPackKeyAliasing(unittest.TestCase):
+    """#1 (release-review): a single key under N keyIds must not satisfy an N-of-M root threshold."""
+
+    def test_key_aliasing_rejected_by_validate(self):
+        pred, _ = _aliased_pred()
+        self.assertTrue(any("aliasing" in e for e in validate_trust_pack_predicate(pred)),
+                        validate_trust_pack_predicate(pred))
+
+    def test_sign_rejects_aliased_pack(self):
+        pred, sk = _aliased_pred()
+        with self.assertRaises(TrustPackError):
+            sign_trust_pack(pred, {"root-a": sk, "root-a-alias": sk})
+
+    def test_distinct_keys_still_valid_green(self):
+        # a NON-aliased pack (3 distinct keys) still validates — the check is not over-firing.
+        pred, _ = _pack("root", threshold=2)
+        self.assertEqual(validate_trust_pack_predicate(pred), [])
+
+
+class TestTrustPackRotationAuthorization(unittest.TestCase):
+    """#2 (release-review): a new version must be vouched for by a threshold of the OLD root keys."""
+
+    def test_rotation_authorized_green(self):
+        old_pred, old_sks = _pack("old", threshold=2, version=3)
+        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
+        for kid in ("old-0", "old-1"):  # old root vouches
+            _external_sign(env, kid, old_sks[kid])
+        old_root_keys = {kid: kv["publicKey"] for kid, kv in old_pred["keys"].items()}
+        r = verify_trust_pack(env, strict=True, now=_NOW,
+                              prev_root_keys=old_root_keys, prev_root_threshold=2)
+        self.assertTrue(r["rotation_authorized"], r)
+        self.assertEqual(r["old_root_signers"], ["old-0", "old-1"])
+        self.assertTrue(r["ok"], r)
+
+    def test_rotation_hijack_rejected(self):
+        # attacker mints v2 with self-owned keys, chained via the PUBLIC prevVersionDigest, but holds NONE of
+        # the old root keys → no old-root vouch → rejected once the caller supplies the old root role.
+        old_pred, _ = _pack("old", threshold=2, version=3)
+        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
+        old_root_keys = {kid: kv["publicKey"] for kid, kv in old_pred["keys"].items()}
+        r = verify_trust_pack(env, strict=True, now=_NOW,
+                              prev_root_keys=old_root_keys, prev_root_threshold=2)
+        self.assertFalse(r["rotation_authorized"])
+        self.assertFalse(r["ok"])
+
+    def test_rotation_below_old_threshold_rejected(self):
+        # only ONE old-root vouch when the old threshold is 2 → not authorized.
+        old_pred, old_sks = _pack("old", threshold=2, version=3)
+        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
+        _external_sign(env, "old-0", old_sks["old-0"])
+        old_root_keys = {kid: kv["publicKey"] for kid, kv in old_pred["keys"].items()}
+        r = verify_trust_pack(env, strict=True, now=_NOW,
+                              prev_root_keys=old_root_keys, prev_root_threshold=2)
+        self.assertFalse(r["rotation_authorized"])
+        self.assertFalse(r["ok"])
+
+    def test_zero_prev_root_threshold_rejected(self):
+        # a caller-supplied prev_root_threshold of 0 must not "authorize" a rotation with zero old-root vouches.
+        old_pred, _ = _pack("old", threshold=2, version=3)
+        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
+        old_root_keys = {kid: kv["publicKey"] for kid, kv in old_pred["keys"].items()}
+        r = verify_trust_pack(env, strict=True, now=_NOW,
+                              prev_root_keys=old_root_keys, prev_root_threshold=0)
+        self.assertFalse(r["rotation_authorized"])
+        self.assertFalse(r["ok"])
+
+    def test_no_prev_root_is_backward_compatible(self):
+        # a first pack / non-rotation verify does NOT require rotation authorization (field stays None).
+        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertIsNone(r["rotation_authorized"])
+        self.assertTrue(r["ok"], r)
+
+
 if __name__ == "__main__":
     unittest.main()

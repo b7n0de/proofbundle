@@ -7,7 +7,9 @@ gives rollback/freeze protection; ``expires`` bounds validity; ``revoked`` is an
 
 The ``outcomeExecutors`` role supplies the identity that an Action Outcome Receipt (O1) executor is checked
 against. A Trust Pack is authenticated by a THRESHOLD of its root keys (not any-single, unlike a plain DSSE
-verify). Rotation is a new version signed by the OLD root threshold (two-stage: old root vouches for new).
+verify). Rotation is a new version signed by the OLD root threshold (two-stage: old root vouches for new),
+enforced by ``verify_trust_pack`` when the caller supplies the previous root role (``prev_root_keys`` +
+``prev_root_threshold``); a verify without them checks only this pack's own threshold plus the digest chain.
 
 No-Overclaim: the pack names WHICH keys hold WHICH role. It does not assert those key holders are honest,
 only that a threshold of the named root keys signed this exact pack. ``nonClaims`` records that verbatim.
@@ -107,6 +109,25 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                         errors.append(f"keys[{kid!r}].publicKey must be a 32-byte Ed25519 key (got {len(raw)})")
                 except Exception:  # noqa: BLE001
                     errors.append(f"keys[{kid!r}].publicKey is not valid base64")
+
+    # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME 32-byte key material dilute
+    # every threshold — one physical key would count as N signers. checkpoint.py::witness_quorum learned this
+    # for witnesses; the higher-stakes root-of-trust must not regress it. Fail-closed at validate time.
+    if isinstance(keys, dict):
+        _seen_material: dict[str, str] = {}
+        for kid, kv in keys.items():
+            if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
+                continue
+            try:
+                _mat = base64.b64decode(kv["publicKey"], validate=True).hex()
+            except Exception:  # noqa: BLE001
+                continue
+            if _mat in _seen_material:
+                errors.append(
+                    f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] — key "
+                    "aliasing dilutes thresholds (Sybil), fail-closed")
+            else:
+                _seen_material[_mat] = kid
 
     revoked = predicate.get("revoked", [])
     if "revoked" in predicate and not (isinstance(revoked, list) and all(isinstance(x, str) for x in revoked)):
@@ -227,18 +248,27 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "predicate_type_ok": None, "root_threshold_met": None,
-            "not_expired": None, "version_monotone": None, "root_signers": [], "warnings": [], "errors": []}
+            "not_expired": None, "version_monotone": None, "rotation_authorized": None,
+            "root_signers": [], "old_root_signers": [], "warnings": [], "errors": []}
 
 
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
-                      prev_version: int | None = None, prev_version_digest: str | None = None) -> dict:
+                      prev_version: int | None = None, prev_version_digest: str | None = None,
+                      prev_root_keys: dict | None = None, prev_root_threshold: int | None = None) -> dict:
     """Verify a threshold-signed Trust Pack. Unlike a plain DSSE verify (any-single-sig) this counts DISTINCT
-    non-revoked ROOT keys with a valid signature and requires >= the root threshold.
+    non-revoked ROOT KEY MATERIAL with a valid signature and requires >= the root threshold.
 
-    Checks (each fail-closed): ``root_threshold_met`` (>= threshold distinct valid non-revoked root sigs);
-    ``not_expired`` (expires > now); ``version_monotone`` (version > prev_version when supplied — rollback/
-    freeze protection) and, when ``prev_version_digest`` is supplied, the pack's ``prevVersionDigest`` MUST
-    equal it (chain to the previous pack). Read ``ok`` — never an individual field alone."""
+    Checks (each fail-closed): ``root_threshold_met`` (>= threshold distinct valid non-revoked root sigs, by key
+    material not keyId label); ``not_expired`` (expires > now); ``version_monotone`` (version > prev_version when
+    supplied — rollback/freeze protection) and, when ``prev_version_digest`` is supplied, the pack's
+    ``prevVersionDigest`` MUST equal it (chain to the previous pack).
+
+    ROTATION AUTHORIZATION (two-stage, release-review fix): when ``prev_root_keys`` (a ``{keyId: publicKey_b64}``
+    map of the PREVIOUS pack's root role) and ``prev_root_threshold`` are supplied, a threshold of the OLD root
+    keys MUST also have validly signed THIS pack (old root vouches for the new pack). Without this the documented
+    two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
+    anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
+    alone."""
     from . import dsse  # noqa: PLC0415
     from .signature import verify_ed25519  # noqa: PLC0415
     r = _empty_result()
@@ -289,22 +319,26 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     root_ids = [k for k in (root.get("keyIds") or []) if k not in revoked]
     threshold = root.get("threshold")
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
-    valid_root: set[str] = set()
+    # Count DISTINCT KEY MATERIAL, not keyId labels (defense-in-depth beyond the validator's aliasing check):
+    # one physical key registered under N keyIds is ONE root signer. Mirrors checkpoint.py::witness_quorum.
+    valid_root: dict[bytes, str] = {}
     for entry in envelope.get("signatures") or []:
         if not isinstance(entry, dict):
             continue
         kid = entry.get("keyid")
         raw = entry.get("sig")
-        if kid not in root_ids or not isinstance(raw, str) or kid in valid_root:
+        if kid not in root_ids or not isinstance(raw, str):
             continue
         try:
             pub = base64.b64decode(keys[kid]["publicKey"], validate=True)
             sig = base64.b64decode(raw, validate=True)
         except Exception:  # noqa: BLE001
             continue
+        if pub in valid_root:  # same key material already counted — aliasing cannot inflate the threshold
+            continue
         if verify_ed25519(pub, sig, msg):
-            valid_root.add(kid)
-    r["root_signers"] = sorted(valid_root)
+            valid_root[pub] = kid
+    r["root_signers"] = sorted(valid_root.values())
     r["root_threshold_met"] = _is_int(threshold) and len(valid_root) >= threshold
     if not r["root_threshold_met"]:
         r["errors"].append(
@@ -335,7 +369,46 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             r["version_monotone"] = False
             r["errors"].append("prevVersionDigest does not chain to the supplied previous pack (fail-closed)")
 
+    # Two-stage rotation authorization: the OLD root threshold must ALSO have signed this pack (old root vouches
+    # for new). Counts DISTINCT old-root KEY MATERIAL over the exact PAE, using the PREVIOUS pack's key map (the
+    # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
+    # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
+    if prev_root_keys is not None or prev_root_threshold is not None:
+        old_keys = prev_root_keys or {}
+        old_valid: dict[bytes, str] = {}
+        for entry in envelope.get("signatures") or []:
+            if not isinstance(entry, dict):
+                continue
+            kid = entry.get("keyid")
+            raw = entry.get("sig")
+            if kid not in old_keys or not isinstance(raw, str):
+                continue
+            _pk = old_keys[kid]
+            _pk = _pk.get("publicKey") if isinstance(_pk, dict) else _pk
+            if not isinstance(_pk, str):
+                continue
+            try:
+                pub = base64.b64decode(_pk, validate=True)
+                sig = base64.b64decode(raw, validate=True)
+            except Exception:  # noqa: BLE001
+                continue
+            if pub in old_valid:
+                continue
+            if verify_ed25519(pub, sig, msg):
+                old_valid[pub] = kid
+        r["old_root_signers"] = sorted(old_valid.values())
+        # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
+        # old-root vouches (self-review fix, fail-closed defense-in-depth — a correct caller passes the old
+        # pack's root threshold, which the validator already guarantees >= 1).
+        r["rotation_authorized"] = (_is_int(prev_root_threshold) and prev_root_threshold >= 1
+                                    and len(old_valid) >= prev_root_threshold)
+        if not r["rotation_authorized"]:
+            r["errors"].append(
+                f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
+                f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]
-        and r["not_expired"] and r["version_monotone"] is not False)
+        and r["not_expired"] and r["version_monotone"] is not False
+        and r["rotation_authorized"] is not False)
     return r

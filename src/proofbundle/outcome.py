@@ -204,13 +204,15 @@ def _empty_result() -> dict:
         "ok": None, "structure_ok": None, "crypto_ok": None,
         "predicate_type_ok": None, "decision_bound": None, "role_separation_ok": None,
         "execution_proven": None, "audience_ok": None, "nonce_ok": None,
+        "subject_binding": None, "subject_derived_ok": None,
         "warnings": [], "errors": [],
     }
 
 
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
-                           expected_audience: str | None = None, expected_nonce: str | None = None) -> dict:
+                           expected_audience: str | None = None, expected_nonce: str | None = None,
+                           require_derived_subject: bool = False) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -313,8 +315,37 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
 
+    # Subject binding (release-review #4): classify whether the subject genuinely commits to the predicate so a
+    # consumer never gets ZERO signal on a subject-rehang. An EXTERNAL_ATTESTED subject is ALWAYS warned;
+    # require_derived_subject makes it a hard fail-closed error (opt-in, preserves the documented override use).
+    if isinstance(statement, dict) and r["crypto_ok"]:
+        if _rfc8785_available():
+            from . import subject_binding as _sb  # noqa: PLC0415
+            try:
+                _cls = _sb.classify_subject(statement)
+            except Exception:  # noqa: BLE001
+                _cls = None
+            if _cls is not None:
+                r["subject_binding"] = {"mode": _cls["mode"], "matches": _cls["matches"]}
+                if not _cls["matches"]:
+                    r["warnings"].append(
+                        "subject is EXTERNAL_ATTESTED — it does not commit to this predicate (subject-rehang); "
+                        "trust it only via a policy that pins the external attester")
+                if require_derived_subject:
+                    r["subject_derived_ok"] = _cls["matches"]
+                    if not _cls["matches"]:
+                        r["errors"].append(
+                            "require_derived_subject: subject is not a DERIVED commitment to the predicate "
+                            "(fail-closed)")
+        elif require_derived_subject:
+            r["subject_derived_ok"] = False
+            r["errors"].append(
+                "require_derived_subject but RFC-8785 canonicalizer unavailable — cannot verify subject "
+                "derivation (install proofbundle[eval]), fail-closed")
+
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["decision_bound"] is not False and r["role_separation_ok"] is not False
-        and r["audience_ok"] is not False and r["nonce_ok"] is not False)
+        and r["audience_ok"] is not False and r["nonce_ok"] is not False
+        and r["subject_derived_ok"] is not False)
     return r

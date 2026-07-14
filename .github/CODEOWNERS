@@ -35,6 +35,7 @@
 /src/proofbundle/subject_binding.py @b7n0de
 /src/proofbundle/run_ledger.py      @b7n0de
 /src/proofbundle/verification_summary.py @b7n0de
+/src/proofbundle/sdjwt_vc.py        @b7n0de
 
 # The normative surface: the spec, the machine-readable schemas, the predicate definitions.
 /SPEC.md                            @b7n0de

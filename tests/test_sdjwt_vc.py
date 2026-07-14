@@ -52,7 +52,7 @@ def _real_bound_vc(vct: str = _VCT):
     compact = issue_sd_jwt(_claim(issuer), issuer, root_b64="cm9vdA==", exact_score="0.9",
                            holder_public_key=_raw_pub(holder), vct=vct)
     presented = present_with_key_binding(compact, holder, aud=_AUD, nonce=_NONCE, iat=_IAT)
-    return presented, holder
+    return presented, holder, issuer
 
 
 class TestPolicyValidate(unittest.TestCase):
@@ -124,25 +124,67 @@ class TestProfile(unittest.TestCase):
 
 class TestVerifyEndToEnd(unittest.TestCase):
     def test_bound_vc_verifies(self):
-        presented, _ = _real_bound_vc(_VCT)
+        presented, _, issuer = _real_bound_vc(_VCT)
         r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT], "requireKeyBinding": True},
-                            expected_aud=_AUD, expected_nonce=_NONCE)
+                            issuer_pubkey=_raw_pub(issuer), expected_aud=_AUD, expected_nonce=_NONCE)
         self.assertTrue(r["ok"], r)
         self.assertTrue(r["profile"]["ok"])
+        self.assertTrue(r["issuer"]["sig_ok"])
         self.assertTrue(r["binding"]["ok"])
 
     def test_unbound_presentation_under_profile_fails(self):
-        # a VC issued but presented WITHOUT key binding → requireKeyBinding default True → FAIL.
+        # a VC issued but presented WITHOUT key binding → requireKeyBinding default True → FAIL (issuer sig ok).
         issuer = generate_signer()
         compact = issue_sd_jwt(_claim(issuer), issuer, root_b64="cm9vdA==", exact_score="0.9", vct=_VCT)
-        r = verify_sdjwt_vc(compact, {"vctAllowlist": [_VCT]})
+        r = verify_sdjwt_vc(compact, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(issuer))
         self.assertFalse(r["ok"])
 
     def test_wrong_vct_end_to_end_fails(self):
-        presented, _ = _real_bound_vc("https://other/vct")
-        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]}, expected_aud=_AUD, expected_nonce=_NONCE)
+        presented, _, issuer = _real_bound_vc("https://other/vct")
+        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(issuer),
+                            expected_aud=_AUD, expected_nonce=_NONCE)
         self.assertFalse(r["ok"])
         self.assertFalse(r["profile"]["vct_ok"])
+
+
+class TestIssuerSignatureAuthenticity(unittest.TestCase):
+    """#3 (release-review): verify_sdjwt_vc must cryptographically authenticate the ISSUER, not just parse it."""
+
+    def test_issuer_signature_green(self):
+        presented, _, issuer = _real_bound_vc(_VCT)
+        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(issuer),
+                            expected_aud=_AUD, expected_nonce=_NONCE)
+        self.assertTrue(r["issuer"]["sig_checked"])
+        self.assertTrue(r["issuer"]["sig_ok"])
+        self.assertTrue(r["ok"], r)
+
+    def test_wrong_issuer_key_rejected(self):
+        # the credential was signed by the real issuer; verifying against a DIFFERENT (attacker) anchor fails —
+        # this is what makes a self-issued/garbage-signed credential (the PoC) return ok=False.
+        presented, _, _real_issuer = _real_bound_vc(_VCT)
+        attacker = generate_signer()
+        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]}, issuer_pubkey=_raw_pub(attacker),
+                            expected_aud=_AUD, expected_nonce=_NONCE)
+        self.assertTrue(r["issuer"]["sig_checked"])
+        self.assertFalse(r["issuer"]["sig_ok"])
+        self.assertFalse(r["ok"])
+
+    def test_missing_issuer_pubkey_fails_closed(self):
+        # the old broken behavior: no issuer key supplied → the credential is NOT authenticated → ok=False.
+        presented, _, _issuer = _real_bound_vc(_VCT)
+        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT]},
+                            expected_aud=_AUD, expected_nonce=_NONCE)
+        self.assertFalse(r["issuer"]["sig_checked"])
+        self.assertFalse(r["ok"])
+
+    def test_explicit_opt_out_is_honest(self):
+        # a caller may explicitly opt out (requireIssuerSignature=False) — then issuer is not evaluated and the
+        # result reflects only profile+binding. Documented, explicit, not the default.
+        presented, _, issuer = _real_bound_vc(_VCT)
+        r = verify_sdjwt_vc(presented, {"vctAllowlist": [_VCT], "requireIssuerSignature": False},
+                            expected_aud=_AUD, expected_nonce=_NONCE)
+        self.assertIsNone(r["issuer"])
+        self.assertTrue(r["ok"], r)
 
 
 def _hand_jwt2_alg_none() -> str:
