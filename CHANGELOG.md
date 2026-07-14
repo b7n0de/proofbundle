@@ -4,6 +4,64 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - unreleased
+
+The eval → decision → **outcome** chain, plus a trust root and transparency/credential layers. Everything in
+this release is **EXPERIMENTAL** (a v3 preview: API and wire format may change without deprecation; do not
+depend on it in production). Additive wire format; no change to the shipped `eval-result` / `decision-receipt`
+verify paths. Each predicate carries a hand-rolled fail-closed validator (the JSON Schemas remain docs-only)
+and states its non-claims as explicitly as its guarantees. Predicate docs under
+[`docs/predicates/`](docs/predicates/README.md).
+
+### Added — `action-outcome/v0.1` predicate (EXPERIMENTAL, O1)
+- A signed record that a specific executor carried out (or refused/failed) the action a Decision Receipt
+  permitted, bound by content root to that decision (`decisionRef`), with the requested action and observed
+  effect digest-bound. `proofbundle outcome init|emit|verify|inspect`.
+- Verify is fail-closed: crypto → predicate type → `hash_binding` → `decision_bound` (embedded `decisionRef`
+  equals the expected content root) → `role_separation` (executor ≠ decision maker) → `execution_proven`
+  (`status = executed` only proven when an `effectDigest`/`actualActionDigest` backs it, else self-asserted +
+  warning) → audience/nonce. No-Overclaim: never proves the action was correct or safe. Doc:
+  [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md).
+
+### Added — `trust-pack/v0.1` predicate (EXPERIMENTAL, O2)
+- A TUF-inspired root of trust: roles → `{keyIds, threshold}`, a `keyId -> publicKey` map, an offline `revoked`
+  list, a monotone `version` with a `prevVersionDigest` chain (rollback/freeze protection), and `expires`.
+  `verify_trust_pack` counts DISTINCT valid non-revoked root signatures against the root threshold; validation
+  is dead-on-arrival aware (a root that can never meet threshold is rejected). Doc:
+  [`docs/predicates/trust-pack.md`](docs/predicates/trust-pack.md).
+
+### Added — `verification-summary/v0.1` predicate (EXPERIMENTAL, O4)
+- A signed roll-up of a receipt chain: per level (eval/decision/outcome) the verified receipt content root,
+  status (`VERIFIED`/`FAILED`/`NOT_EVALUATED`), and evidence class, with a mandatory `nonClaims` block. The
+  `levels_consistent` rule is real (non-tautological): a `VERIFIED` level MUST carry a `receiptRef`; a
+  `NOT_EVALUATED` level without one stays consistent. Doc:
+  [`docs/predicates/verification-summary.md`](docs/predicates/verification-summary.md).
+
+### Added — `run-ledger/v0.1` predicate (EXPERIMENTAL, O5)
+- A signed, gap-free run history against best-of-many cherry-picking: a strictly monotone `seq` (no gaps), a
+  `prevDigest` chain (each run links the previous run's `resultDigest`), aborted/failed runs kept VISIBLE, and
+  a `runBudget` declared up front. A selection that drops the bad runs cannot produce an intact chain. Doc:
+  [`docs/predicates/run-ledger.md`](docs/predicates/run-ledger.md).
+
+### Added — public-transparency policy layer (EXPERIMENTAL, O3)
+- `public_transparency.py::evaluate_public_transparency` composes the existing C2SP checkpoint primitives into
+  one relying-party verdict with named statuses (`LOG_ORIGIN`, `CHECKPOINT_SIGNATURE`,
+  `ROOT_BYTES_AUTHENTICITY`, `TREE_CONTEXT_AUTHENTICITY`, `CONSISTENCY`, `WITNESS_QUORUM`,
+  `PUBLIC_TRANSPARENCY`), fail-closed (a required-but-unevaluable check is FAIL; an optional un-requested check
+  is `NOT_EVALUATED` and stays visible). It is a library layer; wiring it into the `--policy` FILE of the
+  reference CLI remains proposed (see [`docs/PUBLIC_TRANSPARENCY_PROFILE.md`](docs/PUBLIC_TRANSPARENCY_PROFILE.md)).
+
+### Added — subject-binding + SD-JWT VC layers (EXPERIMENTAL, O6, O7)
+- `subject_binding.py`: classifies a Statement subject as `DERIVED` (SHA-256 over the RFC-8785 canonical
+  predicate, re-derived and matched) vs `EXTERNAL_ATTESTED` (override/tamper, fail-closed), plus nested schema
+  closure. Doc: [`docs/SUBJECT_BINDING.md`](docs/SUBJECT_BINDING.md).
+- `sdjwt_vc.py`: an SD-JWT VC relying-party profile (`typ = dc+sd-jwt`, `vct` allowlist, offline
+  type-metadata integrity, holder-binding required). SSRF-safe by construction — no network I/O, a URL `vct`
+  is an opaque identifier and never dereferenced. Doc: [`docs/SDJWT_VC_PROFILE.md`](docs/SDJWT_VC_PROFILE.md).
+
+### Governance
+- CODEOWNERS covers the six new EXPERIMENTAL security modules (no self-merge for a security path).
+
 ## [3.1.3] - 2026-07-13
 
 Security hardening release: the remaining P0 findings of the 3.1.1 audit round (verified live
