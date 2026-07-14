@@ -26,3 +26,7 @@ htmlcov/
 *.key
 signer.key
 *.seed
+
+# Mutation-testing scratch (dev-only; mutmut sandbox + cache)
+mutants/
+.mutmut-cache
