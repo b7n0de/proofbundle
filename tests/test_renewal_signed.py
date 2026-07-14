@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle.pqsig import generate_mldsa
 from proofbundle.renewal import (
+    ArchiveTimeStamp,
     build_initial_sequence,
     last_ats,
     renew_hashtree,
@@ -110,10 +111,92 @@ class TestSignedRenewal(unittest.TestCase):
             build_initial_sequence(DATA, hash_alg="sha256", time=1000,
                                    sig_alg="mldsa65", signers={})  # no mldsa65 signer
 
-    def test_backward_compat_unsigned_default_path(self):
-        # no sig_alg, no authority_keys → the legacy structural anchor path still verifies
+    def test_unsigned_default_fails_closed_but_opt_in_structural_works(self):
+        # API-safety audit fix: an unsigned sequence with NO anchor mode supplied fails closed (no silent
+        # structural pass); a caller who only wants the covering check opts in explicitly.
         seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
-        self.assertTrue(verify_sequence(seq, DATA).ok)
+        self.assertFalse(verify_sequence(seq, DATA).ok)
+        self.assertTrue(verify_sequence(seq, DATA, allow_unauthenticated_anchor=True).ok)
+
+
+class TestSigAlgDowngradeCritical(unittest.TestCase):
+    """The CRITICAL finding: sig_alg is bound into _ats_content, so a hybrid/mldsa65 ATS cannot be
+    relabeled down to its (post-quantum-forgeable) ed25519 leg without breaking the signature."""
+
+    def test_downgrade_hybrid_to_ed25519_is_rejected(self):
+        signers, keys = _authority()
+        seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000,
+                                     sig_alg="hybrid-ed25519-mldsa65", signers=signers)
+        legit = seq[0][0]
+        ed_sig = dict(legit.signatures)["ed25519"]
+        # relabel to ed25519-only, keeping the ed25519 leg that was valid under the hybrid label
+        downgraded = dataclasses.replace(legit, sig_alg="ed25519",
+                                         signatures=(("ed25519", ed_sig),))
+        self.assertFalse(verify_sequence([[downgraded]], DATA, authority_keys=keys).ok)
+
+    def test_downgrade_hybrid_to_mldsa65_is_rejected(self):
+        signers, keys = _authority()
+        seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000,
+                                     sig_alg="hybrid-ed25519-mldsa65", signers=signers)
+        legit = seq[0][0]
+        m_sig = dict(legit.signatures)["mldsa65"]
+        downgraded = dataclasses.replace(legit, sig_alg="mldsa65",
+                                         signatures=(("mldsa65", m_sig),))
+        self.assertFalse(verify_sequence([[downgraded]], DATA, authority_keys=keys).ok)
+
+    def test_require_pq_rejects_ed25519_only_newest(self):
+        # a PQ-strict relying party (still holding the ed25519 key for legacy) rejects an ed25519-only newest
+        signers, keys = _authority()
+        seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000,
+                                     sig_alg="ed25519", signers=signers)
+        self.assertTrue(verify_sequence(seq, DATA, authority_keys=keys).ok)   # ok without the floor
+        self.assertFalse(verify_sequence(seq, DATA, authority_keys=keys, require_pq=True).ok)
+        # a migrated (mldsa65) newest satisfies the PQ floor
+        seq2 = renew_timestamp(seq, time=2000, sig_alg="mldsa65", signers=signers)
+        self.assertTrue(verify_sequence(seq2, DATA, authority_keys=keys, require_pq=True).ok)
+
+    def test_signature_replayed_onto_different_ats_is_rejected(self):
+        # domain separation: a signature valid for one ATS's content must not verify on a different ATS
+        signers, keys = _authority()
+        seq_a = build_initial_sequence(DATA, hash_alg="sha256", time=1000,
+                                       sig_alg="ed25519", signers=signers)
+        stolen_sig = dict(seq_a[0][0].signatures)["ed25519"]
+        other = dataclasses.replace(seq_a[0][0], time=9999, signatures=(("ed25519", stolen_sig),))
+        self.assertFalse(verify_sequence([[other]], DATA, authority_keys=keys).ok)
+
+    def test_tampering_prior_ats_signature_breaks_next_covering(self):
+        # token() folds the signature in, so tampering an EARLIER ATS's signature breaks the later ATS's
+        # covering digest (structural), independent of the anchor
+        signers, keys = _authority()
+        seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000,
+                                     sig_alg="ed25519", signers=signers)
+        seq = renew_timestamp(seq, time=2000, sig_alg="ed25519", signers=signers)
+        bad_first = dataclasses.replace(
+            seq[0][0], signatures=(("ed25519", base64.b64encode(b"\x00" * 64).decode()),))
+        broken = [[bad_first, seq[0][1]]]
+        self.assertFalse(verify_sequence(broken, DATA, authority_keys=keys).ok)
+
+
+class TestSignedRobustness(unittest.TestCase):
+    """Malformed signed input must return ok=False, never raise (the 'never raise' contract)."""
+
+    def test_signatures_none_does_not_crash(self):
+        _signers, keys = _authority()
+        ats = ArchiveTimeStamp("sha256", DATA[0], 1000, "confirmed", "ed25519", None)  # type: ignore[arg-type]
+        # must not raise; anchor fails closed
+        self.assertFalse(verify_sequence([[ats]], [DATA[0]], authority_keys=keys).ok)
+
+    def test_malformed_signature_tuple_does_not_crash(self):
+        _signers, keys = _authority()
+        ats = ArchiveTimeStamp("sha256", DATA[0], 1000, "confirmed", "ed25519",
+                               (("ed25519", "x", "extra"),))  # 3-tuple
+        self.assertFalse(verify_sequence([[ats]], [DATA[0]], authority_keys=keys).ok)
+
+    def test_non_int_time_fails_closed_not_raise(self):
+        _signers, keys = _authority()
+        a0 = ArchiveTimeStamp("sha256", DATA[0], "1000", "confirmed")  # type: ignore[arg-type]
+        res = verify_sequence([[a0]], [DATA[0]], authority_keys=keys)  # must not raise
+        self.assertFalse(res.ok)
 
 
 if __name__ == "__main__":

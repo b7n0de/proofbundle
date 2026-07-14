@@ -28,8 +28,16 @@ from proofbundle.renewal import (
     last_ats,
     renew_hashtree,
     renew_timestamp,
-    verify_sequence,
 )
+from proofbundle.renewal import verify_sequence as _verify_sequence
+
+
+def verify_sequence(seq, data, **kw):
+    # structural property tests: opt into the unauthenticated anchor so the covering/ordering logic is
+    # what is under test (the signed anchor path is covered by tests/test_renewal_signed.py).
+    kw.setdefault("allow_unauthenticated_anchor", True)
+    return _verify_sequence(seq, data, **kw)
+
 
 _CURRENT = [a for a, spec in HASH_REGISTRY.items() if spec.status == "current"]
 _DEPRECATED = [a for a, spec in HASH_REGISTRY.items() if spec.status == "deprecated"]
@@ -117,6 +125,37 @@ if given is not None:
             tampered = list(data)
             tampered[0] = "f" * 64 if tampered[0] != "f" * 64 else "e" * 64
             self.assertFalse(verify_sequence(seq, tampered).ok)
+
+    class TestSignedMigrationProperties(unittest.TestCase):
+        @settings(max_examples=60, deadline=None)
+        @given(st.lists(st.tuples(st.sampled_from(["ts", "ht"]),
+                                  st.sampled_from(["ed25519", "hybrid-ed25519-mldsa65", "mldsa65"])),
+                        min_size=0, max_size=5))
+        def test_any_sig_alg_migration_path_verifies(self, steps):
+            # any interleaving of hash-renewal mode AND signature-algorithm migration, signed for real, must
+            # verify under the authority keys — the gap the property layer previously did not cover.
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+            from proofbundle.pqsig import generate_mldsa
+            ed = Ed25519PrivateKey.generate()
+            m = generate_mldsa("mldsa65")
+            signers = {"ed25519": ed, "mldsa65": m}
+            keys = {"ed25519": ed.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw),
+                    "mldsa65": m.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)}
+            data = ["a" * 64, "b" * 64]
+            seq = build_initial_sequence(data, hash_alg="sha256", time=1000,
+                                         sig_alg="ed25519", signers=signers)
+            t = 1000
+            for i, (mode, sa) in enumerate(steps):
+                t += 1 + i
+                if mode == "ts":
+                    seq = renew_timestamp(seq, time=t, sig_alg=sa, signers=signers)
+                else:
+                    seq = renew_hashtree(seq, data, new_hash_alg="sha512" if i % 2 == 0 else "sha3-256",
+                                         time=t, sig_alg=sa, signers=signers)
+            res = _verify_sequence(seq, data, authority_keys=keys)
+            self.assertTrue(res.ok, [str(c) for c in res.checks if not c.ok])
 
 
 if __name__ == "__main__":

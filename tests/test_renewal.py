@@ -23,8 +23,17 @@ from proofbundle.renewal import (
     last_ats,
     renew_hashtree,
     renew_timestamp,
-    verify_sequence,
 )
+from proofbundle.renewal import verify_sequence as _verify_sequence
+
+
+def verify_sequence(seq, data, **kw):
+    # these tests exercise the STRUCTURAL covering/ordering/tamper logic, not the anchor — opt explicitly
+    # into the unauthenticated structural anchor so the covering check is what is under test (the signed
+    # anchor path is covered by tests/test_renewal_signed.py).
+    kw.setdefault("allow_unauthenticated_anchor", True)
+    return _verify_sequence(seq, data, **kw)
+
 
 DATA = ["a" * 64, "b" * 64, "c" * 64]
 

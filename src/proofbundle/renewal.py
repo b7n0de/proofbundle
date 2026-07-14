@@ -92,9 +92,15 @@ class ArchiveTimeStamp:
         return f"{base}:{self.sig_alg}:{sig_part}"
 
 
-def _ats_content(hash_alg: str, covered_digest: str, time: int) -> bytes:
-    """The exact bytes a time authority SIGNS for an ATS (domain-separated, pre-signature)."""
-    return f"archivetimestamp/v1\n{hash_alg}\n{covered_digest}\n{time}".encode()
+def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) -> bytes:
+    """The exact bytes a time authority SIGNS for an ATS (domain-separated, pre-signature).
+
+    ``sig_alg`` IS bound into the signed bytes (algorithm-confusion defense, JWT-``alg`` class): a
+    signature produced under one algorithm label cannot be relabeled to a weaker one and re-verified — a
+    hybrid ATS's ed25519 leg, if relabeled ``sig_alg="ed25519"``, would be checked against DIFFERENT bytes
+    and fail. Without this binding a post-quantum attacker could downgrade a hybrid/mldsa65 ATS to its
+    classical leg with no forgery."""
+    return f"archivetimestamp/v1\n{sig_alg}\n{hash_alg}\n{covered_digest}\n{time}".encode()
 
 
 def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
@@ -123,8 +129,14 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
     if not ats.sig_alg:
         return False
-    content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time)
-    sigmap = {a: s for a, s in ats.signatures if isinstance(a, str) and isinstance(s, str)}
+    content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
+    # robust against a malformed signatures field (None / non-2-tuple entries) — fail-closed, never raise
+    sigmap: dict[str, str] = {}
+    for item in ats.signatures or ():
+        if isinstance(item, tuple) and len(item) == 2:
+            a, s = item
+            if isinstance(a, str) and isinstance(s, str):
+                sigmap[a] = s
 
     def _dec(part: str) -> bytes:
         try:
@@ -178,7 +190,7 @@ def _make_ats(hash_alg: str, covered: str, time: int, anchor_status: str,
     """Construct an ATS, signing its content when ``sig_alg`` is set (the RFC-4998 TimeStampToken)."""
     sigs: tuple = ()
     if sig_alg:
-        sigs = _sign_ats_content(_ats_content(hash_alg, covered, time), sig_alg, signers or {})
+        sigs = _sign_ats_content(_ats_content(hash_alg, covered, time, sig_alg), sig_alg, signers or {})
     return ArchiveTimeStamp(hash_alg, covered, time, anchor_status, sig_alg, sigs)
 
 
@@ -262,7 +274,9 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
 
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                     authority_keys: Optional[dict] = None,
-                    anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None
+                    anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None,
+                    allow_unauthenticated_anchor: bool = False,
+                    require_pq: bool = False
                     ) -> VerificationResult:
     """Verify an ArchiveTimeStampSequence end-to-end, walking the newest strong anchor back to the origin.
 
@@ -274,16 +288,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
       * the covered data recomputes from ``data_digests`` (``tamper_after_renewal_fails``);
       * the newest ATS is authenticated (see the anchor modes below).
 
-    ANCHOR — three modes, most-trusted first:
+    ANCHOR — safe by default. An authenticated anchor is REQUIRED unless the caller explicitly opts into
+    the weak structural-only mode:
       * ``authority_keys`` (RECOMMENDED, B3↔B5 wiring): a dict of the relying party's trusted time-authority
         public keys ``{"ed25519": bytes, "mldsa65": bytes}``. The newest ATS MUST carry a valid signature
         (``_verify_ats_signature``) under those keys — a real cryptographic anchor, PQ-capable. A hybrid ATS
         needs both legs. The key material comes from the relying party (WP-A1), never the sequence itself.
       * ``anchor_verifier``: a caller callback bound to an external proof (e.g. an OTS proof), when the
         anchor is not a native ATS signature.
-      * DEFAULT (neither given): only the bare ``anchor_status`` string, which is NOT cryptographically
-        bound (excluded from ``token()``) — a STRUCTURAL check only. Treat a PASS here as "structurally
-        consistent", never "cryptographically anchored"; supply ``authority_keys`` for real trust.
+      * ``allow_unauthenticated_anchor=True`` (EXPLICIT opt-in): fall back to the bare ``anchor_status``
+        string, which is NOT cryptographically bound (excluded from ``token()``) — a STRUCTURAL check only.
+        A PASS here means "structurally consistent", never "cryptographically anchored".
+      * NONE of the above: fail closed — the newest-anchor check is FALSE with a clear message. This makes
+        a naive ``verify_sequence(seq, data)`` refuse to certify an unauthenticated anchor (API-safety audit).
     """
     result = VerificationResult()
 
@@ -293,23 +310,38 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     def _signature_anchor(a: ArchiveTimeStamp) -> bool:
         return _verify_ats_signature(a, authority_keys or {})
 
+    def _no_anchor(_a: ArchiveTimeStamp) -> bool:
+        return False
+
+    anchor_mode: str
     if authority_keys is not None:
         verify_anchor: Callable[[ArchiveTimeStamp], bool] = _signature_anchor
+        anchor_mode = "authority signature"
     elif anchor_verifier is not None:
         verify_anchor = anchor_verifier
-    else:
+        anchor_mode = "caller anchor_verifier"
+    elif allow_unauthenticated_anchor:
         verify_anchor = _default_anchor
+        anchor_mode = "structural-only (unauthenticated, opted-in)"
+    else:
+        verify_anchor = _no_anchor
+        anchor_mode = "none supplied"
     flat = _all_ats(sequence)
     if not flat:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
 
-    # 1) strictly ascending time across the whole sequence
+    # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
+    #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).
     times = [a.time for a in flat]
-    ordered = all(times[i] < times[i + 1] for i in range(len(times) - 1))
-    result.checks.append(Check("renewal:ordered", ordered,
-                               "ATS strictly ascending by time" if ordered
-                               else f"ATS not strictly ascending: {times}"))
+    if not all(isinstance(t, int) and not isinstance(t, bool) for t in times):
+        result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: {times}"))
+        ordered = False
+    else:
+        ordered = all(times[i] < times[i + 1] for i in range(len(times) - 1))
+        result.checks.append(Check("renewal:ordered", ordered,
+                                   "ATS strictly ascending by time" if ordered
+                                   else f"ATS not strictly ascending: {times}"))
 
     # 2) each ATS uses a KNOWN hash algorithm. A now-DEPRECATED algorithm is TOLERATED here: the whole
     #    point of renewal is that a hash-tree-renewed sequence survives the ageing of an algorithm it once
@@ -362,12 +394,24 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         result.checks.append(Check("renewal:cover", True,
                                    "every ATS covers its prior objects; data recomputes"))
 
-    # 4) the newest ATS must be anchored (only the last ATS is watched, RFC 4998 operating rule)
+    # 4) the newest ATS must be anchored (only the last ATS is watched, RFC 4998 operating rule). The
+    #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
+    #    structural fallback (API-safety audit: the PASS text must not conflate the two).
     newest = flat[-1]
     anchored = bool(verify_anchor(newest))
     result.checks.append(Check("renewal:last_anchor", anchored,
-                               "newest ATS is anchored" if anchored
-                               else "newest ATS has no confirmed anchor — renewal is overdue/unbacked"))
+                               f"newest ATS anchored via {anchor_mode}" if anchored
+                               else f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
+                                    "for a cryptographic anchor"))
+
+    # 5) optional post-quantum strength floor: the newest ATS's signature must carry a PQ leg (mldsa65 or
+    #    hybrid), so a relying party that wants PQ protection is not satisfied by a (forgeable-after-quantum)
+    #    ed25519-only anchor even while it still holds the ed25519 key for legacy validation.
+    if require_pq:
+        pq_ok = "mldsa" in (newest.sig_alg or "")
+        result.checks.append(Check("renewal:pq_floor", pq_ok,
+                                   f"newest ATS sig_alg {newest.sig_alg!r} carries a PQ leg" if pq_ok
+                                   else f"newest ATS sig_alg {newest.sig_alg!r} has no PQ leg (require_pq)"))
     return result
 
 
