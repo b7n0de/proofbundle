@@ -26,6 +26,7 @@ a green run means the Rust verifier computed the SAME value / reached the SAME v
 | flipped payload byte (negative vector) | — | `verify-dsse` | Rust → FAIL (exit 1) |
 | duplicate JSON key (parser-differential defense, C1) | — | `strict-parse` | Rust → REJECT (exit 1), independent of Python's `_strict_json` |
 | RFC 6962 Merkle tree head | RFC 6962 | `merkle-root` | byte-identical hex vs Python |
+| native bundle verify exit-code contract (sig + inclusion + root/tree-size) | RFC 6962 / 9162 | `verify-bundle` | same exit code (0/1/2) as the Python CLI, incl. relying-party `--expected-root` / `--expected-tree-size` |
 
 The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the RFC 6962 node rule
 (`SHA256(0x01 ‖ left ‖ right)`) are implemented from the specs in Rust, not ported from the Python
@@ -39,11 +40,17 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
 - `decision/crossimpl/canonicalization-root-binding` and `.../confirmed-anchor-lifecycle`: the Rust
   content root of `decision_receipt.json` equals the corpus-pinned `decision_content_root`, and the
   committed `.jcs` bytes hash to that same root (byte-identical RFC 8785 canonicalization).
-- `bundle/duplicate-json-key`: the exit-2 malformed contract is reproduced — the Rust strict parser
-  rejects the duplicate key.
+- `bundle/{valid-minimal, tampered-payload, corrupted-signature, coherent-rewrap-fails-expected-root,
+  tree-size-expectation-mismatch, coherent-rewrap-verifies-no-policy, duplicate-json-key}`: the Rust
+  `verify-bundle` produces the same exit code (0/1/2) as the Python CLI for each, using the case's own
+  `verifyArgs` (`--expected-root` / `--expected-tree-size`).
 
-The remaining corpus cases (full `native_bundle` verify exit-code contract, SD-JWT and anchor
-bundles) need the Pending slices below and are not yet reproduced by the second implementation.
+**9 of the 14 corpus cases are reproduced independently.** The remaining 5
+(`sd-jwt-unsigned-unauthenticated`, `sd-jwt-signed-but-unbound`, `sd-jwt-forged-issuer-identity`,
+`n1-eval-sdjwt-graft-non-eval`, `forged-anchor-own-frozen`) decide on the `sd_jwt_vc` block or an
+external anchor — they need the Pending slices below and are honestly skipped by `crosscheck.py`
+(never silently passed). The exit-0 bundles carry a valid `sd_jwt_vc` that this slice does not yet
+independently verify (the exit code agrees; the sd-jwt authentication is a pending slice).
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

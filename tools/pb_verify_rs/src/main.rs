@@ -213,6 +213,142 @@ fn rfc6962_tree_head(mut level: Vec<Vec<u8>>) -> Result<String, String> {
     Ok(hex::encode(&level[0]))
 }
 
+// ---------------------------------------------------------------------------
+// RFC 6962 / RFC 9162 inclusion-proof root recomputation (matches merkle.py exactly).
+// ---------------------------------------------------------------------------
+fn leaf_hash(data: &[u8]) -> Vec<u8> {
+    let mut h = Sha256::new();
+    h.update([0x00]);
+    h.update(data);
+    h.finalize().to_vec()
+}
+
+fn node_hash(l: &[u8], r: &[u8]) -> Vec<u8> {
+    let mut h = Sha256::new();
+    h.update([0x01]);
+    h.update(l);
+    h.update(r);
+    h.finalize().to_vec()
+}
+
+fn root_from_inclusion(
+    mut fnn: u64,
+    tree_size: u64,
+    computed_leaf: Vec<u8>,
+    proof: &[Vec<u8>],
+) -> Result<Vec<u8>, String> {
+    if fnn >= tree_size {
+        return Err("leaf_index out of range for tree_size".into());
+    }
+    let mut sn = tree_size - 1;
+    let mut r = computed_leaf;
+    for p in proof {
+        if sn == 0 {
+            return Err("inclusion proof too long".into());
+        }
+        if (fnn & 1) == 1 || fnn == sn {
+            r = node_hash(p, &r);
+            if (fnn & 1) == 0 {
+                while (fnn & 1) == 0 && fnn != 0 {
+                    fnn >>= 1;
+                    sn >>= 1;
+                }
+            }
+        } else {
+            r = node_hash(&r, p);
+        }
+        fnn >>= 1;
+        sn >>= 1;
+    }
+    if sn != 0 {
+        return Err("inclusion proof too short".into());
+    }
+    Ok(r)
+}
+
+// ---------------------------------------------------------------------------
+// Native bundle verify — the CLI exit-code contract (0 crypto OK · 1 verification
+// failure · 2 malformed · 3 policy unmet). This slice covers Ed25519 signature over
+// the raw payload, RFC 6962 Merkle inclusion, and relying-party root/tree-size
+// authentication. It does NOT yet verify the optional `sd_jwt_vc` block or external
+// anchors (documented pending slices) — so it is used only for the cases whose
+// deciding check is signature / merkle / root / tree-size / strict-parse.
+// Err(..) => malformed (exit 2); Ok(true) => verified (0); Ok(false) => failure (1).
+// ---------------------------------------------------------------------------
+fn verify_bundle(
+    b: &serde_json::Value,
+    expected_root: Option<&str>,
+    expected_tree_size: Option<u64>,
+) -> Result<bool, String> {
+    let payload_b64 = b
+        .get("payload_b64")
+        .and_then(|v| v.as_str())
+        .ok_or("missing payload_b64")?;
+    let payload = b64_std(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
+
+    let sig = b.get("signature").ok_or("missing signature")?;
+    let pub_b64 = sig
+        .get("public_key_b64")
+        .and_then(|v| v.as_str())
+        .ok_or("missing signature.public_key_b64")?;
+    let sig_b64 = sig
+        .get("sig_b64")
+        .and_then(|v| v.as_str())
+        .ok_or("missing signature.sig_b64")?;
+    let pk = b64_std(pub_b64)?;
+    let pk_arr: [u8; 32] = pk.as_slice().try_into().map_err(|_| "public key not 32 bytes")?;
+    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
+    let sb = b64_std(sig_b64)?;
+    let sa: [u8; 64] = sb.as_slice().try_into().map_err(|_| "signature not 64 bytes")?;
+    // ed25519 over the RAW payload bytes (bundle.py: verify_ed25519(pub, raw_sig, payload)).
+    if vk.verify(&payload, &Signature::from_bytes(&sa)).is_err() {
+        return Ok(false);
+    }
+
+    let mk = b.get("merkle").ok_or("missing merkle")?;
+    let leaf_index = mk
+        .get("leaf_index")
+        .and_then(|v| v.as_u64())
+        .ok_or("missing merkle.leaf_index")?;
+    let tree_size = mk
+        .get("tree_size")
+        .and_then(|v| v.as_u64())
+        .ok_or("missing merkle.tree_size")?;
+    let proof_list = mk
+        .get("inclusion_proof_b64")
+        .and_then(|v| v.as_array())
+        .ok_or("missing merkle.inclusion_proof_b64")?;
+    let mut proof = Vec::new();
+    for p in proof_list {
+        proof.push(b64_std(p.as_str().ok_or("inclusion proof entry not a string")?)?);
+    }
+    let root = b64_std(
+        mk.get("root_b64")
+            .and_then(|v| v.as_str())
+            .ok_or("missing merkle.root_b64")?,
+    )?;
+    let computed = match root_from_inclusion(leaf_index, tree_size, leaf_hash(&payload), &proof) {
+        Ok(r) => r,
+        Err(_) => return Ok(false),
+    };
+    if computed != root {
+        return Ok(false);
+    }
+    // relying-party root authentication (P0-A): the stated root is not signed, so a supplied
+    // expectation must match bit-exactly.
+    if let Some(er) = expected_root {
+        if root != b64_std(er)? {
+            return Ok(false);
+        }
+    }
+    if let Some(ets) = expected_tree_size {
+        if tree_size != ets {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 fn read_file(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
 }
@@ -260,6 +396,57 @@ fn main() {
             match rfc6962_tree_head(leaves) {
                 Ok(root) => println!("{root}"),
                 Err(e) => fatal(&e),
+            }
+        }
+        "verify-bundle" => {
+            let path = args.get(2).unwrap_or_else(|| fatal("verify-bundle needs a bundle file"));
+            let mut expected_root: Option<String> = None;
+            let mut expected_tree_size: Option<u64> = None;
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--expected-root" => {
+                        expected_root = Some(args.get(i + 1).cloned().unwrap_or_else(|| {
+                            fatal("--expected-root needs a value")
+                        }));
+                        i += 2;
+                    }
+                    "--expected-tree-size" => {
+                        expected_tree_size = Some(
+                            args.get(i + 1)
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or_else(|| fatal("--expected-tree-size needs an integer")),
+                        );
+                        i += 2;
+                    }
+                    // anchor flags are accepted but the anchor policy slice is not implemented yet;
+                    // a case that DEPENDS on them is not claimed as reproduced (see CROSS_IMPLEMENTATION_REPORT).
+                    "--require-anchor" | "--allow-pending" => i += 1,
+                    "--anchor-type" | "--anchor-target" => i += 2,
+                    other => fatal(&format!("unknown verify-bundle flag: {other}")),
+                }
+            }
+            // strict parse first: a duplicate JSON key / malformed bundle is exit 2 (malformed).
+            let v = match strict_parse(&read_file(path)) {
+                Ok(v) => v,
+                Err(_) => {
+                    println!("MALFORMED");
+                    exit(2);
+                }
+            };
+            match verify_bundle(&v, expected_root.as_deref(), expected_tree_size) {
+                Ok(true) => {
+                    println!("OK");
+                    exit(0);
+                }
+                Ok(false) => {
+                    println!("FAIL");
+                    exit(1);
+                }
+                Err(_) => {
+                    println!("MALFORMED");
+                    exit(2);
+                }
             }
         }
         "strict-parse" => {

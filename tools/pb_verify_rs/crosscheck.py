@@ -103,6 +103,7 @@ def main() -> int:
     corpus = ROOT / "conformance"
     manifest = json.loads((corpus / "manifest.json").read_text())
     reproduced = 0
+    skipped: list[str] = []
     for cid in manifest.get("cases", []):
         cdir = corpus / cid
         case = json.loads((cdir / "case.json").read_text())
@@ -118,11 +119,18 @@ def main() -> int:
             if want and jcs_hash != want:
                 failures.append(f"corpus {cid}: committed .jcs hash {jcs_hash} != pinned root {want}")
             reproduced += 1
-        elif kind == "native_bundle" and cid.endswith("duplicate-json-key"):
-            # the exit-2 malformed contract for a duplicate JSON key, reproduced by the Rust strict parser.
-            code, out = _run("strict-parse", str(cdir / "bundle.json"))
-            if not (code == 1 and out.startswith("REJECT")):
-                failures.append(f"corpus {cid}: dup-key should REJECT, got {out}/exit{code}")
+        elif kind == "native_bundle":
+            # The Rust verify-bundle reproduces the exit-code contract on the signature + RFC 6962 merkle
+            # + relying-party root/tree-size surface. Cases whose DECIDING check is the sd_jwt_vc block or an
+            # external anchor need the not-yet-built sd-jwt / anchor slices and are honestly skipped.
+            if any(t in cid for t in ("sd-jwt", "anchor", "graft")):
+                skipped.append(cid)
+                continue
+            args = case.get("verifyArgs") or []
+            code, _ = _run("verify-bundle", str(cdir / "bundle.json"), *args)
+            want = expected.get("exitCode")
+            if code != want:
+                failures.append(f"corpus {cid}: verify-bundle exit {code} != expected {want}")
             reproduced += 1
 
     if failures:
@@ -130,8 +138,10 @@ def main() -> int:
         for f in failures:
             print("  -", f)
         return 1
+    total = len(manifest.get("cases", []))
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle agree; "
-          f"{reproduced} conformance-corpus case(s) reproduced independently")
+          f"{reproduced}/{total} conformance-corpus case(s) reproduced independently "
+          f"({len(skipped)} skipped — need the pending sd-jwt/anchor slices: {', '.join(skipped)})")
     return 0
 
 
