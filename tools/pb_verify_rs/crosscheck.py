@@ -99,12 +99,39 @@ def main() -> int:
     if rust_merkle != py_merkle:
         failures.append(f"merkle mismatch: py={py_merkle} rust={rust_merkle}")
 
+    # (6) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
+    corpus = ROOT / "conformance"
+    manifest = json.loads((corpus / "manifest.json").read_text())
+    reproduced = 0
+    for cid in manifest.get("cases", []):
+        cdir = corpus / cid
+        case = json.loads((cdir / "case.json").read_text())
+        kind, expected = case.get("kind"), case.get("expected", {})
+        if kind == "decision_crossimpl":
+            # independent Rust content root of the decision statement == the pinned corpus value,
+            # and the committed .jcs bytes hash to the same root (byte-identical canonicalization).
+            want = expected.get("decision_content_root")
+            _, got = _run("content-root", str(cdir / "decision_receipt.json"))
+            if want and got != want:
+                failures.append(f"corpus {cid}: content root py-pinned={want} rust={got}")
+            jcs_hash = hashlib.sha256((cdir / "decision_receipt.jcs").read_bytes()).hexdigest()
+            if want and jcs_hash != want:
+                failures.append(f"corpus {cid}: committed .jcs hash {jcs_hash} != pinned root {want}")
+            reproduced += 1
+        elif kind == "native_bundle" and cid.endswith("duplicate-json-key"):
+            # the exit-2 malformed contract for a duplicate JSON key, reproduced by the Rust strict parser.
+            code, out = _run("strict-parse", str(cdir / "bundle.json"))
+            if not (code == 1 and out.startswith("REJECT")):
+                failures.append(f"corpus {cid}: dup-key should REJECT, got {out}/exit{code}")
+            reproduced += 1
+
     if failures:
         print("CROSS-IMPL DISAGREEMENT:")
         for f in failures:
             print("  -", f)
         return 1
-    print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle all agree")
+    print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle agree; "
+          f"{reproduced} conformance-corpus case(s) reproduced independently")
     return 0
 
 

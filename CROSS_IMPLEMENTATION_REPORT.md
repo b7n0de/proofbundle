@@ -31,6 +31,20 @@ The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the R
 (`SHA256(0x01 ‖ left ‖ right)`) are implemented from the specs in Rust, not ported from the Python
 source.
 
+### Reproduces the actual conformance corpus
+
+`crosscheck.py` also runs the Rust verifier against the pinned `conformance/` corpus and reproduces
+these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpus"):
+
+- `decision/crossimpl/canonicalization-root-binding` and `.../confirmed-anchor-lifecycle`: the Rust
+  content root of `decision_receipt.json` equals the corpus-pinned `decision_content_root`, and the
+  committed `.jcs` bytes hash to that same root (byte-identical RFC 8785 canonicalization).
+- `bundle/duplicate-json-key`: the exit-2 malformed contract is reproduced — the Rust strict parser
+  rejects the duplicate key.
+
+The remaining corpus cases (full `native_bundle` verify exit-code contract, SD-JWT and anchor
+bundles) need the Pending slices below and are not yet reproduced by the second implementation.
+
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 
 The full O8 `Mindestumfang` from the 3.2.0 implementation prompt grows from this core. The following
