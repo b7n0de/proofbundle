@@ -119,7 +119,7 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
                     "broken (a run was dropped or reordered, fail-closed)")
         prev_result = _digest_hex(run.get("resultDigest"))
 
-    if budget_ok and len(runs) > budget:
+    if budget_ok and isinstance(budget, int) and len(runs) > budget:
         errors.append(f"runs ({len(runs)}) exceed the declared runBudget ({budget})")
 
     sel = predicate.get("selectedSeq")

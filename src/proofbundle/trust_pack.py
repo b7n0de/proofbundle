@@ -22,7 +22,7 @@ import base64
 import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
@@ -47,11 +47,11 @@ class TrustPackError(ProofBundleError):
     """A Trust Pack predicate is malformed (fail-closed)."""
 
 
-def _is_digest(obj: Any) -> bool:
+def _is_digest(obj: Any) -> TypeGuard[dict]:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
-def _is_int(v: Any) -> bool:
+def _is_int(v: Any) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
@@ -174,7 +174,7 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
                 errs.append(f"keyId {k!r} is not present in keys")
     if not (_is_int(th) and th >= 1):
         errs.append("threshold must be an integer >= 1")
-    elif isinstance(kids, list) and th > len(kids):
+    elif isinstance(kids, list) and isinstance(th, int) and th > len(kids):
         errs.append(f"threshold ({th}) exceeds the number of keyIds ({len(kids)})")
     # dead-on-arrival: after removing revoked keys the role can never meet threshold.
     if isinstance(kids, list) and _is_int(th) and th >= 1:
@@ -327,7 +327,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             continue
         kid = entry.get("keyid")
         raw = entry.get("sig")
-        if kid not in root_ids or not isinstance(raw, str):
+        if not isinstance(kid, str) or kid not in root_ids or not isinstance(raw, str):
             continue
         try:
             pub = base64.b64decode(keys[kid]["publicKey"], validate=True)
@@ -381,7 +381,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 continue
             kid = entry.get("keyid")
             raw = entry.get("sig")
-            if kid not in old_keys or not isinstance(raw, str):
+            if not isinstance(kid, str) or kid not in old_keys or not isinstance(raw, str):
                 continue
             _pk = old_keys[kid]
             _pk = _pk.get("publicKey") if isinstance(_pk, dict) else _pk
