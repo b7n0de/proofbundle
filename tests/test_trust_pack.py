@@ -315,6 +315,75 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         self.assertTrue(any("rotation authorization was NOT verified" in w for w in r["warnings"]), r["warnings"])
 
 
+class TestTrustPackAttackSimulator(unittest.TestCase):
+    """Multi-step attack SEQUENCES (python-tuf RepositorySimulator style) — the suite otherwise has only
+    single static negatives. A relying party tracks (prev_version, prev_root) across steps; these exercise
+    rotation lifecycles, rollback-after-acceptance, and fast-forward-jump-then-recovery."""
+
+    @staticmethod
+    def _digest(version: int) -> str:
+        import hashlib
+        return hashlib.sha256(f"pack-v{version}".encode()).hexdigest()
+
+    def _issue(self, prefix: str, version: int, *, prev_version: int | None = None):
+        pred, sks = _pack(prefix, threshold=2, version=version)
+        if prev_version is not None:
+            pred["prevVersionDigest"] = {"sha256": self._digest(prev_version)}
+        return pred, sks
+
+    @staticmethod
+    def _old_root_keys(old_pred: dict) -> dict:
+        return {kid: kv["publicKey"] for kid, kv in old_pred["keys"].items()}
+
+    def _rotate_env(self, new_pred: dict, new_sks: dict, old_prefix: str, old_sks: dict):
+        # sign with a threshold of the NEW root, then have a threshold of the OLD root vouch
+        news = list(new_sks)
+        env = sign_trust_pack(new_pred, {news[0]: new_sks[news[0]], news[1]: new_sks[news[1]]})
+        for i in range(2):
+            _external_sign(env, f"{old_prefix}-{i}", old_sks[f"{old_prefix}-{i}"])
+        return env
+
+    def test_rotation_lifecycle_verifies_at_every_step(self):
+        p3, s3 = self._issue("s3v3", 3)
+        p4, s4 = self._issue("s3v4", 4, prev_version=3)
+        env4 = self._rotate_env(p4, s4, "s3v3", s3)
+        r4 = verify_trust_pack(env4, strict=True, now=_NOW, prev_version=3,
+                               prev_version_digest=self._digest(3),
+                               prev_root_keys=self._old_root_keys(p3), prev_root_threshold=2)
+        self.assertTrue(r4["ok"], r4)
+        p5, s5 = self._issue("s3v5", 5, prev_version=4)
+        env5 = self._rotate_env(p5, s5, "s3v4", s4)
+        r5 = verify_trust_pack(env5, strict=True, now=_NOW, prev_version=4,
+                               prev_version_digest=self._digest(4),
+                               prev_root_keys=self._old_root_keys(p4), prev_root_threshold=2)
+        self.assertTrue(r5["ok"], r5)
+
+    def test_rollback_after_acceptance_is_rejected(self):
+        # the RP is at v4; an attacker replays the older v3 → version_monotone fails against prev_version=4
+        p3, s3 = self._issue("rbv3", 3)
+        env3 = sign_trust_pack(p3, {"rbv3-0": s3["rbv3-0"], "rbv3-1": s3["rbv3-1"]})
+        r = verify_trust_pack(env3, strict=True, now=_NOW, prev_version=4)
+        self.assertFalse(r["version_monotone"])
+        self.assertFalse(r["ok"])
+
+    def test_fast_forward_jump_rejected_then_legit_recovers(self):
+        # attacker mints a v100 with self-owned keys (no old-root vouch) → rejected; the legit v4 (old-root
+        # vouched, prev_version=3) is then still accepted — the RP is not poisoned into being stuck.
+        p3, s3 = self._issue("ffv3", 3)
+        pj, sj = self._issue("ffjump", 100, prev_version=3)
+        envj = sign_trust_pack(pj, {"ffjump-0": sj["ffjump-0"], "ffjump-1": sj["ffjump-1"]})
+        rj = verify_trust_pack(envj, strict=True, now=_NOW, prev_version=3,
+                               prev_version_digest=self._digest(3),
+                               prev_root_keys=self._old_root_keys(p3), prev_root_threshold=2)
+        self.assertFalse(rj["ok"])   # rotation not authorized by the old root
+        p4, s4 = self._issue("ffv4", 4, prev_version=3)
+        env4 = self._rotate_env(p4, s4, "ffv3", s3)
+        r4 = verify_trust_pack(env4, strict=True, now=_NOW, prev_version=3,
+                               prev_version_digest=self._digest(3),
+                               prev_root_keys=self._old_root_keys(p3), prev_root_threshold=2)
+        self.assertTrue(r4["ok"], r4)
+
+
 class TestTrustPackSecurityGaps(unittest.TestCase):
     """Coverage-driven security gaps (fail-open guards that were untested)."""
 
