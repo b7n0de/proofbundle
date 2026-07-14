@@ -76,7 +76,7 @@ jobs:
       - name: Coverage with a --fail-under ratchet floor
         run: |
           python -m coverage run --source=src/proofbundle -m pytest -q
-          python -m coverage report -m --fail-under=82
+          python -m coverage report -m --fail-under=83
 
   crypto-floor:
     # v1.7: prove the declared dependency FLOOR actually works, not just the latest. `cryptography`
