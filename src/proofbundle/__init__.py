@@ -47,6 +47,9 @@ __all__ = [
     "beacon_audit_challenge",
     "canonicalize_statement",
     "statement_content_root",
+    "resolve_hash_alg",
+    "compute_dual_hash",
+    "verify_dual_hash",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -75,6 +78,9 @@ _LAZY = {
     "beacon_audit_challenge": ".beacon",
     "canonicalize_statement": ".canonical",
     "statement_content_root": ".canonical",
+    "resolve_hash_alg": ".hashalg",
+    "compute_dual_hash": ".hashalg",
+    "verify_dual_hash": ".hashalg",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -88,6 +94,7 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
                             verify_sample_opening)
     from .beacon import beacon_audit_challenge
     from .canonical import canonicalize_statement, statement_content_root
+    from .hashalg import compute_dual_hash, resolve_hash_alg, verify_dual_hash
     from .prereg import prereg_hash, verify_prereg
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
