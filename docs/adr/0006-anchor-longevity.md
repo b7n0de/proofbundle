@@ -1,6 +1,7 @@
 # ADR 0006: Anchor longevity — keep OTS/Bitcoin, add standard-anchored renewal + hash-agility
 
-Status: PROPOSED (EXPERIMENTAL, gated on Owner-GO for the renewal implementation B3–B5)
+Status: ACCEPTED (EXPERIMENTAL). B1–B6 implemented under Owner-GO
+`GO_OWNER_ANCHOR_LONGEVITY_RENEWAL_NO_RELEASE`; no public anchor submission without a separate human GO.
 Date: 2026-07-14
 Supersedes/relates: builds on the anchor stack in BASELINE_ANCHOR.md; time-anchor choice decided in
 `proofbundle_zeitanker_entscheidung_6linsen_20260714.md`.
@@ -72,6 +73,19 @@ age*. BASELINE_ANCHOR.md verifies the gap: there is no renewal chain and no docu
   path (EXPERIMENTAL/roadmap) until the code exists — never as a shipped feature, and never as
   `quantum-safe`, `tamper-proof`, or a compliance guarantee. A PASS attests authorship, integrity,
   existence and a point in time — never the truth of the statement nor completeness.
+
+## Implementation status (honest — built vs OPEN)
+
+| Block | Module | State |
+|---|---|---|
+| B2 hash-agility | `hashalg.py` | BUILT — registry + fail-closed resolve + dual-hash; 14 tests |
+| B6 evidence pack | `evidence_pack.py` | BUILT (mechanism) — self-contained classifier + offline verify (no socket); a REAL confirmed-receipt pack is OPEN (calendar submit + Bitcoin confirmation = human-gated) |
+| B3 renewal chain | `renewal.py` | BUILT — ArchiveTimeStampSequence, two-stage verifies offline; 8 regressions. ASN.1/XMLERS export OPEN (needs an offline reference validator for the differential) |
+| B4 renewal policy | `renewal.py` | BUILT — `RenewalPolicy`, watch-only-last-ATS, no network; example policy + tests |
+| B5 PQ path | `pqsig.py` | BUILT — ML-DSA (FIPS 204) real + hybrid Ed25519+ML-DSA; SLH-DSA (FIPS 205) OPEN (`PQUnavailable`, not in this build); LMS/XMSS out of scope |
+
+OPEN items are tracked honestly and never reported as shipped. None is on the default verify path; all
+new surfaces are EXPERIMENTAL and fail-closed.
 
 ## Owner-GO gate
 
