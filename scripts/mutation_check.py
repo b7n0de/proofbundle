@@ -248,9 +248,9 @@ MUTATIONS = [
      "renewal: F2 future-dated ATS guard disabled (never overdue)", True),
     # R1 — forcing the hash-strength check green ignores require_current_hash on a deprecated newest hash.
     ("src/proofbundle/renewal.py",
-     "        hash_ok = not (newest_dep and require_current_hash)",
+     "        hash_ok = newest_current if require_current_hash else True",
      "        hash_ok = True",
-     "renewal: R1 require_current_hash floor disabled (deprecated newest passes)", True),
+     "renewal: R1 require_current_hash floor disabled (deprecated/unknown newest passes)", True),
     # R2 — dropping the version>1 chain requirement re-opens the version-2-genesis rotation bypass.
     ("src/proofbundle/trust_pack.py",
      "    if _is_int(ver) and ver >= 2 and pv is None:",

@@ -1,0 +1,21 @@
+{
+  "suite": "mldsa_acvp",
+  "note": "NOT a verbatim vendor. mldsa_sigver_slice.json is a HAND-EXTRACTED compact subset of the NIST ACVP ML-DSA sigVer (FIPS 204) internalProjection.json test vectors, restricted to the 3 vectors (1 per parameter set: ML-DSA-44/65/87) whose testGroup has signatureInterface=external, preHash=pure, AND whose own context field is the empty string. That is the ONLY combination proofbundle.pqsig.verify_mldsa(pubkey, sig, message) can exercise, because it wraps the cryptography library's pure-external ML-DSA verify with an implicit empty context and takes no context/preHash/internal-interface argument. The other 177 vectors in the 12-group / 180-test source file (non-empty context, preHash groups, and the 6 'internal' interface groups) are honestly out of scope for this API and are NOT represented here — see tests/test_mldsa_acvp_vectors.py module docstring.",
+  "files": [
+    {
+      "filename": "mldsa_sigver_slice.json",
+      "sha256": "5178296d381a4c4a36d4419cd7c2ece7f6f6f01449561a82bd1ef773ea2f8aed",
+      "derivation": "hand-extracted (tgId,tcId) in [(1,12),(3,35),(5,62)] from the two source files below; every field copied verbatim from the source JSON (no re-encoding of pk/message/signature/context hex)",
+      "source_url": "https://github.com/usnistgov/ACVP-Server/blob/112690e8484dba7077709a05b1f3af58ddefdd5d/gen-val/json-files/ML-DSA-sigVer-FIPS204/internalProjection.json",
+      "source_ref_or_commit": "112690e8484dba7077709a05b1f3af58ddefdd5d",
+      "source_sha256_of_full_upstream_file": "85827fd9f058d617b956301d342f2792d66ff188987ccce87f014f0bdb282457",
+      "cross_validated_against": {
+        "url": "https://github.com/usnistgov/ACVP-Server/blob/112690e8484dba7077709a05b1f3af58ddefdd5d/gen-val/json-files/ML-DSA-sigVer-FIPS204/expectedResults.json",
+        "purpose": "independent tcId->testPassed answer key; the 3 extracted vectors' testPassed values were confirmed to match between internalProjection.json and expectedResults.json before extraction",
+        "sha256_of_full_upstream_file": "33e0ea7dd9c3b0206712da50286ad746864371433977225ab77e8aae76358842"
+      },
+      "fetched": "2026-07-14",
+      "license": "NIST ACVP-Server test vectors (US Government work, no repository LICENSE file asserting additional restrictions; NIST material is customarily treated as public-domain / freely reusable for conformance testing)"
+    }
+  ]
+}

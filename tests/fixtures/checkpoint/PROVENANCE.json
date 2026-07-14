@@ -1,0 +1,39 @@
+{
+  "suite": "checkpoint",
+  "note": "Two real C2SP tlog-checkpoint (signed-note) KATs from two independent, currently-operating production transparency logs (Go checksum database, Sigstore Rekor v2), plus the two sources their verification (Ed25519) public keys are derived from. The vkey for each log is DERIVED in the test from the vendored key-material file below via proofbundle.checkpoint.key_id()/vkey() -- never hand-typed as a magic string -- and the derivation is itself proven correct because it makes verify_checkpoint() return ok=True against the real signed note.",
+  "files": [
+    {
+      "filename": "sumdb_latest.txt",
+      "sha256": "25cb05f8d6e82c50bde2e9bd2e51d5bf079bdccf0e37cb6252a5cfb868f047d3",
+      "source_url": "https://sum.golang.org/latest",
+      "source_ref_or_commit": "live HTTPS GET of the Go checksum database's current signed note (tree size 57389448); not a git ref, it is a frozen snapshot of a production, append-only transparency log",
+      "fetched": "2026-07-14",
+      "license": "Go module checksum database output (Google, part of the golang.org toolchain infrastructure); the signed note itself is public verification data, not source code"
+    },
+    {
+      "filename": "gosumdb_known_keys.go",
+      "sha256": "f692a48e918dfd0647cb8b660a706dd14e44b5ad75d490a2d242b8a4b990178e",
+      "source_url": "https://github.com/golang/go/blob/3cf1d770809453fed8754cf3ddf4028cdd7716fe/src/cmd/go/internal/modfetch/key.go",
+      "source_ref_or_commit": "3cf1d770809453fed8754cf3ddf4028cdd7716fe",
+      "fetched": "2026-07-14",
+      "license": "BSD-3-Clause (Go source, per file header + repository LICENSE)",
+      "note": "carries the well-known public vkey string 'sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD8OuAn8' that the Go toolchain itself trusts to verify sum.golang.org. Used directly (not re-derived from raw key bytes, since the vkey IS the canonical distribution format for this key) to verify sumdb_latest.txt; empirically confirmed to return ok=True."
+    },
+    {
+      "filename": "rekor_v2_checkpoint.txt",
+      "sha256": "edcf449580de5add142457f7d6e1842b726b61b5214cecebad90ac78e7d55f9d",
+      "source_url": "https://log2025-1.rekor.sigstore.dev/api/v2/checkpoint",
+      "source_ref_or_commit": "live HTTPS GET of the Sigstore Rekor v2 (log2025-1) transparency log's current signed checkpoint (tree size 22578297); a frozen snapshot of a production log, not a git ref",
+      "fetched": "2026-07-14",
+      "license": "Sigstore Rekor transparency-log output (Linux Foundation / sigstore project, Apache-2.0); the checkpoint itself is public verification data"
+    },
+    {
+      "filename": "trusted_root.json",
+      "sha256": "6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66",
+      "source_url": "https://github.com/sigstore/root-signing (public Sigstore trust root; distributed to clients via TUF at https://tuf-repo-cdn.sigstore.dev, content-addressed by hash so not directly linkable by path)",
+      "source_ref_or_commit": "sigstore/root-signing published trusted_root.json (mediaType application/vnd.dev.sigstore.trustedroot+json;version=0.1); the log2025-1.rekor.sigstore.dev Ed25519 tlog key it carries (keyDetails PKIX_ED25519, rawBytes MCowBQYDK2VwAyEAt8rlp1knGwjfbcXAYPYAkn0XiLz1x8O4t0YkEhie244=) was cryptographically confirmed here to verify the real, independently-fetched rekor_v2_checkpoint.txt (computed C2SP note keyID cf119915 matches the signature line's keyID; verify_checkpoint() returns ok=True)",
+      "fetched": "2026-07-14",
+      "license": "Apache-2.0 (sigstore/root-signing repository license)"
+    }
+  ]
+}

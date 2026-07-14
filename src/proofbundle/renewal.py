@@ -454,16 +454,22 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
 
     # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
     # must never be hidden behind .ok — surface it as a check, and fail closed when require_current_hash.
+    # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
+    # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
     newest_dep = _is_deprecated_hash(newest.hash_alg)
+    _spec = HASH_REGISTRY.get(newest.hash_alg)
+    newest_current = _spec is not None and _spec.status == "current"
     if newest_dep or require_current_hash:
-        hash_ok = not (newest_dep and require_current_hash)
-        if newest_dep and require_current_hash:
-            hash_detail = f"newest ATS hash {newest.hash_alg!r} is deprecated (require_current_hash, fail-closed)"
-        elif newest_dep:
-            hash_detail = (f"newest ATS hash {newest.hash_alg!r} is deprecated — .ok reflects structure, not "
-                           "hash strength; call evaluate_renewal_policy or pass require_current_hash=True to reject")
-        else:
+        hash_ok = newest_current if require_current_hash else True
+        if newest_dep:
+            hash_detail = (f"newest ATS hash {newest.hash_alg!r} is deprecated"
+                           + (" (require_current_hash, fail-closed)" if require_current_hash
+                              else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
+                                   "or pass require_current_hash=True to reject"))
+        elif newest_current:
             hash_detail = f"newest ATS hash {newest.hash_alg!r} is current"
+        else:
+            hash_detail = f"newest ATS hash {newest.hash_alg!r} is not a known current hash (require_current_hash)"
         result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 

@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-07-14
+
+Anchor-longevity hardening release. A six-lens plus red-team audit of the 3.2.0 anchor modules
+(EXPERIMENTAL) found the core cryptographic verify paths solid: every direct forgery attempt was
+repelled. This release closes a cluster of defense-in-depth gaps in non-default, incomplete-caller
+and weak-input cases. Additive only; no wire-format change and no change to a correct 3.2.0 caller's
+result.
+
+### Security and correctness (fail-closed hardening)
+
+- **`require_pq` is a verified-PQ floor, not a label.** `renewal.verify_sequence(..., require_pq=True)`
+  now passes only when the newest ArchiveTimeStamp's post-quantum signature was actually verified
+  (authority-key mode). A post-quantum label on `sig_alg` under an `anchor_verifier` or unauthenticated
+  anchor no longer satisfies the floor, because a label is not verification.
+- **Future-dated ArchiveTimeStamp flagged.** `evaluate_renewal_policy` reports a newest ATS whose time
+  is in the future as anomalous rather than perpetually fresh (its age went negative, which could
+  otherwise evade the renewal-due signal).
+- **Hash-strength surfaced.** `verify_sequence` emits a `renewal:current_hash` check when the newest ATS
+  uses a deprecated hash, so `.ok` never hides it, and fails closed under the new `require_current_hash=True`.
+- **Trust-pack version chain enforced.** A `version > 1` pack with a null `prevVersionDigest` (a
+  "version-2 genesis") is rejected at validate time; it previously skipped two-stage rotation authorization.
+- **Trust-pack expiry parses fractional seconds.** A validator-legal RFC-3339 `expires` with fractional
+  seconds is now parsed correctly; a valid future expiry with a fraction was read as expired (a
+  false-closed availability bug from a regex/parser divergence).
+
+### Conformance
+
+- **SD-JWT recursive disclosures (RFC 9901).** `verify_sd_jwt` resolves nested `_sd` digests committed
+  inside a parent disclosure's value via a fixpoint, so valid official recursive-disclosure vectors no
+  longer fail `structure_ok`. Security is unchanged: every disclosure must still be transitively rooted
+  in the issuer-signed payload.
+
+### Tests
+
+- New `tests/test_anchor_hardening_321.py` pins each finding red to green; trust-pack version-chain and
+  fractional-seconds tests; five new mutation operators in `scripts/mutation_check.py` (55 operators, 0 gaps).
+- Vendored external-vector test suites, each fixture provenance-pinned (source URL + commit + sha256) and
+  cryptographically self-verified rather than merely copied: NIST ACVP ML-DSA (FIPS 204) sigVer vectors
+  cross-checked against the official answer key (the `verify_mldsa` external/pure/empty-context surface is 3
+  vectors per parameter set, an honest property of the source data); real OpenTimestamps fixtures from the
+  opentimestamps examples (pending path unconditional; the confirmed Bitcoin-anchored path skips where the
+  OpenSSL legacy `ripemd160` provider is unavailable); C2SP signed-note checkpoint KATs (sum.golang.org vkey
+  read from the pinned Go toolchain source, Rekor v2 key decoded from Sigstore's trusted root); SD-JWT-VC
+  structure vectors from the OAuth-WG editor's copy (signature verification stays EdDSA-only by design).
+
 ## [3.2.0] - 2026-07-14
 
 The eval → decision → **outcome** chain, plus a trust root and transparency/credential layers. Everything in
