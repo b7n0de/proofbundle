@@ -107,5 +107,28 @@ class TestSdJwtAdversarial(unittest.TestCase):
         self.assertFalse(res["structure_ok"])
 
 
+    def test_duplicate_key_in_disclosure_rejected(self):
+        # F12 parser-differential: a disclosure whose JSON value carries a DUPLICATE key must be rejected
+        # (loads_strict), not last-wins-parsed. A recently-shipped security fix that had no test.
+        forged = base64.urlsafe_b64encode(b'["c2FsdA", "claim", {"k": 1, "k": 2}]').rstrip(b"=").decode()
+        parts = self.compact.split("~")
+        parts.insert(1, forged)
+        res = verify_sd_jwt("~".join(parts), self.pubkey)
+        self.assertFalse(res["structure_ok"])
+        self.assertIn("duplicate", res["detail"].lower())
+
+    def test_sd_alg_downgrade_rejected(self):
+        # an issuer payload _sd_alg of a weak/unknown hash (md5) must be rejected — a downgrade would let an
+        # attacker-chosen weak hash bind the disclosures.
+        payload = json.loads(_b64url_decode(self.payload_b64))
+        payload["_sd_alg"] = "md5"
+        p2 = _b64url(payload)
+        jwt = f"{self.header_b64}.{p2}.{self.sig_b64}"
+        compact = f"{jwt}~{self.rest}" if self.rest else jwt
+        res = verify_sd_jwt(compact, self.pubkey)
+        self.assertFalse(res["structure_ok"])
+        self.assertIn("_sd_alg", res["detail"])
+
+
 if __name__ == "__main__":
     unittest.main()
