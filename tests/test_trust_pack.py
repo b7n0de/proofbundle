@@ -315,5 +315,47 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
         self.assertTrue(any("rotation authorization was NOT verified" in w for w in r["warnings"]), r["warnings"])
 
 
+class TestTrustPackSecurityGaps(unittest.TestCase):
+    """Coverage-driven security gaps (fail-open guards that were untested)."""
+
+    def test_duplicate_root_signature_cannot_inflate_threshold(self):
+        # threshold=2 root, but only ONE key signs; duplicating that signature entry must NOT count twice
+        # (dedup by key material) — else a single-key holder forges a 2-of-N threshold.
+        pred, sks = _fixture(threshold=2)
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
+        env["signatures"].append(dict(env["signatures"][0]))   # replay the same entry
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertFalse(r["root_threshold_met"])
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["root_signers"], ["root-0"])
+
+    def test_non_dict_and_bad_b64_signature_entries_are_skipped_not_crash(self):
+        pred, sks = _fixture(threshold=1)
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
+        env["signatures"] = ["not-a-dict", {"keyid": "root-0", "sig": "!!not-b64!!"},
+                             *env["signatures"]]
+        r = verify_trust_pack(env, strict=True, now=_NOW)   # must not raise
+        self.assertTrue(r["root_threshold_met"])            # the one real signature still counts
+        self.assertTrue(r["ok"], r)
+
+    def test_fractional_seconds_expires_fails_closed(self):
+        # a validator-legal RFC3339 expires with fractional seconds is not strptime-parseable → fail closed
+        # (never silently 'not expired'); pins the safe direction of a validator/verifier inconsistency.
+        pred, sks = _fixture(threshold=1, expires="2099-01-01T00:00:00.5Z")
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertFalse(r["not_expired"])
+        self.assertFalse(r["ok"])
+
+    def test_revoked_key_does_not_count_toward_threshold(self):
+        # a revoked root key's signature must not count — pins the revocation fail-closed at verify time.
+        # Revoke root-1 (NOT the sole outcomeExecutor root-0, so that role stays meetable) and sign with it.
+        pred, sks = _fixture(threshold=1, revoked=["root-1"])
+        env = sign_trust_pack(pred, {"root-1": sks["root-1"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertFalse(r["root_threshold_met"])
+        self.assertFalse(r["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
