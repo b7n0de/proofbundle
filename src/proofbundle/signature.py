@@ -20,6 +20,8 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     the 64 byte raw signature. Any malformed input returns False rather than
     raising, so callers get a boolean per check.
     """
+    if not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray)):
+        return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract)
     if len(public_key) != 32 or len(signature) != 64:
         return False
     try:

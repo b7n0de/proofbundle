@@ -23,12 +23,17 @@ missing / unknown / deprecated algorithm — a renewal never introduces a weak h
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Optional
 
 from .errors import Check, ProofBundleError, VerificationResult
-from .hashalg import compute_digest, resolve_hash_alg
+from .hashalg import HashAlgError, compute_digest, resolve_hash_alg
+
+# A digest is lowercase hex — this excludes the _SEP separator, closing the delimiter-injection where a
+# single crafted string equal to _SEP.join(real_digests) would hash identically to the multi-object set.
+_HEXRE = re.compile(r"\A[0-9a-f]+\Z")
 
 __all__ = [
     "ArchiveTimeStamp",
@@ -68,18 +73,30 @@ class ArchiveTimeStamp:
         return f"{self.hash_alg}:{self.covered_digest}:{self.time}"
 
 
-def _cover_data(data_digests: Sequence[str], hash_alg: str) -> str:
+def _validate_digests(data_digests: Sequence[str]) -> None:
+    """Fail closed unless every data digest is lowercase hex — this excludes the ``_SEP`` separator, so a
+    single crafted string cannot masquerade as ``_SEP.join`` of several real digests (set/cardinality
+    confusion). A sha256/sha512/sha3 digest is always lowercase hex."""
+    for d in data_digests:
+        if not (isinstance(d, str) and _HEXRE.match(d)):
+            raise RenewalError(
+                f"data digest must be a non-empty lowercase-hex string (no separators), got {d!r}")
+
+
+def _cover_data(data_digests: Sequence[str], hash_alg: str, *, allow_deprecated: bool = False) -> str:
     """Hash-tree root over the DATA objects (order-independent: sorted) under ``hash_alg``."""
+    _validate_digests(data_digests)
     payload = _SEP.join(sorted(data_digests)).encode()
-    return compute_digest(payload, hash_alg)
+    return compute_digest(payload, hash_alg, allow_deprecated=allow_deprecated)
 
 
 def _cover_prior_and_data(prior: Sequence[ArchiveTimeStamp], data_digests: Sequence[str],
-                          hash_alg: str) -> str:
+                          hash_alg: str, *, allow_deprecated: bool = False) -> str:
     """Hash-tree root over ALL prior ATS (in time order) PLUS the data objects, under ``hash_alg`` — the
     covered digest of a hash-tree-renewal ATS (RFC 4998: a new chain covers everything before it)."""
+    _validate_digests(data_digests)
     items = [a.token() for a in prior] + sorted(data_digests)
-    return compute_digest(_SEP.join(items).encode(), hash_alg)
+    return compute_digest(_SEP.join(items).encode(), hash_alg, allow_deprecated=allow_deprecated)
 
 
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
@@ -163,6 +180,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         ATS covers all-prior-ATS + the data objects (``break_in_sequence_fails``);
       * the covered data recomputes from ``data_digests`` (``tamper_after_renewal_fails``);
       * the newest ATS has a confirmed anchor (``anchor_verifier``; default: anchor_status == confirmed).
+
+    SECURITY — ``anchor_verifier``: the DEFAULT only checks the bare ``anchor_status`` string, which is
+    NOT cryptographically bound (it is deliberately excluded from ``token()``, so no hash in the chain
+    covers it — anyone who can construct/edit the sequence JSON can set it to "confirmed"). The default is
+    a STRUCTURAL check only. For real trust a caller MUST pass an ``anchor_verifier`` that verifies each
+    ATS against an actual external time-anchor proof (e.g. an RFC-3161 token or an OTS proof via
+    ``anchors_ots.verify_opentimestamps``). Treat a PASS under the default anchor_verifier as
+    "structurally consistent", never as "cryptographically anchored".
     """
     result = VerificationResult()
     verify_anchor = anchor_verifier or (lambda a: a.anchor_status == _CONFIRMED)
@@ -178,16 +203,20 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                                "ATS strictly ascending by time" if ordered
                                else f"ATS not strictly ascending: {times}"))
 
-    # 2) each ATS uses a resolvable current hash algorithm
+    # 2) each ATS uses a KNOWN hash algorithm. A now-DEPRECATED algorithm is TOLERATED here: the whole
+    #    point of renewal is that a hash-tree-renewed sequence survives the ageing of an algorithm it once
+    #    used — verifying a historical chain must not crash or hard-fail just because its (superseded) hash
+    #    later became deprecated (the renewal POLICY, evaluate_renewal_policy, is what flags a deprecated
+    #    NEWEST ATS as overdue). Only an UNKNOWN/absent algorithm — which cannot be computed at all — fails.
     algs_ok = True
     for a in flat:
         try:
-            resolve_hash_alg(a.hash_alg)
-        except ProofBundleError as exc:
+            resolve_hash_alg(a.hash_alg, allow_deprecated=True)
+        except HashAlgError as exc:
             algs_ok = False
             result.checks.append(Check(f"renewal:hashalg:{a.hash_alg}", False, str(exc)))
     if algs_ok:
-        result.checks.append(Check("renewal:hashalg", True, "all ATS use a current hash algorithm"))
+        result.checks.append(Check("renewal:hashalg", True, "all ATS use a known hash algorithm"))
 
     # 3) covering: walk each chain; the first ATS of chain 0 covers the data, the first ATS of every
     #    later chain covers (all ATS before it) + data, and each subsequent ATS in a chain covers the
@@ -196,13 +225,25 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     covering_ok = True
     for ci, chain in enumerate(sequence):
         for ai, a in enumerate(chain):
-            if ai == 0 and ci == 0:
-                expect = _cover_data(data_digests, a.hash_alg)
-            elif ai == 0:
-                expect = _cover_prior_and_data(seen_before, data_digests, a.hash_alg)
-            else:
-                prior = chain[ai - 1]
-                expect = compute_digest(prior.token().encode(), a.hash_alg)
+            try:
+                # allow_deprecated: a historical chain's superseded hash must still recompute (see check 2);
+                # an unknown/absent algorithm raises HashAlgError → this ATS fails closed (no crash).
+                if not (isinstance(a.covered_digest, str) and _HEXRE.match(a.covered_digest)):
+                    raise HashAlgError("covered digest is not lowercase hex")
+                if ai == 0 and ci == 0:
+                    expect = _cover_data(data_digests, a.hash_alg, allow_deprecated=True)
+                elif ai == 0:
+                    expect = _cover_prior_and_data(seen_before, data_digests, a.hash_alg,
+                                                   allow_deprecated=True)
+                else:
+                    prior = chain[ai - 1]
+                    expect = compute_digest(prior.token().encode(), a.hash_alg, allow_deprecated=True)
+            except (HashAlgError, RenewalError) as exc:
+                covering_ok = False
+                result.checks.append(Check(f"renewal:cover:c{ci}a{ai}", False,
+                                           f"covered digest not verifiable: {exc}"))
+                seen_before.append(a)
+                continue
             if a.covered_digest != expect:
                 covering_ok = False
                 result.checks.append(Check(

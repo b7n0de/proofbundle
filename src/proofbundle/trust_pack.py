@@ -254,7 +254,8 @@ def _empty_result() -> dict:
 
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
                       prev_version: int | None = None, prev_version_digest: str | None = None,
-                      prev_root_keys: dict | None = None, prev_root_threshold: int | None = None) -> dict:
+                      prev_root_keys: dict | None = None, prev_root_threshold: int | None = None,
+                      allow_unverified_rotation: bool = False) -> dict:
     """Verify a threshold-signed Trust Pack. Unlike a plain DSSE verify (any-single-sig) this counts DISTINCT
     non-revoked ROOT KEY MATERIAL with a valid signature and requires >= the root threshold.
 
@@ -407,13 +408,22 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
                 f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
-        # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the previous
-        # root role, so two-stage rotation authorization was NOT checked — a standalone verify only proves this
-        # pack is self-signed by its own declared root. Warn so a relying party does not mistake that for an
-        # authorized rotation of a pinned previous pack (release-review footgun mitigation).
-        r["warnings"].append(
-            "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization was NOT "
-            "verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches for it")
+        # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
+        # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:
+        # a v2 minting self-owned keys + a real v1 digest would otherwise pass on its own self-signature
+        # (the exact footgun this predicate defends against). A caller that deliberately wants only a
+        # standalone self-signature check opts out explicitly with allow_unverified_rotation=True.
+        if allow_unverified_rotation:
+            r["warnings"].append(
+                "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
+                "was NOT verified (allow_unverified_rotation=True) — this proves only self-signature by the "
+                "pack's own declared root, NOT that the old root vouches for it")
+        else:
+            r["rotation_authorized"] = False
+            r["errors"].append(
+                "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
+                "was NOT verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches "
+                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)")
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

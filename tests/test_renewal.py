@@ -123,3 +123,48 @@ def test_renewal_never_seeds_a_deprecated_hash() -> None:
         build_initial_sequence(DATA, hash_alg="sha1", time=1000)
     with pytest.raises(Exception):
         renew_hashtree(_initial(), DATA, new_hash_alg="md5", time=2000)
+
+
+# --- audit fix (HIGH): delimiter injection in the data-digest join --------------------------------
+
+def test_data_digest_delimiter_injection_rejected() -> None:
+    # a single crafted string equal to "\n".join(sorted(real_digests)) hashed identically to the real
+    # two-object set before the fix (set/cardinality confusion). Non-hex (contains "\n") is now rejected.
+    forged_single = ["\n".join(sorted(DATA))]
+    with pytest.raises(RenewalError):
+        build_initial_sequence(forged_single, hash_alg="sha256", time=1000)
+    # and a sequence built over the real set must not verify against the forged single-object list
+    seq = _initial()
+    assert not verify_sequence(seq, forged_single).ok
+
+
+def test_non_hex_data_digest_rejected() -> None:
+    for bad in [["not-hex!"], ["AA" * 32], ["a b"], [""], [123]]:  # uppercase/space/empty/non-str
+        with pytest.raises(RenewalError):
+            build_initial_sequence(bad, hash_alg="sha256", time=1000)
+
+
+# --- audit fix (HIGH): a renewed sequence survives deprecation of a historical algorithm ----------
+
+def test_renewed_sequence_survives_algorithm_deprecation() -> None:
+    import dataclasses as _dc
+
+    from proofbundle import hashalg
+    # renew sha256 -> sha512 (hash-tree renewal: the whole point is to survive sha256 ageing)
+    seq = renew_hashtree(_initial(1000), DATA, new_hash_alg="sha512", time=2000)
+    assert verify_sequence(seq, DATA).ok
+    # now sha256 becomes deprecated in the registry — the already-renewed sequence must STILL verify
+    # (newest chain is sha512), not crash with DeprecatedHashAlg
+    orig = hashalg.HASH_REGISTRY["sha256"]
+    hashalg.HASH_REGISTRY["sha256"] = _dc.replace(orig, status="deprecated")
+    try:
+        res = verify_sequence(seq, DATA)  # must not raise
+        assert res.ok, [str(c) for c in res.checks if not c.ok]
+    finally:
+        hashalg.HASH_REGISTRY["sha256"] = orig
+
+
+def test_unknown_algorithm_still_fails_closed() -> None:
+    # tolerance is only for DEPRECATED (known) algorithms — an UNKNOWN algorithm cannot be computed → fail
+    a = ArchiveTimeStamp("sha999", "ab" * 32, 1000)
+    assert not verify_sequence([[a]], DATA).ok

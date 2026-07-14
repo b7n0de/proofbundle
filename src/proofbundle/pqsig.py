@@ -1,7 +1,10 @@
 """B5 post-quantum signature path for the renewal layer (EXPERIMENTAL; ADR 0006).
 
-Hash-based time anchors survive a signature break; a receipt's *signatures* do not. When the renewal
-layer (B3) migrates a receipt forward, it re-signs with a NIST-standardized post-quantum scheme:
+Hash-based time anchors survive a signature break; a receipt's *signatures* do not. The renewal layer's
+(B3) INTENDED target for re-signing a migrated receipt is a NIST-standardized post-quantum scheme — that
+B3↔B5 integration is NOT wired yet (OPEN, ADR 0006): `renewal.py` carries no signature field and never
+calls into this module today. This module provides the standalone PQ verify/sign primitives that the
+integration will use:
 
 * **ML-DSA (FIPS 204)** — the primary renewal target. Real here via ``cryptography``'s ``mldsa``
   (lattice-based). Verification only re-implements nothing: it wraps ``cryptography`` exactly like

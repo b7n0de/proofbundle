@@ -13,6 +13,18 @@ verify paths. Each predicate carries a hand-rolled fail-closed validator (the JS
 and states its non-claims as explicitly as its guarantees. Predicate docs under
 [`docs/predicates/`](docs/predicates/README.md).
 
+### Added — anchor longevity (EXPERIMENTAL, ADR 0006)
+- Long-term evidence mechanics so an anchor keeps its force as algorithms age. All EXPERIMENTAL, additive,
+  fail-closed; new modules ship as independent primitives (the B3↔B5 re-signing integration is not yet wired).
+- `hashalg` — an explicit hash-algorithm registry (RFC 6920 model, RFC 4998 `digestAlgorithm` OIDs) with
+  fail-closed resolution (no implicit SHA-256; deprecated/unknown rejected) and a dual-hash for new receipts.
+- `renewal` — an RFC 4998 `ArchiveTimeStampSequence` (timestamp + hash-tree renewal) with an offline
+  end-to-end verify, plus a `RenewalPolicy` (watch-only-newest, no network). ASN.1/XMLERS export is OPEN.
+- `pqsig` — ML-DSA (FIPS 204) verify/sign + a hybrid Ed25519+ML-DSA verify. SLH-DSA (FIPS 205) is OPEN
+  (`PQUnavailable`).
+- `evidence_pack` — an offline OTS evidence pack (no network at verify); the WP-A1 boundary holds (a bundled
+  header is producer evidence, never trust). A real confirmed-receipt pack is OPEN (needs a calendar submit).
+
 ### Added — `action-outcome/v0.1` predicate (EXPERIMENTAL, O1)
 - A signed record that a specific executor carried out (or refused/failed) the action a Decision Receipt
   permitted, bound by content root to that decision (`decisionRef`), with the requested action and observed
