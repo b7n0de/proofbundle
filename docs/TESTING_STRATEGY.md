@@ -96,9 +96,8 @@ vectors yet, and the NIST ACVP JSONs are large; needs a curated vendored slice +
 **A real `.ots` fixture** — the opentimestamps hello-world.txt.ots uses a ripemd160 op the installed
 `opentimestamps` version rejects on parse (`unsupported hash type ripemd160`); needs a different fixture
 or lib version. **Coverage-guided Atheris/OSS-Fuzz corpus** — needs a native toolchain (`fuzz/` + ClusterFuzzLite).
-**C2SP signed-note KAT** (golang.org/x/mod) + the real Rekor checkpoint signature, **SD-JWT-VC vectors**
-(OAuth-WG examples), and the **statuslist decompression-bomb** (CWE-409, heavy 64 MB construction) remain
-open.
+**C2SP signed-note KAT** (golang.org/x/mod) + the real Rekor checkpoint signature and **SD-JWT-VC vectors**
+(OAuth-WG examples) remain open. (The statuslist decompression-bomb (CWE-409) is now done.)
 
 ## References (SOTA, 2026)
 

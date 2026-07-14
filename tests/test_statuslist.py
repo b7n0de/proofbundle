@@ -115,6 +115,24 @@ class TestStatusList(unittest.TestCase):
         res = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=b"\x00" * 31)
         self.assertFalse(res["ok"])
 
+    def test_red_decompression_bomb_rejected(self):
+        # CWE-409: a validly-SIGNED token whose status_list.lst decompresses beyond the cap must be rejected
+        # (the signature check happens first, so the token is genuinely re-signed to reach the guard).
+        import base64
+        import json
+        import zlib
+
+        from proofbundle.statuslist import _MAX_STATUS_LIST_BYTES
+        h, p, _s = self.token.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        bomb = zlib.compress(b"\x00" * (_MAX_STATUS_LIST_BYTES + 1))   # decompresses just over the cap
+        payload["status_list"]["lst"] = base64.urlsafe_b64encode(bomb).rstrip(b"=").decode()
+        p2 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        sig2 = base64.urlsafe_b64encode(self.signer.sign(f"{h}.{p2}".encode("ascii"))).rstrip(b"=").decode()
+        res = verify_status_snapshot(f"{h}.{p2}.{sig2}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("maximum decompressed size", res["detail"])
+
     def test_red_status_flip_needs_resign(self):
         # Flipping a bit in lst breaks the signature — a snapshot is tamper-evident.
         import base64
