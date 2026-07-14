@@ -110,6 +110,49 @@ if given is not None:
         max_leaves=12,
     )
 
+    # deep-shaped inputs: the plain-text strategy above rarely produces the '.'/'~'/'\n\n' structure a
+    # parser needs to get PAST its initial "not a compact X" gate, so many crypto/decode branches never run.
+    # These strategies build JWT-/note-/vkey-SHAPED inputs so the fuzzer reaches those branches (comparative
+    # audit Gap 1). The invariant is unchanged: a value or a documented error, never an uncaught crash.
+    _b64ish = st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=",
+                      max_size=200)
+    _jwt = st.builds(lambda h, p, s: f"{h}.{p}.{s}", _b64ish, _b64ish, _b64ish)
+    _sdjwt = st.builds(lambda j, d: j + "~" + "~".join(d),
+                       st.builds(lambda h, p, s: f"{h}.{p}.{s}", _b64ish, _b64ish, _b64ish),
+                       st.lists(_b64ish, max_size=4))
+    _note = st.builds(lambda lines, sig: "\n".join(lines) + "\n\n" + sig,
+                      st.lists(_texts, min_size=1, max_size=4), _b64ish)
+    _vkey = st.builds(lambda n, k, m: f"{n}+{k}+{m}", _texts, _b64ish, _b64ish)
+
+    class TestDeepShapedFuzz(unittest.TestCase):
+        @settings(max_examples=400, deadline=None)
+        @given(_jwt)
+        def test_jwt_shaped_status_snapshot(self, token):
+            _must_not_crash(verify_status_snapshot, token, expected_uri="u", index=0,
+                            issuer_pubkey=b"\x00" * 32)
+
+        @settings(max_examples=400, deadline=None)
+        @given(_jwt)
+        def test_jwt_shaped_key_binding(self, token):
+            _must_not_crash(verify_key_binding, token)
+
+        @settings(max_examples=400, deadline=None)
+        @given(_sdjwt)
+        def test_sdjwt_shaped(self, compact):
+            _must_not_crash(verify_sd_jwt, compact)
+
+        @settings(max_examples=400, deadline=None)
+        @given(_note, _vkey)
+        def test_note_and_vkey_shaped_checkpoint(self, note, vkey):
+            _must_not_crash(verify_checkpoint, note, vkey)
+            _must_not_crash(verify_cosignature, note, vkey)
+
+        @settings(max_examples=300, deadline=None)
+        @given(_jwt)
+        def test_jwt_shaped_enclave(self, eat):
+            _must_not_crash(verify_enclave_attestation, eat, verifier_pubkey=b"\x00" * 32,
+                            expected_binding="x")
+
     class TestStructuredVerifyRobustness(unittest.TestCase):
         @settings(max_examples=300, deadline=None)
         @given(st.binary(max_size=64), _json)
