@@ -25,9 +25,12 @@ def _pub(sk) -> str:
     return base64.b64encode(sk.public_key().public_bytes_raw()).decode("ascii")
 
 
-def _fixture(threshold: int = 2, expires: str = "2027-01-01T00:00:00Z", version: int = 3,
+def _fixture(threshold: int = 2, expires: str = "2027-01-01T00:00:00Z", version: int = 1,
              revoked: list | None = None):
-    """Build a pack with 3 root keys + a matching signer map. Returns (predicate, signers)."""
+    """Build a pack with 3 root keys + a matching signer map. Returns (predicate, signers).
+
+    Default is a GENESIS pack (version 1, null prevVersionDigest). A version > 1 pack must chain to a
+    predecessor (fail-closed, No-Fake), so it carries a placeholder prevVersionDigest here."""
     sks = {f"root-{i}": generate_signer() for i in range(3)}
     keys = {kid: {"publicKey": _pub(sk), "scheme": "ed25519"} for kid, sk in sks.items()}
     pred = {
@@ -35,7 +38,7 @@ def _fixture(threshold: int = 2, expires: str = "2027-01-01T00:00:00Z", version:
         "trustPackId": "tp-0001",
         "version": version,
         "expires": expires,
-        "prevVersionDigest": None,
+        "prevVersionDigest": None if version == 1 else {"sha256": "b" * 64},
         "roles": {
             "root": {"keyIds": list(keys), "threshold": threshold},
             "outcomeExecutors": {"keyIds": ["root-0"], "threshold": 1},
@@ -85,6 +88,24 @@ class TestTrustPackValidate(unittest.TestCase):
         pred, _ = _fixture()
         pred["keys"]["root-0"]["publicKey"] = base64.b64encode(b"short").decode()
         self.assertTrue(any("32-byte" in e for e in validate_trust_pack_predicate(pred)))
+
+    def test_genesis_version_1_null_prev_is_valid(self):
+        # only version 1 may declare a null prevVersionDigest (a genuine genesis pack).
+        pred, _ = _fixture(version=1)
+        self.assertEqual(validate_trust_pack_predicate(pred), [])
+
+    def test_version_2_genesis_null_prev_rejected(self):
+        # R2 (3.2.1): a "version-2 genesis" (version > 1 with prevVersionDigest=null) evades two-stage rotation
+        # authorization entirely — verify_trust_pack only enters the rotation-vouch branch for a non-null
+        # prevVersionDigest. Fail-closed at validate time so it can never reach that skip.
+        pred, _ = _fixture(version=2)
+        pred["prevVersionDigest"] = None
+        errs = validate_trust_pack_predicate(pred)
+        self.assertTrue(any("version > 1 requires a non-null prevVersionDigest" in e for e in errs), errs)
+
+    def test_version_2_with_prev_digest_is_valid(self):
+        pred, _ = _fixture(version=2)  # _fixture sets a placeholder prevVersionDigest for version > 1
+        self.assertEqual(validate_trust_pack_predicate(pred), [])
 
 
 class TestTrustPackVerify(unittest.TestCase):
@@ -139,9 +160,11 @@ class TestTrustPackVerify(unittest.TestCase):
         self.assertFalse(r["ok"])
 
     def test_monotone_version_ok(self):
+        # a v4 pack chains to a predecessor (version > 1 requires prevVersionDigest); this unit test isolates
+        # version monotonicity, so it opts out of the separate rotation-authorization check.
         pred, sks = _fixture(threshold=1, version=4)
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
-        r = verify_trust_pack(env, strict=True, now=_NOW, prev_version=3)
+        r = verify_trust_pack(env, strict=True, now=_NOW, prev_version=3, allow_unverified_rotation=True)
         self.assertTrue(r["version_monotone"])
         self.assertTrue(r["ok"], r)
 
@@ -170,13 +193,15 @@ class TestTrustPackVerify(unittest.TestCase):
             sign_trust_pack(pred, {"stranger": generate_signer()})
 
 
-def _pack(prefix: str, *, threshold: int = 2, n: int = 3, version: int = 3):
-    """A pack whose keyIds carry ``prefix`` (so old/new packs don't collide in one envelope)."""
+def _pack(prefix: str, *, threshold: int = 2, n: int = 3, version: int = 1):
+    """A pack whose keyIds carry ``prefix`` (so old/new packs don't collide in one envelope). Genesis by
+    default (version 1); a version > 1 pack carries a placeholder prevVersionDigest (must chain, No-Fake)."""
     sks = {f"{prefix}-{i}": generate_signer() for i in range(n)}
     keys = {kid: {"publicKey": _pub(sk), "scheme": "ed25519"} for kid, sk in sks.items()}
     pred = {
         "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": version,
-        "expires": "2027-01-01T00:00:00Z", "prevVersionDigest": None,
+        "expires": "2027-01-01T00:00:00Z",
+        "prevVersionDigest": None if version == 1 else {"sha256": "b" * 64},
         "roles": {"root": {"keyIds": list(keys), "threshold": threshold},
                   "outcomeExecutors": {"keyIds": [f"{prefix}-0"], "threshold": 1}},
         "keys": keys,
@@ -203,7 +228,7 @@ def _aliased_pred():
             "root-a-alias": {"publicKey": shared, "scheme": "ed25519"},
             "root-b": {"publicKey": _pub(other), "scheme": "ed25519"}}
     pred = {
-        "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": 3,
+        "schemaVersion": "0.1.0", "trustPackId": "tp-0001", "version": 1,
         "expires": "2027-01-01T00:00:00Z", "prevVersionDigest": None,
         "roles": {"root": {"keyIds": ["root-a", "root-a-alias", "root-b"], "threshold": 2},
                   "outcomeExecutors": {"keyIds": ["root-b"], "threshold": 1}},
@@ -285,7 +310,9 @@ class TestTrustPackRotationAuthorization(unittest.TestCase):
 
     def test_no_prev_root_is_backward_compatible(self):
         # a first pack / non-rotation verify does NOT require rotation authorization (field stays None).
-        new_pred, new_sks = _pack("new", threshold=2, version=4)
+        # A genuine FIRST pack is a genesis (version 1, null prevVersionDigest) — a version > 1 pack IS a
+        # rotation and correctly triggers the rotation-authorization guard (tested separately).
+        new_pred, new_sks = _pack("new", threshold=2, version=1)
         env = sign_trust_pack(new_pred, {"new-0": new_sks["new-0"], "new-1": new_sks["new-1"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertIsNone(r["rotation_authorized"])
@@ -407,10 +434,19 @@ class TestTrustPackSecurityGaps(unittest.TestCase):
         self.assertTrue(r["root_threshold_met"])            # the one real signature still counts
         self.assertTrue(r["ok"], r)
 
-    def test_fractional_seconds_expires_fails_closed(self):
-        # a validator-legal RFC3339 expires with fractional seconds is not strptime-parseable → fail closed
-        # (never silently 'not expired'); pins the safe direction of a validator/verifier inconsistency.
+    def test_fractional_seconds_expires_parses_correctly(self):
+        # F3 fix: a validator-legal RFC3339 expires with fractional seconds now PARSES correctly (the regex
+        # and the parser agree). A far-future fractional expiry is NOT expired — the old code raised on the
+        # fractional part and read it as expired (a false-closed availability bug), now closed.
         pred, sks = _fixture(threshold=1, expires="2099-01-01T00:00:00.5Z")
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertTrue(r["not_expired"])
+        self.assertTrue(r["ok"], r)
+
+    def test_fractional_seconds_expired_still_fails(self):
+        # the other direction: a PAST fractional expiry still fails closed (the fix did not weaken expiry).
+        pred, sks = _fixture(threshold=1, expires="2025-01-01T00:00:00.123456Z")
         env = sign_trust_pack(pred, {"root-0": sks["root-0"]})
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["not_expired"])
