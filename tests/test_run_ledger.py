@@ -102,6 +102,14 @@ class TestRunLedgerValidate(unittest.TestCase):
         with self.assertRaises(RunLedgerError):
             link_runs(["short"])
 
+    def test_link_runs_rejects_status_mismatch_and_bad_status(self):
+        # link_runs is the helper users build signed ledgers with — a regression to silent acceptance would
+        # put malformed chain links into a SIGNED ledger. Statuses must match the digest count and be valid.
+        with self.assertRaises(RunLedgerError):
+            link_runs([_R1, _R2], ["completed"])     # statuses length != digests length
+        with self.assertRaises(RunLedgerError):
+            link_runs([_R1], ["bogus"])              # invalid status value
+
     def test_emit_rejects_invalid(self):
         s, _ = _keys()
         with self.assertRaises(RunLedgerError):

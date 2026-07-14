@@ -39,6 +39,21 @@ class TestEvalClaim(unittest.TestCase):
         self.assertEqual(decoded["suite"], "safety-refusal")
         self.assertTrue(decoded["passed"])
 
+    def test_issuer_must_be_the_signing_key(self):
+        # the core binding: the claim's `issuer` fingerprint MUST be the key that signed the bundle. A
+        # hand-signed claim declaring key B as issuer but signed by key A keeps a VALID signature, yet must
+        # NOT decode (the issuer-binding rejection branch was untested).
+        from proofbundle.emit import emit_bundle
+        signer_a, signer_b = generate_signer(), generate_signer()
+        claim, _ = _claim(signer_a)
+        good = decode_eval_claim(emit_eval_receipt(claim, signer_a))
+        c = dict(good)
+        c["issuer"] = issuer_fingerprint(signer_b)          # declare B ...
+        bundle = emit_bundle(canonicalize(c), signer_a)     # ... but sign with A
+        self.assertTrue(verify_bundle(bundle).ok, "signature must still verify")
+        self.assertIsNone(decode_eval_claim(bundle),
+                          "a claim whose issuer is not the signing key must not decode")
+
     def test_decode_rejects_bad_comparator_and_threshold(self):
         # release-review CRITICAL: emit_eval_receipt signs a hand-built claim WITHOUT build_eval_claim's checks,
         # so decode_eval_claim must enforce comparator-enum + decimal-threshold at the verify boundary — else a
