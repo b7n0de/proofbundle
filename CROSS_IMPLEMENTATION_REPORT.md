@@ -51,10 +51,16 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   not yet verified, so it is refused rather than passed). `valid-minimal` (a `cnf`-free, issuer-signed
   SD-JWT) stays exit 0.
 
-**12 of the 14 corpus cases are reproduced independently.** The remaining 2
-(`n1-eval-sdjwt-graft-non-eval`, `forged-anchor-own-frozen`) decide on the eval-root-graft check and
-an external OpenTimestamps anchor (exit 3 policy) — they need the Pending slices below and are
-honestly skipped by `crosscheck.py` (never silently passed).
+- `bundle/n1-eval-sdjwt-graft-non-eval`: the eval-root-graft check — an SD-JWT carrying the always-open
+  `receipt.root_b64` eval commitment must bind to a proofbundle eval-claim payload (its
+  passed/threshold/comparator/suite/issuer match the signed payload AND its `receipt.root_b64` equals
+  the bundle merkle root). Grafted onto a non-eval payload it does not bind → reject (exit 1), matching
+  `bundle.py`'s `check_binds_bundle` + `_sd_jwt_carries_eval_root_commitment`.
+
+**13 of the 14 corpus cases are reproduced independently.** The one remaining case
+(`forged-anchor-own-frozen`, exit 3 policy-unmet) decides on an external OpenTimestamps anchor proof
+verified offline against a frozen Bitcoin block merkle root — that OTS subsystem is the last Pending
+slice and is honestly skipped by `crosscheck.py` (never silently passed).
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

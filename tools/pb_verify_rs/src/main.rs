@@ -279,7 +279,11 @@ fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
 // corpus verdicts; the eval-root-graft and KB-JWT-detail checks are pending slices.
 // Ok(true) => the sd-jwt part is acceptable; Ok(false) => reject (contributes exit 1).
 // ---------------------------------------------------------------------------
-fn verify_sdjwt_issuer(sd: &serde_json::Value) -> Result<bool, String> {
+fn verify_sdjwt_issuer(
+    sd: &serde_json::Value,
+    bundle_payload: &serde_json::Value,
+    merkle_root_b64: &str,
+) -> Result<bool, String> {
     let compact = sd
         .get("compact")
         .and_then(|v| v.as_str())
@@ -326,6 +330,24 @@ fn verify_sdjwt_issuer(sd: &serde_json::Value) -> Result<bool, String> {
     // unverified holder binding (this is the correct fail-closed posture; the true KB-JWT check is pending).
     if payload.get("cnf").is_some() {
         return Ok(false);
+    }
+    // N1 eval-root-graft: an SD-JWT that carries the always-open eval commitment `receipt.root_b64` MUST
+    // bind to a proofbundle eval-claim payload (its passed/threshold/comparator/suite/issuer match the
+    // signed bundle payload AND its receipt.root_b64 equals the bundle merkle root). Grafted onto a
+    // non-eval payload it has nothing to bind to -> reject (matches bundle.py check_binds_bundle + the
+    // _sd_jwt_carries_eval_root_commitment elif). A generic SD-JWT with no receipt commitment is in scope.
+    let sd_receipt_root = payload
+        .get("receipt")
+        .and_then(|r| r.get("root_b64"))
+        .and_then(|v| v.as_str());
+    if let Some(rroot) = sd_receipt_root {
+        let binds = ["passed", "threshold", "comparator", "suite", "issuer"]
+            .iter()
+            .all(|f| bundle_payload.get(*f).is_some() && bundle_payload.get(*f) == payload.get(*f))
+            && rroot == merkle_root_b64;
+        if !binds {
+            return Ok(false);
+        }
     }
     Ok(true)
 }
@@ -410,9 +432,11 @@ fn verify_bundle(
             return Ok(false);
         }
     }
-    // optional SD-JWT VC block (issuer authenticity slice; see verify_sdjwt_issuer for its scope).
+    // optional SD-JWT VC block (issuer authenticity + eval-graft slice; see verify_sdjwt_issuer).
     if let Some(sd) = b.get("sd_jwt_vc") {
-        if !verify_sdjwt_issuer(sd)? {
+        let bundle_payload = strict_parse(&payload).unwrap_or(serde_json::Value::Null);
+        let root_b64_str = mk.get("root_b64").and_then(|v| v.as_str()).unwrap_or("");
+        if !verify_sdjwt_issuer(sd, &bundle_payload, root_b64_str)? {
             return Ok(false);
         }
     }
