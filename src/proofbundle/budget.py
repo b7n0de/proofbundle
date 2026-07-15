@@ -60,7 +60,12 @@ class VerificationBudget:
                                ``json.loads``'s own C-recursion depth limit, which ``_strict_json`` already
                                maps to a clean error).
     * ``string_len``        — length of a single JSON string value.
-    * ``signatures``        — DSSE / threshold-signature entries on one envelope.
+    * ``signatures``        — DSSE / threshold-signature entries on one envelope. Sized to admit a
+                               legitimate TWO-STAGE ROTATION envelope (``trust_pack``'s rotation reuses ONE
+                               ``signatures`` list for BOTH the new-root threshold AND the old-root vouch, so
+                               a consortium at the ``witnesses`` ceiling per role needs up to ~2x that) while
+                               still refusing an attacker-scaled million-entry list (a few-hundred Ed25519
+                               verifies is microseconds; the DoS regime is orders of magnitude above).
     * ``merkle_path``       — RFC 6962 inclusion-proof steps (mirrors ``anchors_chia._MAX_LAYERS``, kept as
                                the SAME bar so the two never silently drift apart).
     * ``disclosures``       — SD-JWT disclosures (mirrors ``sdjwt._MAX_DISCLOSURES`` — same bar,
@@ -74,7 +79,7 @@ class VerificationBudget:
     input_bytes: int = 8 * 1024 * 1024
     json_nodes: int = 200_000
     string_len: int = 1_000_000
-    signatures: int = 64
+    signatures: int = 512
     merkle_path: int = 256
     disclosures: int = 256
     renewal_ats_chain: int = 10_000

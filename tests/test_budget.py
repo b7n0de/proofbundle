@@ -160,5 +160,37 @@ class TestInputBytesBudgetEnforced(unittest.TestCase):
         self.assertTrue(r["ok"])
 
 
+class TestDsseSignaturesCapDoS(unittest.TestCase):
+    """Crypto-review 2026-07-15 (C1/X1): the DSSE signatures list is the real DoS vector on decision/
+    outcome/verification_summary/run_ledger verify (they funnel through dsse.verify_envelope). The cap must
+    reject an attacker-scaled list BEFORE the O(n) verify loop, yet leave two-stage-rotation headroom."""
+
+    def _env(self):
+        from proofbundle import dsse
+        s = generate_signer()
+        pub = s.public_key().public_bytes_raw()
+        env = dsse.sign_envelope(b'{"x":1}', s, payload_type="application/x.proofbundle-test")
+        return dsse, env, pub
+
+    def test_verify_envelope_rejects_oversized_signatures_list(self):
+        dsse, env, pub = self._env()
+        # one real sig + enough junk entries to exceed the cap: without the guard this drives O(n) ed25519
+        # verifies (none match, no early exit) = seconds of CPU; the input_bytes cap bounds only the payload.
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures)]
+        with self.assertRaises(BudgetExceeded):
+            dsse.verify_envelope(env, pub)
+
+    def test_verify_envelope_accepts_at_signatures_limit(self):
+        dsse, env, pub = self._env()
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures - 1)]
+        self.assertEqual(len(env["signatures"]), DEFAULT_BUDGET.signatures)
+        self.assertTrue(dsse.verify_envelope(env, pub))   # at the limit is fine; real sig still verifies
+
+    def test_signatures_cap_has_two_stage_rotation_headroom(self):
+        # X1: trust_pack's rotation reuses ONE signatures list for BOTH new-root threshold AND old-root
+        # vouch, so a consortium at the per-role witnesses ceiling needs up to 2x that many in one envelope.
+        self.assertGreaterEqual(DEFAULT_BUDGET.signatures, 2 * DEFAULT_BUDGET.witnesses)
+
+
 if __name__ == "__main__":
     unittest.main()

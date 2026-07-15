@@ -10,7 +10,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Second remediation wave of the six-lens post-3.2.2 audit (Findings 01, 03, 11, 12, 15b, 16, 14a, 17, 18, 19, 20). Additive/non-breaking: no
 existing `result["ok"]` field changes for any correct caller; every new field/param is opt-in with a
-backward-compatible default.
+backward-compatible default — with ONE deliberate exception (honest, not opt-in): the Finding 15b
+`VerificationBudget` DoS ceilings are enforced unconditionally, so an input that was previously accepted
+but is over a generous limit (a DSSE envelope with >512 signature entries, a Trust Pack `keys`/role
+`keyIds` map with >256 entries, a renewal sequence with >10,000 ArchiveTimeStamp entries, or a >8 MiB
+DSSE payload) now fails closed. The ceilings sit far above any legitimate receipt/pack/sequence; they are
+a DoS backstop, not a behavioural knob.
 
 ### Added
 - **Finding 01 — uniform automation-safety verdict**: new `automation_verdict.automation_summary` mirrors

@@ -588,11 +588,19 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _recv = predicate.get("receiverRefs")
         if isinstance(_recv, list) and _recv:
             r["receiver_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in _recv)
+            # Structural independence (crypto-review, 2026-07-15): pass the executor's own key id so
+            # classify_receiver_corroboration can REFUSE to promote a receiver that is the executor itself
+            # (self-corroboration). A receiverRefs entry only reaches INDEPENDENTLY_ATTESTED when its
+            # receiverKeyId is present AND distinct from the executor — never on a resolver-says-signed alone.
+            _executor = predicate.get("executor")
+            _executor_key_id = _executor.get("keyId") if isinstance(_executor, dict) else None
             r["evidence_levels"]["receiverRefs"] = _assurance.evidence_ladder_best(*[
                 _assurance.classify_receiver_corroboration(
                     x.get("digest") if isinstance(x, dict) else None,
                     evidence_resolver=evidence_resolver,
-                    independent_attestation_resolver=receiver_attestation_resolver)
+                    independent_attestation_resolver=receiver_attestation_resolver,
+                    executor_key_id=_executor_key_id,
+                    receiver_key_id=x.get("receiverKeyId") if isinstance(x, dict) else None)
                 for x in _recv
             ])
             # Finding 16: outcomeReceivers role membership (mirrors executor_role_trusted, but NEVER wired

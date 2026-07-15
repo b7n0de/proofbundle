@@ -274,14 +274,42 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
     def test_receiver_ref_with_attestation_resolver_reaches_independently_attested(self):
+        # A receiver DISTINCT from the executor (receiverKeyId "kid-recv" != executor "kid-exec") that a
+        # resolver confirms is validly signed reaches INDEPENDENTLY_ATTESTED.
         s, pub = _keys()
-        p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG}}])
+        p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
+                                 "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"],
                          EvidenceLevel.INDEPENDENTLY_ATTESTED)
         self.assertTrue(r["ok"], r)
+
+    def test_receiver_ref_that_is_the_executor_is_not_independent(self):
+        # STRUCTURAL independence (crypto-review, 2026-07-15): a receiver whose receiverKeyId EQUALS the
+        # executor's keyId is self-corroboration — the executor signing its own outcome and pointing a
+        # receiverRefs entry at a second statement it also controls. Even a resolver that says "validly
+        # signed" (lambda d: True) must NOT let this reach INDEPENDENTLY_ATTESTED. This is exactly the
+        # No-Overclaim hole Finding 16 was meant to close.
+        s, pub = _keys()
+        p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
+                                 "receiverKeyId": "kid-exec"}])  # == executor keyId
+        env = emit_outcome_receipt(p, s)
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: True)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+
+    def test_receiver_ref_without_key_id_cannot_be_shown_independent(self):
+        # Fail-closed: a receiverRefs entry with NO receiverKeyId cannot be shown DISTINCT from the executor,
+        # so it is not promoted to INDEPENDENTLY_ATTESTED even with a permissive resolver (an absent key id
+        # would otherwise be the trivial evasion of the self-corroboration guard above).
+        s, pub = _keys()
+        p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG}}])
+        env = emit_outcome_receipt(p, s)
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: True)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
     def test_attestation_resolver_alone_without_content_resolved_does_not_fake_it(self):
         # THE adversarial/bidirectional guard: an attestation resolver returning True WITHOUT the digest

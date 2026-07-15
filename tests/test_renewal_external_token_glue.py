@@ -71,6 +71,19 @@ class TestExternalTokenFieldDefaults(unittest.TestCase):
         self.assertIsNone(_check(r, "renewal:external_token"))
         self.assertTrue(r.ok)
 
+    def test_require_external_token_fails_closed_when_absent(self):
+        # Crypto-review 2026-07-15: require_external_token=True MUST fail when the newest ATS carries NO
+        # external_token_type. external_token_* are excluded from the signed ATS bytes, so an attacker/MITM
+        # can strip them from an otherwise authority-signed ATS. Before the fix the `if newest.
+        # external_token_type:` gate skipped the whole block -> no check appended -> .ok unaffected -> a
+        # silent no-op "require". This is the ABSENT case the present-but-pending OTS test does not cover.
+        seq = _initial()
+        r = verify_sequence(seq, DATA, require_external_token=True)
+        ck = _check(r, "renewal:external_token")
+        self.assertIsNotNone(ck, "require_external_token=True must surface a check even when absent")
+        self.assertFalse(ck.ok)
+        self.assertFalse(r.ok)
+
 
 class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
     """Direct unit tests of `_verify_ats_external_token` — no library needed for the fail-closed paths."""

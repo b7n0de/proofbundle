@@ -66,6 +66,15 @@ __all__ = [
     "verify_mldsa",
     "verify_slhdsa",
     "verify_hybrid",
+    "EvidenceLevel",
+    "classify_digest_evidence",
+    "classify_receiver_corroboration",
+    "evidence_ladder_summary",
+    "evidence_ladder_best",
+    "VerificationBudget",
+    "DEFAULT_BUDGET",
+    "BudgetExceeded",
+    "automation_summary",
     "VerificationResult",
     "Check",
     "ProofBundleError",
@@ -113,6 +122,11 @@ _LAZY = {
     "verify_mldsa": ".pqsig",
     "verify_slhdsa": ".pqsig",
     "verify_hybrid": ".pqsig",
+    "EvidenceLevel": ".assurance", "classify_digest_evidence": ".assurance",
+    "classify_receiver_corroboration": ".assurance", "evidence_ladder_summary": ".assurance",
+    "evidence_ladder_best": ".assurance",
+    "VerificationBudget": ".budget", "DEFAULT_BUDGET": ".budget", "BudgetExceeded": ".budget",
+    "automation_summary": ".automation_verdict",
 }
 
 if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime stays lazy
@@ -133,6 +147,10 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
                           evaluate_renewal_policy, last_ats, renew_hashtree, renew_timestamp,
                           verify_sequence)
     from .pqsig import verify_hybrid, verify_mldsa, verify_slhdsa
+    from .assurance import (EvidenceLevel, classify_digest_evidence, classify_receiver_corroboration,
+                            evidence_ladder_best, evidence_ladder_summary)
+    from .budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget
+    from .automation_verdict import automation_summary
     from .prereg import prereg_hash, verify_prereg
     from .evalcard import evaluation_card_hash, verify_evaluation_card
     from .statuslist import verify_status_snapshot

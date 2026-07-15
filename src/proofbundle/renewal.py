@@ -653,6 +653,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         result.checks.append(Check(
             "renewal:external_token", _ext_ok,
             f"newest ATS external token ({newest.external_token_type}): {_ext.get('detail', '')}"))
+    elif require_external_token:
+        # Fail-closed (crypto-review, 2026-07-15): external_token_type/external_token are DELIBERATELY
+        # excluded from the signed ATS bytes (token()/_ats_content()), so an attacker or MITM can strip them
+        # from an otherwise authority-signed ATS without breaking any other check. A caller that DEMANDS the
+        # external token (require_external_token=True) must therefore get a FAILING check when it is absent —
+        # otherwise the whole external-token block is silently skipped and .ok is unaffected (a no-op "require").
+        result.checks.append(Check(
+            "renewal:external_token", False,
+            "require_external_token=True but the newest ATS carries no external_token_type — a detached "
+            "RFC-3161/OTS proof is not part of the signed ATS bytes, so its absence (or MITM stripping) is "
+            "only caught here; fail-closed."))
 
     # 5) optional post-quantum strength floor: the newest ATS's signature must carry a PQ leg (mldsa65 or
     #    hybrid), so a relying party that wants PQ protection is not satisfied by a (forgeable-after-quantum)

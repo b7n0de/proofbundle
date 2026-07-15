@@ -110,7 +110,9 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
 
 def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     evidence_resolver: Optional[Callable[[Any], bool]] = None,
-                                    independent_attestation_resolver: Optional[Callable[[Any], bool]] = None
+                                    independent_attestation_resolver: Optional[Callable[[Any], bool]] = None,
+                                    executor_key_id: Optional[str] = None,
+                                    receiver_key_id: Optional[str] = None,
                                     ) -> dict:
     """Classify a receiver/observer corroboration ref (Finding 16, additive) ONE STEP BEYOND
     :func:`classify_digest_evidence` — reaches ``EvidenceLevel.INDEPENDENTLY_ATTESTED`` when
@@ -131,10 +133,26 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
     ``evidence_resolver`` contract). The resolver is only ever consulted once the digest has ALREADY reached
     at least ``CONTENT_RESOLVED`` — an attacker-choosable digest that was never resolved cannot be promoted
-    straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone."""
+    straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone.
+
+    STRUCTURAL independence (crypto-review, 2026-07-15): "INDEPENDENTLY_ATTESTED" means the corroborating
+    statement is from a party DISTINCT from the executor/claimant. proofbundle enforces this itself, not only
+    by delegating to the resolver: when ``executor_key_id`` is supplied, a receiver reaches
+    INDEPENDENTLY_ATTESTED ONLY IF ``receiver_key_id`` is present AND differs from the executor's key id.
+    Otherwise the executor could self-corroborate (sign its own outcome, then add a receiverRefs[] entry
+    pointing at a second statement it also controls) and a resolver that only checks "is this validly signed"
+    — which never sees the executor's identity — would classify pure self-corroboration as independent. When
+    ``executor_key_id`` is None the caller has opted out of the structural check and distinctness is the
+    caller's responsibility (resolver-only)."""
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
+    # Structural distinctness: a receiver that IS the executor is self-corroboration, not independence.
+    # Enforced when the caller supplies executor_key_id; then a distinct receiver_key_id is REQUIRED
+    # (an absent receiver key id cannot be shown distinct -> fail-closed, no promotion).
+    if executor_key_id is not None and (receiver_key_id is None or receiver_key_id == executor_key_id):
+        return {**base, "detail": base["detail"] + " (receiver key id absent or equal to the executor's — "
+                "self-corroboration, not independent; not promoted)"}
     try:
         attested = bool(independent_attestation_resolver(digest_obj))
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing

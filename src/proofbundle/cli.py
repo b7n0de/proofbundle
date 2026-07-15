@@ -1261,9 +1261,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
-            "action_outcome_proven", "subject_binding", "subject_derived_ok", "warnings", "errors",
-        )}
-        print(json.dumps(report, indent=2))
+            "action_outcome_proven", "subject_binding", "subject_derived_ok",
+            # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
+            # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
+            # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
+            "automation", "evidence_levels", "warnings", "errors",
+        ) if k in result}
+        print(json.dumps(report, indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         if result["policy_ok"] is None:
@@ -1430,9 +1434,14 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
             "execution_proven", "audience_ok", "nonce_ok", "subject_binding", "subject_derived_ok",
+            # Findings 01/03/16 (crypto-review X2): uniform automation verdict + EvidenceLevel ladder +
+            # receiver-corroboration fields are part of the library result — emit them so a --json consumer
+            # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
+            # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
+            "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
             "warnings", "errors",
-        )}
-        print(json.dumps(report, indent=2))
+        ) if k in result}
+        print(json.dumps(report, indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
