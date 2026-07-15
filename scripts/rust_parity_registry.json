@@ -29,6 +29,12 @@
       ],
       "notes": "Ed25519 (RFC 8032) primitive used inside both verify-dsse and verify-bundle; exercised by both."
     },
+    "proofbundle.signature.verify_ecdsa_p256": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "ES256/ECDSA P-256 (RFC 7518 3.4) issuer-signature primitive for SD-JWT VC (Finding 20, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
+    },
     "proofbundle.merkle.verify_inclusion": {
       "status": "COVERED",
       "rust_subcommands": [
