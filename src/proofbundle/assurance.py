@@ -136,23 +136,30 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone.
 
     STRUCTURAL independence (crypto-review, 2026-07-15): "INDEPENDENTLY_ATTESTED" means the corroborating
-    statement is from a party DISTINCT from the executor/claimant. proofbundle enforces this itself, not only
-    by delegating to the resolver: when ``executor_key_id`` is supplied, a receiver reaches
-    INDEPENDENTLY_ATTESTED ONLY IF ``receiver_key_id`` is present AND differs from the executor's key id.
-    Otherwise the executor could self-corroborate (sign its own outcome, then add a receiverRefs[] entry
-    pointing at a second statement it also controls) and a resolver that only checks "is this validly signed"
-    — which never sees the executor's identity — would classify pure self-corroboration as independent. When
-    ``executor_key_id`` is None the caller has opted out of the structural check and distinctness is the
-    caller's responsibility (resolver-only)."""
+    statement is from a party DISTINCT from the executor/claimant. proofbundle asserts this only when it can
+    PROVE it: a receiver reaches INDEPENDENTLY_ATTESTED ONLY IF BOTH ``executor_key_id`` AND
+    ``receiver_key_id`` are present AND they differ. An ABSENT ``executor_key_id`` blocks promotion just as
+    an absent/equal receiver key id does — the executor authors and signs its own outcome predicate and
+    ``executor.keyId`` is schema-optional, so a one-sided check (fire only when executor_key_id is supplied)
+    would be trivially evaded by simply omitting one's own keyId. Without knowing BOTH parties' key ids
+    proofbundle cannot show they differ, so it does not claim independence (fail-closed to the base level).
+
+    INHERENT limit (honestly not closed here): two DISTINCT key ids can still belong to the SAME real-world
+    principal (an executor using a second key it also controls). proofbundle cannot bind a key id to a
+    real-world identity on its own — that is exactly what the ``outcomeReceivers`` Trust Pack role provides
+    (``outcome.receiver_trusted_by_role``: a curated list of trusted, genuinely-independent receiver keys).
+    So key-id distinctness here is the STRUCTURAL floor; principal-level independence needs that out-of-band
+    trust binding."""
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
-    # Structural distinctness: a receiver that IS the executor is self-corroboration, not independence.
-    # Enforced when the caller supplies executor_key_id; then a distinct receiver_key_id is REQUIRED
-    # (an absent receiver key id cannot be shown distinct -> fail-closed, no promotion).
-    if executor_key_id is not None and (receiver_key_id is None or receiver_key_id == executor_key_id):
-        return {**base, "detail": base["detail"] + " (receiver key id absent or equal to the executor's — "
-                "self-corroboration, not independent; not promoted)"}
+    # Provable distinctness: to ASSERT independence, BOTH key ids must be known AND differ. An absent
+    # executor_key_id (schema-optional, executor-controlled) or receiver_key_id, or an equal pair, is
+    # self-corroboration that cannot be shown independent -> fail-closed, no promotion.
+    if executor_key_id is None or receiver_key_id is None or receiver_key_id == executor_key_id:
+        return {**base, "detail": base["detail"] + " (independence not provable: executor and receiver key "
+                "ids must both be present and differ; an absent/equal key id is self-corroboration — "
+                "principal-level independence for two distinct keys needs the outcomeReceivers trust role)"}
     try:
         attested = bool(independent_attestation_resolver(digest_obj))
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing

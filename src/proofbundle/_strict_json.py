@@ -49,7 +49,30 @@ def _reject_duplicate_keys(pairs: list) -> dict:
     return obj
 
 
-def loads_strict(text: Union[str, bytes]) -> Any:
+def _enforce_node_budget(obj: Any, json_nodes: int) -> None:
+    """Bounded iterative walk (crypto-review 2026-07-15): refuse a PARSED structure whose combined
+    dict-key + list-item count exceeds ``json_nodes`` — a wide-but-small-bytes document that slips under the
+    raw ``input_bytes`` cap. Aborts the moment the ceiling is passed, so it never walks the whole of an
+    over-budget document; the raw cap already bounds this walk's own worst case. Raises
+    :class:`proofbundle.budget.BudgetExceeded` (a ``ProofBundleError`` subclass), fail-closed."""
+    from .budget import BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
+    count = 0
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            count += len(cur)
+            if count > json_nodes:
+                raise BudgetExceeded("json_nodes", count, json_nodes)
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            count += len(cur)
+            if count > json_nodes:
+                raise BudgetExceeded("json_nodes", count, json_nodes)
+            stack.extend(cur)
+
+
+def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
     """``json.loads`` that rejects duplicate object keys at any nesting depth.
 
     Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), maps
@@ -58,9 +81,24 @@ def loads_strict(text: Union[str, bytes]) -> Any:
     with more than ``sys.get_int_max_str_digits()`` digits (CWE-674 / CVE-2020-10735) to it too —
     never a raw traceback — mirroring :func:`proofbundle.bundle.load_bundle`. Ordinary JSON syntax
     errors keep raising ``ValueError`` (``json.JSONDecodeError``) so existing ``except (ValueError,
-    ...)`` handling at the call sites stays correct."""
+    ...)`` handling at the call sites stays correct.
+
+    DoS backstop (Finding 15b, crypto-review 2026-07-15): this is the ONE parse chokepoint every verify
+    path funnels through, so the resource caps live here rather than at each of ~10 call sites. The raw
+    ``text`` is refused BEFORE parsing when it exceeds ``budget.input_bytes`` (``json.loads`` cost scales
+    with input size, so an unbounded parse of a 50 MB envelope is a real pre-loop DoS the downstream
+    signature/list caps cannot reach), and the PARSED structure is refused when its combined dict-key +
+    list-item count exceeds ``budget.json_nodes``. Both raise :class:`proofbundle.budget.BudgetExceeded`
+    (a ``ProofBundleError`` subclass, so existing ``except (ProofBundleError, ...)`` sites treat it as
+    fail-closed malformed/over-limit input). ``budget`` defaults to ``DEFAULT_BUDGET``; pass a tighter one
+    to test the guard."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    b = budget if budget is not None else DEFAULT_BUDGET
+    if len(text) > b.input_bytes:
+        from .budget import BudgetExceeded  # noqa: PLC0415
+        raise BudgetExceeded("input_bytes", len(text), b.input_bytes)
     try:
-        return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+        obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     except RecursionError as exc:
         raise BundleFormatError("JSON nesting is too deep") from exc
     except ValueError as exc:
@@ -70,3 +108,5 @@ def loads_strict(text: Union[str, bytes]) -> Any:
         if "integer string conversion" in str(exc):
             raise BundleFormatError("JSON integer literal is implausibly long (fail-closed)") from exc
         raise
+    _enforce_node_budget(obj, b.json_nodes)
+    return obj

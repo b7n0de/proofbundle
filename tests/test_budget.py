@@ -192,5 +192,35 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         self.assertGreaterEqual(DEFAULT_BUDGET.signatures, 2 * DEFAULT_BUDGET.witnesses)
 
 
+class TestLoadsStrictResourceCaps(unittest.TestCase):
+    """Crypto-review 2026-07-15 (C1.1 + json_nodes): loads_strict is the ONE parse chokepoint, so the raw
+    input_bytes cap (bounds parse-time DoS the downstream sig cap cannot reach) and the previously-dead
+    json_nodes cap live here. Both fail closed with BudgetExceeded."""
+
+    def test_rejects_oversized_raw_input_before_parse(self):
+        from proofbundle._strict_json import loads_strict
+        tiny = VerificationBudget(input_bytes=16)
+        with self.assertRaises(BudgetExceeded):
+            loads_strict('{"x": "' + "a" * 200 + '"}', budget=tiny)
+
+    def test_rejects_excessive_node_count(self):
+        from proofbundle._strict_json import loads_strict
+        tiny = VerificationBudget(json_nodes=10)   # input_bytes stays generous; only node count is tight
+        big = "[" + ",".join("1" for _ in range(50)) + "]"   # 50 list items > 10 nodes
+        with self.assertRaises(BudgetExceeded):
+            loads_strict(big, budget=tiny)
+
+    def test_accepts_normal_input_under_caps(self):
+        from proofbundle._strict_json import loads_strict
+        self.assertEqual(loads_strict('{"a": 1, "b": [1, 2, 3]}'), {"a": 1, "b": [1, 2, 3]})
+
+    def test_json_nodes_default_is_wired_not_dead(self):
+        # regression: json_nodes was a documented budget field never referenced by any code.
+        import proofbundle._strict_json as sj
+        big = "[" + ",".join("0" for _ in range(DEFAULT_BUDGET.json_nodes + 5)) + "]"
+        with self.assertRaises(BudgetExceeded):
+            sj.loads_strict(big)
+
+
 if __name__ == "__main__":
     unittest.main()

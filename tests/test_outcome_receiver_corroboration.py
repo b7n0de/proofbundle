@@ -311,6 +311,21 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
+    def test_receiver_ref_not_independent_when_executor_omits_its_own_key_id(self):
+        # Refuter residual (crypto-review, 2026-07-15): executor.keyId is schema-OPTIONAL, and the executor
+        # authors its own predicate — so a one-sided check (fire only when executor_key_id is present) is
+        # trivially evaded by simply omitting one's own keyId. Even with a DISTINCT receiverKeyId and a
+        # permissive resolver, an executor block WITHOUT a keyId must NOT reach INDEPENDENTLY_ATTESTED:
+        # proofbundle cannot prove the receiver differs from an executor whose key id it does not know.
+        s, pub = _keys()
+        p = _pred(executor={"id": "executor:runner-7"},  # no keyId
+                  receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
+                                 "receiverKeyId": "kid-recv"}])
+        env = emit_outcome_receipt(p, s)
+        r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: True)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+
     def test_attestation_resolver_alone_without_content_resolved_does_not_fake_it(self):
         # THE adversarial/bidirectional guard: an attestation resolver returning True WITHOUT the digest
         # first reaching CONTENT_RESOLVED must NOT be silently promoted to INDEPENDENTLY_ATTESTED — that

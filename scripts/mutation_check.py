@@ -305,9 +305,29 @@ MUTATIONS = [
     # outcome up to INDEPENDENTLY_ATTESTED — killed by test_outcome_receiver_corroboration.py's
     # test_receiver_ref_that_is_the_executor_is_not_independent.
     ("src/proofbundle/assurance.py",
-     "    if executor_key_id is not None and (receiver_key_id is None or receiver_key_id == executor_key_id):",
+     "    if executor_key_id is None or receiver_key_id is None or receiver_key_id == executor_key_id:",
      "    if False:",
-     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration reaches INDEPENDENTLY_ATTESTED)", True),
+     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+    # Crypto-review 2026-07-15 refuter residuals — each new fail-closed guard killed by its own test.
+    # C1.1: removing the raw-size cap re-opens the pre-parse DoS (a 50 MB envelope parses fully before the
+    # signatures loop cap runs) — killed by tests/test_budget.py's test_rejects_oversized_raw_input_before_parse.
+    ("src/proofbundle/_strict_json.py",
+     "    if len(text) > b.input_bytes:",
+     "    if False:",
+     "_strict_json: C1.1 raw input_bytes pre-parse cap removed (oversized envelope parsed unbounded)", True),
+    # json_nodes: disabling the node walk lets a wide-but-small-bytes structure (many nodes under the byte
+    # cap) through — killed by test_rejects_excessive_node_count / test_json_nodes_default_is_wired_not_dead.
+    ("src/proofbundle/_strict_json.py",
+     "    while stack:",
+     "    while False:",
+     "_strict_json: json_nodes parsed-structure node-count cap disabled (high-density DoS)", True),
+    # C1.2: dropping the non-list signatures fail-closed lets a non-list (JSON true / a huge dict) skip the
+    # cap and raise an uncaught TypeError instead — killed by test_trust_pack.py's
+    # test_non_list_signatures_rejected_cleanly.
+    ("src/proofbundle/trust_pack.py",
+     "    if not isinstance(_sigs, list) or not _sigs:",
+     "    if False:",
+     "trust_pack: C1.2 non-list signatures fail-closed removed (cap bypass / uncaught TypeError)", True),
 ]
 
 

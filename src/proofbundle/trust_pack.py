@@ -411,8 +411,13 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
     DEFAULT_BUDGET.check("input_bytes", len(body))
     _sigs = envelope.get("signatures")
-    if isinstance(_sigs, list):
-        DEFAULT_BUDGET.check("signatures", len(_sigs))
+    # Fail-closed on a non-list signatures (crypto-review 2026-07-15): a truthy non-list (JSON true, a
+    # number, a huge dict) previously skipped the cap entirely — a 2M-key dict then reached the threshold
+    # loop uncapped, and `signatures: true` raised an uncaught TypeError instead of a clean ProofBundleError.
+    # Match dsse.verify_envelope's contract: signatures MUST be a non-empty list, then cap it.
+    if not isinstance(_sigs, list) or not _sigs:
+        raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
+    DEFAULT_BUDGET.check("signatures", len(_sigs))
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:
