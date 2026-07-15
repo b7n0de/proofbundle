@@ -31,8 +31,9 @@ backward-compatible default.
   `decision.resolve_evidence_ref` primitive into the actual verify path (a digest can now reach
   `CONTENT_RESOLVED`, not only `REFERENCE_WELL_FORMED`). The pre-existing boolean
   `action_outcome_proven`/`outcome_execution_proven`/`evidence_bound` fields are UNCHANGED.
-  `EvidenceLevel.EFFECT_OBSERVED` is a real, orderable enum member that stays structurally unreachable
-  (depends on Finding 16, a real-world effect-observation channel, not yet built) — an explicit
+  `EvidenceLevel.EFFECT_OBSERVED` is a real, orderable enum member that stays structurally unreachable (a
+  real-world effect-observation channel is a separate, inherent limit outside this repo — see the Finding 16
+  entry below for what its self-fixable part DOES now reach: `INDEPENDENTLY_ATTESTED`) — an explicit
   `EFFECT_OBSERVED_NOT_IMPLEMENTED` marker documents this rather than silently omitting it.
 - **Finding 15b — VerificationBudget**: new `budget.py` (`VerificationBudget`, `DEFAULT_BUDGET`,
   `BudgetExceeded`) centralizes the DoS-guard pattern already used ad hoc by `sdjwt._MAX_DISCLOSURES`,
@@ -44,6 +45,35 @@ backward-compatible default.
   BEFORE JSON parsing) on every one of the five receipt-chain `verify_*` entry points named above.
   `BudgetExceeded` is a `ProofBundleError` subclass, so every existing `except (ProofBundleError, ...)`
   call site already handles it identically to any other malformed/over-limit input.
+
+- **Finding 16 — outcome receiver/observer corroboration (self-fixable part, additive)**: an optional
+  `receiverRefs[]` on `action-outcome/v0.1` (digest-bound exactly like `evidenceRefs[]`) plus
+  `assurance.classify_receiver_corroboration` let a genuinely independent, cryptographically verified
+  receiver/observer statement reach `EvidenceLevel.INDEPENDENTLY_ATTESTED` (given a new
+  `receiver_attestation_resolver` parameter on `outcome.verify_outcome_receipt`); an additive
+  `outcomeReceivers` Trust Pack role (`outcome.receiver_trusted_by_role`, mirrors `outcomeExecutors`) lets a
+  verifier check that party against a known list, deliberately advisory (never wired into the aggregate
+  `ok`, since `receiverRefs` is optional supplementary evidence). Also additive: `sequence.{runId,seq}` +
+  `outcome.detect_outcome_sequence_gaps` for spotting a suppressed outcome later in the same run, when the
+  executor opts in. Fully backward compatible — a receipt with no `receiverRefs`/`sequence` is unaffected.
+  **Honest, INHERENT limit this increment does NOT close:** proofbundle cannot itself make a downstream
+  system SIGN a receiver acknowledgement (ecosystem adoption, outside this repo); `EvidenceLevel.
+  EFFECT_OBSERVED` stays structurally unreachable even with a verified receiver corroboration (still a
+  receipt about the effect, never a live observation of it) — see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`.
+- **Finding 14a — RFC-3161/OTS↔ArchiveTimeStamp integration glue + truncation detection (additive, ADR
+  0006 B3 OPEN items)**: an `ArchiveTimeStamp` may now carry a DETACHED `external_token_type` /
+  `external_token` / `external_token_frozen`, verified by the new `renewal._verify_ats_external_token` via
+  the ALREADY-HARDENED standalone `anchors_rfc3161.verify_rfc3161` / `anchors_ots.verify_opentimestamps` —
+  pure glue between two already-hardened modules, no new cryptography. `renewal.verify_sequence` gains
+  `rp_trust` (relying-party TSA-root/Bitcoin-header trust material, WP-A1 discipline) and
+  `require_external_token` (demand the full verified state, not merely OTS-pending). Separately,
+  `verify_sequence(..., known_newest_token_digest=…)` closes the "a stale prefix of a legitimately-renewed
+  sequence still verifies" gap: when the relying party supplies the digest of the newest ATS it last
+  observed (its own persisted state — no `RelyingPartyStateStore` exists in this repo, so this is the
+  additive-parameter fallback), a truncated/rolled-back sequence fails the new `renewal:no_rollback` check.
+  None of the three additions are surfaced unless the caller opts in — fully backward compatible with every
+  existing `ArchiveTimeStamp`/sequence. **Still OPEN (honest, unchanged):** the full ASN.1/XMLERS export and
+  a signature-algorithm staleness trigger in `RenewalPolicy` — see `docs/adr/0006-anchor-longevity.md`.
 
 ### Deferred (tracked, not built this increment — the one deliberately BREAKING piece)
 - `bundle.py`'s CLI `verify` exit-code default is NOT changed by this increment. `root_authenticity_summary`

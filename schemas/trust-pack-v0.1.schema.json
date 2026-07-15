@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://b7n0de.com/proofbundle/schemas/trust-pack-v0.1.schema.json",
   "title": "proofbundle trust-pack predicate v0.1",
-  "description": "External/docs schema for the vendored trust-pack/v0.1 predicate (3.2.0 O2, EXPERIMENTAL). A TUF-inspired, signed root of trust: role -> {keyIds, threshold} for root/evalIssuers/decisionMakers/outcomeExecutors/timeAuthorities/witnesses, a keyId->publicKey map, a monotone version, an expiry, a previous-version digest binding, and an offline revocation list. The enforced validator is src/proofbundle/trust_pack.py (hand-rolled, fail-closed). Threshold-of-root signatures authenticate the pack. lowerCamelCase (ITE-9). No-Overclaim: the pack names which keys hold which role, not that those key holders are honest.",
+  "description": "External/docs schema for the vendored trust-pack/v0.1 predicate (3.2.0 O2, EXPERIMENTAL). A TUF-inspired, signed root of trust: role -> {keyIds, threshold} for root/evalIssuers/decisionMakers/outcomeExecutors/outcomeReceivers/timeAuthorities/witnesses, a keyId->publicKey map, a monotone version, an expiry, a previous-version digest binding, and an offline revocation list. The enforced validator is src/proofbundle/trust_pack.py (hand-rolled, fail-closed). Threshold-of-root signatures authenticate the pack. lowerCamelCase (ITE-9). No-Overclaim: the pack names which keys hold which role, not that those key holders are honest.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "trustPackId", "version", "expires", "prevVersionDigest", "roles", "keys", "nonClaims"],
@@ -42,6 +42,7 @@
         "evalIssuers": {"$ref": "#/$defs/role"},
         "decisionMakers": {"$ref": "#/$defs/role"},
         "outcomeExecutors": {"$ref": "#/$defs/role"},
+        "outcomeReceivers": {"$ref": "#/$defs/role"},
         "timeAuthorities": {"$ref": "#/$defs/role"},
         "witnesses": {"$ref": "#/$defs/role"}
       }

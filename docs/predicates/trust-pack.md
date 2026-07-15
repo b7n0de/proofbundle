@@ -12,9 +12,9 @@ Schema).
 ## 1. Purpose
 
 A Trust Pack answers: *for this deployment, which key ids are trusted for which role (root, and role-specific
-signer sets like `outcomeExecutors`), and what threshold of them must sign for a claim of that role to be
-trusted.* It is an in-toto Statement (DSSE, Ed25519) signed by a **threshold of its own declared root keys**,
-verified against the exact signed bytes.
+signer sets like `outcomeExecutors` / `outcomeReceivers`), and what threshold of them must sign for a claim
+of that role to be trusted.* It is an in-toto Statement (DSSE, Ed25519) signed by a **threshold of its own
+declared root keys**, verified against the exact signed bytes.
 
 Rotation is a new version signed by the OLD root threshold (two-stage: the old root vouches for the new). This
 is why a Trust Pack self-authenticates: `verify_trust_pack` counts DISTINCT valid non-revoked root signatures
@@ -75,19 +75,29 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 ## 5. How the other predicates use it
 
 A Trust Pack is DESIGNED to resolve *who* is trusted for a role — e.g. `outcomeExecutors` names the key ids
-allowed to sign an `action-outcome` as the executor. The intended split: the Trust Pack answers WHO; the
-individual predicate answers WHAT and WHETHER-THRESHOLD-SIGNED (a claim's content root binds its identity;
-trust in its signer is this pack's job).
+allowed to sign an `action-outcome` as the executor; `outcomeReceivers` (Finding 16, additive) names the key
+ids allowed to sign a THIRD-PARTY corroboration of an outcome (an outcome's `receiverRefs[].receiverKeyId`).
+The intended split: the Trust Pack answers WHO; the individual predicate answers WHAT and
+WHETHER-THRESHOLD-SIGNED (a claim's content root binds its identity; trust in its signer is this pack's job).
 
-**Not yet wired (honest status).** As of 3.2.0 the verify paths do NOT consult a Trust Pack: `verify_outcome_
-receipt` checks role separation only against a caller-supplied `decision_maker_id`, and `verification-summary`
-does not resolve role identities against a pack. Binding `outcomeExecutors` (and the other roles) into the
-verify paths — a live registry / trust-anchor resolution for executors — is future work (see
-`action-outcome.md` §7). The pack primitive itself (threshold-of-root, distinct-key-material counting,
-two-stage rotation authorization) is built and verified; only the cross-predicate role resolution is pending.
+**Wiring status (honest, updated).** `outcomeExecutors` role membership IS wired into `verify_outcome_
+receipt` (Finding 01, verify-layer hardening): a caller-supplied `trust_pack` param (the PREDICATE of an
+ALREADY-authenticated pack) is checked via `outcome.executor_trusted_by_role` and is FAIL-CLOSED — an
+untrusted executor breaks the outcome's aggregate `ok`. `outcomeReceivers` is ALSO wired (Finding 16, same
+`trust_pack` param, `outcome.receiver_trusted_by_role`) but deliberately NOT fail-closed against `ok` — a
+`receiverRefs[]` entry is optional supplementary evidence, so an untrusted-labeled receiver only downgrades
+the `evidence_levels["receiverRefs"]` strength classification, never the outcome's own core verdict (see
+`action-outcome.md` §5 / `outcome.verify_outcome_receipt`'s docstring). `verification-summary` still does not
+resolve role identities against a pack, and neither role has a LIVE registry / trust-anchor discovery
+(fetching the right pack for a given executor/receiver automatically) — that remains future work. The pack
+primitive itself (threshold-of-root, distinct-key-material counting, two-stage rotation authorization) is
+built and verified independently of either role's wiring status.
 
 ## 6. Open (honest)
 
 - No transparency-log anchoring of the Trust Pack itself yet (a pack is offline-verifiable but not publicly
   witnessed — a future composition with the public-transparency layer).
-- Role taxonomy beyond `root` + the outcome/decision signer sets is intentionally minimal in v0.1.
+- Role taxonomy beyond `root` + the outcome/decision signer sets (`outcomeExecutors`, `outcomeReceivers`) is
+  intentionally minimal in v0.1.
+- A LIVE registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor or
+  receiver automatically (rather than the caller supplying an already-authenticated pack) is future work.

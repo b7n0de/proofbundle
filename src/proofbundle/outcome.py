@@ -42,7 +42,10 @@ _REQUIRED_ALWAYS = (
     "status", "performedAt",
 )
 _OPTIONAL = ("actualActionDigest", "responseDigest", "effectDigest", "recordedAt", "policyPurpose",
-             "traceContext", "limitations", "validity")
+             "traceContext", "limitations", "validity",
+             # Finding 16 (self-fixable part, additive): receiverRefs / sequence — see the module-level
+             # note above `_OUTCOME_RECEIVER_ROLE` for what each closes and its honest, documented limit.
+             "receiverRefs", "sequence")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 _DIGEST_FIELDS = ("requestedActionDigest", "actualActionDigest", "responseDigest", "effectDigest")
@@ -55,6 +58,10 @@ _TIME_PATHS = ("performedAt", "recordedAt")
 _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "traceContext": ("traceparent",),
     "validity": ("audience", "nonce"),
+    # Finding 16 (additive): receiverRefs[] mirrors decision.py's evidenceRefs[] shape exactly (digest-bound
+    # third-party corroboration refs); sequence is the optional run/seq gap-detection pair.
+    "receiverRefs[]": ("relation", "digest", "receiverId", "receiverKeyId", "artifactDigest"),
+    "sequence": ("runId", "seq"),
 }
 
 
@@ -135,6 +142,42 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     if "traceContext" in predicate and not isinstance(tc, dict):
         errors.append("traceContext must be an object")
 
+    # receiverRefs (Finding 16, additive, optional): third-party receiver/observer corroboration of this
+    # outcome, digest-bound EXACTLY like decision.py's evidenceRefs[] (`relation` + a sha256 content-root
+    # `digest`); `receiverId`/`receiverKeyId` optionally identify the corroborating party (`receiverKeyId`
+    # is what `receiver_trusted_by_role` checks against a Trust Pack's `outcomeReceivers` role).
+    recv = predicate.get("receiverRefs")
+    if isinstance(recv, list):
+        for i, ref in enumerate(recv):
+            if (not isinstance(ref, dict) or not isinstance(ref.get("relation"), str)
+                    or not ref.get("relation") or not _is_digest(ref.get("digest"))):
+                errors.append(f"receiverRefs[{i}] needs a non-empty string 'relation' and a sha256 'digest'")
+                continue
+            if "receiverId" in ref and not isinstance(ref.get("receiverId"), str):
+                errors.append(f"receiverRefs[{i}].receiverId, when present, must be a string")
+            if "receiverKeyId" in ref and not isinstance(ref.get("receiverKeyId"), str):
+                errors.append(f"receiverRefs[{i}].receiverKeyId, when present, must be a string")
+            if "artifactDigest" in ref and not _is_digest(ref.get("artifactDigest")):
+                errors.append(f"receiverRefs[{i}].artifactDigest, when present, must be a sha256 digest")
+    elif "receiverRefs" in predicate:
+        errors.append("receiverRefs must be a list")
+
+    # sequence (Finding 16, additive, optional): a monotone (runId, seq) counter an executor MAY opt into so
+    # `detect_outcome_sequence_gaps` can spot a SUPPRESSED outcome later in the same run (a missing seq
+    # number). Honest limit: an executor that omits `sequence` entirely (unchanged default) stays invisible
+    # to gap detection — this only helps when the executor opts in.
+    seqobj = predicate.get("sequence")
+    if "sequence" in predicate:
+        if not isinstance(seqobj, dict):
+            errors.append("sequence must be an object")
+        else:
+            rid = seqobj.get("runId")
+            if not (isinstance(rid, str) and rid):
+                errors.append("sequence.runId must be a non-empty string")
+            sq = seqobj.get("seq")
+            if not (isinstance(sq, int) and not isinstance(sq, bool) and sq >= 0):
+                errors.append("sequence.seq must be a non-negative integer")
+
     # validity (Finding 04): previously had NO structural check at all — a scalar validity (e.g. the bare
     # string "n-1") silently reached verify_outcome_receipt, which only guards with
     # `_val if isinstance(_val, dict) else {}` and so treated it as an absent validity object without ever
@@ -200,6 +243,117 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict) -> bool:
     return True
 
 
+# Finding 16 (self-fixable part of "outcome is overwhelmingly executor-self-attested"): the GENUINE gap a
+# receipt cannot close from inside proofbundle alone is producing an independent receiver signature —
+# whether a downstream/receiving system is willing to sign an acknowledgement is ecosystem adoption outside
+# this repo's control (SOTA motivation: Notarized Agents arXiv:2606.04193, Proof of Execution
+# arXiv:2607.05397). What IS self-fixable and built here: the CAPABILITY to carry + verify such a receiver's
+# corroboration once it exists — a `receiverRefs[]` field (digest-bound exactly like decision.py's
+# `evidenceRefs[]`), an `outcomeReceivers` Trust Pack role (mirrors `outcomeExecutors`) analogous to
+# `executor_trusted_by_role`, and wiring into `assurance.classify_receiver_corroboration` so a genuinely
+# independent, cryptographically verified corroboration reaches `EvidenceLevel.INDEPENDENTLY_ATTESTED` — see
+# `verify_outcome_receipt`'s `receiver_attestation_resolver` parameter. `EvidenceLevel.EFFECT_OBSERVED`
+# stays honestly unreachable (see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver
+# receipt is a RECEIPT about the effect, never a live observation of the real-world effect itself.
+_OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
+
+
+def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
+    """True iff ``receiver_key_id`` (a ``receiverRefs[]`` entry's ``receiverKeyId``) is a non-revoked member
+    of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
+    exactly). ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — same caller
+    contract as ``executor_trusted_by_role``: this function checks ROLE MEMBERSHIP only, it never re-derives
+    trust in the pack itself.
+
+    Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
+    False — never a silent pass. Never raises on malformed input."""
+    if not isinstance(receiver_key_id, str) or not receiver_key_id or not isinstance(trust_pack, dict):
+        return False
+    roles = trust_pack.get("roles")
+    role = roles.get(_OUTCOME_RECEIVER_ROLE) if isinstance(roles, dict) else None
+    key_ids = role.get("keyIds") if isinstance(role, dict) else None
+    if not isinstance(key_ids, list) or receiver_key_id not in key_ids:
+        return False
+    revoked = trust_pack.get("revoked")
+    if isinstance(revoked, list) and receiver_key_id in revoked:
+        return False
+    return True
+
+
+def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
+                         artifact_bytes: bytes | None = None) -> dict:
+    """Offline check of one ``receiverRefs[]`` entry against resolved evidence (no network) — Finding 16,
+    mirrors ``decision.resolve_evidence_ref`` exactly (same content-root/artifact-pin contract, applied to a
+    receiver/observer's corroborating statement instead of a decision's evidence).
+
+    ``receiver_payload`` is the EXACT DSSE payload bytes of the referenced receiver/observer Statement; its
+    content root is ``sha256`` over exactly these bytes (invariant under counter-signing/key rotation of
+    that statement, changes only when its CONTENT changes). ``artifact_bytes`` is a fetched blob checked
+    against the optional ``artifactDigest``. Returns ``{content_root_ok, artifact_ok, detail}``; a check not
+    requested is ``None``. WHO signed the receiver statement (and whether that differs from the executor) is
+    the caller's job via a ``receiver_attestation_resolver`` passed to ``verify_outcome_receipt`` — this
+    function only resolves CONTENT, mirroring the same layering ``resolve_evidence_ref`` uses."""
+    from . import anchors as _anchors_mod  # noqa: PLC0415
+    out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
+    want = (ref.get("digest") or {}).get("sha256") if isinstance(ref, dict) else None
+    if receiver_payload is not None:
+        got = _anchors_mod.statement_content_root(receiver_payload).hex()
+        out["content_root_ok"] = (got == want)
+        if out["content_root_ok"] is False:
+            out["detail"] = "receiver content root != receiverRefs[].digest (receiver content changed?)"
+    if artifact_bytes is not None and isinstance(ref, dict) and "artifactDigest" in ref:
+        got_a = hashlib.sha256(artifact_bytes).hexdigest()
+        out["artifact_ok"] = (got_a == (ref.get("artifactDigest") or {}).get("sha256"))
+        if out["artifact_ok"] is False:
+            out["detail"] = (out["detail"] + "; " if out["detail"] else "") + "artifactDigest != fetched blob"
+    return out
+
+
+def detect_outcome_sequence_gaps(predicates) -> dict:
+    """Best-effort gap detection across a set of outcome predicates that share an executor + ``sequence.runId``
+    (Finding 16, additive) — a way to spot a SUPPRESSED outcome: an executor who silently omits emitting a
+    failed/refused receipt in the middle of a run leaves a hole in its own opted-in ``seq`` counter.
+
+    Groups by ``(executor.id, sequence.runId)``, collects the distinct ``seq`` values, and reports any
+    missing integer between the observed min and max as a gap. Returns
+    ``{(executorId, runId): {"seqs": sorted_list, "gaps": missing_ints, "complete": bool}}``.
+
+    HONEST LIMIT (No-Overclaim, this is the documented boundary of the self-fixable part of Finding 16): gap
+    detection works ONLY when the executor OPTS IN to the ``sequence`` field. An executor that omits
+    ``sequence`` entirely (the unchanged default) is INVISIBLE to this check — a suppressed receipt with no
+    sequence numbering leaves no trace for the outcome layer alone to detect; this closes the "detectable
+    IF instrumented" gap, not the "executor chooses not to instrument" gap (an adoption question, same class
+    as the receiver-signature limit above).
+
+    Caller contract: ``predicates`` SHOULD already be crypto-verified by the caller — this is a pure
+    structural scan over already-trusted predicate dicts, it performs no signature checking itself. Never
+    raises: a predicate with a missing/malformed ``executor.id`` or ``sequence`` is simply skipped (not
+    counted in any group), not a crash of the whole scan."""
+    groups: dict[tuple[str, str], list[int]] = {}
+    for p in predicates:
+        if not isinstance(p, dict):
+            continue
+        ex = p.get("executor")
+        seq = p.get("sequence")
+        if not (isinstance(ex, dict) and isinstance(ex.get("id"), str) and ex.get("id")):
+            continue
+        if not isinstance(seq, dict):
+            continue
+        run_id = seq.get("runId")
+        seq_no = seq.get("seq")
+        if not (isinstance(run_id, str) and run_id
+                and isinstance(seq_no, int) and not isinstance(seq_no, bool) and seq_no >= 0):
+            continue
+        key = (ex["id"], run_id)
+        groups.setdefault(key, []).append(seq_no)
+    out: dict = {}
+    for key, seqs in groups.items():
+        seqs_sorted = sorted(set(seqs))
+        gaps = [n for n in range(seqs_sorted[0], seqs_sorted[-1] + 1) if n not in seqs_sorted]
+        out[key] = {"seqs": seqs_sorted, "gaps": gaps, "complete": not gaps}
+    return out
+
+
 # ── Emit / verify (DSSE in-toto Statement) ──────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
     """RFC-8785 (JCS) canonical bytes — shared ``canonical.canonicalize_statement`` primitive (ADR 0002), so
@@ -263,6 +417,11 @@ def _empty_result() -> dict:
         # unless a trust_pack is supplied (outcomeExecutors role membership); automation/evidence_levels are
         # computed at the end of verify — none of these three change the fields above.
         "executor_role_trusted": None, "automation": None, "evidence_levels": None,
+        # Finding 16 (additive): receiver_bound mirrors decision.py's evidence_bound (digest-shape only,
+        # None when receiverRefs is absent/empty); receiver_role_trusted is None unless BOTH trust_pack and
+        # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
+        # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
+        "receiver_bound": None, "receiver_role_trusted": None,
         "warnings": [], "errors": [],
     }
 
@@ -271,7 +430,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
-                           evidence_resolver: Callable[[dict], bool] | None = None) -> dict:
+                           evidence_resolver: Callable[[dict], bool] | None = None,
+                           receiver_attestation_resolver: Callable[[dict], bool] | None = None) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -296,6 +456,29 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     digest against ACTUALLY RESOLVED content; when supplied, ``evidence_levels["effect"]`` may reach
     ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``. Never
     changes ``execution_proven`` (unchanged, additive) or the aggregate ``ok``.
+
+    ``receiverRefs`` / Finding 16 (self-fixable part, additive) — third-party receiver/observer
+    corroboration of this outcome, digest-bound exactly like ``evidenceRefs[]``:
+
+    - ``receiver_bound`` — mirrors ``evidence_bound``: True iff every present ``receiverRefs[]`` entry is
+      digest-shaped, ``None`` when ``receiverRefs`` is absent/empty (nothing to bind is not "bound").
+    - ``evidence_levels["receiverRefs"]`` — the STRONGEST applicable entry (OR semantics: one corroborating
+      receiver suffices), classified via ``assurance.classify_receiver_corroboration``. ``evidence_resolver``
+      (reused, same param) lets an entry reach ``CONTENT_RESOLVED``; the NEW ``receiver_attestation_resolver``
+      (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
+      signed statement from a party DISTINCT from the executor) lets it reach
+      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` — this is the built, self-fixable half of Finding 16;
+      ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
+      ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
+    - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``
+      is non-empty, True iff AT LEAST ONE entry's ``receiverKeyId`` is a non-revoked member of the pack's
+      ``outcomeReceivers`` role (``outcome.receiver_trusted_by_role``); ``None`` when there is nothing to
+      evaluate. Deliberately NOT wired into the aggregate ``ok`` (unlike ``executor_role_trusted``):
+      ``receiverRefs`` is OPTIONAL supplementary evidence, so an untrusted-labeled receiver must not break an
+      otherwise-valid outcome's own core verdict — it only affects the STRENGTH classification above.
+
+    None of the receiverRefs/sequence additions change any field documented above them, or the aggregate
+    ``ok`` — fully backward compatible with every existing caller.
     """
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
@@ -394,6 +577,35 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                                                     evidence_resolver=evidence_resolver),
             ),
         }
+
+        # Finding 16 (additive, self-fixable part): receiverRefs — third-party receiver/observer
+        # corroboration, digest-bound exactly like decision.py's evidenceRefs[]. receiver_bound mirrors
+        # evidence_bound (shape-only, None when there is nothing to bind — mirrors the vacuous-None
+        # convention decision.py already documents). evidence_levels["receiverRefs"] uses OR semantics (one
+        # corroborating receiver suffices) over classify_receiver_corroboration, which can reach
+        # INDEPENDENTLY_ATTESTED via the new receiver_attestation_resolver — never EFFECT_OBSERVED (the
+        # honestly-documented inherent limit, assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED).
+        _recv = predicate.get("receiverRefs")
+        if isinstance(_recv, list) and _recv:
+            r["receiver_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in _recv)
+            r["evidence_levels"]["receiverRefs"] = _assurance.evidence_ladder_best(*[
+                _assurance.classify_receiver_corroboration(
+                    x.get("digest") if isinstance(x, dict) else None,
+                    evidence_resolver=evidence_resolver,
+                    independent_attestation_resolver=receiver_attestation_resolver)
+                for x in _recv
+            ])
+            # Finding 16: outcomeReceivers role membership (mirrors executor_role_trusted, but NEVER wired
+            # into the aggregate `ok` below — receiverRefs is optional supplementary evidence; an untrusted-
+            # labeled receiver only affects the strength classification above, not the outcome's own core
+            # verdict, see the verify docstring).
+            if trust_pack is not None:
+                r["receiver_role_trusted"] = any(
+                    receiver_trusted_by_role(x.get("receiverKeyId") if isinstance(x, dict) else None,
+                                             trust_pack)
+                    for x in _recv)
+        else:
+            r["evidence_levels"]["receiverRefs"] = None
 
         # replay/audience binding (fail-closed when requested), mirrors decision.py.
         _val = predicate.get("validity")

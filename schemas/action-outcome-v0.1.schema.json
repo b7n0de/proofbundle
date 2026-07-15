@@ -49,6 +49,32 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}
+    },
+    "receiverRefs": {
+      "type": "array",
+      "description": "Finding 16 (additive): third-party receiver/observer corroboration of this outcome, digest-bound exactly like a decision-receipt evidenceRefs[] entry.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation", "digest"],
+        "properties": {
+          "relation": {"type": "string", "minLength": 1},
+          "digest": {"$ref": "#/$defs/sha256Digest"},
+          "receiverId": {"type": "string"},
+          "receiverKeyId": {"type": "string"},
+          "artifactDigest": {"$ref": "#/$defs/sha256Digest"}
+        }
+      }
+    },
+    "sequence": {
+      "type": "object",
+      "description": "Finding 16 (additive): an optional monotone (runId, seq) counter enabling detect_outcome_sequence_gaps to spot a suppressed outcome later in the same run.",
+      "additionalProperties": false,
+      "required": ["runId", "seq"],
+      "properties": {
+        "runId": {"type": "string", "minLength": 1},
+        "seq": {"type": "integer", "minimum": 0}
+      }
     }
   }
 }
