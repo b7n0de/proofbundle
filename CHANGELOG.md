@@ -17,6 +17,33 @@ but is over a generous limit (a DSSE envelope with >512 signature entries, a Tru
 DSSE payload) now fails closed. The ceilings sit far above any legitimate receipt/pack/sequence; they are
 a DoS backstop, not a behavioural knob.
 
+### Security (combined-integration review hardening)
+
+A four-lens combined-integration review of this wave surfaced three real fail-open/DoS gaps that each
+passed the per-finding tests but not adversarial cross-checking; all are fixed and covered by
+bidirectional, mutation-verified tests:
+
+- **DSSE signatures-list DoS (Finding 15b, extends the cap)**: `dsse.verify_envelope` — the single
+  chokepoint `decision`/`outcome`/`verification_summary`/`run_ledger` verify funnel through — now caps the
+  attacker-controlled `signatures` list BEFORE its verify loop. Previously only `trust_pack` capped it, so
+  a tiny payload plus a million-entry `signatures` list drove seconds of per-request CPU (the `input_bytes`
+  cap bounds only the decoded payload). `budget.signatures` was raised 64 → 512 so a legitimate two-stage
+  rotation envelope (new-root threshold + old-root vouch reuse one `signatures` list) still verifies.
+- **`require_external_token` fail-closed on absent token (Finding 14a)**: `renewal.verify_sequence(...,
+  require_external_token=True)` now appends a FAILING `renewal:external_token` check when the newest ATS
+  carries no `external_token_type`. The external-token fields are deliberately outside the signed ATS
+  bytes, so an attacker/MITM could strip them; previously the whole block was skipped and `.ok` was
+  unaffected — a silent no-op "require".
+- **Receiver independence is enforced, not just labeled (Finding 16)**: `assurance.
+  classify_receiver_corroboration` now takes `executor_key_id`/`receiver_key_id` and refuses to promote a
+  receiver that IS the executor (or one with no key id) to `INDEPENDENTLY_ATTESTED` — closing the
+  self-corroboration hole where an executor could sign its own outcome and point a `receiverRefs[]` entry
+  at a second statement it also controls. Wired through `outcome.verify_outcome_receipt`.
+
+Plus: `decision`/`outcome` `verify --json` now emit `automation`/`evidence_levels`/receiver fields (a
+`jq` filter no longer gets `null`, indistinguishable from a real "not evaluated"), and `assurance`/
+`budget`/`automation_verdict` are now top-level `from proofbundle import …` exports.
+
 ### Added
 - **Finding 01 — uniform automation-safety verdict**: new `automation_verdict.automation_summary` mirrors
   `bundle.py::root_authenticity_summary`'s `safeForAutomation`/`automationBlockers` pattern for the other
