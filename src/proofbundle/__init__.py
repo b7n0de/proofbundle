@@ -44,6 +44,8 @@ __all__ = [
     "audit_challenge",
     "prereg_hash",
     "verify_prereg",
+    "evaluation_card_hash",
+    "verify_evaluation_card",
     "beacon_audit_challenge",
     "canonicalize_statement",
     "statement_content_root",
@@ -89,6 +91,8 @@ _LAZY = {
     "audit_challenge": ".persample",
     "prereg_hash": ".prereg",
     "verify_prereg": ".prereg",
+    "evaluation_card_hash": ".evalcard",
+    "verify_evaluation_card": ".evalcard",
     "beacon_audit_challenge": ".beacon",
     "canonicalize_statement": ".canonical",
     "statement_content_root": ".canonical",
@@ -130,6 +134,7 @@ if TYPE_CHECKING:  # static analysers + IDEs see the real names/types; runtime s
                           verify_sequence)
     from .pqsig import verify_hybrid, verify_mldsa, verify_slhdsa
     from .prereg import prereg_hash, verify_prereg
+    from .evalcard import evaluation_card_hash, verify_evaluation_card
     from .statuslist import verify_status_snapshot
     from .tlogproof import verify_tlog_proof
     from .merkle import verify_consistency, verify_inclusion

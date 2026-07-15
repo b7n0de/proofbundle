@@ -71,6 +71,39 @@ res["tier"]    # the Verifier's declared tier, for YOUR policy to weigh
 
 CLI: `proofbundle verify-enclave att.eat --receipt receipt.json --verifier-key <b64> [--profile URI]`.
 
+## Corroborating an eval claim's `assurance_level`
+
+`verify-enclave` checks an EAT against a receipt in isolation. A relying party reading an eval
+receipt (EVAL_CLAIM.md) usually wants the OTHER direction: *this claim SAYS
+`assurance_level = enclave_attested` — is that actually backed by a real attestation, or just a
+string the issuer typed?* `proofbundle.evalclaim.enclave_assurance_proven` answers exactly that,
+analogous to the Decision Receipt's `action_outcome_proven` (presence + binding makes a declared
+property *verifiable*, not merely *asserted*):
+
+```python
+from proofbundle.evalclaim import decode_eval_claim, enclave_assurance_proven
+
+claim = decode_eval_claim(receipt_bundle)
+proven = enclave_assurance_proven(claim, receipt_bundle, eat_jws=eat_jws,
+                                  verifier_pubkey=verifier_key)
+# True  — a verified EAT binds THIS receipt
+# False — enclave_attested is declared but uncorroborated (no/failing EAT) — the honesty limit
+# None  — the claim does not declare enclave_attested at all (not applicable)
+```
+
+CLI: `proofbundle show-eval receipt.json --eat att.eat --verifier-key <b64> [--profile URI]` prints
+an extra `attested   PROVEN|NOT corroborated` line whenever the claim's `assurance_level` is
+`enclave_attested`; a claim with any other level is printed exactly as before (no `attested` line
+at all — this is purely additive).
+
+**Never force-promotes.** Calling this does not rewrite the signed claim: an `enclave_attested`
+level with no (or a failing) corroboration stays `enclave_attested` in the claim itself — one string
+among the four `ASSURANCE_LEVELS`, exactly as issuer-declared and exactly as weak as any other
+self-declared level (THREAT_MODEL.md) until a real EAT backs it. The function is a read-only,
+additive check, not a claim mutator. Its import of `proofbundle.experimental.enclave` is lazy and
+function-local, so merely importing `proofbundle.evalclaim` never fires the `ExperimentalWarning`
+above — only actually calling it with an `eat_jws` does.
+
 ## What this does NOT establish (must never be claimed)
 
 - That the enclave is genuine — that is the *Verifier's* appraisal, trusted via its key.

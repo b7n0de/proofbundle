@@ -46,7 +46,8 @@ DEFAULT_ASSURANCE = "self_attested"
 _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "threshold",
              "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp",
              "assurance_level"}
-_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance", "samples"}
+_OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance", "samples",
+             "evaluation_card_sha256"}
 
 __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
@@ -54,7 +55,7 @@ __all__ = [
     "claim_warnings", "verify_commitment", "check_freshness", "sd_jwt_hidden_count",
     "eval_evidence_class", "SCORE_EVIDENCE_CLASSES", "EXACT_SCORE_VERIFIED",
     "THRESHOLD_VERDICT_VERIFIED", "SCORE_COMMITMENT_PRESENT", "SCORE_WITHHELD",
-    "METHODOLOGY_NOT_EVALUATED",
+    "METHODOLOGY_NOT_EVALUATED", "enclave_assurance_proven",
 ]
 
 
@@ -152,6 +153,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                      prereg_sha256: Optional[str] = None, provenance: Optional[dict] = None,
                      assurance_level: str = DEFAULT_ASSURANCE,
                      samples: Optional[dict] = None,
+                     evaluation_card_sha256: Optional[str] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Build a valid eval claim from raw values. Computes `passed` ITSELF from the comparator
     (never trusts the caller), creates salted commitments, and returns (claim, salts) with the
@@ -193,6 +195,8 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         claim["multiple_testing"] = multiple_testing
     if prereg_sha256 is not None:
         claim["prereg_sha256"] = prereg_sha256
+    if evaluation_card_sha256 is not None:
+        claim["evaluation_card_sha256"] = evaluation_card_sha256
     if provenance is not None:
         claim["provenance"] = provenance
     if samples is not None:
@@ -473,3 +477,46 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         return None
     sd_arr = payload.get("_sd")
     return len(sd_arr) if isinstance(sd_arr, list) else None
+
+
+def enclave_assurance_proven(claim: dict, bundle, *, eat_jws: Optional[str] = None,
+                             verifier_pubkey: Optional[bytes] = None,
+                             expected_profile: Optional[str] = None,
+                             now: Optional[int] = None) -> Optional[bool]:
+    """Whether a signed ``assurance_level=enclave_attested`` claim is BACKED by a verified TEE
+    Attestation Result bound to THIS receipt — analogous to ``decision.action_outcome_proven``:
+    presence + binding makes a declared level *verifiable*, not merely *asserted*.
+
+    Returns ``None`` when the claim does not declare ``enclave_attested`` (not applicable — mirrors
+    ``action_outcome_proven``'s ``None`` for a non-``executed`` outcome). Returns ``False`` when
+    ``enclave_attested`` IS declared but no ``eat_jws``/``verifier_pubkey`` was supplied, or the
+    supplied EAT does not verify or does not bind this receipt — the honesty limit:
+    ``assurance_level`` is issuer-declared (THREAT_MODEL.md), and stays exactly that, a string,
+    until corroborated. Returns ``True`` only when an EAT Attestation Result, checked offline
+    against ``verifier_pubkey`` via ``proofbundle.experimental.enclave.verify_enclave_attestation``,
+    reports ``ok=True`` with ``eat_nonce == enclave_binding_for(bundle)`` — bound to THIS receipt's
+    exact signed payload, not merely well-formed.
+
+    **Additive, EXPERIMENTAL by construction.** This reaches into
+    ``proofbundle.experimental.enclave`` (the v2.0 preview TEE bridge, docs/EXPERIMENTAL_ENCLAVE.md)
+    ONLY when actually called with an ``eat_jws`` — importing/using ``proofbundle.evalclaim`` never
+    triggers the subpackage's ``ExperimentalWarning`` by itself (the import is lazy, function-local,
+    mirroring the ``rfc8785`` lazy import in :func:`canonicalize`). **Never force-promotes:** an
+    ``enclave_attested`` claim with no (or a failing) corroboration is NEITHER upgraded NOR
+    downgraded in the claim itself — the signed ``assurance_level`` string is unchanged either way;
+    this function only reports, additively, whether it is BACKED.
+    """
+    if not isinstance(claim, dict) or claim.get("assurance_level") != "enclave_attested":
+        return None
+    if not eat_jws or verifier_pubkey is None or bundle is None:
+        return False
+    try:
+        from .errors import BundleFormatError  # noqa: PLC0415
+        from .experimental.enclave import enclave_binding_for, verify_enclave_attestation  # noqa: PLC0415
+        binding = enclave_binding_for(bundle)
+        res = verify_enclave_attestation(eat_jws, verifier_pubkey=verifier_pubkey,
+                                         expected_binding=binding, expected_profile=expected_profile,
+                                         now=now)
+    except (BundleFormatError, ValueError, TypeError, KeyError):
+        return False
+    return bool(res.get("ok"))
