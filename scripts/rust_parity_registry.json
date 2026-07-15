@@ -1,0 +1,267 @@
+{
+  "schema": "proofbundle.rust_parity_registry.v1",
+  "description": "Declarative correspondence between every module-level `verify_*` function in src/proofbundle/*.py (the ground truth, re-discovered live by AST in scripts/rust_parity_gate.py on every run) and the independent Rust second-verifier (tools/pb_verify_rs). This is the machine-checked replacement for a hand-maintained parity table (Finding 11): scripts/rust_parity_gate.py cross-checks every COVERED/PARTIAL claim here against main.rs's actual match arms, the built binary's self-declared coverage-report, and a literal call-site in crosscheck.py — a stale claim is caught, not trusted. A new verify_* function with no entry here shows up as UNTRACKED (a decision is owed), never silently 100%.",
+  "status_values": [
+    "COVERED",
+    "PARTIAL",
+    "PENDING"
+  ],
+  "entries": {
+    "proofbundle.dsse.verify_envelope": {
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-dsse"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-dsse\""
+      ],
+      "notes": "DSSE Ed25519 verify over the exact PAE bytes; crosscheck asserts a real Python-signed envelope verifies AND a tampered payload fails."
+    },
+    "proofbundle.signature.verify_ed25519": {
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-dsse",
+        "verify-bundle"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-dsse\"",
+        "_run(\"verify-bundle\""
+      ],
+      "notes": "Ed25519 (RFC 8032) primitive used inside both verify-dsse and verify-bundle; exercised by both."
+    },
+    "proofbundle.merkle.verify_inclusion": {
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-bundle"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-bundle\""
+      ],
+      "notes": "RFC 6962/9162 inclusion-proof root recomputation; exercised via verify-bundle's internal root_from_inclusion on the native_bundle conformance corpus (real inclusion proofs). Not exposed as its own standalone subcommand."
+    },
+    "proofbundle.bundle.verify_bundle": {
+      "status": "PARTIAL",
+      "rust_subcommands": [
+        "verify-bundle"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-bundle\""
+      ],
+      "notes": "Ed25519 signature + RFC 6962 merkle inclusion + relying-party root/tree-size + SD-JWT issuer-authenticity slice (no cnf / no eval-graft) are covered. NOT covered: Key Binding JWT (holder binding / replay-audience), cross-bundle sd-jwt binding (check_binds_bundle), external anchors (WP-A1 always reports unconfirmed, matching Python's own offline posture but not a full port), and the full sd_jwt_vc issuer-identity check."
+    },
+    "proofbundle.trust_pack.verify_trust_pack": {
+      "status": "PARTIAL",
+      "rust_subcommands": [
+        "verify-trust-pack-threshold"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-trust-pack-threshold\""
+      ],
+      "notes": "root_threshold_met is ported for the Ed25519 leg only (Finding 11 first portation): counts DISTINCT non-revoked root key material with a valid Ed25519 signature over the DSSE PAE bytes, same aliasing-defense as trust_pack.py. NOT covered: mldsa65 / hybrid-ed25519-mldsa65 root keys (skipped, never silently accepted), not_expired, version_monotone / prevVersionDigest chaining, two-stage rotation authorization, and full predicate-shape validation."
+    },
+    "proofbundle.merkle.verify_consistency": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "RFC 9162 consistency-proof verification between two tree sizes; no Rust implementation."
+    },
+    "proofbundle.decision.verify_decision_receipt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed Decision Receipt: crypto + structure over the exact signed bytes. Its content-root PRIMITIVE (jcs-sha256-v1) is independently cross-checked via the `content-root` subcommand against the decision/crossimpl corpus, but the full predicateType-confusion check, subject binding, and evidenceRefs validation are not ported."
+    },
+    "proofbundle.outcome.verify_outcome_receipt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed Action Outcome Receipt: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
+    },
+    "proofbundle.run_ledger.verify_run_ledger": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed Run Ledger: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
+    },
+    "proofbundle.verification_summary.verify_verification_summary": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed Verification Summary: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
+    },
+    "proofbundle.intoto.verify_intoto_dsse": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed in-toto test-result attestation verify (export_intoto_dsse counterpart)."
+    },
+    "proofbundle.intoto.verify_eval_result_dsse": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed eval-result attestation verify, incl. predicateType-confusion defense (WP-I1)."
+    },
+    "proofbundle.intoto.verify_svr_dsse": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "DSSE-signed SVR (Sample Verification Record) attestation verify."
+    },
+    "proofbundle.kbjwt.verify_key_binding": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Key Binding JWT (RFC 9901) verify of a compact SD-JWT presentation — holder proof-of-possession."
+    },
+    "proofbundle.sdjwt.verify_sd_jwt": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Full SD-JWT compact-serialization verify (structure + optional issuer signature). A NARROW slice of this (issuer Ed25519 signature + eval-root-graft binding, no cnf) lives inside verify-bundle's verify_sdjwt_issuer and is reflected in bundle.verify_bundle's PARTIAL note, not here."
+    },
+    "proofbundle.sdjwt_vc.verify_sdjwt_vc": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Full SD-JWT VC relying-party check: issuer signature AND the VC profile (vct/type binding, status list, disclosure structure)."
+    },
+    "proofbundle.statuslist.verify_status_snapshot": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Status List Token (bit-string revocation) snapshot verify, fully offline."
+    },
+    "proofbundle.checkpoint.verify_checkpoint": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "C2SP signed-checkpoint verify against a vkey (origin/tree_size/root)."
+    },
+    "proofbundle.checkpoint.verify_cosignature": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "One witness cosignature verify on a signed checkpoint note."
+    },
+    "proofbundle.checkpoint.verify_witnessed_checkpoint": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Checkpoint verify requiring BOTH log signature and a witness-quorum threshold."
+    },
+    "proofbundle.anchors.verify_anchor": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verify ONE external time-anchor entry, fail-closed, against target_roots."
+    },
+    "proofbundle.anchors.verify_anchors": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verify a receipt's whole `anchors` list (missing/empty -> SKIP unless required)."
+    },
+    "proofbundle.anchors_ots.verify_opentimestamps": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed OpenTimestamps proof verify (confirmed/pending against a frozen Bitcoin block header). The RELATED security DECISION — a bundle's own frozen header is never self-trusted, so --require-anchor never confirms offline — IS reproduced by verify-bundle's anchor_rp_confirmed() (always false), but the OTS binary proof itself is not parsed."
+    },
+    "proofbundle.anchors_rfc3161.verify_rfc3161": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed offline RFC 3161 (TSA) timestamp token verify."
+    },
+    "proofbundle.anchors_markovian.verify_markovian": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed verifier for a markovian-provenance/v1 external anchor."
+    },
+    "proofbundle.anchors_chia.verify_offline_merkle": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Pure offline verification (level i) of a decoded chia-datalayer proof dict."
+    },
+    "proofbundle.anchors_chia.verify_chia_datalayer": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Registered anchor verifier for chia-datalayer/v1."
+    },
+    "proofbundle.evidence_pack.verify_evidence_pack": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Evidence pack OFFLINE verify, delegates to the OTS verifier."
+    },
+    "proofbundle.evalclaim.verify_commitment": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Salted-commitment check for one presented identifier in an eval claim (persample/pre-registration)."
+    },
+    "proofbundle.hashalg.verify_dual_hash": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verify every declared digest binds the data AND at least one is a current algorithm (crypto-agility)."
+    },
+    "proofbundle.hf_evals.verify_receipt_token": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Unpack and verify a `pb1.` HuggingFace-eval receipt token."
+    },
+    "proofbundle.hf_evals.verify_eval_results_entry": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verifier-side check of one .eval_results entry (WP-I2 value/verdict binding)."
+    },
+    "proofbundle.persample.verify_sample_opening": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verify one per-sample opening against the receipt's committed samples root, offline, fail-closed."
+    },
+    "proofbundle.pqsig.verify_mldsa": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "ML-DSA (FIPS 204) signature verify — needs a PQ crate; none is vendored in pb_verify_rs."
+    },
+    "proofbundle.pqsig.verify_slhdsa": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "SLH-DSA (FIPS 205) signature verify — Python-side marked OPTIONAL/currently OPEN itself."
+    },
+    "proofbundle.pqsig.verify_hybrid": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Hybrid Ed25519+ML-DSA verify (BOTH legs must verify) — depends on verify_mldsa (PENDING)."
+    },
+    "proofbundle.prereg.verify_prereg": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Check that a claim's prereg_sha256 matches the sha256 of the pre-registration protocol file."
+    },
+    "proofbundle.renewal.verify_sequence": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "ArchiveTimeStampSequence end-to-end verify, walking the newest strong anchor back to the origin."
+    },
+    "proofbundle.tlogproof.verify_tlog_proof": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "tlog-proof (transparency-log inclusion) offline verify against explicit trust anchors."
+    }
+  }
+}

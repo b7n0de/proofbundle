@@ -1,5 +1,19 @@
 # Cross-Implementation Report (3.2.0 O8)
 
+**Machine-checked as of Finding 11 (2026-07-15):** this file is prose, and prose drifts — it did, in
+practice, before this note existed (a new Python `verify_*` surface can ship with nobody remembering to
+update the tables below). The **live, re-checked-every-run source of truth is
+`scripts/rust_parity_gate.py`** (`python scripts/rust_parity_gate.py [--json|--markdown] [--strict]`):
+it AST-scans every `src/proofbundle/*.py` for a module-level `verify_*` function (ground truth,
+rediscovered fresh each run — nothing hand-copied), looks each one up in the declarative
+`scripts/rust_parity_registry.json`, and cross-checks every COVERED/PARTIAL claim against the ACTUAL
+`main.rs` match arms, the built binary's self-declared `coverage-report`, and a literal call site in
+`crosscheck.py` — a stale claim is caught (`STALE_COVERED_CLAIM`), not trusted. Wired as an advisory CI
+job (`.github/workflows/ci.yml` → `rust-parity`, never blocking, matching this repo's `branch-base`
+precedent). This report's tables below are a human-readable snapshot of that same registry; read the
+gate's `--markdown` output (or `tests/test_rust_parity_gate.py::TestMainCLI::
+test_real_repo_registry_is_honest_strict_mode_exits_0`) for the current, guaranteed-in-sync numbers.
+
 An independent, read-only **second verifier** written in Rust (`tools/pb_verify_rs`) that agrees
 with the Python implementation on the core verifier properties. It shares **no** canonicalization
 or parser code with Python: it uses the Rust `serde_jcs` crate for RFC 8785 (a different
@@ -12,6 +26,9 @@ for SHA-256, and a hand-rolled strict-JSON deserializer for duplicate-key reject
 cd tools/pb_verify_rs && cargo build          # builds the independent Rust verifier
 cd ../.. && python tools/pb_verify_rs/crosscheck.py   # drives it against Python-produced fixtures
 # exit 0 iff every property below AGREES between the two implementations
+
+python scripts/rust_parity_gate.py --strict   # honesty gate: is every COVERED/PARTIAL claim still real?
+python scripts/rust_parity_gate.py --markdown # regenerate a table equivalent to the ones below
 ```
 
 ## Covered — cross-implementation AGREEMENT proven
@@ -27,6 +44,7 @@ a green run means the Rust verifier computed the SAME value / reached the SAME v
 | duplicate JSON key (parser-differential defense, C1) | — | `strict-parse` | Rust → REJECT (exit 1), independent of Python's `_strict_json` |
 | RFC 6962 Merkle tree head | RFC 6962 | `merkle-root` | byte-identical hex vs Python |
 | native bundle verify exit-code contract (sig + inclusion + root/tree-size) | RFC 6962 / 9162 | `verify-bundle` | same exit code (0/1/2) as the Python CLI, incl. relying-party `--expected-root` / `--expected-tree-size` |
+| trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg only, Finding 11) | proofbundle `trust_pack.py` (TUF-inspired) | `verify-trust-pack-threshold` | same `root_threshold_met` boolean as Python's `verify_trust_pack`, on both a threshold-met and a threshold-NOT-met envelope; DISTINCT-key-material dedup (aliasing defense) reproduced independently. **PARTIAL**, not COVERED — see Pending below for what this slice does NOT check |
 
 The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the RFC 6962 node rule
 (`SHA256(0x01 ‖ left ‖ right)`) are implemented from the specs in Rust, not ported from the Python
@@ -78,13 +96,23 @@ are declared as **not yet reproduced** by the second implementation and remain P
 
 - `decision-receipt/v0.1` full predicate validation (schema + hand-validator parity)
 - `action-outcome/v0.1`, `run-ledger/v0.1`, `verification-summary/v0.1` predicate validation
-- Trust Pack threshold-of-root signature verify (distinct key-material counting, rotation)
+- Trust Pack: `mldsa65` / `hybrid-ed25519-mldsa65` root keys (the Ed25519 leg is now PARTIAL, see
+  above), `not_expired`, `version_monotone` / `prevVersionDigest` chaining, two-stage rotation
+  authorization, full predicate-shape validation
 - SD-JWT / SD-JWT VC holder key binding and issuer-signature verify
 - Checkpoint signature + witness-quorum trust, atomic root/tree-size trust
 - External anchors (OpenTimestamps / RFC 3161) offline resolution
+- ~30 further `verify_*` surfaces (RFC 9162 consistency proofs, in-toto/eee/hf-eval attestations,
+  post-quantum ML-DSA/SLH-DSA, chia-datalayer/markovian/rfc3161/ots anchors, status lists,
+  pre-registration, sample-opening, key-binding, tlog-proof) — see
+  `scripts/rust_parity_registry.json` / `python scripts/rust_parity_gate.py --markdown` for the
+  complete, individually-noted, machine-checked list
 
 These are the next slices; each will graduate the same way — an independent Rust check plus a
-`crosscheck.py` assertion of agreement — and this table will move rows from Pending to Covered.
+`crosscheck.py` assertion of agreement, registered as COVERED/PARTIAL in
+`scripts/rust_parity_registry.json` — and `scripts/rust_parity_gate.py`'s own cross-checks (against
+`main.rs`, the built binary, and `crosscheck.py`) hold that claim honest going forward, not just at the
+moment it was written.
 
 ## No-Overclaim
 
