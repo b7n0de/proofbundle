@@ -19,6 +19,8 @@ import pytest
 from proofbundle.renewal import (
     ArchiveTimeStamp,
     RenewalError,
+    VerifiedAnchorResult,
+    anchor_proof_digest,
     build_initial_sequence,
     last_ats,
     renew_hashtree,
@@ -177,3 +179,110 @@ def test_unknown_algorithm_still_fails_closed() -> None:
     # tolerance is only for DEPRECATED (known) algorithms — an UNKNOWN algorithm cannot be computed → fail
     a = ArchiveTimeStamp("sha999", "ab" * 32, 1000)
     assert not verify_sequence([[a]], DATA).ok
+
+
+# --- finding 09: renewal seeding trusted a bare anchor_status marker, never cryptography -----------
+#
+# _require_prior_anchor previously checked ONLY `prior.anchor_status != "confirmed"` — never a real
+# signature/verification. anchor_status="confirmed" is ALSO the ArchiveTimeStamp field default AND
+# build_initial_sequence's default, so an entirely unsigned (sig_alg="") ATS satisfies it trivially.
+# VerifiedAnchorResult + prior_verification/require_verified_prior close this for a caller who opts in,
+# while the DEFAULT (unopted) behavior of every existing caller stays exactly as before (additive).
+
+
+def _good_verification(ats: ArchiveTimeStamp, **overrides) -> VerifiedAnchorResult:
+    fields = dict(verified=True, proof_digest=anchor_proof_digest(ats), verifier_id="ots-monitor-1",
+                 policy_digest="policy-abc", verified_at=1_700_000_000)
+    fields.update(overrides)
+    return VerifiedAnchorResult(**fields)
+
+
+def test_renew_requires_verified_prior_anchor_result() -> None:
+    seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
+    prior = last_ats(seq)
+
+    # require_verified_prior=True with NO VerifiedAnchorResult at all -> fail closed
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=2000, require_verified_prior=True)
+    with pytest.raises(RenewalError):
+        renew_hashtree(seq, DATA, new_hash_alg="sha512", time=2000, require_verified_prior=True)
+
+    # a VerifiedAnchorResult that says verified=False must not seed a renewal even though it was supplied
+    unverified = _good_verification(prior, verified=False)
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=2000, prior_verification=unverified, require_verified_prior=True)
+
+    # a VerifiedAnchorResult whose proof_digest does NOT bind to this prior ATS -> fail closed
+    unbound = _good_verification(prior, proof_digest="00" * 32)
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=2000, prior_verification=unbound, require_verified_prior=True)
+
+    # a correctly-bound, verified=True result succeeds for BOTH renewal modes, and the produced ATS
+    # records the cryptographic evidence class
+    good = _good_verification(prior)
+    renewed = renew_timestamp(seq, time=2000, prior_verification=good, require_verified_prior=True)
+    assert renewed[0][1].renewal_seed_evidence_class == "cryptographically_verified"
+    renewed2 = renew_hashtree(seq, DATA, new_hash_alg="sha512", time=2000,
+                              prior_verification=good, require_verified_prior=True)
+    assert renewed2[1][0].renewal_seed_evidence_class == "cryptographically_verified"
+
+
+def test_forged_confirmed_label_cannot_seed_renewal() -> None:
+    # the exact finding-09 attack: an entirely UNSIGNED ATS (sig_alg="") whose anchor_status is
+    # "confirmed" only because that is the field default (never independently verified by anyone).
+    seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
+    assert seq[0][0].anchor_status == "confirmed"
+    assert seq[0][0].sig_alg == ""
+
+    # require_verified_prior=True refuses to seed a renewal from the bare label alone
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=2000, require_verified_prior=True)
+    with pytest.raises(RenewalError):
+        renew_hashtree(seq, DATA, new_hash_alg="sha512", time=2000, require_verified_prior=True)
+
+    # documented compat boundary: the DEFAULT (require_verified_prior=False, no prior_verification)
+    # still accepts the forged/self-asserted label — an honest, additive limitation, not silently closed
+    # (closing it by default would break every existing caller of renew_timestamp/renew_hashtree).
+    renewed = renew_timestamp(seq, time=2000)
+    assert renewed[0][1].renewal_seed_evidence_class == "self_asserted_status"
+    assert verify_sequence(renewed, DATA).ok
+
+
+def test_renewal_chain_binds_verification_policy_digest() -> None:
+    # a VerifiedAnchorResult is scoped to the EXACT prior ATS it was computed for — it must not be
+    # replayable onto a LATER link in the same renewal chain, even under a different policy_digest.
+    seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
+    ats0 = last_ats(seq)
+    verification0 = _good_verification(ats0, verifier_id="monitor-1", policy_digest="policy-A")
+
+    seq = renew_timestamp(seq, time=2000, prior_verification=verification0, require_verified_prior=True)
+    assert seq[0][1].renewal_seed_evidence_class == "cryptographically_verified"
+    ats1 = last_ats(seq)
+    assert ats1 is not ats0
+
+    # replay: verification0 was bound to ats0's token, not ats1's -> the NEXT renewal step must reject it
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=3000, prior_verification=verification0, require_verified_prior=True)
+
+    # a freshly bound verification for THIS step succeeds, even under a DIFFERENT policy_digest — the
+    # binding is per-ATS (proof_digest), policy_digest is provenance only, not itself cross-checked here
+    verification1 = _good_verification(ats1, verifier_id="monitor-1", policy_digest="policy-B")
+    seq = renew_timestamp(seq, time=3000, prior_verification=verification1, require_verified_prior=True)
+    assert seq[0][2].renewal_seed_evidence_class == "cryptographically_verified"
+    assert verify_sequence(seq, DATA, allow_unauthenticated_anchor=True).ok
+
+
+def test_anchor_proof_digest_is_deterministic_and_ats_specific() -> None:
+    seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
+    ats0 = last_ats(seq)
+    seq2 = renew_timestamp(seq, time=2000)
+    ats1 = last_ats(seq2)
+    assert anchor_proof_digest(ats0) == anchor_proof_digest(ats0)     # deterministic
+    assert anchor_proof_digest(ats0) != anchor_proof_digest(ats1)     # distinct ATS -> distinct digest
+
+
+def test_verified_anchor_result_wrong_type_rejected() -> None:
+    seq = build_initial_sequence(DATA, hash_alg="sha256", time=1000)
+    with pytest.raises(RenewalError):
+        renew_timestamp(seq, time=2000, prior_verification="not-a-VerifiedAnchorResult",  # type: ignore[arg-type]
+                        require_verified_prior=True)

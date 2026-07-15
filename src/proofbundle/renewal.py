@@ -46,6 +46,8 @@ __all__ = [
     "ArchiveTimeStamp",
     "RenewalError",
     "RenewalPolicy",
+    "VerifiedAnchorResult",
+    "anchor_proof_digest",
     "build_initial_sequence",
     "renew_timestamp",
     "renew_hashtree",
@@ -72,7 +74,12 @@ class ArchiveTimeStamp:
     = unsigned/legacy) and ``signatures`` a tuple of ``(alg-part, base64-signature)`` pairs over the ATS
     CONTENT (``_ats_content``). The signature is the real trust anchor: renewal migrates it toward PQ.
     ``anchor_status`` is the legacy structural marker, used only when no ``authority_keys`` are supplied to
-    ``verify_sequence`` (a real signature check supersedes it). ``time`` orders the sequence + drives expiry."""
+    ``verify_sequence`` (a real signature check supersedes it). ``time`` orders the sequence + drives expiry.
+    ``renewal_seed_evidence_class`` is provenance metadata (never part of ``token()``, purely descriptive):
+    ``""`` for an ATS that is not itself a renewal (the initial ATS from ``build_initial_sequence``),
+    ``"cryptographically_verified"`` when the renewal that produced this ATS was seeded from a bound,
+    verified ``VerifiedAnchorResult`` (finding 09), or ``"self_asserted_status"`` when it was seeded from
+    the legacy bare ``anchor_status`` label alone."""
 
     hash_alg: str
     covered_digest: str
@@ -80,6 +87,7 @@ class ArchiveTimeStamp:
     anchor_status: str = _CONFIRMED
     sig_alg: str = ""
     signatures: tuple = field(default_factory=tuple)
+    renewal_seed_evidence_class: str = ""
 
     def token(self) -> str:
         """The stable string a later ATS covers when it renews this one — RFC 4998 timestamp renewal covers
@@ -90,6 +98,42 @@ class ArchiveTimeStamp:
             return base
         sig_part = ";".join(f"{a}={s}" for a, s in sorted(self.signatures))
         return f"{base}:{self.sig_alg}:{sig_part}"
+
+
+@dataclass(frozen=True)
+class VerifiedAnchorResult:
+    """Evidence that a specific PRIOR ArchiveTimeStamp was independently, cryptographically verified — e.g.
+    a real OTS/Bitcoin confirmation check, an RFC-3161 TSA verification, or an authority-signature check
+    via ``verify_sequence(..., authority_keys=...)`` — rather than trusted from its bare ``anchor_status``
+    label (finding 09: ``anchor_status="confirmed"`` is ALSO proofbundle's own default field value AND
+    ``build_initial_sequence``'s default, so an unsigned, never-actually-anchored ATS satisfies the label
+    trivially; ``verify_sequence`` is fail-closed about this, but ``renew_timestamp``/``renew_hashtree``
+    historically were not).
+
+    ``proof_digest`` BINDS this result to the EXACT prior ATS being renewed (``anchor_proof_digest(prior)``,
+    i.e. SHA-256 of ``prior.token()``) — a verification performed for one ArchiveTimeStamp must not be
+    replayable onto a different one, even a later link in the SAME renewal chain. ``verifier_id`` /
+    ``policy_digest`` / ``verified_at`` are provenance (who verified it, under which policy, when);
+    construct this from the output of a real verification, never hand-typed alongside ``verified=True``
+    (No-Fake)."""
+
+    verified: bool
+    proof_digest: str
+    verifier_id: str
+    policy_digest: str
+    verified_at: int
+
+
+_ANCHOR_PROOF_HASH = "sha256"
+
+
+def anchor_proof_digest(ats: ArchiveTimeStamp) -> str:
+    """The canonical binding digest for a ``VerifiedAnchorResult.proof_digest`` over ``ats``: SHA-256
+    (fixed, independent of ``ats.hash_alg`` — evidence about WHICH ArchiveTimeStamp was verified is a
+    separate concern from what hash that ATS's own covering commits under) of ``ats.token()`` (which
+    already folds in the ATS's hash algorithm, covered digest, time, and signature — so a verification
+    bound to one ATS cannot be silently satisfied by a structurally different one)."""
+    return compute_digest(ats.token().encode(), _ANCHOR_PROOF_HASH)
 
 
 def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) -> bytes:
@@ -193,12 +237,16 @@ def _cover_prior_and_data(prior: Sequence[ArchiveTimeStamp], data_digests: Seque
 
 
 def _make_ats(hash_alg: str, covered: str, time: int, anchor_status: str,
-              sig_alg: str, signers: Optional[dict]) -> ArchiveTimeStamp:
-    """Construct an ATS, signing its content when ``sig_alg`` is set (the RFC-4998 TimeStampToken)."""
+              sig_alg: str, signers: Optional[dict], *,
+              renewal_seed_evidence_class: str = "") -> ArchiveTimeStamp:
+    """Construct an ATS, signing its content when ``sig_alg`` is set (the RFC-4998 TimeStampToken).
+    ``renewal_seed_evidence_class`` tags HOW the prior anchor was established when this ATS is itself a
+    renewal (finding 09); the default ``""`` is for a non-renewal (initial) ATS."""
     sigs: tuple = ()
     if sig_alg:
         sigs = _sign_ats_content(_ats_content(hash_alg, covered, time, sig_alg), sig_alg, signers or {})
-    return ArchiveTimeStamp(hash_alg, covered, time, anchor_status, sig_alg, sigs)
+    return ArchiveTimeStamp(hash_alg, covered, time, anchor_status, sig_alg, sigs,
+                            renewal_seed_evidence_class)
 
 
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
@@ -225,31 +273,76 @@ def _all_ats(sequence: list[list[ArchiveTimeStamp]]) -> list[ArchiveTimeStamp]:
     return [a for chain in sequence for a in chain]
 
 
-def _require_prior_anchor(prior: ArchiveTimeStamp) -> None:
-    # RFC 4998: a renewal extends a VALID prior timestamp. Renewing over an unanchored (pending) prior is
-    # meaningless — there is nothing whose validity is being carried forward.
+def _require_prior_anchor(prior: ArchiveTimeStamp, *,
+                          prior_verification: Optional[VerifiedAnchorResult],
+                          require_verified_prior: bool) -> str:
+    """Fail-closed gate on the PRIOR ArchiveTimeStamp a renewal is about to extend. Returns the evidence
+    class actually relied on (finding 09), tagged by the caller onto the new ATS's
+    ``renewal_seed_evidence_class``: ``"cryptographically_verified"`` when a bound, verified
+    ``VerifiedAnchorResult`` was supplied, else ``"self_asserted_status"`` (the legacy bare
+    ``anchor_status`` label — a HONEST, documented compat boundary: the DEFAULT behavior of every
+    existing caller is unchanged, since ``anchor_status="confirmed"`` is also the field default and
+    ``build_initial_sequence``'s default; only ``require_verified_prior=True`` or an explicitly supplied
+    ``prior_verification`` raises the bar).
+
+    RFC 4998: a renewal extends a VALID prior timestamp. Renewing over an unanchored (pending) prior — or,
+    when ``prior_verification`` is supplied, over one whose verification does not hold or does not BIND to
+    THIS exact prior — is meaningless: there is nothing whose validity is being carried forward.
+    """
+    if prior_verification is not None:
+        if not isinstance(prior_verification, VerifiedAnchorResult):
+            raise RenewalError("prior_verification must be a VerifiedAnchorResult")
+        expected_digest = anchor_proof_digest(prior)
+        if not (prior_verification.verified is True
+                and isinstance(prior_verification.proof_digest, str)
+                and prior_verification.proof_digest == expected_digest):
+            raise RenewalError(
+                "prior_verification does not verify, or its proof_digest does not bind to this prior "
+                "ArchiveTimeStamp (expected sha256(prior.token())) — a verification result computed for "
+                "a DIFFERENT ArchiveTimeStamp (e.g. an earlier link in the same chain) cannot seed this "
+                "renewal (fail-closed, finding 09)")
+        return "cryptographically_verified"
+    if require_verified_prior:
+        raise RenewalError(
+            "require_verified_prior=True but no prior_verification (VerifiedAnchorResult) was supplied — "
+            "the bare anchor_status label is a self-asserted marker, not cryptographic proof, and "
+            "anchor_status='confirmed' is also proofbundle's own default value (fail-closed, finding 09)")
+    # legacy path: trust the bare structural marker (self-asserted, no cryptographic proof) — unchanged
+    # default behavior, the documented finding-09 compat boundary.
     if prior.anchor_status != _CONFIRMED:
         raise RenewalError(
             f"cannot renew: the prior ArchiveTimeStamp is not confirmed (anchor_status="
             f"{prior.anchor_status!r}) — renew_without_prior_anchor is a fail-closed error")
+    return "self_asserted_status"
 
 
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
                     anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
-                    signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
+                    signers: Optional[dict] = None,
+                    prior_verification: Optional[VerifiedAnchorResult] = None,
+                    require_verified_prior: bool = False) -> list[list[ArchiveTimeStamp]]:
     """Timestamp renewal: append an ATS to the LAST chain (SAME hash algorithm), covering the prior ATS.
 
     Used when a timestamp's key/signature algorithm weakens but the hash is still strong. This is where the
     signature layer MIGRATES: pass a stronger ``sig_alg`` (e.g. ``hybrid-ed25519-mldsa65`` → ``mldsa65``)
     + ``signers`` to re-sign the covered prior token under the upgraded algorithm. ``sig_alg=None`` keeps
-    the prior algorithm. Time strictly after the prior; fail-closed if the prior anchor is not confirmed."""
+    the prior algorithm. Time strictly after the prior; fail-closed if the prior anchor is not confirmed.
+
+    ``prior_verification`` (finding 09): an optional ``VerifiedAnchorResult`` proving the PRIOR ATS was
+    independently, cryptographically verified (not merely labeled ``anchor_status="confirmed"`` — which is
+    also the field default). When supplied it must verify and its ``proof_digest`` must bind to this exact
+    prior; ``require_verified_prior=True`` makes it MANDATORY (no bare-label fallback). Neither argument
+    changes the default (unverified-label) behavior of an existing caller — additive, fail-closed only when
+    opted into. The produced ATS's ``renewal_seed_evidence_class`` records which path was taken."""
     prior = _newest(sequence)
-    _require_prior_anchor(prior)
+    evidence_class = _require_prior_anchor(
+        prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
-    new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers)
+    new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers,
+                    renewal_seed_evidence_class=evidence_class)
     out = [list(chain) for chain in sequence]
     out[-1].append(new)
     return out
@@ -258,19 +351,27 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
 def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                    new_hash_alg: str, time: int, anchor_status: str = _CONFIRMED,
                    sig_alg: Optional[str] = None,
-                   signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
+                   signers: Optional[dict] = None,
+                   prior_verification: Optional[VerifiedAnchorResult] = None,
+                   require_verified_prior: bool = False) -> list[list[ArchiveTimeStamp]]:
     """Hash-tree renewal: start a NEW chain whose first ATS covers all prior ATS + the data objects under
     ``new_hash_alg``. Used when the hash algorithm weakens. Like ``renew_timestamp`` the signature layer may
     migrate (``sig_alg`` + ``signers``). Time strictly after the prior; fail-closed on a weak/unknown new
-    hash or an unconfirmed prior anchor."""
+    hash or an unconfirmed prior anchor.
+
+    ``prior_verification`` / ``require_verified_prior`` (finding 09): same contract as
+    ``renew_timestamp`` — an optional (or, with ``require_verified_prior=True``, mandatory) bound,
+    cryptographically verified proof of the prior ATS, additive and fail-closed only when opted into."""
     resolve_hash_alg(new_hash_alg)  # current-only
     prior = _newest(sequence)
-    _require_prior_anchor(prior)
+    evidence_class = _require_prior_anchor(
+        prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
-    new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers)]
+    new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers,
+                           renewal_seed_evidence_class=evidence_class)]
     return [list(chain) for chain in sequence] + [new_chain]
 
 
