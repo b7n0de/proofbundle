@@ -42,6 +42,14 @@ _REQUIRED_ALWAYS = ("schemaVersion", "trustPackId", "version", "expires", "prevV
 _OPTIONAL = ("revoked",)
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
+# Crypto agility (ADR 0006, mirrors renewal.py's `_SIG_ALGS`): a keys[kid] entry declares WHICH signature
+# algorithm it holds. Absent `alg` defaults to "ed25519" (backward compatible with every pre-agility pack).
+# `hybrid-ed25519-mldsa65` carries TWO legs — `publicKey` (Ed25519 classical, 32 bytes) + `publicKeyPq`
+# (ML-DSA-65 PQ, 1952 bytes, FIPS 204) — and BOTH must verify (an attacker must forge both to forge the key).
+_KEY_ALGS = ("ed25519", "mldsa65", "hybrid-ed25519-mldsa65")
+_KEY_RAW_LEN = {"ed25519": 32, "mldsa65": 1952}  # raw public key byte length (FIPS 204 ML-DSA-65 = 1952 bytes)
+_KEY_ALG_LABEL = {"mldsa65": "ML-DSA-65", "hybrid-ed25519-mldsa65": "Ed25519 (hybrid classical leg)"}
+
 
 class TrustPackError(ProofBundleError):
     """A Trust Pack predicate is malformed (fail-closed)."""
@@ -128,15 +136,40 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str) or not kv.get("publicKey"):
                     errors.append(f"keys[{kid!r}] must be an object with a base64 'publicKey'")
                     continue
+                alg = kv.get("alg", "ed25519")
+                if alg not in _KEY_ALGS:
+                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {alg!r}")
+                is_hybrid = alg == "hybrid-ed25519-mldsa65"
+                allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
                 for f in kv:
-                    if f not in ("publicKey", "scheme"):
+                    if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
+                # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
+                # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
+                want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
+                label = _KEY_ALG_LABEL.get(alg, "Ed25519")
                 try:
                     raw = base64.b64decode(kv["publicKey"], validate=True)
-                    if len(raw) != 32:
-                        errors.append(f"keys[{kid!r}].publicKey must be a 32-byte Ed25519 key (got {len(raw)})")
+                    if len(raw) != want_len:
+                        errors.append(f"keys[{kid!r}].publicKey must be a {want_len}-byte {label} key (got {len(raw)})")
                 except Exception:  # noqa: BLE001
                     errors.append(f"keys[{kid!r}].publicKey is not valid base64")
+                if is_hybrid:
+                    pq = kv.get("publicKeyPq")
+                    if not isinstance(pq, str) or not pq:
+                        errors.append(f"keys[{kid!r}].publicKeyPq is required for alg 'hybrid-ed25519-mldsa65'")
+                    else:
+                        try:
+                            rawpq = base64.b64decode(pq, validate=True)
+                            if len(rawpq) != _KEY_RAW_LEN["mldsa65"]:
+                                errors.append(
+                                    f"keys[{kid!r}].publicKeyPq must be a {_KEY_RAW_LEN['mldsa65']}-byte "
+                                    f"ML-DSA-65 key (got {len(rawpq)})")
+                        except Exception:  # noqa: BLE001
+                            errors.append(f"keys[{kid!r}].publicKeyPq is not valid base64")
+                elif "publicKeyPq" in kv:
+                    errors.append(f"keys[{kid!r}].publicKeyPq is only allowed for alg 'hybrid-ed25519-mldsa65'")
 
     # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME 32-byte key material dilute
     # every threshold — one physical key would count as N signers. checkpoint.py::witness_quorum learned this
@@ -280,6 +313,50 @@ def _empty_result() -> dict:
             "root_signers": [], "old_root_signers": [], "warnings": [], "errors": []}
 
 
+def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict, msg: bytes) -> bool:
+    """True iff ``entry`` (``{"keyid":, "sig":[, "sigPq":]}``) carries a valid signature over ``msg`` for a
+    root / old-root key of algorithm ``alg`` (``ed25519`` | ``mldsa65`` | ``hybrid-ed25519-mldsa65``), whose
+    classical/primary public key is the already-decoded ``pub`` bytes (``keys[kid].publicKey``); ``pq_pub_b64``
+    is the still-base64 ``publicKeyPq`` (the ML-DSA-65 leg), used only for ``hybrid-ed25519-mldsa65``.
+
+    Fail-closed, mirrors ``renewal._verify_ats_signature``: a missing/malformed leg is False, never a
+    fallback to a weaker check — a hybrid key is NEVER satisfied by only its Ed25519 ``sig`` leg (no
+    downgrade); the ``sigPq`` leg over ``publicKeyPq`` MUST also verify. The alg label itself cannot be
+    forged in isolation: it lives inside the signed predicate, so relabeling it invalidates every signature
+    over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header)."""
+    from .pqsig import verify_hybrid, verify_mldsa  # noqa: PLC0415
+    from .signature import verify_ed25519  # noqa: PLC0415
+    sig_b64 = entry.get("sig")
+    if alg == "mldsa65":
+        if not isinstance(sig_b64, str):
+            return False
+        try:
+            sig = base64.b64decode(sig_b64, validate=True)
+        except Exception:  # noqa: BLE001
+            return False
+        return verify_mldsa(pub, sig, msg, level="mldsa65")
+    if alg == "hybrid-ed25519-mldsa65":
+        sig_pq_b64 = entry.get("sigPq")
+        if not isinstance(pq_pub_b64, str) or not isinstance(sig_b64, str) or not isinstance(sig_pq_b64, str):
+            return False
+        try:
+            sig = base64.b64decode(sig_b64, validate=True)
+            pq_pub = base64.b64decode(pq_pub_b64, validate=True)
+            sig_pq = base64.b64decode(sig_pq_b64, validate=True)
+        except Exception:  # noqa: BLE001
+            return False
+        return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
+    # default / "ed25519" (an unrecognised alg on prev_root_keys — caller-supplied trust material, outside
+    # the predicate's own schema gate — safely falls back to the classical check rather than raising).
+    if not isinstance(sig_b64, str):
+        return False
+    try:
+        sig = base64.b64decode(sig_b64, validate=True)
+    except Exception:  # noqa: BLE001
+        return False
+    return verify_ed25519(pub, sig, msg)
+
+
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
                       prev_version: int | None = None, prev_version_digest: str | None = None,
                       prev_root_keys: dict | None = None, prev_root_threshold: int | None = None,
@@ -299,7 +376,6 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
     alone."""
     from . import dsse  # noqa: PLC0415
-    from .signature import verify_ed25519  # noqa: PLC0415
     r = _empty_result()
     body = dsse.load_payload(envelope)
     try:
@@ -350,22 +426,30 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     # Count DISTINCT KEY MATERIAL, not keyId labels (defense-in-depth beyond the validator's aliasing check):
     # one physical key registered under N keyIds is ONE root signer. Mirrors checkpoint.py::witness_quorum.
+    # Alg-aware (crypto agility, ADR 0006): keys[kid].alg selects ed25519 (default) / mldsa65 / hybrid — the
+    # alg label lives INSIDE the signed predicate, so an attacker cannot relabel a key without invalidating
+    # every signature over this pack.
     valid_root: dict[bytes, str] = {}
     for entry in envelope.get("signatures") or []:
         if not isinstance(entry, dict):
             continue
         kid = entry.get("keyid")
-        raw = entry.get("sig")
-        if not isinstance(kid, str) or kid not in root_ids or not isinstance(raw, str):
+        if not isinstance(kid, str) or kid not in root_ids:
+            continue
+        kv = keys.get(kid)
+        if not isinstance(kv, dict):
+            continue
+        pub_b64 = kv.get("publicKey")
+        if not isinstance(pub_b64, str):
             continue
         try:
-            pub = base64.b64decode(keys[kid]["publicKey"], validate=True)
-            sig = base64.b64decode(raw, validate=True)
+            pub = base64.b64decode(pub_b64, validate=True)
         except Exception:  # noqa: BLE001
             continue
         if pub in valid_root:  # same key material already counted — aliasing cannot inflate the threshold
             continue
-        if verify_ed25519(pub, sig, msg):
+        alg = kv.get("alg", "ed25519")
+        if _verify_signature_for_alg(alg, pub, kv.get("publicKeyPq"), entry, msg):
             valid_root[pub] = kid
     r["root_signers"] = sorted(valid_root.values())
     r["root_threshold_met"] = _is_int(threshold) and len(valid_root) >= threshold
@@ -409,21 +493,30 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             if not isinstance(entry, dict):
                 continue
             kid = entry.get("keyid")
-            raw = entry.get("sig")
-            if not isinstance(kid, str) or kid not in old_keys or not isinstance(raw, str):
+            if not isinstance(kid, str) or kid not in old_keys:
                 continue
-            _pk = old_keys[kid]
-            _pk = _pk.get("publicKey") if isinstance(_pk, dict) else _pk
-            if not isinstance(_pk, str):
+            _ok = old_keys[kid]
+            # backward compatible: a bare base64 string (legacy callers, ed25519-only) or a full key object
+            # ({"publicKey":, "alg":, "publicKeyPq":}) for crypto-agile rotation vouching. An unrecognised
+            # alg on this caller-supplied trust material defaults to ed25519 rather than raising.
+            if isinstance(_ok, str):
+                old_alg, pub_b64, pq_pub_b64 = "ed25519", _ok, None
+            elif isinstance(_ok, dict):
+                old_alg = _ok.get("alg", "ed25519")
+                if old_alg not in _KEY_ALGS:
+                    old_alg = "ed25519"
+                pub_b64, pq_pub_b64 = _ok.get("publicKey"), _ok.get("publicKeyPq")
+            else:
+                continue
+            if not isinstance(pub_b64, str):
                 continue
             try:
-                pub = base64.b64decode(_pk, validate=True)
-                sig = base64.b64decode(raw, validate=True)
+                pub = base64.b64decode(pub_b64, validate=True)
             except Exception:  # noqa: BLE001
                 continue
             if pub in old_valid:
                 continue
-            if verify_ed25519(pub, sig, msg):
+            if _verify_signature_for_alg(old_alg, pub, pq_pub_b64, entry, msg):
                 old_valid[pub] = kid
         r["old_root_signers"] = sorted(old_valid.values())
         # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
