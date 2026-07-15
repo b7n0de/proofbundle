@@ -1207,6 +1207,38 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_related(paths, pub: bytes) -> tuple[dict, list[str]]:
+    """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
+    STANDALONE under the SAME relying-party key, and key it by its content root. Same-key is the
+    honest v0.1 CLI contract (it matches the strictest relationSigner policy value); per-target
+    keys are a documented follow-up. A file that fails to load is a usage error (exit 2 at the
+    caller) — an envelope that loads but does NOT verify is kept with verified=False, so an
+    attached-but-wrong target FAILS lineage instead of vanishing."""
+    from . import anchors as _anchors_mod  # noqa: PLC0415
+    from . import dsse as _dsse  # noqa: PLC0415
+    related: dict = {}
+    errs: list[str] = []
+    for path in paths or []:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+            body = _dsse.load_payload(env)
+            root_hex = _anchors_mod.statement_content_root(body).hex()
+        except (ProofBundleError, OSError, ValueError) as exc:
+            errs.append(f"cannot read --with-related {path}: {exc}")
+            continue
+        verified = bool(_dsse.verify_envelope(env, pub, payload_type="application/vnd.in-toto+json"))
+        rels = None
+        try:
+            stmt = loads_strict(body.decode("utf-8"))
+            if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
+                rels = stmt["predicate"].get("relationships")
+        except (ProofBundleError, ValueError):
+            rels = None
+        related[root_hex] = {"verified": verified, "relationships": rels}
+    return related, errs
+
+
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     from .decision import verify_decision_receipt  # noqa: PLC0415
@@ -1246,10 +1278,16 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
+        related, rel_errs = _load_related(getattr(args, "with_related", None), pub)
+        if rel_errs:
+            for e in rel_errs:
+                print(f"ERROR: {e}", file=sys.stderr)
+            return 2
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=policy, anchors=anchors,
                                          rp_trust=rp_trust,
-                                         require_derived_subject=args.require_derived_subject)
+                                         require_derived_subject=args.require_derived_subject,
+                                         related=related or None)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1265,7 +1303,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
-            "automation", "evidence_levels", "warnings", "errors",
+            "automation", "evidence_levels", "lineage", "warnings", "errors",
         ) if k in result}
         print(json.dumps(report, indent=2, default=str))
     else:
@@ -1422,11 +1460,16 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         with open(args.envelope, encoding="utf-8") as handle:
             env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
+        related, rel_errs = _load_related(getattr(args, "with_related", None), pub)
+        if rel_errs:
+            for e in rel_errs:
+                print(f"ERROR: {e}", file=sys.stderr)
+            return 2
         result = verify_outcome_receipt(
             env, pub, strict=args.strict,
             expected_decision_ref=args.expected_decision_ref, decision_maker_id=args.decision_maker_id,
             expected_audience=args.aud, expected_nonce=args.nonce,
-            require_derived_subject=args.require_derived_subject)
+            require_derived_subject=args.require_derived_subject, related=related or None)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1439,7 +1482,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
             # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
             "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
-            "warnings", "errors",
+            "lineage", "warnings", "errors",
         ) if k in result}
         print(json.dumps(report, indent=2, default=str))
     else:
@@ -1983,6 +2026,12 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
                           help="WP-A1: a relying-party-supplied Bitcoin block header (internal byte order) "
                                "that confirms an OpenTimestamps statement anchor — frozen is never trusted")
+    d_verify.add_argument("--with-related", dest="with_related", action="append", default=None, metavar="PATH",
+                          help="relation/v0.1 (EXPERIMENTAL): attach a RELATED receipt's DSSE envelope for "
+                               "offline lineage resolution (repeatable). Each target is verified standalone "
+                               "under the SAME --pub (same-key contract); an attached target that does not "
+                               "verify FAILS lineage — relationship declared by issuer, not a statement of "
+                               "correctness")
     d_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
                           help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
@@ -2027,6 +2076,9 @@ def build_parser() -> argparse.ArgumentParser:
     o_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
     o_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
     o_verify.add_argument("--nonce", default=None, help="expected nonce (checks validity.nonce against replay)")
+    o_verify.add_argument("--with-related", dest="with_related", action="append", default=None, metavar="PATH",
+                          help="relation/v0.1 (EXPERIMENTAL): attach a RELATED receipt's DSSE envelope for "
+                               "offline lineage resolution (repeatable; same-key contract as decision verify)")
     o_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
                           help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "

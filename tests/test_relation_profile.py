@@ -368,3 +368,67 @@ class TestVerifyLevelLineage(unittest.TestCase):
         r = verify_decision_receipt(env, wrong_pub, related={H_B: {"verified": True}})
         self.assertFalse(r["crypto_ok"])
         self.assertIsNone(r["lineage"])
+
+
+class TestCLIWithRelated(unittest.TestCase):
+    """CLI e2e: decision verify --with-related resolves lineage offline; the JSON report
+    carries the lineage field (no silent field drop)."""
+
+    def _write_signed(self, tmpdir, name, pred_patch=None, signer=None):
+        import json
+        from pathlib import Path
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        if pred_patch:
+            pred.update(pred_patch)
+        signer = signer or generate_signer()
+        env = emit_decision_receipt(pred, signer, strict=True)
+        p = tmpdir / name
+        p.write_text(json.dumps(env), encoding="utf-8")
+        return p, env, signer
+
+    def _content_root_hex(self, env):
+        from proofbundle import anchors, dsse
+        return anchors.statement_content_root(dsse.load_payload(env)).hex()
+
+    def test_cli_with_related_verified_lineage_in_json(self):
+        import base64
+        import io
+        import json
+        import tempfile
+        from contextlib import redirect_stdout
+        from pathlib import Path
+        from proofbundle import cli
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            # Vorgänger B (gleicher Signer, same-key-Vertrag), dann Nachfolger A mit Kante auf B.
+            b_path, b_env, signer = self._write_signed(tmp, "b.json")
+            b_root = self._content_root_hex(b_env)
+            a_path, a_env, _ = self._write_signed(
+                tmp, "a.json",
+                pred_patch={"relationships": [edge(b_root, relation="supersedes")],
+                            "decisionId": "d-successor"},
+                signer=signer)
+            pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = cli.main(["decision", "verify", str(a_path), "--pub", pub,
+                               "--with-related", str(b_path), "--json"])
+            report = json.loads(buf.getvalue())
+            self.assertEqual(rc, 0, buf.getvalue())
+            self.assertEqual(report["lineage"]["lineage"], LINEAGE_VERIFIED)
+
+    def test_cli_unreadable_related_is_usage_error(self):
+        import base64
+        import tempfile
+        from pathlib import Path
+        from proofbundle import cli
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            a_path, _, signer = self._write_signed(tmp, "a.json")
+            pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+            rc = cli.main(["decision", "verify", str(a_path), "--pub", pub,
+                           "--with-related", str(tmp / "missing.json")])
+            self.assertEqual(rc, 2)
