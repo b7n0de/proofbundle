@@ -79,7 +79,21 @@ class ArchiveTimeStamp:
     ``""`` for an ATS that is not itself a renewal (the initial ATS from ``build_initial_sequence``),
     ``"cryptographically_verified"`` when the renewal that produced this ATS was seeded from a bound,
     verified ``VerifiedAnchorResult`` (finding 09), or ``"self_asserted_status"`` when it was seeded from
-    the legacy bare ``anchor_status`` label alone."""
+    the legacy bare ``anchor_status`` label alone.
+
+    ``external_token_type`` / ``external_token`` / ``external_token_frozen`` (Finding 14a-b, additive; ADR
+    0006 B3 OPEN item "binding an ATS to a real external RFC-3161 token / OTS proof"): an OPTIONAL, DETACHED
+    binding of THIS ATS's ``covered_digest`` to a real external time-stamp proof — ``"rfc3161-tsa"`` (an
+    RFC 3161 DER token) or ``"opentimestamps"`` (a serialized OTS proof), verified by
+    ``_verify_ats_external_token`` via the ALREADY-HARDENED standalone verifiers in ``anchors_rfc3161.py`` /
+    ``anchors_ots.py`` (pure glue, no new cryptography). ``external_token_frozen`` mirrors ``anchors.py``'s
+    own ``frozen`` block (chain material FROZEN at emit time, e.g. TSA root/cert DER or a Bitcoin block
+    header — evidence, never trust; the caller's ``rp_trust`` at verify time is the trust source, same WP-A1
+    discipline as ``anchors.py``). Like ``anchors.py``'s detached anchors, this is DELIBERATELY excluded from
+    ``token()``: it is out-of-band CORROBORATING evidence about this ATS's own identity, not part of that
+    identity — folding a multi-KB DER blob into every later renewal's covering hash would be both a design
+    smell and needlessly expensive. Empty defaults (``""`` / ``b""`` / ``{}``) mean "no external token" and
+    are fully backward compatible with every existing ATS/sequence."""
 
     hash_alg: str
     covered_digest: str
@@ -88,6 +102,9 @@ class ArchiveTimeStamp:
     sig_alg: str = ""
     signatures: tuple = field(default_factory=tuple)
     renewal_seed_evidence_class: str = ""
+    external_token_type: str = ""
+    external_token: bytes = b""
+    external_token_frozen: dict = field(default_factory=dict)
 
     def token(self) -> str:
         """The stable string a later ATS covers when it renews this one — RFC 4998 timestamp renewal covers
@@ -201,6 +218,43 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
         return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
                              pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
     return False
+
+
+def _verify_ats_external_token(ats: ArchiveTimeStamp, *, rp_trust: Optional[dict] = None,
+                               now: Optional[int] = None) -> dict:
+    """Finding 14a-b glue: verify ``ats``'s DETACHED ``external_token`` against its OWN ``covered_digest``
+    via the ALREADY-HARDENED standalone anchor verifiers (``anchors_rfc3161.verify_rfc3161`` /
+    ``anchors_ots.verify_opentimestamps``) — pure dispatch, no new cryptography (ADR 0006 B3 OPEN item).
+
+    ``canonical_root`` is ``ats.covered_digest`` decoded from hex — exactly the bytes an RFC 3161 / OTS
+    proof would timestamp for this ATS, the SAME role ``anchors.py`` gives a receipt's ``canonicalRoot``.
+    ``rp_trust`` is the caller's OWN relying-party trust material (TSA roots / Bitcoin block headers, WP-A1)
+    — ``ats.external_token_frozen`` is producer-controlled EVIDENCE, never trust, exactly mirroring
+    ``anchors_rfc3161.py`` / ``anchors_ots.py``'s own documented discipline.
+
+    Returns the verifier's own ``{ok, warn, status, detail, ...}`` dict. Never raises (mirrors
+    ``_verify_ats_signature``'s never-raise, fail-closed contract): an absent/unknown token type, a
+    non-hex ``covered_digest``, a missing optional-extra import, or a raising verifier all come back as
+    ``{"ok": False, ...}``, never propagate an exception to the caller."""
+    if ats.external_token_type not in ("rfc3161-tsa", "opentimestamps") or not ats.external_token:
+        return {"ok": False, "warn": False, "status": "absent", "detail": "no external token on this ATS"}
+    try:
+        canonical_root = bytes.fromhex(ats.covered_digest)
+    except (ValueError, TypeError):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": "covered_digest is not valid hex — cannot bind the external token"}
+    frozen = ats.external_token_frozen if isinstance(ats.external_token_frozen, dict) else {}
+    try:
+        if ats.external_token_type == "rfc3161-tsa":
+            from . import anchors_rfc3161  # noqa: PLC0415
+            return anchors_rfc3161.verify_rfc3161(ats.external_token, canonical_root, frozen=frozen,
+                                                  now=now, rp_trust=rp_trust)
+        from . import anchors_ots  # noqa: PLC0415
+        return anchors_ots.verify_opentimestamps(ats.external_token, canonical_root, frozen=frozen,
+                                                 now=now, rp_trust=rp_trust)
+    except Exception as exc:  # noqa: BLE001 - a verifier must never crash the caller (fail-closed contract)
+        return {"ok": False, "warn": False, "status": "verifier_error",
+                "detail": f"external token verifier error (fail-closed): {exc}"}
 
 
 def _is_deprecated_hash(alg: str) -> bool:
@@ -385,7 +439,10 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                     anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None,
                     allow_unauthenticated_anchor: bool = False,
                     require_pq: bool = False,
-                    require_current_hash: bool = False
+                    require_current_hash: bool = False,
+                    rp_trust: Optional[dict] = None,
+                    require_external_token: bool = False,
+                    known_newest_token_digest: Optional[str] = None,
                     ) -> VerificationResult:
     """Verify an ArchiveTimeStampSequence end-to-end, walking the newest strong anchor back to the origin.
 
@@ -421,6 +478,28 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     is what flags a deprecated newest as renewal-overdue). A deprecated newest hash is always SURFACED as a
     ``renewal:current_hash`` check so ``.ok`` alone never hides it; ``require_current_hash=True`` makes it a
     hard fail-closed error for a relying party that wants one call to reject a weak-hash anchor.
+
+    ``rp_trust`` / ``require_external_token`` (Finding 14a-b, additive; ADR 0006 B3 OPEN item): an OPTIONAL,
+    ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof, when the newest
+    ATS carries ``external_token_type`` (glue over the already-hardened standalone verifiers via
+    ``_verify_ats_external_token`` — never a replacement for the PRIMARY anchor modes above). Not surfaced
+    at all when the newest ATS has no ``external_token_type`` (fully backward compatible with every existing
+    sequence). ``rp_trust`` is the caller's own relying-party trust material (TSA roots / Bitcoin block
+    headers, WP-A1 — mirrors ``anchors.py`` exactly: the ATS's own frozen chain material is evidence, never
+    trust). A legitimate non-final external-token state (OTS ``pending`` / ``needs_rp_trust``) is TOLERATED
+    by default (``renewal:external_token`` stays ``ok`` — mirrors the WARN tolerance ``anchors.verify_anchors``
+    already uses); ``require_external_token=True`` demands the FULL verified state, not merely pending.
+
+    ``known_newest_token_digest`` (Finding 14a-c, additive; ADR 0006 B3 OPEN item "truncation/rollback
+    detection... needs an external append-only log, RFC 4998 does not solve this inherently"): RFC 4998 does
+    not itself defend against presenting a STALE PREFIX of a legitimately-renewed sequence — dropping the
+    later renewal ATS yields a structurally valid (shorter) sequence that verifies unchanged. No
+    ``RelyingPartyStateStore`` exists yet in this repo, so this is the additive-parameter fallback: pass the
+    ``anchor_proof_digest`` of the newest ATS the relying party last observed for this evidence chain (from
+    its own persisted state); the ``renewal:no_rollback`` check FAILS when that remembered ATS is no longer
+    present ANYWHERE in the presented sequence (truncated away) and PASSES when it is still present —
+    whether unchanged or followed by legitimate further renewals (forward progress). Not surfaced when
+    omitted (fully backward compatible).
     """
     result = VerificationResult()
 
@@ -459,6 +538,18 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     flat = _all_ats(sequence)
     if not flat:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
+        return result
+    # Finding 15b (DoS guard): refuse an absurdly long renewal sequence BEFORE the covering-check loop below
+    # runs — a hash-tree-renewal chain-start covers ALL prior ATS tokens (`_cover_prior_and_data`), so a
+    # sequence with many chain-starts is O(n) per chain-start, O(n * chain-starts) worst case for the whole
+    # walk. A legitimate renewal history (decades of periodic algorithm-ageing renewals) is nowhere near
+    # this bound; an attacker-assembled sequence with millions of ATS is.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not DEFAULT_BUDGET.within("renewal_ats_chain", len(flat)):
+        result.checks.append(Check(
+            "renewal:budget", False,
+            f"sequence has {len(flat)} ArchiveTimeStamp entries (> budget.renewal_ats_chain="
+            f"{DEFAULT_BUDGET.renewal_ats_chain}) — refusing (DoS guard, Finding 15b)"))
         return result
 
     # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
@@ -524,6 +615,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         result.checks.append(Check("renewal:cover", True,
                                    "every ATS covers its prior objects; data recomputes"))
 
+    # 3b) truncation / rollback detection (Finding 14a-c, ADR 0006 B3 OPEN item, additive): a STALE PREFIX
+    #     of a legitimately-renewed sequence is itself a structurally valid (shorter) sequence — the covering
+    #     check above says nothing about whether LATER renewals were dropped. Only evaluated when the caller
+    #     supplies known_newest_token_digest (its own persisted last-observed state); absent -> not surfaced.
+    if known_newest_token_digest is not None:
+        _known_present = any(anchor_proof_digest(a) == known_newest_token_digest for a in flat)
+        result.checks.append(Check(
+            "renewal:no_rollback", _known_present,
+            "the relying party's previously-known newest ArchiveTimeStamp is still present in this "
+            "sequence (no truncation/rollback)" if _known_present else
+            "known_newest_token_digest is not present anywhere in this sequence — possible truncation/"
+            "rollback to an older prefix (fail-closed)"))
+
     # 4) the newest ATS must be anchored (only the last ATS is watched, RFC 4998 operating rule). The
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
@@ -533,6 +637,33 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                                f"newest ATS anchored via {anchor_mode}" if anchored
                                else f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
                                     "for a cryptographic anchor"))
+
+    # 4b) optional, ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof
+    #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).
+    #     Only surfaced when the newest ATS actually carries an external_token_type (fully backward
+    #     compatible with every existing sequence that does not use this additive field).
+    if newest.external_token_type:
+        _ext = _verify_ats_external_token(newest, rp_trust=rp_trust)
+        _ext_ok = bool(_ext.get("ok"))
+        if not require_external_token:
+            # a legitimate non-final state (OTS pending / needs_rp_trust) is tolerated by default, mirroring
+            # anchors.verify_anchors' own WARN-does-not-hard-fail discipline; require_external_token demands
+            # the FULL verified state.
+            _ext_ok = _ext_ok or bool(_ext.get("warn"))
+        result.checks.append(Check(
+            "renewal:external_token", _ext_ok,
+            f"newest ATS external token ({newest.external_token_type}): {_ext.get('detail', '')}"))
+    elif require_external_token:
+        # Fail-closed (crypto-review, 2026-07-15): external_token_type/external_token are DELIBERATELY
+        # excluded from the signed ATS bytes (token()/_ats_content()), so an attacker or MITM can strip them
+        # from an otherwise authority-signed ATS without breaking any other check. A caller that DEMANDS the
+        # external token (require_external_token=True) must therefore get a FAILING check when it is absent —
+        # otherwise the whole external-token block is silently skipped and .ok is unaffected (a no-op "require").
+        result.checks.append(Check(
+            "renewal:external_token", False,
+            "require_external_token=True but the newest ATS carries no external_token_type — a detached "
+            "RFC-3161/OTS proof is not part of the signed ATS bytes, so its absence (or MITM stripping) is "
+            "only caught here; fail-closed."))
 
     # 5) optional post-quantum strength floor: the newest ATS's signature must carry a PQ leg (mldsa65 or
     #    hybrid), so a relying party that wants PQ protection is not satisfied by a (forgeable-after-quantum)

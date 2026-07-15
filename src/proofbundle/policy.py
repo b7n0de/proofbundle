@@ -159,7 +159,7 @@ _CHECKPOINT_KEYS = {"origin", "root", "treeSize", "hashAlg", "checkpointSigner",
                     "issuedAt", "validUntil", "signature"}
 _CHECKPOINT_REQUIRED = ("origin", "root", "treeSize", "hashAlg", "checkpointSigner", "signature")
 _SDJWT_KEYS = {"require_key_binding_when_cnf_present", "expected_aud", "require_nonce",
-               "max_iat_age_seconds"}
+               "max_iat_age_seconds", "expected_vct"}
 _STATUS_KEYS = {"reject_self_issued", "allowed_status_authorities"}
 _ASSURANCE_KEYS = {"minimum_level", "reject_self_attested_without_prereg"}
 
@@ -360,6 +360,13 @@ def load_policy(source: Union[str, dict]) -> dict:
         mia = sdj.get("max_iat_age_seconds")
         if mia is not None and (isinstance(mia, bool) or not isinstance(mia, int) or mia < 0):
             raise PolicyError("sd_jwt.max_iat_age_seconds must be a non-negative integer or null")
+        # Finding 20 / issue #27 (PB-2026-07-15): the RP verifier flag issue #27 asked for — "require a
+        # specific vct" — pinned directly in the trust policy (complementing sdjwt_vc.py's standalone
+        # vctAllowlist, which is a separate entry point for a bare compact SD-JWT, not a proofbundle
+        # bundle). An opaque type-identifier string, matched exactly, never dereferenced (SSRF-safe by
+        # construction, same as sdjwt_vc.py — see evaluate_policy for the "verified vs. merely present"
+        # gating this field requires).
+        _require_str_or_null(sdj, "expected_vct", "sd_jwt")
     if "status" in policy:
         st = _require_dict(policy["status"], "status")
         _reject_unknown(st, _STATUS_KEYS, "status")
@@ -801,6 +808,44 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             else "policy requires a nonce from a VERIFIED key binding, but none is present "
                  "(fail-closed: an unauthenticated nonce provides no replay protection)")
 
+    # 5b. Finding 20 / issue #27 (PB-2026-07-15): sd_jwt.expected_vct — the RP verifier flag issue #27's
+    # item 3 asked for. Mirrors nonce_present's "verified vs. merely present" discipline (the doc's own
+    # framing of what a same-PR trust-policy change would need to get right): the vct claim lives inside
+    # the ISSUER-SIGNED JWT payload, so it is trustworthy ONLY once sd-jwt-issuer-signature actually
+    # verified (an unverified vct proves nothing an attacker could not have written themselves) — gated
+    # on the authoritative crypto verdict in result.checks, exactly like policy:key_binding_present /
+    # policy:nonce_present above, never re-derived from an unauthenticated re-parse.
+    expected_vct = sdj.get("expected_vct")
+    if expected_vct is not None:
+        sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
+        if sig_check is None or not sig_check.ok:
+            add("policy:expected_vct", False,
+                "policy requires a specific vct but the SD-JWT issuer signature was never verified "
+                "(fail-closed: an unverified vct claim proves nothing — supply "
+                "sd_jwt_vc.issuer_public_key_b64)")
+        else:
+            from .sdjwt_issue import _jwt_payload as _sd_issuer_payload  # noqa: PLC0415
+            # evaluate_policy is a public function a caller may invoke with a hand-built `result` that
+            # does not actually derive from `verify_bundle(bundle)` (see test_evaluate_policy_gates_
+            # on_crypto_itself) — never assume `bundle["sd_jwt_vc"]["compact"]` is a string just because
+            # sig_check.ok says True; guard the type here too before calling a str-only helper.
+            _compact = sd.get("compact") if isinstance(sd, dict) else None
+            if isinstance(_compact, str):
+                try:
+                    _issuer_payload = _sd_issuer_payload(_compact)
+                except (BundleFormatError, ValueError, KeyError, IndexError):
+                    # F12-style fail-closed: a duplicate-key or malformed issuer payload cannot yield a
+                    # trustworthy vct → treat as absent, never a raw traceback out of the policy layer.
+                    _issuer_payload = {}
+            else:
+                _issuer_payload = {}
+            got_vct = _issuer_payload.get("vct") if isinstance(_issuer_payload, dict) else None
+            vct_ok = got_vct == expected_vct
+            add("policy:expected_vct", vct_ok,
+                f"vct {got_vct!r} matches expected {expected_vct!r}" if vct_ok
+                else f"vct {got_vct!r} does not match policy's expected_vct {expected_vct!r} "
+                     "(fail-closed)")
+
     # 6. status — verify --policy v0.1 has NO status-snapshot input, so an ENABLED status requirement
     #    cannot be evaluated here. Fail closed rather than silently pass (the honest boundary).
     status = policy.get("status") or {}
@@ -905,6 +950,8 @@ def explain_policy(policy: dict) -> list:
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
         lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+    if sdj.get("expected_vct") is not None:
+        lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
     st = policy.get("status") or {}
     if st.get("reject_self_issued") or (st.get("allowed_status_authorities") or []):
         lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")

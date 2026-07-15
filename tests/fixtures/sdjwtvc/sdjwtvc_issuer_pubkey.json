@@ -1,0 +1,9 @@
+{
+  "note": "The issuer PUBLIC key the 5 vendored sdjwtvc_examples.txt SD-JWT VC examples (ES256) are signed under. Extracted (x,y ONLY -- the private component 'd' is intentionally NOT vendored here, it is not needed for verification and this file is meant to stay a minimal, verification-only fixture) from oauth-wg/oauth-sd-jwt-vc's examples/settings.yml key_settings.issuer_key at the SAME pinned commit sdjwtvc_examples.txt was vendored from (see PROVENANCE.json). Independently re-verified before vendoring: all 5 sdjwtvc_examples.txt ES256 issuer signatures cryptographically verify under this exact key via proofbundle.sdjwt.verify_sd_jwt (tests/test_sdjwtvc_external_vectors.py) -- proves the x/y transcription is byte-correct, not merely copied.",
+  "kty": "EC",
+  "crv": "P-256",
+  "kid": "doc-signer-05-25-2022",
+  "x": "b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ",
+  "y": "Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8",
+  "source_settings_yml_sha256": "5dd7f63579181f26204cb059e81d4de8b8e8809c5d87278cf6faff9752284c19"
+}

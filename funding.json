@@ -33,6 +33,15 @@
       "currency": "USD",
       "frequency": "monthly",
       "channels": ["github-sponsors"]
+    }, {
+      "guid": "security-audit",
+      "status": "active",
+      "name": "Security Audit",
+      "description": "Funds an independent, institutionally separate security audit of proofbundle's cryptographic verification core (scope: docs/AUDIT_SCOPE.md), sourced through a program such as OSTIF (ostif.org) that matches underfunded open-source security tooling with professional auditing firms. See docs/AUDIT_READINESS.md and docs/GRANT_MILESTONES.md (M3).",
+      "amount": 0,
+      "currency": "USD",
+      "frequency": "one-time",
+      "channels": ["github-sponsors"]
     }]
   }
 }

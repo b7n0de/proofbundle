@@ -100,9 +100,13 @@
     "prereg_sha256": {
       "type": "string"
     },
+    "evaluation_card_sha256": {
+      "type": "string",
+      "description": "optional sha256 (hex) digest of an external, human-readable Eval Card document describing the evaluation's methodology (see EVAL_CLAIM.md, docs/proofbundle.evalcard) — additive, backward-compatible; mechanically identical to prereg_sha256 (a verifier re-hashes the disclosed document and checks it matches). Aligns with the Hugging Face EvalEval Coalition's Evaluation Cards concept (arXiv:2606.09809) rather than inventing a proofbundle-specific card format."
+    },
     "provenance": {
       "type": "object",
-      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr) — additive, backward-compatible"
+      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr, run_attempts, aborted_runs, methodology_sha256, benchjack_audit_report_sha256) — additive, backward-compatible"
     },
     "samples": {
       "type": "object",

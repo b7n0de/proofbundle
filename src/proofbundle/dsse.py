@@ -69,6 +69,14 @@ def _payload_bytes(envelope: dict) -> bytes:
     p = envelope.get("payload")
     if not isinstance(p, str):
         raise BundleFormatError("DSSE envelope.payload must be a base64 string")
+    # DoS (crypto-review 2026-07-15): refuse an oversized base64 payload BEFORE decoding it. The DECODED
+    # bytes are capped by each verify_* entry point, but the base64-decode here (which also runs a second
+    # time via load_payload) is otherwise unbounded — a 16 MiB base64 string is fully decoded before any
+    # cap fires. Cap the raw base64 string against input_bytes (admits ~6 MiB of decoded bytes, comfortably
+    # above any legitimate payload; the decoded value is separately re-checked downstream).
+    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids a cycle
+    if len(p) > DEFAULT_BUDGET.input_bytes:
+        raise BudgetExceeded("input_bytes", len(p), DEFAULT_BUDGET.input_bytes)
     try:
         return _b64decode_any(p)
     except (ValueError, TypeError, binascii.Error) as exc:
@@ -80,6 +88,7 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     PAE over exactly those bytes (never re-serialized). True iff at least one signature verifies. If
     `payload_type` is given it MUST equal the envelope's payloadType (pin the type — a Sign/Verify type
     mismatch silently changes the PAE and would otherwise reject a genuine envelope for the wrong reason)."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import matches repo convention, avoids any cycle
     body = _payload_bytes(envelope)
     ptype = envelope.get("payloadType")
     if not isinstance(ptype, str) or not ptype:
@@ -89,6 +98,14 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     sigs = envelope.get("signatures")
     if not isinstance(sigs, list) or not sigs:
         raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
+    # Finding 15b DoS backstop (crypto-review, 2026-07-15): cap the attacker-controlled signatures list
+    # BEFORE the verify loop. Without this, a tiny payload + a million-entry signatures list drives ~O(n)
+    # Ed25519 verifies (no early exit, since none verify) = seconds of CPU per request — the input_bytes cap
+    # bounds only the decoded payload, not this list. This is the single chokepoint every DSSE verify_*
+    # entry point (decision/outcome/verification_summary/run_ledger) funnels through; trust_pack keeps its
+    # own equivalent cap before its separate threshold loop. BudgetExceeded is a ProofBundleError subclass,
+    # so existing except(ProofBundleError) sites already treat it as fail-closed malformed/over-limit input.
+    DEFAULT_BUDGET.check("signatures", len(sigs))
     msg = pae(ptype, body)
     for entry in sigs:
         if not isinstance(entry, dict):

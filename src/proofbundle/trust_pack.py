@@ -1,12 +1,15 @@
 """Trust Pack predicate `trust-pack/v0.1` — hand-rolled, fail-closed validation + threshold verify.
 
 proofbundle 3.2.0 O2 (EXPERIMENTAL). A TUF-inspired, signed root of trust: each role (root, evalIssuers,
-decisionMakers, outcomeExecutors, timeAuthorities, witnesses) maps to a set of key ids and a signature
-threshold; a keyId->publicKey map resolves them; a monotone ``version`` with a ``prevVersionDigest`` chain
-gives rollback/freeze protection; ``expires`` bounds validity; ``revoked`` is an offline revocation list.
+decisionMakers, outcomeExecutors, outcomeReceivers, timeAuthorities, witnesses) maps to a set of key ids and
+a signature threshold; a keyId->publicKey map resolves them; a monotone ``version`` with a
+``prevVersionDigest`` chain gives rollback/freeze protection; ``expires`` bounds validity; ``revoked`` is an
+offline revocation list.
 
 The ``outcomeExecutors`` role supplies the identity that an Action Outcome Receipt (O1) executor is checked
-against. A Trust Pack is authenticated by a THRESHOLD of its root keys (not any-single, unlike a plain DSSE
+against; ``outcomeReceivers`` (Finding 16, additive) does the same for a third-party receiver/observer that
+corroborates an outcome (``outcome.receiver_trusted_by_role``). A Trust Pack is authenticated by a THRESHOLD
+of its root keys (not any-single, unlike a plain DSSE
 verify). Rotation is a new version signed by the OLD root threshold (two-stage: old root vouches for new),
 enforced by ``verify_trust_pack`` when the caller supplies the previous root role (``prev_root_keys`` +
 ``prev_root_threshold``); a verify without them checks only this pack's own threshold plus the digest chain.
@@ -25,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
+from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
@@ -36,7 +40,8 @@ _RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
 
-_ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "timeAuthorities", "witnesses")
+_ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
+              "timeAuthorities", "witnesses")
 _REQUIRED_ALWAYS = ("schemaVersion", "trustPackId", "version", "expires", "prevVersionDigest",
                     "roles", "keys", "nonClaims")
 _OPTIONAL = ("revoked",)
@@ -49,6 +54,15 @@ _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 _KEY_ALGS = ("ed25519", "mldsa65", "hybrid-ed25519-mldsa65")
 _KEY_RAW_LEN = {"ed25519": 32, "mldsa65": 1952}  # raw public key byte length (FIPS 204 ML-DSA-65 = 1952 bytes)
 _KEY_ALG_LABEL = {"mldsa65": "ML-DSA-65", "hybrid-ed25519-mldsa65": "Ed25519 (hybrid classical leg)"}
+
+# Finding 01 (2026-07 verify-layer hardening): automation_verdict.automation_summary's required_checks for
+# this predicate — root_threshold_met is the crypto-equivalent verdict (a Trust Pack has no single
+# `crypto_ok`, only the threshold check); "policy" is None (a Trust Pack IS the root of trust, it carries
+# no separate external policy/authorization layer to evaluate).
+_AUTOMATION_REQUIRED_CHECKS = {
+    "crypto": "root_threshold_met", "structure": "structure_ok", "policy": None,
+    "references": ["not_expired", "version_monotone", "rotation_authorized"],
+}
 
 
 class TrustPackError(ProofBundleError):
@@ -130,6 +144,12 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
     if "keys" in predicate:
         if not isinstance(keys, dict) or not keys:
             errors.append("keys must be a non-empty object mapping keyId -> {publicKey}")
+        elif not DEFAULT_BUDGET.within("witnesses", len(keys)):
+            # Finding 15b: refuse an absurdly large keys map BEFORE the per-key base64/length work below
+            # runs (a Trust Pack's root-of-trust is a small, human-curated set — not attacker-scalable).
+            errors.append(
+                f"keys has {len(keys)} entries (> budget.witnesses={DEFAULT_BUDGET.witnesses}) — "
+                "refusing (DoS guard, Finding 15b)")
         else:
             for kid, kv in keys.items():
                 key_ids.add(kid)
@@ -229,6 +249,12 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     if not (isinstance(kids, list) and kids and all(isinstance(x, str) and x for x in kids)):
         errs.append("keyIds must be a non-empty list of key id strings")
         kids = []
+    elif not DEFAULT_BUDGET.within("witnesses", len(kids)):
+        # Finding 15b: a role's keyIds is a human-curated signer set, not attacker-scalable input.
+        errs.append(
+            f"keyIds has {len(kids)} entries (> budget.witnesses={DEFAULT_BUDGET.witnesses}) — refusing "
+            "(DoS guard, Finding 15b)")
+        kids = []
     else:
         for k in kids:
             if key_ids and k not in key_ids:
@@ -310,7 +336,11 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "predicate_type_ok": None, "root_threshold_met": None,
             "not_expired": None, "version_monotone": None, "rotation_authorized": None,
-            "root_signers": [], "old_root_signers": [], "warnings": [], "errors": []}
+            "root_signers": [], "old_root_signers": [],
+            # Finding 01 (2026-07 verify-layer hardening, additive): a uniform automation-safety verdict,
+            # computed at the end of verify — never gates anything above, `ok` is unchanged.
+            "automation": None,
+            "warnings": [], "errors": []}
 
 
 def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict, msg: bytes) -> bool:
@@ -378,6 +408,16 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     body = dsse.load_payload(envelope)
+    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
+    DEFAULT_BUDGET.check("input_bytes", len(body))
+    _sigs = envelope.get("signatures")
+    # Fail-closed on a non-list signatures (crypto-review 2026-07-15): a truthy non-list (JSON true, a
+    # number, a huge dict) previously skipped the cap entirely — a 2M-key dict then reached the threshold
+    # loop uncapped, and `signatures: true` raised an uncaught TypeError instead of a clean ProofBundleError.
+    # Match dsse.verify_envelope's contract: signatures MUST be a non-empty list, then cap it.
+    if not isinstance(_sigs, list) or not _sigs:
+        raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
+    DEFAULT_BUDGET.check("signatures", len(_sigs))
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:
@@ -415,6 +455,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     if not isinstance(predicate, dict) or struct_errs:
         r["ok"] = False
+        from .automation_verdict import automation_summary  # noqa: PLC0415
+        r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
         return r
 
     # Threshold-of-root over the EXACT signed bytes.
@@ -550,4 +592,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]
         and r["not_expired"] and r["version_monotone"] is not False
         and r["rotation_authorized"] is not False)
+
+    # Finding 01 (additive): a uniform automation-safety verdict — never changes `ok` above. A trust pack
+    # has no separate policy/authorization layer (it IS the root of trust), so "policy" is not applicable.
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
     return r

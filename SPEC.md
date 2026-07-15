@@ -133,7 +133,7 @@ expected length for `(leaf_index, tree_size)`.
 | field | required | type | meaning |
 |---|---|---|---|
 | `compact` | yes | string | SD-JWT in compact serialization: an issuer-signed JWT followed by `~`-separated disclosures. |
-| `issuer_public_key_b64` | yes¹ | string | Base64 of the 32-byte raw Ed25519 issuer key. ¹Structurally optional for backward wire-compatibility, but **its absence now fails the bundle** — see below. |
+| `issuer_public_key_b64` | yes¹ | string | Base64 of the issuer public key, format keyed by the issuer JWT header's `alg`: the 32-byte raw Ed25519 key for `alg: EdDSA`, or (since Finding 20, 2026-07-15) the 65-byte SEC1 **uncompressed** point `0x04‖X‖Y` for `alg: ES256` (ECDSA P-256, RFC 7518 §3.4). ¹Structurally optional for backward wire-compatibility, but **its absence now fails the bundle** — see below. |
 
 The `sd_jwt_vc` block lives **outside** `payload_b64`, so the bundle's Ed25519
 signature (§4) does **not** cover it; the only thing that authenticates the
@@ -145,20 +145,30 @@ presented disclosure is committed (its digest appears in the issuer-signed
 payload's `_sd` array). This is self-consistency only — it proves nothing about
 provenance and is forgeable without any key.
 
-Check **sd-jwt-issuer-signature**: the issuer JWT signature (EdDSA) verifies under
-`issuer_public_key_b64`. When `sd_jwt_vc` is present but `issuer_public_key_b64`
-is **absent**, this check **FAILS** (reason: `unsigned`) — the disclosures are
-unauthenticated and MUST NOT be treated as a passing credential. There is no
-opt-out that lets an unsigned SD-JWT verify.
+Check **sd-jwt-issuer-signature**: the issuer JWT signature verifies under
+`issuer_public_key_b64`, using the algorithm-specific primitive named by the
+issuer JWT header's literal `alg` claim — `EdDSA` (Ed25519) or, since Finding 20
+(2026-07-15, issue #27), `ES256` (ECDSA P-256, RFC 7518 §3.4; the JWS signature
+is the fixed-width 64-byte `R‖S` concatenation, not DER). `alg` is part of the
+signed bytes (the issuer JWT header, base64url-encoded, is covered by its own
+signature), so it is cryptographically bound: an attacker cannot relabel it to
+route one algorithm's signature through the other's verifier without breaking
+the original signature. Any other `alg` value **FAILS** (`sig_ok` false, reason
+names the unsupported alg) — no silent "unchecked" downgrade. When `sd_jwt_vc`
+is present but `issuer_public_key_b64` is **absent**, this check **FAILS**
+(reason: `unsigned`) — the disclosures are unauthenticated and MUST NOT be
+treated as a passing credential. There is no opt-out that lets an unsigned
+SD-JWT verify.
 
 Check **sd-jwt-issuer-identity** (WP-C1): performed **iff** `sd_jwt_vc` is present,
 its issuer signature verified, and the SD-JWT discloses an `issuer`. The key that
 verified the signature MUST be the key it names (`issuer_public_key_b64` is already
-the Base64 of the 32-byte raw key, per §6):
-`"ed25519:" + issuer_public_key_b64 == disclosed issuer`. A signature that
-verifies under an **attacker-chosen** key while the always-open `issuer` names a
-*trusted* party is a forged identity (valid signature, wrong signer) and **FAILS**
-(reason: `issuer-key-mismatch`).
+the Base64 of the raw/SEC1-encoded key, per §6), with a fingerprint prefix keyed by
+the alg that verified: `"ed25519:" + issuer_public_key_b64 == disclosed issuer` for
+`alg: EdDSA`, `"es256:" + issuer_public_key_b64 == disclosed issuer` for
+`alg: ES256`. A signature that verifies under an **attacker-chosen** key while the
+always-open `issuer` names a *trusted* party is a forged identity (valid signature,
+wrong signer) and **FAILS** (reason: `issuer-key-mismatch`).
 
 Check **sd-jwt-bundle-binding** (WP-C1 + N1): performed when `sd_jwt_vc` is present
 and its issuer signature verified, in **two** cases:
@@ -195,10 +205,20 @@ exposes them and accepts `expected_aud`/`expected_nonce` parameters.
 
 Scope of the SD-JWT support (stated honestly): the SD-JWT *core* is
 [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/) (2025); the verifier does
-**not** verify an X.509 / trust-list chain, status lists, or
-`vct` type metadata (SD-JWT VC is the IETF draft
-[draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/),
-on the roadmap).
+**not** verify an X.509 / trust-list chain, status lists, or resolve `vct`
+type-metadata *documents* (schema/display metadata — an offline integrity pin
+on opaque metadata bytes is a separate, already-implemented capability,
+`sdjwt_vc.check_vc_profile`'s `requireTypeMetadataIntegrity`). SD-JWT VC is
+the IETF draft
+[draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/);
+proofbundle implements its issuer-signature algorithms (EdDSA and, since
+Finding 20, ES256), its `typ`/`vct` syntactic markers, a relying-party `vct`
+allowlist check (`sdjwt_vc.check_vc_profile`), and — since Finding 20 — an
+exact-`vct` trust-policy pin (`sd_jwt.expected_vct`, evaluated by
+`policy.evaluate_policy` — the trust-policy schema itself is not part of this
+wire-format spec; see `schemas/trust_policy_v0_1.schema.json`). See
+`docs/SD_JWT_VC_PROFILE.md` for the current, honest split of what remains on
+the roadmap against issue #27.
 
 ## 7. Verification order (normative)
 

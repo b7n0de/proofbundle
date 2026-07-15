@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import Any, Callable
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
@@ -390,6 +390,11 @@ def _empty_result() -> dict:
         "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
         "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
         "subject_binding": None, "subject_derived_ok": None,
+        # Finding 01 / Finding 03 (2026-07 verify-layer hardening, additive): a uniform automation-safety
+        # verdict (automation_verdict.automation_summary) and a per-digest EvidenceLevel classification
+        # (assurance.classify_digest_evidence) computed at the end of verify — never gate anything on
+        # these two here, the old ok/*_proven/evidence_bound fields above are UNCHANGED for compat.
+        "automation": None, "evidence_levels": None,
         "warnings": [], "errors": [],
     }
 
@@ -397,7 +402,8 @@ def _empty_result() -> dict:
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
-                            rp_trust: dict | None = None, require_derived_subject: bool = False) -> dict:
+                            rp_trust: dict | None = None, require_derived_subject: bool = False,
+                            evidence_resolver: Callable[[dict], bool] | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -425,8 +431,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     predicate — an anchor cannot live inside the bytes whose hash it commits. It is verified against the
     content root via the shared anchors layer; `anchors_ok` is True (a full verifying anchor), False (a
     broken / root-mismatched / unknown-type anchor), or None (none supplied, pending-only, or crypto not
-    established). Policy evaluation itself is `policy.evaluate_decision_policy` (WP5)."""
+    established). Policy evaluation itself is `policy.evaluate_decision_policy` (WP5).
+
+    `evidence_resolver` (Finding 03, additive, default None): an optional callable `f(digest_obj) -> bool`
+    that checks a digest-bound field (`actionOutcome.outcomeRef`, each `evidenceRefs[]` entry) against
+    ACTUALLY RESOLVED content — the missing wiring for `resolve_evidence_ref`, which existed but was never
+    called from verify. When supplied, the corresponding `evidence_levels` entries reach
+    `assurance.EvidenceLevel.CONTENT_RESOLVED` instead of stopping at `REFERENCE_WELL_FORMED` (a
+    syntactically valid digest, attacker-choosable content). Never changes `action_outcome_proven` /
+    `evidence_bound` (unchanged, additive) or the aggregate `ok`.
+
+    `automation` (Finding 01, additive): a uniform `automationVerdict.automation_summary` verdict —
+    `automation["safeForAutomation"]` requires `policy_ok IS True` (never merely `is not False`, unlike the
+    permissive `ok` aggregate above) — see `automation_verdict.py`."""
     from . import dsse  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
@@ -435,6 +454,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
         r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
     body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
+    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs
+    # (mirrors anchors_chia.py / hf_evals.py / statuslist.py's "cap before the expensive work" pattern).
+    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
@@ -493,6 +515,26 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # confirmation is a separate step (resolve_evidence_ref), never implied by evidence_bound.
         if isinstance(ev, list) and ev:
             r["evidence_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in ev)
+
+        # Finding 03 (additive): classify the SAME two digest-bound surfaces onto the EvidenceLevel ladder.
+        # Never changes action_outcome_proven / evidence_bound above (those stay pure digest-presence
+        # booleans for compat) — this is a STRICTER, more precise parallel view.
+        from . import assurance as _assurance  # noqa: PLC0415
+        ao = predicate.get("actionOutcome") if isinstance(predicate.get("actionOutcome"), dict) else None
+        _ao_applicable = isinstance(ao, dict) and ao.get("status") == "executed"
+        _outcome_level = _assurance.classify_digest_evidence(
+            (ao or {}).get("outcomeRef"), applicable=_ao_applicable, evidence_resolver=evidence_resolver)
+        _evref_levels = None
+        if isinstance(ev, list) and ev:
+            _evref_levels = _assurance.evidence_ladder_summary(*[
+                _assurance.classify_digest_evidence(x.get("digest") if isinstance(x, dict) else None,
+                                                    evidence_resolver=evidence_resolver)
+                for x in ev
+            ])
+        r["evidence_levels"] = {
+            "actionOutcome.outcomeRef": _outcome_level,
+            "evidenceRefs": _evref_levels,
+        }
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
@@ -628,4 +670,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
         and r["subject_derived_ok"] is not False)
+
+    # Finding 01 (additive): the STRICTER automation-safety verdict — policy_ok must be True, never merely
+    # "not False" — never changes `ok` above.
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
+        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok"],
+    })
     return r

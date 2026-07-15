@@ -4,6 +4,209 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.2.3] - 2026-07-15
+
+Second remediation wave of the six-lens post-3.2.2 audit (Findings 01, 03, 11, 12, 15b, 16, 14a, 17, 18, 19, 20). Additive/non-breaking: no
+existing `result["ok"]` field changes for any correct caller; every new field/param is opt-in with a
+backward-compatible default — with ONE deliberate exception (honest, not opt-in): the Finding 15b
+`VerificationBudget` DoS ceilings are enforced unconditionally, so an input that was previously accepted
+but is over a generous limit (a DSSE envelope with >512 signature entries, a Trust Pack `keys`/role
+`keyIds` map with >256 entries, a renewal sequence with >10,000 ArchiveTimeStamp entries, or a >8 MiB
+DSSE payload) now fails closed. The ceilings sit far above any legitimate receipt/pack/sequence; they are
+a DoS backstop, not a behavioural knob.
+
+### Security (combined-integration review hardening)
+
+A four-lens combined-integration review of this wave, plus an orthogonal-refuter iteration that refused to
+rubber-stamp the first round of fixes, surfaced real fail-open/DoS gaps that each passed the per-finding
+tests but not adversarial cross-checking; all are fixed and covered by bidirectional, mutation-verified
+tests:
+
+- **DSSE / parse DoS (Finding 15b, extends the cap)**: `dsse.verify_envelope` — the single chokepoint
+  `decision`/`outcome`/`verification_summary`/`run_ledger` verify funnel through — now caps the
+  attacker-controlled `signatures` list BEFORE its verify loop; and `loads_strict` (the ONE parse
+  chokepoint every verify path funnels through) now refuses raw input over `budget.input_bytes` BEFORE
+  `json.loads` (an unbounded parse of a 50 MB envelope was a real pre-loop DoS the signature cap could not
+  reach) and enforces the previously-dead `budget.json_nodes` as a parsed-structure node-count cap.
+  `budget.signatures` was raised 64 → 512 so a legitimate two-stage rotation envelope (new-root threshold +
+  old-root vouch reuse one `signatures` list) still verifies. `trust_pack.verify_trust_pack` now also fails
+  closed with a clean `BundleFormatError` on a non-list `signatures` (JSON `true` / a huge dict), which
+  previously skipped its cap or raised an uncaught `TypeError`. A second refuter round further capped the
+  raw base64 `payload` in `dsse._payload_bytes` BEFORE it is decoded (the decode, run twice per verify, was
+  a layer earlier than `loads_strict`), and added the same pre-decode cap to `anchors_markovian` (mirroring
+  `anchors_chia`).
+- **`require_external_token` fail-closed on absent token (Finding 14a)**: `renewal.verify_sequence(...,
+  require_external_token=True)` now appends a FAILING `renewal:external_token` check when the newest ATS
+  carries no `external_token_type`. The external-token fields are deliberately outside the signed ATS
+  bytes, so an attacker/MITM could strip them; previously the whole block was skipped and `.ok` was
+  unaffected — a silent no-op "require".
+- **Receiver independence is enforced, not just labeled (Finding 16)**: `assurance.
+  classify_receiver_corroboration` now takes `executor_key_id`/`receiver_key_id` and reaches
+  `INDEPENDENTLY_ATTESTED` ONLY when BOTH key ids are present AND differ. `executor.keyId` is schema-optional
+  and executor-controlled, so a one-sided check would be evaded by simply omitting one's own keyId; an
+  absent executor key id now blocks promotion too, and both key ids must be STRINGS (a second refuter round
+  found that a non-str `receiverKeyId` wrapping the executor's own id, e.g. `["kid-exec"]`, is `!=` the str
+  `"kid-exec"` and would read as "distinct"). Wired through `outcome.verify_outcome_receipt`. Honest
+  inherent limit: two distinct keys can still belong to the same principal — principal-level independence
+  needs the `outcomeReceivers` Trust Pack role (an out-of-band trust binding), documented in the code.
+
+Plus: `decision`/`outcome` `verify --json` now emit `automation`/`evidence_levels`/receiver fields (a
+`jq` filter no longer gets `null`, indistinguishable from a real "not evaluated"), and `assurance`/
+`budget`/`automation_verdict` are now top-level `from proofbundle import …` exports.
+
+### Added
+- **Finding 01 — uniform automation-safety verdict**: new `automation_verdict.automation_summary` mirrors
+  `bundle.py::root_authenticity_summary`'s `safeForAutomation`/`automationBlockers` pattern for the other
+  five receipt-chain predicates. Each of `decision.verify_decision_receipt`,
+  `outcome.verify_outcome_receipt`, `trust_pack.verify_trust_pack`,
+  `verification_summary.verify_verification_summary` and `run_ledger.verify_run_ledger` now stashes a
+  `result["automation"]` dict; `safeForAutomation` requires the policy/authorization dimension to be
+  `True` EXACTLY (never merely `is not False`, unlike the permissive `ok` aggregate). `outcome.py` also
+  gains an optional `trust_pack` parameter (`outcome.executor_trusted_by_role`) that checks the executor's
+  `keyId` against the Trust Pack's `outcomeExecutors` role — closing the gap
+  docs/predicates/action-outcome.md §7 listed as open/future work.
+- **Finding 03 — EvidenceLevel ladder**: new `assurance.py` (`EvidenceLevel`,
+  `classify_digest_evidence`, `evidence_ladder_summary`/`evidence_ladder_best`) makes the STRENGTH of a
+  digest-presence "proven"/"bound" claim explicit and orderable
+  (`CLAIMED < REFERENCE_WELL_FORMED < CONTENT_RESOLVED < RECEIPT_CRYPTO_VERIFIED < POLICY_AUTHORIZED <
+  INDEPENDENTLY_ATTESTED < EFFECT_OBSERVED`). `decision.verify_decision_receipt` and
+  `outcome.verify_outcome_receipt` gain an additive `result["evidence_levels"]` plus an optional
+  `evidence_resolver` callable that, when supplied, wires the previously-unused
+  `decision.resolve_evidence_ref` primitive into the actual verify path (a digest can now reach
+  `CONTENT_RESOLVED`, not only `REFERENCE_WELL_FORMED`). The pre-existing boolean
+  `action_outcome_proven`/`outcome_execution_proven`/`evidence_bound` fields are UNCHANGED.
+  `EvidenceLevel.EFFECT_OBSERVED` is a real, orderable enum member that stays structurally unreachable (a
+  real-world effect-observation channel is a separate, inherent limit outside this repo — see the Finding 16
+  entry below for what its self-fixable part DOES now reach: `INDEPENDENTLY_ATTESTED`) — an explicit
+  `EFFECT_OBSERVED_NOT_IMPLEMENTED` marker documents this rather than silently omitting it.
+- **Finding 15b — VerificationBudget**: new `budget.py` (`VerificationBudget`, `DEFAULT_BUDGET`,
+  `BudgetExceeded`) centralizes the DoS-guard pattern already used ad hoc by `sdjwt._MAX_DISCLOSURES`,
+  `statuslist._MAX_STATUS_LIST_BYTES`, `hf_evals._MAX_TOKEN_BYTES` and `anchors_chia._MAX_LAYERS`/
+  `_MAX_PROOF_BYTES` (which are unchanged and stay the authoritative caps for their own surfaces). Wired
+  concretely into the two identified unguarded paths — `trust_pack.validate_trust_pack_predicate`'s
+  `keys` map / per-role `keyIds` counts, and `renewal.verify_sequence`'s total ArchiveTimeStamp count
+  across a whole sequence — plus a generous `input_bytes` cap on the raw DSSE payload bytes (checked
+  BEFORE JSON parsing) on every one of the five receipt-chain `verify_*` entry points named above.
+  `BudgetExceeded` is a `ProofBundleError` subclass, so every existing `except (ProofBundleError, ...)`
+  call site already handles it identically to any other malformed/over-limit input.
+
+- **Finding 16 — outcome receiver/observer corroboration (self-fixable part, additive)**: an optional
+  `receiverRefs[]` on `action-outcome/v0.1` (digest-bound exactly like `evidenceRefs[]`) plus
+  `assurance.classify_receiver_corroboration` let a genuinely independent, cryptographically verified
+  receiver/observer statement reach `EvidenceLevel.INDEPENDENTLY_ATTESTED` (given a new
+  `receiver_attestation_resolver` parameter on `outcome.verify_outcome_receipt`); an additive
+  `outcomeReceivers` Trust Pack role (`outcome.receiver_trusted_by_role`, mirrors `outcomeExecutors`) lets a
+  verifier check that party against a known list, deliberately advisory (never wired into the aggregate
+  `ok`, since `receiverRefs` is optional supplementary evidence). Also additive: `sequence.{runId,seq}` +
+  `outcome.detect_outcome_sequence_gaps` for spotting a suppressed outcome later in the same run, when the
+  executor opts in. Fully backward compatible — a receipt with no `receiverRefs`/`sequence` is unaffected.
+  **Honest, INHERENT limit this increment does NOT close:** proofbundle cannot itself make a downstream
+  system SIGN a receiver acknowledgement (ecosystem adoption, outside this repo); `EvidenceLevel.
+  EFFECT_OBSERVED` stays structurally unreachable even with a verified receiver corroboration (still a
+  receipt about the effect, never a live observation of it) — see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`.
+- **Finding 14a — RFC-3161/OTS↔ArchiveTimeStamp integration glue + truncation detection (additive, ADR
+  0006 B3 OPEN items)**: an `ArchiveTimeStamp` may now carry a DETACHED `external_token_type` /
+  `external_token` / `external_token_frozen`, verified by the new `renewal._verify_ats_external_token` via
+  the ALREADY-HARDENED standalone `anchors_rfc3161.verify_rfc3161` / `anchors_ots.verify_opentimestamps` —
+  pure glue between two already-hardened modules, no new cryptography. `renewal.verify_sequence` gains
+  `rp_trust` (relying-party TSA-root/Bitcoin-header trust material, WP-A1 discipline) and
+  `require_external_token` (demand the full verified state, not merely OTS-pending). Separately,
+  `verify_sequence(..., known_newest_token_digest=…)` closes the "a stale prefix of a legitimately-renewed
+  sequence still verifies" gap: when the relying party supplies the digest of the newest ATS it last
+  observed (its own persisted state — no `RelyingPartyStateStore` exists in this repo, so this is the
+  additive-parameter fallback), a truncated/rolled-back sequence fails the new `renewal:no_rollback` check.
+  None of the three additions are surfaced unless the caller opts in — fully backward compatible with every
+  existing `ArchiveTimeStamp`/sequence. **Still OPEN (honest, unchanged):** the full ASN.1/XMLERS export and
+  a signature-algorithm staleness trigger in `RenewalPolicy` — see `docs/adr/0006-anchor-longevity.md`.
+
+- **Finding 11 — Rust-parity honesty gate**: `scripts/rust_parity_gate.py` AST-scans every
+  `src/proofbundle/*.py` for a module-level `verify_*` function (ground truth, rediscovered each run)
+  and cross-checks it against the declarative `scripts/rust_parity_registry.json`. Every COVERED/PARTIAL
+  claim is verified against REAL evidence — the claimed `rust_subcommand` must be an actual match arm in
+  `main.rs`, appear in the built binary's self-declared `coverage-report`, and the claimed crosscheck
+  call site must literally exist; a stale claim is caught (`STALE_COVERED_CLAIM`), a new untracked
+  `verify_*` is `UNTRACKED`, a dangling `python_ref` is `ORPHANED`. Advisory by default, `--strict`
+  exits 1 on a registry-integrity problem, never on an honestly-declared PENDING. First real portation:
+  `main.rs`'s `verify-trust-pack-threshold` (root-of-trust threshold check, Ed25519 leg only, reported
+  PARTIAL not COVERED; mldsa65/hybrid skipped-and-reported, never silently accepted). New advisory CI
+  `rust-parity` job (`continue-on-error`, non-blocking).
+- **Finding 12 — external-audit readiness package (NOT_SELF_FIXABLE, readiness only)**: no audit is
+  performed or simulated. `docs/AUDIT_SCOPE.md` (STABLE vs. EXPERIMENTAL module table cross-checked
+  against docstrings/SPEC/CODEOWNERS/CHANGELOG, coupled to a format-freeze mechanism), `docs/
+  AUDIT_READINESS.md` (OSTIF-facing briefing of existing hardening evidence, honest current-state, no
+  audit-completion claim), `docs/adr/0007-crypto-agility-alg-dispatch.md` (the alg-dispatch pattern
+  trust_pack.py and renewal.py share), a `Revision:` header on `THREAT_MODEL.md`, a dedicated
+  "Security Audit" `funding.json` purpose. Surfaces a CODEOWNERS gap (checkpoint.py/renewal.py/
+  anchors_chia_add.py missing from the review-required path list) without silently fixing it.
+- **Finding 18 — Evaluation Cards (P2, additive)**: optional `evaluation_card_sha256` claim field +
+  `src/proofbundle/evalcard.py` (`evaluation_card_hash`/`verify_evaluation_card`), mechanically
+  identical to `prereg_sha256`; references the Hugging Face EvalEval Coalition's Evaluation Cards
+  (arXiv:2606.09809) rather than inventing a proofbundle-specific format. CLI `proofbundle evalcard
+  <card> [--check RECEIPT]` mirrors `prereg`.
+- **Finding 19 — computation-correctness / enclave assurance wiring**: the enclave RATS/EAT bridge was
+  already implemented but README's roadmap misclassified it as not-yet-built (a No-Fake UNDERclaim) —
+  README framing corrected. Real gap closed: `assurance_level=enclave_attested` was an unverified
+  string; new `evalclaim.enclave_assurance_proven(claim, bundle, eat_jws=…, verifier_pubkey=…)`
+  (analogous to `decision.action_outcome_proven`) optionally corroborates the declared level against a
+  real, receipt-bound Attestation Result (True/False/None), wired into `show-eval --eat/--verifier-key/
+  --profile`. Lazy function-local import keeps the ExperimentalWarning from firing on plain
+  `evalclaim` import; never force-promotes the signed `assurance_level`.
+- **Finding 17 — benchmark-hacking VISIBILITY (OPEN_BY_DESIGN)**: visibility only, no anti-hacking
+  guarantee built or implied (BenchJack, arXiv:2605.12673, cited in THREAT_MODEL.md). Optional
+  provenance sub-keys `run_attempts`/`aborted_runs` (non-negative ints) and `methodology_sha256`/
+  `benchjack_audit_report_sha256` (plain sha256 references), wired via `adapters/_provenance.py`; zero
+  schema change (provenance is free-form) and zero `intoto.py` change (`to_test_result_statement`
+  already copies the whole provenance dict verbatim — proven by a new regression test).
+
+### Deferred (tracked, not built this increment — the one deliberately BREAKING piece)
+- `bundle.py`'s CLI `verify` exit-code default is NOT changed by this increment. `root_authenticity_summary`
+  already computes `safeForAutomation`/`automationBlockers` correctly (unaffected); a FUTURE v4 could add an
+  opt-in `--strict-automation` CLI flag that gates the process exit code on `safeForAutomation` instead of
+  the current crypto-only exit contract (a `POLICY_NOT_EVALUATED` receipt would then exit non-zero even
+  though `CRYPTO: OK`). That flip would be a REAL default-behavior change for any script parsing exit
+  codes today, so it is explicitly NOT flipped as a default here — only the opt-in flag is a plausible v4
+  addition, and even that is not implemented in this increment (No-Fake: the capability described above
+  IS built and IS additive; only the CLI default-exit-code change is the deferred, tracked item).
+
+### Added — SD-JWT VC interop, Finding 20 (issue #27)
+
+- **ES256 issuer-signature verification.** `sdjwt.verify_sd_jwt` now verifies ECDSA P-256
+  (ES256, RFC 7518 §3.4) issuer signatures alongside EdDSA, dispatched strictly on the issuer
+  JWT header's literal `alg` claim — the algorithm the EUDI Digital Identity Wallet and the
+  OAuth WG's own SD-JWT VC worked examples use, closing proofbundle's biggest SD-JWT VC interop
+  gap (previously every real-world ES256 credential could only be checked structurally, never
+  cryptographically). New primitive `signature.verify_ecdsa_p256` (65-byte SEC1 uncompressed
+  public key, RFC 7518 §3.4's fixed-width 64-byte `R‖S` JWS signature, converted to DER before
+  calling into `cryptography` — never hand-rolled ECDSA math). `bundle.py`'s `sd-jwt-issuer-identity`
+  fingerprint prefix is now alg-aware (`"ed25519:"` / `"es256:"`) rather than hardcoded to EdDSA — a
+  latent false-reject the new algorithm would otherwise have exposed for an ES256-signed `sd_jwt_vc`
+  that discloses proofbundle's own `issuer` claim format.
+- **Trust-policy `sd_jwt.expected_vct`.** A relying party can now pin an exact required `vct` in the
+  bundle trust policy (`policy.py`'s `_SDJWT_KEYS`); `evaluate_policy` adds a `policy:expected_vct`
+  check, read ONLY from an issuer payload whose signature actually verified (mirrors the
+  "verified vs. merely present" discipline `policy:nonce_present` already established — an
+  unverified `vct` claim proves nothing). Complements, and is distinct from, `sdjwt_vc.py`'s
+  standalone `vctAllowlist`.
+- **Real cryptographic external conformance.** `tests/fixtures/sdjwtvc/` now also vendors the ES256
+  issuer public key the OAuth WG's 5 worked SD-JWT VC examples are signed under (from the same
+  pinned commit's `examples/settings.yml`, independently re-verified before vendoring);
+  `test_sdjwtvc_external_vectors.py` cryptographically verifies the issuer signature end-to-end, not
+  just the structural disclosure-commitment path (previously honestly out of scope — see the removed
+  `test_all_examples_have_es256_issuer_alg_by_design_not_checked_here` boundary marker). No official
+  NEGATIVE SD-JWT VC vectors were found upstream (checked oauth-wg/oauth-sd-jwt-vc,
+  oauth-wg/oauth-selective-disclosure-jwt, and openwallet-foundation-labs/sd-jwt-python's
+  `tests/testcases/` — every published example in all three is a positive structural variant), so the
+  new negative tests adversarially mutate the vendored positive vectors in code instead (the
+  established pattern this suite already used for `test_tampered_disclosure_is_rejected`).
+- Docs: `docs/SD_JWT_VC_PROFILE.md` updated to reflect the above against issue #27's roadmap;
+  `SPEC.md` §6 documents the alg-keyed `issuer_public_key_b64` encoding and the alg-aware
+  `sd-jwt-issuer-identity` fingerprint.
+
+Backward compatible: EdDSA-signed SD-JWTs verify exactly as before (same primitive, same call
+sites); the `sd_jwt.expected_vct` policy field is opt-in (absent = unchanged behavior).
+
 ## [3.2.2] - 2026-07-15
 
 Security and robustness hardening from a six-lens plus red-team audit of 3.2.1. Additive; no

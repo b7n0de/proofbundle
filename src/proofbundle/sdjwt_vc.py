@@ -101,8 +101,9 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
         r["errors"].append(f"issuer JWT typ is {header.get('typ')!r}, expected {SD_JWT_VC_TYP!r}")
     # alg=none / no alg is never acceptable (kbjwt enforces this on the KB-JWT; assert on the issuer header too).
     # Case-insensitive + non-string guard (release-review #3): 'NONE'/'None'/'nOnE' and a non-string alg are all
-    # rejected here — the real crypto gate (sdjwt.verify_sd_jwt, EdDSA-only) already fails such a credential in the
-    # full verify path, but check_vc_profile is a public function and must not itself green-light a none-alg header.
+    # rejected here — the real crypto gate (sdjwt.verify_sd_jwt, EdDSA/ES256 since Finding 20) already fails such
+    # a credential in the full verify path, but check_vc_profile is a public function and must not itself
+    # green-light a none-alg header.
     _alg = header.get("alg")
     if not isinstance(_alg, str) or _alg.strip().lower() == "none":
         r["errors"].append("issuer JWT alg must not be 'none' / absent")

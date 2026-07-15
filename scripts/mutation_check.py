@@ -262,6 +262,79 @@ MUTATIONS = [
      "                _collect_committed_digests(parsed[-1], newly)",
      "                pass",
      "sdjwt: F7 recursive-disclosure collection disabled (valid recursive vectors fail)", True),
+    # Finding 20 / issue #27 (2026-07-15) — ES256 issuer-signature interop. Each new fail-closed /
+    # alg-aware guard must be killed by its test, mirroring the v3.0.0 four-defenses convention above.
+    # Removing the ES256 dispatch entry must fail the real (now cryptographically verified) vendored
+    # ES256 vectors — tests/test_sdjwtvc_external_vectors.py's
+    # TestSdjwtVcIssuerSignatureExternalVectors.test_all_examples_issuer_signature_verifies.
+    ("src/proofbundle/sdjwt.py",
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519}',
+     "sdjwt: Finding 20 ES256 issuer-signature dispatch removed (real ES256 vectors stop verifying)", True),
+    # signature.verify_ecdsa_p256 fail-open: dropping the real cryptographic verify call while still
+    # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
+    # tests/test_signature.py's TestVerifyEcdsaP256 (wrong key / tampered message / tampered signature).
+    ("src/proofbundle/signature.py",
+     "        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))\n        return True",
+     "        return True",
+     "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
+    # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
+    # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
+    # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's
+    # test_es256_sd_jwt_issuer_identity_uses_alg_aware_prefix.
+    ("src/proofbundle/bundle.py",
+     '_verified_alg = sd_res.get("alg")\n                _fp_prefix = {"EdDSA": "ed25519:", "ES256": "es256:"}.get(_verified_alg, "ed25519:") \\\n'
+     '                    if isinstance(_verified_alg, str) else "ed25519:"',
+     '_fp_prefix = "ed25519:"',
+     "bundle: Finding 20 alg-aware sd-jwt-issuer-identity fingerprint reverted to hardcoded ed25519", True),
+    # Crypto-review 2026-07-15 remediation — each new fail-closed guard must be killed by its own test.
+    # C1: removing the DSSE signatures cap re-opens the O(n) verify-loop DoS (a million-entry signatures
+    # list) — killed by tests/test_budget.py's TestDsseSignaturesCapDoS.
+    ("src/proofbundle/dsse.py",
+     '    DEFAULT_BUDGET.check("signatures", len(sigs))',
+     "    pass",
+     "dsse: C1 signatures-list DoS cap removed (oversized signatures list no longer refused)", True),
+    # C2: forcing the require_external_token-absent branch off re-opens the fail-open where a MITM strips a
+    # detached external_token from an authority-signed ATS — killed by test_renewal_external_token_glue.py's
+    # test_require_external_token_fails_closed_when_absent.
+    ("src/proofbundle/renewal.py",
+     "    elif require_external_token:",
+     "    elif False:",
+     "renewal: C2 require_external_token absent-token fail-closed disabled (silent no-op require)", True),
+    # C3: disabling the executor==receiver distinctness check lets an executor self-corroborate its own
+    # outcome up to INDEPENDENTLY_ATTESTED — killed by test_outcome_receiver_corroboration.py's
+    # test_receiver_ref_that_is_the_executor_is_not_independent.
+    ("src/proofbundle/assurance.py",
+     "    if not isinstance(executor_key_id, str) or not isinstance(receiver_key_id, str) or receiver_key_id == executor_key_id:",
+     "    if False:",
+     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId / non-str-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+    # Refuter round 2 — dsse payload pre-decode DoS cap: removing it lets an oversized base64 payload be
+    # fully decoded before any cap — killed by tests/test_budget.py's
+    # test_verify_envelope_rejects_oversized_base64_payload_before_decode.
+    ("src/proofbundle/dsse.py",
+     "    if len(p) > DEFAULT_BUDGET.input_bytes:",
+     "    if False:",
+     "dsse: pre-decode base64 payload DoS cap removed (oversized payload decoded unbounded)", True),
+    # Crypto-review 2026-07-15 refuter residuals — each new fail-closed guard killed by its own test.
+    # C1.1: removing the raw-size cap re-opens the pre-parse DoS (a 50 MB envelope parses fully before the
+    # signatures loop cap runs) — killed by tests/test_budget.py's test_rejects_oversized_raw_input_before_parse.
+    ("src/proofbundle/_strict_json.py",
+     "    if len(text) > b.input_bytes:",
+     "    if False:",
+     "_strict_json: C1.1 raw input_bytes pre-parse cap removed (oversized envelope parsed unbounded)", True),
+    # json_nodes: disabling the node walk lets a wide-but-small-bytes structure (many nodes under the byte
+    # cap) through — killed by test_rejects_excessive_node_count / test_json_nodes_default_is_wired_not_dead.
+    ("src/proofbundle/_strict_json.py",
+     "    while stack:",
+     "    while False:",
+     "_strict_json: json_nodes parsed-structure node-count cap disabled (high-density DoS)", True),
+    # C1.2: dropping the non-list signatures fail-closed lets a non-list (JSON true / a huge dict) skip the
+    # cap and raise an uncaught TypeError instead — killed by test_trust_pack.py's
+    # test_non_list_signatures_rejected_cleanly.
+    ("src/proofbundle/trust_pack.py",
+     "    if not isinstance(_sigs, list) or not _sigs:",
+     "    if False:",
+     "trust_pack: C1.2 non-list signatures fail-closed removed (cap bypass / uncaught TypeError)", True),
 ]
 
 

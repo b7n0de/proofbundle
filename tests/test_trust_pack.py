@@ -462,5 +462,27 @@ class TestTrustPackSecurityGaps(unittest.TestCase):
         self.assertFalse(r["ok"])
 
 
+class TestTrustPackSignaturesFailClosed(unittest.TestCase):
+    """Crypto-review 2026-07-15 (C1.2): a non-list `signatures` must fail closed with a clean
+    ProofBundleError, not skip the DoS cap or raise an uncaught TypeError."""
+
+    def test_non_list_signatures_rejected_cleanly(self):
+        from proofbundle.errors import BundleFormatError
+        pred, sks = _fixture()
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"], "root-1": sks["root-1"]})
+        for bogus in (True, 5, {"a": 1}, "x"):
+            env2 = dict(env)
+            env2["signatures"] = bogus
+            with self.assertRaises(BundleFormatError):
+                verify_trust_pack(env2, strict=True, now=_NOW)
+
+    def test_valid_rotation_size_signature_list_still_verifies(self):
+        # X1 headroom: a normal multi-signer pack (well under the 512 cap) is unaffected.
+        pred, sks = _fixture()
+        env = sign_trust_pack(pred, {"root-0": sks["root-0"], "root-1": sks["root-1"]})
+        r = verify_trust_pack(env, strict=True, now=_NOW)
+        self.assertTrue(r["root_threshold_met"])
+
+
 if __name__ == "__main__":
     unittest.main()
