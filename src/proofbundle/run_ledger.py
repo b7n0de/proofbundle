@@ -230,7 +230,13 @@ def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
-            "chain_intact": None, "within_budget": None, "warnings": [], "errors": []}
+            "chain_intact": None, "within_budget": None,
+            # Finding 01 (2026-07 verify-layer hardening, additive): a uniform automation-safety verdict,
+            # computed at the end of verify — never gates anything above, `ok` is unchanged. NOTE:
+            # "within_budget" above is this PREDICATE's own declared runBudget (a study-design concept,
+            # unrelated to the module-level VerificationBudget DoS guard in budget.py, Finding 15b).
+            "automation": None,
+            "warnings": [], "errors": []}
 
 
 def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
@@ -241,11 +247,14 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
     result fields so a relying party sees WHY structure failed. Read ``ok`` (or ``crypto_ok``) — never an
     individual field alone; on a crypto fail every derived field stays None."""
     from . import dsse  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
     if not r["crypto_ok"]:
         r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
     body = dsse.load_payload(envelope)
+    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
+    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:
@@ -292,4 +301,12 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["chain_intact"] is not False and r["within_budget"] is not False)
+
+    # Finding 01 (additive): a uniform automation-safety verdict — never changes `ok` above. A run ledger
+    # carries no separate policy/authorization layer of its own ("policy" not applicable).
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
+        "references": ["chain_intact", "within_budget"],
+    })
     return r

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import Any, Callable
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
@@ -168,6 +168,38 @@ def outcome_execution_proven(predicate: Any) -> bool | None:
     return _is_digest(predicate.get("effectDigest")) or _is_digest(predicate.get("actualActionDigest"))
 
 
+# Finding 01 (2026-07 verify-layer hardening): trust_pack.py DECLARES an `outcomeExecutors` role (the
+# identity an outcome's executor is meant to be checked against) but no verify_* path ever CONSUMED it —
+# docs/predicates/action-outcome.md §7 lists this explicitly as open/future work. This closes that gap.
+_OUTCOME_EXECUTOR_ROLE = "outcomeExecutors"
+
+
+def executor_trusted_by_role(executor: Any, trust_pack: dict) -> bool:
+    """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role and is NOT
+    revoked. ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — the caller is
+    responsible for having separately verified its own signature/threshold via
+    ``trust_pack.verify_trust_pack`` (mirrors how ``policy`` elsewhere in this repo is caller-trusted local
+    config that verify_* never re-verifies itself). This function checks ROLE MEMBERSHIP only; it never
+    re-derives trust in the pack itself.
+
+    Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, or a revoked key are all
+    False — never a silent pass. Never raises on malformed input."""
+    if not isinstance(executor, dict) or not isinstance(trust_pack, dict):
+        return False
+    key_id = executor.get("keyId")
+    if not isinstance(key_id, str) or not key_id:
+        return False
+    roles = trust_pack.get("roles")
+    role = roles.get(_OUTCOME_EXECUTOR_ROLE) if isinstance(roles, dict) else None
+    key_ids = role.get("keyIds") if isinstance(role, dict) else None
+    if not isinstance(key_ids, list) or key_id not in key_ids:
+        return False
+    revoked = trust_pack.get("revoked")
+    if isinstance(revoked, list) and key_id in revoked:
+        return False
+    return True
+
+
 # ── Emit / verify (DSSE in-toto Statement) ──────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
     """RFC-8785 (JCS) canonical bytes — shared ``canonical.canonicalize_statement`` primitive (ADR 0002), so
@@ -227,6 +259,10 @@ def _empty_result() -> dict:
         "predicate_type_ok": None, "decision_bound": None, "role_separation_ok": None,
         "execution_proven": None, "audience_ok": None, "nonce_ok": None,
         "subject_binding": None, "subject_derived_ok": None,
+        # Finding 01 / Finding 03 (2026-07 verify-layer hardening, additive): executor_role_trusted is None
+        # unless a trust_pack is supplied (outcomeExecutors role membership); automation/evidence_levels are
+        # computed at the end of verify — none of these three change the fields above.
+        "executor_role_trusted": None, "automation": None, "evidence_levels": None,
         "warnings": [], "errors": [],
     }
 
@@ -234,7 +270,8 @@ def _empty_result() -> dict:
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
-                           require_derived_subject: bool = False) -> dict:
+                           require_derived_subject: bool = False, trust_pack: dict | None = None,
+                           evidence_resolver: Callable[[dict], bool] | None = None) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -245,17 +282,31 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       An executor witnessing their own decision fails (False + error).
     - ``execution_proven`` — status=executed with a real effect/action digest is True; self-asserted executed
       is False + a No-Overclaim warning (not a hard aggregate fail — it is an honest limit, not tampering).
+    - ``executor_role_trusted`` (Finding 01, additive) — when ``trust_pack`` is supplied (the PREDICATE of an
+      ALREADY-authenticated Trust Pack, verified separately by the caller via
+      ``trust_pack.verify_trust_pack``), the executor's ``keyId`` MUST be a non-revoked member of the pack's
+      ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``) — the "independent attestation of
+      executor.id" gap docs/predicates/action-outcome.md §7 lists as open. Fail-closed when supplied; stays
+      None (not evaluated) when ``trust_pack`` is omitted — fully backward compatible.
 
     Read ``ok`` (or ``crypto_ok``) — never an individual ``*_ok`` alone. On a forged envelope every trust-
     derived field stays None and an error is recorded, so a consumer cannot read a claim about unsigned bytes.
+
+    ``evidence_resolver`` (Finding 03, additive): an optional callable ``f(digest_obj) -> bool`` checking a
+    digest against ACTUALLY RESOLVED content; when supplied, ``evidence_levels["effect"]`` may reach
+    ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``. Never
+    changes ``execution_proven`` (unchanged, additive) or the aggregate ``ok``.
     """
     from . import dsse  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
     if not r["crypto_ok"]:
         r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
     body = dsse.load_payload(envelope)
+    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
+    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:
@@ -320,6 +371,30 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 "status=executed is self-asserted (no effectDigest/actualActionDigest) — a signed claim, "
                 "not proof the effect occurred")
 
+        # Finding 01: independent attestation of executor.id via the trust pack's outcomeExecutors role
+        # (docs/predicates/action-outcome.md §7 "open, not yet built" — now closed additively).
+        if trust_pack is not None:
+            r["executor_role_trusted"] = executor_trusted_by_role(predicate.get("executor"), trust_pack)
+            if not r["executor_role_trusted"]:
+                r["errors"].append(
+                    "executor.keyId is not a non-revoked member of the trust pack's outcomeExecutors role "
+                    "(fail-closed — independent executor attestation requested via trust_pack but not met)")
+
+        # Finding 03 (additive): classify the same execution-proof digest(s) onto the EvidenceLevel ladder.
+        # OR semantics (mirrors outcome_execution_proven: either digest satisfies the claim) — the STRONGER
+        # of the two applicable fields wins. Never changes execution_proven above (unchanged, for compat).
+        from . import assurance as _assurance  # noqa: PLC0415
+        _exec_applicable = predicate.get("status") == "executed"
+        r["evidence_levels"] = {
+            "effect": _assurance.evidence_ladder_best(
+                _assurance.classify_digest_evidence(predicate.get("effectDigest"), applicable=_exec_applicable,
+                                                    evidence_resolver=evidence_resolver),
+                _assurance.classify_digest_evidence(predicate.get("actualActionDigest"),
+                                                    applicable=_exec_applicable,
+                                                    evidence_resolver=evidence_resolver),
+            ),
+        }
+
         # replay/audience binding (fail-closed when requested), mirrors decision.py.
         _val = predicate.get("validity")
         _validity = _val if isinstance(_val, dict) else {}
@@ -376,5 +451,19 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["decision_bound"] is not False and r["role_separation_ok"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
-        and r["subject_derived_ok"] is not False)
+        and r["subject_derived_ok"] is not False
+        # Finding 01 (additive, backward compatible): None (no trust_pack supplied, the pre-existing
+        # default for every caller) passes exactly like every other optional check above; only an explicit
+        # False (a trust_pack WAS supplied and the executor is not a trusted role member) fails ok.
+        and r["executor_role_trusted"] is not False)
+
+    # Finding 01 (additive): the STRICTER automation-safety verdict — never changes `ok` above. Outcome has
+    # no separate trust-policy layer (yet); executor_role_trusted (the outcomeExecutors role gate) is the
+    # closest analog to decision.py's policy_ok, so it fills the "policy" dimension here.
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
+        "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
+                       "subject_derived_ok"],
+    })
     return r

@@ -86,9 +86,18 @@ the crypto step fails:
 6. **execution_proven** — `status == executed` AND an effect/actual digest is present. Self-asserted
    (`executed` without an effect digest) → `False` + warning.
 7. **audience / nonce** — fail-closed when the caller pins them and the statement does not match.
+8. **executor_role_trusted** (additive, verify-layer hardening) — when the caller supplies `trust_pack` (the
+   PREDICATE of an ALREADY-authenticated Trust Pack, verified separately via `trust_pack.verify_trust_pack`),
+   the executor's `keyId` MUST be a non-revoked member of the pack's `outcomeExecutors` role
+   (`outcome.executor_trusted_by_role`) — fail-closed when supplied, `None` (not evaluated) when omitted.
 
 Read the aggregate verdict, never an individual field alone. `status = refused` / `failed` are first-class,
 honest outcomes (a refusal is a valid, signable outcome — not an error to hide).
+
+`verify_outcome_receipt` also computes an additive `result["automation"]` (uniform automation-safety verdict,
+`automation_verdict.automation_summary`) and `result["evidence_levels"]` (`assurance.EvidenceLevel`
+classification of the execution-proof digest, optionally strengthened to `CONTENT_RESOLVED` via an
+`evidence_resolver` callable) — see `CHANGELOG.md` "Unreleased". Neither changes any field listed above.
 
 ## 6. Subject binding
 
@@ -99,7 +108,15 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
 
 ## 7. Open (honest, not yet built)
 
-- Independent attestation of `executor.id` (a trust-pack role binding for executors, 3.2.0 O2 — the trust pack
-  can carry `outcomeExecutors`, but a live registry / DID anchor for executors is future work).
+- ~~Independent attestation of `executor.id` via a trust-pack role binding~~ — CLOSED (verify-layer
+  hardening): `verify_outcome_receipt(..., trust_pack=...)` now checks `executor.keyId` against the pack's
+  `outcomeExecutors` role membership (§5.8). What remains open: this checks membership in an
+  ALREADY-authenticated pack the caller supplies; a LIVE registry / DID anchor that DISCOVERS and fetches
+  the right Trust Pack for a given executor automatically is still future work.
 - A tool-log profile that turns `execution_proven` from a self-asserted effect digest into a third-party
-  signed tool log (`outcomeRef` style, mirroring decision-receipt §2).
+  signed tool log (`outcomeRef` style, mirroring decision-receipt §2). `assurance.EvidenceLevel` (§5) now
+  gives this profile, when built, a natural target level (`RECEIPT_CRYPTO_VERIFIED`) — the ladder exists,
+  the tool-log profile that would populate it does not.
+- `EvidenceLevel.EFFECT_OBSERVED` (a real-world effect-observation channel, not merely a receipt about the
+  effect) is structurally unreachable — depends on a separate, not-yet-built finding (see
+  `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`).

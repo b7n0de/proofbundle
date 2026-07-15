@@ -460,6 +460,18 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     if not flat:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
+    # Finding 15b (DoS guard): refuse an absurdly long renewal sequence BEFORE the covering-check loop below
+    # runs — a hash-tree-renewal chain-start covers ALL prior ATS tokens (`_cover_prior_and_data`), so a
+    # sequence with many chain-starts is O(n) per chain-start, O(n * chain-starts) worst case for the whole
+    # walk. A legitimate renewal history (decades of periodic algorithm-ageing renewals) is nowhere near
+    # this bound; an attacker-assembled sequence with millions of ATS is.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not DEFAULT_BUDGET.within("renewal_ats_chain", len(flat)):
+        result.checks.append(Check(
+            "renewal:budget", False,
+            f"sequence has {len(flat)} ArchiveTimeStamp entries (> budget.renewal_ats_chain="
+            f"{DEFAULT_BUDGET.renewal_ats_chain}) — refusing (DoS guard, Finding 15b)"))
+        return result
 
     # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
     #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).

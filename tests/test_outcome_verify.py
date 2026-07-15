@@ -277,5 +277,86 @@ class TestOutcomeSubjectBinding(unittest.TestCase):
         self.assertFalse(r["ok"])
 
 
+class TestOutcomeExecutorRoleTrust(unittest.TestCase):
+    """Finding 01 (2026-07 verify-layer hardening): trust_pack.py declared an `outcomeExecutors` role but
+    no verify_* path ever consumed it (docs/predicates/action-outcome.md §7, "open, not yet built"). This
+    tests `executor_trusted_by_role` / the new `trust_pack` param, additively."""
+
+    @staticmethod
+    def _trust_pack(*, member_key_id="kid-exec", revoked=None):
+        return {
+            "schemaVersion": "0.1.0", "trustPackId": "tp-1", "version": 1,
+            "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+            "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
+                     "outcomeExecutors": {"keyIds": [member_key_id], "threshold": 1}},
+            "keys": {"root-0": {"publicKey": "A" * 43 + "="}},
+            "nonClaims": ["names which keys hold which role, not that the holders are honest"],
+            **({"revoked": revoked} if revoked else {}),
+        }
+
+    def test_no_trust_pack_supplied_stays_none(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        r = verify_outcome_receipt(env, pub)
+        self.assertIsNone(r["executor_role_trusted"])
+        self.assertTrue(r["ok"], r)   # unaffected: fully backward compatible
+
+    def test_member_key_id_is_trusted(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)   # _pred()'s executor.keyId == "kid-exec"
+        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec"))
+        self.assertTrue(r["executor_role_trusted"], r)
+        self.assertTrue(r["ok"], r)
+
+    def test_non_member_key_id_fails_closed(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="someone-else"))
+        self.assertFalse(r["executor_role_trusted"])
+        self.assertFalse(r["ok"])
+        self.assertTrue(any("outcomeExecutors" in e for e in r["errors"]), r["errors"])
+
+    def test_revoked_member_fails_closed(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        r = verify_outcome_receipt(
+            env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", revoked=["kid-exec"]))
+        self.assertFalse(r["executor_role_trusted"])
+        self.assertFalse(r["ok"])
+
+    def test_missing_role_fails_closed(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        pack = self._trust_pack()
+        del pack["roles"]["outcomeExecutors"]
+        r = verify_outcome_receipt(env, pub, trust_pack=pack)
+        self.assertFalse(r["executor_role_trusted"])
+        self.assertFalse(r["ok"])
+
+    def test_executor_without_keyid_fails_closed(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(executor={"id": "executor:runner-7"}), s)   # no keyId
+        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack())
+        self.assertFalse(r["executor_role_trusted"])
+        self.assertFalse(r["ok"])
+
+    def test_malformed_trust_pack_never_crashes(self):
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        for bad_pack in ({}, {"roles": "not-a-dict"}, {"roles": {"outcomeExecutors": "not-a-dict"}},
+                         {"roles": {"outcomeExecutors": {"keyIds": "not-a-list"}}}):
+            r = verify_outcome_receipt(env, pub, trust_pack=bad_pack)   # must not raise
+            self.assertFalse(r["executor_role_trusted"], bad_pack)
+
+    def test_executor_trusted_by_role_direct(self):
+        from proofbundle.outcome import executor_trusted_by_role
+        pack = self._trust_pack(member_key_id="kid-1")
+        self.assertTrue(executor_trusted_by_role({"id": "x", "keyId": "kid-1"}, pack))
+        self.assertFalse(executor_trusted_by_role({"id": "x", "keyId": "kid-2"}, pack))
+        self.assertFalse(executor_trusted_by_role({"id": "x"}, pack))          # no keyId
+        self.assertFalse(executor_trusted_by_role(None, pack))                 # malformed executor
+        self.assertFalse(executor_trusted_by_role({"id": "x", "keyId": "kid-1"}, None))  # malformed pack
+
+
 if __name__ == "__main__":
     unittest.main()

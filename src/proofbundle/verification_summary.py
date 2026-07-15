@@ -181,7 +181,11 @@ def emit_verification_summary(predicate: dict, signer, *, subject_name: str | No
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
-            "levels_consistent": None, "warnings": [], "errors": []}
+            "levels_consistent": None,
+            # Finding 01 (2026-07 verify-layer hardening, additive): a uniform automation-safety verdict,
+            # computed at the end of verify — never gates anything above, `ok` is unchanged.
+            "automation": None,
+            "warnings": [], "errors": []}
 
 
 def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
@@ -193,11 +197,14 @@ def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bo
     verified, and ``nonClaims`` records that limit verbatim. Read ``ok`` (or ``crypto_ok``) — never an
     individual field alone; on a crypto fail every derived field stays None."""
     from . import dsse  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
     r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
     if not r["crypto_ok"]:
         r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
     body = dsse.load_payload(envelope)
+    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
+    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:
@@ -249,4 +256,12 @@ def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bo
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["levels_consistent"] is not False)
+
+    # Finding 01 (additive): a uniform automation-safety verdict — never changes `ok` above. A verification
+    # summary carries no separate policy/authorization layer of its own ("policy" not applicable).
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
+        "references": ["levels_consistent"],
+    })
     return r
