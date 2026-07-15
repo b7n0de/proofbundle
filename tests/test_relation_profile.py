@@ -307,3 +307,64 @@ class TestPredicateWiring(unittest.TestCase):
         from proofbundle.outcome import validate_outcome_predicate
         self.assertEqual(validate_decision_predicate(self._minimal_decision()), [])
         self.assertEqual(validate_outcome_predicate(self._minimal_outcome()), [])
+
+
+class TestVerifyLevelLineage(unittest.TestCase):
+    """End-to-end over REAL DSSE-signed decision receipts: lineage is additive, computed only
+    over authenticated bytes, and NEVER flips the crypto verdict (lattice monotonicity)."""
+
+    def _signed_decision(self, relationships=None):
+        import json
+        from pathlib import Path
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        if relationships is not None:
+            pred["relationships"] = relationships
+        signer = generate_signer()
+        env = emit_decision_receipt(pred, signer, strict=True)
+        return env, signer.public_key().public_bytes_raw()
+
+    def test_no_relationships_lineage_stays_none(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, pub = self._signed_decision()
+        r = verify_decision_receipt(env, pub)
+        self.assertTrue(r["crypto_ok"])
+        self.assertIsNone(r["lineage"])
+
+    def test_declared_unresolved_over_signed_bytes(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, pub = self._signed_decision([edge(H_B, relation="corrects")])
+        r = verify_decision_receipt(env, pub)
+        self.assertTrue(r["crypto_ok"])
+        self.assertEqual(r["lineage"]["lineage"], LINEAGE_DECLARED_UNRESOLVED)
+        self.assertEqual(r["errors"], [])
+
+    def test_verified_with_attached_target(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, pub = self._signed_decision([edge(H_B, relation="supersedes")])
+        r = verify_decision_receipt(env, pub, related={H_B: {"verified": True}})
+        self.assertTrue(r["crypto_ok"])
+        self.assertEqual(r["lineage"]["lineage"], LINEAGE_VERIFIED)
+
+    def test_lineage_fail_never_flips_crypto(self):
+        # The MONOTONICITY guarantee: an attached-but-unverified target FAILs lineage and
+        # surfaces in errors[], but cryptoValid stays True — lineage never upgrades OR
+        # downgrades the crypto verdict.
+        from proofbundle.decision import verify_decision_receipt
+        env, pub = self._signed_decision([edge(H_B, relation="supersedes")])
+        r = verify_decision_receipt(env, pub, related={H_B: {"verified": False}})
+        self.assertTrue(r["crypto_ok"])
+        self.assertEqual(r["lineage"]["lineage"], LINEAGE_FAIL)
+        self.assertTrue(any("target_verification_failed" in e for e in r["errors"]))
+
+    def test_forged_envelope_never_computes_lineage(self):
+        # Trust-derived fields stay None on unauthenticated bytes — including lineage.
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.emit import generate_signer
+        env, _ = self._signed_decision([edge(H_B)])
+        wrong_pub = generate_signer().public_key().public_bytes_raw()
+        r = verify_decision_receipt(env, wrong_pub, related={H_B: {"verified": True}})
+        self.assertFalse(r["crypto_ok"])
+        self.assertIsNone(r["lineage"])

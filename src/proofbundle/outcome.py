@@ -433,7 +433,7 @@ def _empty_result() -> dict:
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
         # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
         "receiver_bound": None, "receiver_role_trusted": None,
-        "warnings": [], "errors": [],
+        "lineage": None, "warnings": [], "errors": [],
     }
 
 
@@ -442,7 +442,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
-                           receiver_attestation_resolver: Callable[[dict], bool] | None = None) -> dict:
+                           receiver_attestation_resolver: Callable[[dict], bool] | None = None,
+                           related: dict | None = None) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -557,6 +558,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 r["errors"].append(
                     "role separation violated — executor.id equals the decisionMaker id; whoever decides "
                     "must not witness their own execution (fail-closed)")
+
+        # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
+        # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
+        # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
+        if "relationships" in predicate or related:
+            from . import anchors as _anchors_for_rel  # noqa: PLC0415
+            from .relation import verify_relationship_edges  # noqa: PLC0415
+            try:
+                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
+            except Exception:
+                _subject_hex = None
+            r["lineage"] = verify_relationship_edges(
+                predicate.get("relationships"), related, subject_hex=_subject_hex)
+            if r["lineage"]["lineage"] == "FAIL":
+                r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
 
         # execution proof (honesty limit, warning not hard-fail).
         r["execution_proven"] = outcome_execution_proven(predicate)

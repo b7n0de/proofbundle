@@ -405,6 +405,9 @@ def _empty_result() -> dict:
         # (assurance.classify_digest_evidence) computed at the end of verify — never gate anything on
         # these two here, the old ok/*_proven/evidence_bound fields above are UNCHANGED for compat.
         "automation": None, "evidence_levels": None,
+        # relation/v0.1 (EXPERIMENTAL, additive): lineage verdict over the predicate's OPTIONAL
+        # relationships edges — None until computed over AUTHENTICATED bytes; never gates `ok`.
+        "lineage": None,
         "warnings": [], "errors": [],
     }
 
@@ -413,7 +416,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
-                            evidence_resolver: Callable[[dict], bool] | None = None) -> dict:
+                            evidence_resolver: Callable[[dict], bool] | None = None,
+                            related: dict | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -545,6 +549,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             "actionOutcome.outcomeRef": _outcome_level,
             "evidenceRefs": _evref_levels,
         }
+
+        # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
+        # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
+        # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
+        # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
+        if "relationships" in predicate or related:
+            from . import anchors as _anchors_for_rel  # noqa: PLC0415
+            from .relation import verify_relationship_edges  # noqa: PLC0415
+            try:
+                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
+            except Exception:
+                _subject_hex = None
+            r["lineage"] = verify_relationship_edges(
+                predicate.get("relationships"), related, subject_hex=_subject_hex)
+            if r["lineage"]["lineage"] == "FAIL":
+                r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
