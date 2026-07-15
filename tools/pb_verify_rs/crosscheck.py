@@ -10,6 +10,8 @@ shared canonicalization or parser code between the two implementations:
   3. a flipped payload byte                                         -> Rust FAIL (negative vector)
   4. a duplicate JSON key                                           -> Rust REJECT (parser-differential)
   5. RFC 6962 Merkle tree head                                      -> Rust == Python
+  6. trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg, Finding 11) -> Rust == Python
+     root_threshold_met, on both a threshold-met and a threshold-NOT-met envelope
 
 Exit 0 iff every property agrees; non-zero (and a printed diff) on the first mismatch. Read-only:
 writes only to a temp dir, no network.
@@ -43,9 +45,12 @@ def main() -> int:
         print(f"FAIL: rust binary not built ({BIN}) — run `cargo build` in tools/pb_verify_rs first")
         return 2
 
+    from datetime import datetime, timedelta, timezone
+
     from proofbundle import canonical
     from proofbundle.emit import generate_signer
     from proofbundle.outcome import build_outcome_statement, emit_outcome_receipt
+    from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
 
     failures: list[str] = []
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="pb_crosscheck_"))
@@ -99,7 +104,40 @@ def main() -> int:
     if rust_merkle != py_merkle:
         failures.append(f"merkle mismatch: py={py_merkle} rust={rust_merkle}")
 
-    # (6) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
+    # (6) trust-pack/v0.1 root-of-trust THRESHOLD (Finding 11, Ed25519 leg): a 3-key root role with
+    # threshold 2, signed by 2 keys (met) and by only 1 key (NOT met) — Rust's dedicated
+    # verify-trust-pack-threshold subcommand must agree with Python's verify_trust_pack on BOTH.
+    tp_r1, tp_r2, tp_r3 = generate_signer(), generate_signer(), generate_signer()
+    tp_pub = {
+        kid: base64.b64encode(sk.public_key().public_bytes_raw()).decode()
+        for kid, sk in (("r1", tp_r1), ("r2", tp_r2), ("r3", tp_r3))
+    }
+    tp_expires = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tp_predicate = {
+        "schemaVersion": "0.1.0", "trustPackId": "tp-crosscheck", "version": 1,
+        "expires": tp_expires, "prevVersionDigest": None,
+        "roles": {"root": {"keyIds": ["r1", "r2", "r3"], "threshold": 2}},
+        "keys": {kid: {"publicKey": pk} for kid, pk in tp_pub.items()},
+        "nonClaims": ["does not assert the key holders are honest, only that a threshold signed"],
+    }
+    tp_env_met = sign_trust_pack(tp_predicate, {"r1": tp_r1, "r2": tp_r2})
+    tp_env_unmet = sign_trust_pack(tp_predicate, {"r1": tp_r1})
+    py_met = verify_trust_pack(tp_env_met)["root_threshold_met"]
+    py_unmet = verify_trust_pack(tp_env_unmet)["root_threshold_met"]
+    if py_met is not True:
+        failures.append(f"trust-pack fixture bug: Python root_threshold_met should be True, got {py_met}")
+    if py_unmet is not False:
+        failures.append(f"trust-pack fixture bug: Python root_threshold_met should be False, got {py_unmet}")
+    (tmp / "tp_met.json").write_text(json.dumps(tp_env_met))
+    (tmp / "tp_unmet.json").write_text(json.dumps(tp_env_unmet))
+    code, out = _run("verify-trust-pack-threshold", str(tmp / "tp_met.json"))
+    if not (code == 0 and out.startswith("OK") and py_met):
+        failures.append(f"trust-pack threshold-met mismatch: py={py_met} rust={out}/exit{code}")
+    code, out = _run("verify-trust-pack-threshold", str(tmp / "tp_unmet.json"))
+    if not (code == 1 and out.startswith("FAIL") and py_unmet is False):
+        failures.append(f"trust-pack threshold-unmet mismatch: py={py_unmet} rust={out}/exit{code}")
+
+    # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
     manifest = json.loads((corpus / "manifest.json").read_text())
     reproduced = 0
@@ -140,7 +178,8 @@ def main() -> int:
         return 1
     total = len(manifest.get("cases", []))
     tail = f" ({len(skipped)} skipped: {', '.join(skipped)})" if skipped else ""
-    print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle agree; "
+    print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
+          "trust-pack root-threshold (met+unmet) agree; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently{tail}")
     return 0
 

@@ -11,6 +11,12 @@
 //!   verify-dsse  <envelope.json> <pubkey_b64>  -> DSSE Ed25519 verify over the exact PAE bytes
 //!   merkle-root  <leaf_hex>...                 -> RFC 6962 tree head of the given leaves
 //!   strict-parse <file.json>                   -> ok, or reject a duplicate JSON key (parser-differential)
+//!   verify-bundle <bundle.json> [flags]        -> native proofbundle bundle exit-code contract
+//!   verify-trust-pack-threshold <envelope.json> -> trust-pack/v0.1 root-of-trust THRESHOLD check (Ed25519
+//!                                                  leg only; see VERIFIED_SUBCOMMANDS / Finding 11)
+//!   coverage-report                            -> JSON self-declaration of the subcommands above (single
+//!                                                  source of truth consumed by scripts/rust_parity_gate.py
+//!                                                  in the Python repo — never hand-duplicate this list)
 
 use std::collections::HashSet;
 use std::fmt;
@@ -454,6 +460,101 @@ fn anchor_rp_confirmed(_bundle: &serde_json::Value) -> bool {
     false
 }
 
+// ---------------------------------------------------------------------------
+// Finding 11 (Rust second-verifier parity): the ONE list of subcommands this binary actually
+// implements as a read-only cross-implementation CHECK (excludes `coverage-report` itself and the
+// pure-utility `content-root` / `merkle-root` / `strict-parse` primitives — those are already
+// self-evident from `main`'s usage line). `coverage-report` prints exactly this array as JSON, so
+// scripts/rust_parity_gate.py (Python repo) can cross-check a claimed-COVERED registry entry
+// against what the binary ACTUALLY exposes, instead of trusting a hand-maintained doc (the failure
+// mode CROSS_IMPLEMENTATION_REPORT.md drifted into before this gate existed). Keep this array and
+// the `match` arms in `main()` in sync BY HAND — `tests/test_rust_parity_gate.py` on the Python side
+// greps main.rs's match arms independently and fails if this array and the real dispatch disagree.
+const VERIFY_SUBCOMMANDS: &[&str] = &["verify-dsse", "verify-bundle", "verify-trust-pack-threshold"];
+
+// ---------------------------------------------------------------------------
+// trust-pack/v0.1 root-of-trust THRESHOLD verify (Finding 11 first portation, Ed25519 leg only).
+// Mirrors proofbundle.trust_pack.verify_trust_pack's `root_threshold_met` computation: count DISTINCT
+// non-revoked ROOT KEY MATERIAL (not keyId labels — aliasing must not inflate the threshold, exactly
+// like the Python `valid_root: dict[bytes, str]` dedup) with a valid Ed25519 signature over the exact
+// DSSE PAE bytes, and require it to be >= the declared threshold.
+//
+// HONEST SCOPE (No-Overclaim): this slice covers ONLY `alg: "ed25519"` root keys (the default and by
+// far the common case). `mldsa65` / `hybrid-ed25519-mldsa65` root keys are NOT implemented here (no
+// ML-DSA crate in this binary) — a non-ed25519 root key is SKIPPED (never silently treated as valid,
+// never fatal) and surfaced in the printed diagnostic as `skipped_non_ed25519`. It does NOT check
+// `not_expired`, `version_monotone`, `prevVersionDigest` chaining, two-stage rotation authorization, or
+// full predicate-shape validation — those remain Python-only (see CROSS_IMPLEMENTATION_REPORT.md /
+// scripts/rust_parity_gate.py PENDING entries for trust_pack.verify_trust_pack).
+// Ok(true)/Ok(false) => threshold met/not met (contributes exit 0/1); Err(..) => malformed (exit 2).
+fn verify_trust_pack_threshold(envelope: &serde_json::Value) -> Result<(bool, u64, u64, u64), String> {
+    let payload_type = envelope
+        .get("payloadType")
+        .and_then(|v| v.as_str())
+        .ok_or("envelope has no string payloadType")?;
+    let payload_b64 = envelope
+        .get("payload")
+        .and_then(|v| v.as_str())
+        .ok_or("envelope has no string payload")?;
+    let body = b64_std(payload_b64)?;
+    let msg = dsse_pae(payload_type, &body);
+
+    let statement = strict_parse(&body)?;
+    let predicate = statement.get("predicate").ok_or("statement has no predicate")?;
+    let keys = predicate.get("keys").and_then(|v| v.as_object()).ok_or("predicate.keys missing")?;
+    let revoked: HashSet<String> = predicate
+        .get("revoked")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let root_role = predicate
+        .get("roles")
+        .and_then(|r| r.get("root"))
+        .ok_or("predicate.roles.root missing")?;
+    let root_ids: HashSet<String> = root_role
+        .get("keyIds")
+        .and_then(|v| v.as_array())
+        .ok_or("predicate.roles.root.keyIds missing")?
+        .iter()
+        .filter_map(|x| x.as_str().map(String::from))
+        .filter(|k| !revoked.contains(k))
+        .collect();
+    let threshold = root_role
+        .get("threshold")
+        .and_then(|v| v.as_u64())
+        .ok_or("predicate.roles.root.threshold missing")?;
+
+    let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
+    let mut skipped_non_ed25519: u64 = 0;
+    for entry in envelope.get("signatures").and_then(|v| v.as_array()).ok_or("envelope.signatures missing")? {
+        let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else { continue };
+        if !root_ids.contains(kid) {
+            continue;
+        }
+        let Some(kv) = keys.get(kid) else { continue };
+        let alg = kv.get("alg").and_then(|v| v.as_str()).unwrap_or("ed25519");
+        if alg != "ed25519" {
+            skipped_non_ed25519 += 1; // honest scope: mldsa65 / hybrid legs are PENDING, never counted
+            continue;
+        }
+        let Some(pub_b64) = kv.get("publicKey").and_then(|v| v.as_str()) else { continue };
+        let Ok(pk_bytes) = b64_std(pub_b64) else { continue };
+        let Ok(pk_arr): Result<[u8; 32], _> = pk_bytes.as_slice().try_into() else { continue };
+        if valid_root.contains(&pk_arr) {
+            continue; // same key material already counted under a different keyId (aliasing defense)
+        }
+        let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else { continue };
+        let Some(sig_b64) = entry.get("sig").and_then(|v| v.as_str()) else { continue };
+        let Ok(sig_bytes) = b64_std(sig_b64) else { continue };
+        let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else { continue };
+        if vk.verify(&msg, &Signature::from_bytes(&sig_arr)).is_ok() {
+            valid_root.insert(pk_arr);
+        }
+    }
+    let met = (valid_root.len() as u64) >= threshold;
+    Ok((met, valid_root.len() as u64, threshold, skipped_non_ed25519))
+}
+
 fn read_file(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
 }
@@ -466,7 +567,10 @@ fn fatal(msg: &str) -> ! {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: pb_verify_rs <content-root|verify-dsse|merkle-root|strict-parse> ...");
+        eprintln!(
+            "usage: pb_verify_rs <content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
+verify-trust-pack-threshold|coverage-report> ..."
+        );
         exit(2);
     }
     match args[1].as_str() {
@@ -578,6 +682,50 @@ fn main() {
                     exit(1);
                 }
             }
+        }
+        "verify-trust-pack-threshold" => {
+            let path = args
+                .get(2)
+                .unwrap_or_else(|| fatal("verify-trust-pack-threshold needs an envelope file"));
+            let v = match strict_parse(&read_file(path)) {
+                Ok(v) => v,
+                Err(_) => {
+                    println!("MALFORMED");
+                    exit(2);
+                }
+            };
+            match verify_trust_pack_threshold(&v) {
+                Ok((true, signers, threshold, skipped)) => {
+                    println!(
+                        "OK root_threshold_met=true signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
+                    );
+                    exit(0);
+                }
+                Ok((false, signers, threshold, skipped)) => {
+                    println!(
+                        "FAIL root_threshold_met=false signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
+                    );
+                    exit(1);
+                }
+                Err(_) => {
+                    println!("MALFORMED");
+                    exit(2);
+                }
+            }
+        }
+        "coverage-report" => {
+            // Self-declared, single source of truth (see VERIFY_SUBCOMMANDS doc comment above) — the
+            // Python-side gate (scripts/rust_parity_gate.py) diffs this against main.rs's own match arms
+            // AND against its registry, so a hand-edited drift in either direction is caught, not assumed.
+            let list = VERIFY_SUBCOMMANDS
+                .iter()
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(",");
+            println!(
+                "{{\"schema\":\"pb_verify_rs.coverage_report.v1\",\"binary\":\"pb_verify_rs\",\"verify_subcommands\":[{list}]}}"
+            );
+            exit(0);
         }
         other => fatal(&format!("unknown subcommand: {other}")),
     }
