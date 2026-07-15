@@ -179,5 +179,74 @@ class TestDecisionVerify(unittest.TestCase):
         self.assertEqual(len(stmt["subject"][0]["digest"]["sha256"]), 64)
 
 
+class TestDecisionSubjectBinding(unittest.TestCase):
+    """Finding 05: `build_decision_statement`'s documented `subject_sha256` override is self-attested and NOT
+    cross-checked at build time. Before this fix `verify_decision_receipt` never called subject_binding at
+    all (no `subject_binding` field in the result, no way to opt into a hard fail-closed check). Mirrors
+    outcome.py's `TestOutcomeSubjectBinding` — the two verify paths must offer the same guarantee."""
+
+    def test_default_subject_is_derived(self):
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)  # subject derived from the predicate (no override)
+        r = verify_decision_receipt(env, pub, strict=True)
+        self.assertEqual(r["subject_binding"]["mode"], "DERIVED")
+        self.assertTrue(r["subject_binding"]["matches"])
+        self.assertFalse(any("subject-rehang" in w for w in r["warnings"]))
+        self.assertTrue(r["ok"], r)
+
+    def test_subject_mode_field_present(self):
+        # The field must be populated (not left None) on BOTH a DERIVED and an EXTERNAL_ATTESTED subject —
+        # never zero signal.
+        p = _pred("deny")
+        s, pub = _keys()
+        derived_env = emit_decision_receipt(p, s)
+        rehung_env = emit_decision_receipt(p, s, subject_sha256="d" * 64)
+        self.assertIsNotNone(verify_decision_receipt(derived_env, pub)["subject_binding"])
+        self.assertIsNotNone(verify_decision_receipt(rehung_env, pub)["subject_binding"])
+
+    def test_external_attested_subject_is_warned_not_silent(self):
+        # The PoC: a validly-signed decision whose subject points elsewhere. It must no longer verify with
+        # ZERO signal — the classification + a warning are always present (ok still True by default, the
+        # override is a documented self-attest feature).
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s, subject_sha256="d" * 64)
+        r = verify_decision_receipt(env, pub, strict=True)
+        self.assertEqual(r["subject_binding"]["mode"], "EXTERNAL_ATTESTED")
+        self.assertFalse(r["subject_binding"]["matches"])
+        self.assertTrue(any("subject-rehang" in w for w in r["warnings"]), r["warnings"])
+        self.assertTrue(r["ok"], r)   # default: warn, not a hard fail
+
+    def test_decision_subject_rehang_fails_with_require_derived_subject(self):
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s, subject_sha256="d" * 64)
+        r = verify_decision_receipt(env, pub, strict=True, require_derived_subject=True)
+        self.assertFalse(r["subject_derived_ok"])
+        self.assertFalse(r["ok"])
+        self.assertTrue(any("require_derived_subject" in e for e in r["errors"]), r["errors"])
+
+    def test_require_derived_subject_green_on_derived(self):
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        r = verify_decision_receipt(env, pub, strict=True, require_derived_subject=True)
+        self.assertTrue(r["subject_derived_ok"])
+        self.assertTrue(r["ok"], r)
+
+    def test_require_derived_subject_fail_closed_when_classify_raises(self):
+        import unittest.mock as mock
+
+        from proofbundle import subject_binding
+        p = _pred("deny")
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s)
+        with mock.patch.object(subject_binding, "classify_subject", side_effect=RuntimeError("boom")):
+            r = verify_decision_receipt(env, pub, strict=True, require_derived_subject=True)
+        self.assertFalse(r["subject_derived_ok"])
+        self.assertFalse(r["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

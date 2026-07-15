@@ -115,8 +115,11 @@ and states its non-claims as explicitly as its guarantees. Predicate docs under
 
 ### Added — subject-binding + SD-JWT VC layers (EXPERIMENTAL, O6, O7)
 - `subject_binding.py`: classifies a Statement subject as `DERIVED` (SHA-256 over the RFC-8785 canonical
-  predicate, re-derived and matched) vs `EXTERNAL_ATTESTED` (override/tamper, fail-closed), plus nested schema
-  closure. Doc: [`docs/SUBJECT_BINDING.md`](docs/SUBJECT_BINDING.md).
+  predicate, re-derived and matched) vs `EXTERNAL_ATTESTED` (override/tamper). An `EXTERNAL_ATTESTED` subject
+  is warned by default on both the decision and outcome verify paths; it is only fail-closed when the caller
+  opts in via `require_derived_subject` / `decision verify --require-derived-subject` /
+  `outcome verify --require-derived-subject`. Plus nested schema closure. Doc:
+  [`docs/SUBJECT_BINDING.md`](docs/SUBJECT_BINDING.md).
 - `sdjwt_vc.py`: an SD-JWT VC relying-party profile (`typ = dc+sd-jwt`, `vct` allowlist, offline
   type-metadata integrity, holder-binding required). SSRF-safe by construction — no network I/O, a URL `vct`
   is an opaque identifier and never dereferenced. Doc: [`docs/SDJWT_VC_PROFILE.md`](docs/SDJWT_VC_PROFILE.md).
