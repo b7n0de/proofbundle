@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Verify-result-layer hardening (Findings 01/03/15b of the post-3.2.2 audit). Additive/non-breaking: no
+existing `result["ok"]` field changes for any correct caller; every new field/param is opt-in with a
+backward-compatible default.
+
+### Added
+- **Finding 01 — uniform automation-safety verdict**: new `automation_verdict.automation_summary` mirrors
+  `bundle.py::root_authenticity_summary`'s `safeForAutomation`/`automationBlockers` pattern for the other
+  five receipt-chain predicates. Each of `decision.verify_decision_receipt`,
+  `outcome.verify_outcome_receipt`, `trust_pack.verify_trust_pack`,
+  `verification_summary.verify_verification_summary` and `run_ledger.verify_run_ledger` now stashes a
+  `result["automation"]` dict; `safeForAutomation` requires the policy/authorization dimension to be
+  `True` EXACTLY (never merely `is not False`, unlike the permissive `ok` aggregate). `outcome.py` also
+  gains an optional `trust_pack` parameter (`outcome.executor_trusted_by_role`) that checks the executor's
+  `keyId` against the Trust Pack's `outcomeExecutors` role — closing the gap
+  docs/predicates/action-outcome.md §7 listed as open/future work.
+- **Finding 03 — EvidenceLevel ladder**: new `assurance.py` (`EvidenceLevel`,
+  `classify_digest_evidence`, `evidence_ladder_summary`/`evidence_ladder_best`) makes the STRENGTH of a
+  digest-presence "proven"/"bound" claim explicit and orderable
+  (`CLAIMED < REFERENCE_WELL_FORMED < CONTENT_RESOLVED < RECEIPT_CRYPTO_VERIFIED < POLICY_AUTHORIZED <
+  INDEPENDENTLY_ATTESTED < EFFECT_OBSERVED`). `decision.verify_decision_receipt` and
+  `outcome.verify_outcome_receipt` gain an additive `result["evidence_levels"]` plus an optional
+  `evidence_resolver` callable that, when supplied, wires the previously-unused
+  `decision.resolve_evidence_ref` primitive into the actual verify path (a digest can now reach
+  `CONTENT_RESOLVED`, not only `REFERENCE_WELL_FORMED`). The pre-existing boolean
+  `action_outcome_proven`/`outcome_execution_proven`/`evidence_bound` fields are UNCHANGED.
+  `EvidenceLevel.EFFECT_OBSERVED` is a real, orderable enum member that stays structurally unreachable
+  (depends on Finding 16, a real-world effect-observation channel, not yet built) — an explicit
+  `EFFECT_OBSERVED_NOT_IMPLEMENTED` marker documents this rather than silently omitting it.
+- **Finding 15b — VerificationBudget**: new `budget.py` (`VerificationBudget`, `DEFAULT_BUDGET`,
+  `BudgetExceeded`) centralizes the DoS-guard pattern already used ad hoc by `sdjwt._MAX_DISCLOSURES`,
+  `statuslist._MAX_STATUS_LIST_BYTES`, `hf_evals._MAX_TOKEN_BYTES` and `anchors_chia._MAX_LAYERS`/
+  `_MAX_PROOF_BYTES` (which are unchanged and stay the authoritative caps for their own surfaces). Wired
+  concretely into the two identified unguarded paths — `trust_pack.validate_trust_pack_predicate`'s
+  `keys` map / per-role `keyIds` counts, and `renewal.verify_sequence`'s total ArchiveTimeStamp count
+  across a whole sequence — plus a generous `input_bytes` cap on the raw DSSE payload bytes (checked
+  BEFORE JSON parsing) on every one of the five receipt-chain `verify_*` entry points named above.
+  `BudgetExceeded` is a `ProofBundleError` subclass, so every existing `except (ProofBundleError, ...)`
+  call site already handles it identically to any other malformed/over-limit input.
+
+### Deferred (tracked, not built this increment — the one deliberately BREAKING piece)
+- `bundle.py`'s CLI `verify` exit-code default is NOT changed by this increment. `root_authenticity_summary`
+  already computes `safeForAutomation`/`automationBlockers` correctly (unaffected); a FUTURE v4 could add an
+  opt-in `--strict-automation` CLI flag that gates the process exit code on `safeForAutomation` instead of
+  the current crypto-only exit contract (a `POLICY_NOT_EVALUATED` receipt would then exit non-zero even
+  though `CRYPTO: OK`). That flip would be a REAL default-behavior change for any script parsing exit
+  codes today, so it is explicitly NOT flipped as a default here — only the opt-in flag is a plausible v4
+  addition, and even that is not implemented in this increment (No-Fake: the capability described above
+  IS built and IS additive; only the CLI default-exit-code change is the deferred, tracked item).
+
 ## [3.2.2] - 2026-07-15
 
 Security and robustness hardening from a six-lens plus red-team audit of 3.2.1. Additive; no
