@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — SD-JWT VC interop, Finding 20 (issue #27)
+
+- **ES256 issuer-signature verification.** `sdjwt.verify_sd_jwt` now verifies ECDSA P-256
+  (ES256, RFC 7518 §3.4) issuer signatures alongside EdDSA, dispatched strictly on the issuer
+  JWT header's literal `alg` claim — the algorithm the EUDI Digital Identity Wallet and the
+  OAuth WG's own SD-JWT VC worked examples use, closing proofbundle's biggest SD-JWT VC interop
+  gap (previously every real-world ES256 credential could only be checked structurally, never
+  cryptographically). New primitive `signature.verify_ecdsa_p256` (65-byte SEC1 uncompressed
+  public key, RFC 7518 §3.4's fixed-width 64-byte `R‖S` JWS signature, converted to DER before
+  calling into `cryptography` — never hand-rolled ECDSA math). `bundle.py`'s `sd-jwt-issuer-identity`
+  fingerprint prefix is now alg-aware (`"ed25519:"` / `"es256:"`) rather than hardcoded to EdDSA — a
+  latent false-reject the new algorithm would otherwise have exposed for an ES256-signed `sd_jwt_vc`
+  that discloses proofbundle's own `issuer` claim format.
+- **Trust-policy `sd_jwt.expected_vct`.** A relying party can now pin an exact required `vct` in the
+  bundle trust policy (`policy.py`'s `_SDJWT_KEYS`); `evaluate_policy` adds a `policy:expected_vct`
+  check, read ONLY from an issuer payload whose signature actually verified (mirrors the
+  "verified vs. merely present" discipline `policy:nonce_present` already established — an
+  unverified `vct` claim proves nothing). Complements, and is distinct from, `sdjwt_vc.py`'s
+  standalone `vctAllowlist`.
+- **Real cryptographic external conformance.** `tests/fixtures/sdjwtvc/` now also vendors the ES256
+  issuer public key the OAuth WG's 5 worked SD-JWT VC examples are signed under (from the same
+  pinned commit's `examples/settings.yml`, independently re-verified before vendoring);
+  `test_sdjwtvc_external_vectors.py` cryptographically verifies the issuer signature end-to-end, not
+  just the structural disclosure-commitment path (previously honestly out of scope — see the removed
+  `test_all_examples_have_es256_issuer_alg_by_design_not_checked_here` boundary marker). No official
+  NEGATIVE SD-JWT VC vectors were found upstream (checked oauth-wg/oauth-sd-jwt-vc,
+  oauth-wg/oauth-selective-disclosure-jwt, and openwallet-foundation-labs/sd-jwt-python's
+  `tests/testcases/` — every published example in all three is a positive structural variant), so the
+  new negative tests adversarially mutate the vendored positive vectors in code instead (the
+  established pattern this suite already used for `test_tampered_disclosure_is_rejected`).
+- Docs: `docs/SD_JWT_VC_PROFILE.md` updated to reflect the above against issue #27's roadmap;
+  `SPEC.md` §6 documents the alg-keyed `issuer_public_key_b64` encoding and the alg-aware
+  `sd-jwt-issuer-identity` fingerprint.
+
+Backward compatible: EdDSA-signed SD-JWTs verify exactly as before (same primitive, same call
+sites); the `sd_jwt.expected_vct` policy field is opt-in (absent = unchanged behavior).
+
 ## [3.2.2] - 2026-07-15
 
 Security and robustness hardening from a six-lens plus red-team audit of 3.2.1. Additive; no

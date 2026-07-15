@@ -176,6 +176,13 @@
           ],
           "minimum": 0,
           "description": "If set, the eval claim's signed timestamp MUST be at most this many seconds old at verify time. null = do not judge freshness."
+        },
+        "expected_vct": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Finding 20 / issue #27 (2026-07-15). If set, the SD-JWT's disclosed vct (verifiable credential type) MUST equal this exact string, matched as an opaque identifier and NEVER dereferenced even if it looks like a URL (SSRF-safe by construction). Read ONLY from a VERIFIED issuer signature (sd-jwt-issuer-signature) — an unverified vct proves nothing and fails closed. null = do not constrain."
         }
       }
     },
