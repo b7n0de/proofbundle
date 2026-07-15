@@ -134,15 +134,20 @@ name would be a No-Overclaim violation regardless of how the lint tool scores it
   checkpoint/cosignature/tlog-proof verification it would gate already exists
   (SPEC.md §7c/§7d/§7e, `verify-proof`), but there is no policy-file knob for it
   yet. See `docs/PUBLIC_TRANSPARENCY_PROFILE.md`.
-- **`sdjwt-vc-v1`** — would require a specific SD-JWT VC `vct` (type) claim. The
-  trust-policy `sd_jwt` section has no `vct` field today; the SD-JWT VC profile
-  is only partially implemented (RFC 9901 core + the WP-C1/C2 secure-by-default
-  checks, not `vct` enforcement or type-metadata resolution). See
-  `docs/SD_JWT_VC_PROFILE.md`.
+- **`sdjwt-vc-v1`** — would require a specific SD-JWT VC `vct` (type) claim.
+  **Since Finding 20 (2026-07-15, issue #27), the trust-policy `sd_jwt` section
+  DOES carry a `vct` field** (`sd_jwt.expected_vct`, enforced by
+  `evaluate_policy` only against a VERIFIED issuer signature) — the precondition
+  this named profile file was withheld for is now met, but the profile file
+  itself (and the review it would need as a shipped, discoverable default) is
+  still not shipped as `src/proofbundle/policies/sdjwt-vc-v1.json`. Full SD-JWT
+  VC conformance also remains partial (type-metadata *document* resolution is
+  still open). See `docs/SD_JWT_VC_PROFILE.md`.
 
-Both remain open, tracked roadmap items (proofbundle#7 adjacent work and issue
-#27 respectively) — proposed shapes are sketched in the two documents above, not
-implemented here.
+`public-log-required-v1` remains an open, tracked roadmap item (proofbundle#7
+adjacent work); `sdjwt-vc-v1`'s enforcement precondition is met but shipping
+the named profile file itself remains open (issue #27) — proposed shapes are
+sketched in the two documents above, not implemented here.
 
 ## Source of truth
 

@@ -262,6 +262,31 @@ MUTATIONS = [
      "                _collect_committed_digests(parsed[-1], newly)",
      "                pass",
      "sdjwt: F7 recursive-disclosure collection disabled (valid recursive vectors fail)", True),
+    # Finding 20 / issue #27 (2026-07-15) — ES256 issuer-signature interop. Each new fail-closed /
+    # alg-aware guard must be killed by its test, mirroring the v3.0.0 four-defenses convention above.
+    # Removing the ES256 dispatch entry must fail the real (now cryptographically verified) vendored
+    # ES256 vectors — tests/test_sdjwtvc_external_vectors.py's
+    # TestSdjwtVcIssuerSignatureExternalVectors.test_all_examples_issuer_signature_verifies.
+    ("src/proofbundle/sdjwt.py",
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}',
+     '_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519}',
+     "sdjwt: Finding 20 ES256 issuer-signature dispatch removed (real ES256 vectors stop verifying)", True),
+    # signature.verify_ecdsa_p256 fail-open: dropping the real cryptographic verify call while still
+    # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
+    # tests/test_signature.py's TestVerifyEcdsaP256 (wrong key / tampered message / tampered signature).
+    ("src/proofbundle/signature.py",
+     "        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))\n        return True",
+     "        return True",
+     "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
+    # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
+    # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
+    # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's
+    # test_es256_sd_jwt_issuer_identity_uses_alg_aware_prefix.
+    ("src/proofbundle/bundle.py",
+     '_verified_alg = sd_res.get("alg")\n                _fp_prefix = {"EdDSA": "ed25519:", "ES256": "es256:"}.get(_verified_alg, "ed25519:") \\\n'
+     '                    if isinstance(_verified_alg, str) else "ed25519:"',
+     '_fp_prefix = "ed25519:"',
+     "bundle: Finding 20 alg-aware sd-jwt-issuer-identity fingerprint reverted to hardcoded ed25519", True),
 ]
 
 

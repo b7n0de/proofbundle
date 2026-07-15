@@ -36,9 +36,11 @@ def _raw_pub(key) -> bytes:
 
 
 def _sd_jwt_bundle(*, with_issuer_key: bool = True, with_cnf: bool = True,
-                   aud: str = "verifier.example", nonce: str = "n-1") -> str:
+                   aud: str = "verifier.example", nonce: str = "n-1", vct: str | None = None) -> str:
     """A bundle carrying a real key-bound SD-JWT presentation. ``with_issuer_key=False`` is exactly
-    the class where the issuer signature is never checked (the require_nonce fail-open, L1/L2)."""
+    the class where the issuer signature is never checked (the require_nonce fail-open, L1/L2).
+    ``vct=None`` uses ``issue_sd_jwt``'s own default (Finding 20: ``sd_jwt.expected_vct`` tests pass
+    an explicit value)."""
     from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
     issuer = generate_signer()
     holder = generate_signer()
@@ -54,7 +56,8 @@ def _sd_jwt_bundle(*, with_issuer_key: bool = True, with_cnf: bool = True,
     claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
              "issuer": issuer_field}
     compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.9",
-                           holder_public_key=_raw_pub(holder) if with_cnf else None)
+                           holder_public_key=_raw_pub(holder) if with_cnf else None,
+                           **({"vct": vct} if vct is not None else {}))
     presented = present_with_key_binding(compact, holder, aud=aud, nonce=nonce, iat=_IAT)
     sd_jwt_vc = {"compact": presented}
     if with_issuer_key:
@@ -481,6 +484,80 @@ class TestVerifyLensFixes(unittest.TestCase):
             os.unlink(path)
             os.unlink(pol)
         self.assertEqual(rc, 1)   # KB-JWT aud != policy expected_aud → crypto fails (aud bound via policy)
+
+
+class TestExpectedVct(unittest.TestCase):
+    """Finding 20 / issue #27 (PB-2026-07-15): sd_jwt.expected_vct — an exact-match RP verifier flag
+    for the SD-JWT's disclosed vct, read ONLY from a VERIFIED issuer signature."""
+
+    def test_expected_vct_matches_passes(self):
+        path = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True, vct="https://example.test/vct/mine")
+        pol = _policy_file(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/mine"}))
+        try:
+            rc, out = _run(["verify", path, "--policy", pol])
+        finally:
+            os.unlink(path)
+            os.unlink(pol)
+        self.assertEqual(rc, 0)
+        self.assertIn("POLICY: OK", out)
+
+    def test_expected_vct_mismatch_fails(self):
+        path = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True, vct="https://example.test/vct/mine")
+        pol = _policy_file(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/other"}))
+        try:
+            rc, out = _run(["verify", path, "--policy", pol])
+        finally:
+            os.unlink(path)
+            os.unlink(pol)
+        self.assertEqual(rc, 3)
+        self.assertIn("POLICY: FAIL", out)
+
+    def test_expected_vct_absent_adds_no_check(self):
+        # opt-in only: a policy that never sets expected_vct must not gain a policy:expected_vct
+        # check at all (vacuous-pass discipline — explain_policy/lint_policy parity, WP-TP1).
+        from proofbundle.bundle import verify_bundle  # noqa: PLC0415
+        path = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True)
+        with open(path) as f:
+            bundle = json.load(f)
+        os.unlink(path)
+        policy = load_policy(_base_policy(sd_jwt={"require_key_binding_when_cnf_present": True}))
+        res = evaluate_policy(bundle, verify_bundle(bundle), policy)
+        self.assertTrue(res["policy_ok"], res)
+        self.assertFalse(any(c["name"] == "policy:expected_vct" for c in res["checks"]))
+
+    def test_expected_vct_null_is_treated_as_absent(self):
+        with self.assertRaises(PolicyError):
+            load_policy(_base_policy(sd_jwt={"expected_vct": 5}))   # wrong type still rejected
+        load_policy(_base_policy(sd_jwt={"expected_vct": None}))    # explicit null is fine (= do not constrain)
+
+    def test_expected_vct_gated_on_verified_issuer_signature(self):
+        # unit-level (mirrors test_evaluate_policy_gates_on_crypto_itself's pattern): evaluate_policy
+        # must NEVER trust a vct claim from an unverified issuer payload — even when the bundle's own
+        # sd_jwt_vc.compact is well-formed and carries the "right" vct on its face. This is the
+        # "verified vs. merely present" discipline policy:nonce_present already established.
+        from proofbundle.errors import Check  # noqa: PLC0415
+
+        class _Result:
+            ok = True
+            checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True),
+                     Check("sd-jwt-issuer-signature", False, "unsigned")]
+
+        issuer = generate_signer()
+        compact = issue_sd_jwt(
+            {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "x",
+             "issuer": "placeholder"},
+            issuer, root_b64="cm9vdA==", vct="https://attacker.example/vct")
+        bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact}}
+        policy = load_policy(_base_policy(sd_jwt={"expected_vct": "https://attacker.example/vct"}))
+        res = evaluate_policy(bundle, _Result(), policy)
+        self.assertFalse(res["policy_ok"])
+        vct_check = next(c for c in res["checks"] if c["name"] == "policy:expected_vct")
+        self.assertFalse(vct_check["ok"])
+
+    def test_expected_vct_listed_in_explain(self):
+        pol = load_policy(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/mine"}))
+        from proofbundle.policy import explain_policy  # noqa: PLC0415
+        self.assertTrue(any("vct" in x and "example.test" in x for x in explain_policy(pol)))
 
 
 if __name__ == "__main__":

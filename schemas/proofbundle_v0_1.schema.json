@@ -59,7 +59,7 @@
         },
         "issuer_public_key_b64": {
           "type": "string",
-          "description": "Optional issuer Ed25519 public key; if present the verifier checks the issuer signature."
+          "description": "Optional issuer public key; if present the verifier checks the issuer signature. Base64 of the 32-byte raw Ed25519 key (alg EdDSA), or, since Finding 20 (2026-07-15), the 65-byte SEC1 uncompressed P-256 point 0x04||X||Y (alg ES256)."
         }
       }
     },

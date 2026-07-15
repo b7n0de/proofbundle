@@ -3,21 +3,40 @@
 The SD-JWT *core* is now a published standard, RFC 9901 (November 2025). This
 module verifies the heart of it: that every presented Disclosure hashes to a
 digest that is actually committed in the issuer-signed JWT payload, and, if an
-issuer public key is supplied and the algorithm is EdDSA, that the issuer
-signature over the JWT is valid.
+issuer public key is supplied and the algorithm is EdDSA or ES256, that the
+issuer signature over the JWT is valid.
 
 Note the layering: RFC 9901 is the SD-JWT mechanism; **SD-JWT VC** (the
 credential type profile) is still an IETF draft,
-``draft-ietf-oauth-sd-jwt-vc`` — this verifier does not yet do VC-level checks.
+``draft-ietf-oauth-sd-jwt-vc`` — this verifier does not yet do full VC-level
+checks (a relying-party ``vct``/``typ`` profile check lives in
+:mod:`proofbundle.sdjwt_vc`; an exact-``vct`` trust-policy pin lives in
+:mod:`proofbundle.policy`'s ``sd_jwt.expected_vct``).
 
 Scope, stated honestly (see README security notes):
-  - EdDSA (Ed25519) issuer signatures only.
+  - Issuer signatures: EdDSA (Ed25519) and, since Finding 20 / issue #27
+    (PB-2026-07-15), ES256 (ECDSA P-256, RFC 7518 §3.4) — the algorithm the
+    EUDI Digital Identity Wallet and the OAuth WG's own SD-JWT VC worked
+    examples use. Any other ``alg`` value fails closed (``sig_ok`` stays
+    False, ``detail`` names the unsupported alg) — there is no silent
+    downgrade to "unchecked". Dispatch is a strict string match on the
+    literal, parsed ``alg`` claim from the SAME ``header_b64`` bytes the
+    signature covers (never a re-serialized/canonicalized header), so the
+    alg claim is cryptographically bound into the verified bytes: relabelling
+    it to reuse a signature under a different verify function/key-length
+    expectation changes ``header_b64`` and breaks the original signature.
   - Key Binding JWT verification lives in :mod:`proofbundle.kbjwt` (since
-    v1.2); this module verifies issuer signature + disclosure commitments,
-    and the bundle layer runs the KB check fail-closed whenever a KB-JWT is
-    attached.
+    v1.2, EdDSA-only — holder-binding is a separate, narrower scope than
+    issuer-signature interop and is not extended by Finding 20); this module
+    verifies issuer signature + disclosure commitments, and the bundle layer
+    runs the KB check fail-closed whenever a KB-JWT is attached.
   - No X.509 / trust-list / status-list checks, no ``vct`` type-metadata
-    resolution. Full SD-JWT VC conformance is on the roadmap.
+    *document* resolution (schema/display metadata) — an offline integrity
+    pin on opaque metadata bytes is a separate, already-implemented
+    capability (:func:`proofbundle.sdjwt_vc.check_vc_profile`'s
+    ``requireTypeMetadataIntegrity``). Full SD-JWT VC conformance remains on
+    the roadmap; see ``docs/SD_JWT_VC_PROFILE.md`` for the current, honest
+    split.
 """
 
 from __future__ import annotations
@@ -30,7 +49,12 @@ from typing import Optional, Set
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError
-from .signature import verify_ed25519
+from .signature import verify_ecdsa_p256, verify_ed25519
+
+# Finding 20 / issue #27: issuer-signature algorithms this verifier accepts, each dispatched to its
+# own alg-specific primitive with its own fixed key/signature length (32-byte Ed25519 raw key + Ed25519
+# verify, vs. 65-byte SEC1 P-256 point + ECDSA verify) — no algorithm can be confused for another.
+_ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519, "ES256": verify_ecdsa_p256}
 
 __all__ = ["verify_sd_jwt"]
 
@@ -200,12 +224,18 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
 
     if issuer_pubkey is not None:
         result["sig_checked"] = True
-        if alg == "EdDSA":
+        # Finding 20 / issue #27 (PB-2026-07-15): dispatch strictly on the LITERAL alg parsed from
+        # header_b64 above — the same bytes signing_input is built from below — never inferred from the
+        # issuer_pubkey length or the signature shape. header_b64 is part of the signed bytes (RFC 7515
+        # JWS: signing_input = ASCII(header_b64) || "." || ASCII(payload_b64)), so alg is already bound
+        # into what the signature covers: an attacker relabelling alg to route a valid EdDSA signature
+        # through the ES256 verifier (or vice versa) changes header_b64 and breaks the original
+        # signature — there is no code path that lets one algorithm's bytes verify as another's.
+        verifier = _ISSUER_SIG_VERIFIERS.get(alg) if isinstance(alg, str) else None
+        if verifier is not None:
             signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
             try:
-                result["sig_ok"] = verify_ed25519(
-                    issuer_pubkey, _b64url_decode(sig_b64), signing_input
-                )
+                result["sig_ok"] = verifier(issuer_pubkey, _b64url_decode(sig_b64), signing_input)
             except ValueError:
                 result["sig_ok"] = False
         else:

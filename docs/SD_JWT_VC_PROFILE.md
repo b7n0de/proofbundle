@@ -6,13 +6,16 @@ is the honest split the issue itself already calls for: proofbundle's
 selective-disclosure layer implements the SD-JWT **core** — now a published
 standard, [RFC 9901](https://datatracker.ietf.org/doc/rfc9901/) (November
 2025) — completely, including the secure-by-default hardening landed in
-3.0.0. It implements a small number of **SD-JWT VC** (the credential-type
+3.0.0. It implements a growing set of **SD-JWT VC** (the credential-type
 profile, still the IETF draft
 [draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/))
-syntactic markers. It does **not** implement `vct`-based policy enforcement,
-type-metadata resolution, or a status-list/X.509 trust chain. Match against
-SPEC.md §6 (`sd_jwt_vc`) and §7 (verification order) — this document adds no
-new normative behavior, it explains what is already there in one place.
+capabilities — as of **Finding 20** (2026-07-15) this includes ES256
+issuer-signature interop and an exact-`vct` trust-policy pin, both closing
+items issue #27 asked for (see "Implemented since Finding 20" below). It
+still does **not** implement type-metadata *document* resolution or a
+status-list/X.509 trust chain. Match against SPEC.md §6 (`sd_jwt_vc`) and §7
+(verification order) — this document adds no new normative behavior, it
+explains what is already there in one place.
 
 ## What "SD-JWT VC" means, precisely
 
@@ -34,9 +37,9 @@ bundle carrying an `sd_jwt_vc` block — there is no opt-out.
 | Check (SPEC §7 order) | What it proves | Since |
 |---|---|---|
 | `sd-jwt-disclosures` | every presented disclosure hashes to a digest actually committed in the issuer JWT's `_sd` array (self-consistency; forgeable without a key) | v0.5 |
-| `sd-jwt-issuer-signature` | the issuer JWT's EdDSA signature verifies under `issuer_public_key_b64`. **Since revision 2026-07-11 (WP-C2, 3.0.0, breaking): a present `sd_jwt_vc` with NO `issuer_public_key_b64` now FAILS** (reason `unsigned`) instead of the pre-3.0.0 null-and-warn behavior — there is no way for an unauthenticated SD-JWT to verify | v0.5; secure-by-default since 3.0.0 |
+| `sd-jwt-issuer-signature` | the issuer JWT's signature verifies under `issuer_public_key_b64` — EdDSA (Ed25519) or, **since Finding 20 (2026-07-15, issue #27)**, ES256 (ECDSA P-256, RFC 7518 §3.4), dispatched strictly on the literal `alg` claim. **Since revision 2026-07-11 (WP-C2, 3.0.0, breaking): a present `sd_jwt_vc` with NO `issuer_public_key_b64` now FAILS** (reason `unsigned`) instead of the pre-3.0.0 null-and-warn behavior — there is no way for an unauthenticated SD-JWT to verify | v0.5; secure-by-default since 3.0.0; ES256 since Finding 20 |
 | `sd-jwt-key-binding` | a trailing Key Binding JWT (RFC 9901 §4.3), if present, is fail-closed verified: header `typ: kb+jwt`/`alg: EdDSA`; payload `iat`/`aud`/`nonce`/`sd_hash` all present; `sd_hash` binds the exact presented disclosure string; signature verifies under the issuer-bound holder key (`cnf.jwk`, RFC 7800) | v1.2 |
-| `sd-jwt-issuer-identity` | for an SD-JWT that discloses an `issuer` claim, the key that verified the signature MUST be the key it names (`"ed25519:" + issuer_public_key_b64 == disclosed issuer`) — closes a forged-identity gap (valid signature, attacker-chosen key, trusted-sounding disclosed issuer) | WP-C1, 3.0.0 |
+| `sd-jwt-issuer-identity` | for an SD-JWT that discloses an `issuer` claim, the key that verified the signature MUST be the key it names, with an alg-aware fingerprint prefix (`"ed25519:" + issuer_public_key_b64 == disclosed issuer` for `alg: EdDSA`, `"es256:" + issuer_public_key_b64` for `alg: ES256` since Finding 20) — closes a forged-identity gap (valid signature, attacker-chosen key, trusted-sounding disclosed issuer) | WP-C1, 3.0.0; alg-aware since Finding 20 |
 | `sd-jwt-bundle-binding` | for an eval-claim payload, the SD-JWT's always-open disclosures (`passed`/`threshold`/`comparator`/`suite`/`issuer`) and its committed `receipt.root_b64` MUST match the bundle it ships in, bit-exact — closes cross-receipt substitution (a valid receipt's SD-JWT grafted onto a different bundle) | WP-C1, 3.0.0 |
 
 `verify --aud <value>` / `--nonce <value>` bind the KB-JWT's audience and
@@ -65,67 +68,85 @@ every issued SD-JWT, always-open (never hidden behind a disclosure):
   *judged* when the relying party supplies its own clock (an offline
   verifier has none).
 
-**These markers are emitted and structurally present, but nothing in the
-verify path reads or enforces `vct` today.** `verify` and `evaluate_policy`
-treat a bundle's `vct` value exactly like any other unexamined field inside
-the issuer JWT payload — present, self-consistent (covered by the issuer
-signature once that verifies), but not compared against anything. This is
-the honest current boundary the `sdjwt.py` module docstring already states:
-*"No X.509 / trust-list / status-list checks, no `vct` type-metadata
-resolution. Full SD-JWT VC conformance is on the roadmap."*
+**These markers are emitted and structurally present. Since Finding 20
+(2026-07-15), `evaluate_policy` CAN enforce `vct` via an opt-in trust-policy
+field, `sd_jwt.expected_vct`** — a relying party that sets it gets a
+`policy:expected_vct` check requiring the SD-JWT's disclosed `vct` to equal
+that exact string, read ONLY from a VERIFIED issuer signature (never an
+unauthenticated re-parse; see "Implemented since Finding 20" below). A policy
+that does **not** set `expected_vct` still treats `vct` exactly like any
+other unexamined field inside the issuer JWT payload — present,
+self-consistent (covered by the issuer signature once that verifies), but
+not compared against anything: `vct` enforcement is opt-in, not forced on
+every bundle. `verify` (the base crypto path with no policy) never reads
+`vct` at all — that stays a policy-layer concern, by design (crypto proves
+authenticity + integrity; the *policy* is where the relying party states
+which types it accepts). This is the honest current boundary the `sdjwt.py`
+module docstring states: *"No X.509 / trust-list / status-list checks, no
+`vct` type-metadata **document** resolution [...]. Full SD-JWT VC conformance
+remains on the roadmap."*
 
-## Not implemented — issue #27's remaining scope
+## Implemented since Finding 20 (2026-07-15, issue #27)
 
-Issue #27 lists three concrete items. Status of each, honestly:
+Two of issue #27's three concrete items are now closed:
 
-1. **`vct` claim + type-metadata document resolution (offline-first:
-   embedded or pinned).** The `vct` claim is emitted (above) but not
-   resolved against any type-metadata document, and no offline metadata
-   cache exists. **Not implemented.**
-2. **Conformance vectors from the OAuth WG examples.** proofbundle's
-   `conformance/` corpus (WP-W2, 3.0.0) covers native-bundle and
-   decision-receipt cross-implementation vectors; it does not yet include
-   SD-JWT-VC-specific vectors sourced from the OAuth WG's own examples.
-   **Not implemented.**
-3. **A verifier flag to require a specific `vct`.** No such flag or trust-
-   policy field (`sd_jwt.expected_vct` or similar) exists in `policy.py`'s
-   schema today; `_SDJWT_KEYS` is `{require_key_binding_when_cnf_present,
-   expected_aud, require_nonce, max_iat_age_seconds}`. **Not implemented.**
+- **ES256 issuer-signature interop.** `sdjwt.verify_sd_jwt` verifies ECDSA
+  P-256 (ES256, RFC 7518 §3.4) issuer signatures alongside EdDSA, dispatched
+  strictly on the issuer JWT header's literal `alg` claim — the algorithm
+  the EUDI Digital Identity Wallet and the OAuth WG's own SD-JWT VC worked
+  examples use. `issuer_public_key_b64` is the 65-byte SEC1 **uncompressed**
+  point `0x04‖X‖Y` for `alg: ES256` (vs. the 32-byte raw key for `alg:
+  EdDSA`). `bundle.py`'s `sd-jwt-issuer-identity` check's fingerprint prefix
+  is alg-aware too (`"ed25519:"` / `"es256:"`), so a bundle carrying an
+  ES256-signed `sd_jwt_vc` that discloses proofbundle's own `issuer` claim
+  format is checked correctly rather than always mismatching.
+- **A verifier flag to require a specific `vct`.** `policy.py`'s
+  `_SDJWT_KEYS` now includes `expected_vct`; when a trust policy sets
+  `sd_jwt.expected_vct`, `evaluate_policy` adds a `policy:expected_vct`
+  check requiring the SD-JWT's disclosed `vct` to equal that exact string —
+  read ONLY from a payload whose issuer signature actually verified
+  (mirrors the "verified vs. merely present" discipline
+  `policy:nonce_present` already established; an unverified `vct` proves
+  nothing an attacker could not have written themselves, so it fails
+  closed). This complements, and is distinct from, `sdjwt_vc.py`'s
+  standalone `vctAllowlist` (a separate entry point for a bare compact
+  SD-JWT, not a proofbundle bundle) — see `docs/SDJWT_VC_PROFILE.md`.
 
-This document does not close issue #27; it records precisely what remains
-open against it, so the next PR that implements one of the three items
-above has a concrete, current starting point instead of a stale "roadmap"
-mention.
+The remaining item is **not** implemented:
 
-## Why this was scoped as documentation, not new policy code
+1. **`vct` claim + type-metadata *document* resolution (offline-first:
+   embedded or pinned).** The `vct` claim is emitted and, since Finding 20,
+   optionally exact-matched (above), but it is still not resolved against
+   any type-metadata *document* — no schema/display metadata is fetched,
+   parsed, or used to validate claims. `sdjwt_vc.check_vc_profile`'s
+   `requireTypeMetadataIntegrity` is a narrower, already-implemented,
+   related capability: an offline SHA-256 integrity pin on OPAQUE metadata
+   bytes the relying party supplies, never a fetch and never a schema
+   resolution. **Not implemented.**
 
-Adding a `vct`-matching field to the trust-policy schema and
-`evaluate_policy` is possible in principle — the JWT payload is already
-decoded once its issuer signature verifies, so extracting `vct` from it is
-mechanically simple. It was deliberately **not** done in this change: every
-existing addition to `policy.py`'s crypto/trust surface in this codebase's
-history has gone through the project's 6-lens adversarial review (semantic
-misuse-resistance, crypto/canonicalization, policy/verifier UX,
-anchors/pre-registration, interop/standards, supply-chain/governance —
-`CHANGELOG.md` under WP-C1/C2/A1/TP1) plus dedicated positive AND negative
-tests before landing. A same-PR trust-policy change bundled with four
-unrelated documentation deliverables would not get that review depth.
-Building `sd_jwt.expected_vct` for real — including its interaction with
-`require_key_binding_when_cnf_present`, the "verified vs. merely present"
-distinction the existing `nonce`/`aud` checks already had to get right
-(`policy.py`'s `policy:nonce_present` check explicitly rejects an
-*unverified* nonce), and negative tests for a forged `vct` on an unverified
-SD-JWT — is scoped as a focused follow-up PR against issue #27, not folded
-into this one.
+Conformance vectors from the OAuth WG examples are also now real:
+`tests/fixtures/sdjwtvc/` vendors the 5 worked SD-JWT VC examples (structure
++ profile checks, WP-W2/3.2.1) **and**, since Finding 20, the issuer public
+key those same examples are signed under (from the same pinned commit's
+`examples/settings.yml`) — so `test_sdjwtvc_external_vectors.py`
+cryptographically verifies the issuer signature, not just the structure.
 
-## Proposed (not implemented): `proofbundle-policy/sdjwt-vc-v1`
+This document does not claim issue #27 is fully closed — type-metadata
+document resolution remains open — but it records precisely what changed,
+so a reader is never told a stale "roadmap" story for a capability that
+already shipped.
+
+## `proofbundle-policy/sdjwt-vc-v1` (still not shipped as a named profile)
 
 `docs/POLICY_PROFILES.md` names this profile from the v2-audit's WP3 list
-and explains why it is **not shipped**: shipping a policy JSON with a
-`sd_jwt.expected_vct` (or similarly named) field that the loader accepts
-but `evaluate_policy` never checks would itself be the silent vacuous-pass
-trap `policy lint` (WP-TP1) exists to catch. The profile ships only once
-the schema field and its enforcement exist together.
+and explains why it was **not shipped**: shipping a policy JSON with a
+`sd_jwt.expected_vct` field that the loader accepted but `evaluate_policy`
+never checked would itself be the silent vacuous-pass trap `policy lint`
+(WP-TP1) exists to catch. Since Finding 20 the schema field and its
+enforcement now exist together (above) — the precondition
+`docs/POLICY_PROFILES.md` named is met — but shipping the actual named
+profile file (and the review it would need as a shipped, discoverable
+default) is a separate, still-open follow-up, not folded into Finding 20.
 
 ## SPEC.md cross-reference
 

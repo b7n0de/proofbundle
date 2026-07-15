@@ -375,7 +375,19 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             # actually disclosed (an SD-JWT with no issuer claim asserts no identity to forge).
             _disc_issuer = _sd_p.get("issuer") if isinstance(_sd_p, dict) else None
             if _disc_issuer is not None and issuer_pub is not None:
-                _verifying_fp = "ed25519:" + base64.b64encode(issuer_pub).decode("ascii")
+                # Finding 20 / issue #27 (PB-2026-07-15): the fingerprint prefix names the algorithm
+                # that actually verified — hardcoding "ed25519:" was correct while EdDSA was the only
+                # supported issuer-signature alg, but became a latent bug the moment ES256 support
+                # landed in sdjwt.py: an ES256-signed sd_jwt_vc that discloses an "issuer" claim would
+                # always mismatch (false REJECT of a genuinely valid credential), never a false accept
+                # (fail-safe direction), but still an honesty/No-Fake bug worth closing alongside the
+                # new primitive. sd_res["alg"] is the literal alg sdjwt.verify_sd_jwt actually verified
+                # under (set from the SAME header_b64 the signature covers — see sdjwt.py), so this
+                # stays exactly as strict for EdDSA and adds no new algorithm-confusion surface.
+                _verified_alg = sd_res.get("alg")
+                _fp_prefix = {"EdDSA": "ed25519:", "ES256": "es256:"}.get(_verified_alg, "ed25519:") \
+                    if isinstance(_verified_alg, str) else "ed25519:"
+                _verifying_fp = _fp_prefix + base64.b64encode(issuer_pub).decode("ascii")
                 result.add(
                     "sd-jwt-issuer-identity", _disc_issuer == _verifying_fp,
                     "SD-JWT issuer key matches the disclosed issuer" if _disc_issuer == _verifying_fp else
