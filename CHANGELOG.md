@@ -6,7 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Verify-result-layer hardening (Findings 01/03/15b of the post-3.2.2 audit). Additive/non-breaking: no
+## [3.2.3] - 2026-07-15
+
+Second remediation wave of the six-lens post-3.2.2 audit (Findings 01, 03, 11, 12, 15b, 16, 14a, 17, 18, 19, 20). Additive/non-breaking: no
 existing `result["ok"]` field changes for any correct caller; every new field/param is opt-in with a
 backward-compatible default.
 
@@ -74,6 +76,45 @@ backward-compatible default.
   None of the three additions are surfaced unless the caller opts in — fully backward compatible with every
   existing `ArchiveTimeStamp`/sequence. **Still OPEN (honest, unchanged):** the full ASN.1/XMLERS export and
   a signature-algorithm staleness trigger in `RenewalPolicy` — see `docs/adr/0006-anchor-longevity.md`.
+
+- **Finding 11 — Rust-parity honesty gate**: `scripts/rust_parity_gate.py` AST-scans every
+  `src/proofbundle/*.py` for a module-level `verify_*` function (ground truth, rediscovered each run)
+  and cross-checks it against the declarative `scripts/rust_parity_registry.json`. Every COVERED/PARTIAL
+  claim is verified against REAL evidence — the claimed `rust_subcommand` must be an actual match arm in
+  `main.rs`, appear in the built binary's self-declared `coverage-report`, and the claimed crosscheck
+  call site must literally exist; a stale claim is caught (`STALE_COVERED_CLAIM`), a new untracked
+  `verify_*` is `UNTRACKED`, a dangling `python_ref` is `ORPHANED`. Advisory by default, `--strict`
+  exits 1 on a registry-integrity problem, never on an honestly-declared PENDING. First real portation:
+  `main.rs`'s `verify-trust-pack-threshold` (root-of-trust threshold check, Ed25519 leg only, reported
+  PARTIAL not COVERED; mldsa65/hybrid skipped-and-reported, never silently accepted). New advisory CI
+  `rust-parity` job (`continue-on-error`, non-blocking).
+- **Finding 12 — external-audit readiness package (NOT_SELF_FIXABLE, readiness only)**: no audit is
+  performed or simulated. `docs/AUDIT_SCOPE.md` (STABLE vs. EXPERIMENTAL module table cross-checked
+  against docstrings/SPEC/CODEOWNERS/CHANGELOG, coupled to a format-freeze mechanism), `docs/
+  AUDIT_READINESS.md` (OSTIF-facing briefing of existing hardening evidence, honest current-state, no
+  audit-completion claim), `docs/adr/0007-crypto-agility-alg-dispatch.md` (the alg-dispatch pattern
+  trust_pack.py and renewal.py share), a `Revision:` header on `THREAT_MODEL.md`, a dedicated
+  "Security Audit" `funding.json` purpose. Surfaces a CODEOWNERS gap (checkpoint.py/renewal.py/
+  anchors_chia_add.py missing from the review-required path list) without silently fixing it.
+- **Finding 18 — Evaluation Cards (P2, additive)**: optional `evaluation_card_sha256` claim field +
+  `src/proofbundle/evalcard.py` (`evaluation_card_hash`/`verify_evaluation_card`), mechanically
+  identical to `prereg_sha256`; references the Hugging Face EvalEval Coalition's Evaluation Cards
+  (arXiv:2606.09809) rather than inventing a proofbundle-specific format. CLI `proofbundle evalcard
+  <card> [--check RECEIPT]` mirrors `prereg`.
+- **Finding 19 — computation-correctness / enclave assurance wiring**: the enclave RATS/EAT bridge was
+  already implemented but README's roadmap misclassified it as not-yet-built (a No-Fake UNDERclaim) —
+  README framing corrected. Real gap closed: `assurance_level=enclave_attested` was an unverified
+  string; new `evalclaim.enclave_assurance_proven(claim, bundle, eat_jws=…, verifier_pubkey=…)`
+  (analogous to `decision.action_outcome_proven`) optionally corroborates the declared level against a
+  real, receipt-bound Attestation Result (True/False/None), wired into `show-eval --eat/--verifier-key/
+  --profile`. Lazy function-local import keeps the ExperimentalWarning from firing on plain
+  `evalclaim` import; never force-promotes the signed `assurance_level`.
+- **Finding 17 — benchmark-hacking VISIBILITY (OPEN_BY_DESIGN)**: visibility only, no anti-hacking
+  guarantee built or implied (BenchJack, arXiv:2605.12673, cited in THREAT_MODEL.md). Optional
+  provenance sub-keys `run_attempts`/`aborted_runs` (non-negative ints) and `methodology_sha256`/
+  `benchjack_audit_report_sha256` (plain sha256 references), wired via `adapters/_provenance.py`; zero
+  schema change (provenance is free-form) and zero `intoto.py` change (`to_test_result_statement`
+  already copies the whole provenance dict verbatim — proven by a new regression test).
 
 ### Deferred (tracked, not built this increment — the one deliberately BREAKING piece)
 - `bundle.py`'s CLI `verify` exit-code default is NOT changed by this increment. `root_authenticity_summary`
