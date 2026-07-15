@@ -21,7 +21,8 @@ from typing import Any, Callable, Optional
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
-    "evidence_ladder_summary", "EFFECT_OBSERVED_NOT_IMPLEMENTED",
+    "classify_receiver_corroboration",
+    "evidence_ladder_summary", "evidence_ladder_best", "EFFECT_OBSERVED_NOT_IMPLEMENTED",
 ]
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -49,10 +50,20 @@ EVIDENCE_LEVEL_NAMES: tuple[str, ...] = tuple(level.name for level in EvidenceLe
 # merely that a receipt about it was signed/resolved). No verify_* path in this repo can compute it today.
 # Making that explicit here — rather than silently never emitting it — is itself the honest No-Fake point;
 # a caller grepping for "EFFECT_OBSERVED" finds this marker, not silence.
+#
+# Finding 16 UPDATE (receiver/observer corroboration, self-fixable part): the SELF-FIXABLE portion of
+# Finding 16 IS now built — outcome.py's optional `receiverRefs` + `classify_receiver_corroboration` below
+# make INDEPENDENTLY_ATTESTED (level 5, "a THIRD PARTY attests the same content") reachable when a
+# receiver/observer's own signed acknowledgement is resolved and verified as coming from a party distinct
+# from the executor. EFFECT_OBSERVED (level 6) stays UNREACHABLE even then — a signed receiver receipt is
+# still a RECEIPT ABOUT the effect, never a live-monitored observation of the real-world effect itself; that
+# is Finding 16's honestly-documented INHERENT limit (proofbundle cannot itself make a third-party system
+# sign anything — real-world side-channel monitoring is ecosystem adoption outside this repo).
 EFFECT_OBSERVED_NOT_IMPLEMENTED = (
-    "EvidenceLevel.EFFECT_OBSERVED is not reachable by any verify_* path in this repo (depends on "
-    "Finding 16 / a real-world effect-observation channel, not yet built) — TODO, tracked, not silently "
-    "absent."
+    "EvidenceLevel.EFFECT_OBSERVED is not reachable by any verify_* path in this repo (Finding 16's "
+    "self-fixable receiver-corroboration part now reaches INDEPENDENTLY_ATTESTED; EFFECT_OBSERVED itself "
+    "still needs a real-world effect-observation channel, which is an inherent, not-yet-built limit outside "
+    "proofbundle's own control) — TODO, tracked, not silently absent."
 )
 
 
@@ -95,6 +106,45 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
             level = EvidenceLevel.CONTENT_RESOLVED
             detail = "digest checked against actually-resolved content bytes"
     return {"level": level, "level_name": level.name, "detail": detail}
+
+
+def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
+                                    evidence_resolver: Optional[Callable[[Any], bool]] = None,
+                                    independent_attestation_resolver: Optional[Callable[[Any], bool]] = None
+                                    ) -> dict:
+    """Classify a receiver/observer corroboration ref (Finding 16, additive) ONE STEP BEYOND
+    :func:`classify_digest_evidence` — reaches ``EvidenceLevel.INDEPENDENTLY_ATTESTED`` when
+    ``independent_attestation_resolver`` confirms the referenced content is ITSELF a validly-signed
+    statement from a party DISTINCT from the original claimant (e.g. a receiver's or observer's own
+    DSSE-signed acknowledgement of an Action Outcome) — never merely a resolved digest, which is
+    :func:`classify_digest_evidence`'s own documented ceiling (its docstring: "RECEIPT_CRYPTO_VERIFIED /
+    POLICY_AUTHORIZED / INDEPENDENTLY_ATTESTED are each a STRONGER claim this classifier does not itself
+    verify").
+
+    The three-tier informal ladder a caller might reach for here — SELF_ASSERTED / DIGEST_REFERENCED /
+    RECEIVER_CORROBORATED — maps onto this module's EXISTING orderable :class:`EvidenceLevel` rather than
+    a new competing enum (CLAIMED/REFERENCE_WELL_FORMED ≈ SELF_ASSERTED/DIGEST_REFERENCED,
+    INDEPENDENTLY_ATTESTED ≈ RECEIVER_CORROBORATED — "a THIRD PARTY attests the same content" is exactly
+    what a receiver/observer corroboration IS).
+
+    Never raises: a raising ``independent_attestation_resolver`` is fail-closed (treated as False, the base
+    ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
+    ``evidence_resolver`` contract). The resolver is only ever consulted once the digest has ALREADY reached
+    at least ``CONTENT_RESOLVED`` — an attacker-choosable digest that was never resolved cannot be promoted
+    straight to INDEPENDENTLY_ATTESTED by a permissive attestation resolver alone."""
+    base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
+    if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
+        return base
+    try:
+        attested = bool(independent_attestation_resolver(digest_obj))
+    except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
+        attested = False
+    if not attested:
+        return base
+    return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,
+            "level_name": EvidenceLevel.INDEPENDENTLY_ATTESTED.name,
+            "detail": "the referenced content is itself a validly-signed statement from a party distinct "
+                      "from the original claimant (receiver/observer corroboration)"}
 
 
 def evidence_ladder_summary(*fields: dict) -> dict:

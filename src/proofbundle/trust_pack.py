@@ -1,12 +1,15 @@
 """Trust Pack predicate `trust-pack/v0.1` — hand-rolled, fail-closed validation + threshold verify.
 
 proofbundle 3.2.0 O2 (EXPERIMENTAL). A TUF-inspired, signed root of trust: each role (root, evalIssuers,
-decisionMakers, outcomeExecutors, timeAuthorities, witnesses) maps to a set of key ids and a signature
-threshold; a keyId->publicKey map resolves them; a monotone ``version`` with a ``prevVersionDigest`` chain
-gives rollback/freeze protection; ``expires`` bounds validity; ``revoked`` is an offline revocation list.
+decisionMakers, outcomeExecutors, outcomeReceivers, timeAuthorities, witnesses) maps to a set of key ids and
+a signature threshold; a keyId->publicKey map resolves them; a monotone ``version`` with a
+``prevVersionDigest`` chain gives rollback/freeze protection; ``expires`` bounds validity; ``revoked`` is an
+offline revocation list.
 
 The ``outcomeExecutors`` role supplies the identity that an Action Outcome Receipt (O1) executor is checked
-against. A Trust Pack is authenticated by a THRESHOLD of its root keys (not any-single, unlike a plain DSSE
+against; ``outcomeReceivers`` (Finding 16, additive) does the same for a third-party receiver/observer that
+corroborates an outcome (``outcome.receiver_trusted_by_role``). A Trust Pack is authenticated by a THRESHOLD
+of its root keys (not any-single, unlike a plain DSSE
 verify). Rotation is a new version signed by the OLD root threshold (two-stage: old root vouches for new),
 enforced by ``verify_trust_pack`` when the caller supplies the previous root role (``prev_root_keys`` +
 ``prev_root_threshold``); a verify without them checks only this pack's own threshold plus the digest chain.
@@ -37,7 +40,8 @@ _RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
 
-_ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "timeAuthorities", "witnesses")
+_ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
+              "timeAuthorities", "witnesses")
 _REQUIRED_ALWAYS = ("schemaVersion", "trustPackId", "version", "expires", "prevVersionDigest",
                     "roles", "keys", "nonClaims")
 _OPTIONAL = ("revoked",)
