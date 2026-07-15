@@ -48,7 +48,7 @@ _REQUIRED_STRICT = _REQUIRED_ALWAYS + ("notChecked", "decisionChangeConditions",
 # prereg anchor) are referenced indirectly via `evidenceRefs`. An `anchors` field inside the predicate is
 # therefore a fail-closed unknown-field error.
 _OPTIONAL = ("recordedAt", "delegationRefs", "actionOutcome", "traceContext", "validity",
-             "notChecked", "decisionChangeConditions", "privacy")
+             "notChecked", "decisionChangeConditions", "privacy", "relationships")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 # Time-bearing paths that, if present, MUST be RFC3339-Z.
@@ -253,6 +253,16 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         errors.append("privacy must be a JSON object")
     elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
+
+    # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges to earlier
+    # receipts — inside the predicate so the existing DSSE signature covers them (unlike detached
+    # `anchors`). Edge closure/enums/digest shape are enforced by relation.validate_relationships
+    # (fail-closed, incl. per-edge additionalProperties:false), so the block is NOT walked by the
+    # generic nested-closure below.
+    if "relationships" in predicate:
+        from .relation import validate_relationships
+        errors.extend(f"relationships: {e}" if not e.startswith("relationships") else e
+                      for e in validate_relationships(predicate.get("relationships")))
 
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close these nested objects — an undeclared key inside decision/policyBoundary/proposedAction/

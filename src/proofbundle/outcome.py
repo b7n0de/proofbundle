@@ -45,7 +45,10 @@ _OPTIONAL = ("actualActionDigest", "responseDigest", "effectDigest", "recordedAt
              "traceContext", "limitations", "validity",
              # Finding 16 (self-fixable part, additive): receiverRefs / sequence — see the module-level
              # note above `_OUTCOME_RECEIVER_ROLE` for what each closes and its honest, documented limit.
-             "receiverRefs", "sequence")
+             "receiverRefs", "sequence",
+             # relation/v0.1 (EXPERIMENTAL, 3.3.0): typed signed lineage edges — validated fail-closed
+             # by relation.validate_relationships (incl. per-edge closure), not by the generic walker.
+             "relationships")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 _DIGEST_FIELDS = ("requestedActionDigest", "actualActionDigest", "responseDigest", "effectDigest")
@@ -185,6 +188,14 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     val = predicate.get("validity")
     if "validity" in predicate and not isinstance(val, dict):
         errors.append("validity must be an object")
+
+    # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges — inside the
+    # predicate so the DSSE signature covers them; closure/enums/digests enforced fail-closed by the
+    # relation module itself.
+    if "relationships" in predicate:
+        from .relation import validate_relationships
+        errors.extend(f"relationships: {e}" if not e.startswith("relationships") else e
+                      for e in validate_relationships(predicate.get("relationships")))
 
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close traceContext/validity — an undeclared key inside either previously rode along silently.

@@ -274,6 +274,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "Evaluation Card digest resolve+match (Finding 18, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
+    },
+    "proofbundle.relation.verify_relationship_edges": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "relation/v0.1 lineage-edge chain verification (EXPERIMENTAL, 3.3.0): pure offline cycle/depth walk over attached targets. The Rust core does not carry the profile yet; the design note declares the differential test NOT_RUN until it does."
     }
   }
 }

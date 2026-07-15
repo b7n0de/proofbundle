@@ -249,3 +249,61 @@ class TestSuccessorWarning(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPredicateWiring(unittest.TestCase):
+    """The relationships block rides INSIDE the signed predicates (decision/outcome) —
+    valid edges pass predicate validation, malformed ones fail it (fail-closed)."""
+
+    def _minimal_decision(self):
+        # Mirrors the repo's golden example shape (validate-only fields).
+        return {
+            "schemaVersion": "0.1.0", "decisionId": "d-1",
+            "decisionType": "preActionAuthorization", "decidedAt": "2026-07-16T00:00:00Z",
+            "decisionMaker": {"id": "dm-1"}, "agent": {"id": "agent-1"},
+            "principal": {"id": "p-1"},
+            "proposedAction": {"actionType": "http.request", "parametersDigest": {"sha256": H_C}},
+            "inputSnapshot": [],
+            "policyBoundary": {"policyEngine": "opa", "policyId": "pol-1", "decisionPath": "allow/main"},
+            "evidenceRefs": [], "decision": {"verdict": "ALLOW", "reasonCodes": ["OK"]},
+        }
+
+    def _minimal_outcome(self):
+        return {
+            "schemaVersion": "0.1.0", "outcomeId": "o-1",
+            "decisionRef": {"sha256": H_B}, "executor": {"id": "ex-1"},
+            "requestedActionDigest": {"sha256": H_C},
+            "status": "executed", "performedAt": "2026-07-16T00:00:00Z",
+        }
+
+    def test_decision_predicate_accepts_valid_relationships(self):
+        from proofbundle.decision import validate_decision_predicate
+        pred = self._minimal_decision()
+        pred["relationships"] = [edge(H_B, relation="corrects")]
+        self.assertEqual(validate_decision_predicate(pred), [])
+
+    def test_decision_predicate_rejects_malformed_relationships(self):
+        from proofbundle.decision import validate_decision_predicate
+        pred = self._minimal_decision()
+        pred["relationships"] = [{"relation": "replaces"}]
+        errs = validate_decision_predicate(pred)
+        self.assertTrue(any("relationships" in e for e in errs))
+
+    def test_outcome_predicate_accepts_valid_relationships(self):
+        from proofbundle.outcome import validate_outcome_predicate
+        pred = self._minimal_outcome()
+        pred["relationships"] = [edge(H_D, relation="supersedes")]
+        self.assertEqual(validate_outcome_predicate(pred), [])
+
+    def test_outcome_predicate_rejects_malformed_relationships(self):
+        from proofbundle.outcome import validate_outcome_predicate
+        pred = self._minimal_outcome()
+        pred["relationships"] = [edge(H_D, relation="supersedes", sneaky=1)]
+        errs = validate_outcome_predicate(pred)
+        self.assertTrue(any("relationships" in e for e in errs))
+
+    def test_absent_relationships_changes_nothing(self):
+        from proofbundle.decision import validate_decision_predicate
+        from proofbundle.outcome import validate_outcome_predicate
+        self.assertEqual(validate_decision_predicate(self._minimal_decision()), [])
+        self.assertEqual(validate_outcome_predicate(self._minimal_outcome()), [])
