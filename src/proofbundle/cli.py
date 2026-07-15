@@ -301,14 +301,25 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
-        DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, eval_evidence_class,
-        sd_jwt_hidden_count,
+        DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, enclave_assurance_proven,
+        eval_evidence_class, sd_jwt_hidden_count,
     )
     try:
         # Resolve the path to a dict ONCE and pass that object to every reader — a second per-function re-read of
         # the same path would reopen a TOCTOU window (CWE-367) between the reads. Release-review fix 2026-07-02.
         bundle = load_bundle(args.receipt)
         claim = decode_eval_claim(bundle, expected_context=getattr(args, "context", None))
+        # [EXPERIMENTAL v2.0] optional TEE-attestation corroboration for assurance_level=enclave_attested
+        # (see enclave_assurance_proven). Parsed here so a bad --eat/--verifier-key gets the SAME clean
+        # ERROR+exit-2 handling as the receipt itself, never a raw traceback.
+        eat_jws = None
+        if getattr(args, "eat", None):
+            with open(args.eat, encoding="utf-8") as handle:
+                eat_jws = handle.read().strip()
+        verifier_pubkey = None
+        if getattr(args, "verifier_key", None):
+            import base64 as _b64  # noqa: PLC0415
+            verifier_pubkey = _b64.b64decode(args.verifier_key, validate=True)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -322,6 +333,14 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     print(f"evidence   {ev['score_evidence']} ({ev['detail']})")
     print(f"note       {ev['methodology']} (the receipt never judges whether the suite is well designed)")
     print(f"assurance  {claim.get('assurance_level', DEFAULT_ASSURANCE)}")
+    proven = enclave_assurance_proven(claim, bundle, eat_jws=eat_jws, verifier_pubkey=verifier_pubkey,
+                                      expected_profile=getattr(args, "profile", None))
+    if proven is True:
+        print("attested   PROVEN — a verified TEE Attestation Result binds this receipt (EXPERIMENTAL v2.0)")
+    elif proven is False and eat_jws is not None:
+        print("attested   NOT corroborated — the supplied EAT did not verify / bind this receipt (EXPERIMENTAL v2.0)")
+    elif proven is False:
+        print("attested   NOT corroborated — issuer-declared only; supply --eat/--verifier-key to check (EXPERIMENTAL v2.0)")
     print(f"model      commit {claim['model_id_commit']}")
     print(f"dataset    commit {claim['dataset_id_commit']}")
     print(f"issuer     {claim['issuer']}")
@@ -1021,6 +1040,37 @@ def _cmd_prereg(args: argparse.Namespace) -> int:
         return 2
 
 
+def _cmd_evalcard(args: argparse.Namespace) -> int:
+    from .evalcard import evaluation_card_hash, verify_evaluation_card  # noqa: PLC0415
+    try:
+        if args.check is not None:
+            from .evalclaim import decode_eval_claim  # noqa: PLC0415
+            # Mirrors _cmd_prereg's release-review CRITICAL fix: --check MUST verify the receipt
+            # (Ed25519 + Merkle) BEFORE trusting its evaluation_card_sha256 — reading an
+            # UNAUTHENTICATED claim would let a forged/unsigned bundle with a doctored digest PASS.
+            claim = decode_eval_claim(args.check)
+            if claim is None:
+                print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+                return 1
+            res = verify_evaluation_card(args.card, claim)
+            if args.json:
+                print(json.dumps(res))
+            else:
+                print(f"[{'PASS' if res['ok'] else 'FAIL'}] evalcard: {res['detail']}")
+            return 0 if res["ok"] else 1
+        h = evaluation_card_hash(args.card)
+        if args.json:
+            print(json.dumps({"evaluation_card_sha256": h}))
+        else:
+            print(h)
+            print("place this in the eval claim's evaluation_card_sha256 BEFORE signing the receipt",
+                  file=sys.stderr)
+        return 0
+    except (ProofBundleError, OSError, ValueError, KeyError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     import base64 as _b64  # noqa: PLC0415
     from .bundle import load_bundle  # noqa: PLC0415
@@ -1702,6 +1752,14 @@ def build_parser() -> argparse.ArgumentParser:
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
     show_eval.add_argument("--context", dest="context", default=None,
                            help="require the receipt's signed context_binding to equal this (cross-context replay guard)")
+    show_eval.add_argument("--eat", default=None,
+                           help="[EXPERIMENTAL v2.0] path to a TEE Attestation Result (EAT) that corroborates "
+                                "assurance_level=enclave_attested (see verify-enclave); with --verifier-key, "
+                                "show-eval reports whether the level is PROVEN or merely issuer-declared")
+    show_eval.add_argument("--verifier-key", default=None,
+                           help="[EXPERIMENTAL v2.0] the RATS Verifier's Ed25519 public key (base64), used with --eat")
+    show_eval.add_argument("--profile", default=None,
+                           help="[EXPERIMENTAL v2.0] pin an expected eat_profile URI (optional, used with --eat)")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(
@@ -1863,6 +1921,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="verify the protocol matches a receipt's prereg_sha256 instead of hashing")
     prereg.add_argument("--json", action="store_true", help="machine readable output")
     prereg.set_defaults(func=_cmd_prereg)
+
+    evalcard = sub.add_parser(
+        "evalcard",
+        help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)")
+    evalcard.add_argument("card", help="path to the Eval Card document to hash")
+    evalcard.add_argument("--check", metavar="RECEIPT",
+                          help="verify the card matches a receipt's evaluation_card_sha256 instead of hashing")
+    evalcard.add_argument("--json", action="store_true", help="machine readable output")
+    evalcard.set_defaults(func=_cmd_evalcard)
 
     # decision-receipt/v0.1 predicate (vendored). Nested group: init / emit / verify / inspect.
     decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")

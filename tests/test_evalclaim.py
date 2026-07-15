@@ -192,6 +192,25 @@ class TestEvalClaim(unittest.TestCase):
         with self.assertRaises(EvalClaimError):
             salted_commit("x", b"short")             # salt must be >= 16 bytes
 
+    def test_evaluation_card_sha256_round_trips_through_decode(self):
+        # Finding 18 (additive): the new optional evaluation_card_sha256 field survives the full
+        # emit->verify->decode path unchanged, and its ABSENCE from a claim (the common case) is
+        # unaffected — decode still succeeds and the key is simply not present.
+        signer = generate_signer()
+        digest = "ab" * 32
+        claim, _ = _claim(signer)
+        claim["evaluation_card_sha256"] = digest
+        bundle = emit_eval_receipt(claim, signer)
+        decoded = decode_eval_claim(bundle)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded["evaluation_card_sha256"], digest)
+
+        claim_without, _ = _claim(signer)
+        bundle2 = emit_eval_receipt(claim_without, signer)
+        decoded2 = decode_eval_claim(bundle2)
+        self.assertIsNotNone(decoded2)
+        self.assertNotIn("evaluation_card_sha256", decoded2)
+
     def test_tamper_red(self):
         signer = generate_signer()
         claim, _ = _claim(signer)

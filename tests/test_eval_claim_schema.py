@@ -34,3 +34,13 @@ class TestEvalClaimSchema(unittest.TestCase):
         bad = {"schema": "proofbundle/eval-claim/v0.1", "threshold": 0.80}
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=bad, schema=schema)
+
+    def test_built_claim_with_evaluation_card_sha256_matches_schema(self):
+        # Finding 18 (additive): the new optional evaluation_card_sha256 field is schema-valid.
+        signer = generate_signer()
+        claim, _ = build_eval_claim(
+            suite="s", suite_version="v1", metric="acc", comparator=">=", threshold="0.80",
+            score="0.92", n=500, model_id="m", dataset_id="d",
+            issuer=issuer_fingerprint(signer), timestamp="2026-07-01T12:00:00Z",
+            model_salt=b"0" * 16, dataset_salt=b"1" * 16, evaluation_card_sha256="ab" * 32)
+        jsonschema.validate(instance=claim, schema=json.loads(SCHEMA.read_text(encoding="utf-8")))

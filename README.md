@@ -151,7 +151,7 @@ a preprint.
 | **K-Veritas** ([arXiv 2605.08586](https://arxiv.org/abs/2605.08586)) — nonrepudiable experimental results | the academic case for tamper-evident, execution-bound experiment reports | preprint | proofbundle is a released, offline, eval-shaped receipt for exactly this problem, not the only take on it |
 | **Attestable Audits** ([arXiv 2506.23706](https://arxiv.org/abs/2506.23706)) — TEE-verified safety audits | that the computation actually ran, inside a trusted enclave | preprint (research prototype) | a receipt proves authorship + integrity, **not** that the computation was correct — that needs a TEE or independent reproduction |
 | **BenchJack** ([arXiv 2605.12673](https://arxiv.org/abs/2605.12673)) — auditing agent benchmarks | whether the benchmark itself is gameable (reward-hacking) | preprint | a receipt over a gameable benchmark is honestly still just a receipt; it says nothing about whether the eval was well designed |
-| **Evaluation Cards** ([arXiv 2606.09809](https://arxiv.org/abs/2606.09809)) — reporting / interpretation layer | a structured, human-facing account of what a result means | preprint | a receipt can bind a card's integrity, not its quality |
+| **Evaluation Cards** ([arXiv 2606.09809](https://arxiv.org/abs/2606.09809)) — reporting / interpretation layer | a structured, human-facing account of what a result means | preprint | a receipt can bind a card's integrity (`evaluation_card_sha256`, EVAL_CLAIM.md), not its quality |
 | in-toto / Sigstore, SCITT / Rekor v2, OpenSSF Model Signing (stable standards / production) | artifact-provenance, public transparency, model-artifact signing | — | see [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) for the honest tool-by-tool comparison |
 
 ## Cite this work
@@ -287,12 +287,17 @@ is anchored to external RFC 6962 vectors and a real Rekor proof, not just its ow
 by itself — it is the small, offline, standards-native receipt layer between them. Security policy:
 [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
 
-**Roadmap (stated honestly, all forward-looking):**
+**Roadmap (stated honestly, not yet built):**
 
 - A post-quantum *payload* signature (crypto-agility for the receipt itself) is on the roadmap; today the
   post-quantum coverage is witness-side ML-DSA-44 cosignatures only.
 - A CLI flag to select the content-root algorithm is still deferred (`jcs-sha256-v1` is the signed default).
-- **Preview:** a TEE-attestation bridge — see [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md).
+
+**Already shipped, preview/experimental maturity (not on the roadmap above — built, tested, install
+extra `[experimental]`, but API/wire-format may still change without deprecation):**
+
+- A TEE-attestation bridge (RATS/EAT, RFC 9334 + RFC 9711) that makes `assurance_level =
+  enclave_attested` independently verifiable — see [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md).
 
 ## Contributing
 
