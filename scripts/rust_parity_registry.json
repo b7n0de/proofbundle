@@ -262,6 +262,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "tlog-proof (transparency-log inclusion) offline verify against explicit trust anchors."
+    },
+    "proofbundle.evalcard.verify_evaluation_card": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Evaluation Card digest resolve+match (Finding 18, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
     }
   }
 }
