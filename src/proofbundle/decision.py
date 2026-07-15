@@ -16,6 +16,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
+from .subject_binding import nested_closure_violations
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -52,6 +53,35 @@ _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 # Time-bearing paths that, if present, MUST be RFC3339-Z.
 _TIME_PATHS = ("decidedAt", "recordedAt")
+
+# Nested schema closure (Finding 04 / subject_binding.nested_closure_violations): a top-level
+# additionalProperties:false does NOT, by itself, close these nested objects — an undeclared key inside one
+# of them (e.g. `decision: {..., "sneaky": 1}`) previously rode along silently. Every path here was verified
+# against the golden examples (examples/decision_receipt_{allow,deny,escalate}.json,
+# decision_receipt_with_eval_ref.intoto.json) AND the `decision init` CLI template so this closure can never
+# reject the repo's own reference material. `decisionMaker.version` is DELIBERATELY left undeclared — it is
+# the versioned extensions container the module's own docstring describes as "the ONLY way to add fields".
+_NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
+    "decisionMaker": ("id", "version"),
+    "agent": ("id", "version", "configurationDigest"),
+    "principal": ("id", "authnContextRef"),
+    "principal.authnContextRef": ("uri", "digest"),
+    "proposedAction": ("actionType", "target", "method", "parametersDigest", "parametersRef",
+                       "parametersSchemaRef"),
+    "proposedAction.target": ("name", "uri", "digest"),
+    "proposedAction.parametersSchemaRef": ("uri", "digest"),
+    "policyBoundary": ("policyEngine", "policyId", "policyDigest", "decisionPath", "bundleRevision",
+                       "validFrom", "validUntil"),
+    "evidenceRefs[]": ("relation", "digest", "artifactDigest", "uri", "predicateType"),
+    "decision": ("verdict", "reasonCodes", "humanReadableSummary", "obligations", "allowedScope"),
+    "notChecked[]": ("field", "reason", "impact"),
+    "decisionChangeConditions[]": ("conditionType", "description", "requiredEvidenceType"),
+    "actionOutcome": ("status", "performedAt", "outcomeRef"),
+    "actionOutcome.outcomeRef": ("uri", "digest"),
+    "privacy": ("rawInputsIncluded", "redactionProfile", "erased", "masked"),
+    "validity": ("audience", "nonce", "expiresAt"),
+    "inputSnapshot[]": ("name", "uri", "digest", "mediaType"),
+}
 
 
 class DecisionReceiptError(ProofBundleError):
@@ -101,6 +131,13 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     if sv is not None and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
         errors.append(f"schemaVersion must be a 0.1.x string, got {sv!r}")
 
+    # decisionId (Finding 04, analogous to trustPackId in trust_pack.py): the required-field loop above only
+    # checks PRESENCE — an int, a bool or an empty string previously satisfied "decisionId in predicate" and
+    # passed silently.
+    did = predicate.get("decisionId")
+    if "decisionId" in predicate and not (isinstance(did, str) and did):
+        errors.append(f"decisionId must be a non-empty string, got {did!r}")
+
     # decisionType enum
     dt = predicate.get("decisionType")
     if dt is not None and (not isinstance(dt, str) or dt not in _DECISION_TYPES):
@@ -135,13 +172,19 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     elif "policyBoundary" in predicate:
         errors.append("policyBoundary must be a JSON object")
 
-    # proposedAction inner shape (§6.2): actionType required + a digest OR a ref for the parameters.
+    # proposedAction inner shape (§6.2): actionType required + a digest OR a non-empty ref for the
+    # parameters. Finding 04: a bare `{}` parametersRef previously satisfied `isinstance(..., dict)`
+    # vacuously — `{}` is a dict but carries no actual reference.
     pa = predicate.get("proposedAction")
     if isinstance(pa, dict):
         if not isinstance(pa.get("actionType"), str) or not pa.get("actionType"):
             errors.append("proposedAction.actionType must be a non-empty string")
-        if not (_is_digest(pa.get("parametersDigest")) or isinstance(pa.get("parametersRef"), dict)):
-            errors.append("proposedAction needs a sha256 parametersDigest or a parametersRef")
+        pref = pa.get("parametersRef")
+        pref_ok = isinstance(pref, dict) and bool(pref)
+        if "parametersRef" in pa and not pref_ok:
+            errors.append("proposedAction.parametersRef, when present, must be a non-empty object")
+        if not (_is_digest(pa.get("parametersDigest")) or pref_ok):
+            errors.append("proposedAction needs a sha256 parametersDigest or a non-empty parametersRef")
     elif "proposedAction" in predicate:
         errors.append("proposedAction must be a JSON object")
 
@@ -180,20 +223,28 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     elif "evidenceRefs" in predicate:
         errors.append("evidenceRefs must be a list")
 
-    # actionOutcome (optional) — status enum
+    # actionOutcome (optional) — must be an object; status enum. Finding 04: a scalar (e.g. the bare
+    # string "executed") previously skipped every check silently (the `isinstance(ao, dict)` guard simply
+    # never entered the block, and nothing else objected to the wrong shape).
     ao = predicate.get("actionOutcome")
     if isinstance(ao, dict):
         st = ao.get("status")
         if not isinstance(st, str) or st not in _OUTCOME_STATUS:
             errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
+    elif "actionOutcome" in predicate:
+        errors.append("actionOutcome must be a JSON object")
 
-    # validity — strict interactive requires audience + nonce when present
+    # validity — must be an object; strict interactive mode additionally requires audience + nonce when
+    # present. Finding 04: a scalar validity previously passed the same way actionOutcome did.
     val = predicate.get("validity")
-    if isinstance(val, dict) and strict:
-        if not (isinstance(val.get("audience"), list) and val["audience"]):
-            errors.append("validity.audience (non-empty list) is required in strict mode when validity is present")
-        if not isinstance(val.get("nonce"), str) or not val.get("nonce"):
-            errors.append("validity.nonce is required in strict mode when validity is present")
+    if isinstance(val, dict):
+        if strict:
+            if not (isinstance(val.get("audience"), list) and val["audience"]):
+                errors.append("validity.audience (non-empty list) is required in strict mode when validity is present")
+            if not isinstance(val.get("nonce"), str) or not val.get("nonce"):
+                errors.append("validity.nonce is required in strict mode when validity is present")
+    elif "validity" in predicate:
+        errors.append("validity must be a JSON object")
 
     # privacy inner shape: a bare {} must not pass strict — rawInputsIncluded is the field the policy's
     # allow_raw_inputs gate reads, so it MUST be an explicit boolean (§5.5 privacy).
@@ -202,6 +253,11 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         errors.append("privacy must be a JSON object")
     elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
+
+    # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
+    # close these nested objects — an undeclared key inside decision/policyBoundary/proposedAction/
+    # decisionMaker/evidenceRefs[] (and their sub-objects) previously rode along silently.
+    errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
 
     return errors
 
@@ -333,6 +389,7 @@ def _empty_result() -> dict:
         "ok": None, "structure_ok": None, "crypto_ok": None, "signer_trusted": None,
         "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
         "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
+        "subject_binding": None, "subject_derived_ok": None,
         "warnings": [], "errors": [],
     }
 
@@ -340,7 +397,7 @@ def _empty_result() -> dict:
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
-                            rp_trust: dict | None = None) -> dict:
+                            rp_trust: dict | None = None, require_derived_subject: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -348,13 +405,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     verdict (crypto AND structure AND predicate-type AND every applicable trust check). The individual
     fields describe the payload only AFTER authentication: when `crypto_ok` is False the bytes are
     unauthenticated, so the trust-derived fields (`audience_ok`, `nonce_ok`, `evidence_bound`,
-    `signer_trusted`, `policy_ok`, `action_outcome_proven`) stay None — and `anchors_ok` is None, or
-    False when anchors were supplied — and an error is recorded, so a consumer that reads e.g.
-    `audience_ok` without checking `crypto_ok`/`ok` cannot read a claim about bytes nobody signed. The
-    CLI gates its exit code on `crypto_ok` first (and reports `ok`).
+    `signer_trusted`, `policy_ok`, `action_outcome_proven`, `subject_derived_ok`) stay None — and
+    `anchors_ok` is None, or False when anchors were supplied — and an error is recorded, so a consumer
+    that reads e.g. `audience_ok` without checking `crypto_ok`/`ok` cannot read a claim about bytes nobody
+    signed. The CLI gates its exit code on `crypto_ok` first (and reports `ok`).
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
     fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
+
+    Subject binding (Finding 05, mirrors outcome.py): `build_decision_statement` allows a caller to
+    OVERRIDE `subject_sha256`, self-attested and NOT cross-checked there. This verify path now classifies
+    the binding via `subject_binding.classify_subject` so a subject-rehang is never a ZERO-signal event: an
+    `EXTERNAL_ATTESTED` subject is ALWAYS warned (`subject_binding`/`warnings`); `require_derived_subject`
+    (opt-in, default False, preserving the documented override use) makes it a hard fail-closed error via
+    `subject_derived_ok`.
 
     Detached anchors (Fix 2 / proofbundle#7): `anchors` is the DETACHED anchor evidence for the decision
     statement's OWN content root (sha256 over the exact signed payload bytes). It is NOT part of the signed
@@ -455,6 +519,42 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
 
+    # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
+    # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
+    # An EXTERNAL_ATTESTED subject is ALWAYS warned; require_derived_subject makes it a hard fail-closed
+    # error (opt-in, preserves the documented build_decision_statement override use).
+    if isinstance(statement, dict) and r["crypto_ok"]:
+        if _rfc8785_available():
+            from . import subject_binding as _sb  # noqa: PLC0415
+            try:
+                _cls = _sb.classify_subject(statement)
+            except Exception:  # noqa: BLE001
+                _cls = None
+            if _cls is not None:
+                r["subject_binding"] = {"mode": _cls["mode"], "matches": _cls["matches"]}
+                if not _cls["matches"]:
+                    r["warnings"].append(
+                        "subject is EXTERNAL_ATTESTED — it does not commit to this predicate (subject-rehang); "
+                        "trust it only via a policy that pins the external attester")
+                if require_derived_subject:
+                    r["subject_derived_ok"] = _cls["matches"]
+                    if not _cls["matches"]:
+                        r["errors"].append(
+                            "require_derived_subject: subject is not a DERIVED commitment to the predicate "
+                            "(fail-closed)")
+            elif require_derived_subject:
+                # classify_subject raised (e.g. a predicate the JCS canonicalizer rejects). Do NOT silently
+                # pass the gate on a coincidence elsewhere — make the fail-closed explicit.
+                r["subject_derived_ok"] = False
+                r["errors"].append(
+                    "require_derived_subject: could not classify the subject binding (canonicalization raised) "
+                    "— fail-closed")
+        elif require_derived_subject:
+            r["subject_derived_ok"] = False
+            r["errors"].append(
+                "require_derived_subject but RFC-8785 canonicalizer unavailable — cannot verify subject "
+                "derivation (install proofbundle[eval]), fail-closed")
+
     # Detached anchors (Fix 2): verify anchor evidence for the statement's OWN content root — sha256 over the
     # EXACT signed payload bytes (never re-canonicalized), computed only once the bytes are authentic+canonical.
     _dr_section = policy.get("decision_receipt") if isinstance(policy, dict) else None
@@ -526,5 +626,6 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["policy_ok"] is not False and r["signer_trusted"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
-        and r["evidence_bound"] is not False and r["anchors_ok"] is not False)
+        and r["evidence_bound"] is not False and r["anchors_ok"] is not False
+        and r["subject_derived_ok"] is not False)
     return r

@@ -23,6 +23,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
+from .subject_binding import nested_closure_violations
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
@@ -46,6 +47,15 @@ _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 _DIGEST_FIELDS = ("requestedActionDigest", "actualActionDigest", "responseDigest", "effectDigest")
 _TIME_PATHS = ("performedAt", "recordedAt")
+
+# Nested schema closure (Finding 04 / subject_binding.nested_closure_violations): a top-level
+# additionalProperties:false does NOT, by itself, close traceContext/validity — an undeclared key inside
+# one of them previously rode along silently. Verified against `outcome init`'s CLI template
+# (traceContext={"traceparent": ""}) and tests/test_outcome_verify.py's validity={"audience", "nonce"}.
+_NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
+    "traceContext": ("traceparent",),
+    "validity": ("audience", "nonce"),
+}
 
 
 class OutcomeReceiptError(ProofBundleError):
@@ -124,6 +134,18 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     tc = predicate.get("traceContext")
     if "traceContext" in predicate and not isinstance(tc, dict):
         errors.append("traceContext must be an object")
+
+    # validity (Finding 04): previously had NO structural check at all — a scalar validity (e.g. the bare
+    # string "n-1") silently reached verify_outcome_receipt, which only guards with
+    # `_val if isinstance(_val, dict) else {}` and so treated it as an absent validity object without ever
+    # flagging the malformed shape.
+    val = predicate.get("validity")
+    if "validity" in predicate and not isinstance(val, dict):
+        errors.append("validity must be an object")
+
+    # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
+    # close traceContext/validity — an undeclared key inside either previously rode along silently.
+    errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
 
     return errors
 

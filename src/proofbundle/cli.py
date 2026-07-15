@@ -1198,7 +1198,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 rp_trust = merged
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=policy, anchors=anchors,
-                                         rp_trust=rp_trust)
+                                         rp_trust=rp_trust,
+                                         require_derived_subject=args.require_derived_subject)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1210,7 +1211,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
-            "action_outcome_proven", "warnings", "errors",
+            "action_outcome_proven", "subject_binding", "subject_derived_ok", "warnings", "errors",
         )}
         print(json.dumps(report, indent=2))
     else:
@@ -1228,6 +1229,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
             print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
+        if result["subject_binding"] is not None:
+            print(f"SUBJECT: {result['subject_binding']['mode']}")
+        if result["subject_derived_ok"] is not None:
+            print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
         for e in result["errors"]:
             print(f"  - {e}", file=sys.stderr)
         for w in result["warnings"]:
@@ -1247,6 +1252,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # A requested --aud/--nonce binding that does NOT match is a replay / wrong-context failure — fail-closed
     # like the eval verify path, never a silent exit 0 (lens 3 defect).
     if result["audience_ok"] is False or result["nonce_ok"] is False:
+        return 2
+    # Finding 05: a caller who explicitly requests --require-derived-subject is asking for the same kind of
+    # fail-closed binding as --aud/--nonce — an EXTERNAL_ATTESTED subject then must not exit 0.
+    if result["subject_derived_ok"] is False:
         return 2
     # A supplied anchor that FAILS to verify (broken / root-mismatched / unknown type) is a tamper
     # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
@@ -1362,14 +1371,16 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         result = verify_outcome_receipt(
             env, pub, strict=args.strict,
             expected_decision_ref=args.expected_decision_ref, decision_maker_id=args.decision_maker_id,
-            expected_audience=args.aud, expected_nonce=args.nonce)
+            expected_audience=args.aud, expected_nonce=args.nonce,
+            require_derived_subject=args.require_derived_subject)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
-            "execution_proven", "audience_ok", "nonce_ok", "warnings", "errors",
+            "execution_proven", "audience_ok", "nonce_ok", "subject_binding", "subject_derived_ok",
+            "warnings", "errors",
         )}
         print(json.dumps(report, indent=2))
     else:
@@ -1385,6 +1396,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
         if result["execution_proven"] is False:
             print("ASSURANCE: status=executed is self-asserted (no effectDigest/actualActionDigest)")
+        if result["subject_binding"] is not None:
+            print(f"SUBJECT: {result['subject_binding']['mode']}")
+        if result["subject_derived_ok"] is not None:
+            print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
         for e in result["errors"]:
             print(f"  - {e}", file=sys.stderr)
         for w in result["warnings"]:
@@ -1402,6 +1417,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     if result["decision_bound"] is False or result["role_separation_ok"] is False:
         return 2
     if result["audience_ok"] is False or result["nonce_ok"] is False:
+        return 2
+    # Finding 05: a caller who explicitly requests --require-derived-subject is asking for the same kind of
+    # fail-closed binding as --aud/--nonce — an EXTERNAL_ATTESTED subject then must not exit 0.
+    if result["subject_derived_ok"] is False:
         return 2
     return 0
 
@@ -1888,6 +1907,11 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--bitcoin-header", action="append", default=None, metavar="HEIGHT:MERKLEROOT_HEX",
                           help="WP-A1: a relying-party-supplied Bitcoin block header (internal byte order) "
                                "that confirms an OpenTimestamps statement anchor — frozen is never trusted")
+    d_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
+                          help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
+                               "commitment to the predicate (subject_binding.classify_subject) — rejects a "
+                               "self-attested/rehung subject_sha256 override. Default off: an "
+                               "EXTERNAL_ATTESTED subject is still warned, never silent")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
@@ -1927,6 +1951,11 @@ def build_parser() -> argparse.ArgumentParser:
     o_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
     o_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
     o_verify.add_argument("--nonce", default=None, help="expected nonce (checks validity.nonce against replay)")
+    o_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
+                          help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
+                               "commitment to the predicate (subject_binding.classify_subject) — rejects a "
+                               "self-attested/rehung subject_sha256 override. Default off: an "
+                               "EXTERNAL_ATTESTED subject is still warned, never silent")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
     o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
