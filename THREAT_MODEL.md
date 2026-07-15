@@ -1,5 +1,7 @@
 # Threat model — what a proofbundle receipt catches, and what it structurally cannot
 
+Revision: 2026-07-13
+
 A proofbundle receipt is a **tamper-evident, signed statement of authorship and integrity** over an eval or
 test result. It is deliberately *not* a proof that the number is true or that the evaluation was well
 designed. This document states the boundary precisely, so a strong signature is never mistaken for a strong

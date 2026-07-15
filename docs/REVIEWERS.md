@@ -18,6 +18,53 @@ Everything else is emit-side, adapters, or optional layers (SD-JWT/KB-JWT, C2SP 
 cosignatures / tlog-proof, Token Status List, per-sample trees). A reviewer can audit the core in
 an afternoon and treat the rest as "does not weaken the core if ignored."
 
+## Scope beyond the v0.1 bundle core (2.1.0+)
+
+The three files above are the complete trusted core for the original `proofbundle/v0.1` bundle
+verifier, and the "audit in an afternoon, everything else does not weaken the core if ignored"
+line is still exactly right **for that scope**. It stopped being the whole picture once the
+`decision-receipt/v0.1` predicate shipped in 2.1.0 and the 3.2.x attestation-chain modules
+followed: each module below runs its OWN fail-closed structural, threshold, or replay-binding
+logic before it ever calls into `signature.py` / `pqsig.py` / `dsse.py` for the underlying
+Ed25519 / ML-DSA primitive, so "the rest is decoration around the three files" is no longer a
+safe assumption when scoping review time. The versioned, maintained statement of what is
+STABLE vs. EXPERIMENTAL (and therefore what a paid external audit should target first) is
+[`docs/AUDIT_SCOPE.md`](AUDIT_SCOPE.md); the short orientation for a reviewer here:
+
+- `decision.py` (shipped, 2.1.0) — DSSE-signed decision receipts. The attack surface worth
+  probing is the caller-attested `subject_sha256` override in `build_decision_statement`
+  (`subject_binding.classify_subject` is what turns a subject-rehang into a signal, not a
+  silent pass) and the `validity.audience` / `validity.nonce` replay-binding gate.
+- `trust_pack.py` (EXPERIMENTAL, 3.2.0) — a TUF-inspired, threshold-of-root trust document.
+  Probe the crypto-agility `alg` dispatch (`ed25519` default / `mldsa65` /
+  `hybrid-ed25519-mldsa65`; PB-2026-0715-08, [ADR 0007](adr/0007-crypto-agility-alg-dispatch.md))
+  for a downgrade path, and the two-stage rotation vouching (`prev_root_keys` /
+  `prev_root_threshold`) for a self-owned-keys rollover.
+- `outcome.py` (EXPERIMENTAL, 3.2.0) — role separation (`executor.id` must differ from the bound
+  decision's `decisionMaker.id`) and `decisionRef` content-root binding; probe for a replay of one
+  outcome across a different decision.
+- `renewal.py` (EXPERIMENTAL, 3.2.0, ADR 0006) — the RFC 4998 ArchiveTimeStampSequence. Probe the
+  algorithm-confusion binding (`sig_alg` is folded into the exact bytes an authority signs, so a
+  signature cannot be relabeled to a weaker algorithm and re-verified) and the multiple anchor
+  modes in `verify_sequence` (an unauthenticated structural-only mode exists but needs an explicit
+  opt-in).
+- `checkpoint.py` (shipped, SPEC §7c/§7d) — C2SP checkpoints plus Ed25519 and ML-DSA-44 witness
+  cosignatures. Probe `witness_quorum`'s dedup by decoded key MATERIAL rather than key name (one
+  physical key registered under many names must count once, not N times).
+- `public_transparency.py` (EXPERIMENTAL, 3.2.0) — a policy layer composed over `checkpoint.py`.
+  Probe that the aggregate status cannot pass without a cryptographic anchor (a checkpoint
+  signature or a witness quorum) — plaintext origin/root/tree-size fields parsed from an unsigned
+  note must not be enough on their own.
+- `sdjwt.py` / `sdjwt_issue.py` / `sdjwt_vc.py` — RFC 9901 selective-disclosure verify/issue and
+  the SD-JWT VC relying-party profile. Probe the recursive-disclosure resolution (PB-2026-0715-15a
+  closed a quadratic CPU cost there) and the VC `vct` / type-metadata path, which is offline-only
+  by construction (no code path opens a socket, so a hostile `vct` cannot drive a request).
+
+None of this widens the ORIGINAL three-file core — `signature.py` / `merkle.py` / `bundle.py` are
+unchanged in shape and stay the single afternoon-sized read. It widens what "the rest" means: a
+reviewer auditing the full eval → decision → outcome chain, or the trust-pack root of trust, needs
+the scoped time budget in `docs/AUDIT_SCOPE.md`, not the 30-minute path below.
+
 ## The 30-minute path
 
 1. **Run it, then break it (5 min).** `pip install -e ".[eval]" && proofbundle demo` — an honest receipt

@@ -6,7 +6,10 @@ repo evidence, never aspirational.
 ## M1 — Audit scope frozen
 
 Verification logic, bundle parsing, canonicalization, SD-JWT checks, anchor
-verification, CI/build provenance. **Status:** pending scope-freeze PR.
+verification, CI/build provenance. **Status:** candidate scope drafted in
+[`docs/AUDIT_SCOPE.md`](AUDIT_SCOPE.md) (STABLE vs. EXPERIMENTAL module table + freeze mechanism);
+pending Owner review to mark the freeze itself done. `docs/AUDIT_READINESS.md` is the companion
+funding/OSTIF briefing for M3.
 
 ## M2 — External interop fixture — DONE 2026-07-11
 
