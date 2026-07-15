@@ -53,9 +53,17 @@
         "additionalProperties": false,
         "required": ["publicKey"],
         "properties": {
-          "publicKey": {"type": "string", "description": "base64 raw Ed25519 public key (32 bytes)"},
-          "scheme": {"const": "ed25519"}
-        }
+          "publicKey": {"type": "string", "description": "base64 raw public key: Ed25519 classical leg (32 bytes) when alg is 'ed25519' (default) or 'hybrid-ed25519-mldsa65'; ML-DSA-65 (1952 bytes, FIPS 204) when alg is 'mldsa65'"},
+          "publicKeyPq": {"type": "string", "description": "base64 raw ML-DSA-65 (FIPS 204) public key (1952 bytes) — the post-quantum leg; required when alg is 'hybrid-ed25519-mldsa65', not allowed otherwise"},
+          "scheme": {"const": "ed25519"},
+          "alg": {"type": "string", "enum": ["ed25519", "mldsa65", "hybrid-ed25519-mldsa65"], "default": "ed25519", "description": "crypto agility (ADR 0006): the signature algorithm this key holds; absent = 'ed25519' (backward compatible). A hybrid key requires BOTH the classical and the PQ leg to verify (no downgrade)."}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"alg": {"const": "hybrid-ed25519-mldsa65"}}, "required": ["alg"]},
+            "then": {"required": ["publicKeyPq"]}
+          }
+        ]
       }
     },
     "revoked": {"type": "array", "items": {"type": "string"}, "description": "offline revocation: keyIds that must not count toward any threshold"},

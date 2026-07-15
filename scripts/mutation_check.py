@@ -259,8 +259,8 @@ MUTATIONS = [
     # F7 — not collecting nested digests from a committed disclosure's value breaks recursive disclosures
     # AND (the security direction) would let nothing further be rooted; the recursive test kills it.
     ("src/proofbundle/sdjwt.py",
-     "                    _collect_committed_digests(parsed[-1], committed)",
-     "                    pass",
+     "                _collect_committed_digests(parsed[-1], newly)",
+     "                pass",
      "sdjwt: F7 recursive-disclosure collection disabled (valid recursive vectors fail)", True),
 ]
 

@@ -11,6 +11,7 @@ import unittest
 from proofbundle.checkpoint import cosign_checkpoint, cosign_vkey, sign_checkpoint, vkey
 from proofbundle.emit import generate_signer
 from proofbundle.public_transparency import (
+    ConsistencyVerificationResult,
     PublicTransparencyError,
     evaluate_public_transparency,
     validate_public_transparency_policy,
@@ -187,6 +188,141 @@ class TestEvaluate(unittest.TestCase):
             witness_vkeys=[wv])
         self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "PASS")
         self.assertEqual(r["PUBLIC_TRANSPARENCY"], "PASS", r)
+
+
+# --- finding 10: an unbound consistency_confirmed boolean was replayable onto any checkpoint --------
+#
+# evaluate_public_transparency previously took `consistency_confirmed: bool | None` with NO binding to
+# WHICH (old, new) checkpoint pair was actually checked — a True computed for one pair verified equally
+# well for a completely unrelated `new` checkpoint. ConsistencyVerificationResult carries the checkpoint
+# identities so evaluate_public_transparency can bind new_origin/new_tree_size/new_root_b64 to the exact
+# note being evaluated BEFORE `confirmed` is ever accepted, and its own .validate() independently rejects
+# a structurally impossible pair (a same-size-different-root "split view") regardless of `confirmed`.
+
+
+def _good_consistency_result(**overrides) -> ConsistencyVerificationResult:
+    import base64
+    fields = dict(
+        old_origin=_ORIGIN, old_tree_size=10, old_root_b64=base64.b64encode(b"o" * 32).decode(),
+        new_origin=_ORIGIN, new_tree_size=_SIZE, new_root_b64=base64.b64encode(_ROOT).decode(),
+        proof_digest="proof-digest-abc", verifier_version="monitor-v1", policy_digest="policy-abc",
+        confirmed=True)
+    fields.update(overrides)
+    return ConsistencyVerificationResult(**fields)
+
+
+class TestConsistencyVerificationResult(unittest.TestCase):
+    """Unit-level: .validate() is a structural, No-Fake floor independent of `confirmed`."""
+
+    def test_valid_result_validates_clean(self):
+        self.assertEqual(_good_consistency_result().validate(), [])
+
+    def test_empty_proof_digest_rejected(self):
+        # a confirmed=True with no record of what was actually checked is not evidence (omission floor)
+        self.assertTrue(_good_consistency_result(proof_digest="").validate())
+
+    def test_old_larger_than_new_rejected(self):
+        errs = _good_consistency_result(old_tree_size=100, new_tree_size=10).validate()
+        self.assertTrue(errs)
+        self.assertTrue(any("old_tree_size exceeds new_tree_size" in e for e in errs), errs)
+
+    def test_mismatched_origins_rejected(self):
+        errs = _good_consistency_result(new_origin="other.log").validate()
+        self.assertTrue(any("old_origin and new_origin differ" in e for e in errs), errs)
+
+    def test_equal_size_different_roots_is_a_split_view(self):
+        import base64
+        errs = _good_consistency_result(
+            old_tree_size=_SIZE, old_root_b64=base64.b64encode(b"F" * 32).decode()).validate()
+        self.assertTrue(any("split view" in e for e in errs), errs)
+
+    def test_malformed_types_do_not_crash(self):
+        # never raise on a caller-constructed/deserialized result with wrong field types
+        bad = ConsistencyVerificationResult(
+            old_origin=None, old_tree_size="10", old_root_b64=1,  # type: ignore[arg-type]
+            new_origin=_ORIGIN, new_tree_size=_SIZE, new_root_b64="x",
+            proof_digest="p", verifier_version="v", policy_digest="q", confirmed="yes")  # type: ignore[arg-type]
+        errs = bad.validate()
+        self.assertTrue(errs)
+
+
+class TestConsistencyResultBinding(unittest.TestCase):
+    """Integration: evaluate_public_transparency binds/rejects consistency_result and strict_consistency."""
+
+    def test_consistency_result_correct_pair_passes(self):
+        note, lv = _signed_note()
+        cr = _good_consistency_result()
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "PASS", r)
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "PASS", r)
+
+    def test_consistency_result_wrong_checkpoint_pair_fails(self):
+        # confirmed=True, but new_root_b64 does NOT match the checkpoint actually being evaluated —
+        # the classic "confirmed for a different pair, replayed here" attack finding 10 closes.
+        import base64
+        note, lv = _signed_note()
+        cr = _good_consistency_result(new_root_b64=base64.b64encode(b"Z" * 32).decode())
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
+        self.assertTrue(any("wrong checkpoint pair" in e for e in r["errors"]), r["errors"])
+
+    def test_consistency_result_not_confirmed_fails(self):
+        note, lv = _signed_note()
+        cr = _good_consistency_result(confirmed=False)
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
+
+    def test_bare_boolean_rejected_in_strong_profile(self):
+        # strict_consistency=True refuses the unbound bare-boolean path entirely.
+        note, lv = _signed_note()
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_confirmed=True, strict_consistency=True)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
+        self.assertTrue(any("strict_consistency" in e for e in r["errors"]), r["errors"])
+        # additive / backward-compat: WITHOUT strict_consistency the bare boolean still works as before
+        r2 = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_confirmed=True)
+        self.assertEqual(r2["statuses"]["CONSISTENCY"], "PASS", r2)
+        self.assertEqual(r2["PUBLIC_TRANSPARENCY"], "PASS", r2)
+
+    def test_monitor_split_view_fails(self):
+        # an independent monitor's own report: the SAME tree size was seen under TWO different roots —
+        # the textbook log split view / fork. No genuine consistency proof can ever confirm this (RFC
+        # 9162: identical size implies identical root), so .validate() rejects it structurally and
+        # evaluate_public_transparency must FAIL the check regardless of confirmed=True — even though
+        # new_root_b64 correctly matches the checkpoint under evaluation (isolating the split-view
+        # rejection from the ordinary wrong-checkpoint-pair binding failure above).
+        import base64
+        note, lv = _signed_note()
+        cr = _good_consistency_result(
+            old_tree_size=_SIZE, old_root_b64=base64.b64encode(b"F" * 32).decode())
+        self.assertTrue(cr.validate())  # structurally invalid standalone, independent of evaluate()
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
+        self.assertTrue(any("split view" in e for e in r["errors"]), r["errors"])
+
+    def test_consistency_result_takes_precedence_over_bare_boolean(self):
+        # when both are supplied, the typed (bound) result wins even if the bare boolean disagrees.
+        import base64
+        note, lv = _signed_note()
+        cr = _good_consistency_result(new_root_b64=base64.b64encode(b"Z" * 32).decode())  # wrong pair
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_confirmed=True, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)  # the bound result's mismatch wins
 
 
 if __name__ == "__main__":

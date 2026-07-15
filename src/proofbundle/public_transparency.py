@@ -23,6 +23,7 @@ general SCITT/RFC-9943 conformance claim without interop vectors, and never that
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .errors import ProofBundleError
@@ -37,6 +38,79 @@ _POLICY_KEYS = {"requireSignedCheckpoint", "trustedLogOrigins", "trustedLogKeys"
 
 class PublicTransparencyError(ProofBundleError):
     """A public-transparency policy is malformed (fail-closed)."""
+
+
+@dataclass(frozen=True)
+class ConsistencyVerificationResult:
+    """A relying party's (or independent monitor's) OWN result of checking an RFC 9162 §2.1.4 consistency
+    proof (``merkle.verify_consistency``) between two checkpoints of the SAME log: the *old* (first,
+    smaller) checkpoint the caller previously trusted, and the *new* (second, larger) checkpoint currently
+    being evaluated by ``evaluate_public_transparency``.
+
+    Finding 10: a bare ``consistency_confirmed: bool`` is an UNBOUND plaintext claim — it says nothing
+    about WHICH checkpoint pair was checked, so a ``True`` computed for one (old, new) pair is trivially
+    replayable onto a different, unrelated ``new`` checkpoint. Carrying the checkpoint identities INSIDE
+    the result lets ``evaluate_public_transparency`` bind ``new_origin`` / ``new_tree_size`` /
+    ``new_root_b64`` to the EXACT checkpoint under evaluation before it ever accepts ``confirmed``.
+
+    ``proof_digest`` / ``verifier_version`` / ``policy_digest`` are provenance (which consistency-proof
+    bytes were actually checked, by which verifier build, under which policy) — evidence the check really
+    ran, not merely a hand-typed ``confirmed=True`` (No-Fake omission floor); ``validate()`` requires them
+    non-empty. ``validate()`` also rejects a STRUCTURALLY impossible pair regardless of ``confirmed`` — in
+    particular the same tree size claiming two different roots, which is the signature of a log SPLIT VIEW
+    (a fork), never a valid consistency claim (RFC 9162: equal size implies equal root)."""
+
+    old_origin: str
+    old_tree_size: int
+    old_root_b64: str
+    new_origin: str
+    new_tree_size: int
+    new_root_b64: str
+    proof_digest: str
+    verifier_version: str
+    policy_digest: str
+    confirmed: bool
+
+    def validate(self) -> list[str]:
+        """Fail-closed structural validation (empty list = valid). Never raises on malformed field types —
+        every comparison is guarded so a caller-constructed or deserialized result cannot crash this."""
+        errors: list[str] = []
+
+        def _str(name: str, val: Any) -> bool:
+            ok = isinstance(val, str) and val != ""
+            if not ok:
+                errors.append(f"{name} must be a non-empty string")
+            return ok
+
+        def _size(name: str, val: Any) -> bool:
+            ok = isinstance(val, int) and not isinstance(val, bool) and val >= 0
+            if not ok:
+                errors.append(f"{name} must be a non-negative integer")
+            return ok
+
+        origin_ok = _str("old_origin", self.old_origin) and _str("new_origin", self.new_origin)
+        root_ok = _str("old_root_b64", self.old_root_b64) and _str("new_root_b64", self.new_root_b64)
+        _str("proof_digest", self.proof_digest)
+        _str("verifier_version", self.verifier_version)
+        _str("policy_digest", self.policy_digest)
+        size_ok = _size("old_tree_size", self.old_tree_size) and _size("new_tree_size", self.new_tree_size)
+        if not isinstance(self.confirmed, bool):
+            errors.append("confirmed must be a boolean")
+
+        if size_ok and self.old_tree_size > self.new_tree_size:
+            errors.append(
+                "old_tree_size exceeds new_tree_size — a consistency proof only orders old -> new, "
+                "never the reverse")
+        if size_ok and root_ok and self.old_tree_size == self.new_tree_size \
+                and self.old_root_b64 != self.new_root_b64:
+            errors.append(
+                "old_tree_size == new_tree_size but the roots differ — a split view / fork, never a "
+                "valid consistency claim (RFC 9162: identical tree size implies an identical root)")
+        if origin_ok and self.old_origin != self.new_origin:
+            errors.append(
+                "old_origin and new_origin differ — a consistency proof is only meaningful within one "
+                "log's own history")
+        return errors
 
 
 def validate_public_transparency_policy(policy: Any) -> list[str]:
@@ -72,13 +146,25 @@ def evaluate_public_transparency(
     signed_note: str, policy: dict, *, log_vkey: str | None = None,
     witness_vkeys: list | None = None, expected_root_b64: str | None = None,
     expected_tree_size: int | None = None, consistency_confirmed: bool | None = None,
+    consistency_result: "ConsistencyVerificationResult | None" = None,
+    strict_consistency: bool = False,
 ) -> dict:
     """Evaluate a signed checkpoint against a public-transparency policy → unified named-status verdict.
 
     ``consistency_confirmed`` is the relying party's OWN result of a consistency-proof check (append-only, no
     fork) computed elsewhere; when the policy requires consistency it MUST be True, else FAIL. It is passed in
     (not computed here) because a consistency proof is between two checkpoints the relying party holds — this
-    layer records the verdict, fail-closed. Read PUBLIC_TRANSPARENCY — never an individual status alone."""
+    layer records the verdict, fail-closed. Read PUBLIC_TRANSPARENCY — never an individual status alone.
+
+    ``consistency_result`` (finding 10, additive): a typed ``ConsistencyVerificationResult`` instead of the
+    bare ``consistency_confirmed`` boolean. Preferred, because it BINDS the confirmation to this exact
+    checkpoint — ``new_origin`` / ``new_tree_size`` / ``new_root_b64`` are checked against the values this
+    call itself parses from ``signed_note`` BEFORE ``confirmed`` is ever accepted, and its own
+    ``.validate()`` rejects a structurally impossible (e.g. split-view) pair regardless of ``confirmed``.
+    When both are supplied, ``consistency_result`` takes precedence. ``strict_consistency=True`` refuses
+    the unbound bare-boolean path entirely (CONSISTENCY FAILs if only ``consistency_confirmed`` is given) —
+    additive: the default (``strict_consistency=False``) preserves every existing caller's behavior
+    exactly."""
     from . import checkpoint as cp  # noqa: PLC0415
 
     perrs = validate_public_transparency_policy(policy)
@@ -150,8 +236,35 @@ def evaluate_public_transparency(
             errors.append("checkpoint tree size does not equal the relying party's expected tree size")
 
     # CONSISTENCY — required-and-confirmed → PASS; required-and-not-confirmed → FAIL (fail-closed).
+    # finding 10: a typed consistency_result (preferred) is BOUND to this exact checkpoint before its
+    # `confirmed` is accepted; a bare consistency_confirmed boolean is an unbound plaintext claim, and
+    # strict_consistency=True refuses it entirely.
     if bool(policy.get("requireConsistencyProof")):
-        if consistency_confirmed is True:
+        if consistency_result is not None:
+            cerrs = consistency_result.validate()
+            if cerrs:
+                statuses["CONSISTENCY"] = "FAIL"
+                errors.extend(f"consistency result invalid: {e}" for e in cerrs)
+            elif not (parsed_ok and consistency_result.new_origin == origin
+                     and consistency_result.new_tree_size == tree_size
+                     and consistency_result.new_root_b64 == root):
+                statuses["CONSISTENCY"] = "FAIL"
+                errors.append(
+                    "consistency result does not bind to this checkpoint (new_origin/new_tree_size/"
+                    "new_root_b64 do not match the checkpoint being evaluated) — wrong checkpoint pair, "
+                    "fail-closed")
+            elif consistency_result.confirmed is True:
+                statuses["CONSISTENCY"] = "PASS"
+            else:
+                statuses["CONSISTENCY"] = "FAIL"
+                errors.append("consistency result is bound to this checkpoint but confirmed is not True")
+        elif strict_consistency:
+            statuses["CONSISTENCY"] = "FAIL"
+            errors.append(
+                "requireConsistencyProof with strict_consistency=True needs a typed "
+                "ConsistencyVerificationResult — a bare consistency_confirmed boolean is an unbound "
+                "plaintext claim and is rejected (fail-closed)")
+        elif consistency_confirmed is True:
             statuses["CONSISTENCY"] = "PASS"
         else:
             statuses["CONSISTENCY"] = "FAIL"

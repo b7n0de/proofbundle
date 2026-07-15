@@ -39,7 +39,7 @@ against the root role's threshold.
 | `expires` | yes | RFC-3339 UTC validity bound (`not_expired` fails closed past it) |
 | `prevVersionDigest` | yes | content-root digest of the previous version, or `null` for the first |
 | `roles` | yes | object including a `root` role; each role = `{keyIds: [...], threshold: int}` |
-| `keys` | yes | non-empty `keyId -> {publicKey}` map (32-byte Ed25519) resolving every referenced key id |
+| `keys` | yes | non-empty `keyId -> {publicKey[, alg, publicKeyPq]}` map resolving every referenced key id |
 | `nonClaims` | yes | the explicit "this proves only threshold-signing, not honesty" record |
 | `revoked` | optional | offline revocation list of key ids (must be known key ids) |
 
@@ -47,6 +47,16 @@ Validation is fail-closed and **dead-on-arrival aware**: a role whose threshold 
 revoked keys are removed is rejected at validate time (a pack whose root can never meet threshold is invalid,
 not merely un-verifiable). `threshold` must be in `1..len(keyIds)`; every role key id must be present in `keys`;
 `revoked` entries must be known key ids.
+
+**Crypto agility (ADR 0006).** Each `keys[kid]` declares which signature algorithm it holds via `alg`: `ed25519`
+(default — absent `alg` means `ed25519`, so every pre-agility pack keeps working unchanged), `mldsa65`
+(ML-DSA-65, FIPS 204 — `publicKey` is the 1952-byte raw ML-DSA key), or `hybrid-ed25519-mldsa65` (BOTH legs:
+`publicKey` = 32-byte Ed25519 classical leg, `publicKeyPq` = 1952-byte ML-DSA-65 PQ leg). A hybrid key is
+authenticated only when BOTH legs verify (an attacker must forge both to forge the key; a signature carrying
+only the Ed25519 `sig` leg does not satisfy a policy-declared hybrid key — no downgrade). The signature envelope
+entry gains a second field for the PQ leg: `{"keyid":, "sig": <classical or single-alg b64>[, "sigPq": <ML-DSA-65
+b64, hybrid only>]}`. The `alg` label lives INSIDE the signed predicate, so it cannot be relabeled without
+invalidating every signature over the pack (no separate alg-confusion surface, unlike a bare JWT `alg` header).
 
 ## 4. Verify path (`verify_trust_pack`)
 

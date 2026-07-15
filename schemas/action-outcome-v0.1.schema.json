@@ -41,9 +41,14 @@
     "policyPurpose": {"const": "outcome"},
     "traceContext": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {"traceparent": {"type": "string"}}
     },
     "limitations": {"type": "array", "items": {"type": "string"}},
-    "validity": {"type": "object", "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}}
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"audience": {"type": "array"}, "nonce": {"type": "string"}}
+    }
   }
 }

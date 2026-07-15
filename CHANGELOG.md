@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - 2026-07-15
+
+Security and robustness hardening from a six-lens plus red-team audit of 3.2.1. Additive; no
+wire-format change and no change to a correct 3.2.1 caller's result unless the input was actually
+malformed or over-limit.
+
+### Security
+- **SD-JWT recursive-disclosure O(n^2) CPU-DoS fixed (CWE-400/407)**: `verify_sd_jwt`'s fixpoint
+  resolution was quadratic under adversarially-ordered disclosures (n=4000 drove ~11s of CPU from a
+  520KB bundle, reachable via `verify_bundle`). Rewritten as an O(n) BFS/worklist over disclosures
+  grouped by digest, plus a fail-closed `_MAX_DISCLOSURES = 256` cap before any per-disclosure work.
+
+### Hardening
+- **Decision/outcome schema is a strict SSOT now**: `decisionId` type/non-empty enforced;
+  `actionOutcome`/`validity` must be JSON objects when present; empty `parametersRef` rejected;
+  `additionalProperties:false` enforced on every sub-object of both `*.schema.json`; the existing
+  `nested_closure_violations` is wired into the validators; new `test_schema_parity.py` proves the
+  hand validator and the docs schema agree on every golden example and 11 negative vectors.
+- **Decision subject-rehang gate**: `verify_decision_receipt` classifies the subject (opt-in
+  `require_derived_subject`, CLI `--require-derived-subject`); a caller-overridden subject that does
+  not derive from the predicate can be made fail-closed. Corrected an earlier CHANGELOG claim that
+  overstated the outcome default as "fail-closed" (it is warned-by-default, fail-closed only opt-in).
+- **Trust-pack crypto-agility**: root and rotation keys carry an explicit `alg`
+  (`ed25519` default, `mldsa65`, or `hybrid-ed25519-mldsa65`), verified alg-aware via the existing
+  `pqsig` ML-DSA (FIPS 204) paths; a policy-declared hybrid key is not satisfied by an Ed25519-only
+  signature (downgrade defense). Backward compatible for `alg`-less packs.
+- **Renewal seed is verifiable, not a bare label**: `renew_*` accept an immutable
+  `VerifiedAnchorResult` bound to the prior ATS digest (`require_verified_prior`); the self-asserted
+  `anchor_status` path is tagged `renewal_seed_evidence_class` rather than silently trusted.
+- **Public-transparency consistency is typed and bound**: a `ConsistencyVerificationResult`
+  (old/new origin, tree size and root, plus proof/verifier/policy digests) replaces the ungrounded
+  boolean; the confirmed claim is re-bound to the checkpoint actually being evaluated
+  (`strict_consistency`), catching wrong-pair and split-view inputs.
+
 ## [3.2.1] - 2026-07-14
 
 Anchor-longevity hardening release. A six-lens plus red-team audit of the 3.2.0 anchor modules
@@ -115,8 +149,11 @@ and states its non-claims as explicitly as its guarantees. Predicate docs under
 
 ### Added — subject-binding + SD-JWT VC layers (EXPERIMENTAL, O6, O7)
 - `subject_binding.py`: classifies a Statement subject as `DERIVED` (SHA-256 over the RFC-8785 canonical
-  predicate, re-derived and matched) vs `EXTERNAL_ATTESTED` (override/tamper, fail-closed), plus nested schema
-  closure. Doc: [`docs/SUBJECT_BINDING.md`](docs/SUBJECT_BINDING.md).
+  predicate, re-derived and matched) vs `EXTERNAL_ATTESTED` (override/tamper). An `EXTERNAL_ATTESTED` subject
+  is warned by default on both the decision and outcome verify paths; it is only fail-closed when the caller
+  opts in via `require_derived_subject` / `decision verify --require-derived-subject` /
+  `outcome verify --require-derived-subject`. Plus nested schema closure. Doc:
+  [`docs/SUBJECT_BINDING.md`](docs/SUBJECT_BINDING.md).
 - `sdjwt_vc.py`: an SD-JWT VC relying-party profile (`typ = dc+sd-jwt`, `vct` allowlist, offline
   type-metadata integrity, holder-binding required). SSRF-safe by construction — no network I/O, a URL `vct`
   is an opaque identifier and never dereferenced. Doc: [`docs/SDJWT_VC_PROFILE.md`](docs/SDJWT_VC_PROFILE.md).
