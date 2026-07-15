@@ -18,7 +18,7 @@ Merkle, one file, no server, no network.
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21230467.svg)](https://doi.org/10.5281/zenodo.21230467)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21110642.svg)](https://doi.org/10.5281/zenodo.21110642)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Mutation tested](https://img.shields.io/badge/tests-mutation_gated-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/scripts/mutation_check.py)
 [![PyPI attestations](https://img.shields.io/badge/PyPI-PEP_740_attested-D6248A.svg)](https://pypi.org/project/proofbundle/#files)
@@ -157,9 +157,11 @@ a preprint.
 ## Cite this work
 
 If proofbundle helped your evaluation pipeline, please cite it. Machine-readable metadata is in
-[`CITATION.cff`](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff); the archival record and
-concept DOI are on Zenodo ([10.5281/zenodo.21230467](https://doi.org/10.5281/zenodo.21230467)), and the
-current design write-up is the Technical Note linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
+[`CITATION.cff`](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff). The archival software record
+is on Zenodo under concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642); the
+Technical Note (design write-up) under concept DOI
+[10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466), also linked from
+[b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
 
 ## Post-quantum posture (honest, two layers)
 
