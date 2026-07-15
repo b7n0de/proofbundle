@@ -287,6 +287,27 @@ MUTATIONS = [
      '                    if isinstance(_verified_alg, str) else "ed25519:"',
      '_fp_prefix = "ed25519:"',
      "bundle: Finding 20 alg-aware sd-jwt-issuer-identity fingerprint reverted to hardcoded ed25519", True),
+    # Crypto-review 2026-07-15 remediation — each new fail-closed guard must be killed by its own test.
+    # C1: removing the DSSE signatures cap re-opens the O(n) verify-loop DoS (a million-entry signatures
+    # list) — killed by tests/test_budget.py's TestDsseSignaturesCapDoS.
+    ("src/proofbundle/dsse.py",
+     '    DEFAULT_BUDGET.check("signatures", len(sigs))',
+     "    pass",
+     "dsse: C1 signatures-list DoS cap removed (oversized signatures list no longer refused)", True),
+    # C2: forcing the require_external_token-absent branch off re-opens the fail-open where a MITM strips a
+    # detached external_token from an authority-signed ATS — killed by test_renewal_external_token_glue.py's
+    # test_require_external_token_fails_closed_when_absent.
+    ("src/proofbundle/renewal.py",
+     "    elif require_external_token:",
+     "    elif False:",
+     "renewal: C2 require_external_token absent-token fail-closed disabled (silent no-op require)", True),
+    # C3: disabling the executor==receiver distinctness check lets an executor self-corroborate its own
+    # outcome up to INDEPENDENTLY_ATTESTED — killed by test_outcome_receiver_corroboration.py's
+    # test_receiver_ref_that_is_the_executor_is_not_independent.
+    ("src/proofbundle/assurance.py",
+     "    if executor_key_id is not None and (receiver_key_id is None or receiver_key_id == executor_key_id):",
+     "    if False:",
+     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration reaches INDEPENDENTLY_ATTESTED)", True),
 ]
 
 
