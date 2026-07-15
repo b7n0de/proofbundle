@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections import deque
 from typing import Optional, Set
 
 from ._strict_json import loads_strict
@@ -34,6 +35,13 @@ from .signature import verify_ed25519
 __all__ = ["verify_sd_jwt"]
 
 _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
+
+# PB-2026-0715-15a (CWE-400/407, O(n^2) CPU-DoS guard): a real SD-JWT presentation discloses a
+# handful to a few dozen claims. Measured: n=4000 adversarially-ordered disclosures drove ~11s of
+# CPU from a 520KB bundle reachable via bundle.py::verify_bundle with no prior length check. Refuse
+# fail-closed (structure_ok stays False) well above any legitimate use, before the fixpoint below
+# even runs — belt-and-suspenders alongside the O(n) algorithm change.
+_MAX_DISCLOSURES = 256
 
 
 def _b64url_decode(s: str) -> bytes:
@@ -116,6 +124,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     # (which contains dots) is not a disclosure — it is verified separately by
     # proofbundle.kbjwt (bundle layer, fail-closed) since v1.2.
     disclosures = [p for p in parts[1:] if p and p.count(".") == 0]
+    if len(disclosures) > _MAX_DISCLOSURES:
+        # PB-2026-0715-15a: reject BEFORE any per-disclosure parsing/hashing work starts.
+        result["detail"] = (
+            f"too many disclosures ({len(disclosures)} > {_MAX_DISCLOSURES}) — refusing (DoS guard, "
+            "PB-2026-0715-15a)"
+        )
+        return result
 
     committed: Set[str] = set()
     _collect_committed_digests(payload, committed)
@@ -141,25 +156,44 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
 
     if all_committed:
         # Recursive disclosures (RFC 9901): a disclosure's VALUE may itself carry ``_sd``/``...`` digests that
-        # commit to FURTHER disclosures. Resolve to a fixpoint — a disclosure is committed iff its digest is
-        # already in ``committed``; each newly-committed disclosure then contributes the ``_sd``/``...`` digests
-        # inside its own value (the last array element). Disclosure order is not guaranteed parent-first, hence
-        # the loop. Security is preserved: the fixpoint only ever GROWS ``committed`` from the issuer-signed
-        # payload outward, so a self-referential or otherwise unrooted disclosure never bootstraps itself. At the
-        # end EVERY disclosure must be committed (transitively rooted in the signed payload) — fail-closed.
-        pending = list(parsed_disclosures)
-        progressed = True
-        while progressed and pending:
-            progressed = False
-            still = []
-            for d, parsed in pending:
-                if _digest(d, sd_alg) in committed:
-                    _collect_committed_digests(parsed[-1], committed)
-                    progressed = True
-                else:
-                    still.append((d, parsed))
-            pending = still
-        if pending:  # a disclosure never became committed — uncommitted / not rooted in the signed payload
+        # commit to FURTHER disclosures. A disclosure is committed iff its digest is already in ``committed``;
+        # each newly-committed disclosure then contributes the ``_sd``/``...`` digests inside its own value
+        # (the last array element). Disclosure order is not guaranteed parent-first, so this resolves to a
+        # fixpoint. Security is preserved: the fixpoint only ever GROWS ``committed`` from the issuer-signed
+        # payload outward, so a self-referential or otherwise unrooted disclosure never bootstraps itself. At
+        # the end EVERY disclosure must be committed (transitively rooted in the signed payload) — fail-closed.
+        #
+        # PB-2026-0715-15a (O(n^2) -> O(n) CPU-DoS fix): the previous implementation re-scanned EVERY
+        # still-unresolved disclosure AND re-computed its SHA-256 digest on EVERY pass — under an
+        # adversarial disclosure order (worst case: exactly one disclosure resolves per pass) that is
+        # O(n^2) hashing + scanning. This is an algorithmically equivalent BFS/worklist over the SAME
+        # fixpoint, not a semantic change: each disclosure's digest is hashed exactly once (grouped by
+        # digest — identical disclosures naturally share one digest and resolve together), and a
+        # digest is only (re-)examined when something NEW actually lands in ``committed`` because of
+        # it, never rescanned on unrelated passes. Total work is O(n + m), where m is the number of
+        # _sd/... entries newly produced by resolved disclosures, versus the old O(n^2).
+        digest_groups: dict = {}
+        for d, parsed in parsed_disclosures:
+            digest_groups.setdefault(_digest(d, sd_alg), []).append((d, parsed))
+
+        visited: Set[str] = set()
+        queue = deque(dg for dg in digest_groups if dg in committed)
+        resolved_count = 0
+        while queue:
+            dg = queue.popleft()
+            if dg in visited:
+                continue
+            visited.add(dg)
+            for _d, parsed in digest_groups[dg]:
+                resolved_count += 1
+                newly: Set[str] = set()
+                _collect_committed_digests(parsed[-1], newly)
+                for dg2 in newly - committed:
+                    committed.add(dg2)
+                    if dg2 in digest_groups and dg2 not in visited:
+                        queue.append(dg2)
+        if resolved_count != len(parsed_disclosures):
+            # at least one disclosure never became committed — uncommitted / not rooted in the signed payload
             all_committed = False
 
     result["structure_ok"] = all_committed and bool(parts[0])
