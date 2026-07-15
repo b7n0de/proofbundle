@@ -153,10 +153,12 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
-    # Provable distinctness: to ASSERT independence, BOTH key ids must be known AND differ. An absent
-    # executor_key_id (schema-optional, executor-controlled) or receiver_key_id, or an equal pair, is
+    # Provable distinctness: to ASSERT independence, BOTH key ids must be present, be STRINGS, AND differ.
+    # The isinstance(str) guards close a type-confusion evasion (crypto-review 2026-07-15): a non-str
+    # receiver_key_id (e.g. ["kid-exec"]) is `!= "kid-exec"` in Python, so a bare `==` distinctness check
+    # would read a wrapped copy of the executor's OWN id as "distinct". An absent/non-str/equal key id is
     # self-corroboration that cannot be shown independent -> fail-closed, no promotion.
-    if executor_key_id is None or receiver_key_id is None or receiver_key_id == executor_key_id:
+    if not isinstance(executor_key_id, str) or not isinstance(receiver_key_id, str) or receiver_key_id == executor_key_id:
         return {**base, "detail": base["detail"] + " (independence not provable: executor and receiver key "
                 "ids must both be present and differ; an absent/equal key id is self-corroboration — "
                 "principal-level independence for two distinct keys needs the outcomeReceivers trust role)"}

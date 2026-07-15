@@ -191,6 +191,20 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         # vouch, so a consortium at the per-role witnesses ceiling needs up to 2x that many in one envelope.
         self.assertGreaterEqual(DEFAULT_BUDGET.signatures, 2 * DEFAULT_BUDGET.witnesses)
 
+    def test_verify_envelope_rejects_oversized_base64_payload_before_decode(self):
+        # Refuter residual (crypto-review, 2026-07-15): _payload_bytes base64-decodes envelope.payload as its
+        # first op — unbounded before the entry-point's decoded-bytes cap. Cap the raw base64 string first.
+        import unittest.mock as mock
+
+        from proofbundle import dsse
+        s = generate_signer()
+        pub = s.public_key().public_bytes_raw()
+        env = dsse.sign_envelope(b'{"x": 1}', s, payload_type="application/x.proofbundle-test")
+        tiny = VerificationBudget(input_bytes=4)   # the base64 payload is longer than 4 chars
+        with mock.patch("proofbundle.budget.DEFAULT_BUDGET", tiny):
+            with self.assertRaises(BudgetExceeded):
+                dsse.verify_envelope(env, pub)
+
 
 class TestLoadsStrictResourceCaps(unittest.TestCase):
     """Crypto-review 2026-07-15 (C1.1 + json_nodes): loads_strict is the ONE parse chokepoint, so the raw

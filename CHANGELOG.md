@@ -33,7 +33,10 @@ tests:
   `budget.signatures` was raised 64 → 512 so a legitimate two-stage rotation envelope (new-root threshold +
   old-root vouch reuse one `signatures` list) still verifies. `trust_pack.verify_trust_pack` now also fails
   closed with a clean `BundleFormatError` on a non-list `signatures` (JSON `true` / a huge dict), which
-  previously skipped its cap or raised an uncaught `TypeError`.
+  previously skipped its cap or raised an uncaught `TypeError`. A second refuter round further capped the
+  raw base64 `payload` in `dsse._payload_bytes` BEFORE it is decoded (the decode, run twice per verify, was
+  a layer earlier than `loads_strict`), and added the same pre-decode cap to `anchors_markovian` (mirroring
+  `anchors_chia`).
 - **`require_external_token` fail-closed on absent token (Finding 14a)**: `renewal.verify_sequence(...,
   require_external_token=True)` now appends a FAILING `renewal:external_token` check when the newest ATS
   carries no `external_token_type`. The external-token fields are deliberately outside the signed ATS
@@ -43,7 +46,9 @@ tests:
   classify_receiver_corroboration` now takes `executor_key_id`/`receiver_key_id` and reaches
   `INDEPENDENTLY_ATTESTED` ONLY when BOTH key ids are present AND differ. `executor.keyId` is schema-optional
   and executor-controlled, so a one-sided check would be evaded by simply omitting one's own keyId; an
-  absent executor key id now blocks promotion too. Wired through `outcome.verify_outcome_receipt`. Honest
+  absent executor key id now blocks promotion too, and both key ids must be STRINGS (a second refuter round
+  found that a non-str `receiverKeyId` wrapping the executor's own id, e.g. `["kid-exec"]`, is `!=` the str
+  `"kid-exec"` and would read as "distinct"). Wired through `outcome.verify_outcome_receipt`. Honest
   inherent limit: two distinct keys can still belong to the same principal — principal-level independence
   needs the `outcomeReceivers` Trust Pack role (an out-of-band trust binding), documented in the code.
 

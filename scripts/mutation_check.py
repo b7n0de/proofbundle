@@ -305,9 +305,16 @@ MUTATIONS = [
     # outcome up to INDEPENDENTLY_ATTESTED — killed by test_outcome_receiver_corroboration.py's
     # test_receiver_ref_that_is_the_executor_is_not_independent.
     ("src/proofbundle/assurance.py",
-     "    if executor_key_id is None or receiver_key_id is None or receiver_key_id == executor_key_id:",
+     "    if not isinstance(executor_key_id, str) or not isinstance(receiver_key_id, str) or receiver_key_id == executor_key_id:",
      "    if False:",
-     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+     "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId / non-str-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+    # Refuter round 2 — dsse payload pre-decode DoS cap: removing it lets an oversized base64 payload be
+    # fully decoded before any cap — killed by tests/test_budget.py's
+    # test_verify_envelope_rejects_oversized_base64_payload_before_decode.
+    ("src/proofbundle/dsse.py",
+     "    if len(p) > DEFAULT_BUDGET.input_bytes:",
+     "    if False:",
+     "dsse: pre-decode base64 payload DoS cap removed (oversized payload decoded unbounded)", True),
     # Crypto-review 2026-07-15 refuter residuals — each new fail-closed guard killed by its own test.
     # C1.1: removing the raw-size cap re-opens the pre-parse DoS (a 50 MB envelope parses fully before the
     # signatures loop cap runs) — killed by tests/test_budget.py's test_rejects_oversized_raw_input_before_parse.

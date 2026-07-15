@@ -57,6 +57,12 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # which wallet/merkle_root was committed; BundleFormatError keeps the never-raise contract)
     try:
         from ._strict_json import loads_strict  # noqa: PLC0415
+        from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415
+        # DoS (crypto-review 2026-07-15): cap the raw proof BEFORE .decode(), mirroring anchors_chia's
+        # len(proof) > _MAX_PROOF_BYTES guard (loads_strict caps the decoded str, but the decode itself is
+        # otherwise unbounded). BudgetExceeded is caught below and reported as a clean _fail, never raised.
+        if len(proof) > DEFAULT_BUDGET.input_bytes:
+            raise BudgetExceeded("input_bytes", len(proof), DEFAULT_BUDGET.input_bytes)
         env = loads_strict(proof.decode("utf-8"))
         if not isinstance(env, dict):
             raise ValueError("envelope is not a JSON object")

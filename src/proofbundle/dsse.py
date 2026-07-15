@@ -69,6 +69,14 @@ def _payload_bytes(envelope: dict) -> bytes:
     p = envelope.get("payload")
     if not isinstance(p, str):
         raise BundleFormatError("DSSE envelope.payload must be a base64 string")
+    # DoS (crypto-review 2026-07-15): refuse an oversized base64 payload BEFORE decoding it. The DECODED
+    # bytes are capped by each verify_* entry point, but the base64-decode here (which also runs a second
+    # time via load_payload) is otherwise unbounded — a 16 MiB base64 string is fully decoded before any
+    # cap fires. Cap the raw base64 string against input_bytes (admits ~6 MiB of decoded bytes, comfortably
+    # above any legitimate payload; the decoded value is separately re-checked downstream).
+    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids a cycle
+    if len(p) > DEFAULT_BUDGET.input_bytes:
+        raise BudgetExceeded("input_bytes", len(p), DEFAULT_BUDGET.input_bytes)
     try:
         return _b64decode_any(p)
     except (ValueError, TypeError, binascii.Error) as exc:

@@ -311,6 +311,18 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
+    def test_non_str_receiver_key_id_is_not_independent(self):
+        # Refuter residual (crypto-review, 2026-07-15): a non-str receiverKeyId that wraps the executor's
+        # OWN id (e.g. ["kid-exec"]) is `!= "kid-exec"` in Python, so a bare `==` distinctness check would
+        # read it as "distinct" and wrongly reach INDEPENDENTLY_ATTESTED (a wrong consumer-facing
+        # evidence_levels value even though `ok` fails on the non-str field). isinstance(str) closes it.
+        from proofbundle.assurance import classify_receiver_corroboration
+        r = classify_receiver_corroboration(
+            {"sha256": _RECV_DIG}, evidence_resolver=lambda d: True,
+            independent_attestation_resolver=lambda d: True,
+            executor_key_id="kid-exec", receiver_key_id=["kid-exec"])
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)   # not promoted
+
     def test_receiver_ref_not_independent_when_executor_omits_its_own_key_id(self):
         # Refuter residual (crypto-review, 2026-07-15): executor.keyId is schema-OPTIONAL, and the executor
         # authors its own predicate — so a one-sided check (fire only when executor_key_id is present) is
