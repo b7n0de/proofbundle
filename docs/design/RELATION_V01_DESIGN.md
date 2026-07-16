@@ -119,9 +119,13 @@ Invariants (hard, tested + SMT-checkable lattice property):
   "rejectSuperseded": true
 }
 ```
-- enforced in `evaluate_policy` (checks `policy:relation_resolution`,
-  `policy:relation_signer`, `policy:reject_superseded`), listed by `policy explain`
-  (explain⟺enforce parity), linted by `policy lint` (vacuous-pass awareness).
+- IMPLEMENTED (2026-07-16): parsed fail-closed in `load_policy` (v0.2-gated), enforced on the
+  DECISION verify path (`verify_decision_receipt` — unresolved named relation or attached
+  verified successor fails `policy_ok`, exit-3 class, LIVE blocker `LINEAGE_REQUIREMENT_FAILED`),
+  listed by `policy explain` (explain⟺enforce parity). `relationSigner` is a documented FOLLOW-UP
+  (the CLI --with-related contract is same-key today; pinned-set needs per-target key plumbing);
+  the outcome-path policy gate is a FOLLOW-UP too (`verify_outcome_receipt` has no policy
+  parameter — outcome authorization runs via trust_pack).
 
 ## 6. CLI
 
