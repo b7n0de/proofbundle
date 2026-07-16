@@ -294,9 +294,11 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
 
 def successor_warning(relationships: Any, related: dict[str, dict] | None = None,
                       subject_hex: str | None = None) -> str | None:
-    """Advisory (policy `rejectSuperseded` turns it into a blocker): if an ATTACHED,
-    VERIFIED receipt declares a successor relation whose target is THIS receipt, the
-    receipt under verification is superseded by newer attached material."""
+    """Advisory (policy `reject_superseded` turns it into a blocker): if an ATTACHED,
+    VERIFIED receipt declares a successor relation (supersedes/revises/corrects) OR a
+    retraction (retracts) whose target is THIS receipt, the receipt under verification
+    is superseded/retracted by attached material (retracts-then-use, prompt §7.6 —
+    the retraction never breaks the target's crypto, it is a declared statement about it)."""
     related = related or {}
     if subject_hex is None:
         return None
@@ -307,8 +309,11 @@ def successor_warning(relationships: Any, related: dict[str, dict] | None = None
         if not isinstance(nested, list) or validate_relationships(nested):
             continue
         for edge in nested:
-            if (edge.get("relation") in SUCCESSOR_RELATIONS
-                    and _edge_target_hex(edge) == subject_hex):
+            rel = edge.get("relation")
+            if rel in SUCCESSOR_RELATIONS and _edge_target_hex(edge) == subject_hex:
                 return (f"superseded_by_attached: attached receipt {other_hex[:12]}… declares "
-                        f"{edge.get('relation')} over this receipt")
+                        f"{rel} over this receipt")
+            if rel == "retracts" and _edge_target_hex(edge) == subject_hex:
+                return (f"retracted_by_attached: attached receipt {other_hex[:12]}… declares "
+                        f"retracts over this receipt")
     return None

@@ -1353,6 +1353,11 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
     if result["anchors_ok"] is False:
         return 1
+    # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
+    # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
+    # fail-closed exit 2, never a silent exit 0. DECLARED_UNRESOLVED stays exit 0 (declared-only is honest).
+    if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
     if result["policy_ok"] is False:
         return 3
     return 0

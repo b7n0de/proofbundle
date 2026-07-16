@@ -522,3 +522,54 @@ class TestRelationsPolicyGate(unittest.TestCase):
         lines = " | ".join(explain_policy(pol))
         self.assertIn("retracts", lines)
         self.assertIn("superseded", lines)
+
+
+class TestRetractsThenUse(unittest.TestCase):
+    def test_retracted_by_attached_fires_and_policy_blocks(self):
+        from proofbundle import anchors, dsse
+        from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
+        from proofbundle.emit import generate_signer
+        from proofbundle.policy import load_policy
+        import json
+        from pathlib import Path
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        signer = generate_signer()
+        env = emit_decision_receipt(pred, signer, strict=True)
+        subject_hex = anchors.statement_content_root(dsse.load_payload(env)).hex()
+        related = {H_C: {"verified": True,
+                         "relationships": [edge(subject_hex, relation="retracts")]}}
+        pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "t",
+                           "relations": {"reject_superseded": True}})
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(),
+                                    policy=pol, related=related)
+        self.assertTrue(r["crypto_ok"])
+        self.assertIn("retracted_by_attached", r["lineage"]["supersededByAttached"] or "")
+        self.assertIs(r["policy_ok"], False)
+        self.assertIn("LINEAGE_REQUIREMENT_FAILED", r["automation"]["automationBlockers"])
+
+    def test_cli_exit_2_on_lineage_fail(self):
+        import base64
+        import json
+        import tempfile
+        from pathlib import Path
+        from proofbundle import cli
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        signer = generate_signer()
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            # Vorgaenger B von FREMDEM Signer -> attached-but-unverified unter --pub -> lineage FAIL -> exit 2
+            b_env = emit_decision_receipt(pred, generate_signer(), strict=True)
+            (tmp / "b.json").write_text(json.dumps(b_env), encoding="utf-8")
+            from proofbundle import anchors, dsse
+            b_root = anchors.statement_content_root(dsse.load_payload(b_env)).hex()
+            pred2 = dict(pred, decisionId="d-succ", relationships=[edge(b_root)])
+            a_env = emit_decision_receipt(pred2, signer, strict=True)
+            (tmp / "a.json").write_text(json.dumps(a_env), encoding="utf-8")
+            pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+            rc = cli.main(["decision", "verify", str(tmp / "a.json"), "--pub", pub,
+                           "--with-related", str(tmp / "b.json")])
+            self.assertEqual(rc, 2)
