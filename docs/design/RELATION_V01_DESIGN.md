@@ -150,6 +150,7 @@ Invariants (hard, tested + SMT-checkable lattice property):
 | one vector per relation (revises/corrects/retracts/renews/derivedFrom/amends) | — | semantics each |
 | declared-unresolved | — | DECLARED_UNRESOLVED, no error, no PASS upgrade |
 | cycle (A→B→A) · depth-exceeded · unauthorized-signer | — | FAIL each, stable code |
+| malformed-digest (non-hex sentinel, F6 annex — OWN never-raise vector, SEPARATE from digest-mismatch; internal corpus only) | — | FAIL, no exception |
 | retracts-then-use (policy active) | — | automation blocker |
 
 Layout: `conformance/relation/<vector>/case.json` + fixtures, registered in the
