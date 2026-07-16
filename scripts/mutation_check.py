@@ -345,6 +345,37 @@ MUTATIONS = [
      "    if not isinstance(_sigs, list) or not _sigs:",
      "    if False:",
      "trust_pack: C1.2 non-list signatures fail-closed removed (cap bypass / uncaught TypeError)", True),
+    # relation/v0.1 3.4.0 — the five new load-bearing guards (WP-A signer, WP-A2 target/subject).
+    # (i) key comparison degraded to length-only (any 32-byte key would match — the keyId-alias class):
+    #     killed by test_relation_signer_target_340.TestSignerDecisionPath.test_pinned_non_member_unauthorized.
+    ("src/proofbundle/relation.py",
+     "    return len(ra) == 32 and ra == rb",
+     "    return len(ra) == 32",
+     "relation_signer: key byte-equality degraded to length-only (keyId-alias class)", True),
+    # (ii) pinned-set membership ignored (successor always authorized): killed by the same test +
+    #      the Hypothesis membership property.
+    ("src/proofbundle/relation.py",
+     "            if not any(_keys_equal(successor_key_b64, k) for k in keys):",
+     "            if False:",
+     "relation_signer: pinned-set membership ignored (never unauthorized)", True),
+    # (iii) same-key verified_under binding removed (cross-issuer sneaks past same-key): killed by
+    #       test_same_key_cross_issuer_rejected / verified-under-not-claim vector.
+    ("src/proofbundle/relation.py",
+     "                if vu is not None and not _keys_equal(successor_key_b64, vu):",
+     "                if False:",
+     "relation_signer: same-key verified_under binding removed", True),
+    # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by
+    #      test_decoy_parent_fails_closed / decoy-parent conformance vectors.
+    ("src/proofbundle/relation.py",
+     "        if e.get(\"targetDigest\") not in set(allowed):",
+     "        if False:",
+     "require_relation_target: parent equality check disabled (decoy parent passes)", True),
+    # (v) targetSubjectDigest gegenpruefung inverted (O2 no longer catches a lying subject): killed by
+    #     TestTargetSubjectDigestO2.test_wrong_subject_digest_fails_lineage (and the correct-subject one).
+    ("src/proofbundle/relation.py",
+     "                            and _declared_subj != _actual_subj):",
+     "                            and _declared_subj == _actual_subj):",
+     "targetSubjectDigest: O2 gegenpruefung inverted (lying subject not caught)", True),
 ]
 
 

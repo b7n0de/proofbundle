@@ -6,6 +6,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (relation/v0.1 3.4.0 — three lineage pins, still EXPERIMENTAL)
+- **`relation_signer` trust-policy pin (WP-A, WHO may replace):** a new fail-closed
+  `relations.relation_signer` map — per relation `{"mode":"same-key"}` or
+  `{"mode":"pinned","keys":[<b64>,…]}`. The SUCCESSOR's issuer key must satisfy the rule
+  (byte membership of the raw Ed25519 key, never a keyId alias). Unmet →
+  `RELATION_SIGNER_UNAUTHORIZED`, exit 3. CLI `decision/outcome verify --with-related PATH
+  --related-pub B64` (position-paired) enables cross-issuer chains; the check runs against
+  the key the target ACTUALLY verified under (`verified_under`), never a claim. In-toto
+  layout/functionaries precedent (authorized keys per step); flat set, no thresholds (YAGNI).
+- **`require_relation_target` + `targetSubjectDigest` enforcement (WP-A2, WHICH parent —
+  KERNFUND F1/O1/O2, from Loek Verdonk / No Silent Landing's byte-verified adversarial
+  review):** `relations.require_relation_target` pins the expected parent content root(s)
+  per relation; a supersedes-like edge that resolves to any OTHER (even valid) parent →
+  `RELATION_TARGET_MISMATCH`, exit 3, on EVERY such edge, the accept path (T2) included —
+  closing the decoy-parent gap where `require_relation_resolution` alone only proved SOME
+  edge resolves. The previously dormant `targetSubjectDigest` edge field is now binding when
+  PRESENT (gegengeprueft against the resolved target's subject; mismatch →
+  `RELATION_TARGET_SUBJECT_MISMATCH`, lineage FAIL, exit 2).
+- **Outcome-path relations gate (WP-B):** `verify_outcome_receipt(..., policy=…)` /
+  `outcome verify --policy` enforce the `relations` section identically to the decision path
+  (require_relation_resolution / reject_superseded / relation_signer / require_relation_target),
+  same exit-code contract and blocker names. trust_pack role auth is separate and unchanged.
+- **Automation-surface consistency (WP-A3 / F5):** `referencesResolved` is no longer `true`
+  while a REQUESTED lineage relation is unresolved/failed; `policy explain` lists the two new
+  pins (explain⟺enforce parity).
+- **Conformance corpus:** the shared `relations`-policy evaluator (`relation.evaluate_relations_policy`,
+  cut as its own function for the future relation-statement verifier) and new vectors for
+  relation_signer, the decoy-parent fix (target-mismatch + must-pass gegenprobe + accept-path
+  + documented no-pin old behavior, `crossFormatId xfmt-t3-decoy`), the `targetSubjectDigest`
+  O2 gegenpruefung, a JCS-canonical invalid-signature vector (F2), and an `outcome_relation`
+  harness mirror. Lattice monotonicity preserved throughout: relation_signer / target-mismatch
+  change ONLY the policy verdict, never `cryptoValid`. relation/v0.1 stays EXPERIMENTAL.
+- Honest follow-ups (3.5.0): Rust differential parity for the new surface (NOT_RUN until the
+  Rust core carries the profile); threshold signer sets and DID/VC identity indirection remain
+  DELIBERATELY out of scope.
+
 ## [3.3.0] - 2026-07-16
 
 ### Added (relation/v0.1 lineage profile — EXPERIMENTAL)

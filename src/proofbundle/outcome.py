@@ -433,7 +433,13 @@ def _empty_result() -> dict:
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
         # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
         "receiver_bound": None, "receiver_role_trusted": None,
-        "lineage": None, "lineage_ok": None, "warnings": [], "errors": [],
+        "lineage": None, "lineage_ok": None,
+        # WP-B (3.4.0): the relations trust-policy verdict on the OUTCOME path — identical gate + codes
+        # as the decision path; None until a relations policy is supplied. policy_ok is the relations
+        # verdict here (distinct from executor_role_trusted, which stays the trust_pack role gate).
+        "policy_ok": None, "lineage_requirement_failed": None,
+        "relations_policy_failed": None, "relations_policy_codes": None,
+        "warnings": [], "errors": [],
     }
 
 
@@ -443,7 +449,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
-                           related: dict | None = None) -> dict:
+                           related: dict | None = None, policy: dict | None = None) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -701,6 +707,27 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 "require_derived_subject but RFC-8785 canonicalizer unavailable — cannot verify subject "
                 "derivation (install proofbundle[eval]), fail-closed")
 
+    # WP-B (3.4.0): the relations trust-policy gate — enforced IDENTICALLY to the decision path
+    # (require_relation_resolution, reject_superseded, relation_signer, require_relation_target) via the
+    # SAME shared evaluator. NEVER touches crypto (lattice monotonicity); a violation lands only in
+    # policy_ok (exit-3 class at the CLI). trust_pack role auth (executor_role_trusted) is unchanged and
+    # SEPARATE — this comes DAZU, it replaces nothing.
+    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+        import base64 as _b64_rel  # noqa: PLC0415
+        from .relation import evaluate_relations_policy  # noqa: PLC0415
+        _viol = evaluate_relations_policy(
+            policy["relations"], r.get("lineage") or {},
+            successor_key_b64=_b64_rel.b64encode(public_key).decode())
+        r["policy_ok"] = not _viol
+        if _viol:
+            r["relations_policy_failed"] = True
+            _codes = {v["code"] for v in _viol}
+            if "LINEAGE_REQUIREMENT_FAILED" in _codes:
+                r["lineage_requirement_failed"] = True
+            for v in _viol:
+                r["errors"].append(f"{v['code']}: {v['message']}")
+            r["relations_policy_codes"] = sorted(_codes)
+
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["decision_bound"] is not False and r["role_separation_ok"] is not False
@@ -710,7 +737,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # default for every caller) passes exactly like every other optional check above; only an explicit
         # False (a trust_pack WAS supplied and the executor is not a trusted role member) fails ok.
         and r["executor_role_trusted"] is not False
-        and r["lineage_ok"] is not False)
+        and r["lineage_ok"] is not False
+        and r["policy_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — never changes `ok` above. Outcome has
     # no separate trust-policy layer (yet); executor_role_trusted (the outcomeExecutors role gate) is the

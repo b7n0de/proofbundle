@@ -1207,36 +1207,62 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_related(paths, pub: bytes) -> tuple[dict, list[str]]:
+def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
-    STANDALONE under the SAME relying-party key, and key it by its content root. Same-key is the
-    honest v0.1 CLI contract (it matches the strictest relationSigner policy value); per-target
-    keys are a documented follow-up. A file that fails to load is a usage error (exit 2 at the
-    caller) — an envelope that loads but does NOT verify is kept with verified=False, so an
-    attached-but-wrong target FAILS lineage instead of vanishing."""
+    STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
+    (3.4.0) adds POSITION-PAIRED per-target keys via ``--related-pub`` so cross-issuer chains can be
+    verified: the i-th ``--related-pub`` is the key the i-th ``--with-related`` target verifies under
+    (an empty/absent entry falls back to the main ``pub`` = same-key). Each entry records
+    ``verified_under`` (the base64 key the target ACTUALLY verified under — relation_signer checks
+    against this, never a claim) and ``subject_digest`` (the target's subject digest — WP-A2/O2
+    gegenprobe). A file that fails to load is a usage error (exit 2); an envelope that loads but does
+    NOT verify is kept with verified=False, so an attached-but-wrong target FAILS lineage."""
+    import base64  # noqa: PLC0415
     from . import anchors as _anchors_mod  # noqa: PLC0415
     from . import dsse as _dsse  # noqa: PLC0415
     related: dict = {}
     errs: list[str] = []
-    for path in paths or []:
+    paths = paths or []
+    related_pubs = related_pubs or []
+    for i, path in enumerate(paths):
+        # position-paired per-target key; empty string or missing = same-key (main pub).
+        rp_b64 = related_pubs[i] if i < len(related_pubs) else None
+        try:
+            verify_key = base64.b64decode(rp_b64, validate=True) if rp_b64 else pub
+        except (ValueError, TypeError) as exc:
+            errs.append(f"cannot decode --related-pub for {path}: {exc}")
+            continue
         try:
             with open(path, encoding="utf-8") as handle:
                 env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             body = _dsse.load_payload(env)
             root_hex = _anchors_mod.statement_content_root(body).hex()
             # L3-audit fix: inside the try so a malformed-envelope error names the offending file too.
-            verified = bool(_dsse.verify_envelope(env, pub, payload_type="application/vnd.in-toto+json"))
+            verified = bool(_dsse.verify_envelope(env, verify_key,
+                                                  payload_type="application/vnd.in-toto+json"))
         except (ProofBundleError, OSError, ValueError) as exc:
             errs.append(f"cannot read --with-related {path}: {exc}")
             continue
         rels = None
+        subject_digest = None
         try:
             stmt = loads_strict(body.decode("utf-8"))
             if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
                 rels = stmt["predicate"].get("relationships")
+            # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            subj = stmt.get("subject") if isinstance(stmt, dict) else None
+            if isinstance(subj, list) and subj and isinstance(subj[0], dict):
+                d = subj[0].get("digest")
+                if isinstance(d, dict) and isinstance(d.get("sha256"), str):
+                    subject_digest = d["sha256"]
         except (ProofBundleError, ValueError):
             rels = None
-        related[root_hex] = {"verified": verified, "relationships": rels}
+        related[root_hex] = {
+            "verified": verified, "relationships": rels,
+            "verified_under": base64.b64encode(verify_key).decode(),
+            "subject_digest": subject_digest,
+        }
     return related, errs
 
 
@@ -1279,7 +1305,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
-        related, rel_errs = _load_related(getattr(args, "with_related", None), pub)
+        related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
+                                          getattr(args, "related_pub", None))
         if rel_errs:
             for e in rel_errs:
                 print(f"ERROR: {e}", file=sys.stderr)
@@ -1304,7 +1331,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
-            "automation", "evidence_levels", "lineage", "warnings", "errors",
+            "automation", "evidence_levels", "lineage", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
         print(json.dumps(report, indent=2, default=str))
     else:
@@ -1462,11 +1489,24 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
+    policy = None
+    if getattr(args, "policy", None):
+        # WP-B (3.4.0): the outcome path enforces the trust-policy `relations` section identically to
+        # the decision path (require_relation_resolution / reject_superseded / relation_signer /
+        # require_relation_target). trust_pack role auth is separate and unchanged.
+        from .policy import PolicyError, load_policy  # noqa: PLC0415
+        from .policy_profiles import resolve_policy_source  # noqa: PLC0415
+        try:
+            policy = load_policy(resolve_policy_source(args.policy))
+        except PolicyError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
             env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
-        related, rel_errs = _load_related(getattr(args, "with_related", None), pub)
+        related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
+                                          getattr(args, "related_pub", None))
         if rel_errs:
             for e in rel_errs:
                 print(f"ERROR: {e}", file=sys.stderr)
@@ -1475,7 +1515,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             env, pub, strict=args.strict,
             expected_decision_ref=args.expected_decision_ref, decision_maker_id=args.decision_maker_id,
             expected_audience=args.aud, expected_nonce=args.nonce,
-            require_derived_subject=args.require_derived_subject, related=related or None)
+            require_derived_subject=args.require_derived_subject, related=related or None,
+            policy=policy)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1488,12 +1529,15 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
             # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
             "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
-            "lineage", "warnings", "errors",
+            # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
+            "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
         print(json.dumps(report, indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
+        if result["policy_ok"] is not None:
+            print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
         if result["decision_bound"] is not None:
             print(f"DECISION_BINDING: {'OK' if result['decision_bound'] else 'MISMATCH'}")
         if result["role_separation_ok"] is not None:
@@ -1534,6 +1578,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # a REQUESTED lineage check (--with-related / edges present) that FAILs must never exit 0.
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
         return 2
+    # WP-B: the relations trust-policy gate is exit-3 class, IDENTICAL to the decision path
+    # (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH / LINEAGE_REQUIREMENT_FAILED).
+    if result["policy_ok"] is False:
+        return 3
     return 0
 
 
@@ -2039,9 +2087,13 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify.add_argument("--with-related", dest="with_related", action="append", default=None, metavar="PATH",
                           help="relation/v0.1 (EXPERIMENTAL): attach a RELATED receipt's DSSE envelope for "
                                "offline lineage resolution (repeatable). Each target is verified standalone "
-                               "under the SAME --pub (same-key contract); an attached target that does not "
-                               "verify FAILS lineage — relationship declared by issuer, not a statement of "
-                               "correctness")
+                               "under the SAME --pub (same-key contract) unless a position-paired "
+                               "--related-pub is given; an attached target that does not verify FAILS lineage "
+                               "— relationship declared by issuer, not a statement of correctness")
+    d_verify.add_argument("--related-pub", dest="related_pub", action="append", default=None, metavar="B64",
+                          help="WP-A (3.4.0): position-paired issuer key (base64) for the i-th --with-related "
+                               "target, enabling cross-issuer chains. Empty/absent = same-key (--pub). The "
+                               "trust policy's relation_signer pin decides WHO may replace")
     d_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
                           help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
@@ -2086,9 +2138,15 @@ def build_parser() -> argparse.ArgumentParser:
     o_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 required fields")
     o_verify.add_argument("--aud", default=None, help="expected audience (checks validity.audience against replay)")
     o_verify.add_argument("--nonce", default=None, help="expected nonce (checks validity.nonce against replay)")
+    o_verify.add_argument("--policy", default=None,
+                          help="WP-B (3.4.0): trust policy JSON — the `relations` section is enforced on the "
+                               "outcome path identically to decision verify; a violation exits 3")
     o_verify.add_argument("--with-related", dest="with_related", action="append", default=None, metavar="PATH",
                           help="relation/v0.1 (EXPERIMENTAL): attach a RELATED receipt's DSSE envelope for "
-                               "offline lineage resolution (repeatable; same-key contract as decision verify)")
+                               "offline lineage resolution (repeatable; same-key unless --related-pub given)")
+    o_verify.add_argument("--related-pub", dest="related_pub", action="append", default=None, metavar="B64",
+                          help="WP-A (3.4.0): position-paired issuer key (base64) for the i-th --with-related "
+                               "target (cross-issuer); empty/absent = same-key (--pub)")
     o_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
                           help="Finding 05: fail closed (exit 2) unless the Statement subject is a DERIVED "
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "

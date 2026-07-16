@@ -57,7 +57,8 @@ def _structural_validate(case: dict) -> list[str]:
     for key in ("caseId", "kind", "expected"):
         if key not in case:
             errs.append(f"missing required key {key!r}")
-    if case.get("kind") not in {"decision_crossimpl", "native_bundle", "decision_relation"}:
+    if case.get("kind") not in {"decision_crossimpl", "native_bundle", "decision_relation",
+                                 "outcome_relation"}:
         errs.append(f"unknown kind {case.get('kind')!r}")
     exp = case.get("expected")
     if not isinstance(exp, dict) or not exp:

@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import copy
 import hmac
+import re
 from datetime import datetime, timezone
 from typing import Union
 
@@ -135,11 +136,14 @@ def _parse_iso_utc(s):
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
-# relation/v0.1 (EXPERIMENTAL, 3.3.0): the lineage policy section. relation_signer is a documented
-# FOLLOW-UP (the CLI --with-related contract is same-key today; a pinned-set needs per-target key
-# plumbing) — an unknown key here is fail-closed, so a future field cannot silently no-op.
-_RELATIONS_KEYS = {"require_relation_resolution", "reject_superseded"}
+# relation/v0.1 (EXPERIMENTAL, 3.3.0 → 3.4.0): the lineage policy section. relation_signer (WP-A,
+# WHO may replace) and require_relation_target (WP-A2, WHICH parent) are LIVE since 3.4.0 — an
+# unknown key here stays fail-closed, so a future field cannot silently no-op.
+_RELATIONS_KEYS = {"require_relation_resolution", "reject_superseded",
+                   "relation_signer", "require_relation_target"}
 _RELATION_NAMES = ("supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends")
+_RELATION_SIGNER_MODES = ("same-key", "pinned")
+_HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
                   "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
@@ -428,6 +432,50 @@ def load_policy(source: Union[str, dict]) -> dict:
                 raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
                                   f"relation names out of {list(_RELATION_NAMES)}")
         _require_bool(rel, "reject_superseded", "relations")
+        # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
+        # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
+        if "relation_signer" in rel:
+            rs = _require_dict(rel["relation_signer"], "relations.relation_signer")
+            for relname, rule in rs.items():
+                if relname not in _RELATION_NAMES:
+                    raise PolicyError(f"relations.relation_signer key {relname!r} is not a relation "
+                                      f"name out of {list(_RELATION_NAMES)}")
+                rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
+                _reject_unknown(rule, {"mode", "keys"}, f"relations.relation_signer[{relname}]")
+                mode = rule.get("mode")
+                if mode not in _RELATION_SIGNER_MODES:
+                    raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
+                                      f"{list(_RELATION_SIGNER_MODES)} (fail-closed), got {mode!r}")
+                if mode == "same-key":
+                    if "keys" in rule:
+                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'same-key' takes "
+                                          "no 'keys' (fail-closed)")
+                else:  # pinned
+                    keys = rule.get("keys")
+                    if not isinstance(keys, list) or not keys \
+                            or not all(isinstance(k, str) for k in keys):
+                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'pinned' needs a "
+                                          "non-empty 'keys' list of base64 Ed25519 public keys "
+                                          "(empty = vacuous pin, fail-closed)")
+                    for k in keys:
+                        _validate_pinned_ed25519_pubkey(k, f"relations.relation_signer[{relname}]")
+        # WP-A2 require_relation_target (WHICH parent): map relation -> 64-hex content root | [roots…].
+        # Fail-closed: unknown relation, non-hex, empty list. Closes the decoy-parent gap.
+        if "require_relation_target" in rel:
+            rt = _require_dict(rel["require_relation_target"], "relations.require_relation_target")
+            for relname, roots in rt.items():
+                if relname not in _RELATION_NAMES:
+                    raise PolicyError(f"relations.require_relation_target key {relname!r} is not a "
+                                      f"relation name out of {list(_RELATION_NAMES)}")
+                items = roots if isinstance(roots, list) else [roots]
+                if isinstance(roots, list) and not roots:
+                    raise PolicyError(f"relations.require_relation_target[{relname}] must not be an "
+                                      "empty list (vacuous pin, fail-closed)")
+                for root in items:
+                    if not (isinstance(root, str) and _HEX64.match(root)):
+                        raise PolicyError(f"relations.require_relation_target[{relname}] must be a "
+                                          "64-char lowercase hex content root (jcs-sha256-v1), or a "
+                                          "non-empty list of them")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
@@ -1003,6 +1051,21 @@ def explain_policy(policy: dict) -> list:
                      + ", ".join(rel["require_relation_resolution"]))
     if rel.get("reject_superseded"):
         lines.append("superseded receipt rejected (an attached, verified successor blocks automation)")
+    # WP-A / WP-A2: the two 3.4.0 pins — explain MUST list them (explain⟺enforce parity, same rule as
+    # anchors); a policy whose ONLY pin was one of these must not read as wirkungslos in `policy lint`.
+    rsig = rel.get("relation_signer") or {}
+    for relname, rule in rsig.items():
+        if isinstance(rule, dict) and rule.get("mode") == "pinned":
+            lines.append(f"relation_signer[{relname}]: successor issuer key pinned to a set of "
+                         f"{len(rule.get('keys') or [])} key(s)")
+        elif isinstance(rule, dict) and rule.get("mode") == "same-key":
+            lines.append(f"relation_signer[{relname}]: successor issuer key MUST equal the target's "
+                         "(same-key)")
+    rtgt = rel.get("require_relation_target") or {}
+    for relname, roots in rtgt.items():
+        n = len(roots) if isinstance(roots, list) else 1
+        lines.append(f"require_relation_target[{relname}]: edge MUST resolve to one of {n} pinned "
+                     "parent root(s)")
     dr = policy.get("decision_receipt") or {}
     if dr:
         active = [k for k in dr if dr.get(k)]

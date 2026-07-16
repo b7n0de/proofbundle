@@ -408,6 +408,10 @@ def _empty_result() -> dict:
         # relation/v0.1 (EXPERIMENTAL, additive): lineage verdict over the predicate's OPTIONAL
         # relationships edges — None until computed over AUTHENTICATED bytes; never gates `ok`.
         "lineage": None, "lineage_requirement_failed": None, "lineage_ok": None,
+        # relation/v0.1 3.4.0 (WP-A/WP-A2): the relations trust-policy verdict — None until a
+        # relations policy is evaluated; the stable violation codes (LINEAGE_REQUIREMENT_FAILED /
+        # RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH) drive the automation blockers + F5.
+        "relations_policy_failed": None, "relations_policy_codes": None,
         "warnings": [], "errors": [],
     }
 
@@ -709,20 +713,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
     if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
-        _rel_pol = policy["relations"]
-        _lin = r.get("lineage") or {}
-        _viol = []
-        _req = _rel_pol.get("require_relation_resolution") or []
-        for _e in (_lin.get("edges") or []):
-            if _e.get("relation") in _req and _e.get("resolution") != "VERIFIED":
-                _viol.append(f"relation {_e.get('relation')!r} must resolve (target attached and "
-                             f"verified), got {_e.get('resolution')}")
-        if _rel_pol.get("reject_superseded") and _lin.get("supersededByAttached"):
-            _viol.append(f"reject_superseded: {_lin['supersededByAttached']}")
+        import base64 as _b64_rel  # noqa: PLC0415
+        from .relation import evaluate_relations_policy  # noqa: PLC0415
+        _viol = evaluate_relations_policy(
+            policy["relations"], r.get("lineage") or {},
+            successor_key_b64=_b64_rel.b64encode(public_key).decode())
         if _viol:
             r["policy_ok"] = False
-            r["lineage_requirement_failed"] = True
-            r["errors"].extend("LINEAGE_REQUIREMENT_FAILED: " + v for v in _viol)
+            # WP-A3 / F5 driver: any relations violation means a REQUESTED relation surface did not
+            # cleanly resolve — reflected in referencesResolved below.
+            r["relations_policy_failed"] = True
+            _codes = {v["code"] for v in _viol}
+            if "LINEAGE_REQUIREMENT_FAILED" in _codes:
+                r["lineage_requirement_failed"] = True
+            for v in _viol:
+                r["errors"].append(f"{v['code']}: {v['message']}")
+            r["relations_policy_codes"] = sorted(_codes)
 
     # Aggregate verdict: authenticated AND well-structured AND no applicable trust check FAILED.
     # None means not-applicable (passes); only an explicit False fails the aggregate.
@@ -744,9 +750,14 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # relation/v0.1: the dedicated blocker name (LIVE, not dormant) — POLICY_FAILED already fires via
     # policy_ok=False above; this names the REASON so a consumer can distinguish a lineage gate from
     # any other policy failure. Only ever ADDS a blocker (never turns safeForAutomation true).
-    if r.get("lineage_requirement_failed") and isinstance(r.get("automation"), dict):
+    if r.get("relations_policy_failed") and isinstance(r.get("automation"), dict):
         blockers = r["automation"].setdefault("automationBlockers", [])
-        if "LINEAGE_REQUIREMENT_FAILED" not in blockers:
-            blockers.append("LINEAGE_REQUIREMENT_FAILED")
+        for _code in (r.get("relations_policy_codes") or ["LINEAGE_REQUIREMENT_FAILED"]):
+            if _code not in blockers:
+                blockers.append(_code)
         r["automation"]["safeForAutomation"] = False
+        # WP-A3 / F5: a REQUESTED relation that did not cleanly resolve must not read as
+        # referencesResolved=true. Only touched on a real relations violation (bidirectional: a
+        # non-lineage receipt / a satisfied policy leaves the field exactly as automation_summary set it).
+        r["automation"]["referencesResolved"] = False
     return r

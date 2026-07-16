@@ -14,8 +14,8 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["decision_crossimpl", "native_bundle", "decision_relation"],
-      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip)."
+      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation"],
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path."
     },
     "input": {
       "type": "string",
@@ -28,7 +28,12 @@
     "related": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "decision_relation only: attached predecessor receipts (--with-related)."
+      "description": "decision_relation/outcome_relation only: attached predecessor receipts (--with-related)."
+    },
+    "relatedPubs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "WP-A (3.4.0): base64 issuer keys position-paired with `related` (i-th key for the i-th target; empty string = same-key/--pub). Enables cross-issuer chains verified under relation_signer."
     },
     "policy": {
       "type": "string",

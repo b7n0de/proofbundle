@@ -39,6 +39,13 @@ AUTOMATION_BLOCKER_REASONS = {
     # verified successor supersedes the receipt under rejectSuperseded). LIVE, not dormant.
     "LINEAGE_REQUIREMENT_FAILED": "The trust policy's lineage requirement was not met (relations "
                                   "section: unresolved required relation or superseded receipt)",
+    # relation/v0.1 3.4.0 (WP-A / WP-A2): raised on BOTH the decision and outcome verify paths.
+    "RELATION_SIGNER_UNAUTHORIZED": "The successor's issuer key is not authorized by the trust "
+                                    "policy's relation_signer pin (WHO may replace — set membership "
+                                    "under the verifier's pins, not a proof of authority)",
+    "RELATION_TARGET_MISMATCH": "A supersedes-like edge resolves to a parent NOT in the trust "
+                                "policy's require_relation_target pin (WHICH parent — a valid but "
+                                "wrong/decoy parent, rejected only in the policy verdict)",
 }
 
 

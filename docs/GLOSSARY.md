@@ -53,6 +53,19 @@ that a specific party stands behind it and nobody tampered with it afterward.
   claim the plan matched a lucky result. The hash goes in the signed receipt.
 - **Trust anchor** — a key or value *you* must supply/pin for a check to mean anything (e.g. "I know
   this is really the lab's key"). See [TRUST_ANCHORS.md](TRUST_ANCHORS.md).
+- **Lineage / relationship (`relation/v0.1`, EXPERIMENTAL)** — a receipt never changes; when a result
+  is corrected, re-run, retracted, or renewed, the NEW receipt carries a typed, signed *relationship
+  edge* pointing at the predecessor's content root (`supersedes`, `revises`, `corrects`, `retracts`,
+  `renews`, `derivedFrom`, `amends`). `verify` reports it as a `lineage` state (VERIFIED /
+  DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) — replacement becomes visible instead of silent. It
+  proves the issuer *declared* the derivation over exact bytes; never that the successor is better or
+  true, and it never changes the crypto verdict. Attach predecessors offline with `--with-related`.
+- **`relation_signer` / `require_relation_target` (relying-party policy, 3.4.0)** — two optional pins
+  in a trust policy's `relations` section. `relation_signer` says WHICH issuer keys may declare a
+  replacement (a `same-key` rule or a pinned set); `require_relation_target` says WHICH parent an edge
+  must resolve to (rejecting a valid-but-wrong "decoy" parent). Both are *your* policy: a passing
+  check proves set membership / the named parent under your pins — not that anyone is "really"
+  authorized. Enforced identically on the decision and outcome verify paths.
 
 ## What `=> OK` means (and doesn't)
 

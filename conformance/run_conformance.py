@@ -199,12 +199,13 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
 
-def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
-    """relation/v0.1 lineage vectors: run `decision verify` with the case's attached related
-    receipts (and optional policy) and compare exit code + reported lineage state. Fail-closed
-    floor: exitCode is mandatory; every declared expectation is asserted, none silently skipped.
-    All referenced files are confined to the case directory (same rule as native_bundle)."""
-    del require_anchors
+def _check_relation(case: dict, case_dir: pathlib.Path, *, verb: str) -> dict:
+    """relation/v0.1 lineage vectors on the `decision` OR `outcome` verify path (WP-B mirrors the
+    gate on both). Runs `<verb> verify` with the case's attached related receipts (optional
+    per-target --related-pub for WP-A cross-issuer, optional --policy) and compares exit code +
+    reported lineage state via the ONE common-vocabulary comparator. Fail-closed floor: exitCode is
+    mandatory; every declared expectation is asserted. All referenced files are confined to the case
+    directory (same rule as native_bundle)."""
     import base64  # noqa: PLC0415
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
@@ -212,7 +213,7 @@ def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anch
     cid = case["caseId"]
     exp = case["expected"]
     if "exitCode" not in exp:
-        return _fail(cid, "decision_relation case under-declares its expectations: missing exitCode")
+        return _fail(cid, f"{verb}_relation case under-declares its expectations: missing exitCode")
 
     def _confined(name: str) -> pathlib.Path | None:
         f = (case_dir / name).resolve()
@@ -229,12 +230,21 @@ def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anch
         base64.b64decode(pub_b64, validate=True)
     except Exception:
         return _fail(cid, "pub.b64 is not valid base64")
-    argv = ["decision", "verify", str(receipt), "--pub", pub_b64, "--json"]
-    for rel_name in case.get("related") or []:
+    argv = [verb, "verify", str(receipt), "--pub", pub_b64, "--json"]
+    related = case.get("related") or []
+    for rel_name in related:
         rel = _confined(rel_name)
         if rel is None:
             return _fail(cid, f"related fixture {rel_name!r} missing or escapes the case directory")
         argv += ["--with-related", str(rel)]
+    # WP-A: per-target issuer keys (position-paired with `related`) for cross-issuer chains. A raw b64
+    # string, NOT a file — never confined (it is key material, not a path).
+    related_pubs = case.get("relatedPubs")
+    if related_pubs is not None:
+        if not isinstance(related_pubs, list) or len(related_pubs) != len(related):
+            return _fail(cid, "relatedPubs must be a list parallel to `related`")
+        for rp in related_pubs:
+            argv += ["--related-pub", str(rp)]
     if case.get("policy"):
         pol = _confined(case["policy"])
         if pol is None:
@@ -244,16 +254,18 @@ def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anch
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         rc = _cli_main(argv)
     if rc != exp["exitCode"]:
-        return _fail(cid, f"decision verify exit {rc} != expected {exp['exitCode']} "
+        return _fail(cid, f"{verb} verify exit {rc} != expected {exp['exitCode']} "
                           f"(stderr: {err.getvalue()[:200]!r})")
     report = None
     try:
         report = json.loads(out.getvalue())
     except ValueError:
         report = None
-    # F1: derive the run's common-vocabulary label and compare it, in ONE vocabulary, against
-    # the case's declared expectation (the same comparator the cross-format and Rust differential
-    # layers use). This subsumes the old inline lineage/exit string comparison.
+    # F1/F3: derive the run's common-vocabulary label from the REAL verifier --json output and compare
+    # it, in ONE vocabulary, against the case's declared expectation (the same comparator the
+    # cross-format and Rust differential layers use — never a hand-entered field_result). This is the
+    # structural closure of the F3 "circular comparator" finding: the decoy vector falls with this
+    # independently-derived label and would not with a hand-copied one.
     ok_lbl, diffs = compare(expected_label(exp), label_from_verify(rc, report))
     if not ok_lbl:
         return _fail(cid, "; ".join(diffs))
@@ -261,11 +273,21 @@ def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anch
         blob = json.dumps(report or {}) + err.getvalue()
         if exp["errorContains"] not in blob:
             return _fail(cid, f"expected error marker {exp['errorContains']!r} not found in report/stderr")
-    return {"caseId": cid, "ok": True, "detail": f"decision verify exit {rc}, lineage as declared"}
+    return {"caseId": cid, "ok": True, "detail": f"{verb} verify exit {rc}, lineage as declared"}
+
+
+def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    del require_anchors
+    return _check_relation(case, case_dir, verb="decision")
+
+
+def _check_outcome_relation(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    del require_anchors
+    return _check_relation(case, case_dir, verb="outcome")
 
 
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
-             "decision_relation": _check_decision_relation}
+             "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation}
 
 
 def run(*, require_anchors: bool = False) -> int:

@@ -1,0 +1,11 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "relsig-samekey",
+ "relations": {
+  "relation_signer": {
+   "supersedes": {
+    "mode": "same-key"
+   }
+  }
+ }
+}
