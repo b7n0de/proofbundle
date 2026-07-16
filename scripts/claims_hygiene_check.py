@@ -38,6 +38,7 @@ _DEFAULT_DOCS = [
     # ADRs (docs/adr/*) are deliberately NOT in this list, matching 0001/0002's precedent — a design
     # record's freeform "options considered" prose is not the same genre as a capability claim.
     "docs/POLICY_PROFILES.md", "docs/PUBLIC_TRANSPARENCY_PROFILE.md", "docs/SD_JWT_VC_PROFILE.md",
+    "docs/predicates/relation.md",
     "docs/MIGRATION_EVAL_PREDICATE.md",
     # 3.2.0 O-predicate + profile docs (release-review scan-gap fix): capability-claim genre, same discipline.
     "docs/predicates/README.md", "docs/predicates/action-outcome.md", "docs/predicates/decision-receipt.md",
@@ -59,6 +60,8 @@ _APPEND_ONLY_LABEL = "append-only (needs a public transparency log)"
 # Forbidden phrasings (§15). Each is a VIOLATION unless its sentence is negated.
 _FORBIDDEN = [
     (r"proves?\s+(?:the\s+)?(?:truth|correctness)", "proves truth/correctness"),
+    (r"relationship\s+proves\s+the\s+new\s+version\s+is\s+correct", "relationship proves the new version is correct"),
+    (r"supersession\s+proves\s+the\s+successor", "supersession proves the successor"),
     (r"proves?\s+(?:the\s+number\s+is\s+)?true", "proves the number is true"),
     (r"compliance[- ]ready", "compliance ready"),
     (r"satisfies\s+article\s+12", "satisfies Article 12"),
