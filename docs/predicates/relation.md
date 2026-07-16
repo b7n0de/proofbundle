@@ -163,8 +163,38 @@ cannot mask a regression (the decoy vector falls with the independently-derived 
 - Cross-issuer chains are supported since 3.4.0 (`--related-pub`), gated by the relying
   party's `relation_signer` pin. `require_relation_target` pins WHICH parent an edge may
   resolve to. Both are relying-party policy, never format truth.
-- Deliberately OPEN (do not read them into 3.4.0): threshold signer sets (TUF N-of-M),
-  identity indirection (DID/VC controllers, CA chains — the offline contract forbids a
-  resolver dependency), and the `relation-statement/v0.1` standalone profile (retroactive
-  statements OVER a receipt without a successor), specified in the design note and not yet
-  built.
+- Deliberately OPEN (do not read them into 3.4.0/3.5.0): threshold signer sets (TUF N-of-M)
+  and identity indirection (DID/VC controllers, CA chains — the offline contract forbids a
+  resolver dependency).
+
+## Standalone profile — `relation-statement/v0.1` (EXPERIMENTAL, since 3.5.0)
+
+The in-receipt edges above express change from the SUCCESSOR's side (a new receipt that carries
+the edge). The standalone profile is the independent case: a DSSE-signed statement OVER a target
+receipt, carrying EXACTLY ONE typed edge and NO decision/outcome payload of its own. It exists for
+the retroactive case the in-receipt edges cannot express — declaring a foreign or older receipt
+retracted / superseded / amended WITHOUT emitting a successor result and WITHOUT touching the
+original. Status-as-a-separate-object precedent: W3C Bitstring Status List v1.0, CT/OCSP revocation, and the
+SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` maps to SCITT
+`revokes`, `supersedes` to `supersedes`.
+
+- predicateType `https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`; predicate
+  `{schemaVersion, statementId, relationships:[edge]}` with exactly one edge (the same edge schema
+  as above). The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
+  the same functions as the in-receipt path — there is no second implementation of the logic.
+- Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
+  DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
+  and whether the issuer may declare it is a relying-party policy decision. A `retracts` statement
+  sets a visible declared state BESIDE the target — the target receipt stays valid for its bytes
+  forever, and a verifier that does not know the statement still sees a valid target. A retraction is
+  relying-party knowledge, not a global kill; `lineage` never feeds `cryptoValid`.
+- CLI: `proofbundle relation-statement init|emit|verify|inspect`, exit contract 0/1/2/3 identical to
+  the decision/outcome verify paths (`verify --with-related PATH --related-pub B64 --policy POLICY`).
+- The trust policy gains `relations.reject_retracted` (and `reject_superseded` for the successor
+  relations): a relying party who knows BOTH the target and a verified retracts statement of a pinned
+  signer can treat continued automated use of the target as an exit-3 block. Without the policy the
+  verified statement is pure visibility. `relation_signer` decides WHO may declare it, unchanged.
+- Rust parity: the independent Rust verifier carries this profile since 3.5.0
+  (`verify-relation-statement`); `crosscheck.py` drives the statement vectors differentially and
+  asserts Python and Rust land on the same exit class + lineage. Differential agreement on these
+  vectors, not a correctness proof of either implementation.

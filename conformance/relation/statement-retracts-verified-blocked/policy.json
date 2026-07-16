@@ -1,0 +1,15 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "stmt-reject-retracted",
+ "relations": {
+  "relation_signer": {
+   "retracts": {
+    "mode": "pinned",
+    "keys": [
+     "Pv6iLpxNqJ6Fe7WRc23me9km0Lv+KeuE2mVM74wCxqM="
+    ]
+   }
+  },
+  "reject_retracted": true
+ }
+}

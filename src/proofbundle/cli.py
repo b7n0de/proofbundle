@@ -1603,6 +1603,141 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── relation-statement (3.5.0, relation-statement/v0.1, EXPERIMENTAL) ──────────
+def _cmd_relation_statement_init(args: argparse.Namespace) -> int:
+    template = {
+        "schemaVersion": "0.1.0",
+        "statementId": "urn:uuid:00000000-0000-0000-0000-000000000000",
+        "relationships": [{
+            "relation": "retracts",
+            "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "0" * 64},
+            "reasonCode": "withdrawal",
+            "reason": "",
+            "declaredAt": "2026-01-01T00:00:00Z",
+        }],
+    }
+    out = json.dumps(template, indent=2, ensure_ascii=False)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(out + "\n")
+        print(f"wrote relation-statement predicate template {args.out}")
+    else:
+        print(out)
+    return 0
+
+
+def _cmd_relation_statement_emit(args: argparse.Namespace) -> int:
+    from .relation_statement import RelationStatementError, emit_relation_statement  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        with open(args.predicate, encoding="utf-8") as handle:
+            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
+        env = emit_relation_statement(predicate, signer)
+    except (RelationStatementError, ProofBundleError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(env, handle, indent=2)
+        handle.write("\n")
+    print(f"wrote relation statement {args.out}")
+    return 0
+
+
+def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+    from .relation_statement import verify_relation_statement  # noqa: PLC0415
+    if not args.pub:
+        print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
+        return 2
+    policy = None
+    if getattr(args, "policy", None):
+        from .policy import PolicyError, load_policy  # noqa: PLC0415
+        from .policy_profiles import resolve_policy_source  # noqa: PLC0415
+        try:
+            policy = load_policy(resolve_policy_source(args.policy))
+        except PolicyError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+    try:
+        with open(args.envelope, encoding="utf-8") as handle:
+            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+        pub = base64.b64decode(args.pub)
+        related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
+                                          getattr(args, "related_pub", None))
+        if rel_errs:
+            for e in rel_errs:
+                print(f"ERROR: {e}", file=sys.stderr)
+            return 2
+        result = verify_relation_statement(
+            env, pub, strict=args.strict,
+            require_derived_subject=args.require_derived_subject,
+            related=related or None, policy=policy)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        report = {k: result[k] for k in (
+            "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "subject_binding",
+            "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
+            "warnings", "errors",
+        ) if k in result}
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
+        print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
+        if result["policy_ok"] is not None:
+            print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
+        if isinstance(result.get("lineage"), dict):
+            print(f"LINEAGE: {result['lineage'].get('lineage')}")
+        if result["subject_binding"] is not None:
+            print(f"SUBJECT: {result['subject_binding']['mode']}")
+        if result["subject_derived_ok"] is not None:
+            print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
+        for e in result["errors"]:
+            print(f"  - {e}", file=sys.stderr)
+        for w in result["warnings"]:
+            print(f"  ! {w}", file=sys.stderr)
+        if result["crypto_ok"]:
+            print("\nThis proves the issuer DECLARED the relation over exact bytes. It does not "
+                  "retract the target's cryptographic validity, and whether the issuer may declare "
+                  "it is a relying-party policy decision.")
+        else:
+            print("\nThis statement did NOT verify (crypto failure); nothing about the relation is "
+                  "attested.")
+    # Exit contract mirrors decision/outcome verify: 1 crypto · 2 malformed/confusion/lineage-FAIL · 3 policy.
+    if not result["crypto_ok"]:
+        return 1
+    if not result["structure_ok"]:
+        return 2
+    if result["subject_derived_ok"] is False:
+        return 2
+    if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    if result["policy_ok"] is False:
+        return 3
+    return 0
+
+
+def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
+    import base64  # noqa: PLC0415
+    try:
+        with open(args.receipt, encoding="utf-8") as handle:
+            obj = loads_strict(handle.read())   # WP-C1
+    except (ProofBundleError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    try:
+        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+    except (ProofBundleError, ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
+    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _cmd_policy_explain(args: argparse.Namespace) -> int:
     from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
     from .policy_profiles import resolve_policy_source  # noqa: PLC0415
@@ -2157,6 +2292,57 @@ def build_parser() -> argparse.ArgumentParser:
     o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
     o_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
     o_inspect.set_defaults(func=_cmd_outcome_inspect)
+
+    # relation-statement/v0.1 (3.5.0, EXPERIMENTAL): a standalone signed statement OVER a target
+    # receipt (retroactive retraction/supersession without touching the original).
+    relstmt = sub.add_parser(
+        "relation-statement",
+        help="relation-statement/v0.1 (EXPERIMENTAL): init/emit/verify/inspect a standalone signed "
+             "relation OVER a target receipt (retract/supersede without touching the original)")
+    rsub = relstmt.add_subparsers(dest="relation_statement_command", required=True)
+
+    rs_init = rsub.add_parser("init", help="print a template relation-statement predicate (fill in and sign with 'emit')")
+    rs_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
+    rs_init.set_defaults(func=_cmd_relation_statement_init)
+
+    rs_emit = rsub.add_parser("emit", help="sign a relation-statement predicate into a DSSE statement")
+    rs_emit.add_argument("predicate", help="path to the relation-statement predicate JSON")
+    rs_emit.add_argument("--out", required=True, help="output path for the signed relation statement")
+    rs_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
+    rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    rs_emit.set_defaults(func=_cmd_relation_statement_emit)
+
+    rs_verify = rsub.add_parser(
+        "verify",
+        help="verify a relation statement (crypto + structure + offline lineage + relations policy)",
+        description=("Exit codes: 0 OK · 1 crypto/verification failure · 2 malformed / predicateType "
+                     "confusion / lineage FAIL · 3 crypto OK but relations policy not satisfied. A "
+                     "retracts statement never invalidates the target's crypto — it sets a visible "
+                     "state; reject_retracted/reject_superseded turn continued automated use of the "
+                     "target into an exit-3 block. Whether the issuer MAY declare the relation is a "
+                     "relying-party policy decision (relation_signer pin)."))
+    rs_verify.add_argument("envelope", help="path to the DSSE relation statement")
+    rs_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
+    rs_verify.add_argument("--json", action="store_true", help="machine readable output")
+    rs_verify.add_argument("--strict", action="store_true", help="enforce strict-v0.1 canonicality")
+    rs_verify.add_argument("--policy", default=None,
+                           help="trust policy JSON — the `relations` section (require_relation_resolution / "
+                                "relation_signer / require_relation_target / reject_retracted / "
+                                "reject_superseded) is enforced; a violation exits 3")
+    rs_verify.add_argument("--with-related", dest="with_related", action="append", default=None, metavar="PATH",
+                           help="attach the TARGET receipt's DSSE envelope for offline lineage resolution "
+                                "(repeatable; same-key unless --related-pub given)")
+    rs_verify.add_argument("--related-pub", dest="related_pub", action="append", default=None, metavar="B64",
+                           help="position-paired issuer key (base64) for the i-th --with-related target "
+                                "(cross-issuer); empty/absent = same-key (--pub)")
+    rs_verify.add_argument("--require-derived-subject", dest="require_derived_subject", action="store_true",
+                           help="fail closed (exit 2) unless the Statement subject is a DERIVED commitment "
+                                "to the predicate — rejects a self-attested/rehung subject override")
+    rs_verify.set_defaults(func=_cmd_relation_statement_verify)
+
+    rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)")
+    rs_inspect.add_argument("receipt", help="path to a DSSE statement or a raw in-toto Statement")
+    rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
 
     return parser
 

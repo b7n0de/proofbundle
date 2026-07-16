@@ -6,6 +6,46 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (relation-statement/v0.1 3.5.0 — standalone profile + Rust parity, still EXPERIMENTAL)
+- **`relation-statement/v0.1` standalone profile (WP-A):** a DSSE-signed statement OVER a
+  target receipt, carrying EXACTLY ONE typed edge and no decision/outcome payload of its own —
+  the retroactive case the in-receipt edges cannot express (declaring a foreign or older receipt
+  retracted / superseded / amended without emitting a successor and without touching the
+  original). predicateType `.../relation-statement/v0.1`; new module
+  `src/proofbundle/relation_statement.py` and CLI `proofbundle relation-statement
+  init|emit|verify|inspect` (exit contract 0/1/2/3 identical to the decision/outcome paths). The
+  edge validation, lineage resolution and the `relations` trust-policy gate REUSE the in-receipt
+  functions (`relation.validate_relationships` / `verify_relationship_edges` /
+  `evaluate_relations_policy`) — no second implementation. Status-as-a-separate-object precedent: W3C
+  Bitstring Status List v1.0, CT/OCSP revocation, SCITT protected-object-binding.
+- **`relations.reject_retracted` trust-policy pin (WP-A):** a relying party who knows BOTH the
+  target and a verified retracts statement of a pinned/authorized signer can treat continued
+  automated use of the target as an exit-3 block (`LINEAGE_REQUIREMENT_FAILED`);
+  `reject_superseded` extends to the successor relations. Without the policy the verified statement
+  is pure visibility. Honesty boundary (verbatim): a relation statement proves the issuer DECLARED
+  the relation over exact bytes; it does not retract the target's cryptographic validity, and
+  whether the issuer may declare it is a relying-party policy decision. `lineage` never feeds
+  `cryptoValid` (lattice monotonicity).
+- **Rust parity of the relation profile (WP-B):** the independent Rust verifier
+  (`tools/pb_verify_rs`) now carries the profile — new subcommands `verify-relation` (in-receipt
+  decision/outcome edges) and `verify-relation-statement` (standalone), with its OWN parser
+  (serde_json + serde_jcs, sharing NO canonicalizer/parser with Python). `crosscheck.py` drives
+  ALL 39 relation vectors — decision, outcome and standalone, positive AND negative (incl. the
+  3.4.0 decoy-parent / subject-mismatch / signer / t1 vectors) — through BOTH implementations and
+  asserts they land on the same common-vocabulary label (exit class + lineage) on every vector.
+  Differential AGREEMENT on these vectors, not a correctness proof of either implementation. The
+  parity registry (`scripts/rust_parity_registry.json`) is raised from PENDING to COVERED for
+  `relation.verify_relationship_edges` and the new
+  `relation_statement.verify_relation_statement`, AST-verified by `scripts/rust_parity_gate.py`.
+  The Vector × {Python, Rust} matrix is exported with an environment freeze
+  (`audit_artifacts/rust_relation_differential_matrix.json`).
+- **Conformance + tests:** six new standalone vectors under `conformance/relation/` (retracts
+  verified+blocked, retracts visible, retracts unauthorized, retracts declared-unresolved,
+  supersedes verified, malformed), a new `relation_statement` runner kind, property + never-raise +
+  exit-contract tests (`tests/test_relation_statement.py`) and the Rust differential gate
+  (`tests/test_relation_statement_rust_parity.py`). Existing 3.3.0/3.4.0 vectors and behaviour are
+  unchanged (pure additivity, no wire break); the profile stays EXPERIMENTAL through 4.0.
+
 ### Added (relation/v0.1 3.4.0 — three lineage pins, still EXPERIMENTAL)
 - **`relation_signer` trust-policy pin (WP-A, WHO may replace):** a new fail-closed
   `relations.relation_signer` map — per relation `{"mode":"same-key"}` or

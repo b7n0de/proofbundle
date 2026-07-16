@@ -36,12 +36,49 @@ sys.path.insert(0, str(SRC))
 # F1: the differential reproduces the SAME corpus in the SAME common vocabulary as the
 # conformance runner and cross-format comparator — no third ad-hoc labelling here.
 sys.path.insert(0, str(ROOT / "conformance"))
-from common_vocabulary import exit_class  # noqa: E402
+from common_vocabulary import compare, exit_class, expected_label, label_from_verify  # noqa: E402
+
+# 3.5.0 WP-B: relation vectors are driven differentially through these three kinds. The Rust
+# subcommand is verify-relation for the in-receipt (decision/outcome) path and verify-relation-statement
+# for the standalone relation-statement/v0.1 path; the Python CLI verb is the matching one.
+_RELATION_KINDS = {
+    "decision_relation": ("verify-relation", "decision"),
+    "outcome_relation": ("verify-relation", "outcome"),
+    "relation_statement": ("verify-relation-statement", "relation-statement"),
+}
 
 
 def _run(*args: str) -> tuple[int, str]:
     p = subprocess.run([str(BIN), *args], capture_output=True, text=True)
     return p.returncode, (p.stdout or "").strip()
+
+
+def _relation_argv_common(case: dict, cdir: pathlib.Path) -> list[str]:
+    argv: list[str] = []
+    for rel in case.get("related", []) or []:
+        argv += ["--with-related", str(cdir / rel)]
+    for rp in case.get("relatedPubs", []) or []:
+        argv += ["--related-pub", str(rp)]
+    if case.get("policy"):
+        argv += ["--policy", str(cdir / case["policy"])]
+    return argv
+
+
+def _python_relation_label(verb: str, inp: str, pub_b64: str, common: list[str]) -> tuple[int, dict]:
+    """Run the REAL Python CLI verify (in-process) and project its --json output onto the common
+    label. This makes the relation differential a genuine Python<->Rust comparison, not merely
+    Rust-vs-declared-expectation."""
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = _cli_main([verb, "verify", inp, "--pub", pub_b64, "--json", *common])
+    try:
+        report = json.loads(out.getvalue())
+    except ValueError:
+        report = None
+    return rc, label_from_verify(rc, report)
 
 
 def main() -> int:
@@ -146,6 +183,7 @@ def main() -> int:
     manifest = json.loads((corpus / "manifest.json").read_text())
     reproduced = 0
     skipped: list[str] = []
+    matrix_rows: list[dict] = []
     for cid in manifest.get("cases", []):
         cdir = corpus / cid
         case = json.loads((cdir / "case.json").read_text())
@@ -175,6 +213,37 @@ def main() -> int:
                 failures.append(f"corpus {cid}: verify-bundle {exit_class(code)} (exit {code}) "
                                 f"!= expected {exit_class(want)} (exit {want})")
             reproduced += 1
+        elif kind in _RELATION_KINDS:
+            # (8) relation/relation-statement differential (3.5.0 WP-B): the INDEPENDENT Rust relation
+            # engine must land on the SAME common-vocabulary label (exit class + lineage) as the Python
+            # CLI on EVERY relation vector — positive AND negative (incl. the 3.4.0 decoy-parent /
+            # subject-mismatch / signer / t1 vectors and the new standalone statement vectors). A
+            # mismatch on any axis, or a divergence from the case's declared expectation, is a hard fail.
+            rust_sub, py_verb = _RELATION_KINDS[kind]
+            pub = (cdir / case.get("pub", "pub.b64")).read_text(encoding="utf-8").strip()
+            inp = str(cdir / case.get("input", "receipt.json"))
+            common = _relation_argv_common(case, cdir)
+            rust_rc, rust_out = _run(rust_sub, inp, pub, *common)
+            try:
+                rust_report = json.loads(rust_out)
+            except ValueError:
+                rust_report = None
+            rust_label = label_from_verify(rust_rc, rust_report)
+            py_rc, py_label = _python_relation_label(py_verb, inp, pub, common)
+            exp_label = expected_label(expected)
+            ok_pr, diffs_pr = compare(py_label, rust_label)   # Python<->Rust agreement
+            ok_re, diffs_re = compare(exp_label, rust_label)   # Rust reproduces the declared expectation
+            if not ok_pr:
+                failures.append(f"corpus {cid}: Python!=Rust differential — {'; '.join(diffs_pr)}")
+            if not ok_re:
+                failures.append(f"corpus {cid}: Rust!=declared-expectation — {'; '.join(diffs_re)}")
+            matrix_rows.append({
+                "caseId": case.get("caseId", cid), "kind": kind,
+                "expected": exp_label, "python": py_label, "rust": rust_label,
+                "python_exit": py_rc, "rust_exit": rust_rc,
+                "agree_python_rust": ok_pr, "rust_reproduces_expectation": ok_re,
+            })
+            reproduced += 1
 
     if failures:
         print("CROSS-IMPL DISAGREEMENT:")
@@ -183,10 +252,65 @@ def main() -> int:
         return 1
     total = len(manifest.get("cases", []))
     tail = f" ({len(skipped)} skipped: {', '.join(skipped)})" if skipped else ""
+    rel_n = len(matrix_rows)
+    matrix_path = _matrix_out_path()
+    if matrix_path is not None:
+        _write_matrix_artifact(matrix_path, matrix_rows)
+        print(f"wrote relation differential matrix ({rel_n} vector(s)) -> {matrix_path}")
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
           "trust-pack root-threshold (met+unmet) agree; "
-          f"{reproduced}/{total} conformance-corpus case(s) reproduced independently{tail}")
+          f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
+          f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage)"
+          f"{tail}")
     return 0
+
+
+def _matrix_out_path() -> pathlib.Path | None:
+    """--matrix <path> (optional) writes the reproducible differential matrix artifact. Kept opt-in so
+    the default crosscheck run stays read-only (writes only to a temp dir)."""
+    argv = sys.argv[1:]
+    if "--matrix" in argv:
+        i = argv.index("--matrix")
+        if i + 1 < len(argv):
+            return pathlib.Path(argv[i + 1])
+    return None
+
+
+def _tool_version(*cmd: str) -> str:
+    try:
+        p = subprocess.run(list(cmd), capture_output=True, text=True, timeout=10)
+        return (p.stdout or p.stderr or "").strip().splitlines()[0] if (p.stdout or p.stderr) else "unknown"
+    except (OSError, ValueError):
+        return "unavailable"
+
+
+def _write_matrix_artifact(path: pathlib.Path, rows: list[dict]) -> None:
+    """No-Fake: the Vector x {Python, Rust} result matrix as a reproducible artifact WITH an
+    environment freeze (cargo / rustc / python), so "Rust == Python on these vectors" is BELEGT, not
+    behauptet (SPEC §3.4). Deterministic ordering; the frozen tool versions are the only run-specific
+    field, and they are captured explicitly."""
+    import platform  # noqa: PLC0415
+    rows_sorted = sorted(rows, key=lambda r: r.get("caseId", ""))
+    artifact = {
+        "schema": "proofbundle.rust_relation_differential_matrix.v1",
+        "description": ("Vector x {Python, Rust} differential result matrix for the relation/v0.1 and "
+                        "relation-statement/v0.1 conformance vectors. Each row is one vector verified by "
+                        "BOTH the Python CLI and the independent Rust verifier (pb_verify_rs); "
+                        "agree_python_rust asserts they land on the SAME common-vocabulary label "
+                        "(exit class + lineage). Differential AGREEMENT on these vectors, NOT a "
+                        "correctness proof of either implementation."),
+        "environment": {
+            "cargo": _tool_version("cargo", "--version"),
+            "rustc": _tool_version("rustc", "--version"),
+            "python": platform.python_version(),
+        },
+        "total_relation_vectors": len(rows_sorted),
+        "all_agree": all(r.get("agree_python_rust") and r.get("rust_reproduces_expectation")
+                         for r in rows_sorted),
+        "rows": rows_sorted,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

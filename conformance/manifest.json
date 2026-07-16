@@ -48,6 +48,12 @@
     "relation/outcome-digest-mismatch",
     "relation/outcome-renews",
     "relation/outcome-relation-signer-unauthorized",
-    "relation/outcome-decoy-parent-target-mismatch"
+    "relation/outcome-decoy-parent-target-mismatch",
+    "relation/statement-retracts-verified-blocked",
+    "relation/statement-retracts-verified-visible",
+    "relation/statement-retracts-unauthorized",
+    "relation/statement-retracts-declared-unresolved",
+    "relation/statement-supersedes-verified",
+    "relation/statement-malformed"
   ]
 }

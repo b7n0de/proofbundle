@@ -286,8 +286,16 @@ def _check_outcome_relation(case: dict, case_dir: pathlib.Path, *, require_ancho
     return _check_relation(case, case_dir, verb="outcome")
 
 
+def _check_relation_statement(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    # 3.5.0 WP-A: the standalone relation-statement/v0.1 verify path. `relation-statement` is a single
+    # CLI subcommand token, so the shared _check_relation harness drives it unchanged.
+    del require_anchors
+    return _check_relation(case, case_dir, verb="relation-statement")
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
-             "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation}
+             "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
+             "relation_statement": _check_relation_statement}
 
 
 def run(*, require_anchors: bool = False) -> int:

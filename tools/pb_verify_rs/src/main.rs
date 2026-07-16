@@ -470,7 +470,8 @@ fn anchor_rp_confirmed(_bundle: &serde_json::Value) -> bool {
 // mode CROSS_IMPLEMENTATION_REPORT.md drifted into before this gate existed). Keep this array and
 // the `match` arms in `main()` in sync BY HAND — `tests/test_rust_parity_gate.py` on the Python side
 // greps main.rs's match arms independently and fails if this array and the real dispatch disagree.
-const VERIFY_SUBCOMMANDS: &[&str] = &["verify-dsse", "verify-bundle", "verify-trust-pack-threshold"];
+const VERIFY_SUBCOMMANDS: &[&str] =
+    &["verify-dsse", "verify-bundle", "verify-trust-pack-threshold", "verify-relation", "verify-relation-statement"];
 
 // ---------------------------------------------------------------------------
 // trust-pack/v0.1 root-of-trust THRESHOLD verify (Finding 11 first portation, Ed25519 leg only).
@@ -555,6 +556,629 @@ fn verify_trust_pack_threshold(envelope: &serde_json::Value) -> Result<(bool, u6
     Ok((met, valid_root.len() as u64, threshold, skipped_non_ed25519))
 }
 
+// ===========================================================================
+// relation/v0.1 + relation-statement/v0.1 lineage engine (3.5.0 WP-B, Rust parity).
+//
+// An INDEPENDENT port of proofbundle.relation (validate_relationships /
+// verify_relationship_edges / successor_warning / evaluate_relations_policy) and the CLI
+// _load_related plumbing. It shares NO canonicalizer/parser code with Python (serde_json +
+// serde_jcs + ed25519-dalek only) — the whole point is two independent parsers agreeing on the
+// SAME conformance vectors (differential agreement, NOT a correctness proof of either side).
+//
+// Fail-closed identical to Python: unknown fields/enums, malformed digests, cycles and depth
+// violations are errors, never silent passes. lineage/policy NEVER touch the crypto verdict
+// (lattice monotonicity): a retracts is a visible declared state, not a crypto kill.
+// ===========================================================================
+const RELATIONS: &[&str] = &[
+    "supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends",
+];
+const SUCCESSOR_RELATIONS: &[&str] = &["supersedes", "revises", "corrects"];
+const REASON_CODES: &[&str] = &[
+    "correction", "rerun", "data-update", "methodology-update", "policy-change", "withdrawal", "other",
+];
+const CONTENT_ROOT_ALGS: &[&str] = &["jcs-sha256-v1"];
+const EDGE_ALLOWED: &[&str] = &[
+    "relation", "targetReceiptDigest", "targetSubjectDigest", "reason", "reasonCode", "declaredAt",
+];
+const DIGEST_ALLOWED: &[&str] = &["digestAlgorithm", "digest"];
+const MAX_CHAIN_DEPTH: u32 = 32;
+const MAX_EDGES_PER_RECEIPT: usize = 64;
+
+const LINEAGE_VERIFIED: &str = "VERIFIED";
+const LINEAGE_DECLARED_UNRESOLVED: &str = "DECLARED_UNRESOLVED";
+const LINEAGE_FAIL: &str = "FAIL";
+const LINEAGE_NOT_EVALUATED: &str = "NOT_EVALUATED";
+
+const RELATION_STATEMENT_PREDICATE_TYPE: &str =
+    "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1";
+
+fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn is_rfc3339_z(s: &str) -> bool {
+    // ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$ — a hand parser (no regex crate).
+    let b = s.as_bytes();
+    if b.len() < 20 || *b.last().unwrap() != b'Z' {
+        return false;
+    }
+    let digit = |i: usize| b.get(i).map(|c| c.is_ascii_digit()).unwrap_or(false);
+    let lit = |i: usize, c: u8| b.get(i) == Some(&c);
+    if !(digit(0) && digit(1) && digit(2) && digit(3) && lit(4, b'-') && digit(5) && digit(6)
+        && lit(7, b'-') && digit(8) && digit(9) && lit(10, b'T') && digit(11) && digit(12)
+        && lit(13, b':') && digit(14) && digit(15) && lit(16, b':') && digit(17) && digit(18))
+    {
+        return false;
+    }
+    // position 19 is either 'Z' (len 20) or '.' followed by >=1 digit then 'Z'.
+    if b.len() == 20 {
+        return b[19] == b'Z';
+    }
+    if b[19] != b'.' {
+        return false;
+    }
+    let frac = &b[20..b.len() - 1];
+    !frac.is_empty() && frac.iter().all(|c| c.is_ascii_digit())
+}
+
+fn validate_edge_digest(obj: &serde_json::Value, errors: &mut Vec<String>) {
+    let Some(map) = obj.as_object() else {
+        errors.push("targetDigest must be an object".into());
+        return;
+    };
+    for k in map.keys() {
+        if !DIGEST_ALLOWED.contains(&k.as_str()) {
+            errors.push(format!("digest unknown field {k}"));
+        }
+    }
+    match map.get("digestAlgorithm").and_then(|v| v.as_str()) {
+        None => errors.push("digestAlgorithm is required (never defaulted)".into()),
+        Some(a) if !CONTENT_ROOT_ALGS.contains(&a) => {
+            errors.push(format!("digestAlgorithm {a} not registered"))
+        }
+        _ => {}
+    }
+    match map.get("digest").and_then(|v| v.as_str()) {
+        Some(d) if is_sha256_hex(d) => {}
+        _ => errors.push("digest must be 64 lowercase hex chars".into()),
+    }
+}
+
+/// Mirror of relation.validate_relationships — returns a list of errors (empty == valid).
+fn validate_relationships(value: &serde_json::Value) -> Vec<String> {
+    let mut errors: Vec<String> = Vec::new();
+    let Some(arr) = value.as_array() else {
+        return vec!["relationships must be a JSON array of edge objects".into()];
+    };
+    if arr.is_empty() {
+        errors.push("relationships must not be an empty array".into());
+    }
+    if arr.len() > MAX_EDGES_PER_RECEIPT {
+        errors.push(format!("relationships > hard cap {MAX_EDGES_PER_RECEIPT}"));
+    }
+    for edge in arr {
+        let Some(map) = edge.as_object() else {
+            errors.push("edge must be a JSON object".into());
+            continue;
+        };
+        for k in map.keys() {
+            if !EDGE_ALLOWED.contains(&k.as_str()) {
+                errors.push(format!("edge unknown field {k}"));
+            }
+        }
+        for req in ["relation", "targetReceiptDigest"] {
+            if !map.contains_key(req) {
+                errors.push(format!("edge.{req} is required"));
+            }
+        }
+        if let Some(rel) = map.get("relation") {
+            if !rel.as_str().map(|s| RELATIONS.contains(&s)).unwrap_or(false) {
+                errors.push("edge.relation not in closed vocabulary".into());
+            }
+        }
+        if let Some(t) = map.get("targetReceiptDigest") {
+            validate_edge_digest(t, &mut errors);
+        }
+        if let Some(t) = map.get("targetSubjectDigest") {
+            validate_edge_digest(t, &mut errors);
+        }
+        if let Some(rc) = map.get("reasonCode") {
+            if !rc.as_str().map(|s| REASON_CODES.contains(&s)).unwrap_or(false) {
+                errors.push("edge.reasonCode not in vocabulary".into());
+            }
+        }
+        if let Some(reason) = map.get("reason") {
+            if !reason.is_string() {
+                errors.push("edge.reason must be a string".into());
+            }
+        }
+        if let Some(da) = map.get("declaredAt") {
+            if !da.as_str().map(is_rfc3339_z).unwrap_or(false) {
+                errors.push("edge.declaredAt must be RFC3339 Z".into());
+            }
+        }
+    }
+    errors
+}
+
+fn edge_target_hex(edge: &serde_json::Value) -> Option<String> {
+    edge.get("targetReceiptDigest")?.get("digest")?.as_str().map(String::from)
+}
+fn edge_subject_hex(edge: &serde_json::Value) -> Option<String> {
+    edge.get("targetSubjectDigest")?.get("digest")?.as_str().map(String::from)
+}
+
+/// An attached target (mirrors the AttachedTarget mapping from _load_related).
+struct TargetInfo {
+    verified: bool,
+    verified_under: String,
+    subject_digest: Option<String>,
+    relationships: Option<serde_json::Value>,
+}
+
+struct EdgeOut {
+    relation: Option<String>,
+    target_digest: Option<String>,
+    resolution: String,
+    verified_under: Option<String>,
+}
+
+struct LineageResult {
+    lineage: String,
+    edges: Vec<EdgeOut>,
+    superseded_by_attached: Option<String>,
+}
+
+/// DFS per-path cycle + depth walk (mirror relation._walk_chain). Returns Some(error) on a cycle
+/// or depth violation, else None. `proven_safe` memoises subtrees so a diamond DAG is not a cycle.
+fn walk_chain(
+    start_hex: &str,
+    related: &std::collections::HashMap<String, TargetInfo>,
+    seen: &HashSet<String>,
+    max_depth: u32,
+) -> Option<String> {
+    let mut proven_safe: HashSet<String> = HashSet::new();
+    fn dfs(
+        node_hex: &str,
+        depth: u32,
+        path: &HashSet<String>,
+        related: &std::collections::HashMap<String, TargetInfo>,
+        proven_safe: &mut HashSet<String>,
+        max_depth: u32,
+    ) -> Option<String> {
+        if depth > max_depth {
+            return Some(format!("relation:depth_exceeded: chain deeper than {max_depth}"));
+        }
+        if path.contains(node_hex) {
+            return Some("relation:cycle: attached chain revisits a receipt on its own ancestry path".into());
+        }
+        if proven_safe.contains(node_hex) {
+            return None;
+        }
+        let Some(node) = related.get(node_hex) else {
+            proven_safe.insert(node_hex.to_string());
+            return None;
+        };
+        let Some(nested) = &node.relationships else {
+            proven_safe.insert(node_hex.to_string());
+            return None;
+        };
+        if !validate_relationships(nested).is_empty() {
+            return Some("relation:malformed_ancestor: attached target carries a malformed relationships block".into());
+        }
+        let mut next_path = path.clone();
+        next_path.insert(node_hex.to_string());
+        if let Some(arr) = nested.as_array() {
+            for edge in arr {
+                if let Some(nxt) = edge_target_hex(edge) {
+                    if related.contains_key(&nxt) || next_path.contains(&nxt) {
+                        if let Some(err) = dfs(&nxt, depth + 1, &next_path, related, proven_safe, max_depth) {
+                            return Some(err);
+                        }
+                    }
+                }
+            }
+        }
+        proven_safe.insert(node_hex.to_string());
+        None
+    }
+    let mut path = seen.clone();
+    // dfs treats `path` as the ancestry-in-progress; seed it empty of start but carry seen.
+    dfs(start_hex, 1, &{ let mut p = HashSet::new(); p.extend(path.drain()); p }, related, &mut proven_safe, max_depth)
+}
+
+/// Mirror of relation.verify_relationship_edges.
+fn verify_relationship_edges(
+    relationships: Option<&serde_json::Value>,
+    related: &std::collections::HashMap<String, TargetInfo>,
+    subject_hex: Option<&str>,
+) -> LineageResult {
+    let Some(rels) = relationships else {
+        return LineageResult { lineage: LINEAGE_NOT_EVALUATED.into(), edges: vec![], superseded_by_attached: None };
+    };
+    if !validate_relationships(rels).is_empty() {
+        return LineageResult { lineage: LINEAGE_FAIL.into(), edges: vec![], superseded_by_attached: None };
+    }
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let arr = rels.as_array().unwrap_or(&empty);
+    let mut edges_out: Vec<EdgeOut> = Vec::new();
+    let (mut any_fail, mut any_unresolved, mut any_verified) = (false, false, false);
+    for edge in arr {
+        let target_hex = edge_target_hex(edge);
+        let mut entry = EdgeOut {
+            relation: edge.get("relation").and_then(|v| v.as_str()).map(String::from),
+            target_digest: target_hex.clone(),
+            resolution: LINEAGE_DECLARED_UNRESOLVED.into(),
+            verified_under: None,
+        };
+        if subject_hex.is_some() && target_hex.as_deref() == subject_hex {
+            entry.resolution = LINEAGE_FAIL.into();
+        } else if let Some(th) = &target_hex {
+            if let Some(target) = related.get(th) {
+                if !target.verified {
+                    entry.resolution = LINEAGE_FAIL.into(); // attached-but-unverified = present-and-wrong
+                } else {
+                    let mut seed: HashSet<String> = HashSet::new();
+                    if let Some(s) = subject_hex {
+                        seed.insert(s.to_string());
+                    }
+                    if walk_chain(th, related, &seed, MAX_CHAIN_DEPTH).is_some() {
+                        entry.resolution = LINEAGE_FAIL.into();
+                    } else {
+                        entry.verified_under = Some(target.verified_under.clone());
+                        let declared_subj = edge_subject_hex(edge);
+                        match (declared_subj, &target.subject_digest) {
+                            (Some(d), Some(a)) if &d != a => {
+                                entry.resolution = LINEAGE_FAIL.into(); // targetSubjectDigest mismatch
+                            }
+                            _ => entry.resolution = LINEAGE_VERIFIED.into(),
+                        }
+                    }
+                }
+            }
+            // else: target absent -> stays DECLARED_UNRESOLVED
+        }
+        match entry.resolution.as_str() {
+            LINEAGE_FAIL => any_fail = true,
+            LINEAGE_DECLARED_UNRESOLVED => any_unresolved = true,
+            LINEAGE_VERIFIED => any_verified = true,
+            _ => {}
+        }
+        edges_out.push(entry);
+    }
+    let lineage = if any_fail {
+        LINEAGE_FAIL
+    } else if any_unresolved {
+        LINEAGE_DECLARED_UNRESOLVED
+    } else if any_verified {
+        LINEAGE_VERIFIED
+    } else {
+        LINEAGE_NOT_EVALUATED
+    };
+    LineageResult { lineage: lineage.into(), edges: edges_out, superseded_by_attached: None }
+}
+
+/// Mirror of relation.successor_warning: an attached, verified receipt declaring a successor/retracts
+/// edge over `subject_hex`.
+fn successor_warning(
+    related: &std::collections::HashMap<String, TargetInfo>,
+    subject_hex: Option<&str>,
+) -> Option<String> {
+    let subject = subject_hex?;
+    for (other_hex, other) in related {
+        if !other.verified {
+            continue;
+        }
+        let Some(nested) = &other.relationships else { continue };
+        if !nested.is_array() || !validate_relationships(nested).is_empty() {
+            continue;
+        }
+        for edge in nested.as_array().unwrap() {
+            let rel = edge.get("relation").and_then(|v| v.as_str());
+            if edge_target_hex(edge).as_deref() == Some(subject) {
+                if let Some(r) = rel {
+                    if SUCCESSOR_RELATIONS.contains(&r) {
+                        return Some(format!("superseded_by_attached: {} declares {r}", &other_hex[..12.min(other_hex.len())]));
+                    }
+                    if r == "retracts" {
+                        return Some(format!("retracted_by_attached: {} declares retracts", &other_hex[..12.min(other_hex.len())]));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn keys_equal(a_b64: &str, b_b64: &str) -> bool {
+    let da = base64::engine::general_purpose::STANDARD.decode(a_b64.trim());
+    let db = base64::engine::general_purpose::STANDARD.decode(b_b64.trim());
+    match (da, db) {
+        (Ok(ra), Ok(rb)) => ra.len() == 32 && ra == rb,
+        _ => false,
+    }
+}
+
+struct Violation {
+    // The stable policy-verdict code (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH /
+    // LINEAGE_REQUIREMENT_FAILED). The differential compares exit CLASS + lineage, not the code text
+    // (the code-text assertion is the Python side's errorContains), so the field is retained for
+    // parity/debuggability but not emitted.
+    #[allow(dead_code)]
+    code: String,
+}
+
+/// Mirror of relation.evaluate_relations_policy (require_relation_resolution / reject_superseded /
+/// relation_signer / require_relation_target). successor_key_b64 = the issuer key of the receipt/
+/// statement under verification.
+fn evaluate_relations_policy(
+    relations: &serde_json::Value,
+    lineage: &LineageResult,
+    successor_key_b64: &str,
+) -> Vec<Violation> {
+    let mut out: Vec<Violation> = Vec::new();
+    let Some(relmap) = relations.as_object() else { return out };
+
+    // (1) require_relation_resolution
+    if let Some(req) = relmap.get("require_relation_resolution").and_then(|v| v.as_array()) {
+        let names: Vec<&str> = req.iter().filter_map(|v| v.as_str()).collect();
+        for e in &lineage.edges {
+            if let Some(r) = &e.relation {
+                if names.contains(&r.as_str()) && e.resolution != LINEAGE_VERIFIED {
+                    out.push(Violation { code: "LINEAGE_REQUIREMENT_FAILED".into() });
+                }
+            }
+        }
+    }
+    // (2) reject_superseded
+    if relmap.get("reject_superseded").and_then(|v| v.as_bool()).unwrap_or(false)
+        && lineage.superseded_by_attached.is_some()
+    {
+        out.push(Violation { code: "LINEAGE_REQUIREMENT_FAILED".into() });
+    }
+    // (3) relation_signer
+    if let Some(signer) = relmap.get("relation_signer").and_then(|v| v.as_object()) {
+        for e in &lineage.edges {
+            let Some(rel) = &e.relation else { continue };
+            let Some(rule) = signer.get(rel).and_then(|v| v.as_object()) else { continue };
+            match rule.get("mode").and_then(|v| v.as_str()) {
+                Some("pinned") => {
+                    let keys: Vec<&str> = rule
+                        .get("keys").and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                        .unwrap_or_default();
+                    if !keys.iter().any(|k| keys_equal(successor_key_b64, k)) {
+                        out.push(Violation { code: "RELATION_SIGNER_UNAUTHORIZED".into() });
+                    }
+                }
+                Some("same-key") => {
+                    if e.resolution == LINEAGE_VERIFIED {
+                        if let Some(vu) = &e.verified_under {
+                            if !keys_equal(successor_key_b64, vu) {
+                                out.push(Violation { code: "RELATION_SIGNER_UNAUTHORIZED".into() });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // (4) require_relation_target
+    if let Some(pin) = relmap.get("require_relation_target").and_then(|v| v.as_object()) {
+        for e in &lineage.edges {
+            let Some(rel) = &e.relation else { continue };
+            let Some(pinned) = pin.get(rel) else { continue };
+            let allowed: Vec<String> = match pinned {
+                serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+                serde_json::Value::String(s) => vec![s.clone()],
+                _ => vec![],
+            };
+            let td = e.target_digest.clone().unwrap_or_default();
+            if !allowed.iter().any(|x| x == &td) {
+                out.push(Violation { code: "RELATION_TARGET_MISMATCH".into() });
+            }
+        }
+    }
+    out
+}
+
+// --- CLI plumbing: load attached targets, key by raw-payload content root (mirror _load_related) ---
+fn statement_content_root_hex(payload: &[u8]) -> String {
+    // Python statement_content_root = SHA-256 over the EXACT payload bytes (verifier path, never
+    // re-canonicalized). We must key targets identically.
+    let mut h = Sha256::new();
+    h.update(payload);
+    hex::encode(h.finalize())
+}
+
+fn load_related(
+    paths: &[String],
+    related_pubs: &[String],
+    main_pub_b64: &str,
+) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
+    let mut related = std::collections::HashMap::new();
+    for (i, path) in paths.iter().enumerate() {
+        let rp = related_pubs.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
+        let verify_key_b64 = rp.unwrap_or(main_pub_b64);
+        let env = strict_parse(&read_file(path)).map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
+        let payload_b64 = env.get("payload").and_then(|v| v.as_str()).ok_or("related has no payload")?;
+        let body = b64_std(payload_b64)?;
+        let root_hex = statement_content_root_hex(&body);
+        let verified = verify_dsse(&env, verify_key_b64).unwrap_or(false);
+        let mut relationships = None;
+        let mut subject_digest = None;
+        if let Ok(stmt) = strict_parse(&body) {
+            if let Some(pred) = stmt.get("predicate") {
+                if let Some(r) = pred.get("relationships") {
+                    relationships = Some(r.clone());
+                }
+            }
+            subject_digest = stmt
+                .get("subject").and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|s| s.get("digest"))
+                .and_then(|d| d.get("sha256"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+        }
+        // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
+        let verified_under = base64::engine::general_purpose::STANDARD
+            .encode(b64_std(verify_key_b64)?);
+        related.insert(root_hex, TargetInfo { verified, verified_under, subject_digest, relationships });
+    }
+    Ok(related)
+}
+
+/// Shared relation verify: returns (exit_code, lineage_state). statement_mode enforces the
+/// relation-statement predicateType + exactly-one-edge structure gate.
+fn run_verify_relation(
+    envelope: &serde_json::Value,
+    pub_b64: &str,
+    related_paths: &[String],
+    related_pubs: &[String],
+    policy: Option<&serde_json::Value>,
+    statement_mode: bool,
+) -> (i32, String) {
+    // Crypto FIRST (exit 1 on failure).
+    let crypto_ok = verify_dsse(envelope, pub_b64).unwrap_or(false);
+    if !crypto_ok {
+        return (1, "null".into());
+    }
+    let Some(payload_b64) = envelope.get("payload").and_then(|v| v.as_str()) else {
+        return (2, "null".into());
+    };
+    let Ok(body) = b64_std(payload_b64) else { return (2, "null".into()) };
+    let Ok(statement) = strict_parse(&body) else { return (2, "null".into()) };
+    let predicate = statement.get("predicate");
+
+    // Structure gate — compute a flag but do NOT early-return: Python computes `lineage` over the
+    // exact signed bytes REGARDLESS of a structure error (only after crypto passes), then applies the
+    // exit ladder. Mirroring that ordering keeps BOTH the lineage state AND the exit class in sync on
+    // every vector (SPEC §3.2). For the statement path structure = predicateType + closed top fields +
+    // exactly-one-edge; the decision/outcome path's full predicate-schema validation is Python-only
+    // (honestly PARTIAL in the registry) and never the deciding axis of a relation vector.
+    let mut structure_ok = true;
+    if statement_mode {
+        if statement.get("predicateType").and_then(|v| v.as_str()) != Some(RELATION_STATEMENT_PREDICATE_TYPE) {
+            structure_ok = false;
+        }
+        if let Some(pred) = predicate.and_then(|v| v.as_object()) {
+            for k in pred.keys() {
+                if !["schemaVersion", "statementId", "relationships"].contains(&k.as_str()) {
+                    structure_ok = false; // additionalProperties:false, fail-closed
+                }
+            }
+            match pred.get("relationships").and_then(|v| v.as_array()) {
+                Some(a) if a.len() == 1 => {}
+                _ => structure_ok = false,
+            }
+        } else {
+            structure_ok = false;
+        }
+    }
+
+    let relationships = predicate.and_then(|p| p.get("relationships"));
+    let subject_hex = statement_content_root_hex(&body);
+
+    let related = match load_related(related_paths, related_pubs, pub_b64) {
+        Ok(r) => r,
+        Err(_) => return (2, "null".into()),
+    };
+
+    let mut lineage = verify_relationship_edges(relationships, &related, Some(&subject_hex));
+    lineage.superseded_by_attached = successor_warning(&related, Some(&subject_hex));
+    let lineage_state = lineage.lineage.clone();
+
+    // Exit ladder, mirroring Python order: structure (2) · lineage FAIL (2) · policy (3).
+    if !structure_ok {
+        return (2, lineage_state);
+    }
+    if lineage_state == LINEAGE_FAIL {
+        return (2, lineage_state);
+    }
+
+    // Relations policy gate (exit 3 class).
+    if let Some(pol) = policy {
+        if let Some(relations) = pol.get("relations") {
+            if relations.is_object() {
+                let succ_key = base64::engine::general_purpose::STANDARD.encode(
+                    b64_std(pub_b64).unwrap_or_default());
+                let mut viol = evaluate_relations_policy(relations, &lineage, &succ_key);
+                // Standalone self-assertion gate (relation-statement only): reject_retracted /
+                // reject_superseded fire on the statement's OWN verified edge.
+                if statement_mode {
+                    if let Some(e0) = lineage.edges.first() {
+                        let resolved = e0.resolution == LINEAGE_VERIFIED;
+                        let rel0 = e0.relation.as_deref().unwrap_or("");
+                        let relmap = relations.as_object();
+                        let flag = |name: &str| relmap
+                            .and_then(|m| m.get(name)).and_then(|v| v.as_bool()).unwrap_or(false);
+                        if resolved && flag("reject_retracted") && rel0 == "retracts" {
+                            viol.push(Violation { code: "LINEAGE_REQUIREMENT_FAILED".into() });
+                        }
+                        if resolved && flag("reject_superseded") && SUCCESSOR_RELATIONS.contains(&rel0) {
+                            viol.push(Violation { code: "LINEAGE_REQUIREMENT_FAILED".into() });
+                        }
+                    }
+                }
+                if !viol.is_empty() {
+                    return (3, lineage_state);
+                }
+            }
+        }
+    }
+    (0, lineage_state)
+}
+
+/// CLI dispatch for the two relation subcommands: parse
+/// `<envelope> <pub_b64> [--with-related P]... [--related-pub B]... [--policy P]`, run the shared
+/// engine, print the lineage as a JSON report (so crosscheck.py maps it through the ONE
+/// common_vocabulary.label_from_verify) and exit with the 0/1/2/3 contract.
+fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) -> ! {
+    let path = args.get(2).unwrap_or_else(|| fatal(&format!("{cmd} needs an envelope file")));
+    let pub_b64 = args.get(3).unwrap_or_else(|| fatal(&format!("{cmd} needs a base64 public key")));
+    let mut related_paths: Vec<String> = Vec::new();
+    let mut related_pubs: Vec<String> = Vec::new();
+    let mut policy_path: Option<String> = None;
+    let mut i = 4;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--with-related" => {
+                related_paths.push(args.get(i + 1).cloned().unwrap_or_else(|| fatal("--with-related needs a path")));
+                i += 2;
+            }
+            "--related-pub" => {
+                related_pubs.push(args.get(i + 1).cloned().unwrap_or_else(|| fatal("--related-pub needs a value")));
+                i += 2;
+            }
+            "--policy" => {
+                policy_path = Some(args.get(i + 1).cloned().unwrap_or_else(|| fatal("--policy needs a path")));
+                i += 2;
+            }
+            other => fatal(&format!("unknown {cmd} flag: {other}")),
+        }
+    }
+    let env = match strict_parse(&read_file(path)) {
+        Ok(v) => v,
+        Err(_) => {
+            println!("{{\"lineage\":null}}");
+            exit(2);
+        }
+    };
+    let policy = policy_path
+        .as_ref()
+        .map(|p| strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}"))));
+    let (code, lineage) =
+        run_verify_relation(&env, pub_b64, &related_paths, &related_pubs, policy.as_ref(), statement_mode);
+    if lineage == "null" {
+        println!("{{\"lineage\":null}}");
+    } else {
+        println!("{{\"lineage\":\"{lineage}\"}}");
+    }
+    exit(code);
+}
+
 fn read_file(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
 }
@@ -569,7 +1193,7 @@ fn main() {
     if args.len() < 2 {
         eprintln!(
             "usage: pb_verify_rs <content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
-verify-trust-pack-threshold|coverage-report> ..."
+verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-report> ..."
         );
         exit(2);
     }
@@ -727,6 +1351,11 @@ verify-trust-pack-threshold|coverage-report> ..."
             );
             exit(0);
         }
+        // Two SEPARATE match arms (not a `|` pattern) so scripts/rust_parity_gate.py's match-arm
+        // regex sees each subcommand as its own `"name" =>` dispatch. Both delegate to the shared
+        // relation engine; the only difference is statement_mode.
+        "verify-relation" => dispatch_verify_relation(&args, "verify-relation", false),
+        "verify-relation-statement" => dispatch_verify_relation(&args, "verify-relation-statement", true),
         other => fatal(&format!("unknown subcommand: {other}")),
     }
 }

@@ -703,10 +703,52 @@ is "really" authorized or in the right (SCITT RFC 9943 line — authorization is
 Policy terrain, not statement format). The `relations` gate is enforced identically on the
 decision AND outcome verify paths (`outcome verify --policy`).
 
-Deliberately OPEN (do not read them into 3.4.0): threshold signatures (TUF N-of-M),
-identity indirection (DID/VC controller / CA chains), and the standalone
-`relation-statement/v0.1` profile. Pins are raw Ed25519 public keys and raw content-root
-digests, matching the offline house contract.
+Deliberately OPEN (do not read them into 3.4.0/3.5.0): threshold signatures (TUF N-of-M) and
+identity indirection (DID/VC controller / CA chains). Pins are raw Ed25519 public keys and raw
+content-root digests, matching the offline house contract.
+
+## 7k. Standalone relation profile — `relation-statement/v0.1` (EXPERIMENTAL)
+
+Status: EXPERIMENTAL since 3.5.0. Normative-short here; prose in
+[`docs/predicates/relation.md`](docs/predicates/relation.md), executable in
+`src/proofbundle/relation_statement.py`.
+
+The in-receipt edges of 7j express change from the SUCCESSOR's side. A relation statement is the
+INDEPENDENT case: a DSSE-signed statement OVER a target receipt, carrying EXACTLY ONE typed edge and
+NO decision/outcome payload of its own — a retroactive retraction, supersession or amendment declared
+WITHOUT touching the original (status-as-a-separate-object precedent: W3C Bitstring Status List v1.0, CT/OCSP
+revocation, SCITT protected-object-binding). predicateType
+`https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`, predicate
+`{schemaVersion, statementId, relationships:[edge]}`.
+
+- The edge reuses the 7j edge schema verbatim; validation, lineage resolution and the trust-policy
+  `relations` gate reuse the SAME functions as the in-receipt path (`relation.validate_relationships`,
+  `relation.verify_relationship_edges`, `relation.evaluate_relations_policy`) — no second
+  implementation of the logic.
+- Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
+  DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
+  and whether the issuer may declare it is a relying-party policy decision. A `retracts` statement
+  sets a visible declared state BESIDE the target — the target receipt stays valid for its bytes
+  forever, and a verifier that does not know the statement still sees a valid target (offline reality;
+  a retraction is relying-party knowledge, not a global kill). `lineage` NEVER feeds `cryptoValid`
+  (lattice monotonicity).
+- CLI: `proofbundle relation-statement init|emit|verify|inspect`, exit contract 0/1/2/3 identical to
+  the decision/outcome verify paths.
+- Standalone policy extension: `relations.reject_retracted` (and `reject_superseded` for the successor
+  relations) — a relying party who knows BOTH the target and a verified retracts statement of a
+  pinned/authorized signer can treat continued automated use of the target as an exit-3 block. Without
+  the policy the verified statement is pure visibility, never a crypto invalidation. `relation_signer`
+  decides WHO may declare it, identically to 7j.
+
+### Independent Rust cross-verification (`tools/pb_verify_rs`)
+
+Since 3.5.0 the independent Rust verifier carries the relation profile (`verify-relation`,
+`verify-relation-statement`), sharing NO canonicalizer/parser code with Python. `crosscheck.py` drives
+ALL relation vectors — in-receipt (decision + outcome) and standalone, positive AND negative — through
+BOTH implementations and asserts they land on the SAME common-vocabulary label (exit class + lineage)
+on every vector. This is differential AGREEMENT on these vectors, not a correctness proof of either
+implementation; the parity registry (`scripts/rust_parity_registry.json`, AST-checked by
+`scripts/rust_parity_gate.py`) records honestly which surfaces are COVERED / PARTIAL / PENDING.
 
 ## 8. References
 

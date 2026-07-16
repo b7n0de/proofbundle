@@ -276,10 +276,26 @@
       "notes": "Evaluation Card digest resolve+match (Finding 18, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
     },
     "proofbundle.relation.verify_relationship_edges": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "relation/v0.1 lineage-edge chain verification (EXPERIMENTAL, 3.3.0): pure offline cycle/depth walk over attached targets. The Rust core does not carry the profile yet; the design note declares the differential test NOT_RUN until it does."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-relation",
+        "verify-relation-statement"
+      ],
+      "crosscheck_refs": [
+        "\"verify-relation\"",
+        "\"verify-relation-statement\""
+      ],
+      "notes": "relation/v0.1 lineage-edge chain verification (EXPERIMENTAL, 3.5.0): the independent Rust engine ports validate_relationships, verify_relationship_edges (per-edge resolution, per-path cycle + depth cap 32, targetSubjectDigest counter-check), successor_warning and evaluate_relations_policy (require_relation_resolution / reject_superseded / relation_signer pinned+same-key / require_relation_target), sharing NO parser/canonicalizer with Python. crosscheck.py drives ALL 39 relation vectors (decision + outcome + standalone statement, positive AND negative incl. the decoy-parent / subject-mismatch / signer / t1 vectors) differentially: Python and Rust land on the SAME common-vocabulary label (exit class + lineage) on every vector. Differential AGREEMENT, not a correctness proof of either implementation. PARTIAL boundary (honest): the Rust engine reproduces the exit-class + aggregate lineage, NOT the per-edge error message strings (those errorContains assertions run on the Python side), and it does not port the full decision/outcome PREDICATE schema validation (that is decision.verify_decision_receipt / outcome.verify_outcome_receipt, both separately PENDING)."
+    },
+    "proofbundle.relation_statement.verify_relation_statement": {
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-relation-statement"
+      ],
+      "crosscheck_refs": [
+        "\"verify-relation-statement\""
+      ],
+      "notes": "relation-statement/v0.1 standalone profile (EXPERIMENTAL, 3.5.0): a signed statement OVER a target receipt carrying exactly one edge. The Rust verify-relation-statement subcommand ports the predicateType gate, the exactly-one-edge + closed-top-field structure check, the shared lineage engine, and the standalone reject_retracted / reject_superseded self-assertion gate. crosscheck.py drives the six statement vectors (retracts verified+blocked, retracts visible, retracts unauthorized, retracts declared-unresolved, supersedes verified, malformed) differentially — Python==Rust on exit class + lineage. Honest boundary: exit-class + aggregate lineage agreement, not per-edge error-message parity; a retracts statement never invalidates the target's crypto (lattice monotonicity)."
     }
   }
 }

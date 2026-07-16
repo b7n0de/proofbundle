@@ -136,10 +136,12 @@ def _parse_iso_utc(s):
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
-# relation/v0.1 (EXPERIMENTAL, 3.3.0 → 3.4.0): the lineage policy section. relation_signer (WP-A,
-# WHO may replace) and require_relation_target (WP-A2, WHICH parent) are LIVE since 3.4.0 — an
-# unknown key here stays fail-closed, so a future field cannot silently no-op.
-_RELATIONS_KEYS = {"require_relation_resolution", "reject_superseded",
+# relation/v0.1 (EXPERIMENTAL, 3.3.0 → 3.5.0): the lineage policy section. relation_signer (WP-A,
+# WHO may replace) and require_relation_target (WP-A2, WHICH parent) are LIVE since 3.4.0 —
+# reject_retracted (3.5.0, relation-statement standalone) turns a verified retracts statement over the
+# target into an exit-3 block, mirroring reject_superseded for the retracts relation. An unknown key
+# here stays fail-closed, so a future field cannot silently no-op.
+_RELATIONS_KEYS = {"require_relation_resolution", "reject_superseded", "reject_retracted",
                    "relation_signer", "require_relation_target"}
 _RELATION_NAMES = ("supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends")
 _RELATION_SIGNER_MODES = ("same-key", "pinned")
@@ -432,6 +434,7 @@ def load_policy(source: Union[str, dict]) -> dict:
                 raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
                                   f"relation names out of {list(_RELATION_NAMES)}")
         _require_bool(rel, "reject_superseded", "relations")
+        _require_bool(rel, "reject_retracted", "relations")
         # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
         # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
         if "relation_signer" in rel:

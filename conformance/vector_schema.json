@@ -14,8 +14,8 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation"],
-      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path."
+      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation", "relation_statement"],
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`)."
     },
     "input": {
       "type": "string",

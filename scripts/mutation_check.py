@@ -376,6 +376,25 @@ MUTATIONS = [
      "                            and _declared_subj != _actual_subj):",
      "                            and _declared_subj == _actual_subj):",
      "targetSubjectDigest: O2 gegenpruefung inverted (lying subject not caught)", True),
+    # relation-statement/v0.1 3.5.0 — three new load-bearing guards on the standalone profile.
+    # (vi) exactly-one-edge structure gate removed (a multi-edge / zero-edge statement no longer fails):
+    #      killed by test_relation_statement.TestValidation.test_exactly_one_edge_required.
+    ("src/proofbundle/relation_statement.py",
+     "        if isinstance(rels, list) and len(rels) != 1:",
+     "        if False and isinstance(rels, list) and len(rels) != 1:",
+     "relation-statement: exactly-one-edge structure gate removed", True),
+    # (vii) reject_retracted self-assertion gate disabled (a verified retracts statement no longer
+    #       blocks continued automated use): killed by TestPolicyGates.test_reject_retracted_blocks.
+    ("src/proofbundle/relation_statement.py",
+     "        if resolved and relations.get(\"reject_retracted\") and rel0 in _SELF_ASSERTED_RETRACTORS:",
+     "        if False and relations.get(\"reject_retracted\") and rel0 in _SELF_ASSERTED_RETRACTORS:",
+     "relation-statement: reject_retracted gate disabled (retracts no longer blocks)", True),
+    # (viii) lattice violation — cryptoValid dropped from the aggregate `ok` (a forged statement with a
+    #        valid structure would read ok): killed by TestEmitVerify.test_forged_signature_fails_and_no_trust_fields.
+    ("src/proofbundle/relation_statement.py",
+     "        r[\"crypto_ok\"] and r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
+     "        r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
+     "relation-statement: cryptoValid dropped from aggregate ok (lattice violation)", True),
 ]
 
 
