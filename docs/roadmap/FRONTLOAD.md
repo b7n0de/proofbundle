@@ -22,7 +22,7 @@ prompts must EXTEND these foundations, never rebuild them.**
 | Release | Work package | De-risked by | How it extends (not rebuilds) |
 |---|---|---|---|
 | **3.4.0** | relation_signer + outcome-gate, decoy-parent F1 enforcement | F1, F3, F7 | decoy-parent vectors go into `conformance/relation/`; the pin/crypto separation becomes formal obligation **O5** (already a reserved slot); the signer ceremony mirrors the existing `un_review_signer` pattern |
-| **3.4.0** | target-pin ⊥ cryptoValid | F3 | flip reserved **O5_TARGET_PIN_NOT_CRYPTO** to proven |
+| **3.4.0** | target-pin ⊥ cryptoValid | F3 | **O5_TARGET_PIN_NOT_CRYPTO** stays reserved (the target-pin ⊥ cryptoValid separation is code-enforced, conformance-tested and mutation-killed, but NOT yet a formal `model.py` proof — flipping the reserved slot to proven is deferred) |
 | **3.5.0** | relation_statement + Rust parity of all paths | F1, F4, F3 | the new `verify_*` is auto-covered by F4; parity goes into `rust_parity_registry.json` + `crosscheck.py`; **O6_RETRACTS_NEVER_RAISES** stays reserved (the retracts-never-raises property is code-enforced, conformance-tested and mutation-killed, but NOT yet a formal `model.py` proof — flipping the reserved slot to proven is deferred) |
 | **3.6.0** | audit-candidate: 33-check matrix, payloadType obligations, fuzz-soak, differential matrix | F1, F3, F4, F5 | payloadType binding becomes **O7** (reserved); the type-confusion matrix is already structural (F4); the readiness pack's 3.6.0 slot collects fuzz-soak + differential evidence |
 | **all** | hermetic + reproducible + attested release | F2 | inherited with zero per-release work |
