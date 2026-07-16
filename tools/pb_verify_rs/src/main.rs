@@ -146,11 +146,30 @@ fn b64_std(s: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
-fn verify_dsse(envelope: &serde_json::Value, pubkey_b64: &str) -> Result<bool, String> {
+// The in-toto Statement payload type every proofbundle receipt/statement is signed under. The
+// relation paths pin it (mirror of Python's payload_type pin in dsse.verify_envelope); the generic
+// verify-dsse subcommand passes None so it stays a type-agnostic DSSE primitive.
+const INTOTO_STATEMENT_PAYLOAD_TYPE: &str = "application/vnd.in-toto+json";
+
+fn verify_dsse(
+    envelope: &serde_json::Value,
+    pubkey_b64: &str,
+    expected_payload_type: Option<&str>,
+) -> Result<bool, String> {
     let payload_type = envelope
         .get("payloadType")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payloadType")?;
+    // Type-confusion defense (mirror of Python dsse.verify_envelope's payload_type pin —
+    // relation_statement.py:189-190 / cli.py:1241-1242): when an expected payloadType is given it
+    // MUST equal the envelope's payloadType BEFORE the PAE is built. A Sign/Verify type mismatch
+    // silently changes the PAE, so an envelope carrying the WRONG payloadType is rejected fail-closed
+    // here instead of being authenticated under its own attacker-chosen type (Rust fail-open, fixed).
+    if let Some(expected) = expected_payload_type {
+        if payload_type != expected {
+            return Ok(false);
+        }
+    }
     let payload_b64 = envelope
         .get("payload")
         .and_then(|v| v.as_str())
@@ -996,6 +1015,7 @@ fn load_related(
     paths: &[String],
     related_pubs: &[String],
     main_pub_b64: &str,
+    expected_payload_type: &str,
 ) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
     let mut related = std::collections::HashMap::new();
     for (i, path) in paths.iter().enumerate() {
@@ -1005,7 +1025,9 @@ fn load_related(
         let payload_b64 = env.get("payload").and_then(|v| v.as_str()).ok_or("related has no payload")?;
         let body = b64_std(payload_b64)?;
         let root_hex = statement_content_root_hex(&body);
-        let verified = verify_dsse(&env, verify_key_b64).unwrap_or(false);
+        // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
+        // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
+        let verified = verify_dsse(&env, verify_key_b64, Some(expected_payload_type)).unwrap_or(false);
         let mut relationships = None;
         let mut subject_digest = None;
         if let Ok(stmt) = strict_parse(&body) {
@@ -1040,8 +1062,10 @@ fn run_verify_relation(
     policy: Option<&serde_json::Value>,
     statement_mode: bool,
 ) -> (i32, String) {
-    // Crypto FIRST (exit 1 on failure).
-    let crypto_ok = verify_dsse(envelope, pub_b64).unwrap_or(false);
+    // Crypto FIRST (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
+    // relation_statement.py:189-190 / the decision/outcome verify paths) so a statement/receipt
+    // presented under the WRONG payloadType fails crypto here, never authenticated under a foreign type.
+    let crypto_ok = verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)).unwrap_or(false);
     if !crypto_ok {
         return (1, "null".into());
     }
@@ -1081,7 +1105,7 @@ fn run_verify_relation(
     let relationships = predicate.and_then(|p| p.get("relationships"));
     let subject_hex = statement_content_root_hex(&body);
 
-    let related = match load_related(related_paths, related_pubs, pub_b64) {
+    let related = match load_related(related_paths, related_pubs, pub_b64, INTOTO_STATEMENT_PAYLOAD_TYPE) {
         Ok(r) => r,
         Err(_) => return (2, "null".into()),
     };
@@ -1210,7 +1234,8 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             let path = args.get(2).unwrap_or_else(|| fatal("verify-dsse needs an envelope file"));
             let pk = args.get(3).unwrap_or_else(|| fatal("verify-dsse needs a base64 public key"));
             let v = strict_parse(&read_file(path)).unwrap_or_else(|e| fatal(&e));
-            match verify_dsse(&v, pk) {
+            // Generic DSSE primitive: no expected-type pin (the relation paths pin in-toto themselves).
+            match verify_dsse(&v, pk, None) {
                 Ok(true) => {
                     println!("OK");
                     exit(0);

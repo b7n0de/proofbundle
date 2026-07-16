@@ -54,6 +54,7 @@
     "relation/statement-retracts-unauthorized",
     "relation/statement-retracts-declared-unresolved",
     "relation/statement-supersedes-verified",
-    "relation/statement-malformed"
+    "relation/statement-malformed",
+    "relation/wrong-payloadtype-target"
   ]
 }

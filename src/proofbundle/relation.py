@@ -384,7 +384,15 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     Returns a list of ``{"code", "message"}`` violations — empty means the policy is satisfied. Codes:
     ``LINEAGE_REQUIREMENT_FAILED`` (require_relation_resolution / reject_superseded),
     ``RELATION_SIGNER_UNAUTHORIZED`` (relation_signer), ``RELATION_TARGET_MISMATCH``
-    (require_relation_target). Pure, offline, never raises."""
+    (require_relation_target). Pure, offline, never raises.
+
+    ``reject_superseded`` DOUBLE MEANING (cross-reference): here it blocks a receipt over which an
+    ATTACHED, verified successor is declared (the ``supersededByAttached`` warning — an EXTERNAL
+    statement pointing AT this receipt). The standalone relation-statement path
+    (:func:`relation_statement.verify_relation_statement`, SPEC §2.5) reuses the SAME flag for a
+    SECOND, disjoint case: the statement's OWN verified supersedes/revises/corrects edge (a
+    self-assertion) — same policy code, different subject. ``reject_retracted`` is the retracts sibling,
+    standalone-only. Both extensions live in ``relation_statement`` and are NOT evaluated here."""
     out: list[dict] = []
     if not isinstance(relations_section, dict):
         return out

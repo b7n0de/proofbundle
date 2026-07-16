@@ -30,7 +30,6 @@ from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 
 RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1"
-RELATION_STATEMENT_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 

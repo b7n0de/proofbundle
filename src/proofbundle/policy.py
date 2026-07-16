@@ -1054,6 +1054,12 @@ def explain_policy(policy: dict) -> list:
                      + ", ".join(rel["require_relation_resolution"]))
     if rel.get("reject_superseded"):
         lines.append("superseded receipt rejected (an attached, verified successor blocks automation)")
+    # reject_retracted (3.5.0, relation-statement standalone) is ENFORCED at exit-3 by the verify path
+    # (relation_statement.py:296-301) — explain MUST list it too, else `policy lint` calls a policy whose
+    # ONLY pin is reject_retracted vacuous while verify actually FAILs it (explain⟺enforce parity).
+    if rel.get("reject_retracted"):
+        lines.append("retracted receipt rejected (a verified relation-statement RETRACTS the target, "
+                     "blocking continued automated use)")
     # WP-A / WP-A2: the two 3.4.0 pins — explain MUST list them (explain⟺enforce parity, same rule as
     # anchors); a policy whose ONLY pin was one of these must not read as wirkungslos in `policy lint`.
     rsig = rel.get("relation_signer") or {}

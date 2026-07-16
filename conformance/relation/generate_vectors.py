@@ -626,6 +626,34 @@ def main() -> None:
                          related_pubs=[x_pub, x_pub], policy="policy.json",
                          kind="outcome_relation", attribution=loek))
 
+    # 15) wrong-payloadType target (Berkeley audit — Rust payloadType fail-open regression, 3.5.0):
+    #     a SAME-KEY related target whose DSSE envelope carries the WRONG payloadType (validly signed
+    #     over a foreign type). Python _load_related pins the in-toto payloadType (cli.py:1241-1242), so
+    #     the target is attached-but-unverified -> lineage FAIL, exit 2; the independent Rust verifier
+    #     now pins the type too (verify_dsse expected_payload_type) -> BOTH reject. Before the fix the
+    #     Rust relation path did NOT pin the type and authenticated the foreign-type envelope (fail-open,
+    #     exit 0/VERIFIED). This is the differential vector that proves the fix.
+    wpt_ok = emit({"decisionId": "d-wrong-payloadtype-target"}, signer)
+    wpt_body = dsse.load_payload(wpt_ok)
+    wpt_target = dsse.sign_envelope(wpt_body, signer,
+                                    payload_type="application/vnd.pb.wrong-type+json")
+    wpt_root = anchors.statement_content_root(wpt_body).hex()
+    wpt_main = emit({"decisionId": "d-wrong-payloadtype-succ",
+                     "relationships": [edge(wpt_root, relation="supersedes")]}, signer)
+    write_case("wrong-payloadtype-target",
+               {"receipt.json": wpt_main, "pub.b64": pub_b64, "related_t.json": wpt_target},
+               base_case("relation-wrong-payloadtype-target",
+                         {"exitCode": 2, "lineage": "FAIL",
+                          "errorContains": "relation:target_verification_failed"},
+                         "payloadType type-confusion (Berkeley audit, Rust fail-open regression): a "
+                         "same-key related target signed under the WRONG payloadType is "
+                         "attached-but-unverified. Python pins the in-toto payloadType in _load_related "
+                         "and the independent Rust verifier now pins it too (verify_dsse "
+                         "expected_payload_type) — BOTH reject (exit 2, lineage FAIL). Before the fix "
+                         "the Rust relation path authenticated the foreign-type envelope (exit 0, "
+                         "VERIFIED): the differential vector that proves the pin.",
+                         related=["related_t.json"]))
+
     print("done")
 
 

@@ -30,8 +30,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`tools/pb_verify_rs`) now carries the profile — new subcommands `verify-relation` (in-receipt
   decision/outcome edges) and `verify-relation-statement` (standalone), with its OWN parser
   (serde_json + serde_jcs, sharing NO canonicalizer/parser with Python). `crosscheck.py` drives
-  ALL 39 relation vectors — decision, outcome and standalone, positive AND negative (incl. the
-  3.4.0 decoy-parent / subject-mismatch / signer / t1 vectors) — through BOTH implementations and
+  ALL 40 relation vectors — decision, outcome and standalone, positive AND negative (incl. the
+  3.4.0 decoy-parent / subject-mismatch / signer / t1 vectors and the wrong-payloadType vector) —
+  through BOTH implementations and
   asserts they land on the same common-vocabulary label (exit class + lineage) on every vector.
   Differential AGREEMENT on these vectors, not a correctness proof of either implementation. The
   parity registry (`scripts/rust_parity_registry.json`) is raised from PENDING to COVERED for
@@ -45,6 +46,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exit-contract tests (`tests/test_relation_statement.py`) and the Rust differential gate
   (`tests/test_relation_statement_rust_parity.py`). Existing 3.3.0/3.4.0 vectors and behaviour are
   unchanged (pure additivity, no wire break); the profile stays EXPERIMENTAL through 4.0.
+
+### Fixed (relation-statement/v0.1 3.5.0 — pre-release audit)
+- **Rust payloadType fail-open (BLOCKER, security):** the independent Rust verifier's `verify_dsse`
+  derived the PAE from the envelope's OWN `payloadType` without pinning an expected type, so the
+  relation paths (`run_verify_relation` crypto check and `load_related`) would AUTHENTICATE a
+  same-key envelope presented under the WRONG payloadType — where Python pins
+  `application/vnd.in-toto+json` and rejects it. `verify_dsse` now takes an `expected_payload_type`
+  and the relation paths pin the in-toto type, mirroring Python fail-closed; the generic
+  `verify-dsse` subcommand stays deliberately type-agnostic. A new same-key wrong-payloadType
+  differential vector proves BOTH implementations now reject it (exit 2, lineage FAIL).
+- **`policy lint` missed `reject_retracted` (MAJOR):** `explain_policy` had no `reject_retracted`
+  branch, so `lint_policy` wrongly called a `reject_retracted`-only policy a vacuous pass while the
+  verify path enforces it at exit 3. `explain_policy` now lists it (explain⟺enforce parity).
+- **Docs:** the roadmap `O6_RETRACTS_NEVER_RAISES` note corrected to reserved (code-enforced +
+  tested + mutation-killed, not yet a formal proof); the dead `RELATION_STATEMENT_SCHEMA_VERSION`
+  constant removed; the `reject_superseded` double meaning cross-referenced in
+  `evaluate_relations_policy`.
 
 ### Added (relation/v0.1 3.4.0 — three lineage pins, still EXPERIMENTAL)
 - **`relation_signer` trust-policy pin (WP-A, WHO may replace):** a new fail-closed

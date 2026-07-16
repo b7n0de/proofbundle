@@ -122,6 +122,19 @@ class TestLint(unittest.TestCase):
         self.assertTrue(lint_policy(pol)["pins"])
         self.assertNotIn("pins nothing", " ".join(lint_policy(pol)["errors"]))
 
+    def test_reject_retracted_is_a_pin_not_vacuous(self):
+        # 3.5.0 Berkeley audit: relations.reject_retracted is ENFORCED at exit-3 by the verify path
+        # (relation_statement.verify_relation_statement) but explain_policy had no branch for it — lint
+        # wrongly called a reject_retracted-only policy vacuous while verify actually FAILs it. explain
+        # must list it; lint must NOT call it vacuous (explain⟺enforce parity, same rule as
+        # reject_superseded / merkle.hash_alg).
+        pol = load_policy({**MINIMAL, "schema": "proofbundle/trust-policy/v0.2",
+                           "relations": {"reject_retracted": True}})
+        self.assertTrue(any("retracted receipt rejected" in x for x in explain_policy(pol)))
+        self.assertTrue(lint_policy(pol)["ok"])
+        self.assertTrue(lint_policy(pol)["pins"])
+        self.assertNotIn("pins nothing", " ".join(lint_policy(pol)["errors"]))
+
     def test_unsatisfiable_require_signer_is_a_lint_error(self):
         # six-lens review: require_expected_signer=true with empty allowed_issuers can NEVER pass
         # (evaluate fail-closes every verify to exit 3) — that is a lint ERROR, not a valid pin.
