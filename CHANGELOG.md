@@ -6,7 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added (relation/v0.1 lineage profile — EXPERIMENTAL, target 3.3.0)
+## [3.3.0] - 2026-07-16
+
+### Added (relation/v0.1 lineage profile — EXPERIMENTAL)
 - **`relation/v0.1` lineage/relationship profile** (EXPERIMENTAL): an optional, SIGNED
   `relationships: [edge, …]` field on the decision-receipt and action-outcome predicates —
   typed edges (`supersedes`/`revises`/`corrects`/`retracts`/`renews`/`derivedFrom`/`amends`,
