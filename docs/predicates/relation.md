@@ -25,7 +25,11 @@ never that the successor is better, more true, or methodologically sound.
 `relationships: [edge, …]` is an OPTIONAL field of the decision-receipt and action-outcome
 predicates — INSIDE the DSSE-signed statement bytes, so the receipt's own signature covers the
 edges (deliberately unlike detached `anchors[]`, which is evidence ABOUT a receipt). The outer
-Merkle bundle (`proofbundle/v0.1`) is untouched: no wire break for old verifiers.
+Merkle bundle (`proofbundle/v0.1`) is untouched: no wire break for old verifiers. One honest
+caveat: the docs-only predicate SCHEMAS are `additionalProperties:false`, so a third party
+validating a NEW receipt against an OLD schema file rejects the field (the same inherited
+pattern as `receiverRefs`/`sequence`); inside proofbundle the hand-rolled validators — not the
+schema files — gate verdicts.
 
 ```json
 {

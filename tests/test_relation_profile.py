@@ -573,3 +573,70 @@ class TestRetractsThenUse(unittest.TestCase):
             rc = cli.main(["decision", "verify", str(tmp / "a.json"), "--pub", pub,
                            "--with-related", str(tmp / "b.json")])
             self.assertEqual(rc, 2)
+
+
+class TestOutcomeCLILineageExit(unittest.TestCase):
+    """Adversarial-review finding (2026-07-16): outcome verify --with-related must mirror the
+    decision-path exit contract — a REQUESTED lineage check that FAILs exits 2, never 0."""
+
+    def test_outcome_cli_exit_2_on_lineage_fail(self):
+        import base64
+        import json
+        import tempfile
+        from pathlib import Path
+        from proofbundle import anchors, cli, dsse
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        from proofbundle.outcome import build_outcome_statement
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        dec_pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        signer = generate_signer()
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            # Fremdsignierter Vorgaenger -> attached-but-unverified -> lineage FAIL.
+            foreign = emit_decision_receipt(dec_pred, generate_signer(), strict=True)
+            (tmp / "b.json").write_text(json.dumps(foreign), encoding="utf-8")
+            b_root = anchors.statement_content_root(dsse.load_payload(foreign)).hex()
+            outcome_pred = {
+                "schemaVersion": "0.1.0", "outcomeId": "o-lineage-fail",
+                "decisionRef": {"sha256": "c" * 64}, "executor": {"id": "ex-1"},
+                "requestedActionDigest": {"sha256": "d" * 64},
+                "status": "executed", "performedAt": "2026-07-16T00:00:00Z",
+                "relationships": [edge(b_root, relation="supersedes")],
+            }
+            stmt = build_outcome_statement(outcome_pred)
+            from proofbundle.decision import _rfc8785_bytes
+            env = dsse.sign_envelope(_rfc8785_bytes(stmt), signer,
+                                     payload_type="application/vnd.in-toto+json")
+            (tmp / "o.json").write_text(json.dumps(env), encoding="utf-8")
+            pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+            rc = cli.main(["outcome", "verify", str(tmp / "o.json"), "--pub", pub,
+                           "--with-related", str(tmp / "b.json")])
+            self.assertEqual(rc, 2)
+
+    def test_outcome_cli_declared_unresolved_stays_exit_0(self):
+        import base64
+        import json
+        import tempfile
+        from pathlib import Path
+        from proofbundle import cli, dsse
+        from proofbundle.decision import _rfc8785_bytes
+        from proofbundle.emit import generate_signer
+        from proofbundle.outcome import build_outcome_statement
+        signer = generate_signer()
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            outcome_pred = {
+                "schemaVersion": "0.1.0", "outcomeId": "o-unresolved",
+                "decisionRef": {"sha256": "c" * 64}, "executor": {"id": "ex-1"},
+                "requestedActionDigest": {"sha256": "d" * 64},
+                "status": "executed", "performedAt": "2026-07-16T00:00:00Z",
+                "relationships": [edge(H_B, relation="supersedes")],
+            }
+            stmt = build_outcome_statement(outcome_pred)
+            env = dsse.sign_envelope(_rfc8785_bytes(stmt), signer,
+                                     payload_type="application/vnd.in-toto+json")
+            (tmp / "o.json").write_text(json.dumps(env), encoding="utf-8")
+            pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+            rc = cli.main(["outcome", "verify", str(tmp / "o.json"), "--pub", pub])
+            self.assertEqual(rc, 0)

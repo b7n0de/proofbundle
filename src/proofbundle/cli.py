@@ -1529,6 +1529,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # fail-closed binding as --aud/--nonce — an EXTERNAL_ATTESTED subject then must not exit 0.
     if result["subject_derived_ok"] is False:
         return 2
+    # relation/v0.1 (adversarial-review finding, 2026-07-16): mirror of the decision-verify gate —
+    # a REQUESTED lineage check (--with-related / edges present) that FAILs must never exit 0.
+    if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
     return 0
 
 

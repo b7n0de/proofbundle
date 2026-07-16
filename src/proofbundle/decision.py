@@ -407,7 +407,7 @@ def _empty_result() -> dict:
         "automation": None, "evidence_levels": None,
         # relation/v0.1 (EXPERIMENTAL, additive): lineage verdict over the predicate's OPTIONAL
         # relationships edges — None until computed over AUTHENTICATED bytes; never gates `ok`.
-        "lineage": None,
+        "lineage": None, "lineage_requirement_failed": None,
         "warnings": [], "errors": [],
     }
 

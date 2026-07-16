@@ -71,7 +71,7 @@ Closed vocabulary v1: `supersedes · revises · corrects · retracts · renews �
 | retracts | wasInvalidatedBy | revokes | declared statement ABOUT the target; never breaks the target's crypto validity |
 | renews | specializationOf (approximation, finalize in review) | (none; RFC 4998 line) | same bytes, new anchors — disjoint from supersedes |
 | derivedFrom | wasDerivedFrom | derivedFrom | derivation without replacement claim |
-| amends | (supplement) | **(none in nobuo-00)** | own relation, justified in SPEC; do NOT bend onto describes/dependsOn |
+| amends | (supplement) | **(none in nobuo-00)** | own relation, justified in docs/predicates/relation.md; do NOT bend onto describes/dependsOn |
 
 Rule: where a standard term exists it is referenced, never renamed. nobuo-00 is an
 Individual Draft (cite with datatracker date 2026-07-07, no standards status).
@@ -136,7 +136,7 @@ Invariants (hard, tested + SMT-checkable lattice property):
   statement of correctness." (output is English-only, matching the existing CLI).
 - Exit codes: existing contract; a lineage FAIL on a REQUESTED check → non-zero
   (crypto untouched → exit 3 policy-gate class when policy-driven, exit 1/2 per
-  existing `_verify_exit_code` semantics for structural fails).
+  the decision/outcome verify subcommands' own inline exit blocks for structural fails).
 
 ## 7. Conformance vectors (corpus extension, crossFormatId per sync note §1)
 
