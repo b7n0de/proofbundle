@@ -3,6 +3,7 @@
   "kind": "decision_relation",
   "input": "receipt.json",
   "pub": "pub.b64",
+  "attribution": "b7n0de / relation-v0.1 corpus generator (conformance/relation/generate_vectors.py, 2026-07-16)",
   "expected": {
     "exitCode": 1
   },
