@@ -640,3 +640,97 @@ class TestOutcomeCLILineageExit(unittest.TestCase):
             pub = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
             rc = cli.main(["outcome", "verify", str(tmp / "o.json"), "--pub", pub])
             self.assertEqual(rc, 0)
+
+
+class TestLineageVisibleInAggregate(unittest.TestCase):
+    """6-lens audit L2: a REQUESTED lineage FAIL must be visible in the LIBRARY aggregate
+    (ok + automation.safeForAutomation), not only at the CLI exit code — consistent with
+    every other error category. crypto_ok stays untouched (monotonicity preserved)."""
+
+    def _signed(self, relationships=None):
+        import json
+        from pathlib import Path
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        if relationships is not None:
+            pred["relationships"] = relationships
+        signer = generate_signer()
+        return emit_decision_receipt(pred, signer, strict=True), signer
+
+    def test_lineage_fail_visible_in_ok_and_automation_without_policy(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, signer = self._signed([edge(H_B, relation="supersedes")])
+        # attached-but-unverified target, NO relations policy configured
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(),
+                                    related={H_B: {"verified": False}})
+        self.assertTrue(r["crypto_ok"])          # crypto NIE beruehrt
+        self.assertIs(r["lineage_ok"], False)
+        self.assertFalse(r["ok"])                # jetzt sichtbar (vorher stillschweigend True)
+        self.assertFalse(r["automation"]["safeForAutomation"])
+
+    def test_declared_unresolved_keeps_ok_true(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, signer = self._signed([edge(H_B, relation="supersedes")])
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), related={})
+        self.assertEqual(r["lineage"]["lineage"], LINEAGE_DECLARED_UNRESOLVED)
+        self.assertIsNone(r["lineage_ok"])       # ehrlicher Nicht-Fehler
+        self.assertTrue(r["ok"])                 # kein PASS-Downgrade fuer declared-only
+
+    def test_no_relationships_lineage_ok_stays_none(self):
+        from proofbundle.decision import verify_decision_receipt
+        env, signer = self._signed(None)
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw())
+        self.assertIsNone(r["lineage_ok"])
+        self.assertTrue(r["ok"])
+
+
+class TestNeverRaiseRelatedGuard(unittest.TestCase):
+    """6-lens audit L3: verify_relationship_edges / successor_warning must never raise on a
+    non-dict `related` container (library-API-misuse) — fail-closed, not TypeError."""
+
+    def test_non_dict_related_never_raises(self):
+        from proofbundle.relation import successor_warning, verify_relationship_edges
+        e = [edge(H_B, relation="supersedes")]
+        for bad in ([1, 2], "string", 5, 3.14, {1, 2}, (1,), True):
+            res = verify_relationship_edges(e, bad, subject_hex=H_A)
+            self.assertIsInstance(res, dict, repr(bad))
+            self.assertIn(res["lineage"], (LINEAGE_DECLARED_UNRESOLVED, LINEAGE_FAIL,
+                                           LINEAGE_VERIFIED, LINEAGE_NOT_EVALUATED))
+            self.assertIsNone(successor_warning(None, bad, subject_hex=H_A), repr(bad))
+
+
+class TestRelationsPolicyNegativePaths(unittest.TestCase):
+    """6-lens audit L4: load_policy must reject a malformed relations section fail-closed
+    (same nested-parity discipline as the merkle-section incident)."""
+
+    def _p(self, relations, schema="proofbundle/trust-policy/v0.2"):
+        return {"schema": schema, "policy_id": "t", "relations": relations}
+
+    def test_relations_on_v0_1_rejected(self):
+        from proofbundle.policy import PolicyError, load_policy
+        with self.assertRaises(PolicyError):
+            load_policy(self._p({"reject_superseded": True},
+                                schema="proofbundle/trust-policy/v0.1"))
+
+    def test_unknown_key_in_relations_rejected(self):
+        from proofbundle.policy import PolicyError, load_policy
+        with self.assertRaises(PolicyError):
+            load_policy(self._p({"reject_superseded": True, "sneaky": 1}))
+
+    def test_bad_require_relation_resolution_rejected(self):
+        from proofbundle.policy import PolicyError, load_policy
+        for bad in ("supersedes", [], ["nope"], [123], {}):
+            with self.assertRaises(PolicyError, msg=repr(bad)):
+                load_policy(self._p({"require_relation_resolution": bad}))
+
+    def test_non_bool_reject_superseded_rejected(self):
+        from proofbundle.policy import PolicyError, load_policy
+        for bad in ("true", 1, [], None):
+            with self.assertRaises(PolicyError, msg=repr(bad)):
+                load_policy(self._p({"reject_superseded": bad}))
+
+    def test_valid_relations_accepted(self):
+        from proofbundle.policy import load_policy
+        load_policy(self._p({"require_relation_resolution": ["retracts"], "reject_superseded": True}))

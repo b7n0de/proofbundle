@@ -995,8 +995,8 @@ def explain_policy(policy: dict) -> list:
         if anc.get("allow_pending"):
             detail += " (pending accepted)"
         lines.append(f"external time anchor required ({detail})")
-    # relation/v0.1: the relations section is enforced by the decision/outcome verify paths (a
-    # violation fails policy_ok, exit 3) — listed here for explain⟺enforce parity, same rule as anchors.
+    # relation/v0.1: the relations section is enforced by the decision verify path (a
+    # violation fails policy_ok, exit 3; the outcome-path policy gate is a documented follow-up) — listed here for explain⟺enforce parity, same rule as anchors.
     rel = policy.get("relations") or {}
     if rel.get("require_relation_resolution"):
         lines.append("lineage relations must resolve (target attached + verified): "

@@ -188,3 +188,64 @@ class TestOutcomeSchemaParity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(jsonschema is None, "jsonschema not installed (pip install -e .[dev])")
+class TestRelationshipsSchemaParity(unittest.TestCase):
+    """6-lens audit L4: the additive relationships field (relation/v0.1) must agree between the
+    hand validator and the JSON-Schema mirror on BOTH predicates — the divergence class Finding 04
+    was created to prevent, extended to the new field."""
+
+    _GOOD = {"digestAlgorithm": "jcs-sha256-v1", "digest": "b" * 64}
+    _EDGE = {"relation": "supersedes", "targetReceiptDigest": _GOOD}
+
+    def _chk_decision(self, relationships):
+        p = _load_example("decision_receipt_deny.json")
+        p["relationships"] = relationships
+        hand = not validate_decision_predicate(p, strict=True)
+        schema = _jsonschema_valid(p, DECISION_SCHEMA)
+        return hand, schema
+
+    def _chk_outcome(self, relationships):
+        p = _outcome_pred()
+        p["relationships"] = relationships
+        hand = not validate_outcome_predicate(p, strict=True)
+        schema = _jsonschema_valid(p, OUTCOME_SCHEMA)
+        return hand, schema
+
+    def _both(self, relationships, expect_valid, msg):
+        for label, fn in (("decision", self._chk_decision), ("outcome", self._chk_outcome)):
+            hand, schema = fn(relationships)
+            self.assertEqual(hand, expect_valid, f"{msg}/{label}: hand={hand}")
+            self.assertEqual(schema, expect_valid, f"{msg}/{label}: schema={schema}")
+            self.assertEqual(hand, schema, f"{msg}/{label}: DIVERGENCE hand={hand} schema={schema}")
+
+    def test_valid_edge_agrees(self):
+        self._both([self._EDGE], expect_valid=True, msg="valid edge")
+
+    def test_full_edge_agrees(self):
+        e = dict(self._EDGE, targetSubjectDigest=self._GOOD, reason="x",
+                 reasonCode="correction", declaredAt="2026-07-16T00:00:00Z")
+        self._both([e], expect_valid=True, msg="full edge")
+
+    def test_unknown_relation_rejected_by_both(self):
+        self._both([{"relation": "replaces", "targetReceiptDigest": self._GOOD}],
+                   expect_valid=False, msg="unknown relation")
+
+    def test_missing_digest_algorithm_rejected_by_both(self):
+        self._both([{"relation": "supersedes", "targetReceiptDigest": {"digest": "b" * 64}}],
+                   expect_valid=False, msg="missing digestAlgorithm")
+
+    def test_non_hex_digest_rejected_by_both(self):
+        self._both([{"relation": "supersedes",
+                     "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "ZZ"}}],
+                   expect_valid=False, msg="non-hex digest")
+
+    def test_unknown_edge_field_rejected_by_both(self):
+        self._both([dict(self._EDGE, sneaky=1)], expect_valid=False, msg="unknown edge field")
+
+    def test_empty_array_rejected_by_both(self):
+        self._both([], expect_valid=False, msg="empty relationships")
+
+    def test_bad_reason_code_rejected_by_both(self):
+        self._both([dict(self._EDGE, reasonCode="because")], expect_valid=False, msg="bad reasonCode")

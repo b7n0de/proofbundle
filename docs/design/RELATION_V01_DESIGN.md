@@ -91,12 +91,16 @@ New module `src/proofbundle/relation.py`, mirroring the decision/outcome convent
   - `DECLARED_UNRESOLVED` — edge present, target not attached. Explicitly NOT an
     error; never more than "declared".
   - `FAIL` — digest mismatch, target fails verification, cycle (A→B→A), depth > 32,
-    unknown relation value, or policy violation. Stable error codes
-    (`relation:digest_mismatch`, `relation:cycle`, `relation:depth_exceeded`,
-    `relation:unknown_relation`, `relation:unauthorized_signer`, …).
+    unknown relation value, or policy violation. Stable error codes actually emitted by
+    `relation.py`: `relation:cycle`, `relation:depth_exceeded`, `relation:malformed:<msg>`
+    (covers a bad/unknown relation value and any structural error), and
+    `relation:target_verification_failed` (attached-but-unverified, the unauthorized-signer
+    case). A digest mismatch is NOT a lineage error code — the edge simply stays
+    DECLARED_UNRESOLVED because attached targets are keyed by their computed content root, and
+    a require_relation_resolution policy turns that into LINEAGE_REQUIREMENT_FAILED (exit 3).
   - `NOT_EVALUATED` — no profile present or check not requested.
 
-Invariants (hard, tested + SMT-checkable lattice property):
+Invariants (hard, tested + exhaustively checkable lattice property (27 edge-state combinations, 0 violations)):
 - `NOT_EVALUATED` and `DECLARED_UNRESOLVED` NEVER act as PASS and NEVER raise any
   other assurance dimension (EvidenceLevel ladder stays untouched; the edges map at
   most to `REFERENCE_WELL_FORMED`/`CONTENT_RESOLVED` — mirrors `classify_digest_evidence`,
@@ -114,11 +118,13 @@ Invariants (hard, tested + SMT-checkable lattice property):
 
 ```json
 "relations": {
-  "requireRelationResolution": ["retracts", "supersedes"],
-  "relationSigner": {"retracts": "same-key", "supersedes": "pinned-set", "derivedFrom": "any"},
-  "rejectSuperseded": true
+  "require_relation_resolution": ["retracts", "supersedes"],
+  "reject_superseded": true
 }
 ```
+(snake_case, matching the shipped `trust_policy_v0_1.schema.json`; `relation_signer` is a
+documented FOLLOW-UP and is NOT yet an accepted key — a camelCase or `relation_signer` key
+would be rejected fail-closed by `load_policy`.)
 - IMPLEMENTED (2026-07-16): parsed fail-closed in `load_policy` (v0.2-gated), enforced on the
   DECISION verify path (`verify_decision_receipt` — unresolved named relation or attached
   verified successor fails `policy_ok`, exit-3 class, LIVE blocker `LINEAGE_REQUIREMENT_FAILED`),
@@ -145,11 +151,11 @@ Invariants (hard, tested + SMT-checkable lattice property):
 | existing valid baseline | xfmt-c0 | PASS, lineage NOT_EVALUATED |
 | silent-landing (named core vector: old identity, new bytes, NO declared relation) | xfmt-t1 | FAIL |
 | declared-supersedes-verified (A→B attached, same signer, digest ok) | xfmt-t2 | lineage VERIFIED, no truth upgrade |
-| digest-mismatch | xfmt-t3 | FAIL |
+| digest-mismatch | xfmt-t3 | DECLARED_UNRESOLVED, policy require_relation_resolution -> exit 3 (LINEAGE_REQUIREMENT_FAILED); a lying edge never finds a target since attached targets are keyed by their COMPUTED content root |
 | renews-vector (same bytes, new anchors, original age visible) | xfmt-t4 | VERIFIED, disjoint from supersedes |
 | one vector per relation (revises/corrects/retracts/renews/derivedFrom/amends) | — | semantics each |
 | declared-unresolved | — | DECLARED_UNRESOLVED, no error, no PASS upgrade |
-| cycle (A→B→A) · depth-exceeded · unauthorized-signer | — | FAIL each, stable code |
+| depth-exceeded (33-chain) · unauthorized-signer (foreign key) | — | FAIL each, stable code. NOTE: a real hash CYCLE is impossible under content-root addressing (see §4) — the cycle guard is unit-tested defense-in-depth, not a fixture |
 | malformed-digest (non-hex sentinel, F6 annex — OWN never-raise vector, SEPARATE from digest-mismatch; internal corpus only) | — | FAIL, no exception |
 | retracts-then-use (policy active) | — | automation blocker |
 

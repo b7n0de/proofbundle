@@ -37,9 +37,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   superset incl. the F6 malformed-digest never-raise vector (DSSE-crafted — the honest
   emitter refuses to emit it) and depth-exceeded (real hash cycles are impossible under
   content-root addressing; documented).
+- 3 new relation-specific mutation operators (`scripts/mutation_check.py`: cycle-detection
+  disabled, malformed-digest guard disabled, verified-flag laxened — each kill hand-verified),
+  and a No-Fake aggregate fix (6-lens audit): a requested lineage FAIL is now visible in the
+  library `ok` / `automation.safeForAutomation` verdict via a derived `lineage_ok`, not only
+  at the CLI exit code (crypto verdict untouched — lattice monotonicity preserved).
 - New verify surface honestly registered PENDING in the Rust parity registry (differential
   = NOT_RUN until the core carries the profile). Documented follow-ups: `relation_signer`
-  (pinned-set), outcome-path policy gate, `relation-statement/v0.1` standalone profile.
+  (pinned-set), outcome-path policy gate, `relation-statement/v0.1` standalone profile,
+  and the still-unwritten SPEC.md profile chapter + GLOSSARY entry (the canonical prose lives
+  in `docs/predicates/relation.md` for now).
 
 ## [3.2.3] - 2026-07-15
 

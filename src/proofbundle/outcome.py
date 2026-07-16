@@ -433,7 +433,7 @@ def _empty_result() -> dict:
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
         # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
         "receiver_bound": None, "receiver_role_trusted": None,
-        "lineage": None, "warnings": [], "errors": [],
+        "lineage": None, "lineage_ok": None, "warnings": [], "errors": [],
     }
 
 
@@ -577,6 +577,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
+            # No-Fake (6-Linsen-Audit L2): mirror of the decision path — a REQUESTED lineage FAIL is
+            # visible in `ok`/`automation`, not only at the CLI exit code. FAIL->False, else None.
+            r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
 
         # execution proof (honesty limit, warning not hard-fail).
         r["execution_proven"] = outcome_execution_proven(predicate)
@@ -706,7 +709,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # Finding 01 (additive, backward compatible): None (no trust_pack supplied, the pre-existing
         # default for every caller) passes exactly like every other optional check above; only an explicit
         # False (a trust_pack WAS supplied and the executor is not a trusted role member) fails ok.
-        and r["executor_role_trusted"] is not False)
+        and r["executor_role_trusted"] is not False
+        and r["lineage_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — never changes `ok` above. Outcome has
     # no separate trust-policy layer (yet); executor_role_trusted (the outcomeExecutors role gate) is the
@@ -715,6 +719,6 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
-                       "subject_derived_ok"],
+                       "subject_derived_ok", "lineage_ok"],
     })
     return r

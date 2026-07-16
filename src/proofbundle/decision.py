@@ -407,7 +407,7 @@ def _empty_result() -> dict:
         "automation": None, "evidence_levels": None,
         # relation/v0.1 (EXPERIMENTAL, additive): lineage verdict over the predicate's OPTIONAL
         # relationships edges — None until computed over AUTHENTICATED bytes; never gates `ok`.
-        "lineage": None, "lineage_requirement_failed": None,
+        "lineage": None, "lineage_requirement_failed": None, "lineage_ok": None,
         "warnings": [], "errors": [],
     }
 
@@ -570,6 +570,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
+            # No-Fake (6-Linsen-Audit L2, 2026-07-16): a REQUESTED lineage check that FAILs must be
+            # visible in the aggregate `ok` and `automation` — like every other error category in this
+            # result — not only at the CLI exit code. lineage_ok is False ONLY on FAIL (DECLARED_UNRESOLVED
+            # and NOT_EVALUATED are honest non-fails, stay None). This tightens the verdict downward; it
+            # NEVER lifts it (crypto_ok is untouched, lattice monotonicity preserved).
+            r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
@@ -725,14 +731,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         and r["policy_ok"] is not False and r["signer_trusted"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
-        and r["subject_derived_ok"] is not False)
+        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — policy_ok must be True, never merely
     # "not False" — never changes `ok` above.
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
-        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok"],
+        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
+                       "lineage_ok"],
     })
     # relation/v0.1: the dedicated blocker name (LIVE, not dormant) — POLICY_FAILED already fires via
     # policy_ok=False above; this names the REASON so a consumer can distinguish a lineage gate from

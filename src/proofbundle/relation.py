@@ -17,12 +17,12 @@ issuer, not a statement of correctness." It never proves the successor is better
 true, or methodologically sound, and `lineage` NEVER feeds `cryptoValid` or raises any
 other assurance dimension (lattice monotonicity).
 
-Interop mapping (SPEC chapter; corrected against the draft-nobuo-scitt-protected-object-
+Interop mapping (see docs/predicates/relation.md; corrected against the draft-nobuo-scitt-protected-object-
 binding-00 FULL TEXT, 2026-07-16 — that draft has NO `amends` relation):
   supersedes -> SCITT supersedes · revises/corrects -> SCITT supersedes (PROV wasRevisionOf)
   retracts -> SCITT revokes (PROV wasInvalidatedBy) · derivedFrom -> SCITT derivedFrom
   renews -> RFC 4998 line (no SCITT counterpart) · amends -> (no SCITT counterpart; own
-  relation, justified in SPEC).
+  relation, justified in docs/predicates/relation.md).
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
 _RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
 _EDGE_ALLOWED = ("relation", "targetReceiptDigest", "targetSubjectDigest",
@@ -181,7 +181,7 @@ def verify_relationship_edges(
     unresolved; else VERIFIED (>=1 edge verified); NOT_EVALUATED when no profile present.
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
-    related = related or {}
+    related = related if isinstance(related, dict) else {}
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": []}
 
@@ -292,14 +292,14 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
     return _dfs(start_hex, 1, set(seen))
 
 
-def successor_warning(relationships: Any, related: dict[str, dict] | None = None,
+def successor_warning(_subject_relationships: Any = None, related: dict[str, dict] | None = None,
                       subject_hex: str | None = None) -> str | None:
     """Advisory (policy `reject_superseded` turns it into a blocker): if an ATTACHED,
     VERIFIED receipt declares a successor relation (supersedes/revises/corrects) OR a
     retraction (retracts) whose target is THIS receipt, the receipt under verification
     is superseded/retracted by attached material (retracts-then-use, prompt §7.6 —
     the retraction never breaks the target's crypto, it is a declared statement about it)."""
-    related = related or {}
+    related = related if isinstance(related, dict) else {}
     if subject_hex is None:
         return None
     for other_hex, other in related.items():

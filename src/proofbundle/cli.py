@@ -1224,10 +1224,11 @@ def _load_related(paths, pub: bytes) -> tuple[dict, list[str]]:
                 env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             body = _dsse.load_payload(env)
             root_hex = _anchors_mod.statement_content_root(body).hex()
+            # L3-audit fix: inside the try so a malformed-envelope error names the offending file too.
+            verified = bool(_dsse.verify_envelope(env, pub, payload_type="application/vnd.in-toto+json"))
         except (ProofBundleError, OSError, ValueError) as exc:
             errs.append(f"cannot read --with-related {path}: {exc}")
             continue
-        verified = bool(_dsse.verify_envelope(env, pub, payload_type="application/vnd.in-toto+json"))
         rels = None
         try:
             stmt = loads_strict(body.decode("utf-8"))
