@@ -194,7 +194,72 @@ def _check_decision_crossimpl(case: dict, case_dir: pathlib.Path, *, require_anc
     return {"caseId": cid, "ok": True, "detail": " · ".join(notes)}
 
 
-_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle}
+def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    """relation/v0.1 lineage vectors: run `decision verify` with the case's attached related
+    receipts (and optional policy) and compare exit code + reported lineage state. Fail-closed
+    floor: exitCode is mandatory; every declared expectation is asserted, none silently skipped.
+    All referenced files are confined to the case directory (same rule as native_bundle)."""
+    del require_anchors
+    import base64  # noqa: PLC0415
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    cid = case["caseId"]
+    exp = case["expected"]
+    if "exitCode" not in exp:
+        return _fail(cid, "decision_relation case under-declares its expectations: missing exitCode")
+
+    def _confined(name: str) -> pathlib.Path | None:
+        f = (case_dir / name).resolve()
+        if not str(f).startswith(str(case_dir.resolve()) + "/") or not f.is_file():
+            return None
+        return f
+
+    receipt = _confined(case.get("input", "receipt.json"))
+    pub_file = _confined(case.get("pub", "pub.b64"))
+    if receipt is None or pub_file is None:
+        return _fail(cid, "receipt/pub fixture missing or escapes the case directory")
+    pub_b64 = pub_file.read_text(encoding="utf-8").strip()
+    try:
+        base64.b64decode(pub_b64, validate=True)
+    except Exception:
+        return _fail(cid, "pub.b64 is not valid base64")
+    argv = ["decision", "verify", str(receipt), "--pub", pub_b64, "--json"]
+    for rel_name in case.get("related") or []:
+        rel = _confined(rel_name)
+        if rel is None:
+            return _fail(cid, f"related fixture {rel_name!r} missing or escapes the case directory")
+        argv += ["--with-related", str(rel)]
+    if case.get("policy"):
+        pol = _confined(case["policy"])
+        if pol is None:
+            return _fail(cid, "policy fixture missing or escapes the case directory")
+        argv += ["--policy", str(pol)]
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = _cli_main(argv)
+    if rc != exp["exitCode"]:
+        return _fail(cid, f"decision verify exit {rc} != expected {exp['exitCode']} "
+                          f"(stderr: {err.getvalue()[:200]!r})")
+    report = None
+    try:
+        report = json.loads(out.getvalue())
+    except ValueError:
+        report = None
+    if "lineage" in exp:
+        got = (report or {}).get("lineage")
+        got_state = got.get("lineage") if isinstance(got, dict) else got
+        if got_state != exp["lineage"]:
+            return _fail(cid, f"lineage {got_state!r} != expected {exp['lineage']!r}")
+    if "errorContains" in exp:
+        blob = json.dumps(report or {}) + err.getvalue()
+        if exp["errorContains"] not in blob:
+            return _fail(cid, f"expected error marker {exp['errorContains']!r} not found in report/stderr")
+    return {"caseId": cid, "ok": True, "detail": f"decision verify exit {rc}, lineage as declared"}
+
+
+_DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
+             "decision_relation": _check_decision_relation}
 
 
 def run(*, require_anchors: bool = False) -> int:
