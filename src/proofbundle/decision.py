@@ -556,13 +556,18 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
         if "relationships" in predicate or related:
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import verify_relationship_edges  # noqa: PLC0415
+            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
             r["lineage"] = verify_relationship_edges(
                 predicate.get("relationships"), related, subject_hex=_subject_hex)
+            # Advisory by default; the policy's reject_superseded turns it into a blocker below.
+            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
+            r["lineage"]["supersededByAttached"] = _sw
+            if _sw:
+                r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
@@ -692,6 +697,27 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                     "decision_receipt.trusted_decision_makers) — POLICY: OK then proves integrity by an "
                     "UNKNOWN signer. Pin the expected decision-maker key(s).")
 
+    # relation/v0.1 policy gate (relations section, LIVE): a violation fails policy_ok (exit-3 class)
+    # and raises the dedicated automation blocker LINEAGE_REQUIREMENT_FAILED below — it NEVER touches
+    # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
+    # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
+    # verified); an absent relation is no violation.
+    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+        _rel_pol = policy["relations"]
+        _lin = r.get("lineage") or {}
+        _viol = []
+        _req = _rel_pol.get("require_relation_resolution") or []
+        for _e in (_lin.get("edges") or []):
+            if _e.get("relation") in _req and _e.get("resolution") != "VERIFIED":
+                _viol.append(f"relation {_e.get('relation')!r} must resolve (target attached and "
+                             f"verified), got {_e.get('resolution')}")
+        if _rel_pol.get("reject_superseded") and _lin.get("supersededByAttached"):
+            _viol.append(f"reject_superseded: {_lin['supersededByAttached']}")
+        if _viol:
+            r["policy_ok"] = False
+            r["lineage_requirement_failed"] = True
+            r["errors"].extend("LINEAGE_REQUIREMENT_FAILED: " + v for v in _viol)
+
     # Aggregate verdict: authenticated AND well-structured AND no applicable trust check FAILED.
     # None means not-applicable (passes); only an explicit False fails the aggregate.
     r["ok"] = bool(
@@ -708,4 +734,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok"],
     })
+    # relation/v0.1: the dedicated blocker name (LIVE, not dormant) — POLICY_FAILED already fires via
+    # policy_ok=False above; this names the REASON so a consumer can distinguish a lineage gate from
+    # any other policy failure. Only ever ADDS a blocker (never turns safeForAutomation true).
+    if r.get("lineage_requirement_failed") and isinstance(r.get("automation"), dict):
+        blockers = r["automation"].setdefault("automationBlockers", [])
+        if "LINEAGE_REQUIREMENT_FAILED" not in blockers:
+            blockers.append("LINEAGE_REQUIREMENT_FAILED")
+        r["automation"]["safeForAutomation"] = False
     return r

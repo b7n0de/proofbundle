@@ -564,13 +564,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
         if "relationships" in predicate or related:
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import verify_relationship_edges  # noqa: PLC0415
+            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
             r["lineage"] = verify_relationship_edges(
                 predicate.get("relationships"), related, subject_hex=_subject_hex)
+            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
+            r["lineage"]["supersededByAttached"] = _sw
+            if _sw:
+                r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
 

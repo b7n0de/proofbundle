@@ -105,7 +105,7 @@ def _pinned_key_forgeable(b64: str) -> bool:
 
 
 _TOP_KEYS = {"schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature",
-             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors",
+             "merkle", "sd_jwt", "status", "assurance", "decision_receipt", "anchors", "relations",
              "deploymentReady", "requiresIdentityOverlay",   # AP-2 §6.2 template metadata
              "valid_until",                                  # AP-2 §6.4 lifecycle expiry
              "valid_from",                                   # A-P0-2 §6 lifecycle not-before
@@ -135,6 +135,11 @@ def _parse_iso_utc(s):
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
+# relation/v0.1 (EXPERIMENTAL, 3.3.0): the lineage policy section. relation_signer is a documented
+# FOLLOW-UP (the CLI --with-related contract is same-key today; a pinned-set needs per-target key
+# plumbing) — an unknown key here is fail-closed, so a future field cannot silently no-op.
+_RELATIONS_KEYS = {"require_relation_resolution", "reject_superseded"}
+_RELATION_NAMES = ("supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends")
 _DECISION_KEYS = {"trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
                   "required_evidence_relations", "accepted_predicate_types", "require_policy_digest",
                   "require_external_anchor", "allow_pending", "require_audience", "require_nonce",
@@ -410,6 +415,19 @@ def load_policy(source: Union[str, dict]) -> dict:
                     for k, v in hdrs.items()):
                 raise PolicyError("anchors.bitcoin_block_headers must map a decimal height string to a "
                                   "64-char hex merkle root")
+    if "relations" in policy:
+        # relation/v0.1 lineage requirements (v0.2-gated like decision_receipt/anchors).
+        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+            raise PolicyError("relations section requires schema proofbundle/trust-policy/v0.2")
+        rel = _require_dict(policy["relations"], "relations")
+        _reject_unknown(rel, _RELATIONS_KEYS, "relations")
+        if "require_relation_resolution" in rel:
+            rr = rel["require_relation_resolution"]
+            if (not isinstance(rr, list) or not rr
+                    or not all(isinstance(x, str) and x in _RELATION_NAMES for x in rr)):
+                raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
+                                  f"relation names out of {list(_RELATION_NAMES)}")
+        _require_bool(rel, "reject_superseded", "relations")
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         _reject_unknown(dr, _DECISION_KEYS, "decision_receipt")
@@ -977,6 +995,14 @@ def explain_policy(policy: dict) -> list:
         if anc.get("allow_pending"):
             detail += " (pending accepted)"
         lines.append(f"external time anchor required ({detail})")
+    # relation/v0.1: the relations section is enforced by the decision/outcome verify paths (a
+    # violation fails policy_ok, exit 3) — listed here for explain⟺enforce parity, same rule as anchors.
+    rel = policy.get("relations") or {}
+    if rel.get("require_relation_resolution"):
+        lines.append("lineage relations must resolve (target attached + verified): "
+                     + ", ".join(rel["require_relation_resolution"]))
+    if rel.get("reject_superseded"):
+        lines.append("superseded receipt rejected (an attached, verified successor blocks automation)")
     dr = policy.get("decision_receipt") or {}
     if dr:
         active = [k for k in dr if dr.get(k)]

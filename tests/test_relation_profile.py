@@ -432,3 +432,93 @@ class TestCLIWithRelated(unittest.TestCase):
             rc = cli.main(["decision", "verify", str(a_path), "--pub", pub,
                            "--with-related", str(tmp / "missing.json")])
             self.assertEqual(rc, 2)
+
+
+class TestRelationsPolicyGate(unittest.TestCase):
+    """Trust-policy relations section (v0.2): require_relation_resolution + reject_superseded
+    are enforced on the decision verify path — a violation fails policy_ok and raises the
+    dedicated LINEAGE_REQUIREMENT_FAILED automation blocker; crypto stays untouched."""
+
+    def _policy(self, **relations):
+        return {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "rel-test",
+                "relations": relations}
+
+    def _signed(self, relationships=None):
+        import json
+        from pathlib import Path
+        from proofbundle.decision import emit_decision_receipt
+        from proofbundle.emit import generate_signer
+        examples = Path(__file__).resolve().parent.parent / "examples"
+        pred = json.loads((examples / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        if relationships is not None:
+            pred["relationships"] = relationships
+        signer = generate_signer()
+        return emit_decision_receipt(pred, signer, strict=True), signer
+
+    def test_unresolved_required_relation_fails_policy_with_named_blocker(self):
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.policy import load_policy
+        env, signer = self._signed([edge(H_B, relation="retracts")])
+        pol = load_policy(self._policy(require_relation_resolution=["retracts"]))
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), policy=pol)
+        self.assertTrue(r["crypto_ok"])                      # crypto NIE beruehrt
+        self.assertIs(r["policy_ok"], False)
+        self.assertTrue(any("LINEAGE_REQUIREMENT_FAILED" in e for e in r["errors"]))
+        self.assertIn("LINEAGE_REQUIREMENT_FAILED", r["automation"]["automationBlockers"])
+        self.assertFalse(r["automation"]["safeForAutomation"])
+
+    def test_resolved_required_relation_is_silent(self):
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.policy import load_policy
+        env, signer = self._signed([edge(H_B, relation="retracts")])
+        pol = load_policy(self._policy(require_relation_resolution=["retracts"]))
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), policy=pol,
+                                    related={H_B: {"verified": True}})
+        self.assertTrue(r["crypto_ok"])
+        self.assertFalse(any("LINEAGE_REQUIREMENT_FAILED" in e for e in r["errors"]))
+        self.assertNotIn("LINEAGE_REQUIREMENT_FAILED",
+                         (r["automation"] or {}).get("automationBlockers", []))
+
+    def test_absent_named_relation_is_no_violation(self):
+        # require_relation_resolution ist konditional auf PRAESENZ der Kante.
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.policy import load_policy
+        env, signer = self._signed(None)
+        pol = load_policy(self._policy(require_relation_resolution=["retracts"]))
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), policy=pol)
+        self.assertFalse(any("LINEAGE_REQUIREMENT_FAILED" in e for e in r["errors"]))
+
+    def test_reject_superseded_blocks(self):
+        from proofbundle import anchors, dsse
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.policy import load_policy
+        env, signer = self._signed(None)
+        subject_hex = anchors.statement_content_root(dsse.load_payload(env)).hex()
+        pol = load_policy(self._policy(reject_superseded=True))
+        related = {H_C: {"verified": True,
+                         "relationships": [edge(subject_hex, relation="supersedes")]}}
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), policy=pol,
+                                    related=related)
+        self.assertTrue(r["crypto_ok"])
+        self.assertIs(r["policy_ok"], False)
+        self.assertTrue(any("reject_superseded" in e for e in r["errors"]))
+        self.assertIn("LINEAGE_REQUIREMENT_FAILED", r["automation"]["automationBlockers"])
+
+    def test_superseded_without_policy_is_only_a_warning(self):
+        from proofbundle import anchors, dsse
+        from proofbundle.decision import verify_decision_receipt
+        env, signer = self._signed(None)
+        subject_hex = anchors.statement_content_root(dsse.load_payload(env)).hex()
+        related = {H_C: {"verified": True,
+                         "relationships": [edge(subject_hex, relation="supersedes")]}}
+        r = verify_decision_receipt(env, signer.public_key().public_bytes_raw(), related=related)
+        self.assertTrue(any("superseded_by_attached" in w for w in r["warnings"]))
+        self.assertIsNot(r["policy_ok"], False)
+
+    def test_explain_lists_relations_pins(self):
+        from proofbundle.policy import explain_policy, load_policy
+        pol = load_policy(self._policy(require_relation_resolution=["retracts", "supersedes"],
+                                       reject_superseded=True))
+        lines = " | ".join(explain_policy(pol))
+        self.assertIn("retracts", lines)
+        self.assertIn("superseded", lines)

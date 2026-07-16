@@ -33,6 +33,11 @@ AUTOMATION_BLOCKER_REASONS = {
     "POLICY_FAILED": "The supplied trust policy / authorization gate was not satisfied",
     "REFERENCES_NOT_RESOLVED": "One or more referenced/bound artifacts did not resolve (see the "
                                "predicate's own *_ok / *_bound / *_intact fields for which)",
+    # relation/v0.1 (EXPERIMENTAL): raised by the decision/outcome verify paths when the trust
+    # policy's relations section is violated (a named relation did not resolve, or an attached,
+    # verified successor supersedes the receipt under rejectSuperseded). LIVE, not dormant.
+    "LINEAGE_REQUIREMENT_FAILED": "The trust policy's lineage requirement was not met (relations "
+                                  "section: unresolved required relation or superseded receipt)",
 }
 
 
