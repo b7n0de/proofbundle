@@ -328,6 +328,23 @@
           "type": "boolean"
         }
       }
+    },
+    "relations": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v0.2-only (relation/v0.1 lineage profile, EXPERIMENTAL 3.3.0). require_relation_resolution: named relations that, when they appear as edges, MUST resolve (target attached and standalone-verified) — a DECLARED_UNRESOLVED edge of a named relation fails the policy (LINEAGE_REQUIREMENT_FAILED, exit 3). reject_superseded: an attached, verified receipt that declares a successor relation over the receipt under verification blocks automation. Enforced by the decision verify path; never changes the crypto verdict.",
+      "properties": {
+        "require_relation_resolution": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends"]
+          }
+        },
+        "reject_superseded": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

@@ -15,6 +15,7 @@ predicate widens the attestation surface, so each states its **non-claims** as e
 | `trust-pack/v0.1` | EXPERIMENTAL (3.2.0) | a TUF-inspired role→key trust root: threshold-of-root, revocation, monotone version, rollback protection | [trust-pack.md](trust-pack.md) |
 | `verification-summary/v0.1` | EXPERIMENTAL (3.2.0) | per-level (eval/decision/outcome) receiptRef + status + evidenceClass, with mandatory `nonClaims` | [verification-summary.md](verification-summary.md) |
 | `run-ledger/v0.1` | EXPERIMENTAL (3.2.0) | a monotone, prevDigest-chained run history (aborted runs kept visible) against best-of-many cherry-picking | [run-ledger.md](run-ledger.md) |
+| `relation/v0.1` | EXPERIMENTAL (3.3.0) | typed, signed lineage edges onto a predecessor's content root — change becomes a declared back-edge, never a mutation (and never a truth claim) | [relation.md](relation.md) |
 
 **Content-root coupling (one-directional):** an outcome references its decision, a decision references its
 evidence — never the reverse. Each `*.digest.sha256` is the SHA-256 over the referenced Statement's exact

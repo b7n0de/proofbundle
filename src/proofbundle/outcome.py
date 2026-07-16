@@ -45,7 +45,10 @@ _OPTIONAL = ("actualActionDigest", "responseDigest", "effectDigest", "recordedAt
              "traceContext", "limitations", "validity",
              # Finding 16 (self-fixable part, additive): receiverRefs / sequence — see the module-level
              # note above `_OUTCOME_RECEIVER_ROLE` for what each closes and its honest, documented limit.
-             "receiverRefs", "sequence")
+             "receiverRefs", "sequence",
+             # relation/v0.1 (EXPERIMENTAL, 3.3.0): typed signed lineage edges — validated fail-closed
+             # by relation.validate_relationships (incl. per-edge closure), not by the generic walker.
+             "relationships")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 _DIGEST_FIELDS = ("requestedActionDigest", "actualActionDigest", "responseDigest", "effectDigest")
@@ -185,6 +188,14 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     val = predicate.get("validity")
     if "validity" in predicate and not isinstance(val, dict):
         errors.append("validity must be an object")
+
+    # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges — inside the
+    # predicate so the DSSE signature covers them; closure/enums/digests enforced fail-closed by the
+    # relation module itself.
+    if "relationships" in predicate:
+        from .relation import validate_relationships
+        errors.extend(f"relationships: {e}" if not e.startswith("relationships") else e
+                      for e in validate_relationships(predicate.get("relationships")))
 
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close traceContext/validity — an undeclared key inside either previously rode along silently.
@@ -422,7 +433,7 @@ def _empty_result() -> dict:
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
         # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
         "receiver_bound": None, "receiver_role_trusted": None,
-        "warnings": [], "errors": [],
+        "lineage": None, "lineage_ok": None, "warnings": [], "errors": [],
     }
 
 
@@ -431,7 +442,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
-                           receiver_attestation_resolver: Callable[[dict], bool] | None = None) -> dict:
+                           receiver_attestation_resolver: Callable[[dict], bool] | None = None,
+                           related: dict | None = None) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -546,6 +558,28 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 r["errors"].append(
                     "role separation violated — executor.id equals the decisionMaker id; whoever decides "
                     "must not witness their own execution (fail-closed)")
+
+        # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
+        # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
+        # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
+        if "relationships" in predicate or related:
+            from . import anchors as _anchors_for_rel  # noqa: PLC0415
+            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
+            try:
+                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
+            except Exception:
+                _subject_hex = None
+            r["lineage"] = verify_relationship_edges(
+                predicate.get("relationships"), related, subject_hex=_subject_hex)
+            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
+            r["lineage"]["supersededByAttached"] = _sw
+            if _sw:
+                r["warnings"].append(f"lineage: {_sw}")
+            if r["lineage"]["lineage"] == "FAIL":
+                r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
+            # No-Fake (6-Linsen-Audit L2): mirror of the decision path — a REQUESTED lineage FAIL is
+            # visible in `ok`/`automation`, not only at the CLI exit code. FAIL->False, else None.
+            r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
 
         # execution proof (honesty limit, warning not hard-fail).
         r["execution_proven"] = outcome_execution_proven(predicate)
@@ -675,7 +709,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # Finding 01 (additive, backward compatible): None (no trust_pack supplied, the pre-existing
         # default for every caller) passes exactly like every other optional check above; only an explicit
         # False (a trust_pack WAS supplied and the executor is not a trusted role member) fails ok.
-        and r["executor_role_trusted"] is not False)
+        and r["executor_role_trusted"] is not False
+        and r["lineage_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — never changes `ok` above. Outcome has
     # no separate trust-policy layer (yet); executor_role_trusted (the outcomeExecutors role gate) is the
@@ -684,6 +719,6 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
-                       "subject_derived_ok"],
+                       "subject_derived_ok", "lineage_ok"],
     })
     return r

@@ -15,6 +15,21 @@
     "bundle/coherent-rewrap-verifies-no-policy",
     "bundle/coherent-rewrap-fails-expected-root",
     "bundle/n1-eval-sdjwt-graft-non-eval",
-    "bundle/tree-size-expectation-mismatch"
+    "bundle/tree-size-expectation-mismatch",
+    "relation/declared-supersedes-verified",
+    "relation/declared-unresolved",
+    "relation/depth-exceeded",
+    "relation/digest-mismatch",
+    "relation/relation-amends",
+    "relation/relation-corrects",
+    "relation/relation-derivedfrom",
+    "relation/relation-retracts",
+    "relation/relation-revises",
+    "relation/renews-vector",
+    "relation/silent-landing",
+    "relation/unauthorized-signer",
+    "relation/valid-baseline",
+    "relation/malformed-digest",
+    "relation/retracts-then-use"
   ]
 }

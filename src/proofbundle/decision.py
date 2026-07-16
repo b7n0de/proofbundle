@@ -48,7 +48,7 @@ _REQUIRED_STRICT = _REQUIRED_ALWAYS + ("notChecked", "decisionChangeConditions",
 # prereg anchor) are referenced indirectly via `evidenceRefs`. An `anchors` field inside the predicate is
 # therefore a fail-closed unknown-field error.
 _OPTIONAL = ("recordedAt", "delegationRefs", "actionOutcome", "traceContext", "validity",
-             "notChecked", "decisionChangeConditions", "privacy")
+             "notChecked", "decisionChangeConditions", "privacy", "relationships")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 # Time-bearing paths that, if present, MUST be RFC3339-Z.
@@ -254,6 +254,16 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
 
+    # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges to earlier
+    # receipts — inside the predicate so the existing DSSE signature covers them (unlike detached
+    # `anchors`). Edge closure/enums/digest shape are enforced by relation.validate_relationships
+    # (fail-closed, incl. per-edge additionalProperties:false), so the block is NOT walked by the
+    # generic nested-closure below.
+    if "relationships" in predicate:
+        from .relation import validate_relationships
+        errors.extend(f"relationships: {e}" if not e.startswith("relationships") else e
+                      for e in validate_relationships(predicate.get("relationships")))
+
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close these nested objects — an undeclared key inside decision/policyBoundary/proposedAction/
     # decisionMaker/evidenceRefs[] (and their sub-objects) previously rode along silently.
@@ -395,6 +405,9 @@ def _empty_result() -> dict:
         # (assurance.classify_digest_evidence) computed at the end of verify — never gate anything on
         # these two here, the old ok/*_proven/evidence_bound fields above are UNCHANGED for compat.
         "automation": None, "evidence_levels": None,
+        # relation/v0.1 (EXPERIMENTAL, additive): lineage verdict over the predicate's OPTIONAL
+        # relationships edges — None until computed over AUTHENTICATED bytes; never gates `ok`.
+        "lineage": None, "lineage_requirement_failed": None, "lineage_ok": None,
         "warnings": [], "errors": [],
     }
 
@@ -403,7 +416,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
-                            evidence_resolver: Callable[[dict], bool] | None = None) -> dict:
+                            evidence_resolver: Callable[[dict], bool] | None = None,
+                            related: dict | None = None) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -535,6 +549,33 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             "actionOutcome.outcomeRef": _outcome_level,
             "evidenceRefs": _evref_levels,
         }
+
+        # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
+        # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
+        # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
+        # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
+        if "relationships" in predicate or related:
+            from . import anchors as _anchors_for_rel  # noqa: PLC0415
+            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
+            try:
+                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
+            except Exception:
+                _subject_hex = None
+            r["lineage"] = verify_relationship_edges(
+                predicate.get("relationships"), related, subject_hex=_subject_hex)
+            # Advisory by default; the policy's reject_superseded turns it into a blocker below.
+            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
+            r["lineage"]["supersededByAttached"] = _sw
+            if _sw:
+                r["warnings"].append(f"lineage: {_sw}")
+            if r["lineage"]["lineage"] == "FAIL":
+                r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
+            # No-Fake (6-Linsen-Audit L2, 2026-07-16): a REQUESTED lineage check that FAILs must be
+            # visible in the aggregate `ok` and `automation` — like every other error category in this
+            # result — not only at the CLI exit code. lineage_ok is False ONLY on FAIL (DECLARED_UNRESOLVED
+            # and NOT_EVALUATED are honest non-fails, stay None). This tightens the verdict downward; it
+            # NEVER lifts it (crypto_ok is untouched, lattice monotonicity preserved).
+            r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
@@ -662,6 +703,27 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                     "decision_receipt.trusted_decision_makers) — POLICY: OK then proves integrity by an "
                     "UNKNOWN signer. Pin the expected decision-maker key(s).")
 
+    # relation/v0.1 policy gate (relations section, LIVE): a violation fails policy_ok (exit-3 class)
+    # and raises the dedicated automation blocker LINEAGE_REQUIREMENT_FAILED below — it NEVER touches
+    # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
+    # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
+    # verified); an absent relation is no violation.
+    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+        _rel_pol = policy["relations"]
+        _lin = r.get("lineage") or {}
+        _viol = []
+        _req = _rel_pol.get("require_relation_resolution") or []
+        for _e in (_lin.get("edges") or []):
+            if _e.get("relation") in _req and _e.get("resolution") != "VERIFIED":
+                _viol.append(f"relation {_e.get('relation')!r} must resolve (target attached and "
+                             f"verified), got {_e.get('resolution')}")
+        if _rel_pol.get("reject_superseded") and _lin.get("supersededByAttached"):
+            _viol.append(f"reject_superseded: {_lin['supersededByAttached']}")
+        if _viol:
+            r["policy_ok"] = False
+            r["lineage_requirement_failed"] = True
+            r["errors"].extend("LINEAGE_REQUIREMENT_FAILED: " + v for v in _viol)
+
     # Aggregate verdict: authenticated AND well-structured AND no applicable trust check FAILED.
     # None means not-applicable (passes); only an explicit False fails the aggregate.
     r["ok"] = bool(
@@ -669,13 +731,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         and r["policy_ok"] is not False and r["signer_trusted"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
-        and r["subject_derived_ok"] is not False)
+        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — policy_ok must be True, never merely
     # "not False" — never changes `ok` above.
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
-        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok"],
+        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
+                       "lineage_ok"],
     })
+    # relation/v0.1: the dedicated blocker name (LIVE, not dormant) — POLICY_FAILED already fires via
+    # policy_ok=False above; this names the REASON so a consumer can distinguish a lineage gate from
+    # any other policy failure. Only ever ADDS a blocker (never turns safeForAutomation true).
+    if r.get("lineage_requirement_failed") and isinstance(r.get("automation"), dict):
+        blockers = r["automation"].setdefault("automationBlockers", [])
+        if "LINEAGE_REQUIREMENT_FAILED" not in blockers:
+            blockers.append("LINEAGE_REQUIREMENT_FAILED")
+        r["automation"]["safeForAutomation"] = False
     return r

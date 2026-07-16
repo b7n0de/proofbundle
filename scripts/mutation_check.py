@@ -25,6 +25,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # (relative file, exact old text, new text, label, expect_killed)
 MUTATIONS = [
+    # relation/v0.1 (3.3.0) — lineage profile: the three load-bearing guards.
+    ("src/proofbundle/relation.py",
+     "if node_hex in path:", "if False and node_hex in path:",
+     "relation: cycle detection disabled", True),
+    ("src/proofbundle/relation.py",
+     'if not (isinstance(digest, str) and _SHA256_HEX.match(digest)):', "if False:",
+     "relation: malformed-digest guard disabled (never-raise vector must catch)", True),
+    ("src/proofbundle/relation.py",
+     'elif target.get("verified") is not True:', 'elif target.get("verified") is False:',
+     "relation: verified-flag laxened (truthy sneaks past strict is-True)", True),
     # v1.2 — KB-JWT / bundle / cosignature / CLI
     ("src/proofbundle/kbjwt.py",
      "if _b64url_nopad(h.digest()) != sd_hash:", "if False:",

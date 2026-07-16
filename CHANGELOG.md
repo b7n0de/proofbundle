@@ -6,6 +6,48 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (relation/v0.1 lineage profile — EXPERIMENTAL, target 3.3.0)
+- **`relation/v0.1` lineage/relationship profile** (EXPERIMENTAL): an optional, SIGNED
+  `relationships: [edge, …]` field on the decision-receipt and action-outcome predicates —
+  typed edges (`supersedes`/`revises`/`corrects`/`retracts`/`renews`/`derivedFrom`/`amends`,
+  closed vocabulary) onto a predecessor's `jcs-sha256-v1` content root, with an EXPLICIT,
+  never-defaulted `digestAlgorithm`. Change is expressed by a declared, signed back-edge —
+  never by mutation; the old receipt stays valid for its bytes forever. Docs:
+  `docs/predicates/relation.md`; interop mapping to W3C PROV and the SCITT relationship
+  draft checked against the draft-nobuo-00 FULL TEXT (no `amends` exists there — stated
+  honestly, not bent). New module `src/proofbundle/relation.py` (fail-closed, never-raise
+  validators; pure offline chain walk with per-path cycle detection and depth cap 32).
+- **Lineage verdict in `verify_decision_receipt` / `verify_outcome_receipt`** (additive
+  `related=` kwarg + `lineage` result field with the four honest states VERIFIED /
+  DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED): computed only over authenticated bytes;
+  lattice monotonicity proven by test — lineage never flips the crypto verdict in either
+  direction, and DECLARED_UNRESOLVED never reads as a pass.
+- **CLI `decision verify --with-related PATH`** (repeatable, offline, same-key contract):
+  attached targets are verified standalone and keyed by their computed content root; an
+  attached-but-unverified target FAILS lineage (present-and-wrong beats absent); a REQUESTED
+  lineage check that FAILs exits 2, never a silent 0. `lineage` emitted in the `--json`
+  report projections.
+- **Trust-policy v0.2 `relations` section** (`require_relation_resolution`,
+  `reject_superseded`) enforced on the decision verify path with the LIVE automation blocker
+  `LINEAGE_REQUIREMENT_FAILED`; `policy explain` lists both pins (explain⟺enforce parity);
+  retracts-then-use blocked under `reject_superseded`.
+- **Conformance corpus `conformance/relation/`**: 15 vectors end-to-end through the real CLI
+  (new harness kind `decision_relation`), the five skeleton vectors carrying `crossFormatId`
+  `xfmt-c0`/`t1`–`t4` per the No Silent Landing shared-vector convention, plus the internal
+  superset incl. the F6 malformed-digest never-raise vector (DSSE-crafted — the honest
+  emitter refuses to emit it) and depth-exceeded (real hash cycles are impossible under
+  content-root addressing; documented).
+- 3 new relation-specific mutation operators (`scripts/mutation_check.py`: cycle-detection
+  disabled, malformed-digest guard disabled, verified-flag laxened — each kill hand-verified),
+  and a No-Fake aggregate fix (6-lens audit): a requested lineage FAIL is now visible in the
+  library `ok` / `automation.safeForAutomation` verdict via a derived `lineage_ok`, not only
+  at the CLI exit code (crypto verdict untouched — lattice monotonicity preserved).
+- New verify surface honestly registered PENDING in the Rust parity registry (differential
+  = NOT_RUN until the core carries the profile). Documented follow-ups: `relation_signer`
+  (pinned-set), outcome-path policy gate, `relation-statement/v0.1` standalone profile,
+  and the still-unwritten SPEC.md profile chapter + GLOSSARY entry (the canonical prose lives
+  in `docs/predicates/relation.md` for now).
+
 ## [3.2.3] - 2026-07-15
 
 Second remediation wave of the six-lens post-3.2.2 audit (Findings 01, 03, 11, 12, 15b, 16, 14a, 17, 18, 19, 20). Additive/non-breaking: no
