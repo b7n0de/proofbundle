@@ -216,7 +216,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         s_n = samples.get("n")
         if isinstance(s_n, bool) or not isinstance(s_n, int) or s_n <= 0:
             raise EvalClaimError("samples.n must be a positive integer")
-        if False:
+        if s_n != n:
             raise EvalClaimError(
                 f"samples.n ({s_n}) must equal the claim's n ({n}) — the committed tree covers "
                 "exactly the samples the aggregate was computed over, no more, no fewer")

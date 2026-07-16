@@ -27,6 +27,11 @@ import sys
 from proofbundle import canonicalize_statement, statement_content_root
 from proofbundle.decision import validate_decision_predicate
 
+# F1: the ONE common vocabulary + corpus-integrity comparator (siblings of this file).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import cross_format  # noqa: E402
+from common_vocabulary import compare, expected_label, label_from_verify  # noqa: E402
+
 try:
     from proofbundle.anchors_ots import verify_opentimestamps
     import opentimestamps  # noqa: F401
@@ -246,11 +251,12 @@ def _check_decision_relation(case: dict, case_dir: pathlib.Path, *, require_anch
         report = json.loads(out.getvalue())
     except ValueError:
         report = None
-    if "lineage" in exp:
-        got = (report or {}).get("lineage")
-        got_state = got.get("lineage") if isinstance(got, dict) else got
-        if got_state != exp["lineage"]:
-            return _fail(cid, f"lineage {got_state!r} != expected {exp['lineage']!r}")
+    # F1: derive the run's common-vocabulary label and compare it, in ONE vocabulary, against
+    # the case's declared expectation (the same comparator the cross-format and Rust differential
+    # layers use). This subsumes the old inline lineage/exit string comparison.
+    ok_lbl, diffs = compare(expected_label(exp), label_from_verify(rc, report))
+    if not ok_lbl:
+        return _fail(cid, "; ".join(diffs))
     if "errorContains" in exp:
         blob = json.dumps(report or {}) + err.getvalue()
         if exp["errorContains"] not in blob:
@@ -265,6 +271,15 @@ _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _
 def run(*, require_anchors: bool = False) -> int:
     manifest = json.loads((ROOT / "manifest.json").read_text())
     cases = manifest.get("cases", [])
+    # F1 corpus-integrity precondition (schema-valid + cross-format-consistent) before any case
+    # executes: a malformed/under-declared or self-contradictory corpus is a whole-corpus FAIL,
+    # not something a green per-case run should mask.
+    cf_ok, cf_problems = cross_format.run()
+    if not cf_ok:
+        print(f"[conformance] corpus integrity FAIL ({len(cf_problems)} problem(s)):")
+        for pr in cf_problems:
+            print("  -", pr)
+        return 1
     results: list[dict] = []
     for rel in cases:
         # EVERYTHING per-case is inside the try: a missing case dir, a malformed case.json, a case.json

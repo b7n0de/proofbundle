@@ -1,0 +1,82 @@
+name: published-artifact-gate
+
+# Fundament F2 — hermetic Published-Artifact gate + reproducibility, live from 3.3.1.
+#
+# Built early (with 3.3.1) so every later release is hermetic + reproducible with NO repackaging of
+# prior releases. Three legs:
+#   1. reproducible-sdist — the sdist is byte-identical across two builds (proven, not asserted).
+#   2. hermetic-cleanroom — install the BUILT sdist into a FRESH venv (not this checkout) and prove the
+#      PUBLISHED bytes pass the offline demo + example verify + the tamper matrix. This is what a reader
+#      installs; a red run means the shipped artifact is broken independently of the editable checkout.
+#   3. reusable-attest-dryrun — exercise the SLSA-L3 reusable signing workflow's build+determinism half
+#      on every PR (dry_run: no throwaway attestations), so it is live-tested, not a paper anchor.
+#
+# Actions pinned to full commit SHAs, matching ci.yml / release.yml supply-chain hardening.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "31 5 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible-sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install the build frontend
+        run: python -m pip install --upgrade build
+      - name: Two sdist builds must be byte-identical (deterministic packaging)
+        run: python scripts/build_reproducible.py --check
+
+  hermetic-cleanroom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install the build frontend
+        run: python -m pip install --upgrade build
+      - name: Build the reproducible sdist
+        run: python scripts/build_reproducible.py --outdir dist
+      - name: Fresh venv, install the BUILT sdist (cleanroom — the installed package, NOT this checkout)
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[eval]"
+          /tmp/clean/bin/proofbundle --help >/dev/null
+      - name: Published bytes — demo must exit 0 (honest OK, six tampers caught, sample swap caught)
+        # `demo` emits + verifies + tampers entirely from the installed package (no checkout src on
+        # path), so this exercises the SHIPPED bytes, not the editable tree.
+        run: /tmp/clean/bin/proofbundle demo
+      - name: Published bytes — emit a fresh receipt, verify it round-trips, then a tamper MUST fail
+        run: |
+          printf 'hermetic cleanroom payload' > /tmp/payload.txt
+          /tmp/clean/bin/proofbundle emit --payload-file /tmp/payload.txt \
+            --out /tmp/pub_bundle.json --new-key /tmp/pub.key
+          /tmp/clean/bin/proofbundle verify /tmp/pub_bundle.json
+          python - <<'PY'
+          import json, base64
+          b = json.load(open("/tmp/pub_bundle.json"))
+          raw = base64.b64decode(b["payload_b64"])
+          b["payload_b64"] = base64.b64encode(raw[:-1] + bytes([raw[-1] ^ 0x01])).decode()
+          json.dump(b, open("/tmp/pub_tampered.json", "w"))
+          PY
+          if /tmp/clean/bin/proofbundle verify /tmp/pub_tampered.json; then
+            echo "::error::tampered receipt verified OK — the published artifact is broken"; exit 1
+          fi
+          echo "tampered receipt correctly FAILED on the published artifact"
+
+  reusable-attest-dryrun:
+    # Live-exercise the SLSA-L3 reusable workflow's build+determinism half (no attestation on PRs).
+    uses: ./.github/workflows/reusable-build-attest.yml
+    with:
+      dry_run: true

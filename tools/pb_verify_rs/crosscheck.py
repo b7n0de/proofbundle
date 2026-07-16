@@ -33,6 +33,10 @@ if not BIN.exists():
     BIN = ROOT / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
 
 sys.path.insert(0, str(SRC))
+# F1: the differential reproduces the SAME corpus in the SAME common vocabulary as the
+# conformance runner and cross-format comparator — no third ad-hoc labelling here.
+sys.path.insert(0, str(ROOT / "conformance"))
+from common_vocabulary import exit_class  # noqa: E402
 
 
 def _run(*args: str) -> tuple[int, str]:
@@ -167,8 +171,9 @@ def main() -> int:
             args = case.get("verifyArgs") or []
             code, _ = _run("verify-bundle", str(cdir / "bundle.json"), *args)
             want = expected.get("exitCode")
-            if code != want:
-                failures.append(f"corpus {cid}: verify-bundle exit {code} != expected {want}")
+            if want is not None and exit_class(code) != exit_class(want):
+                failures.append(f"corpus {cid}: verify-bundle {exit_class(code)} (exit {code}) "
+                                f"!= expected {exit_class(want)} (exit {want})")
             reproduced += 1
 
     if failures:

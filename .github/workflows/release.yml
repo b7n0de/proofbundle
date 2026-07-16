@@ -35,10 +35,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Pre-tag adversarial audit gate (Front-Load F7 — the audit ran for THIS release)
+        # The six-lens / master-prompt-v2 adversarial audit is a gate before EVERY tag, not only the
+        # audit-candidate (Loek's decoy-parent finding landed AFTER 3.3.0 shipped). This step fails
+        # the release if the CHANGELOG section for the tag records no adversarial/N-lens audit and no
+        # audit_artifacts file names the version — enforcing the discipline the project already follows.
+        run: python scripts/pre_tag_audit_gate.py --repo . --version "${GITHUB_REF_NAME#v}" --strict
+
       - name: Build sdist and wheel (the ONLY build in this workflow)
         run: |
           python -m pip install --upgrade build
-          python -m build
+          # F2: ship the byte-reproducible, normalised sdist (SOURCE_DATE_EPOCH + canonical tar),
+          # then the wheel alongside it. Same dist/ layout as before; the reproducibility gate
+          # (published-artifact-gate.yml) proves two builds are byte-identical.
+          python scripts/build_reproducible.py --outdir dist
+          python -m build --wheel --outdir dist
 
       - name: Record artifact digests (the attested subjects)
         id: digests

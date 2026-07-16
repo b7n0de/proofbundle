@@ -69,6 +69,11 @@ experimental = []
 # cryptography build with OpenSSL 3.5+ (default PyPI wheels since 48.0.0). Verify-only by default;
 # the emit helper needs the same. Ed25519 paths never require this.
 pq = ["cryptography>=48"]
+# EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
+# z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
+# reach). Without it the model still runs a complete bounded-enumeration proof — the extra only adds the
+# symbolic layer, never gates the model. Verify/emit paths never touch z3.
+formal = ["z3-solver>=4.12"]
 # The pytest plugin (opt-in test-run receipt via the pytest11 entry-point) — pytest is an optional extra,
 # never a core dependency. Floor 7.0: the hooks/stats API is signature-stable across pytest 7/8/9.
 pytest = ["pytest>=7"]

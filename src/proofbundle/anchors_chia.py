@@ -122,6 +122,10 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     Proves ONLY that ``canonical_root`` is a key included under ``published_root``; NOT that ``published_root``
     is on-chain (that is level ii/iii, needs Chia software — see docs/ANCHORS.md).
     """
+    # Fail-closed type guard (F4 type-confusion): a non-object proof is malformed input, reported in
+    # the function's own {ok, detail} contract — never a raw AttributeError on `.get`.
+    if not isinstance(proof_obj, dict):
+        return {"ok": False, "detail": "malformed chia-datalayer proof: expected a JSON object"}
     try:
         key_clvm = _hexbytes(proof_obj.get("key_clvm_hash"), "key_clvm_hash")
         value_clvm = _hexbytes(proof_obj.get("value_clvm_hash"), "value_clvm_hash")

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/proofbundle/conformance/vector_schema.v1.json",
+  "title": "proofbundle conformance vector (case.json)",
+  "description": "Fundament F1 — the ONE machine-readable vector format for the whole conformance corpus. The offline runner (run_conformance.py), the cross-format comparator (cross_format.py) and the Python<->Rust differential (crosscheck.py) all consume THIS format; there is no second vector format in the repo. A case declares what it proves (expected) AND, optionally, its cross-format identity (crossFormatId) so the SAME logical scenario expressed in different encodings can be held to ONE common-vocabulary verdict (conformance/common_vocabulary.py). Additive: 3.4.0/3.5.0/3.6.0 add new expected axes and kinds here, never a parallel schema.",
+  "type": "object",
+  "required": ["caseId", "kind", "expected"],
+  "additionalProperties": true,
+  "properties": {
+    "caseId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable, human-readable id, unique across the corpus."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["decision_crossimpl", "native_bundle", "decision_relation"],
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip)."
+    },
+    "input": {
+      "type": "string",
+      "description": "Relative fixture filename inside the case directory (confined; no traversal, no absolute path)."
+    },
+    "pub": {
+      "type": "string",
+      "description": "decision_relation only: relative filename holding the base64 public key."
+    },
+    "related": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "decision_relation only: attached predecessor receipts (--with-related)."
+    },
+    "policy": {
+      "type": "string",
+      "description": "Optional relative filename of a trust policy fixture."
+    },
+    "verifyArgs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Extra CLI verify args drawn from a small allowlist (no file/network flags)."
+    },
+    "requiresAnchorsExtra": {
+      "type": "boolean",
+      "description": "The deciding rejection reason needs the [anchors] extra; skipped honestly on a base install unless --require-anchors."
+    },
+    "expected": {
+      "type": "object",
+      "description": "Fail-closed declaration of the verdict. At least one axis MUST be pinned. The runner asserts every pinned axis; an unpinned axis is not compared. exitCode/exitClass, lineage and policyVerdict map onto the F1 common vocabulary.",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "properties": {
+        "exitCode": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3],
+          "description": "CLI verify exit-code contract: 0 VERIFIED, 1 CRYPTO_FAIL, 2 MALFORMED, 3 POLICY_UNMET."
+        },
+        "exitClass": {
+          "type": "string",
+          "enum": ["VERIFIED", "CRYPTO_FAIL", "MALFORMED", "POLICY_UNMET"],
+          "description": "Named exit class (alternative to the numeric exitCode; the F1 vocabulary maps between them)."
+        },
+        "lineage": {
+          "type": ["string", "null"],
+          "enum": ["VERIFIED", "DECLARED_UNRESOLVED", "FAIL", "NOT_EVALUATED", null],
+          "description": "relation/v0.1 lineage state. null == NOT_EVALUATED (same observable fact)."
+        },
+        "policyVerdict": {
+          "type": "string",
+          "enum": ["ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"],
+          "description": "Decision predicate verdict, when the case exercises one."
+        },
+        "rejected": {"type": "boolean"},
+        "errorContains": {"type": "string"}
+      }
+    },
+    "crossFormatId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Cross-format identity. Cases sharing a crossFormatId are the SAME logical scenario in different encodings/levels and MUST agree on the F1 common-vocabulary verdict (cross_format.py enforces this — structurally closing the 3.4.0 F3 'circular' finding)."
+    },
+    "specRefs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Pointers to the spec/design sections this case pins."
+    },
+    "rationale": {"type": "string"},
+    "attribution": {"type": "string"},
+    "testKeys": {"type": "string"}
+  }
+}
