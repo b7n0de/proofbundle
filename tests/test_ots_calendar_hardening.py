@@ -8,7 +8,9 @@ adversarial questions an external audit asks about OpenTimestamps' donation-fina
     No: the pack's own bundled/frozen header is never trust (WP-A1); confirmation needs a relying-party
     header, so a bundled-header-only pack is needs_rp_trust, never a pass.
   * PENDING never PASS — a not-yet-Bitcoin-anchored proof is refused at the CLI (exit 3), never packed.
-  * SINGLE POINT OF FAILURE — operator redundancy (distinct OPERATORS, not URLs) is surfaced honestly.
+  * SINGLE POINT OF FAILURE — operator redundancy (distinct OPERATORS, not URLs) is surfaced honestly,
+    and ONLY from what the proof itself proves (provenCalendars); producer-declared calendars are recorded
+    as testimony with verified:false and never counted as redundancy evidence (Berkeley audit 2026-07-16).
 
 WP-D1: the confirmed/self-contained path is exercised by a SYNTHETIC, SHA-256-only fixture that
 deserializes WITHOUT ripemd160 — so it runs in the 3.6.0 cleanroom pytest where the ripemd160-gated
@@ -60,6 +62,22 @@ def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
     ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    return _serialize(DetachedTimestampFile(OpSHA256(), ts))
+
+
+def _upgraded_proof_retaining_pending(msg=_ROOT, height=800000,
+                                      uris=("https://a.pool.opentimestamps.org",
+                                            "https://a.pool.eternitywall.com")) -> bytes:
+    """An upgraded proof that also retains PendingAttestations on distinct operators, so the PROVEN
+    calendar set (proof-derived operator redundancy) is real and non-empty."""
+    from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
+                                            PendingAttestation)
+    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
+    ts = Timestamp(msg)
+    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    for u in uris:
+        ts.attestations.add(PendingAttestation(u))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
@@ -139,15 +157,17 @@ class TestDescribeProofLifecycle(unittest.TestCase):
         self.assertEqual(up["bitcoinHeights"], [800000])
         self.assertEqual(describe_proof(b"garbage")["state"], "malformed")
 
-    def test_pack_records_operator_redundancy(self):
+    def test_pack_records_proven_operator_redundancy(self):
+        # PROVEN operator redundancy is read from the proof's OWN retained attestations (three URLs across
+        # two INDEPENDENT operators) — never from a producer claim.
         from proofbundle.evidence_pack import build_evidence_pack
-        pack = build_evidence_pack(
-            _ROOT, _upgraded_proof(),
-            calendars=["https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org",
-                       "https://a.pool.eternitywall.com"])
-        self.assertEqual(pack["calendarRedundancy"], 3)          # three URLs
+        proof = _upgraded_proof_retaining_pending(
+            uris=("https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org",
+                  "https://a.pool.eternitywall.com"))
+        pack = build_evidence_pack(_ROOT, proof)
+        self.assertEqual(len(pack["provenCalendars"]), 3)        # three URLs, proof-derived
         self.assertEqual(pack["operatorRedundancy"], 2)          # but only two INDEPENDENT operators
-        self.assertEqual(pack["calendarOperators"], ["eternitywall", "opentimestamps"])
+        self.assertEqual(pack["provenCalendarOperators"], ["eternitywall", "opentimestamps"])
 
 
 # ── WP-D1: the synthetic, ripemd160-free confirmed-path fixture runs UNCONDITIONALLY ────────────────
@@ -202,12 +222,12 @@ class TestSyntheticConfirmedPathNoRipemd(unittest.TestCase):
 # ── Adversarial: calendar outage + collusion/backdating, at the pack level ──────────────────────────
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestAdversarialCalendarRisk(unittest.TestCase):
-    def _pack_from_synth(self, bundled_headers=None):
+    def _pack_from_synth(self, bundled_headers=None, declared=None):
         from proofbundle.evidence_pack import build_evidence_pack
         target = (FIXTURE_DIR / f"{_SYNTH}.txt").read_bytes()
         proof = (FIXTURE_DIR / f"{_SYNTH}.txt.ots").read_bytes()
         root = hashlib.sha256(target).digest()
-        return build_evidence_pack(root, proof, calendars=["https://a.pool.opentimestamps.org"],
+        return build_evidence_pack(root, proof, declared_calendars=declared,
                                    bundled_headers=bundled_headers), root
 
     def test_calendar_outage_verify_needs_no_network_no_calendar(self):
@@ -241,9 +261,20 @@ class TestAdversarialCalendarRisk(unittest.TestCase):
         self.assertEqual(res["status"], "needs_rp_trust")
         self.assertTrue(res["frozenEvidence"])   # the bundled header is reported as evidence, not trust
 
-    def test_single_operator_pack_reports_low_redundancy_honestly(self):
+    def test_upgraded_no_pending_pack_proves_zero_redundancy_honestly(self):
+        # No-Fake: the synthetic upgraded proof retains no pending attestation, so it PROVES no calendar
+        # redundancy (0) — the honest state after upgrade, not a hidden or inflated number.
         pack, _ = self._pack_from_synth()
-        self.assertEqual(pack["operatorRedundancy"], 1)   # one operator — surfaced, not hidden
+        self.assertEqual(pack["operatorRedundancy"], 0)
+        self.assertEqual(pack["provenCalendars"], [])
+
+    def test_declared_calendar_is_recorded_unverified_never_as_redundancy(self):
+        # a producer declares one calendar; it is recorded as testimony (verified:false) and does NOT
+        # become proven operator redundancy.
+        pack, _ = self._pack_from_synth(declared=["https://a.pool.opentimestamps.org"])
+        self.assertEqual(pack["operatorRedundancy"], 0)                        # proven, unmoved
+        self.assertEqual(pack["declaredCalendars"], ["https://a.pool.opentimestamps.org"])
+        self.assertFalse(pack["declaredCalendarsVerified"])
 
 
 # ── CLI: the anchor group lifecycle + exit contract ─────────────────────────────────────────────────
@@ -275,13 +306,16 @@ class TestAnchorCliContract(unittest.TestCase):
         out = str(Path(self.dir) / "pack.json")
         rc, txt = _run(["anchor", "upgrade", "--proof", self.synth_proof,
                         "--target-file", self.synth_target,
-                        "--calendar", "https://a.pool.opentimestamps.org",
-                        "--calendar", "https://a.pool.eternitywall.com",
+                        "--calendar-declared", "https://a.pool.opentimestamps.org",
+                        "--calendar-declared", "https://a.pool.eternitywall.com",
                         "--out", out, "--json"])
         self.assertEqual(rc, 0, txt)
         pack = json.loads(Path(out).read_text())
         self.assertTrue(pack["selfContained"])
-        self.assertEqual(pack["operatorRedundancy"], 2)
+        # declared calendars are producer testimony (verified:false) — recorded, never proven redundancy.
+        self.assertEqual(pack["operatorRedundancy"], 0)          # proven: the synth proof retains none
+        self.assertEqual(len(pack["declaredCalendars"]), 2)
+        self.assertFalse(pack["declaredCalendarsVerified"])
 
     def test_upgrade_wrong_root_is_unbound_exit2(self):
         out = str(Path(self.dir) / "nope.json")
@@ -335,17 +369,20 @@ class TestAnchorCliContract(unittest.TestCase):
         self.assertEqual(info["state"], "upgraded")
         self.assertEqual(info["source"], "evidence_pack")
 
-    def test_inspect_pack_surfaces_recorded_redundancy(self):
-        # an upgraded proof retains no calendars, but the pack records the redundancy set (WP-B).
+    def test_inspect_pack_surfaces_declared_as_unverified_never_as_redundancy(self):
+        # No-Fake: an upgraded proof retains no calendars → proven operatorRedundancy 0; a producer's
+        # declared calendars are surfaced SEPARATELY and flagged unverified, never counted as redundancy.
         out = str(Path(self.dir) / "pack.json")
         _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
-              "--calendar", "https://a.pool.opentimestamps.org",
-              "--calendar", "https://a.pool.eternitywall.com", "--out", out])
+              "--calendar-declared", "https://a.pool.opentimestamps.org",
+              "--calendar-declared", "https://a.pool.eternitywall.com", "--out", out])
         rc, txt = _run(["anchor", "inspect", out, "--json"])
         self.assertEqual(rc, 0)
         info = json.loads(txt)
-        self.assertEqual(info["operatorRedundancy"], 2)
-        self.assertEqual(info["calendarsFrom"], "pack_record")
+        self.assertEqual(info["operatorRedundancy"], 0)                # proven, not inflated by declared
+        self.assertEqual(info["provenCalendars"], [])
+        self.assertEqual(len(info["declaredCalendars"]), 2)
+        self.assertFalse(info["declaredCalendarsVerified"])
 
 
 # ── WP-E: the readiness-pack calendar-independence paragraph exists and stays claims-hygiene-clean ───

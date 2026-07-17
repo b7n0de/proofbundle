@@ -31,6 +31,18 @@ funding fragility weaken a proofbundle receipt? The four facts below are the hon
    presumption of time across the EU. It complements the trust-minimized Bitcoin anchor, it does not
    replace it (`docs/ANCHORS.md`, the `rfc3161-tsa` type).
 
+## How redundancy is surfaced (proven vs declared)
+
+The redundancy figure this tool reports (`operatorRedundancy`) is derived ONLY from what the proof itself
+carries (its retained pending attestations), never from a producer's claim. After a proof is upgraded it
+retains no pending attestation, so it honestly proves `operatorRedundancy: 0`: the calendar set that
+carried the stamp is no longer recoverable from the proof, and we do not reconstruct it from testimony.
+Calendars a producer records via `anchor upgrade --calendar-declared <url>` are stored as documentation
+with `declaredCalendarsVerified: false` and are not audit evidence. The operator label behind a calendar
+URL is a bare-hostname heuristic, not a verified-independent-entity claim: it does not resolve the
+public-suffix boundary, so two operators under one ccSLD (a `co.uk` or `com.au` host) can be undercounted
+as one. For an independence claim, pin the operators you trust rather than relying on the label.
+
 ## What this does not claim
 
 The remaining assumption is the Bitcoin header's trustworthiness: a relying party who runs their own

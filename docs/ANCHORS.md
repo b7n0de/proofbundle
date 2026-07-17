@@ -166,15 +166,35 @@ that is already upgraded: `verify-pack` opens no socket, and it never trusts the
 The default OpenTimestamps configuration submits to three calendar endpoints across at least two
 independent operators (`a`/`b.pool.opentimestamps.org` operated by OpenTimestamps and
 `a.pool.eternitywall.com` operated by Eternity Wall), and requires at least two to reply, so any single
-calendar can be down with no effect. `anchor inspect` and the evidence pack surface WHICH calendars carry
-a proof and how many INDEPENDENT operators back it (`operatorRedundancy`), because two URLs on one
-operator are one point of failure, not two.
+calendar can be down with no effect.
+
+**Proven vs declared (No-Fake, Berkeley audit 2026-07-16).** `anchor inspect` and the evidence pack
+surface two clearly separated calendar classes, and only one of them is audit evidence:
+
+- `provenCalendars` / `operatorRedundancy` are read from the PROOF ITSELF (its retained pending
+  attestations). This is the only redundancy figure a reviewer may treat as evidence. An UPGRADED proof
+  that retains no pending attestation honestly proves `operatorRedundancy: 0`: after upgrade the calendar
+  dependency is discharged and which calendars carried the stamp is no longer recoverable from the proof.
+- `declaredCalendars` are producer testimony recorded verbatim with `declaredCalendarsVerified: false`.
+  They are documentation only, are NOT audit evidence, and never count toward operator redundancy (a
+  producer could list calendars it never used).
+
+`operatorRedundancy` counts distinct INDEPENDENT operators, because two URLs on one operator are one point
+of failure, not two. **Heuristic blind spot (documented, not hidden).** The operator label is a
+bare-hostname heuristic, not a verified-independent-entity claim: an unknown host falls back to its last
+two labels, which does not know the public-suffix boundary, so a ccSLD host like `cal.example.co.uk`
+collapses to `co.uk` (and `example.com.au` to `com.au`) and two genuinely independent operators under one
+ccSLD would be undercounted as one. Treat it as a transparency hint; for a real independence claim, pin
+the operators you trust (an optional `tldextract` dependency would resolve the boundary and is deliberately
+not added, keeping this a heuristic).
 
 A relying party who does not want to depend on the public calendars can run or pin their own. The
 OpenTimestamps client reads a calendar allowlist (its `--calendar` flags and its `otsclient` config), and
 a private or curated calendar server is the `opentimestamps-server` package pointed at your own Bitcoin
-node. Record the chosen calendars with `anchor upgrade --calendar <url>` so the pack documents its own
-redundancy set. proofbundle imposes no calendar; it records the ones you used.
+node. Record the calendars you used with `anchor upgrade --calendar-declared <url>` for documentation, but
+they are stored as unverified testimony (`declaredCalendarsVerified: false`), never presented as redundancy
+evidence. proofbundle imposes no calendar; it records the ones you declare and proves only what the proof
+carries.
 
 ### Getting a trusted Bitcoin header for verification (WP-C)
 

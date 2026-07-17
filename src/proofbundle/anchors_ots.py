@@ -86,6 +86,18 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           "relying-party-supplied Bitcoin block header (--bitcoin-header / policy "
                           "anchors.bitcoin_block_headers). The bundle's own frozen header is producer-"
                           "controlled evidence, not trust; not claiming a pass"}
+    # WP-A1.b (Berkeley audit, 2026-07-16): a proof can carry SEVERAL Bitcoin attestations (independent
+    # calendar branches, a reorg-era re-anchor, a bad/tampered branch alongside a good one). Because the
+    # structural binding above pins EVERY attestation's message to the same canonical root (all_attestations
+    # walks the tree from `file_digest`, which must equal `canonical_root`), confirming on ANY branch whose
+    # attested block matches the relying-party header is sound — the branch cannot commit an unrelated root.
+    # So we scan ALL RP-covered heights and confirm as soon as one matches; a single wrong/tampered branch
+    # must NEVER short-circuit and mask a genuinely confirmable one (that would be a False-REJECT / DoS).
+    # Per-branch diagnostics are retained: if no branch confirms we surface whether the covered heights were
+    # present-and-wrong (block_mismatch, a tamper signal), carried bad relying-party hex (bad_header), or
+    # were simply uncovered (upgraded_unverified).
+    mismatch_heights: list = []
+    bad_header_heights: list = []
     for msg, att in dtf.timestamp.all_attestations():
         height = getattr(att, "height", None)
         if height is None:
@@ -96,8 +108,9 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
         try:
             expected = bytes.fromhex(merkle_root_hex)
         except ValueError:
-            return {"ok": False, "warn": False, "status": "bad_header", "rp_trusted": True,
-                    "detail": f"relying-party Bitcoin block merkle root for height {height} is not valid hex"}
+            # a malformed RP header for THIS height must not short-circuit — another branch may confirm.
+            bad_header_heights.append(height)
+            continue
         if msg == expected:
             return {"ok": True, "warn": False, "status": "confirmed", "rp_trusted": True,
                     # WP-A2: a Bitcoin HEIGHT is the proof's native trusted-time unit — reported
@@ -106,13 +119,25 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                     "trustedTime": {"source": "bitcoin_block", "height": height},
                     "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
                               "(merkle root supplied by the relying party)"}
+        mismatch_heights.append(height)
+    # No RP-covered branch matched. Fall through with an honest, tamper-visible diagnostic.
+    if mismatch_heights:
         return {"ok": False, "warn": False, "status": "block_mismatch", "rp_trusted": True,
-                "detail": f"OTS Bitcoin attestation at height {height} does not match the relying-party "
-                          "block merkle root (present-and-wrong)"}
+                "mismatchHeights": sorted(mismatch_heights),
+                "badHeaderHeights": sorted(bad_header_heights),
+                "detail": f"no OTS Bitcoin attestation matched the relying-party block merkle root: "
+                          f"present-and-wrong at height(s) {sorted(mismatch_heights)}"
+                          + (f", invalid relying-party hex at height(s) {sorted(bad_header_heights)}"
+                             if bad_header_heights else "")}
+    if bad_header_heights:
+        return {"ok": False, "warn": False, "status": "bad_header", "rp_trusted": True,
+                "badHeaderHeights": sorted(bad_header_heights),
+                "detail": f"relying-party Bitcoin block merkle root is not valid hex for height(s) "
+                          f"{sorted(bad_header_heights)}, and no other covered branch confirmed"}
     return {"ok": False, "warn": False, "status": "upgraded_unverified", "needs_rp_trust": True,
             "frozenEvidence": bool(frozen_headers),
             "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but the relying party supplied no "
-                      "block header for that height; not claiming a pass"}
+                      "block header for any attested height; not claiming a pass"}
 
 
 # ── Calendar transparency (WP-B1) ──────────────────────────────────────────────────────────────────
@@ -135,7 +160,16 @@ def calendar_operator(uri: str) -> str:
     count, is what tolerates an outage or a defunding — two URLs on one operator are one point of
     failure. Maps a known calendar host to its operator; an unknown host falls back to its last two
     host labels so a distinct third-party or self-hosted calendar still counts as a distinct operator.
-    Never raises (a transparency helper must not break a verify path)."""
+    Never raises (a transparency helper must not break a verify path).
+
+    BLIND SPOT (documented, not hidden — Berkeley audit 2026-07-16): this is a bare-hostname heuristic,
+    NOT a verified-independent-entity claim. The last-two-labels fallback does not know the public-suffix
+    boundary, so a ccSLD host like ``cal.example.co.uk`` collapses to ``co.uk`` (and ``example.com.au`` to
+    ``com.au``): two genuinely independent operators under the same ccSLD would be counted as one, and the
+    label itself is a registrable-domain guess, not an attestation of who runs the calendar. It is a
+    transparency hint only; for a real independence claim, pin the operators you trust. An optional
+    ``tldextract`` dependency would resolve the public-suffix boundary; it is deliberately not added here,
+    so this stays a heuristic."""
     if not isinstance(uri, str) or not uri:
         return "unknown"
     from urllib.parse import urlparse  # noqa: PLC0415

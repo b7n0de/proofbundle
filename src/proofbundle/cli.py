@@ -1116,7 +1116,7 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
     evidence pack. A still-PENDING proof is refused (exit 3, never a fake pass): upgrading it (embedding
     the Bitcoin block-header path) needs the OpenTimestamps client + a Bitcoin confirmation, which is
     time-gated and outside this tool. Structural binding is fail-closed here (exit 2 on unbound)."""
-    from .anchors_ots import calendar_uris, verify_opentimestamps  # noqa: PLC0415
+    from .anchors_ots import verify_opentimestamps  # noqa: PLC0415
     from .evidence_pack import (  # noqa: PLC0415
         build_evidence_pack, describe_proof, ots_upgraded_proof_is_self_contained,
     )
@@ -1140,18 +1140,19 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
                               "pending proof embeds the Bitcoin block-header path and needs the "
                               "OpenTimestamps client after a Bitcoin confirmation (time-gated): run "
                               "`ots upgrade <proof>.ots`, then re-run `proofbundle anchor upgrade`."),
-                   "calendars": info["calendars"], "calendarOperators": info["calendarOperators"]}
+                   "provenCalendars": info["provenCalendars"],
+                   "provenCalendarOperators": info["provenCalendarOperators"]}
             if getattr(args, "json", False):
                 print(json.dumps(msg, indent=2, ensure_ascii=False))
             else:
                 print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — {msg['detail']}")
-                if info["calendars"]:
-                    print(f"  calendars carrying it: {', '.join(info['calendars'])} "
-                          f"(operators: {', '.join(info['calendarOperators'])})")
+                if info["provenCalendars"]:
+                    print(f"  calendars carrying it: {', '.join(info['provenCalendars'])} "
+                          f"(operators: {', '.join(info['provenCalendarOperators'])})")
             return 3
-        calendars = list(getattr(args, "calendar", None) or []) or calendar_uris(proof)
+        declared = list(getattr(args, "calendar_declared", None) or [])
         bundled = _parse_bundled_headers(getattr(args, "bundled_header", None))
-        pack = build_evidence_pack(canonical_root, proof, calendars=calendars,
+        pack = build_evidence_pack(canonical_root, proof, declared_calendars=declared or None,
                                    bundled_headers=bundled or None)
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(pack, handle, indent=2, ensure_ascii=False)
@@ -1159,8 +1160,12 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         report = {"schema": "proofbundle.anchor_upgrade.v1", "ok": True, "wrote": args.out,
                   "state": "upgraded", "selfContained": True,
                   "bitcoinHeights": info["bitcoinHeights"],
-                  "calendars": pack["calendars"], "calendarOperators": pack["calendarOperators"],
+                  # proven = proof-derived redundancy evidence; declared = producer testimony (verified:false)
+                  "provenCalendars": pack["provenCalendars"],
+                  "provenCalendarOperators": pack["provenCalendarOperators"],
                   "operatorRedundancy": pack["operatorRedundancy"],
+                  "declaredCalendars": pack.get("declaredCalendars", []),
+                  "declaredCalendarsVerified": pack.get("declaredCalendarsVerified", False),
                   "bundledHeaderEvidence": pack["bundledHeaderEvidence"],
                   "detail": ("self-contained evidence pack written — verifiable OFFLINE against a "
                              "relying-party Bitcoin header, no calendar needed")}
@@ -1169,8 +1174,11 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         else:
             print(f"[anchor upgrade] OK — self-contained pack written to {args.out}")
             print(f"  Bitcoin height(s): {report['bitcoinHeights']}  ·  "
-                  f"calendars: {report['operatorRedundancy']} operator(s) "
-                  f"{report['calendarOperators']}")
+                  f"proven operator redundancy: {report['operatorRedundancy']} "
+                  f"{report['provenCalendarOperators']}")
+            if report["declaredCalendars"]:
+                print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
+                      f"{', '.join(report['declaredCalendars'])}")
             print("  verify offline:  proofbundle anchor verify-pack "
                   f"{args.out} --bitcoin-header <HEIGHT:MERKLEROOT_HEX>")
         return 0
@@ -1195,8 +1203,11 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
         out = {"schema": "proofbundle.anchor_verify_pack.v1", "ok": bool(res.get("ok")),
                "status": res.get("status"), "warn": bool(res.get("warn")),
                "selfContained": bool(pack.get("selfContained")),
-               "calendars": pack.get("calendars", []),
-               "calendarOperators": pack.get("calendarOperators", []),
+               "provenCalendars": pack.get("provenCalendars", []),
+               "provenCalendarOperators": pack.get("provenCalendarOperators", []),
+               "operatorRedundancy": int(pack.get("operatorRedundancy") or 0),
+               "declaredCalendars": pack.get("declaredCalendars", []),
+               "declaredCalendarsVerified": pack.get("declaredCalendarsVerified", False),
                "detail": res.get("detail", "")}
         for f in ("rp_trusted", "needs_rp_trust", "frozenEvidence", "trustedTime"):
             if f in res:
@@ -1239,14 +1250,15 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             info = describe_proof(proof)
             info["source"] = "evidence_pack"
             info["packSelfContained"] = bool(pack.get("selfContained"))
-            # an UPGRADED proof retains no pending calendar attestation, so describe_proof surfaces no
-            # calendars — but the PACK records the redundancy set it was built with (WP-B transparency).
-            # Prefer the pack's recorded set when the proof itself carries none, so redundancy stays visible.
-            if not info["calendars"] and pack.get("calendars"):
-                info["calendars"] = list(pack.get("calendars") or [])
-                info["calendarOperators"] = list(pack.get("calendarOperators") or [])
-                info["operatorRedundancy"] = int(pack.get("operatorRedundancy") or 0)
-                info["calendarsFrom"] = "pack_record"
+            # No-Fake (Berkeley audit 2026-07-16): the PROVEN calendars come from describe_proof (the proof
+            # itself). An upgraded proof retains none, and we do NOT borrow the producer's declared list into
+            # operatorRedundancy — that would surface unverified testimony as evidence. Declared calendars are
+            # shown SEPARATELY, flagged unverified.
+            declared = list(pack.get("declaredCalendars") or [])
+            if declared:
+                info["declaredCalendars"] = declared
+                info["declaredCalendarOperators"] = list(pack.get("declaredCalendarOperators") or [])
+                info["declaredCalendarsVerified"] = bool(pack.get("declaredCalendarsVerified", False))
         else:
             info = describe_proof(raw)
             info["source"] = "ots_proof"
@@ -1256,13 +1268,16 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
         else:
             print(f"[anchor inspect] state={info['state']}  self-contained={info['selfContained']}  "
                   f"heights={info['bitcoinHeights']}")
-            if info["calendars"]:
-                print(f"  calendars: {', '.join(info['calendars'])}")
-                print(f"  operators: {', '.join(info['calendarOperators'])} "
+            if info["provenCalendars"]:
+                print(f"  proven calendars: {', '.join(info['provenCalendars'])}")
+                print(f"  proven operators: {', '.join(info['provenCalendarOperators'])} "
                       f"(operator redundancy {info['operatorRedundancy']})")
             else:
-                print("  calendars: none retained in the proof "
+                print("  proven calendars: none retained in the proof "
                       "(an upgraded proof no longer needs a calendar to verify)")
+            if info.get("declaredCalendars"):
+                print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
+                      f"{', '.join(info['declaredCalendars'])}")
         return 0
     except (OSError, KeyError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -2565,9 +2580,12 @@ def build_parser() -> argparse.ArgumentParser:
                            "proof must commit to")
     a_up.add_argument("--canonical-root-hex", dest="canonical_root_hex", default=None,
                       help="the canonical root as 64-char hex (alternative to --target-file)")
-    a_up.add_argument("--calendar", action="append", default=None, metavar="URL",
-                      help="a calendar URL that carries the stamp (repeatable); omitted → auto-detected "
-                           "from the proof's pending attestations (transparency / redundancy evidence)")
+    a_up.add_argument("--calendar-declared", dest="calendar_declared", action="append", default=None,
+                      metavar="URL",
+                      help="a producer-DECLARED calendar URL (repeatable), recorded verbatim as "
+                           "declaredCalendars with verified:false — documentation only, NOT audit evidence "
+                           "and never counted toward operator redundancy. The PROVEN redundancy that is "
+                           "evidence is read from the proof's own attestations")
     a_up.add_argument("--bundled-header", dest="bundled_header", action="append", default=None,
                       metavar="HEIGHT:MERKLEROOT_HEX",
                       help="OPTIONAL Bitcoin block header (internal byte order) copied into the pack as "

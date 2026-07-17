@@ -40,6 +40,71 @@ def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
+def _multi_bitcoin_proof(msg=_ROOT, heights=(111, 222)) -> bytes:
+    """A proof carrying SEVERAL Bitcoin attestations (independent branches). Both attest the same bound
+    message ``msg`` (all_attestations walks from file_digest), so any branch whose block matches confirms."""
+    from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
+    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
+    ts = Timestamp(msg)
+    for h in heights:
+        ts.attestations.add(BitcoinBlockHeaderAttestation(h))
+    return _serialize(DetachedTimestampFile(OpSHA256(), ts))
+
+
+@unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
+class TestMultiBranchAttestationScan(unittest.TestCase):
+    """Berkeley audit 2026-07-16 (MAJOR): the attestation loop returned on the FIRST relying-party-covered
+    height, so one wrong/tampered branch masked a genuinely confirmable one (False-REJECT / DoS). The fix
+    scans ALL covered branches and confirms as soon as any matches. Both orderings are asserted because the
+    library's iteration order is not caller-controlled — whichever ordering puts the WRONG branch first is
+    the one the old code fails on."""
+
+    def test_wrong_branch_never_masks_a_confirmable_one_case_a(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        proof = _multi_bitcoin_proof()
+        rp = {"bitcoin_block_headers": {"111": "00" * 32, "222": _ROOT.hex()}}  # 111 wrong, 222 right
+        res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
+        self.assertTrue(res["ok"], res["detail"])
+        self.assertEqual(res["status"], "confirmed")
+        self.assertEqual(res["trustedTime"], {"source": "bitcoin_block", "height": 222})
+
+    def test_wrong_branch_never_masks_a_confirmable_one_case_b(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        proof = _multi_bitcoin_proof()
+        rp = {"bitcoin_block_headers": {"111": _ROOT.hex(), "222": "00" * 32}}  # 111 right, 222 wrong
+        res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
+        self.assertTrue(res["ok"], res["detail"])
+        self.assertEqual(res["status"], "confirmed")
+        self.assertEqual(res["trustedTime"], {"source": "bitcoin_block", "height": 111})
+
+    def test_all_covered_branches_wrong_is_block_mismatch_listing_every_height(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        proof = _multi_bitcoin_proof()
+        rp = {"bitcoin_block_headers": {"111": "00" * 32, "222": "11" * 32}}   # both present-and-wrong
+        res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "block_mismatch")
+        self.assertEqual(res["mismatchHeights"], [111, 222])   # per-branch tamper diagnostic retained
+
+    def test_bad_hex_branch_does_not_mask_a_confirmable_one(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        proof = _multi_bitcoin_proof()
+        rp = {"bitcoin_block_headers": {"222": "not-hex", "111": _ROOT.hex()}}  # 222 malformed, 111 right
+        res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
+        self.assertTrue(res["ok"], res["detail"])                # a bad-hex branch never blocks a good one
+        self.assertEqual(res["status"], "confirmed")
+
+    def test_only_bad_hex_covered_is_bad_header_not_confirmed(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        proof = _multi_bitcoin_proof()
+        rp = {"bitcoin_block_headers": {"222": "not-hex"}}        # only covered height has bad hex
+        res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "bad_header")
+        self.assertEqual(res["badHeaderHeights"], [222])
+
+
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestOpenTimestampsVerifier(unittest.TestCase):
     def test_pending_is_warn_never_pass(self):

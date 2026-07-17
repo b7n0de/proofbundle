@@ -19,8 +19,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Calendar transparency (WP-B):** `anchors_ots.calendar_uris` / `calendar_operator` /
   `calendar_operators` surface WHICH calendars carry a proof and how many INDEPENDENT operators back it
   (`operatorRedundancy`), because two URLs on one operator are one point of failure, not two. The
-  evidence pack records `calendarOperators` / `operatorRedundancy`. Docs (`docs/ANCHORS.md`) add how to
-  run or pin your own calendar and how to obtain a trusted Bitcoin header for verification.
+  `operatorRedundancy` figure is PROOF-DERIVED only (`provenCalendars`); producer-declared calendars are
+  kept separate (`declaredCalendars`, `declaredCalendarsVerified: false`) and are never redundancy
+  evidence (see Fixed below). Docs (`docs/ANCHORS.md`) add how to run or pin your own calendar and how to
+  obtain a trusted Bitcoin header for verification.
 - **ripemd160-free confirmed-path fixture (WP-D1):** `tests/fixtures/ots/synthetic-upgraded-sha256.*`
   (generator `scripts/gen_synthetic_ots_fixture.py`), a SHA-256-only upgraded proof that deserializes
   and confirms WITHOUT ripemd160, so the confirmed/self-contained OTS path has an UNCONDITIONAL
@@ -34,6 +36,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/readiness_pack/calendar_independence.md`, wired into `index.json` conclusion C1, states the four
   facts (calendar-independent verification, calendar fragility affects only stamping, verification needs
   a Bitcoin header source, RFC 3161 legal second anchor) before an external audit asks.
+
+### Fixed (OTS hardening — Berkeley live-reproduced audit, 2026-07-16)
+- **Attestation-scan no longer short-circuits (MAJOR, `anchors_ots.verify_opentimestamps`):** the
+  confirm loop returned on the FIRST relying-party-covered Bitcoin height, so a single wrong or tampered
+  branch masked a genuinely confirmable one (a False-REJECT / DoS: height 111 wrong + height 222 correct
+  reported `block_mismatch`). It now scans ALL covered branches and confirms as soon as ANY matches,
+  falling through to `block_mismatch` / `bad_header` / `upgraded_unverified` only when NONE match;
+  per-branch diagnostics (`mismatchHeights` / `badHeaderHeights`) are retained so real tamper stays
+  visible. Sound because the structural binding pins every branch to the same canonical root. Regression:
+  `tests/test_anchors_ots.py::TestMultiBranchAttestationScan` (both iteration orderings).
+- **Operator redundancy is proof-derived only, never producer testimony (MAJOR, `evidence_pack` + CLI):**
+  `operatorRedundancy` and `calendarOperators` were fed from the producer-claimed `--calendar` list, which
+  for an upgraded pack (`calendar_uris(proof) == []`) was ALWAYS unverifiable, so a fabricated calendar
+  list could inflate the "surfaced honestly" redundancy. The pack now splits `provenCalendars`
+  (proof-derived, the only redundancy evidence, `operatorRedundancy`) from `declaredCalendars`
+  (producer testimony, `declaredCalendarsVerified: false`, never counted). The CLI flag `--calendar` is
+  renamed `--calendar-declared` and its output labels it unverified. Docs
+  (`docs/ANCHORS.md`, `docs/readiness_pack/calendar_independence.md`) no longer present declared redundancy
+  as audit evidence. Regression: `test_evidence_pack.py::test_declared_calendars_never_count_as_proven_redundancy`.
+- **Operator-label heuristic blind spot documented (MINOR):** `calendar_operator` is a bare-hostname
+  heuristic, not a verified-independent-entity claim; the last-two-labels fallback does not resolve the
+  public-suffix boundary, so a `co.uk` / `com.au` host can undercount two independent operators as one.
+  Documented next to `operatorRedundancy` in the code and both docs (optional `tldextract` noted, not
+  added — it stays a heuristic).
 
 ### Changed (OTS hardening)
 - **`opentimestamps` pin upper-bounded (WP-D2):** the `[anchors]` extra now requires

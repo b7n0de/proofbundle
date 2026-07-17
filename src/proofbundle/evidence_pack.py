@@ -7,9 +7,10 @@ no network. The OTS anchor already verifies offline from a relying-party Bitcoin
 * ``ots_upgraded_proof_is_self_contained`` — a proof with a Bitcoin block-header attestation is upgraded
   and self-contained (the calendar is no longer needed to verify existence-in-Bitcoin). A pending-only or
   malformed proof is not.
-* ``build_evidence_pack`` — assemble the self-contained proof + the canonical root + the set of calendars
-  it was submitted to (multi-calendar redundancy metadata) and, optionally, a COPY of the Bitcoin block
-  headers as EVIDENCE.
+* ``build_evidence_pack`` — assemble the self-contained proof + the canonical root + the calendars the
+  PROOF proves it carries (``provenCalendars``, the only redundancy that is evidence) kept separate from
+  any producer-DECLARED calendars (``declaredCalendars``, ``verified: false``) and, optionally, a COPY of
+  the Bitcoin block headers as EVIDENCE.
 * ``verify_evidence_pack`` — verify the pack with NO network I/O, delegating to the OTS verifier.
 
 WP-A1 boundary (never crossed). The header a pack bundles is producer-controlled EVIDENCE, never trust —
@@ -55,31 +56,50 @@ def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     return has_bitcoin
 
 
-def build_evidence_pack(canonical_root: bytes, proof: bytes, *, calendars: list[str],
+def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
+                        declared_calendars: Optional[list[str]] = None,
                         bundled_headers: Optional[dict[str, str]] = None) -> dict:
     """Assemble an offline-verifiable evidence pack around an OTS proof.
 
-    ``calendars`` is the set of calendar servers the stamp was submitted to; recording two or more is the
-    multi-calendar redundancy metadata (``calendarRedundancy`` = distinct count). ``bundled_headers`` (a
-    ``height -> block merkle-root hex`` map) is copied into the pack as EVIDENCE only (``frozen`` block,
-    WP-A1: never trusted by the verifier). The pack never contains a secret."""
-    distinct = sorted(set(calendars))
-    operators = calendar_operators(distinct)
+    Calendar redundancy is split into two clearly-separated, No-Fake honest classes (Berkeley audit,
+    2026-07-16 — previously the two were conflated and a producer's unverified ``--calendar`` list was
+    surfaced as if it were audit evidence):
+
+    * ``provenCalendars`` — the calendar URIs the PROOF ITSELF carries (its retained PendingAttestations,
+      read from ``proof``, never trusted-but-cryptographically-present). ``operatorRedundancy`` is the count
+      of distinct INDEPENDENT operators behind the PROVEN calendars and is the ONLY redundancy number that
+      is audit evidence. An UPGRADED proof that no longer retains any pending attestation honestly yields
+      ``provenCalendars == []`` and ``operatorRedundancy == 0``: after upgrade the calendar dependency is
+      discharged and which calendars carried the stamp is no longer recoverable FROM THE PROOF.
+    * ``declaredCalendars`` — producer testimony (``declared_calendars``, the CLI ``--calendar-declared``
+      flag), recorded verbatim for documentation with ``declaredCalendarsVerified: false``. It NEVER feeds
+      ``operatorRedundancy`` and is NOT audit evidence — a producer could list any calendars it never used.
+
+    ``bundled_headers`` (a ``height -> block merkle-root hex`` map) is copied into the pack as EVIDENCE only
+    (``frozen`` block, WP-A1: never trusted by the verifier). The pack never contains a secret."""
+    proven = calendar_uris(proof)                       # proof-derived: cryptographically present, real
+    proven_operators = calendar_operators(proven)
     pack: dict = {
         "type": "opentimestamps-evidence-pack",
-        "packVersion": "v0.1",
+        "packVersion": "v0.2",
         "canonicalRoot": base64.b64encode(canonical_root).decode(),
         "proof": base64.b64encode(proof).decode(),
         "selfContained": ots_upgraded_proof_is_self_contained(proof),
-        "calendars": distinct,
-        "calendarRedundancy": len(distinct),
-        # WP-B1: OPERATOR redundancy (distinct independent operators) is what tolerates an outage or a
-        # defunding — a raw URL count does not, since several URLs may be one operator. Surfaced so a
-        # reviewer sees the >=2-operator redundancy (or its absence) at a glance.
-        "calendarOperators": operators,
-        "operatorRedundancy": len(operators),
+        "provenCalendars": proven,
+        "provenCalendarOperators": proven_operators,
+        # WP-B1: OPERATOR redundancy = distinct INDEPENDENT operators the PROOF proves (never a raw URL
+        # count, never a producer claim). This is the only redundancy figure a reviewer may treat as
+        # evidence; it is 0 for an upgraded proof that retains no pending attestation, which is honest.
+        "operatorRedundancy": len(proven_operators),
         "bundledHeaderEvidence": bool(bundled_headers),
     }
+    declared = sorted(set(declared_calendars or []))
+    if declared:
+        # producer testimony only — recorded for documentation, flagged unverified, NEVER counted as
+        # redundancy evidence (No-Fake: a producer could list calendars it never submitted to).
+        pack["declaredCalendars"] = declared
+        pack["declaredCalendarOperators"] = calendar_operators(declared)
+        pack["declaredCalendarsVerified"] = False
     if bundled_headers:
         # producer-controlled EVIDENCE, surfaced in the frozen block; verify_opentimestamps treats it as
         # frozenEvidence and never as trust (WP-A1).
@@ -107,12 +127,14 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
 
 def describe_proof(proof: bytes) -> dict:
     """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
-    upgrade report. Returns ``{state, selfContained, bitcoinHeights, calendars, calendarOperators,
-    operatorRedundancy}`` where ``state`` is one of ``pending`` | ``upgraded`` | ``empty`` |
-    ``malformed`` | ``no_lib``. Read-only and fail-closed: it reports state, it never trusts the proof
-    (confirmation is still the relying party's job via ``verify``/``verify_evidence_pack``)."""
+    upgrade report. Returns ``{state, selfContained, bitcoinHeights, provenCalendars,
+    provenCalendarOperators, operatorRedundancy}`` where ``state`` is one of ``pending`` | ``upgraded`` |
+    ``empty`` | ``malformed`` | ``no_lib``. Every calendar figure here is PROOF-DERIVED (proven): it reads
+    the proof's own retained attestations, never a producer claim, so ``operatorRedundancy`` is real
+    evidence. Read-only and fail-closed: it reports state, it never trusts the proof (confirmation is still
+    the relying party's job via ``verify``/``verify_evidence_pack``)."""
     base = {"state": "malformed", "selfContained": False, "bitcoinHeights": [],
-            "calendars": [], "calendarOperators": [], "operatorRedundancy": 0}
+            "provenCalendars": [], "provenCalendarOperators": [], "operatorRedundancy": 0}
     try:
         from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
         from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
@@ -127,4 +149,4 @@ def describe_proof(proof: bytes) -> dict:
     ops = calendar_operators(cals)
     state = "upgraded" if has_bitcoin else ("pending" if has_pending else "empty")
     return {"state": state, "selfContained": has_bitcoin, "bitcoinHeights": sorted(heights),
-            "calendars": cals, "calendarOperators": ops, "operatorRedundancy": len(ops)}
+            "provenCalendars": cals, "provenCalendarOperators": ops, "operatorRedundancy": len(ops)}
