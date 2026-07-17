@@ -19,9 +19,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Calendar transparency (WP-B):** `anchors_ots.calendar_uris` / `calendar_operator` /
   `calendar_operators` surface WHICH calendars carry a proof and how many INDEPENDENT operators back it
   (`operatorRedundancy`), because two URLs on one operator are one point of failure, not two. The
-  `operatorRedundancy` figure is PROOF-DERIVED only (`provenCalendars`); producer-declared calendars are
-  kept separate (`declaredCalendars`, `declaredCalendarsVerified: false`) and are never redundancy
-  evidence (see Fixed below). Docs (`docs/ANCHORS.md`) add how to run or pin your own calendar and how to
+  `operatorRedundancy` figure is read from the proof bytes (`provenCalendars`) but is an
+  embedded-but-UNVERIFIED transparency hint, NOT cryptographic redundancy evidence; producer-declared
+  calendars are kept separate (`declaredCalendars`, `declaredCalendarsVerified: false`) and are likewise
+  never redundancy evidence (see Fixed below). Docs (`docs/ANCHORS.md`) add how to run or pin your own calendar and how to
   obtain a trusted Bitcoin header for verification.
 - **ripemd160-free confirmed-path fixture (WP-D1):** `tests/fixtures/ots/synthetic-upgraded-sha256.*`
   (generator `scripts/gen_synthetic_ots_fixture.py`), a SHA-256-only upgraded proof that deserializes
@@ -46,15 +47,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   per-branch diagnostics (`mismatchHeights` / `badHeaderHeights`) are retained so real tamper stays
   visible. Sound because the structural binding pins every branch to the same canonical root. Regression:
   `tests/test_anchors_ots.py::TestMultiBranchAttestationScan` (both iteration orderings).
-- **Operator redundancy is proof-derived only, never producer testimony (MAJOR, `evidence_pack` + CLI):**
+- **Operator redundancy is proof-derived, never producer testimony (MAJOR, `evidence_pack` + CLI):**
   `operatorRedundancy` and `calendarOperators` were fed from the producer-claimed `--calendar` list, which
   for an upgraded pack (`calendar_uris(proof) == []`) was ALWAYS unverifiable, so a fabricated calendar
   list could inflate the "surfaced honestly" redundancy. The pack now splits `provenCalendars`
-  (proof-derived, the only redundancy evidence, `operatorRedundancy`) from `declaredCalendars`
-  (producer testimony, `declaredCalendarsVerified: false`, never counted). The CLI flag `--calendar` is
-  renamed `--calendar-declared` and its output labels it unverified. Docs
-  (`docs/ANCHORS.md`, `docs/readiness_pack/calendar_independence.md`) no longer present declared redundancy
-  as audit evidence. Regression: `test_evidence_pack.py::test_declared_calendars_never_count_as_proven_redundancy`.
+  (read from the proof bytes) from `declaredCalendars` (producer testimony via a CLI flag,
+  `declaredCalendarsVerified: false`, never counted). The CLI flag `--calendar` is renamed
+  `--calendar-declared` and its output labels it unverified. Docs (`docs/ANCHORS.md`,
+  `docs/readiness_pack/calendar_independence.md`) no longer present declared redundancy as audit evidence.
+  Regression: `test_evidence_pack.py::test_declared_calendars_never_count_as_proven_redundancy`.
+- **Calendar redundancy is embedded-but-unverified, NOT cryptographic evidence (MAJOR, No-Fake follow-up,
+  2026-07-17):** the 2026-07-16 split still over-claimed the proof-embedded set as "proven" / "the only
+  redundancy figure a reviewer may treat as evidence". That is false: a `PendingAttestation` URI is
+  unauthenticated and offline-constructible (the test helper `_upgraded_proof_retaining_pending` fabricates
+  them), so `provenCalendars` / `operatorRedundancy` are an embedded-but-UNVERIFIED transparency hint, not
+  audit evidence. The ONLY cryptographic guarantees are (a) the structural binding of the proof to the
+  canonical root and (b) the Bitcoin confirmation against a relying-party header. Docstrings, code comments,
+  `docs/ANCHORS.md`, `docs/readiness_pack/calendar_independence.md` and ADR 0006 are re-worded accordingly;
+  no field is presented as cryptographic redundancy evidence.
+- **`anchor verify-pack` recomputes calendar/self-contained fields from the proof bytes (MAJOR, `cli.py`):**
+  `verify-pack` passed the pack's own `operatorRedundancy` / `provenCalendars` / `provenCalendarOperators` /
+  `selfContained` JSON fields straight into its authoritative `--json` report, so a hand-edited pack could
+  report `operatorRedundancy: 3` with fabricated operators under `status: confirmed` / exit 0 while
+  `anchor inspect` on the SAME file computed `0`. It now RECOMPUTES all four from the proof bytes via
+  `describe_proof`, exactly as `inspect` does; the report never echoes untrusted pack fields. Regression:
+  `test_ots_calendar_hardening.py::test_verify_pack_recomputes_calendar_fields_from_proof_not_json`.
 - **Operator-label heuristic blind spot documented (MINOR):** `calendar_operator` is a bare-hostname
   heuristic, not a verified-independent-entity claim; the last-two-labels fallback does not resolve the
   public-suffix boundary, so a `co.uk` / `com.au` host can undercount two independent operators as one.

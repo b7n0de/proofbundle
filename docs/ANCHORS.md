@@ -168,16 +168,22 @@ independent operators (`a`/`b.pool.opentimestamps.org` operated by OpenTimestamp
 `a.pool.eternitywall.com` operated by Eternity Wall), and requires at least two to reply, so any single
 calendar can be down with no effect.
 
-**Proven vs declared (No-Fake, Berkeley audit 2026-07-16).** `anchor inspect` and the evidence pack
-surface two clearly separated calendar classes, and only one of them is audit evidence:
+**Embedded vs declared (No-Fake, Berkeley audit 2026-07-16, corrected 2026-07-17).** `anchor inspect` and
+the evidence pack surface two calendar classes split by FIELD PROVENANCE, but NEITHER is cryptographic
+redundancy evidence. The redundancy count is not a cryptographic guarantee: the ONLY cryptographic
+guarantees are the structural binding of the proof to the canonical root and the Bitcoin confirmation
+against a relying-party header.
 
 - `provenCalendars` / `operatorRedundancy` are read from the PROOF ITSELF (its retained pending
-  attestations). This is the only redundancy figure a reviewer may treat as evidence. An UPGRADED proof
-  that retains no pending attestation honestly proves `operatorRedundancy: 0`: after upgrade the calendar
-  dependency is discharged and which calendars carried the stamp is no longer recoverable from the proof.
+  attestations). They are embedded IN the proof bytes but UNVERIFIED: a `PendingAttestation` URI is
+  unauthenticated and can be constructed offline by a producer, so `operatorRedundancy` is a transparency
+  hint, not audit evidence. An UPGRADED proof that retains no pending attestation honestly shows
+  `operatorRedundancy: 0`: after upgrade the calendar dependency is discharged and which calendars carried
+  the stamp is no longer recoverable from the proof.
 - `declaredCalendars` are producer testimony recorded verbatim with `declaredCalendarsVerified: false`.
   They are documentation only, are NOT audit evidence, and never count toward operator redundancy (a
-  producer could list calendars it never used).
+  producer could list calendars it never used). The only difference from `provenCalendars` is where the
+  field comes from, the proof bytes versus a CLI flag; both are unverified.
 
 `operatorRedundancy` counts distinct INDEPENDENT operators, because two URLs on one operator are one point
 of failure, not two. **Heuristic blind spot (documented, not hidden).** The operator label is a

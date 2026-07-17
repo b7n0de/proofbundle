@@ -56,8 +56,10 @@ def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
 def _upgraded_proof_retaining_pending(
         msg=_ROOT, height=800000,
         uris=("https://a.pool.opentimestamps.org", "https://a.pool.eternitywall.com")) -> bytes:
-    """An upgraded proof that ALSO retains PendingAttestations on distinct operators — so the PROVEN
-    calendar set (and thus proven operator redundancy) is non-empty and real evidence."""
+    """An upgraded proof that ALSO retains PendingAttestations on distinct operators — so the embedded
+    calendar set (and thus the operator-redundancy count) is non-empty. NOTE this helper FABRICATES those
+    attestations OFFLINE from arbitrary URIs, which is exactly why the embedded figures are UNVERIFIED
+    transparency, not cryptographic evidence: any producer can do the same."""
     from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
                                             PendingAttestation)
     from opentimestamps.core.op import OpSHA256
@@ -92,7 +94,8 @@ class TestBuildAndVerifyPack(unittest.TestCase):
                                    bundled_headers=bundled_headers)
 
     def test_pack_records_self_contained_and_proven_redundancy(self):
-        # PROVEN calendar redundancy is read from the proof's OWN retained attestations, never a claim.
+        # the calendar-redundancy count is read from the proof's OWN retained attestations (field source),
+        # but is an embedded-but-UNVERIFIED transparency figure, not cryptographic evidence.
         pack = self._pack(_upgraded_proof_retaining_pending())
         self.assertTrue(pack["selfContained"])
         self.assertEqual(pack["canonicalRoot"], base64.b64encode(_ROOT).decode())

@@ -1192,7 +1192,9 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
     relying-party Bitcoin header (``--bitcoin-header``; the pack's own bundled header is never trusted).
     Exit 0 confirmed · 3 pending / needs-relying-party-header (honest not-pass) · 1 hard fail
     (unbound / block mismatch / malformed pack) · 2 malformed input."""
-    from .evidence_pack import verify_evidence_pack  # noqa: PLC0415
+    import base64 as _b64  # noqa: PLC0415
+
+    from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
         with open(args.pack, encoding="utf-8") as handle:
             pack = json.load(handle)
@@ -1200,12 +1202,31 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             raise ValueError("evidence pack must be a JSON object")
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
         res = verify_evidence_pack(pack, rp_trust=rp)
+        # No-Fake (Berkeley audit follow-up, 2026-07-17): NEVER echo the pack's own calendar/self-contained
+        # fields into the authoritative report — a hand-edited pack can set operatorRedundancy /
+        # provenCalendars / selfContained to anything (live repro: operatorRedundancy=3 with fabricated
+        # operators under exit 0). RECOMPUTE them from the PROOF BYTES, exactly as `anchor inspect` does, so
+        # the report reflects what the proof actually carries, not what the JSON claims. (These embedded
+        # calendar figures remain UNVERIFIED transparency hints — a PendingAttestation URI is unauthenticated
+        # and offline-constructible — NOT cryptographic redundancy evidence; see build_evidence_pack.)
+        recomputed = {"selfContained": False, "provenCalendars": [],
+                      "provenCalendarOperators": [], "operatorRedundancy": 0}
+        try:
+            info = describe_proof(_b64.b64decode(pack["proof"], validate=True))
+            recomputed = {"selfContained": bool(info["selfContained"]),
+                          "provenCalendars": info["provenCalendars"],
+                          "provenCalendarOperators": info["provenCalendarOperators"],
+                          "operatorRedundancy": int(info["operatorRedundancy"])}
+        except (KeyError, ValueError, TypeError):
+            pass   # malformed/absent proof — verify_evidence_pack already returns a non-pass; keep safe zeros
         out = {"schema": "proofbundle.anchor_verify_pack.v1", "ok": bool(res.get("ok")),
                "status": res.get("status"), "warn": bool(res.get("warn")),
-               "selfContained": bool(pack.get("selfContained")),
-               "provenCalendars": pack.get("provenCalendars", []),
-               "provenCalendarOperators": pack.get("provenCalendarOperators", []),
-               "operatorRedundancy": int(pack.get("operatorRedundancy") or 0),
+               "selfContained": recomputed["selfContained"],
+               "provenCalendars": recomputed["provenCalendars"],
+               "provenCalendarOperators": recomputed["provenCalendarOperators"],
+               "operatorRedundancy": recomputed["operatorRedundancy"],
+               # declaredCalendars are producer testimony, already flagged verified:false — surfaced as
+               # documentation, never as evidence, so passing them through with their honest flag is fine.
                "declaredCalendars": pack.get("declaredCalendars", []),
                "declaredCalendarsVerified": pack.get("declaredCalendarsVerified", False),
                "detail": res.get("detail", "")}

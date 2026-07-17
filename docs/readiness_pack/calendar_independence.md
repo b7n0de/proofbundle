@@ -31,14 +31,18 @@ funding fragility weaken a proofbundle receipt? The four facts below are the hon
    presumption of time across the EU. It complements the trust-minimized Bitcoin anchor, it does not
    replace it (`docs/ANCHORS.md`, the `rfc3161-tsa` type).
 
-## How redundancy is surfaced (proven vs declared)
+## How redundancy is surfaced (embedded but unverified)
 
-The redundancy figure this tool reports (`operatorRedundancy`) is derived ONLY from what the proof itself
-carries (its retained pending attestations), never from a producer's claim. After a proof is upgraded it
-retains no pending attestation, so it honestly proves `operatorRedundancy: 0`: the calendar set that
-carried the stamp is no longer recoverable from the proof, and we do not reconstruct it from testimony.
-Calendars a producer records via `anchor upgrade --calendar-declared <url>` are stored as documentation
-with `declaredCalendarsVerified: false` and are not audit evidence. The operator label behind a calendar
+The redundancy figure this tool reports (`operatorRedundancy`) is derived from what the proof itself
+carries (its retained pending attestations), but it is NOT a cryptographic guarantee: a
+`PendingAttestation` URI is unauthenticated and can be constructed offline by a producer, so the figure is
+an embedded-but-unverified transparency hint, not audit evidence. The cryptographic guarantees are only the
+structural binding of the proof to the canonical root and the Bitcoin confirmation against a relying-party
+header. After a proof is upgraded it retains no pending attestation, so it honestly shows
+`operatorRedundancy: 0`: the calendar set that carried the stamp is no longer recoverable from the proof,
+and we do not reconstruct it from testimony. Calendars a producer records via
+`anchor upgrade --calendar-declared <url>` are stored as documentation with
+`declaredCalendarsVerified: false` and are likewise not audit evidence. The operator label behind a calendar
 URL is a bare-hostname heuristic, not a verified-independent-entity claim: it does not resolve the
 public-suffix boundary, so two operators under one ccSLD (a `co.uk` or `com.au` host) can be undercounted
 as one. For an independence claim, pin the operators you trust rather than relying on the label.

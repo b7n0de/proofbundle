@@ -8,9 +8,11 @@ adversarial questions an external audit asks about OpenTimestamps' donation-fina
     No: the pack's own bundled/frozen header is never trust (WP-A1); confirmation needs a relying-party
     header, so a bundled-header-only pack is needs_rp_trust, never a pass.
   * PENDING never PASS — a not-yet-Bitcoin-anchored proof is refused at the CLI (exit 3), never packed.
-  * SINGLE POINT OF FAILURE — operator redundancy (distinct OPERATORS, not URLs) is surfaced honestly,
-    and ONLY from what the proof itself proves (provenCalendars); producer-declared calendars are recorded
-    as testimony with verified:false and never counted as redundancy evidence (Berkeley audit 2026-07-16).
+  * SINGLE POINT OF FAILURE — operator redundancy (distinct OPERATORS, not URLs) is surfaced honestly from
+    what the proof carries (provenCalendars) as an embedded-but-UNVERIFIED transparency figure, NOT
+    cryptographic evidence (a PendingAttestation URI is offline-constructible); producer-declared calendars
+    are recorded as testimony with verified:false and never counted as redundancy (Berkeley audit
+    2026-07-16, corrected 2026-07-17).
 
 WP-D1: the confirmed/self-contained path is exercised by a SYNTHETIC, SHA-256-only fixture that
 deserializes WITHOUT ripemd160 — so it runs in the 3.6.0 cleanroom pytest where the ripemd160-gated
@@ -68,8 +70,10 @@ def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
 def _upgraded_proof_retaining_pending(msg=_ROOT, height=800000,
                                       uris=("https://a.pool.opentimestamps.org",
                                             "https://a.pool.eternitywall.com")) -> bytes:
-    """An upgraded proof that also retains PendingAttestations on distinct operators, so the PROVEN
-    calendar set (proof-derived operator redundancy) is real and non-empty."""
+    """An upgraded proof that also retains PendingAttestations on distinct operators, so the embedded
+    calendar set (proof-carried operator-redundancy count) is non-empty. The attestations are FABRICATED
+    OFFLINE here from arbitrary URIs — which is precisely why the embedded count is UNVERIFIED
+    transparency, not cryptographic evidence."""
     from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
                                             PendingAttestation)
     from opentimestamps.core.op import OpSHA256
@@ -158,8 +162,9 @@ class TestDescribeProofLifecycle(unittest.TestCase):
         self.assertEqual(describe_proof(b"garbage")["state"], "malformed")
 
     def test_pack_records_proven_operator_redundancy(self):
-        # PROVEN operator redundancy is read from the proof's OWN retained attestations (three URLs across
-        # two INDEPENDENT operators) — never from a producer claim.
+        # the operator-redundancy count is read from the proof's OWN retained attestations (three URLs
+        # across two hostname operators) — an embedded-but-UNVERIFIED transparency figure (the URIs are
+        # offline-constructible), not cryptographic evidence.
         from proofbundle.evidence_pack import build_evidence_pack
         proof = _upgraded_proof_retaining_pending(
             uris=("https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org",
@@ -350,6 +355,32 @@ class TestAnchorCliContract(unittest.TestCase):
         bad = self._write("bad.json", b"{ not json")
         rc, _ = _run(["anchor", "verify-pack", bad])
         self.assertEqual(rc, 2)
+
+    def test_verify_pack_recomputes_calendar_fields_from_proof_not_json(self):
+        # No-Fake (2026-07-17): verify-pack must RECOMPUTE the calendar / self-contained fields from the
+        # proof bytes and never echo the pack's own JSON. Build a real upgraded pack (proof retains NO
+        # pending → embedded redundancy 0, self-contained True), then HAND-MANIPULATE the JSON to fabricate
+        # operatorRedundancy=3 with three operators and flip selfContained=False. The authoritative report
+        # must show the RECOMPUTED values (0 / [] / True), not the tampered ones — while still confirming.
+        out = str(Path(self.dir) / "pack.json")
+        _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
+              "--out", out])
+        pack = json.loads(Path(out).read_text())
+        pack["operatorRedundancy"] = 3
+        pack["provenCalendars"] = ["https://evil-a.example", "https://evil-b.example",
+                                   "https://evil-c.example"]
+        pack["provenCalendarOperators"] = ["evil-a.example", "evil-b.example", "evil-c.example"]
+        pack["selfContained"] = False   # tampered — the real upgraded proof IS self-contained
+        Path(out).write_text(json.dumps(pack))
+        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{self.mr}",
+                        "--json"])
+        self.assertEqual(rc, 0, txt)   # still confirms against the relying-party header
+        report = json.loads(txt)
+        self.assertEqual(report["operatorRedundancy"], 0, "must recompute from proof, not echo JSON")
+        self.assertEqual(report["provenCalendars"], [])
+        self.assertEqual(report["provenCalendarOperators"], [])
+        self.assertTrue(report["selfContained"], "self-contained recomputed from the proof bytes")
+        self.assertEqual(report["status"], "confirmed")
 
     def test_inspect_pending_shows_operators_exit0(self):
         pp = self._write("pend.ots", _pending_proof(uris=("https://a.pool.opentimestamps.org",
