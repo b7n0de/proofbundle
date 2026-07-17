@@ -346,5 +346,41 @@ class TestCLISurfaceScan(unittest.TestCase):
         self.assertEqual(rc, 0, "the shipped repo (docs + CLI surface) must pass the gate")
 
 
+class TestRelatedWorkPriorityHygiene(unittest.TestCase):
+    """WP-A/WP-B (2026-07-17) — priority boasts and superiority claims are forbidden; honest,
+    negated, or dated-evidence phrasings are allowed."""
+
+    def _scan(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "x.md"
+            p.write_text(text, encoding="utf-8")
+            return [v["phrase"] for v in ch.scan_file(p)]
+
+    def test_priority_and_superiority_claims_flagged(self):
+        for text in ("We were first to ship this.",
+                     "proofbundle is the first to auto-emit a signed receipt.",
+                     "This is the world's first offline eval receipt.",
+                     "It is the only tool that combines these layers."):
+            self.assertTrue(self._scan(text), f"priority/superiority claim must flag: {text!r}")
+
+    def test_negated_or_honest_priority_phrasing_allowed(self):
+        for text in ("This makes no claim to be first.",
+                     "We do not claim to be first to do this.",
+                     "As far as documented, no comparable released tool combines these layers.",
+                     "Priority is shown only through dated public records, never as a claim."):
+            self.assertEqual(self._scan(text), [], f"honest/negated form must be allowed: {text!r}")
+
+    def test_first_party_is_not_a_priority_claim(self):
+        # 'first-party' (a party role) must never be mistaken for a 'first to' priority boast.
+        self.assertEqual(self._scan("A first-party chia-datalayer anchor type ships."), [],
+                         "'first-party' is a role, not a priority claim")
+
+    def test_new_priority_docs_are_in_scan_set_and_clean(self):
+        for rel in ("docs/RELATED_WORK.md", "docs/PRIORITY_RECORD.md"):
+            self.assertIn(rel, ch._DEFAULT_DOCS, f"{rel} must be gated")
+            self.assertTrue((REPO / rel).is_file(), f"{rel} must exist")
+            self.assertEqual(ch.scan_file(REPO / rel), [], f"{rel} carries an un-negated overclaim")
+
+
 if __name__ == "__main__":
     unittest.main()

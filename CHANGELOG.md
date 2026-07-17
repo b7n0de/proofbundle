@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.6.0] - audit-candidate (BETA, relation EXPERIMENTAL)
+## [3.6.0] - 2026-07-17 (audit-candidate, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.0 is **NOT** stable, audited, or production-ready. The only
 progress claim is **audit-candidate: all internal assurance gates are green; the sole remaining gate to
@@ -42,8 +42,6 @@ substitute for the external one.
   `production-ready` / `externally audited` / `has-been-audited` claim class outside a negation; the
   release-stability claim is guarded mechanically by the pyproject Development-Status classifier
   (stays 4 - Beta).
-
-## [Unreleased]
 
 ### Added (OTS hardening + calendar-risk — anchor-longevity moat, EXPERIMENTAL, the `[anchors]` extra)
 - **`proofbundle anchor` CLI group (WP-A/B/C):** the honest OpenTimestamps lifecycle as an offline
@@ -2132,8 +2130,9 @@ TRUCE arXiv:2403.00393, RFC 9901, RFC 6962/9162, RFC 3797, PoR literature)
 ### Changed
 - README leads with the integration story; fair demarcation from ai-audit-trail (runtime agent Decision
   Receipts) and ValiChord (which builds attestation bundles from inspect_ai logs *post-hoc* — its v1 library
-  is unsigned; signatures are v2 scope). Honest novelty: as far as documented, proofbundle is the first to
-  auto-emit an **Ed25519-signed** receipt of an inspect_ai eval / pytest run via the framework's native plugin.
+  is unsigned; signatures are v2 scope). Honest novelty: proofbundle auto-emits an **Ed25519-signed**
+  receipt of an inspect_ai eval / pytest run via the framework's native plugin, a capability not found in
+  a comparable released tool at the time of writing.
 - The inspect_ai adapter renders metric scores as fixed-point decimals (not `repr`), so tiny/large values
   (e.g. `1e-05`) no longer fail the claim's decimal format.
 

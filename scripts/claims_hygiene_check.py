@@ -51,6 +51,9 @@ _DEFAULT_DOCS = [
     "docs/readiness_pack/AUDITOR_OPEN_POINTS.md", "docs/readiness_pack/threat_model_delta_360.md",
     "docs/readiness_pack/rust_parity_scope.md", "docs/readiness_pack/differential_matrix.md",
     "docs/readiness_pack/REPRODUCTION_RUNBOOK.md",
+    # Related-work / priority docs (WP-A/WP-B, 2026-07-17): the positioning texts are held to the same
+    # discipline as every other public claim — that is the whole point of scanning them.
+    "docs/RELATED_WORK.md", "docs/PRIORITY_RECORD.md",
 ]
 
 # The signed-root rule (P0-C §5.4) carries a per-sample SECTION exception (see `_CONTEXT_EXEMPT`), so
@@ -123,6 +126,16 @@ _FORBIDDEN = [
     (r"externally\s+(?:audited|reviewed|verified)",
      "externally audited/reviewed/verified (no external audit has occurred)"),
     (r"has\s+been\s+(?:externally\s+)?audited", "has been audited (no external audit has occurred)"),
+    # Related-work / priority additions (WP-A/WP-B, 2026-07-17). proofbundle positions itself by honest
+    # differentiation and DATED public evidence (docs/PRIORITY_RECORD.md), never by a priority boast or a
+    # superiority claim. These ban the concrete phrasings; each is a VIOLATION unless its sentence is
+    # negated (docs may legitimately write "makes no claim to be first"). Disparagement of a NAMED
+    # foreign work has no reliable regex — it stays a review-enforced rule, stated here and not faked as
+    # machine detection (No-Fake: the gate claims only what it actually checks).
+    (r"\bwe\s+were\s+first\b", "we were first (priority claim — show dated public evidence instead)"),
+    (r"\bfirst\s+to\b", "first to (priority claim — show dated public evidence instead)"),
+    (r"\bworld'?s\s+first\b", "world's first (priority claim)"),
+    (r"\bthe\s+only\s+tool\s+that\b", "the only tool that (superiority claim — state honest scope instead)"),
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
 
