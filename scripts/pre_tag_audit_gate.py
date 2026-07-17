@@ -76,7 +76,12 @@ def audit_records_for(repo: Path, version: str) -> list[str]:
 
     This returns the FULL candidate list (not just the first): a caller that needs an additional
     predicate (C12.2 needs the '0 open P0/P1' line) scans all candidates, so a decoy record that
-    carries the marker but omits the line cannot mask a genuine record that has it."""
+    carries the marker but omits the line cannot mask a genuine record that has it.
+
+    Known limitation (No-Fake, honestly declared — see docs/readiness_pack/AUDITOR_OPEN_POINTS.md):
+    the scan is ``rglob`` rooted at the exact subfolder, so it never walks the wider tree, but it DOES
+    follow a symlink placed inside ``audit_artifacts/<token>/`` — a symlink pointing outside the repo
+    would be traversed. The committed tree carries no such symlink; this is a declared boundary."""
     scoped = repo / "audit_artifacts" / _version_token(version)
     if not scoped.is_dir():
         return []

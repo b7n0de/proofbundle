@@ -79,35 +79,67 @@ def _ci_falsey_if(cond) -> bool:
     return False
 
 
-_CI_TEST_CMD = re.compile(
-    r"\bpytest\b|\bpy\.test\b"
-    r"|python[0-9.]*\s+-m\s+unittest\b"
-    r"|\bunittest\s+discover\b",
-    re.IGNORECASE,
-)
+def _is_real_test_invocation(argv: list[str]) -> bool:
+    """True iff ``argv`` (one shell command, tokenised, leading ``VAR=value`` env assignments already
+    stepped over) is a real, EXECUTING test-suite invocation. The command HEAD — the program actually
+    run — must itself be a test runner: ``pytest`` / ``py.test`` / ``python -m pytest`` /
+    ``python -m unittest`` / ``unittest discover``. It must NOT be a collect-only dry run
+    (``--collect-only`` / ``--co``, which imports the tests but executes none).
+
+    This is why the inspection commands that merely NAME pytest do NOT count: their head is
+    ``which`` / ``command`` / ``pip`` / ``grep`` / ``find`` / ``ls`` / ``echo`` — not a runner — so
+    ``which pytest``, ``command -v pytest``, ``pip show pytest``, ``grep -r pytest``,
+    ``find -iname pytest.ini`` and ``ls pytest`` all return False here. ``make test`` and ``tox`` are
+    deliberately NOT recognised (a documented known limitation — see AUDITOR_OPEN_POINTS.md); they run
+    tests indirectly, and recognising them would need parsing the Makefile/tox config."""
+    if not argv:
+        return False
+    head = argv[0].lower()
+    rest = [a.lower() for a in argv[1:]]
+    dry_run = "--collect-only" in rest or "--co" in rest
+    if head in ("pytest", "py.test"):
+        return not dry_run
+    if re.fullmatch(r"python[0-9.]*", head):
+        # a real ``python -m pytest`` / ``python -m unittest`` run; the module after -m is decisive.
+        if "-m" in argv[1:]:
+            mi = argv.index("-m", 1)
+            mod = argv[mi + 1].lower() if mi + 1 < len(argv) else ""
+            if mod == "pytest":
+                return not dry_run
+            if mod == "unittest":
+                return True  # `python -m unittest [discover ...]` executes the suite
+        return False
+    if head == "unittest" and "discover" in rest:
+        return True
+    return False
 
 
 def _ci_run_is_test(run: str) -> bool:
-    """True iff a step's ``run:`` shell script actually EXECUTES the test suite (pytest / unittest /
-    python -m unittest ...). 'pytest' named only inside a shell comment, an ``echo``/``printf``
-    argument, or a ``pip install pytest`` line does NOT count — comments are stripped and echo/install
-    commands are excluded before matching, so a mention that never runs cannot masquerade as a test
-    step."""
+    """True iff a step's ``run:`` shell script actually EXECUTES the test suite. Comments are stripped
+    and each ``;`` / ``&&`` / ``||`` / ``|``-separated command is judged in isolation by
+    ``_is_real_test_invocation`` on its executed head (leading ``VAR=value`` env assignments stepped
+    over), so ``echo x && pytest`` still counts the pytest half. A ``pytest`` named only inside a shell
+    comment or an ``echo`` argument never runs; ``pip install pytest`` installs but does not run; and
+    ``which pytest`` / ``pytest --collect-only`` do not execute the suite — none of them masquerade as
+    a test step."""
     for raw in run.splitlines():
         # drop a shell comment (a '#' that starts a token) through end of line
         m = re.search(r"(?:^|\s)#", raw)
         line = raw[:m.start()] if m else raw
         # evaluate each shell command in isolation so `echo x && pytest` still counts the pytest half
         for cmd in re.split(r";|&&|\|\||\|", line):
-            cmd = cmd.strip()
-            if not cmd:
+            toks = cmd.strip().split()
+            i = 0
+            while i < len(toks) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", toks[i]):
+                i += 1  # step over leading `PYTHONPATH=src` style env assignments
+            argv = toks[i:]
+            if not argv:
                 continue
-            head = cmd.split()[0].lower()
-            if head in ("echo", "printf", ":", "true", "false"):
+            if argv[0].lower() in ("echo", "printf", ":", "true", "false"):
                 continue  # a printed argument is not an executing test command
             if "install" in cmd.lower():
                 continue  # `pip install pytest` installs the runner, it does not run tests
-            if _CI_TEST_CMD.search(cmd):
+            if _is_real_test_invocation(argv):
                 return True
     return False
 
@@ -160,8 +192,13 @@ def c1_1_two_ci_gates(repo: Path = REPO):
     if not ci:
         return FAIL, "the second CI gate .github/workflows/ci.yml (repository/test gate) is missing"
     # YAML-parse the workflow (not a file-wide substring): the second gate counts only when a
-    # non-disabled job has a run: step that actually executes the test suite.
-    named_ci, has_test_step = _ci_workflow_facts(ci)
+    # non-disabled job has a run: step that actually executes the test suite. If PyYAML is not
+    # installed here, honestly report DATA_BLOCKED (never a fake PASS) — same taxonomy as C9.1.
+    try:
+        named_ci, has_test_step = _ci_workflow_facts(ci)
+    except ImportError:
+        return DATA_BLOCKED, ("PyYAML not installed here — cannot YAML-parse ci.yml to confirm the "
+                              "repository/test gate; run in the dev/CI image (the CI itself proves it)")
     if named_ci and has_test_step:
         return PASS, ("two named CI gates present: ci.yml (repository/test gate, name: CI + a real "
                       "run: step executing the test suite) + published-artifact-gate.yml "
@@ -442,7 +479,9 @@ def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
     # sibling 1360/ folder, or a review_1360_notes.md cannot satisfy it (the internal audit, NOT the
     # external one). It scans EVERY version-scoped record for the line, so a decoy record that matches
     # the locator but omits the line cannot mask a genuine record that carries it (no silent PENDING
-    # while a real 0-P0/P1 record exists).
+    # while a real 0-P0/P1 record exists). A NEGATED/conceded '0 open P0/P1' line (NOT / nicht /
+    # still open / remaining / offen on the SAME line) does NOT satisfy the obligation — the guard is
+    # deliberately lexical and line-scoped (a known limitation; see AUDITOR_OPEN_POINTS.md).
     import pre_tag_audit_gate as pta
     recs = pta.audit_records_for(repo, VERSION_UNDER_TEST)
     if not recs:
@@ -450,9 +489,11 @@ def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
                          f"{VERSION_UNDER_TEST} (write the pre-tag audit pack with a lens/adversarial "
                          "note before tag)")
     zero_re = re.compile(r"\b0\s+(?:open\s+)?P0(?:\s*/\s*P1)?\b", re.IGNORECASE)
+    neg_re = re.compile(r"\bnot\b|\bnicht\b|still\s+open|\bremaining\b|\boffen\b", re.IGNORECASE)
     for rel in recs:
-        if zero_re.search(_read(rel, repo)):
-            return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
+        for line in _read(rel, repo).splitlines():
+            if zero_re.search(line) and not neg_re.search(line):
+                return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
     names = ", ".join(Path(r).name for r in recs)
     return PENDING, (f"the version-scoped {VERSION_UNDER_TEST} audit record(s) ({names}) carry no "
                      "explicit '0 open P0/P1' line")

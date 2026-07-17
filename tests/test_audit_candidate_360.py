@@ -172,6 +172,18 @@ class TestCheckDiscrimination(unittest.TestCase):
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.PENDING, detail)
 
+    def test_c12_2_rejects_negated_zero_p0p1_line(self):
+        # FIX 2: a version-scoped record whose only '0 open P0/P1' line is NEGATED/conceded does not
+        # satisfy the obligation -> PENDING (the old negation-blind regex would have PASSed it).
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "360"
+            rec.mkdir(parents=True)
+            (rec / "pre_tag_adversarial_audit_360.md").write_text(
+                "# 3.6.0 six-lens adversarial audit\n\n"
+                "It is NOT true that 0 open P0/P1 — one P1 is still open.\n")
+            verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PENDING, detail)
+
     # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
 
     def test_variant1_marker_note_outside_subfolder_satisfies_neither_gate(self):
@@ -250,6 +262,46 @@ class TestCheckDiscrimination(unittest.TestCase):
                 "      - run: python -m unittest discover -s tests -v\n")
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.PASS, detail)
+
+    # --- FIX 1: C1.1 test-runner recognition verges on the EXECUTED head, not a bare mention ---
+
+    def _c1_1_with_test_step(self, run_line: str):
+        with tempfile.TemporaryDirectory() as td:
+            wf = Path(td) / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "published-artifact-gate.yml").write_text(
+                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "ci.yml").write_text(
+                "name: CI\non: [push]\n"
+                "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
+                f"      - run: {run_line}\n")
+            return self.m.c1_1_two_ci_gates(repo=Path(td))
+
+    def test_c1_1_which_pytest_is_not_a_test_run(self):
+        # a bare mention that never executes the suite -> FAIL (single step `run: which pytest`).
+        verdict, detail = self._c1_1_with_test_step("which pytest")
+        self.assertEqual(verdict, self.m.FAIL, detail)
+
+    def test_c1_1_collect_only_is_not_a_test_run(self):
+        # collect-only imports the tests but runs none -> FAIL.
+        verdict, detail = self._c1_1_with_test_step("pytest --collect-only")
+        self.assertEqual(verdict, self.m.FAIL, detail)
+
+    def test_c1_1_real_unittest_discover_passes(self):
+        # a genuine executing run -> PASS (discriminates the FAILs above from a blanket reject).
+        verdict, detail = self._c1_1_with_test_step("python -m unittest discover -s tests")
+        self.assertEqual(verdict, self.m.PASS, detail)
+
+    def test_ci_run_is_test_rejects_inspection_commands(self):
+        # unit-level: commands that only NAME pytest (head is which/command/pip/grep/find/ls) are not runs
+        for line in ("which pytest", "command -v pytest", "pip show pytest", "grep -r pytest src",
+                     "find . -iname pytest.ini", "ls pytest", "pytest --collect-only",
+                     "pytest --co", "python -m pytest --collect-only"):
+            self.assertFalse(self.m._ci_run_is_test(line), line)
+        for line in ("pytest", "pytest tests/ -q", "py.test", "python -m pytest -q",
+                     "python3 -m pytest", "python -m unittest discover -s tests",
+                     "PYTHONPATH=src pytest -q", "echo start && pytest tests/"):
+            self.assertTrue(self.m._ci_run_is_test(line), line)
 
     def test_variant4_version_token_1360_not_selected_as_360(self):
         # Variant 4: '360' must not match '1360'. Neither a sibling audit_artifacts/1360/ record nor a

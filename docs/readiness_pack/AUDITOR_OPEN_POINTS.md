@@ -49,3 +49,35 @@ internal gate (see `REPRODUCTION_RUNBOOK.md`) is a precondition for this review,
 The single deliberately-open acceptance criterion is "external audit completed". 4.0.0-stable = this
 pack + the external audit ABSCHLUSS + findings closed/accepted + relation wire-freeze. Nothing in this
 repository can flip that bit; only the external reviewer can.
+
+## G. Known limitations of the audit-candidate matrix instrument itself (No-Fake, self-declared)
+
+`scripts/audit_candidate_matrix.py` is a self-check tool, so its own boundaries are declared here
+rather than left implicit. None of these hide a green where the obligation is broken; they are honest
+edges a reviewer should know about.
+
+- **C1.1 test-runner recognition is head-scoped.** `_is_real_test_invocation` recognises a real run
+  only when the executed command head is `pytest` / `py.test` / `python -m pytest` /
+  `python -m unittest` / `unittest discover` and is not a `--collect-only` / `--co` dry run.
+  Consequence: `make test` and `tox` (which run tests indirectly through a Makefile / tox config) are
+  deliberately NOT recognised, so a CI that ran its suite only via `make test` would read as "no
+  executing test step". This is a conscious trade (recognising them would need parsing the
+  Makefile/tox config); the repository's own `ci.yml` runs `python -m unittest discover` directly, so
+  it is covered.
+- **C1.1 falls to DATA_BLOCKED without PyYAML.** The workflow is YAML-parsed (never a file-wide
+  substring scan), so if PyYAML is absent the check reports DATA_BLOCKED (honestly "not verified
+  here"), never a fake PASS and never a FAIL.
+- **C12.2 negation guard is lexical and line-scoped.** A `0 open P0/P1` line that is negated/conceded
+  on the SAME line (`NOT` / `nicht` / `still open` / `remaining` / `offen`) does not satisfy the
+  obligation. Because it is a light lexical guard, a positive phrasing that happens to place one of
+  those words on the claim line (e.g. `0 P0/P1 remaining`) would be conservatively treated as
+  not-satisfied; the canonical record states the claim plainly and avoids such phrasing.
+- **The sibling presence checks C1.2 / C1.3 / C9.2 / C11.3 are raw substring-presence checks** (a
+  keyword such as `SOURCE_DATE_EPOCH`, `sha256`, `attest`, or `EXPERIMENTAL` present in the file). A
+  keyword sitting in a comment satisfies them; they assert that the artifact EXISTS and names the
+  concept, not that the underlying behaviour is correct — the deeper behaviours are enforced by their
+  own dedicated blocking gates/tests elsewhere in CI.
+- **`pre_tag_audit_gate.audit_records_for` follows symlinks.** Its `rglob` is rooted at the exact
+  `audit_artifacts/<token>/` subfolder (it never walks the wider tree), but a symlink placed inside
+  that subfolder pointing outside the repo would be traversed. The committed tree carries no such
+  symlink.
