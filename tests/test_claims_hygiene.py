@@ -308,6 +308,14 @@ class TestCLISurfaceScan(unittest.TestCase):
                         "print(f'proven operator redundancy: {n}')"):
             self.assertTrue(self._scan_src(surface), f"must flag: {surface!r}")
 
+    def test_epilog_surface_is_scanned(self):
+        # FIX5 red-test (2026-07-17): argparse epilog= is user-facing (argparse prints it under the option
+        # list), so an un-hedged overclaim there must flag — the scanner previously skipped epilog=.
+        src = ("import argparse\n"
+               "def build():\n"
+               "    ap = argparse.ArgumentParser(epilog='The proven redundancy is evidence.')\n")
+        self.assertTrue(self._scan_src(src), "an un-hedged overclaim in epilog= must flag")
+
     def test_hedged_cli_surface_is_allowed(self):
         # The retracted wording carries an explicit unverified / not-evidence hedge → allowed.
         for surface in (

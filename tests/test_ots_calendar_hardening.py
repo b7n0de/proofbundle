@@ -59,11 +59,16 @@ def _pending_proof(msg=_ROOT, uris=("https://a.pool.opentimestamps.org",)) -> by
 
 
 def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
+    # Null-Op hardening (2026-07-17): attest at the END of a real op chain (append a nonce, then SHA-256)
+    # below the file digest, so the attested block merkle root != file_digest — not a refused leaf==root
+    # Null-Op. (The CONFIRMED-path tests in this file use the provenance-pinned synthetic FIXTURE, whose
+    # relying-party header is the .block.json merkle root; this helper feeds only describe/build/uris tests.)
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
@@ -71,15 +76,17 @@ def _upgraded_proof_retaining_pending(msg=_ROOT, height=800000,
                                       uris=("https://a.pool.opentimestamps.org",
                                             "https://a.pool.eternitywall.com")) -> bytes:
     """An upgraded proof that also retains PendingAttestations on distinct operators, so the embedded
-    calendar set (proof-carried operator-redundancy count) is non-empty. The attestations are FABRICATED
-    OFFLINE here from arbitrary URIs — which is precisely why the embedded count is UNVERIFIED
-    transparency, not cryptographic evidence."""
+    calendar set (proof-carried operator-redundancy count) is non-empty. The Bitcoin attestation sits at the
+    end of a REAL op chain (not a leaf==root Null-Op); the pending attestations are FABRICATED OFFLINE here
+    from arbitrary URIs — which is precisely why the embedded count is UNVERIFIED transparency, not
+    cryptographic evidence."""
     from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
                                             PendingAttestation)
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
     for u in uris:
         ts.attestations.add(PendingAttestation(u))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
@@ -240,7 +247,10 @@ class TestAdversarialCalendarRisk(unittest.TestCase):
         import socket
         from proofbundle.evidence_pack import verify_evidence_pack
         pack, root = self._pack_from_synth()
-        rp = {"bitcoin_block_headers": {"800000": root.hex()}}
+        # Null-Op hardening: the fixture now attests the block merkle root at the end of a real op chain, so
+        # the relying-party header is the .block.json merkle root (NOT the file digest root.hex()).
+        block = json.loads((FIXTURE_DIR / f"{_SYNTH}.block.json").read_text())
+        rp = {"bitcoin_block_headers": {str(block["height"]): block["merkle_root_internal_le_hex"]}}
         real = socket.socket
 
         def _bomb(*a, **k):
@@ -414,6 +424,73 @@ class TestAnchorCliContract(unittest.TestCase):
         self.assertEqual(info["provenCalendars"], [])
         self.assertEqual(len(info["declaredCalendars"]), 2)
         self.assertFalse(info["declaredCalendarsVerified"])
+
+    # ── WP-A1.c red-tests (2026-07-17): the 6-lens re-review's live-reproduced CRITICAL + siblings ──────
+    def _write_null_op_attack_pack(self, height=400000, value_hex="aa" * 32) -> str:
+        # the exact live-repro attack: a Null-Op pack where file_digest == canonicalRoot == the attested
+        # value == the supplied header, with the BitcoinBlockHeaderAttestation planted DIRECTLY on the root
+        # (leaf==root, no op chain). A genuine Bitcoin timestamp can never have this shape.
+        import base64
+        from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
+        from opentimestamps.core.op import OpSHA256
+        from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
+        root = bytes.fromhex(value_hex)
+        ts = Timestamp(root)
+        ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+        proof = _serialize(DetachedTimestampFile(OpSHA256(), ts))
+        pack = {"type": "opentimestamps-evidence-pack", "packVersion": "v0.2",
+                "canonicalRoot": base64.b64encode(root).decode(),
+                "proof": base64.b64encode(proof).decode(), "selfContained": True}
+        return self._write("attack_pack.json", json.dumps(pack).encode())
+
+    def test_verify_pack_null_op_attack_never_confirms(self):
+        # FIX1 red-test: the self-fabricated Null-Op pack must NOT confirm, even with the matching header a
+        # producer supplies. Previously this returned ok:true / CONFIRMED / exit 0.
+        pack = self._write_null_op_attack_pack()
+        rc, txt = _run(["anchor", "verify-pack", pack, "--bitcoin-header", f"400000:{'aa' * 32}", "--json"])
+        self.assertNotEqual(rc, 0, txt)                        # never exit 0 / CONFIRMED
+        report = json.loads(txt)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["status"], "null_op")
+
+    def test_verify_pack_canonical_require_anchor_path_unaffected(self):
+        # the canonical `verify --require-anchor` path is NOT this surface and must stay green: a genuine
+        # upgraded pack still confirms via verify-pack against the fixture's relying-party header.
+        out = str(Path(self.dir) / "genuine.json")
+        _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
+              "--out", out])
+        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{self.mr}"])
+        self.assertEqual(rc, 0, txt)
+        self.assertIn("CONFIRMED", txt)
+
+    def test_inspect_forces_declared_verified_false_even_if_pack_claims_true(self):
+        # FIX3 red-test: a hand-edited pack claiming declaredCalendarsVerified:true must be shown False
+        # (consistent with verify-pack). Previously inspect echoed the tampered true verbatim.
+        out = str(Path(self.dir) / "pack.json")
+        _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
+              "--calendar-declared", "https://a.pool.opentimestamps.org", "--out", out])
+        pack = json.loads(Path(out).read_text())
+        pack["declaredCalendarsVerified"] = True   # tamper
+        Path(out).write_text(json.dumps(pack))
+        rc, txt = _run(["anchor", "inspect", out, "--json"])
+        self.assertEqual(rc, 0, txt)
+        info = json.loads(txt)
+        self.assertFalse(info["declaredCalendarsVerified"])   # forced False, never mirrored
+
+    def test_inspect_does_not_echo_raw_packSelfContained_field(self):
+        # FIX4 red-test: a hand-edited pack setting selfContained:false must NOT surface a raw
+        # packSelfContained; only the authoritative recomputed selfContained (True) is reported.
+        out = str(Path(self.dir) / "pack.json")
+        _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
+              "--out", out])
+        pack = json.loads(Path(out).read_text())
+        pack["selfContained"] = False   # tamper
+        Path(out).write_text(json.dumps(pack))
+        rc, txt = _run(["anchor", "inspect", out, "--json"])
+        self.assertEqual(rc, 0, txt)
+        info = json.loads(txt)
+        self.assertNotIn("packSelfContained", info)           # the raw echo field is gone
+        self.assertTrue(info["selfContained"])                # recomputed from the proof bytes
 
 
 # ── WP-E: the readiness-pack calendar-independence paragraph exists and stays claims-hygiene-clean ───

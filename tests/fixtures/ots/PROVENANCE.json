@@ -103,21 +103,21 @@
     },
     {
       "filename": "synthetic-upgraded-sha256.txt.ots",
-      "sha256": "842d7292685c7e981394ba5866d02f0f937568e0ba1f8102cbaa5c0b40958863",
+      "sha256": "11117b7b73ce64e10d2b33ae8e5b8edb144089cefd4e4abbcbbc3a8c038c0e88",
       "source_url": "proofbundle-generated (scripts/gen_synthetic_ots_fixture.py)",
       "source_ref_or_commit": "SYNTHETIC - NOT an external OpenTimestamps vector. A DetachedTimestampFile whose op path is SHA-256 only and which carries one BitcoinBlockHeaderAttestation, so it deserializes/verifies WITHOUT ripemd160 (the exact gap that makes hello-world.txt.ots @skipUnless(ripemd160)).",
-      "fetched": "2026-07-16",
+      "fetched": "2026-07-17",
       "license": "proofbundle's own MIT test asset",
-      "note": "synthetic upgraded proof; its attested 'merkle root' is the file's SHA-256 (not a real Bitcoin block). Exercises proofbundle's OWN verifier lifecycle (binding + upgraded classification + RP-header confirmation), never a claim about a real block."
+      "note": "synthetic upgraded proof. Null-Op hardening 2026-07-17: the BitcoinBlockHeaderAttestation now sits at the end of a REAL SHA-256 op chain (append a nonce, then double SHA-256) below the file digest, so its attested 'merkle root' DIFFERS from the file digest (leaf != root) - a leaf==root Null-Op branch is now refused by the verifier. Exercises proofbundle's OWN verifier lifecycle (binding + upgraded classification + RP-header confirmation), never a claim about a real block."
     },
     {
       "filename": "synthetic-upgraded-sha256.block.json",
-      "sha256": "0f692dea705befd23357513c35100c518c1e8a12f53cec76ea93991c87648ba7",
+      "sha256": "207c8de297eedab4ce833bcb84da6c78d7fa79ce48f551dc01584d9cf5bac80c",
       "source_url": "proofbundle-generated (scripts/gen_synthetic_ots_fixture.py)",
       "source_ref_or_commit": "SYNTHETIC relying-party trust header for the synthetic confirmed-path fixture - NOT a real Bitcoin block",
-      "fetched": "2026-07-16",
+      "fetched": "2026-07-17",
       "license": "proofbundle's own MIT test asset",
-      "note": "the value supplied as rp_trust.bitcoin_block_headers to reach status=confirmed offline in the ripemd160-free confirmed-path test"
+      "note": "the value supplied as rp_trust.bitcoin_block_headers to reach status=confirmed offline in the ripemd160-free confirmed-path test. Null-Op hardening 2026-07-17: it is the attested value at the END of the SHA-256 op chain (sha256(sha256(file_digest || nonce))), not the file digest."
     }
   ]
 }

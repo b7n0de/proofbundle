@@ -12,6 +12,7 @@ trigger in RenewalPolicy; confirmed-OTS/real-TSA network calls (Owner-GO-gated, 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import unittest
 
 try:
@@ -159,13 +160,21 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         ts.attestations.add(PendingAttestation("https://alice.btc.calendar.opentimestamps.org"))
         return self._serialize(DetachedTimestampFile(OpSHA256(), ts))
 
+    @staticmethod
+    def _btc_root(covered_digest_hex: str, nonce=b"\x00") -> bytes:
+        # Null-Op hardening (2026-07-17): the realistic upgraded proof attests sha256(covered_digest ‖
+        # nonce) at the end of a real op chain, so the attested block root != file_digest; the confirmed
+        # test supplies THIS value as the relying-party header.
+        return hashlib.sha256(bytes.fromhex(covered_digest_hex) + nonce).digest()
+
     def _upgraded_proof(self, covered_digest_hex: str, height=800000) -> bytes:
         from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-        from opentimestamps.core.op import OpSHA256
+        from opentimestamps.core.op import OpAppend, OpSHA256
         from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
         msg = bytes.fromhex(covered_digest_hex)
         ts = Timestamp(msg)
-        ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+        leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())  # real op chain, not a leaf==root Null-Op
+        leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
         return self._serialize(DetachedTimestampFile(OpSHA256(), ts))
 
     def test_pending_ots_token_tolerated_by_default(self):
@@ -192,9 +201,8 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         seq = _initial()
         newest = seq[0][0]
         proof = self._upgraded_proof(newest.covered_digest, height=800000)
-        msg = bytes.fromhex(newest.covered_digest)
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
-        rp_trust = {"bitcoin_block_headers": {"800000": msg.hex()}}
+        rp_trust = {"bitcoin_block_headers": {"800000": self._btc_root(newest.covered_digest).hex()}}
         r = verify_sequence([[with_token]], DATA, rp_trust=rp_trust, require_external_token=True)
         self.assertTrue(_check(r, "renewal:external_token").ok, r.as_dict())
         self.assertTrue(r.ok, [str(c) for c in r.checks if not c.ok])

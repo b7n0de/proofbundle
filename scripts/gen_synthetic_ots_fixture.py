@@ -13,8 +13,16 @@ a ``DetachedTimestampFile`` whose op path is SHA-256 only and which carries a si
 ``BitcoinBlockHeaderAttestation``. It deserializes and verifies WITHOUT ripemd160, so a confirmed-path
 test built on it runs on every interpreter. Honest scope: it exercises proofbundle's OWN verifier
 lifecycle (structural binding + upgraded classification + RP-header confirmation), it does NOT prove
-anything about a real Bitcoin block — the "block merkle root" is simply the synthetic attestation's
-committed message (the file's SHA-256), which is exactly what a relying-party header must match here.
+anything about a real Bitcoin block.
+
+Null-Op hardening (2026-07-17). The attestation sits at the end of a REAL op chain
+(``OpAppend`` a nonce, then ``OpSHA256`` twice, Bitcoin double-SHA style) BELOW the file digest, so the
+attested "block merkle root" is ``sha256(sha256(file_digest ‖ nonce))`` and DIFFERS from the file digest,
+exactly as a genuine Bitcoin merkle path does. The earlier version planted the attestation directly on the
+file digest (leaf == root, zero ops); ``verify_opentimestamps`` now refuses such a Null-Op branch
+(``status: null_op``), because a producer could freely set ``file_digest == canonicalRoot == the attested
+value`` with no hashing at all. The relying-party header the confirmed-path test supplies is this attested
+merkle root (recorded in the ``.block.json``), not the file digest.
 
 Re-generate (deterministic; the bytes are pinned in tests/fixtures/ots/PROVENANCE.json):
 
@@ -46,16 +54,23 @@ def _serialize(dtf) -> bytes:
     return ctx.getbytes()
 
 
+NONCE = b"\x00"   # a fixed synthetic calendar-style nonce (deterministic, byte-for-byte reproducible)
+
+
 def build() -> None:
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
 
     digest = hashlib.sha256(TARGET_BYTES).digest()
     ts = Timestamp(digest)
-    # a single Bitcoin block-header attestation directly over the file digest → an UPGRADED proof whose
-    # attested "merkle root" IS the file digest (synthetic), all SHA-256, no ripemd160 anywhere.
-    ts.attestations.add(BitcoinBlockHeaderAttestation(HEIGHT))
+    # Null-Op hardening (2026-07-17): a REAL op chain below the file digest — append a nonce, then double
+    # SHA-256 (Bitcoin merkle style) — so the Bitcoin-attested "merkle root" DIFFERS from the file digest
+    # (leaf != root), all SHA-256, no ripemd160 anywhere. A leaf==root Null-Op branch would now be refused
+    # by the verifier (status: null_op).
+    leaf = ts.ops.add(OpAppend(NONCE)).ops.add(OpSHA256()).ops.add(OpSHA256())
+    block_merkle_root = leaf.msg
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(HEIGHT))
     proof = _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,11 +78,12 @@ def build() -> None:
     (FIXTURE_DIR / f"{STEM}.txt.ots").write_bytes(proof)
     block = {
         "height": HEIGHT,
-        "merkle_root_internal_le_hex": digest.hex(),
+        "merkle_root_internal_le_hex": block_merkle_root.hex(),
         "synthetic": True,
         "note": ("SYNTHETIC relying-party trust header — NOT a real Bitcoin block. The value is the "
-                 "attestation's committed message (the file's SHA-256), which the confirmed-path test "
-                 "supplies as rp_trust.bitcoin_block_headers to reach status=confirmed offline."),
+                 "attestation's committed message at the END of a real SHA-256 op chain below the file "
+                 "digest (append a nonce, then double SHA-256), which the confirmed-path test supplies as "
+                 "rp_trust.bitcoin_block_headers to reach status=confirmed offline."),
     }
     (FIXTURE_DIR / f"{STEM}.block.json").write_text(
         json.dumps(block, indent=2) + "\n", encoding="utf-8")

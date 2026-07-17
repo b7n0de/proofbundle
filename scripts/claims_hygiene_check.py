@@ -248,7 +248,8 @@ def scan_file(path: Path) -> list[dict]:
 # overclaim class this hardening retracts ("the PROVEN redundancy that is evidence") had ZERO automatic
 # coverage and lived on unflagged in `cli.py`. This scan closes that hole. It reads the CLI's OWN
 # user-facing strings — argparse `help=`/`description=` and the literal text of `print(...)` — via the
-# AST (so code comments and internal docstrings are NOT scanned, only what a user actually sees), and
+# AST (help=/description=/epilog= keyword strings and print() literals — so code comments and internal
+# docstrings are NOT scanned, only what a user actually sees), and
 # flags the redundancy-overclaim phrasings unless the same string carries an explicit unverified/negation
 # hedge. The embedded calendar set is an unauthenticated, offline-constructible transparency hint (a
 # PendingAttestation URI is not signed), never audit evidence — calling it "proven calendars/operators/
@@ -269,10 +270,12 @@ _CLI_HEDGE_RE = re.compile(
 
 
 def _cli_surface_strings(tree: ast.AST):
-    """Yield the (string, lineno) pairs a CLI user actually sees: argparse ``help=``/``description=``
-    keyword strings and the literal text of every ``print(...)`` argument (f-string constant parts
-    included, interpolated ``{...}`` values excluded). Comments and internal docstrings are NOT yielded —
-    they are not the CLI surface, and the claim-retraction on them is a separate concern."""
+    """Yield the (string, lineno) pairs a CLI user actually sees: argparse ``help=``/``description=``/
+    ``epilog=`` keyword strings and the literal text of every ``print(...)`` argument (f-string constant
+    parts included, interpolated ``{...}`` values excluded). ``epilog=`` is included for literal
+    completeness (2026-07-17): argparse prints it under the option list, so it is as user-facing as
+    ``description=``. Comments and internal docstrings are NOT yielded — they are not the CLI surface, and
+    the claim-retraction on them is a separate concern."""
     def _literal(node) -> str:
         # A plain string, an implicitly-concatenated string (already one Constant), an f-string, or a
         # BinOp (``"tmpl %s" % x`` / ``"a" + b``): collect only the static text parts so an overclaim in
@@ -297,7 +300,7 @@ def _cli_surface_strings(tree: ast.AST):
                 if s:
                     yield s, getattr(arg, "lineno", getattr(node, "lineno", 0))
         for kw in node.keywords:
-            if kw.arg in ("help", "description"):
+            if kw.arg in ("help", "description", "epilog"):
                 s = _literal(kw.value)
                 if s:
                     yield s, getattr(kw.value, "lineno", getattr(node, "lineno", 0))

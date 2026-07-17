@@ -161,6 +161,19 @@ or a calendar defunding therefore affects only STAMPING availability, never the 
 that is already upgraded: `verify-pack` opens no socket, and it never trusts the pack's own bundled header
 (a producer could self-commit a backdated one), only a header the relying party supplies.
 
+**A pack's `canonicalRoot` is self-declared (read this before trusting a standalone `verify-pack`).**
+Just as a self-fabricated Chia tree passes level i (see `chia-datalayer/v1` below), a self-fabricated OTS
+pack must not be read as proof of time on its own. In `anchor verify-pack` the `canonicalRoot` is taken
+from the pack verbatim, so it is producer testimony, not a binding to any receipt. Two defences apply.
+First, `verify-pack` refuses a **Null-Op** pack: a `BitcoinBlockHeaderAttestation` planted directly on the
+`canonicalRoot` with no cryptographic op chain (leaf equals root) is not a real Bitcoin timestamp, so it is
+reported `null_op` and is never `confirmed`, even when its attested value equals the relying-party header a
+producer supplies. Second, and this is the guarantee a relying party should depend on, a standalone
+`verify-pack CONFIRMED` does **not** prove the pack anchors YOUR target: the relying party must bind the
+anchor to the receipt independently, which `proofbundle verify --require-anchor` does by cross-checking the
+anchor's `canonicalRoot` against the root it recomputes from the receipt itself. Use `--require-anchor` for
+a trust decision; treat a bare `verify-pack` as a lifecycle and header check, not as an existence proof.
+
 ### Calendar transparency and running your own calendar (WP-B)
 
 The default OpenTimestamps configuration submits to three calendar endpoints across at least two

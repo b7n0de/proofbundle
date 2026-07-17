@@ -33,6 +33,34 @@ def _classify(timestamp):
     return (bool(heights), heights, has_pending)
 
 
+def _bitcoin_confirmations(timestamp):
+    """Yield ``(attested_msg, height, has_hash_op)`` for every ``BitcoinBlockHeaderAttestation`` in the
+    proof tree — ONLY a Bitcoin attestation (a Litecoin or any other chain's attestation with a colliding
+    integer height is NOT a Bitcoin confirmation) — where ``has_hash_op`` is True iff at least one
+    CRYPTOGRAPHIC hash operation (``CryptOp``, e.g. ``OpSHA256``) lies on the op path from the root
+    ``file_digest`` down to the attestation.
+
+    WP-A1.c (Null-Op hardening, 2026-07-17). A genuine Bitcoin timestamp always descends through the
+    block's SHA-256 merkle path, so ``has_hash_op`` is always True for it. A SELF-FABRICATED pack can plant
+    a ``BitcoinBlockHeaderAttestation`` DIRECTLY on the file digest (leaf == root, zero ops) or under a
+    hash-free append/prepend-only chain — then the producer freely set ``file_digest == canonicalRoot ==
+    the attested block merkle root`` with NO hashing at all, which is not a timestamp. Such a branch yields
+    ``has_hash_op=False`` and the caller MUST NOT treat it as a confirmation (fail-closed). ``getattr`` on
+    the height is deliberately avoided (the WP-A1.b confirm loop used to read ``getattr(att, 'height')``,
+    which a Litecoin attestation also carries — that colliding-height branch is closed here by the
+    ``isinstance`` filter)."""
+    from opentimestamps.core.notary import BitcoinBlockHeaderAttestation  # noqa: PLC0415
+    from opentimestamps.core.op import CryptOp  # noqa: PLC0415
+    stack = [(timestamp, False)]
+    while stack:
+        ts, seen_hash = stack.pop()
+        for att in ts.attestations:
+            if isinstance(att, BitcoinBlockHeaderAttestation):
+                yield (ts.msg, att.height, seen_hash)
+        for op, child in ts.ops.items():
+            stack.append((child, seen_hash or isinstance(op, CryptOp)))
+
+
 def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed OTS verify. Returns {ok, detail, warn, status}. A pending proof is warn (status
@@ -88,20 +116,28 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           "controlled evidence, not trust; not claiming a pass"}
     # WP-A1.b (Berkeley audit, 2026-07-16): a proof can carry SEVERAL Bitcoin attestations (independent
     # calendar branches, a reorg-era re-anchor, a bad/tampered branch alongside a good one). Because the
-    # structural binding above pins EVERY attestation's message to the same canonical root (all_attestations
-    # walks the tree from `file_digest`, which must equal `canonical_root`), confirming on ANY branch whose
-    # attested block matches the relying-party header is sound — the branch cannot commit an unrelated root.
-    # So we scan ALL RP-covered heights and confirm as soon as one matches; a single wrong/tampered branch
-    # must NEVER short-circuit and mask a genuinely confirmable one (that would be a False-REJECT / DoS).
-    # Per-branch diagnostics are retained: if no branch confirms we surface whether the covered heights were
-    # present-and-wrong (block_mismatch, a tamper signal), carried bad relying-party hex (bad_header), or
-    # were simply uncovered (upgraded_unverified).
+    # structural binding above pins EVERY attestation's message to the same canonical root (the walk starts
+    # at `file_digest`, which must equal `canonical_root`), confirming on ANY branch whose attested block
+    # matches the relying-party header is sound — the branch cannot commit an unrelated root. So we scan ALL
+    # RP-covered heights and confirm as soon as one matches; a single wrong/tampered branch must NEVER
+    # short-circuit and mask a genuinely confirmable one (that would be a False-REJECT / DoS).
+    #
+    # WP-A1.c (Null-Op hardening, 2026-07-17): a confirmable Bitcoin branch must also sit at the END of a
+    # REAL op chain (>=1 cryptographic hash op below the file digest). `_bitcoin_confirmations` filters to
+    # BitcoinBlockHeaderAttestation only (a Litecoin attestation with a colliding height is not a Bitcoin
+    # confirmation) and reports `has_hash_op`; a branch attested DIRECTLY on the file digest (leaf==root, no
+    # ops) is a self-fabricated Null-Op pack, not a timestamp, and is refused (fail-closed) even if its
+    # attested value equals the relying-party header. This is defense-in-depth only: the canonical
+    # `verify --require-anchor` path is unaffected — it independently binds the anchor to the receipt's
+    # recomputed root, so it never trusts a self-declared canonicalRoot.
+    #
+    # Per-branch diagnostics are retained: if no branch confirms we surface whether a covered branch was a
+    # fabricated Null-Op (null_op), present-and-wrong (block_mismatch, a tamper signal), carried bad
+    # relying-party hex (bad_header), or was simply uncovered (upgraded_unverified).
     mismatch_heights: list = []
     bad_header_heights: list = []
-    for msg, att in dtf.timestamp.all_attestations():
-        height = getattr(att, "height", None)
-        if height is None:
-            continue
+    null_op_heights: list = []
+    for att_msg, height, has_hash_op in _bitcoin_confirmations(dtf.timestamp):
         merkle_root_hex = rp_headers.get(str(height))
         if not merkle_root_hex:
             continue
@@ -111,16 +147,33 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
             # a malformed RP header for THIS height must not short-circuit — another branch may confirm.
             bad_header_heights.append(height)
             continue
-        if msg == expected:
-            return {"ok": True, "warn": False, "status": "confirmed", "rp_trusted": True,
-                    # WP-A2: a Bitcoin HEIGHT is the proof's native trusted-time unit — reported
-                    # structured, never converted to a wall-clock guess (the header time is not
-                    # part of the supplied material).
-                    "trustedTime": {"source": "bitcoin_block", "height": height},
-                    "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
-                              "(merkle root supplied by the relying party)"}
-        mismatch_heights.append(height)
-    # No RP-covered branch matched. Fall through with an honest, tamper-visible diagnostic.
+        if att_msg != expected:
+            mismatch_heights.append(height)
+            continue
+        if not has_hash_op:
+            # leaf==root / hash-free chain: a self-fabricated Null-Op pack, never a confirmation. Record it
+            # but KEEP scanning — a genuine branch (if any) must still be able to confirm (WP-A1.b).
+            null_op_heights.append(height)
+            continue
+        return {"ok": True, "warn": False, "status": "confirmed", "rp_trusted": True,
+                # WP-A2: a Bitcoin HEIGHT is the proof's native trusted-time unit — reported
+                # structured, never converted to a wall-clock guess (the header time is not
+                # part of the supplied material).
+                "trustedTime": {"source": "bitcoin_block", "height": height},
+                "detail": f"OTS proof confirmed: committed in the Bitcoin block at height {height} "
+                          "(merkle root supplied by the relying party)"}
+    # No genuine RP-covered branch matched. Fall through with an honest, tamper-visible diagnostic; the
+    # fabricated Null-Op case is the most severe (it matched but was never a real timestamp) — surface it
+    # first, but keep the other per-branch signals for the relying party.
+    if null_op_heights:
+        return {"ok": False, "warn": False, "status": "null_op", "rp_trusted": True,
+                "nullOpHeights": sorted(null_op_heights),
+                "mismatchHeights": sorted(mismatch_heights),
+                "badHeaderHeights": sorted(bad_header_heights),
+                "detail": f"OTS proof's Bitcoin attestation(s) at height(s) {sorted(null_op_heights)} sit "
+                          "directly on the canonical root with no cryptographic op chain (leaf==root) — a "
+                          "self-fabricated Null-Op pack, not a real Bitcoin timestamp; not confirmed. The "
+                          "relying party must bind the anchor independently (verify --require-anchor)"}
     if mismatch_heights:
         return {"ok": False, "warn": False, "status": "block_mismatch", "rp_trusted": True,
                 "mismatchHeights": sorted(mismatch_heights),

@@ -39,12 +39,20 @@ def _pending_ots(msg=_ROOT) -> bytes:
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
+def _btc_root(msg=_ROOT, nonce=b"\x00") -> bytes:
+    # Null-Op hardening (2026-07-17): the realistic upgraded proof attests sha256(msg ‖ nonce) at the end of
+    # a real op chain (append a nonce, then SHA-256), so the attested block root != file_digest; confirm
+    # tests supply THIS value as the relying-party header.
+    return hashlib.sha256(msg + nonce).digest()
+
+
 def _upgraded_ots(msg=_ROOT, height=850000) -> bytes:
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())   # real op chain, not a leaf==root Null-Op
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
@@ -65,7 +73,7 @@ class TestMarkovianVerifier(unittest.TestCase):
         self.verify = verify_markovian
 
     def test_confirmed_synthetic(self):   # WP-A1 re-pin: confirmed only against RELYING-PARTY header
-        rp = {"bitcoin_block_headers": {"850000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"850000": _btc_root().hex()}}
         res = self.verify(_envelope(_upgraded_ots(height=850000)), _ROOT, frozen={}, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")

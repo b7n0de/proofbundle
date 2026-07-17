@@ -44,12 +44,21 @@ def _pending_proof(msg=_ROOT) -> bytes:
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
-def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
+# Null-Op hardening (2026-07-17): a REAL upgraded proof attests the block merkle root at the END of an op
+# chain (append a nonce, then SHA-256) below the file digest, so the attested value (`_btc_root`) DIFFERS
+# from the file digest — a leaf==root Null-Op branch is now refused by the verifier, and confirm tests must
+# supply the ATTESTED root (not the file digest) as the relying-party header.
+def _btc_root(msg=_ROOT, nonce=b"\x00") -> bytes:
+    return hashlib.sha256(msg + nonce).digest()
+
+
+def _upgraded_proof(msg=_ROOT, height=800000, nonce=b"\x00") -> bytes:
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(nonce)).ops.add(OpSHA256())   # real op chain below the file digest
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
@@ -57,15 +66,18 @@ def _upgraded_proof_retaining_pending(
         msg=_ROOT, height=800000,
         uris=("https://a.pool.opentimestamps.org", "https://a.pool.eternitywall.com")) -> bytes:
     """An upgraded proof that ALSO retains PendingAttestations on distinct operators — so the embedded
-    calendar set (and thus the operator-redundancy count) is non-empty. NOTE this helper FABRICATES those
-    attestations OFFLINE from arbitrary URIs, which is exactly why the embedded figures are UNVERIFIED
-    transparency, not cryptographic evidence: any producer can do the same."""
+    calendar set (and thus the operator-redundancy count) is non-empty. The Bitcoin attestation sits at the
+    end of a REAL op chain (append a nonce, then SHA-256) so it is not a leaf==root Null-Op; the pending
+    attestations are kept on the root. NOTE this helper FABRICATES those pending attestations OFFLINE from
+    arbitrary URIs, which is exactly why the embedded figures are UNVERIFIED transparency, not cryptographic
+    evidence: any producer can do the same."""
     from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
                                             PendingAttestation)
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
     for u in uris:
         ts.attestations.add(PendingAttestation(u))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
@@ -114,7 +126,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         from proofbundle.evidence_pack import verify_evidence_pack
         pack = self._pack(_upgraded_proof_retaining_pending())
         self.assertGreaterEqual(pack["operatorRedundancy"], 2)
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         res = verify_evidence_pack(pack, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
@@ -137,9 +149,9 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         # the pack BUNDLES the header as evidence; confirmation still needs a relying-party header (which
         # here is an offline trusted checkpoint). Together, offline, it confirms.
         from proofbundle.evidence_pack import verify_evidence_pack
-        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _ROOT.hex()})
+        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _btc_root().hex()})
         self.assertTrue(pack["bundledHeaderEvidence"])   # bundled as EVIDENCE, labelled
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         res = verify_evidence_pack(pack, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
@@ -147,7 +159,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
     def test_bundled_header_alone_is_not_trust_wp_a1(self):
         # WP-A1: a pack's own bundled header, without relying-party trust, must NOT confirm.
         from proofbundle.evidence_pack import verify_evidence_pack
-        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _ROOT.hex()})
+        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _btc_root().hex()})
         res = verify_evidence_pack(pack)   # no rp_trust
         self.assertFalse(res["ok"])
         self.assertEqual(res["status"], "needs_rp_trust")
@@ -165,7 +177,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         import socket
         from proofbundle.evidence_pack import verify_evidence_pack
         pack = self._pack(_upgraded_proof())
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         real_socket = socket.socket
 
         def _no_network(*a, **k):

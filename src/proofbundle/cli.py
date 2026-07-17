@@ -1275,16 +1275,22 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             proof = _b64.b64decode(pack["proof"], validate=True)
             info = describe_proof(proof)
             info["source"] = "evidence_pack"
-            info["packSelfContained"] = bool(pack.get("selfContained"))
+            # No-Fake (2026-07-17): do NOT mirror the pack's own selfContained claim. `describe_proof`
+            # already returns the AUTHORITATIVE `selfContained`, recomputed from the proof bytes; echoing a
+            # second, raw, hand-editable `packSelfContained` field only invites a producer to contradict the
+            # recomputed truth (the old field is dropped — the recomputed `info["selfContained"]` stands).
             # No-Fake (Berkeley audit 2026-07-16): the PROVEN calendars come from describe_proof (the proof
             # itself). An upgraded proof retains none, and we do NOT borrow the producer's declared list into
             # operatorRedundancy — that would surface unverified testimony as evidence. Declared calendars are
-            # shown SEPARATELY, flagged unverified.
+            # shown SEPARATELY, always flagged unverified.
             declared = list(pack.get("declaredCalendars") or [])
             if declared:
                 info["declaredCalendars"] = declared
                 info["declaredCalendarOperators"] = list(pack.get("declaredCalendarOperators") or [])
-                info["declaredCalendarsVerified"] = bool(pack.get("declaredCalendarsVerified", False))
+                # declaredCalendarsVerified is FORCED False, never mirrored from the pack: declared is
+                # unverified BY DEFINITION, and a hand-edited pack must not flip it true — consistent with
+                # verify-pack (which forces it False for the same reason).
+                info["declaredCalendarsVerified"] = False
         else:
             info = describe_proof(raw)
             info["source"] = "ots_proof"
