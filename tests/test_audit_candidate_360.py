@@ -172,6 +172,103 @@ class TestCheckDiscrimination(unittest.TestCase):
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.PENDING, detail)
 
+    # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
+
+    def test_variant1_marker_note_outside_subfolder_satisfies_neither_gate(self):
+        # Variant 1: a fake note carrying BOTH an audit marker AND '0 open P0/P1', placed OUTSIDE the
+        # version-scoped audit_artifacts/360/ subfolder and sorting before it in a whole-tree glob,
+        # must NOT satisfy C12.1 or C12.2 when no genuine 360-record exists (subfolder anchor excludes
+        # it; sort order across the tree can no longer let a foreign file win).
+        import pre_tag_audit_gate as pta
+        with tempfile.TemporaryDirectory() as td:
+            art = Path(td) / "audit_artifacts"
+            art.mkdir(parents=True)
+            (art / "000_marker_fake.md").write_text(  # '000_' sorts before '360/' in an rglob
+                "# six-lens adversarial notes touching 3.6.0\n\n**0 open P0 / P1.**\n")
+            # C12.1: the existence locator finds no version-scoped record, evaluate() is not ok
+            self.assertIsNone(pta.audit_artifact_for(Path(td), "3.6.0"))
+            self.assertFalse(pta.evaluate(Path(td), version="3.6.0")["ok"])
+            # C12.2: not PASS (PENDING — no version-scoped record)
+            verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PENDING, detail)
+
+    def test_variant2_decoy_in_subfolder_does_not_mask_real_record(self):
+        # Variant 2: two records IN the version-scoped subfolder — a decoy that matches the locator
+        # (audit marker) but omits the '0 open P0/P1' line and sorts FIRST, plus the genuine record
+        # carrying the line. C12.2 must scan past the decoy and PASS on the real record (no silent
+        # PENDING while a real 0-P0/P1 record exists).
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "360"
+            rec.mkdir(parents=True)
+            (rec / "aaa_decoy.md").write_text(  # 'aaa' sorts before 'pre_tag'
+                "# 3.6.0 six-lens adversarial scratch\n\nStill triaging; P1 count TBD.\n")
+            (rec / "pre_tag_adversarial_audit_360.md").write_text(
+                "# 3.6.0 six-lens adversarial audit\n\n**0 open P0 / P1.** All findings fixed.\n")
+            verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PASS, detail)
+            self.assertIn("pre_tag_adversarial_audit_360.md", detail)
+
+    def test_variant3_pytest_only_in_comment_echo_or_disabled_job_fails_c1_1(self):
+        # Variant 3: ci.yml names CI but 'pytest' appears ONLY in a YAML comment, an echo argument, a
+        # shell #TODO, and an if:false (disabled) job — no run: step actually executes it -> FAIL.
+        with tempfile.TemporaryDirectory() as td:
+            wf = Path(td) / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "published-artifact-gate.yml").write_text(
+                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "ci.yml").write_text(
+                "# this workflow will run pytest one day\n"
+                "name: CI\n"
+                "on: [push]\n"
+                "jobs:\n"
+                "  disabled-real-tests:\n"
+                "    if: false\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - run: python -m pytest tests/ -q\n"
+                "  notes:\n"
+                "    runs-on: ubuntu-latest\n"
+                "    steps:\n"
+                "      - run: echo \"we should add pytest here\"\n"
+                "      - run: |\n"
+                "          # TODO: run pytest in the future\n"
+                "          echo done\n")
+            verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
+            self.assertEqual(verdict, self.m.FAIL, detail)
+
+    def test_variant3b_real_executing_run_step_passes_c1_1(self):
+        # counterpart to variant 3: a genuine executing run: step (python -m unittest discover) PASSes,
+        # so the FAIL above discriminates on real execution, it is not a blanket reject.
+        with tempfile.TemporaryDirectory() as td:
+            wf = Path(td) / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "published-artifact-gate.yml").write_text(
+                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "ci.yml").write_text(
+                "name: CI\non: [push]\n"
+                "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - run: python -m unittest discover -s tests -v\n")
+            verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
+            self.assertEqual(verdict, self.m.PASS, detail)
+
+    def test_variant4_version_token_1360_not_selected_as_360(self):
+        # Variant 4: '360' must not match '1360'. Neither a sibling audit_artifacts/1360/ record nor a
+        # top-level review_1360_notes.md whose name embeds the digits may be selected as the 3.6.0
+        # record — the anchor is the exact directory '360', never a raw substring.
+        import pre_tag_audit_gate as pta
+        with tempfile.TemporaryDirectory() as td:
+            art = Path(td) / "audit_artifacts"
+            sib = art / "1360"
+            sib.mkdir(parents=True)
+            (sib / "pre_tag_adversarial_audit_1360.md").write_text(
+                "# 13.6.0 six-lens adversarial audit\n\n**0 open P0 / P1.**\n")
+            (art / "review_1360_notes.md").write_text(
+                "# review 1360 notes — adversarial\n\n0 open P0 / P1 for 3.6.0.\n")
+            self.assertEqual(pta.audit_records_for(Path(td), "3.6.0"), [])
+            self.assertIsNone(pta.audit_artifact_for(Path(td), "3.6.0"))
+            verdict, _ = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PENDING)
+
 
 class TestReadinessPackManifest(unittest.TestCase):
     def setUp(self):

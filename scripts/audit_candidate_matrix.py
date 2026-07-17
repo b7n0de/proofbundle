@@ -69,6 +69,83 @@ def _json_artifact(rel: str) -> dict | None:
 
 # --- the 33 checks. Each returns (verdict, detail). Wrapped so one erroring check never crashes all. ---
 
+def _ci_falsey_if(cond) -> bool:
+    """True iff a GitHub Actions ``if:`` disables the job/step (literal false / 'false' / ${{ false }})."""
+    if cond is False:
+        return True
+    if isinstance(cond, str):
+        c = cond.strip().lower().replace("${{", "").replace("}}", "").strip()
+        return c in ("false", "0")
+    return False
+
+
+_CI_TEST_CMD = re.compile(
+    r"\bpytest\b|\bpy\.test\b"
+    r"|python[0-9.]*\s+-m\s+unittest\b"
+    r"|\bunittest\s+discover\b",
+    re.IGNORECASE,
+)
+
+
+def _ci_run_is_test(run: str) -> bool:
+    """True iff a step's ``run:`` shell script actually EXECUTES the test suite (pytest / unittest /
+    python -m unittest ...). 'pytest' named only inside a shell comment, an ``echo``/``printf``
+    argument, or a ``pip install pytest`` line does NOT count — comments are stripped and echo/install
+    commands are excluded before matching, so a mention that never runs cannot masquerade as a test
+    step."""
+    for raw in run.splitlines():
+        # drop a shell comment (a '#' that starts a token) through end of line
+        m = re.search(r"(?:^|\s)#", raw)
+        line = raw[:m.start()] if m else raw
+        # evaluate each shell command in isolation so `echo x && pytest` still counts the pytest half
+        for cmd in re.split(r";|&&|\|\||\|", line):
+            cmd = cmd.strip()
+            if not cmd:
+                continue
+            head = cmd.split()[0].lower()
+            if head in ("echo", "printf", ":", "true", "false"):
+                continue  # a printed argument is not an executing test command
+            if "install" in cmd.lower():
+                continue  # `pip install pytest` installs the runner, it does not run tests
+            if _CI_TEST_CMD.search(cmd):
+                return True
+    return False
+
+
+def _ci_workflow_facts(ci_text: str) -> tuple[bool, bool]:
+    """Parse a CI workflow as YAML and return ``(named_ci, has_executing_test_step)``.
+
+    named_ci — the parsed document's top-level ``name`` is 'CI' (a commented-out ``# name: CI`` does
+    not count, because YAML parsing drops comments).
+    has_executing_test_step — at least one NON-disabled job has a NON-disabled step whose ``run:``
+    executes the test suite (see ``_ci_run_is_test``). An ``if: false`` job or step is skipped, so a
+    real pytest command inside a disabled job is correctly ignored."""
+    import yaml  # noqa: PLC0415 — parse the workflow, never a file-wide substring scan
+    try:
+        doc = yaml.safe_load(ci_text)
+    except yaml.YAMLError:
+        return False, False
+    if not isinstance(doc, dict):
+        return False, False
+    named_ci = str(doc.get("name", "")).strip().lower() == "ci"
+    has_test = False
+    jobs = doc.get("jobs")
+    if isinstance(jobs, dict):
+        for job in jobs.values():
+            if not isinstance(job, dict) or _ci_falsey_if(job.get("if")):
+                continue
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict) or _ci_falsey_if(step.get("if")):
+                    continue
+                run = step.get("run")
+                if isinstance(run, str) and _ci_run_is_test(run):
+                    has_test = True
+                    break
+            if has_test:
+                break
+    return named_ci, has_test
+
+
 def c1_1_two_ci_gates(repo: Path = REPO):
     # The obligation is TWO named CI gates: a published-artifact gate AND a real repository/test gate.
     # Each must be its OWN workflow file, so deleting the second gate is falsifiable (a self-referential
@@ -82,13 +159,15 @@ def c1_1_two_ci_gates(repo: Path = REPO):
     ci = _read(".github/workflows/ci.yml", repo)
     if not ci:
         return FAIL, "the second CI gate .github/workflows/ci.yml (repository/test gate) is missing"
-    lo = ci.lower()
-    named_ci = re.search(r"(?m)^\s*name:\s*ci\b", lo) is not None
-    has_test_step = "pytest" in lo or "unittest" in lo or re.search(r"(?m)^\s*run:.*\btest\b", lo) is not None
+    # YAML-parse the workflow (not a file-wide substring): the second gate counts only when a
+    # non-disabled job has a run: step that actually executes the test suite.
+    named_ci, has_test_step = _ci_workflow_facts(ci)
     if named_ci and has_test_step:
-        return PASS, ("two named CI gates present: ci.yml (repository/test gate, name: CI + a "
-                      "pytest/test step) + published-artifact-gate.yml (published-artifact leg)")
-    return FAIL, "ci.yml is present but is not a real repository/test gate (needs `name: CI` + a pytest/test step)"
+        return PASS, ("two named CI gates present: ci.yml (repository/test gate, name: CI + a real "
+                      "run: step executing the test suite) + published-artifact-gate.yml "
+                      "(published-artifact leg)")
+    return FAIL, ("ci.yml is present but is not a real repository/test gate (needs `name: CI` + a "
+                  "run: step that executes pytest/unittest, not only a comment/echo/disabled job)")
 
 
 def c1_2_reproducible_normaliser():
@@ -357,20 +436,25 @@ def c12_1_pretag_audit():
 
 
 def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
-    # Bound to the disciplined C12.1 locator: the '0 open P0/P1' line must live in the version-scoped
-    # adversarial record that pre_tag_audit_gate.audit_artifact_for identifies (version-scoped +
-    # _AUDIT_MARKERS lens/adversarial gate), NOT in any *.md — a fabricated note in an unrelated file
-    # can no longer satisfy it (the internal audit, NOT the external one).
+    # The '0 open P0/P1' obligation must be carried by a version-scoped adversarial audit record under
+    # audit_artifacts/<token>/ — the exact subfolder C12.1 locates (version-scoped + _AUDIT_MARKERS
+    # lens/adversarial gate), NOT any *.md in the tree. A fabricated note in an unrelated file, a
+    # sibling 1360/ folder, or a review_1360_notes.md cannot satisfy it (the internal audit, NOT the
+    # external one). It scans EVERY version-scoped record for the line, so a decoy record that matches
+    # the locator but omits the line cannot mask a genuine record that carries it (no silent PENDING
+    # while a real 0-P0/P1 record exists).
     import pre_tag_audit_gate as pta
-    rel = pta.audit_artifact_for(repo, VERSION_UNDER_TEST)
-    if not rel:
+    recs = pta.audit_records_for(repo, VERSION_UNDER_TEST)
+    if not recs:
         return PENDING, ("no version-scoped adversarial audit record for "
                          f"{VERSION_UNDER_TEST} (write the pre-tag audit pack with a lens/adversarial "
                          "note before tag)")
-    body = _read(rel, repo)
-    if re.search(r"\b0\s+(?:open\s+)?P0(?:/P1)?\b", body, re.IGNORECASE):
-        return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
-    return PENDING, (f"the localized {VERSION_UNDER_TEST} audit record ({Path(rel).name}) carries no "
+    zero_re = re.compile(r"\b0\s+(?:open\s+)?P0(?:\s*/\s*P1)?\b", re.IGNORECASE)
+    for rel in recs:
+        if zero_re.search(_read(rel, repo)):
+            return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
+    names = ", ".join(Path(r).name for r in recs)
+    return PENDING, (f"the version-scoped {VERSION_UNDER_TEST} audit record(s) ({names}) carry no "
                      "explicit '0 open P0/P1' line")
 
 
