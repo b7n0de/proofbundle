@@ -41,8 +41,14 @@ def pyproject_version(repo: Path) -> str | None:
 
 
 def changelog_section(repo: Path, version: str) -> str | None:
-    """Return the text of the ``## [<version>]`` section (up to the next ``## [`` heading), or None."""
-    text = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    """Return the text of the ``## [<version>]`` section (up to the next ``## [`` heading), or None.
+
+    Returns None (not a crash) when CHANGELOG.md is absent, so the gate can be evaluated against a
+    partial/temporary repo tree (e.g. a discrimination fixture that only carries audit_artifacts/)."""
+    p = repo / "CHANGELOG.md"
+    if not p.is_file():
+        return None
+    text = p.read_text(encoding="utf-8")
     # match "## [3.3.0]" possibly followed by a date; stop at the next "## [" heading.
     pat = re.compile(r"^##\s*\[" + re.escape(version) + r"\].*?$(.*?)(?=^##\s*\[|\Z)",
                      re.MULTILINE | re.DOTALL)
@@ -50,18 +56,54 @@ def changelog_section(repo: Path, version: str) -> str | None:
     return m.group(1) if m else None
 
 
-def audit_artifact_for(repo: Path, version: str) -> str | None:
-    """An audit_artifacts/ file whose NAME or CONTENT names the version and carries an audit marker."""
-    art_dir = repo / "audit_artifacts"
-    if not art_dir.is_dir():
-        return None
-    ver_token = version.replace(".", "")
-    for f in sorted(art_dir.glob("*.md")):
-        name = f.name.replace(".", "").replace("_", "")
+def _version_token(version: str) -> str:
+    """The compact directory token for a version, e.g. ``3.6.0`` -> ``360``."""
+    return version.replace(".", "")
+
+
+def audit_records_for(repo: Path, version: str) -> list[str]:
+    """Every ``*.md`` inside the version-scoped subfolder ``audit_artifacts/<token>/`` that carries a
+    discipline marker (N-lens / adversarial / master-prompt / Linsen), deterministically ordered.
+
+    The version-scoped SUBFOLDER is the anchor — a directory named EXACTLY after the compact version
+    token (``360`` for 3.6.0). This is why:
+      * a note anywhere else in the ``audit_artifacts/`` tree (a pre-sorting foreign file) is not a
+        3.6.0 record — only the exact ``audit_artifacts/360/`` subfolder is scanned, never the whole
+        tree, so sort order across the tree can no longer let a foreign file win;
+      * a sibling ``audit_artifacts/1360/`` folder or a ``review_1360_notes.md`` whose name merely
+        embeds the digits is NOT selected — the anchor is the exact directory ``360``, never a raw
+        substring, so ``360`` cannot match ``1360``.
+
+    This returns the FULL candidate list (not just the first): a caller that needs an additional
+    predicate (C12.2 needs the '0 open P0/P1' line) scans all candidates, so a decoy record that
+    carries the marker but omits the line cannot mask a genuine record that has it.
+
+    Known limitation (No-Fake, honestly declared — see docs/readiness_pack/AUDITOR_OPEN_POINTS.md):
+    the scan is ``rglob`` rooted at the exact subfolder, so it never walks the wider tree, but it DOES
+    follow a symlink placed inside ``audit_artifacts/<token>/`` — a symlink pointing outside the repo
+    would be traversed. The committed tree carries no such symlink; this is a declared boundary."""
+    scoped = repo / "audit_artifacts" / _version_token(version)
+    if not scoped.is_dir():
+        return []
+    out: list[str] = []
+    for f in sorted(scoped.rglob("*.md")):
+        if not f.is_file():
+            continue
         body = f.read_text(encoding="utf-8", errors="ignore")
-        if (ver_token in name or version in body) and _AUDIT_MARKERS.search(body):
-            return str(f.relative_to(repo))
-    return None
+        if _AUDIT_MARKERS.search(body):
+            out.append(str(f.relative_to(repo)))
+    return out
+
+
+def audit_artifact_for(repo: Path, version: str) -> str | None:
+    """The version-scoped adversarial audit record locator (existence, for C12.1): the first ``*.md``
+    under ``audit_artifacts/<token>/`` carrying a discipline marker, or None.
+
+    Anchored to the exact ``audit_artifacts/<token>/`` subfolder (see ``audit_records_for``): a file
+    elsewhere in the tree, a sibling ``1360/`` folder, or a ``review_1360_notes.md`` is never a
+    3.6.0 record."""
+    recs = audit_records_for(repo, version)
+    return recs[0] if recs else None
 
 
 def evaluate(repo: Path, version: str | None = None) -> dict:

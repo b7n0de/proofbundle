@@ -15,6 +15,7 @@ CLI: [--json] [paths...]  (default: the canonical user-facing doc set)
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
@@ -44,6 +45,15 @@ _DEFAULT_DOCS = [
     "docs/predicates/README.md", "docs/predicates/action-outcome.md", "docs/predicates/decision-receipt.md",
     "docs/predicates/run-ledger.md", "docs/predicates/trust-pack.md", "docs/predicates/verification-summary.md",
     "docs/SDJWT_VC_PROFILE.md", "docs/SUBJECT_BINDING.md",
+    # 3.6.0 audit-candidate readiness-pack reviewer docs (capability-claim genre, same discipline).
+    # PROGRESS.md is deliberately NOT here: it QUOTES the future goal "4.0.0-stable, externally audited"
+    # as an honest denominator, which the audit-candidate forbidden list would false-positive on.
+    "docs/readiness_pack/AUDITOR_OPEN_POINTS.md", "docs/readiness_pack/threat_model_delta_360.md",
+    "docs/readiness_pack/rust_parity_scope.md", "docs/readiness_pack/differential_matrix.md",
+    "docs/readiness_pack/REPRODUCTION_RUNBOOK.md",
+    # Related-work / priority docs (WP-A/WP-B, 2026-07-17): the positioning texts are held to the same
+    # discipline as every other public claim — that is the whole point of scanning them.
+    "docs/RELATED_WORK.md", "docs/PRIORITY_RECORD.md",
 ]
 
 # The signed-root rule (P0-C §5.4) carries a per-sample SECTION exception (see `_CONTEXT_EXEMPT`), so
@@ -101,6 +111,31 @@ _FORBIDDEN = [
     # on NON_CLAIMS.md's own disclaimers. Ban the claim VERBS instead — that is the §5.2 intent.
     (r"(?:verif(?:ies|y|ied)|guarantees?|certif(?:ies|y)|establish(?:es)?|reveals?|delivers?)\s+(?:the\s+|semantic\s+)?truth",
      "truth as a claim (a receipt proves authorship + integrity, never truth)"),
+    # 3.6.0 audit-candidate status boundary (§9 criterion 11). The ONLY permitted progress claim is
+    # "audit-candidate: all internal assurance gates green; the sole remaining gate to stable is an
+    # independent external security audit." Any assertion that the project IS already stable / audited /
+    # production-ready / externally reviewed is the exact overclaim this release forbids. Each fires
+    # only OUTSIDE a negation, so the sanctioned sentence ("... the remaining gate to stable is an
+    # external audit", "not yet audited") stays legal; "external ... audit" (adjective+noun) is NOT
+    # matched by the adverb pattern "externally audited/reviewed".
+    # Kept SPECIFIC on purpose: bare "stable" (API-stability tiers "stable vs experimental") and bare
+    # "is audited" (the INTERNAL adversarial audit legitimately IS run) are overloaded and would
+    # over-fire — the release-stability claim is instead guarded MECHANICALLY by the pyproject
+    # Development-Status classifier check (audit_candidate_matrix C11.2), not by grepping the word.
+    (r"production[- ]ready", "production-ready (status is BETA/EXPERIMENTAL until an external audit)"),
+    (r"externally\s+(?:audited|reviewed|verified)",
+     "externally audited/reviewed/verified (no external audit has occurred)"),
+    (r"has\s+been\s+(?:externally\s+)?audited", "has been audited (no external audit has occurred)"),
+    # Related-work / priority additions (WP-A/WP-B, 2026-07-17). proofbundle positions itself by honest
+    # differentiation and DATED public evidence (docs/PRIORITY_RECORD.md), never by a priority boast or a
+    # superiority claim. These ban the concrete phrasings; each is a VIOLATION unless its sentence is
+    # negated (docs may legitimately write "makes no claim to be first"). Disparagement of a NAMED
+    # foreign work has no reliable regex — it stays a review-enforced rule, stated here and not faked as
+    # machine detection (No-Fake: the gate claims only what it actually checks).
+    (r"\bwe\s+were\s+first\b", "we were first (priority claim — show dated public evidence instead)"),
+    (r"\bfirst\s+to\b", "first to (priority claim — show dated public evidence instead)"),
+    (r"\bworld'?s\s+first\b", "world's first (priority claim)"),
+    (r"\bthe\s+only\s+tool\s+that\b", "the only tool that (superiority claim — state honest scope instead)"),
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
 
@@ -242,11 +277,97 @@ def scan_file(path: Path) -> list[dict]:
     return violations
 
 
+# ── CLI-surface scan (WP-N3, OTS calendar-risk hardening 2026-07-17) ─────────────────────────────────
+# The Markdown docs were scanned, but the CLI --help / print() surface never was — so the exact
+# overclaim class this hardening retracts ("the PROVEN redundancy that is evidence") had ZERO automatic
+# coverage and lived on unflagged in `cli.py`. This scan closes that hole. It reads the CLI's OWN
+# user-facing strings — argparse `help=`/`description=` and the literal text of `print(...)` — via the
+# AST (help=/description=/epilog= keyword strings and print() literals — so code comments and internal
+# docstrings are NOT scanned, only what a user actually sees), and
+# flags the redundancy-overclaim phrasings unless the same string carries an explicit unverified/negation
+# hedge. The embedded calendar set is an unauthenticated, offline-constructible transparency hint (a
+# PendingAttestation URI is not signed), never audit evidence — calling it "proven calendars/operators/
+# redundancy" or "redundancy … evidence" without a hedge is the overclaim.
+_CLI_SURFACE_FILE = "src/proofbundle/cli.py"
+_CLI_OVERCLAIM_RE = [
+    (re.compile(r"\bproven\s+(?:calendars?|operators?|redundancy)\b", re.IGNORECASE),
+     "proven calendar/operator/redundancy (embedded calendar data is unverified, not proven)"),
+    (re.compile(r"\bredundancy\b[^.\n]{0,60}?\bevidence\b", re.IGNORECASE),
+     "redundancy presented as evidence (embedded calendar data is not cryptographic evidence)"),
+]
+# A hedge anywhere in the SAME string exonerates: an explicit unverified / transparency-hint marker or a
+# negation ("not audit/cryptographic evidence", "never", "not"). The retracted wording carries one; the
+# old overclaim did not.
+_CLI_HEDGE_RE = re.compile(
+    r"\bunverified\b|\btransparency\s+hint\b|\bnot\s+(?:audit|cryptographic)\b|\bnever\b|\bnot\b",
+    re.IGNORECASE)
+
+
+def _cli_surface_strings(tree: ast.AST):
+    """Yield the (string, lineno) pairs a CLI user actually sees: argparse ``help=``/``description=``/
+    ``epilog=`` keyword strings and the literal text of every ``print(...)`` argument (f-string constant
+    parts included, interpolated ``{...}`` values excluded). ``epilog=`` is included for literal
+    completeness (2026-07-17): argparse prints it under the option list, so it is as user-facing as
+    ``description=``. Comments and internal docstrings are NOT yielded — they are not the CLI surface, and
+    the claim-retraction on them is a separate concern."""
+    def _literal(node) -> str:
+        # A plain string, an implicitly-concatenated string (already one Constant), an f-string, or a
+        # BinOp (``"tmpl %s" % x`` / ``"a" + b``): collect only the static text parts so an overclaim in
+        # literal prose is seen while dynamic values are ignored.
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(p.value for p in node.values
+                           if isinstance(p, ast.Constant) and isinstance(p.value, str))
+        if isinstance(node, ast.BinOp):
+            return (_literal(node.left) + " " + _literal(node.right)).strip()
+        return ""
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        is_print = isinstance(func, ast.Name) and func.id == "print"
+        if is_print:
+            for arg in node.args:
+                s = _literal(arg)
+                if s:
+                    yield s, getattr(arg, "lineno", getattr(node, "lineno", 0))
+        for kw in node.keywords:
+            if kw.arg in ("help", "description", "epilog"):
+                s = _literal(kw.value)
+                if s:
+                    yield s, getattr(kw.value, "lineno", getattr(node, "lineno", 0))
+
+
+def scan_cli_surface(path: Path) -> list[dict]:
+    """Scan the CLI's user-facing strings for un-hedged redundancy overclaims. A read/parse error RAISES
+    (OSError/SyntaxError) — the caller treats it as a FAIL, never a silent skip (WP-N1 discipline)."""
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    violations: list[dict] = []
+    try:
+        rel = str(path.relative_to(REPO))
+    except ValueError:
+        rel = path.name
+    for text, lineno in _cli_surface_strings(tree):
+        if _CLI_HEDGE_RE.search(text):
+            continue   # the string hedges (unverified / not-evidence / negation) → allowed
+        for rx, label in _CLI_OVERCLAIM_RE:
+            m = rx.search(text)
+            if m:
+                violations.append({"file": rel, "line": lineno, "phrase": label,
+                                   "match": m.group(0), "sentence": text.strip()[:120]})
+                break
+    return violations
+
+
 def main(argv=None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     as_json = "--json" in args
     args = [a for a in args if a != "--json"]
     rels = args or _DEFAULT_DOCS
+    scan_cli = not args   # only on the DEFAULT run (an explicit path set scopes the request narrowly)
     violations = []
     scanned = []
     missing = []
@@ -262,11 +383,21 @@ def main(argv=None) -> int:
             continue
         scanned.append(rel)
         violations.extend(file_violations)
+    # WP-N3: on the default run, also scan the CLI's own user-facing surface (help/print). A missing or
+    # unparseable cli.py is a FAIL entry, never a silent skip (same discipline as a missing doc).
+    cli_scanned = False
+    if scan_cli:
+        try:
+            violations.extend(scan_cli_surface(REPO / _CLI_SURFACE_FILE))
+            cli_scanned = True
+        except (OSError, SyntaxError) as exc:
+            missing.append(f"{_CLI_SURFACE_FILE} ({type(exc).__name__})")
     failed = bool(violations or missing)
     out = {
         "schema": "proofbundle.claims_hygiene.v1",
         "verdict": "FAIL" if failed else "PASS",
         "scanned": len(scanned),
+        "cli_surface_scanned": cli_scanned,
         "missing": missing,
         "violations": violations,
         "note": ("A forbidden phrasing appeared outside a negation, or a listed doc is missing. "

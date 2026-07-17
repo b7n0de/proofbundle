@@ -1,0 +1,14 @@
+# ClusterFuzzLite project config (WP-D, EXT §9 P2 — continuous fuzz leg).
+# Docs: https://google.github.io/clusterfuzzlite/  (confirmed current, mid-2026).
+# proofbundle's attacker-controlled surface is pure-Python parsers, so the fuzzing engine is Atheris
+# (libFuzzer for CPython). The single property fuzzed is NEVER-RAISE: every verify_* returns a value or
+# raises a documented ProofBundleError/ValueError/OSError, never a raw traceback (the same contract the
+# bounded scripts/fuzz_soak.py smoke asserts, here with coverage feedback + a persistent deduped corpus).
+language: python
+fuzzing_engines:
+  - libfuzzer
+sanitizers:
+  - address
+  - undefined
+# Coverage mode drives the coverage-regression gate: ClusterFuzzLite fails a PR whose change drops
+# coverage of the fuzzed surface, so the parser attack surface cannot silently lose fuzz coverage.

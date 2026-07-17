@@ -11,6 +11,7 @@ from zero. Each conclusion in [`index.json`](index.json) links the open question
 | **Q3_SIDE_CHANNELS** | Are there timing/side-channel leaks in the verify path? | Side-channel analysis needs instrumentation and expertise outside the project's own instruments. | C2 |
 | **Q4_REUSABLE_WORKFLOW_ORG_SHARED** | Is the SLSA-L3 reusable signing workflow shared at the org level per GitHub's L3 guidance, and are its permissions minimal? | Depends on org/repo settings a reviewer must inspect, not just the workflow file. | C4 |
 | **Q5_SINGLE_MAINTAINER_INDEPENDENCE** | The whole project is single-maintainer with AI assistance under human review. | Institutional independence cannot be self-manufactured (Finding 12). | all |
+| **Q6_PAYLOADTYPE_FORMAL** | The payloadType/predicateType binding (formal obligation O7) is code-enforced and vector-tested but declared RESERVED in the formal model, not yet a machine proof. | Whether a formal proof (over the confusion surface) is warranted, and whether the code-enforcement is sufficient, is a reviewer judgement. | C5 |
 
 ## How the release deltas add to this list
 

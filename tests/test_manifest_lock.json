@@ -1,0 +1,10 @@
+{
+  "schema": "proofbundle.test_manifest_lock.v1",
+  "note": "WP-B locked test manifest. FLOORs, never exact counts: adding tests is always fine; a drop below these is a CI FAIL (no silent test schwund). Raising a floor is a deliberate, reviewed edit (run scripts/test_manifest_gate.py --update).",
+  "min_collected_tests": 1750,
+  "min_pytest_only_modules": 5,
+  "recorded_live_counts": {
+    "collected": 1750,
+    "pytest_only_modules": 5
+  }
+}

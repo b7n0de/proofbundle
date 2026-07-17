@@ -10,8 +10,11 @@
       "closes_external_open_problem": "AuditWeave open problem (a): 'tamper-evident, not resistant — actors controlling storage could recompute chains'.",
       "evidence_ordered": [
         {"ref": "docs/readiness_pack/tamper_resistance.md", "kind": "argument", "note": "the resistance story, stated before the auditor asks"},
-        {"ref": "src/proofbundle/anchors_ots.py", "kind": "code", "note": "OpenTimestamps (Bitcoin) external anchor verify"},
-        {"ref": "src/proofbundle/anchors_rfc3161.py", "kind": "code", "note": "RFC 3161 TSA external anchor verify"},
+        {"ref": "docs/readiness_pack/calendar_independence.md", "kind": "argument", "note": "OTS calendar-independence: an upgraded proof verifies offline against a relying-party Bitcoin header; donation-financed calendars affect stamping availability, not verifiability; RFC 3161 is the immediate legal second anchor (WP-E)"},
+        {"ref": "src/proofbundle/anchors_ots.py", "kind": "code", "note": "OpenTimestamps (Bitcoin) external anchor verify + calendar transparency (calendar_uris / operators)"},
+        {"ref": "src/proofbundle/evidence_pack.py", "kind": "code", "note": "self-contained evidence pack: build + OFFLINE verify (no socket), the calendar-independent verify path"},
+        {"ref": "src/proofbundle/anchors_rfc3161.py", "kind": "code", "note": "RFC 3161 TSA external anchor verify (the eIDAS-recognized legal second anchor)"},
+        {"ref": "tests/test_ots_calendar_hardening.py", "kind": "tests", "note": "calendar outage / collusion+backdating / pending-never-pass / operator redundancy, plus the ripemd160-free confirmed-path fixture"},
         {"ref": "conformance/relation", "kind": "vectors", "note": "F1 corpus incl. forged-anchor-own-frozen negative vector"}
       ],
       "open_questions": ["Q1_ANCHOR_TRUST_ROOT_DISTRIBUTION"]
@@ -48,6 +51,21 @@
         {"ref": ".github/workflows/release.yml", "kind": "ci", "note": "build-once-attest-then-publish, sha256 gate"}
       ],
       "open_questions": ["Q4_REUSABLE_WORKFLOW_ORG_SHARED"]
+    },
+    {
+      "id": "C5_AUDIT_CANDIDATE_ALL_INTERNAL_GATES_GREEN",
+      "statement": "audit-candidate: every internal, machine-checkable assurance gate is green; the sole remaining gate to stable is an independent external security audit. Status stays BETA / relation EXPERIMENTAL, NOT stable, NOT audited, NOT production-ready.",
+      "evidence_ordered": [
+        {"ref": "scripts/audit_candidate_matrix.py", "kind": "gate", "note": "the 33-check acceptance matrix (§9 minus the external audit), honest verdict vocabulary (PASS/PENDING_JUSTIFIED/DATA_BLOCKED/EXTERNAL_PENDING/FAIL)"},
+        {"ref": "docs/readiness_pack/REPRODUCTION_RUNBOOK.md", "kind": "runbook", "note": "the command set a reviewer runs to reproduce every gate from the pack"},
+        {"ref": "docs/readiness_pack/threat_model_delta_360.md", "kind": "doc", "note": "3.6.0 threat-model delta + audit scope freeze"},
+        {"ref": "docs/readiness_pack/differential_matrix.md", "kind": "differential", "note": "Python<->Rust differential matrix over all normative relation paths"},
+        {"ref": "docs/readiness_pack/rust_parity_scope.md", "kind": "doc", "note": "what is Rust-covered and what is deliberately PENDING (No-Fake, no fake 100%)"},
+        {"ref": "tests/test_trust_pack_payloadtype_negatives.py", "kind": "tests", "note": "trust-pack payloadType/predicateType confusion negative vectors (O7)"},
+        {"ref": "scripts/fuzz_soak.py", "kind": "gate", "note": "bounded fuzz-soak harness; 0 crash / 0 false-accept on the recorded run"},
+        {"ref": "docs/readiness_pack/AUDITOR_OPEN_POINTS.md", "kind": "doc", "note": "what the machine cannot decide — the human audit's remit"}
+      ],
+      "open_questions": ["Q5_SINGLE_MAINTAINER_INDEPENDENCE", "Q6_PAYLOADTYPE_FORMAL", "Q2_PRIMITIVE_HARDNESS"]
     }
   ],
   "release_evidence_slots": {
@@ -64,14 +82,29 @@
       "expected_evidence": ["relation_statement Rust parity (into rust_parity_registry.json + crosscheck.py)", "formal obligation O6 RETRACTS_NEVER_RAISES", "new verifier auto-covered by F4"]
     },
     "3.6.0": {
-      "status": "reserved",
-      "expected_evidence": ["fuzz-soak corpora", "differential matrix", "formal obligation O7 PAYLOADTYPE_BINDING (33-check matrix)", "threat-model chapter delta", "final audit-candidate scope freeze"]
+      "status": "filled",
+      "delivers": [
+        "audit-candidate 33-check acceptance matrix (scripts/audit_candidate_matrix.py)",
+        "trust-pack payloadType/predicateType binding (O7 code-enforced + negative vectors) — O7 honestly RESERVED in the formal model",
+        "bounded fuzz-soak harness + regression vectors + ClusterFuzzLite continuous leg (fuzz-soak corpora)",
+        "Python<->Rust differential matrix over all normative relation paths + honest PENDING-scope doc",
+        "threat-model delta chapter + audit scope freeze",
+        "SHA-256 pack manifest + advisory proofbundle self-receipt",
+        "reproduction runbook + auditor open-points list",
+        "locked test manifest (no silent test shrink)",
+        "claims-hygiene extended with the stable/audited/production-ready forbidden list"
+      ]
     }
   },
   "navigation": {
     "open_questions": "OPEN_QUESTIONS.md",
     "progress": "PROGRESS.md",
     "tamper_resistance": "tamper_resistance.md",
+    "reproduction_runbook": "REPRODUCTION_RUNBOOK.md",
+    "auditor_open_points": "AUDITOR_OPEN_POINTS.md",
+    "threat_model_delta_360": "threat_model_delta_360.md",
+    "differential_matrix": "differential_matrix.md",
+    "rust_parity_scope": "rust_parity_scope.md",
     "entry": "README.md"
   }
 }
