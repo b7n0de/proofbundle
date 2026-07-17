@@ -50,9 +50,12 @@ eval = ["rfc8785>=0.1.4"]
 # EXPERIMENTAL: external time anchors (proofbundle.anchors) — RFC 3161 TSA + OpenTimestamps. Opt-in and
 # clearly experimental (API/format may change). rfc3161-client (Trail of Bits) is deliberately offline —
 # it verifies an RFC 3161 token against bundled roots, no network in the verify path. opentimestamps is
-# the OTS proof library. rfc8785 gives the receipt its canonical (JCS) root. The base install stays
-# anchor-free (only cryptography); a receipt with no anchors verifies unchanged.
-anchors = ["rfc3161-client>=1.0.6", "opentimestamps>=0.4.5", "rfc8785>=0.1.4"]
+# the OTS proof LIBRARY (python-opentimestamps, the consensus-critical opentimestamps.core modules), NOT
+# the `opentimestamps-client` CLI tool (a SEPARATE PyPI package on the 0.7.x line; do not confuse the
+# two). The library line is 0.4.x; it is upper-bounded so a future 0.5 wire/API change is a deliberate
+# opt-in, not a silent break (WP-D2 reproducibility). rfc8785 gives the receipt its canonical (JCS) root.
+# The base install stays anchor-free (only cryptography); a receipt with no anchors verifies unchanged.
+anchors = ["rfc3161-client>=1.0.6", "opentimestamps>=0.4.5,<0.5", "rfc8785>=0.1.4"]
 # The lm-eval adapter reads exported results.json (no import) → pure stdlib.
 adapters = []
 # chia-datalayer/v1 anchor WRITER (anchors_chia_add). Needs no extra Python package — it drives the

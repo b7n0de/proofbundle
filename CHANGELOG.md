@@ -6,6 +6,109 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (OTS hardening + calendar-risk — anchor-longevity moat, EXPERIMENTAL, the `[anchors]` extra)
+- **`proofbundle anchor` CLI group (WP-A/B/C):** the honest OpenTimestamps lifecycle as an offline
+  toolset. `anchor upgrade` bundles an UPGRADED proof into a self-contained, calendar-independent
+  evidence pack (a still-PENDING proof is refused with exit 3 and writes nothing, never a fake pass);
+  `anchor verify-pack` verifies a pack OFFLINE (no socket) against a relying-party Bitcoin header
+  (exit 0 confirmed / 3 pending-or-needs-header / 1 hard fail / 2 malformed); `anchor inspect` prints
+  the lifecycle state and the calendars/operators carrying a proof (transparency, no crypto trust).
+  New CLI commands in `src/proofbundle/cli.py`; the pack mechanism (`src/proofbundle/evidence_pack.py`)
+  gains `describe_proof`. WP-A1 boundary kept: the pack's own bundled/frozen header is never trusted, so
+  a colluding or backdating producer cannot self-certify.
+- **Calendar transparency (WP-B):** `anchors_ots.calendar_uris` / `calendar_operator` /
+  `calendar_operators` surface WHICH calendars carry a proof and how many INDEPENDENT operators back it
+  (`operatorRedundancy`), because two URLs on one operator are one point of failure, not two. The
+  `operatorRedundancy` figure is read from the proof bytes (`provenCalendars`) but is an
+  embedded-but-UNVERIFIED transparency hint, NOT cryptographic redundancy evidence; producer-declared
+  calendars are kept separate (`declaredCalendars`, `declaredCalendarsVerified: false`) and are likewise
+  never redundancy evidence (see Fixed below). Docs (`docs/ANCHORS.md`) add how to run or pin your own calendar and how to
+  obtain a trusted Bitcoin header for verification.
+- **ripemd160-free confirmed-path fixture (WP-D1):** `tests/fixtures/ots/synthetic-upgraded-sha256.*`
+  (generator `scripts/gen_synthetic_ots_fixture.py`), a SHA-256-only upgraded proof that deserializes
+  and confirms WITHOUT ripemd160, so the confirmed/self-contained OTS path has an UNCONDITIONAL
+  regression in the cleanroom pytest where the ripemd160-gated external vector (`hello-world.txt.ots`)
+  is honestly skipped. Pinned in `PROVENANCE.json`, labelled synthetic (No-Fake, not an external vector).
+- **RFC 3161 framed as a first-class legal second anchor (WP-D3):** `docs/ANCHORS.md` documents the
+  eIDAS/QTSP hedge (Regulation 910/2014 Article 41, ETSI EN 319 422 / RFC 5816) as the complementary,
+  immediate, legally recognized anchor alongside the trust-minimized OpenTimestamps one. The anchor
+  registry stays open and fail-closed (an unknown type is a FAIL).
+- **Readiness-pack calendar-independence paragraph (WP-E):**
+  `docs/readiness_pack/calendar_independence.md`, wired into `index.json` conclusion C1, states the four
+  facts (calendar-independent verification, calendar fragility affects only stamping, verification needs
+  a Bitcoin header source, RFC 3161 legal second anchor) before an external audit asks.
+
+### Fixed (OTS hardening — Berkeley live-reproduced audit, 2026-07-16)
+- **`verify-pack` refuses a self-fabricated Null-Op pack and a Litecoin-height confusion (CRITICAL,
+  No-Fake, `anchors_ots.verify_opentimestamps` + `cli.py` + `evidence_pack`, 2026-07-17):** the 6-lens
+  re-review reproduced a CRITICAL live on the standalone `anchor verify-pack` / `verify_evidence_pack`
+  surface (the canonical `verify --require-anchor` path, which cross-checks `canonicalRoot` against an
+  independently recomputed root at `anchors.py`, is a DIFFERENT surface and is UNCHANGED). A pack whose
+  `file_digest == canonicalRoot` with a `BitcoinBlockHeaderAttestation` planted directly on the root
+  (leaf == root, no op chain) returned `ok: true` / `status: confirmed` / exit 0, because the attested
+  value equalled the producer-supplied header with no hashing at all. `verify_opentimestamps` now requires
+  at least one cryptographic hash op (`CryptOp` / `OpSHA256`) on the path from the file digest to each
+  attestation (`_bitcoin_confirmations`); a hash-free branch is refused with `status: null_op`
+  (fail-closed) even when its value matches the header, while a genuine branch still confirms alongside it
+  (the 2026-07-16 multi-branch scan is preserved). The confirm loop no longer uses `getattr(att, "height")`:
+  it filters to `isinstance BitcoinBlockHeaderAttestation`, so a `LitecoinBlockHeaderAttestation` with a
+  colliding integer height no longer confirms against a Bitcoin header. `anchor inspect --json` no longer
+  echoes a hand-edited `declaredCalendarsVerified: true` (forced `false`, declared is unverified by
+  definition) nor the raw pack `selfContained` (only the authoritative recomputed value is reported).
+  `docs/ANCHORS.md` gains the honest reservation (a bare `verify-pack` is a lifecycle/header check;
+  `canonicalRoot` is self-declared; a trust decision must bind the anchor independently via
+  `verify --require-anchor`). The provenance-pinned synthetic confirmed-path fixture was itself a
+  leaf == root Null-Op and was regenerated to a real op chain (append a nonce, then double SHA-256);
+  `PROVENANCE.json` and `block.json` pins were refreshed. `claims_hygiene_check.scan_cli_surface` now also
+  scans argparse `epilog=`. Live: the exact attack pack now returns `ok: false` / `status: null_op` /
+  exit 1. Regression: `test_ots_calendar_hardening.py` (Null-Op refused, Litecoin-height not a Bitcoin
+  confirmation, `inspect` forces `declaredCalendarsVerified` false, `packSelfContained` dropped,
+  `epilog=` scanned) plus a canonical-path-unaffected assertion.
+- **Attestation-scan no longer short-circuits (MAJOR, `anchors_ots.verify_opentimestamps`):** the
+  confirm loop returned on the FIRST relying-party-covered Bitcoin height, so a single wrong or tampered
+  branch masked a genuinely confirmable one (a False-REJECT / DoS: height 111 wrong + height 222 correct
+  reported `block_mismatch`). It now scans ALL covered branches and confirms as soon as ANY matches,
+  falling through to `block_mismatch` / `bad_header` / `upgraded_unverified` only when NONE match;
+  per-branch diagnostics (`mismatchHeights` / `badHeaderHeights`) are retained so real tamper stays
+  visible. Sound because the structural binding pins every branch to the same canonical root. Regression:
+  `tests/test_anchors_ots.py::TestMultiBranchAttestationScan` (both iteration orderings).
+- **Operator redundancy is proof-derived, never producer testimony (MAJOR, `evidence_pack` + CLI):**
+  `operatorRedundancy` and `calendarOperators` were fed from the producer-claimed `--calendar` list, which
+  for an upgraded pack (`calendar_uris(proof) == []`) was ALWAYS unverifiable, so a fabricated calendar
+  list could inflate the "surfaced honestly" redundancy. The pack now splits `provenCalendars`
+  (read from the proof bytes) from `declaredCalendars` (producer testimony via a CLI flag,
+  `declaredCalendarsVerified: false`, never counted). The CLI flag `--calendar` is renamed
+  `--calendar-declared` and its output labels it unverified. Docs (`docs/ANCHORS.md`,
+  `docs/readiness_pack/calendar_independence.md`) no longer present declared redundancy as audit evidence.
+  Regression: `test_evidence_pack.py::test_declared_calendars_never_count_as_proven_redundancy`.
+- **Calendar redundancy is embedded-but-unverified, NOT cryptographic evidence (MAJOR, No-Fake follow-up,
+  2026-07-17):** the 2026-07-16 split still over-claimed the proof-embedded set as "proven" / "the only
+  redundancy figure a reviewer may treat as evidence". That is false: a `PendingAttestation` URI is
+  unauthenticated and offline-constructible (the test helper `_upgraded_proof_retaining_pending` fabricates
+  them), so `provenCalendars` / `operatorRedundancy` are an embedded-but-UNVERIFIED transparency hint, not
+  audit evidence. The ONLY cryptographic guarantees are (a) the structural binding of the proof to the
+  canonical root and (b) the Bitcoin confirmation against a relying-party header. Docstrings, code comments,
+  `docs/ANCHORS.md`, `docs/readiness_pack/calendar_independence.md` and ADR 0006 are re-worded accordingly;
+  no field is presented as cryptographic redundancy evidence.
+- **`anchor verify-pack` recomputes calendar/self-contained fields from the proof bytes (MAJOR, `cli.py`):**
+  `verify-pack` passed the pack's own `operatorRedundancy` / `provenCalendars` / `provenCalendarOperators` /
+  `selfContained` JSON fields straight into its authoritative `--json` report, so a hand-edited pack could
+  report `operatorRedundancy: 3` with fabricated operators under `status: confirmed` / exit 0 while
+  `anchor inspect` on the SAME file computed `0`. It now RECOMPUTES all four from the proof bytes via
+  `describe_proof`, exactly as `inspect` does; the report never echoes untrusted pack fields. Regression:
+  `test_ots_calendar_hardening.py::test_verify_pack_recomputes_calendar_fields_from_proof_not_json`.
+- **Operator-label heuristic blind spot documented (MINOR):** `calendar_operator` is a bare-hostname
+  heuristic, not a verified-independent-entity claim; the last-two-labels fallback does not resolve the
+  public-suffix boundary, so a `co.uk` / `com.au` host can undercount two independent operators as one.
+  Documented next to `operatorRedundancy` in the code and both docs (optional `tldextract` noted, not
+  added — it stays a heuristic).
+
+### Changed (OTS hardening)
+- **`opentimestamps` pin upper-bounded (WP-D2):** the `[anchors]` extra now requires
+  `opentimestamps>=0.4.5,<0.5` (the consensus-critical `python-opentimestamps` LIBRARY on the 0.4.x
+  line), so a future 0.5 wire/API change is a deliberate opt-in, not a silent break. Documented that the
+  `opentimestamps-client` CLI tool (0.7.x) is a SEPARATE package and not a proofbundle dependency.
+
 ### Added (relation-statement/v0.1 3.5.0 — standalone profile + Rust parity, still EXPERIMENTAL)
 - **`relation-statement/v0.1` standalone profile (WP-A):** a DSSE-signed statement OVER a
   target receipt, carrying EXACTLY ONE typed edge and no decision/outcome payload of its own —

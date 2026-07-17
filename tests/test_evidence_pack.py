@@ -44,12 +44,42 @@ def _pending_proof(msg=_ROOT) -> bytes:
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
-def _upgraded_proof(msg=_ROOT, height=800000) -> bytes:
+# Null-Op hardening (2026-07-17): a REAL upgraded proof attests the block merkle root at the END of an op
+# chain (append a nonce, then SHA-256) below the file digest, so the attested value (`_btc_root`) DIFFERS
+# from the file digest — a leaf==root Null-Op branch is now refused by the verifier, and confirm tests must
+# supply the ATTESTED root (not the file digest) as the relying-party header.
+def _btc_root(msg=_ROOT, nonce=b"\x00") -> bytes:
+    return hashlib.sha256(msg + nonce).digest()
+
+
+def _upgraded_proof(msg=_ROOT, height=800000, nonce=b"\x00") -> bytes:
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-    from opentimestamps.core.op import OpSHA256
+    from opentimestamps.core.op import OpAppend, OpSHA256
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
     ts = Timestamp(msg)
-    ts.attestations.add(BitcoinBlockHeaderAttestation(height))
+    leaf = ts.ops.add(OpAppend(nonce)).ops.add(OpSHA256())   # real op chain below the file digest
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
+    return _serialize(DetachedTimestampFile(OpSHA256(), ts))
+
+
+def _upgraded_proof_retaining_pending(
+        msg=_ROOT, height=800000,
+        uris=("https://a.pool.opentimestamps.org", "https://a.pool.eternitywall.com")) -> bytes:
+    """An upgraded proof that ALSO retains PendingAttestations on distinct operators — so the embedded
+    calendar set (and thus the operator-redundancy count) is non-empty. The Bitcoin attestation sits at the
+    end of a REAL op chain (append a nonce, then SHA-256) so it is not a leaf==root Null-Op; the pending
+    attestations are kept on the root. NOTE this helper FABRICATES those pending attestations OFFLINE from
+    arbitrary URIs, which is exactly why the embedded figures are UNVERIFIED transparency, not cryptographic
+    evidence: any producer can do the same."""
+    from opentimestamps.core.notary import (BitcoinBlockHeaderAttestation,
+                                            PendingAttestation)
+    from opentimestamps.core.op import OpAppend, OpSHA256
+    from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
+    ts = Timestamp(msg)
+    leaf = ts.ops.add(OpAppend(b"\x00")).ops.add(OpSHA256())
+    leaf.attestations.add(BitcoinBlockHeaderAttestation(height))
+    for u in uris:
+        ts.attestations.add(PendingAttestation(u))
     return _serialize(DetachedTimestampFile(OpSHA256(), ts))
 
 
@@ -70,39 +100,58 @@ class TestSelfContained(unittest.TestCase):
 
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestBuildAndVerifyPack(unittest.TestCase):
-    def _pack(self, proof: bytes, calendars=None, bundled_headers=None):
+    def _pack(self, proof: bytes, declared=None, bundled_headers=None):
         from proofbundle.evidence_pack import build_evidence_pack
-        return build_evidence_pack(
-            _ROOT, proof,
-            calendars=calendars or ["https://alice.btc.calendar.opentimestamps.org",
-                                    "https://bob.btc.calendar.opentimestamps.org"],
-            bundled_headers=bundled_headers)
+        return build_evidence_pack(_ROOT, proof, declared_calendars=declared,
+                                   bundled_headers=bundled_headers)
 
-    def test_pack_records_self_contained_and_calendars(self):
-        pack = self._pack(_upgraded_proof())
+    def test_pack_records_self_contained_and_proven_redundancy(self):
+        # the calendar-redundancy count is read from the proof's OWN retained attestations (field source),
+        # but is an embedded-but-UNVERIFIED transparency figure, not cryptographic evidence.
+        pack = self._pack(_upgraded_proof_retaining_pending())
         self.assertTrue(pack["selfContained"])
         self.assertEqual(pack["canonicalRoot"], base64.b64encode(_ROOT).decode())
-        self.assertGreaterEqual(len(pack["calendars"]), 2)   # multi-calendar redundancy recorded
+        self.assertGreaterEqual(len(pack["provenCalendars"]), 2)   # proof carries two calendars
+        self.assertEqual(pack["operatorRedundancy"], 2)            # two INDEPENDENT operators, proven
+
+    def test_upgraded_proof_without_retained_pending_has_zero_proven_redundancy(self):
+        # No-Fake: an upgraded proof that retains no pending attestation honestly proves NO calendar set —
+        # the redundancy is discharged and not recoverable from the proof (operatorRedundancy == 0).
+        pack = self._pack(_upgraded_proof())
+        self.assertTrue(pack["selfContained"])
+        self.assertEqual(pack["provenCalendars"], [])
+        self.assertEqual(pack["operatorRedundancy"], 0)
 
     def test_multi_calendar_redundancy_verifies(self):
         from proofbundle.evidence_pack import verify_evidence_pack
-        pack = self._pack(_upgraded_proof(),
-                          calendars=["https://alice.btc.calendar.opentimestamps.org",
-                                     "https://bob.btc.calendar.opentimestamps.org",
-                                     "https://finney.calendar.opentimestamps.org"])
-        self.assertGreaterEqual(pack["calendarRedundancy"], 2)
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        pack = self._pack(_upgraded_proof_retaining_pending())
+        self.assertGreaterEqual(pack["operatorRedundancy"], 2)
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         res = verify_evidence_pack(pack, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
+
+    def test_declared_calendars_never_count_as_proven_redundancy(self):
+        # No-Fake regression (Berkeley audit): a producer FABRICATES two independent-looking calendars via
+        # declared_calendars. They must be recorded as testimony (verified:false) and must NOT inflate the
+        # proven operator redundancy — which, for this upgraded-no-pending proof, stays 0.
+        pack = self._pack(_upgraded_proof(),
+                          declared=["https://a.pool.opentimestamps.org",
+                                    "https://a.pool.eternitywall.com"])
+        self.assertEqual(pack["operatorRedundancy"], 0)            # proven, unmoved by the fabrication
+        self.assertEqual(pack["provenCalendars"], [])
+        self.assertEqual(pack["declaredCalendars"],
+                         ["https://a.pool.eternitywall.com", "https://a.pool.opentimestamps.org"])
+        self.assertFalse(pack["declaredCalendarsVerified"])        # flagged unverified, not evidence
+        self.assertNotIn("calendarRedundancy", pack)               # the conflated field is gone
 
     def test_offline_verify_from_bundled_bitcoin_headers(self):
         # the pack BUNDLES the header as evidence; confirmation still needs a relying-party header (which
         # here is an offline trusted checkpoint). Together, offline, it confirms.
         from proofbundle.evidence_pack import verify_evidence_pack
-        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _ROOT.hex()})
+        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _btc_root().hex()})
         self.assertTrue(pack["bundledHeaderEvidence"])   # bundled as EVIDENCE, labelled
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         res = verify_evidence_pack(pack, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
@@ -110,7 +159,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
     def test_bundled_header_alone_is_not_trust_wp_a1(self):
         # WP-A1: a pack's own bundled header, without relying-party trust, must NOT confirm.
         from proofbundle.evidence_pack import verify_evidence_pack
-        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _ROOT.hex()})
+        pack = self._pack(_upgraded_proof(), bundled_headers={"800000": _btc_root().hex()})
         res = verify_evidence_pack(pack)   # no rp_trust
         self.assertFalse(res["ok"])
         self.assertEqual(res["status"], "needs_rp_trust")
@@ -128,7 +177,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         import socket
         from proofbundle.evidence_pack import verify_evidence_pack
         pack = self._pack(_upgraded_proof())
-        rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
+        rp = {"bitcoin_block_headers": {"800000": _btc_root().hex()}}
         real_socket = socket.socket
 
         def _no_network(*a, **k):

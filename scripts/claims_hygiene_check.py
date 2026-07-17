@@ -15,6 +15,7 @@ CLI: [--json] [paths...]  (default: the canonical user-facing doc set)
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
@@ -242,11 +243,97 @@ def scan_file(path: Path) -> list[dict]:
     return violations
 
 
+# ── CLI-surface scan (WP-N3, OTS calendar-risk hardening 2026-07-17) ─────────────────────────────────
+# The Markdown docs were scanned, but the CLI --help / print() surface never was — so the exact
+# overclaim class this hardening retracts ("the PROVEN redundancy that is evidence") had ZERO automatic
+# coverage and lived on unflagged in `cli.py`. This scan closes that hole. It reads the CLI's OWN
+# user-facing strings — argparse `help=`/`description=` and the literal text of `print(...)` — via the
+# AST (help=/description=/epilog= keyword strings and print() literals — so code comments and internal
+# docstrings are NOT scanned, only what a user actually sees), and
+# flags the redundancy-overclaim phrasings unless the same string carries an explicit unverified/negation
+# hedge. The embedded calendar set is an unauthenticated, offline-constructible transparency hint (a
+# PendingAttestation URI is not signed), never audit evidence — calling it "proven calendars/operators/
+# redundancy" or "redundancy … evidence" without a hedge is the overclaim.
+_CLI_SURFACE_FILE = "src/proofbundle/cli.py"
+_CLI_OVERCLAIM_RE = [
+    (re.compile(r"\bproven\s+(?:calendars?|operators?|redundancy)\b", re.IGNORECASE),
+     "proven calendar/operator/redundancy (embedded calendar data is unverified, not proven)"),
+    (re.compile(r"\bredundancy\b[^.\n]{0,60}?\bevidence\b", re.IGNORECASE),
+     "redundancy presented as evidence (embedded calendar data is not cryptographic evidence)"),
+]
+# A hedge anywhere in the SAME string exonerates: an explicit unverified / transparency-hint marker or a
+# negation ("not audit/cryptographic evidence", "never", "not"). The retracted wording carries one; the
+# old overclaim did not.
+_CLI_HEDGE_RE = re.compile(
+    r"\bunverified\b|\btransparency\s+hint\b|\bnot\s+(?:audit|cryptographic)\b|\bnever\b|\bnot\b",
+    re.IGNORECASE)
+
+
+def _cli_surface_strings(tree: ast.AST):
+    """Yield the (string, lineno) pairs a CLI user actually sees: argparse ``help=``/``description=``/
+    ``epilog=`` keyword strings and the literal text of every ``print(...)`` argument (f-string constant
+    parts included, interpolated ``{...}`` values excluded). ``epilog=`` is included for literal
+    completeness (2026-07-17): argparse prints it under the option list, so it is as user-facing as
+    ``description=``. Comments and internal docstrings are NOT yielded — they are not the CLI surface, and
+    the claim-retraction on them is a separate concern."""
+    def _literal(node) -> str:
+        # A plain string, an implicitly-concatenated string (already one Constant), an f-string, or a
+        # BinOp (``"tmpl %s" % x`` / ``"a" + b``): collect only the static text parts so an overclaim in
+        # literal prose is seen while dynamic values are ignored.
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(p.value for p in node.values
+                           if isinstance(p, ast.Constant) and isinstance(p.value, str))
+        if isinstance(node, ast.BinOp):
+            return (_literal(node.left) + " " + _literal(node.right)).strip()
+        return ""
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        is_print = isinstance(func, ast.Name) and func.id == "print"
+        if is_print:
+            for arg in node.args:
+                s = _literal(arg)
+                if s:
+                    yield s, getattr(arg, "lineno", getattr(node, "lineno", 0))
+        for kw in node.keywords:
+            if kw.arg in ("help", "description", "epilog"):
+                s = _literal(kw.value)
+                if s:
+                    yield s, getattr(kw.value, "lineno", getattr(node, "lineno", 0))
+
+
+def scan_cli_surface(path: Path) -> list[dict]:
+    """Scan the CLI's user-facing strings for un-hedged redundancy overclaims. A read/parse error RAISES
+    (OSError/SyntaxError) — the caller treats it as a FAIL, never a silent skip (WP-N1 discipline)."""
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    violations: list[dict] = []
+    try:
+        rel = str(path.relative_to(REPO))
+    except ValueError:
+        rel = path.name
+    for text, lineno in _cli_surface_strings(tree):
+        if _CLI_HEDGE_RE.search(text):
+            continue   # the string hedges (unverified / not-evidence / negation) → allowed
+        for rx, label in _CLI_OVERCLAIM_RE:
+            m = rx.search(text)
+            if m:
+                violations.append({"file": rel, "line": lineno, "phrase": label,
+                                   "match": m.group(0), "sentence": text.strip()[:120]})
+                break
+    return violations
+
+
 def main(argv=None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     as_json = "--json" in args
     args = [a for a in args if a != "--json"]
     rels = args or _DEFAULT_DOCS
+    scan_cli = not args   # only on the DEFAULT run (an explicit path set scopes the request narrowly)
     violations = []
     scanned = []
     missing = []
@@ -262,11 +349,21 @@ def main(argv=None) -> int:
             continue
         scanned.append(rel)
         violations.extend(file_violations)
+    # WP-N3: on the default run, also scan the CLI's own user-facing surface (help/print). A missing or
+    # unparseable cli.py is a FAIL entry, never a silent skip (same discipline as a missing doc).
+    cli_scanned = False
+    if scan_cli:
+        try:
+            violations.extend(scan_cli_surface(REPO / _CLI_SURFACE_FILE))
+            cli_scanned = True
+        except (OSError, SyntaxError) as exc:
+            missing.append(f"{_CLI_SURFACE_FILE} ({type(exc).__name__})")
     failed = bool(violations or missing)
     out = {
         "schema": "proofbundle.claims_hygiene.v1",
         "verdict": "FAIL" if failed else "PASS",
         "scanned": len(scanned),
+        "cli_surface_scanned": cli_scanned,
         "missing": missing,
         "violations": violations,
         "note": ("A forbidden phrasing appeared outside a negation, or a listed doc is missing. "
