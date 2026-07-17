@@ -1,0 +1,933 @@
+{
+  "schema": "proofbundle.rust_relation_differential_matrix.v1",
+  "description": "Vector x {Python, Rust} differential result matrix for the relation/v0.1 and relation-statement/v0.1 conformance vectors. Each row is one vector verified by BOTH the Python CLI and the independent Rust verifier (pb_verify_rs); agree_python_rust asserts they land on the SAME common-vocabulary label (exit class + lineage). Differential AGREEMENT on these vectors, NOT a correctness proof of either implementation.",
+  "environment": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "python": "3.10.12"
+  },
+  "total_relation_vectors": 40,
+  "all_agree": true,
+  "rows": [
+    {
+      "caseId": "outcome-relation-declared-supersedes-verified",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-decoy-parent-target-mismatch",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-digest-mismatch",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-renews",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-signer-unauthorized",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-silent-landing",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python_exit": 1,
+      "rust_exit": 1,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "outcome-relation-valid-baseline",
+      "kind": "outcome_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-declared-supersedes-verified",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-declared-unresolved",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-decoy-on-accept-path",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-decoy-parent-correct-pass",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-decoy-parent-no-pin-old-behavior",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-decoy-parent-target-mismatch",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-depth-exceeded",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-digest-mismatch",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-edge-amends",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-edge-corrects",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-edge-derivedfrom",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-edge-retracts",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-edge-revises",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-malformed-digest",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-renews-vector",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-retracts-then-use",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-signer-cross-issuer-unauthorized",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-signer-cross-issuer-verified",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-signer-same-key-explicit",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-signer-verified-under-not-claim",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-silent-landing",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python_exit": 1,
+      "rust_exit": 1,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-malformed",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-retracts-declared-unresolved",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "DECLARED_UNRESOLVED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-retracts-unauthorized",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-retracts-verified-blocked",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-retracts-verified-visible",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-statement-supersedes-verified",
+      "kind": "relation_statement",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-t1-canonical-invalid-signature",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "CRYPTO_FAIL",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python_exit": 1,
+      "rust_exit": 1,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-target-subject-correct-pass",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "VERIFIED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-target-subject-mismatch",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-unauthorized-signer",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-valid-baseline",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": null,
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-wrong-payloadtype-target",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    }
+  ]
+}
