@@ -39,6 +39,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a Bitcoin header source, RFC 3161 legal second anchor) before an external audit asks.
 
 ### Fixed (OTS hardening — Berkeley live-reproduced audit, 2026-07-16)
+- **`verify-pack` refuses a self-fabricated Null-Op pack and a Litecoin-height confusion (CRITICAL,
+  No-Fake, `anchors_ots.verify_opentimestamps` + `cli.py` + `evidence_pack`, 2026-07-17):** the 6-lens
+  re-review reproduced a CRITICAL live on the standalone `anchor verify-pack` / `verify_evidence_pack`
+  surface (the canonical `verify --require-anchor` path, which cross-checks `canonicalRoot` against an
+  independently recomputed root at `anchors.py`, is a DIFFERENT surface and is UNCHANGED). A pack whose
+  `file_digest == canonicalRoot` with a `BitcoinBlockHeaderAttestation` planted directly on the root
+  (leaf == root, no op chain) returned `ok: true` / `status: confirmed` / exit 0, because the attested
+  value equalled the producer-supplied header with no hashing at all. `verify_opentimestamps` now requires
+  at least one cryptographic hash op (`CryptOp` / `OpSHA256`) on the path from the file digest to each
+  attestation (`_bitcoin_confirmations`); a hash-free branch is refused with `status: null_op`
+  (fail-closed) even when its value matches the header, while a genuine branch still confirms alongside it
+  (the 2026-07-16 multi-branch scan is preserved). The confirm loop no longer uses `getattr(att, "height")`:
+  it filters to `isinstance BitcoinBlockHeaderAttestation`, so a `LitecoinBlockHeaderAttestation` with a
+  colliding integer height no longer confirms against a Bitcoin header. `anchor inspect --json` no longer
+  echoes a hand-edited `declaredCalendarsVerified: true` (forced `false`, declared is unverified by
+  definition) nor the raw pack `selfContained` (only the authoritative recomputed value is reported).
+  `docs/ANCHORS.md` gains the honest reservation (a bare `verify-pack` is a lifecycle/header check;
+  `canonicalRoot` is self-declared; a trust decision must bind the anchor independently via
+  `verify --require-anchor`). The provenance-pinned synthetic confirmed-path fixture was itself a
+  leaf == root Null-Op and was regenerated to a real op chain (append a nonce, then double SHA-256);
+  `PROVENANCE.json` and `block.json` pins were refreshed. `claims_hygiene_check.scan_cli_surface` now also
+  scans argparse `epilog=`. Live: the exact attack pack now returns `ok: false` / `status: null_op` /
+  exit 1. Regression: `test_ots_calendar_hardening.py` (Null-Op refused, Litecoin-height not a Bitcoin
+  confirmation, `inspect` forces `declaredCalendarsVerified` false, `packSelfContained` dropped,
+  `epilog=` scanned) plus a canonical-path-unaffected assertion.
 - **Attestation-scan no longer short-circuits (MAJOR, `anchors_ots.verify_opentimestamps`):** the
   confirm loop returned on the FIRST relying-party-covered Bitcoin height, so a single wrong or tampered
   branch masked a genuinely confirmable one (a False-REJECT / DoS: height 111 wrong + height 222 correct
