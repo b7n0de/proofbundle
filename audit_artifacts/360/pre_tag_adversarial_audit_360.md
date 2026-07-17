@@ -59,3 +59,32 @@ checks (the full 24h soak and the two-sdist byte-identity) are not defects: they
 
 `audit_candidate_ready = True` (29 PASS, 1 PENDING = this pack now written, 2 DATA_BLOCKED, 1
 EXTERNAL_PENDING, 0 FAIL).
+
+## Addendum — reconciled to the shipped v3.6.0 release tree (2026-07-17)
+
+The section above was authored at the branch base, before the v3.6.0 release integration completed.
+Several workstreams landed afterwards, so this addendum reconciles the record to what actually ships
+in v3.6.0 (No-Fake: the audit trail must match the released code, not an earlier snapshot).
+
+- **Most important post-audit event — an OTS CRITICAL was found and fixed.** A dedicated Berkeley-grade
+  six-lens re-review of the OTS calendar-risk hardening found a CRITICAL on the standalone
+  `anchor verify-pack` / `verify_evidence_pack` surface: a self-fabricated Null-Op pack
+  (`file_digest == canonicalRoot`, a `BitcoinBlockHeaderAttestation` planted directly on the root with
+  no hash op) was confirmed as `ok: true` / exit 0, and a `LitecoinBlockHeaderAttestation` with a
+  colliding integer height could confirm against a Bitcoin header. Both are fixed:
+  `verify_opentimestamps` now requires at least one cryptographic hash op on the path to each
+  attestation (`status: null_op` fail-closed otherwise) and filters to `isinstance
+  BitcoinBlockHeaderAttestation`. See CHANGELOG `[3.6.0]` and the regression suite
+  `tests/test_ots_calendar_hardening.py`. The canonical `verify --require-anchor` path was and remains
+  unaffected. This CRITICAL post-dates the original audit above and is the reason the audit-candidate
+  status boundary (BETA, external audit still the single open gate) is unchanged.
+- **Matrix result against the shipped tree** (`scripts/audit_candidate_matrix.py --json`, live):
+  **31 PASS, 0 PENDING, 1 DATA_BLOCKED, 1 EXTERNAL_PENDING, 0 FAIL** — greener than the base-snapshot
+  figure above (the pre-tag pack now exists so C12.1 PASSes, and one previously DATA_BLOCKED check
+  cleared). The direction is monotone: no check regressed.
+- **Suite / differential**: the full test suite is green in CI across Python 3.10-3.14 on PR #101
+  (the exact pytest count varies with installed extras and is authoritatively the CI `test` job, not a
+  pinned number here); the differential crosscheck remains 54/54 conformance cases + 40 relation vectors
+  Python == Rust.
+- **0 open P0 / P1 still holds.** The OTS finding was resolved before this release; no P0/P1 is open.
+  The single deliberately-open acceptance criterion remains the external human crypto / protocol audit.
