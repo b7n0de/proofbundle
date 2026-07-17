@@ -1160,7 +1160,9 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         report = {"schema": "proofbundle.anchor_upgrade.v1", "ok": True, "wrote": args.out,
                   "state": "upgraded", "selfContained": True,
                   "bitcoinHeights": info["bitcoinHeights"],
-                  # proven = proof-derived redundancy evidence; declared = producer testimony (verified:false)
+                  # provenCalendars = read from the proof's own attestations — an embedded-but-UNVERIFIED
+                  # transparency hint (a PendingAttestation URI is unauthenticated, offline-constructible),
+                  # NOT cryptographic evidence; declared = producer testimony (verified:false)
                   "provenCalendars": pack["provenCalendars"],
                   "provenCalendarOperators": pack["provenCalendarOperators"],
                   "operatorRedundancy": pack["operatorRedundancy"],
@@ -1174,7 +1176,8 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         else:
             print(f"[anchor upgrade] OK — self-contained pack written to {args.out}")
             print(f"  Bitcoin height(s): {report['bitcoinHeights']}  ·  "
-                  f"proven operator redundancy: {report['operatorRedundancy']} "
+                  f"operator redundancy embedded in the proof (UNVERIFIED transparency hint, "
+                  f"not audit evidence): {report['operatorRedundancy']} "
                   f"{report['provenCalendarOperators']}")
             if report["declaredCalendars"]:
                 print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
@@ -1225,10 +1228,12 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
                "provenCalendars": recomputed["provenCalendars"],
                "provenCalendarOperators": recomputed["provenCalendarOperators"],
                "operatorRedundancy": recomputed["operatorRedundancy"],
-               # declaredCalendars are producer testimony, already flagged verified:false — surfaced as
-               # documentation, never as evidence, so passing them through with their honest flag is fine.
+               # declaredCalendars are producer testimony, surfaced as documentation, never as evidence.
+               # declaredCalendarsVerified is FORCED False (never mirrored from the pack): declared is
+               # unverified BY DEFINITION, and a hand-edited pack must not flip it true — same
+               # recompute-over-echo principle as the calendar fields above (No-Fake, 2026-07-17).
                "declaredCalendars": pack.get("declaredCalendars", []),
-               "declaredCalendarsVerified": pack.get("declaredCalendarsVerified", False),
+               "declaredCalendarsVerified": False,
                "detail": res.get("detail", "")}
         for f in ("rp_trusted", "needs_rp_trust", "frozenEvidence", "trustedTime"):
             if f in res:
@@ -1290,17 +1295,21 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             print(f"[anchor inspect] state={info['state']}  self-contained={info['selfContained']}  "
                   f"heights={info['bitcoinHeights']}")
             if info["provenCalendars"]:
-                print(f"  proven calendars: {', '.join(info['provenCalendars'])}")
-                print(f"  proven operators: {', '.join(info['provenCalendarOperators'])} "
+                print(f"  calendars embedded in the proof (UNVERIFIED transparency hint, not audit "
+                      f"evidence): {', '.join(info['provenCalendars'])}")
+                print(f"  distinct operators (UNVERIFIED transparency hint): "
+                      f"{', '.join(info['provenCalendarOperators'])} "
                       f"(operator redundancy {info['operatorRedundancy']})")
             else:
-                print("  proven calendars: none retained in the proof "
+                print("  calendars embedded in the proof: none retained "
                       "(an upgraded proof no longer needs a calendar to verify)")
             if info.get("declaredCalendars"):
                 print(f"  declared calendars (producer-claimed, UNVERIFIED, not audit evidence): "
                       f"{', '.join(info['declaredCalendars'])}")
         return 0
-    except (OSError, KeyError, ValueError) as exc:
+    except (OSError, KeyError, ValueError, TypeError) as exc:
+        # TypeError: fail-closed on a non-string declaredCalendars item reaching str.join (a
+        # hand-edited pack could carry [123]) — exit 2, never a raw traceback (No-Fake, 2026-07-17).
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -2605,8 +2614,10 @@ def build_parser() -> argparse.ArgumentParser:
                       metavar="URL",
                       help="a producer-DECLARED calendar URL (repeatable), recorded verbatim as "
                            "declaredCalendars with verified:false — documentation only, NOT audit evidence "
-                           "and never counted toward operator redundancy. The PROVEN redundancy that is "
-                           "evidence is read from the proof's own attestations")
+                           "and never counted toward operator redundancy. The proof-embedded calendar set "
+                           "read from the proof's own attestations is itself an embedded-but-UNVERIFIED "
+                           "transparency hint (a PendingAttestation URI is unauthenticated and "
+                           "offline-constructible), NOT cryptographic evidence")
     a_up.add_argument("--bundled-header", dest="bundled_header", action="append", default=None,
                       metavar="HEIGHT:MERKLEROOT_HEX",
                       help="OPTIONAL Bitcoin block header (internal byte order) copied into the pack as "

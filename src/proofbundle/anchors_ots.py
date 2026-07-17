@@ -144,9 +144,11 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
 # A stamp is created with the aid of MULTIPLE remote calendars — the OpenTimestamps client submits to
 # three default endpoints across at least two independent operators (a/b.pool.opentimestamps.org run by
 # OpenTimestamps, a.pool.eternitywall.com run by Eternity Wall), and requires at least two to reply.
-# Surfacing WHICH calendars carry a proof is the redundancy evidence: an outage or defunding of any one
-# calendar removes none of the others' PendingAttestations, and verifying an UPGRADED proof needs no
-# calendar at all. These helpers are pure transparency: they read a proof, never trust it, never raise.
+# Surfacing WHICH calendars carry a proof is an embedded-but-UNVERIFIED transparency hint (a
+# PendingAttestation URI is unauthenticated and offline-constructible), NOT cryptographic redundancy
+# evidence: an outage or defunding of any one calendar removes none of the others' PendingAttestations,
+# and verifying an UPGRADED proof needs no calendar at all. These helpers are pure transparency: they
+# read a proof, never trust it, never raise.
 
 _KNOWN_CALENDAR_OPERATORS = (
     ("opentimestamps.org", "opentimestamps"),

@@ -276,5 +276,67 @@ class TestP0CAdditions(unittest.TestCase):
             self.assertEqual(self._scan(text), [], f"negated form must be allowed: {text!r}")
 
 
+class TestCLISurfaceScan(unittest.TestCase):
+    """WP-N3 (OTS calendar-risk hardening 2026-07-17) — the CLI --help / print() surface is scanned for
+    redundancy overclaims, the exact class that previously had ZERO coverage ('the PROVEN redundancy that
+    is evidence' lived on unflagged in cli.py). Both directions."""
+
+    def _scan_src(self, src: str):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cli.py"
+            p.write_text(src, encoding="utf-8")
+            return ch.scan_cli_surface(p)
+
+    def test_real_cli_surface_is_clean(self):
+        # The shipped CLI surface must carry no un-hedged redundancy overclaim.
+        self.assertEqual(ch.scan_cli_surface(REPO / "src" / "proofbundle" / "cli.py"), [],
+                         "the CLI help/print surface carries an un-hedged redundancy overclaim")
+
+    def test_proven_redundancy_is_evidence_help_string_reddens_gate(self):
+        # The rot-test the hardening requires: a 'proven redundancy is evidence' help line must flag.
+        src = ("import argparse\n"
+               "def build():\n"
+               "    ap = argparse.ArgumentParser()\n"
+               "    ap.add_argument('--x', help='The proven redundancy is evidence from the attestations')\n")
+        hits = self._scan_src(src)
+        self.assertTrue(hits, "an un-hedged 'proven redundancy is evidence' help string must flag")
+
+    def test_proven_calendars_print_string_reddens_gate(self):
+        # The old inspect wording ('proven calendars' / 'proven operators') must flag when un-hedged.
+        for surface in ("print('  proven calendars: %s' % x)",
+                        "print('  proven operators: %s' % x)",
+                        "print(f'proven operator redundancy: {n}')"):
+            self.assertTrue(self._scan_src(surface), f"must flag: {surface!r}")
+
+    def test_hedged_cli_surface_is_allowed(self):
+        # The retracted wording carries an explicit unverified / not-evidence hedge → allowed.
+        for surface in (
+            "print('calendars embedded in the proof (UNVERIFIED transparency hint, not audit evidence): x')",
+            "print('operator redundancy embedded in the proof (UNVERIFIED transparency hint, not audit "
+            "evidence): %s' % n)",
+        ):
+            self.assertEqual(self._scan_src(surface), [], f"hedged form must be allowed: {surface!r}")
+
+    def test_comments_and_docstrings_are_not_the_cli_surface(self):
+        # Only help=/description= and print() literals are scanned — a code comment / internal docstring
+        # discussing 'proven redundancy evidence' is a separate concern and must NOT flag here.
+        src = ("'''module doc: proven redundancy is evidence.'''\n"
+               "# proven calendars are the redundancy evidence\n"
+               "x = 1\n")
+        self.assertEqual(self._scan_src(src), [], "comments/docstrings are not the CLI user surface")
+
+    def test_main_default_run_includes_cli_surface(self):
+        # The default `main(['--json'])` run must report cli_surface_scanned=True and stay PASS.
+        import io
+        import json as _json
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = ch.main(["--json"])
+        out = _json.loads(buf.getvalue())
+        self.assertTrue(out.get("cli_surface_scanned"), "default run must scan the CLI surface")
+        self.assertEqual(rc, 0, "the shipped repo (docs + CLI surface) must pass the gate")
+
+
 if __name__ == "__main__":
     unittest.main()

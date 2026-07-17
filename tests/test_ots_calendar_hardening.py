@@ -437,5 +437,35 @@ class TestReadinessPackCalendarIndependence(unittest.TestCase):
         self.assertEqual(ch.scan_file(doc), [], "WP-E paragraph must carry no un-negated overclaim")
 
 
+# ── No-Fake follow-up (2026-07-17): verify-pack never mirrors a hand-edited pack's trust fields ──────
+# Runs WITHOUT the [anchors] extra: a bogus proof takes the safe-zeros recompute path, which is exactly
+# where a hand-edited pack would otherwise have leaked its own claims into the authoritative report.
+class TestVerifyPackNeverMirrorsHandEditedTrustFields(unittest.TestCase):
+    def _run(self, pack: dict) -> dict:
+        import argparse
+        d = tempfile.mkdtemp()
+        pk = Path(d) / "pack.json"
+        pk.write_text(json.dumps(pack), encoding="utf-8")
+        ns = argparse.Namespace(pack=str(pk), bitcoin_header=None, json=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli._cmd_anchor_verify_pack(ns)
+        return json.loads(buf.getvalue())
+
+    def test_declared_verified_forced_false_and_calendar_fields_recomputed(self):
+        # A pack claiming declaredCalendarsVerified:true + operatorRedundancy:3 + fabricated provenCalendars
+        # must NOT be echoed: declaredCalendarsVerified is forced False and the calendar figures recompute
+        # to zeros from the (bogus) proof bytes — the report reflects the proof, never the JSON's claims.
+        out = self._run({"type": "opentimestamps-evidence-pack", "proof": "AAAA",
+                         "declaredCalendars": ["https://evil.example"], "declaredCalendarsVerified": True,
+                         "operatorRedundancy": 3, "provenCalendars": ["fabricated"],
+                         "provenCalendarOperators": ["evil"], "selfContained": True})
+        self.assertFalse(out["declaredCalendarsVerified"], "declared is unverified by definition — never mirrored")
+        self.assertEqual(out["operatorRedundancy"], 0, "operatorRedundancy must recompute, not echo the pack")
+        self.assertEqual(out["provenCalendars"], [])
+        self.assertEqual(out["provenCalendarOperators"], [])
+        self.assertFalse(out["selfContained"])
+
+
 if __name__ == "__main__":
     unittest.main()
