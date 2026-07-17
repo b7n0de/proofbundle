@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed (CI)
+- **`published-artifact-gate` no longer fails at startup:** the `reusable-attest-dryrun` job now
+  declares the `id-token: write` + `attestations: write` permissions its called reusable workflow
+  needs (the workflow-wide `contents: read` cannot be exceeded by a called workflow, which refused
+  the run at job level, reproduced daily as a "Startup failure"). Plus a fork-PR guard. The reusable
+  workflow is unchanged. CI-only, no package change.
+
 ## [3.6.0] - 2026-07-17 (audit-candidate, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.0 is **NOT** stable, audited, or production-ready. The only
