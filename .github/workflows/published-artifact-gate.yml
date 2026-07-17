@@ -77,6 +77,17 @@ jobs:
 
   reusable-attest-dryrun:
     # Live-exercise the SLSA-L3 reusable workflow's build+determinism half (no attestation on PRs).
+    # Fork-PRs get no id-token:write, so don't start the job there (fork-pr-isolation line).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # A called reusable workflow may not exceed the caller's permissions; reusable-build-attest's
+    # build-attest job declares id-token:write + attestations:write, so grant them to THIS job
+    # (workflow-wide `contents: read` stays unchanged for the other jobs). Without this the run is
+    # refused at startup (the observed daily "Startup failure" / 1s-fail), because permissions are
+    # validated at job level before any step runs and dry_run: true does not bypass it.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/reusable-build-attest.yml
     with:
       dry_run: true
