@@ -104,6 +104,75 @@ class TestAuditCandidateMatrix(unittest.TestCase):
             self.m.CHECKS[:] = orig
 
 
+class TestCheckDiscrimination(unittest.TestCase):
+    """Per-check red/green discrimination (FIX 3): each check must FAIL when its own obligation is
+    genuinely broken/absent, not only pass in aggregate. Modelled on
+    TestTestManifestGate.test_shrink_below_floor_is_caught."""
+
+    def setUp(self):
+        self.m = _load("acm_matrix_disc", "scripts/audit_candidate_matrix.py")
+
+    # --- C1.1 'two named CI gates' — falsifiable when the second (repository/test) gate is gone ---
+
+    def test_c1_1_green_on_real_repo(self):
+        verdict, _ = self.m.c1_1_two_ci_gates()
+        self.assertEqual(verdict, self.m.PASS)
+
+    def test_c1_1_fails_when_second_gate_missing(self):
+        # published-artifact-gate present, but ci.yml (the repository/test gate) deleted -> FAIL.
+        with tempfile.TemporaryDirectory() as td:
+            wf = Path(td) / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "published-artifact-gate.yml").write_text(
+                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
+            self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("ci.yml", detail)
+
+    def test_c1_1_fails_when_second_gate_is_not_a_test_gate(self):
+        # ci.yml exists but carries neither `name: CI` nor a pytest/test step -> FAIL (not a real gate).
+        with tempfile.TemporaryDirectory() as td:
+            wf = Path(td) / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "published-artifact-gate.yml").write_text(
+                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "ci.yml").write_text("name: nope\njobs:\n  x:\n    steps:\n      - run: echo hi\n")
+            verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
+            self.assertEqual(verdict, self.m.FAIL, detail)
+
+    # --- C12.2 '0 open P0/P1' — falsifiable: a fabricated/unbound note must not satisfy it ---
+
+    def test_c12_2_green_on_real_repo(self):
+        verdict, _ = self.m.c12_2_audit_pack_zero_p0p1()
+        self.assertEqual(verdict, self.m.PASS)
+
+    def test_c12_2_rejects_fabricated_unbound_note(self):
+        # the OLD broad-glob regex passed on ANY *.md; an unrelated md carrying '3.6.0' + '0 P0/P1'
+        # but NO lens/adversarial marker (not a version-scoped audit record) must now go PENDING.
+        with tempfile.TemporaryDirectory() as td:
+            art = Path(td) / "audit_artifacts"
+            art.mkdir(parents=True)
+            (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.0. 0 open P0/P1 issues.\n")
+            verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertNotEqual(verdict, self.m.PASS, detail)
+            self.assertEqual(verdict, self.m.PENDING, detail)
+
+    def test_c12_2_pending_when_record_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            verdict, _ = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PENDING)
+
+    def test_c12_2_pending_when_record_lacks_zero_p0p1_line(self):
+        # a genuine version-scoped adversarial record, but WITHOUT the '0 open P0/P1' obligation line.
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "360"
+            rec.mkdir(parents=True)
+            (rec / "pre_tag_adversarial_audit_360.md").write_text(
+                "# 3.6.0 six-lens adversarial audit\n\nOne P1 still open.\n")
+            verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
+            self.assertEqual(verdict, self.m.PENDING, detail)
+
+
 class TestReadinessPackManifest(unittest.TestCase):
     def setUp(self):
         self.g = _load("acm_manifest", "scripts/readiness_pack_manifest.py")

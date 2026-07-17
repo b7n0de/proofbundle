@@ -56,7 +56,9 @@ def audit_artifact_for(repo: Path, version: str) -> str | None:
     if not art_dir.is_dir():
         return None
     ver_token = version.replace(".", "")
-    for f in sorted(art_dir.glob("*.md")):
+    # recursive: the disciplined record lives in a version-scoped subfolder (audit_artifacts/360/...),
+    # which a flat glob("*.md") would miss — a version-scoped subdir is exactly the discipline we locate.
+    for f in sorted(art_dir.rglob("*.md")):
         name = f.name.replace(".", "").replace("_", "")
         body = f.read_text(encoding="utf-8", errors="ignore")
         if (ver_token in name or version in body) and _AUDIT_MARKERS.search(body):

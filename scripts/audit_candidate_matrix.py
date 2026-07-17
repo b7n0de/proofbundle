@@ -52,8 +52,8 @@ _NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL}
 VERSION_UNDER_TEST = "3.6.0"
 
 
-def _read(rel: str) -> str:
-    p = REPO / rel
+def _read(rel: str, base: Path = REPO) -> str:
+    p = base / rel
     return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
@@ -69,14 +69,26 @@ def _json_artifact(rel: str) -> dict | None:
 
 # --- the 33 checks. Each returns (verdict, detail). Wrapped so one erroring check never crashes all. ---
 
-def c1_1_two_ci_gates():
-    t = _read(".github/workflows/published-artifact-gate.yml")
-    if not t:
+def c1_1_two_ci_gates(repo: Path = REPO):
+    # The obligation is TWO named CI gates: a published-artifact gate AND a real repository/test gate.
+    # Each must be its OWN workflow file, so deleting the second gate is falsifiable (a self-referential
+    # substring read of one file could otherwise stay green while the repository gate is gone).
+    pub = _read(".github/workflows/published-artifact-gate.yml", repo)
+    if not pub:
         return FAIL, "published-artifact-gate.yml missing"
-    has_repo = "repo" in t.lower() or "checkout" in t.lower()
-    has_pub = "sdist" in t.lower() or "published" in t.lower() or "cleanroom" in t.lower()
-    return (PASS, "repository-gate + published-artifact-gate present") if (has_repo and has_pub) \
-        else (FAIL, "gate file does not carry both a repo checkout and a published-artifact leg")
+    has_pub = "sdist" in pub.lower() or "published" in pub.lower() or "cleanroom" in pub.lower()
+    if not has_pub:
+        return FAIL, "published-artifact-gate.yml carries no published-artifact leg (sdist/published/cleanroom)"
+    ci = _read(".github/workflows/ci.yml", repo)
+    if not ci:
+        return FAIL, "the second CI gate .github/workflows/ci.yml (repository/test gate) is missing"
+    lo = ci.lower()
+    named_ci = re.search(r"(?m)^\s*name:\s*ci\b", lo) is not None
+    has_test_step = "pytest" in lo or "unittest" in lo or re.search(r"(?m)^\s*run:.*\btest\b", lo) is not None
+    if named_ci and has_test_step:
+        return PASS, ("two named CI gates present: ci.yml (repository/test gate, name: CI + a "
+                      "pytest/test step) + published-artifact-gate.yml (published-artifact leg)")
+    return FAIL, "ci.yml is present but is not a real repository/test gate (needs `name: CI` + a pytest/test step)"
 
 
 def c1_2_reproducible_normaliser():
@@ -344,17 +356,22 @@ def c12_1_pretag_audit():
         else (FAIL, r["reason"])
 
 
-def c12_2_audit_pack_zero_p0p1():
-    # an audit pack for 3.6.0 that itself declares 0 open P0/P1 (the internal audit, NOT the external one)
-    import glob
-    hits = glob.glob(str(REPO / "audit_artifacts" / "**" / "*.md"), recursive=True) + \
-        glob.glob(str(REPO / "docs" / "**" / "*36*audit*.md"), recursive=True)
-    for h in hits:
-        body = Path(h).read_text(encoding="utf-8", errors="ignore")
-        if VERSION_UNDER_TEST in body and re.search(r"\b0\s+(?:open\s+)?P0(?:/P1)?\b", body, re.IGNORECASE):
-            return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(h).name})"
-    return PENDING, ("internal 3.6.0 adversarial audit pack with an explicit '0 open P0/P1' line not yet "
-                     "written (record it before tag)")
+def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
+    # Bound to the disciplined C12.1 locator: the '0 open P0/P1' line must live in the version-scoped
+    # adversarial record that pre_tag_audit_gate.audit_artifact_for identifies (version-scoped +
+    # _AUDIT_MARKERS lens/adversarial gate), NOT in any *.md — a fabricated note in an unrelated file
+    # can no longer satisfy it (the internal audit, NOT the external one).
+    import pre_tag_audit_gate as pta
+    rel = pta.audit_artifact_for(repo, VERSION_UNDER_TEST)
+    if not rel:
+        return PENDING, ("no version-scoped adversarial audit record for "
+                         f"{VERSION_UNDER_TEST} (write the pre-tag audit pack with a lens/adversarial "
+                         "note before tag)")
+    body = _read(rel, repo)
+    if re.search(r"\b0\s+(?:open\s+)?P0(?:/P1)?\b", body, re.IGNORECASE):
+        return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
+    return PENDING, (f"the localized {VERSION_UNDER_TEST} audit record ({Path(rel).name}) carries no "
+                     "explicit '0 open P0/P1' line")
 
 
 def ext_1_external_audit():
