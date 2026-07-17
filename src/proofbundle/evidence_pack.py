@@ -28,12 +28,13 @@ from __future__ import annotations
 import base64
 from typing import Optional
 
-from .anchors_ots import _classify, verify_opentimestamps
+from .anchors_ots import _classify, calendar_operators, calendar_uris, verify_opentimestamps
 
 __all__ = [
     "ots_upgraded_proof_is_self_contained",
     "build_evidence_pack",
     "verify_evidence_pack",
+    "describe_proof",
 ]
 
 
@@ -63,6 +64,7 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *, calendars: list[
     ``height -> block merkle-root hex`` map) is copied into the pack as EVIDENCE only (``frozen`` block,
     WP-A1: never trusted by the verifier). The pack never contains a secret."""
     distinct = sorted(set(calendars))
+    operators = calendar_operators(distinct)
     pack: dict = {
         "type": "opentimestamps-evidence-pack",
         "packVersion": "v0.1",
@@ -71,6 +73,11 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *, calendars: list[
         "selfContained": ots_upgraded_proof_is_self_contained(proof),
         "calendars": distinct,
         "calendarRedundancy": len(distinct),
+        # WP-B1: OPERATOR redundancy (distinct independent operators) is what tolerates an outage or a
+        # defunding — a raw URL count does not, since several URLs may be one operator. Surfaced so a
+        # reviewer sees the >=2-operator redundancy (or its absence) at a glance.
+        "calendarOperators": operators,
+        "operatorRedundancy": len(operators),
         "bundledHeaderEvidence": bool(bundled_headers),
     }
     if bundled_headers:
@@ -96,3 +103,28 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
                 "detail": f"evidence pack is missing or has a non-base64 proof/canonicalRoot: {exc}"}
     frozen = pack.get("frozen") or {}
     return verify_opentimestamps(proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
+
+
+def describe_proof(proof: bytes) -> dict:
+    """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
+    upgrade report. Returns ``{state, selfContained, bitcoinHeights, calendars, calendarOperators,
+    operatorRedundancy}`` where ``state`` is one of ``pending`` | ``upgraded`` | ``empty`` |
+    ``malformed`` | ``no_lib``. Read-only and fail-closed: it reports state, it never trusts the proof
+    (confirmation is still the relying party's job via ``verify``/``verify_evidence_pack``)."""
+    base = {"state": "malformed", "selfContained": False, "bitcoinHeights": [],
+            "calendars": [], "calendarOperators": [], "operatorRedundancy": 0}
+    try:
+        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
+        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+    except ImportError:
+        return {**base, "state": "no_lib"}
+    try:
+        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except Exception:
+        return base
+    has_bitcoin, heights, has_pending = _classify(dtf.timestamp)
+    cals = calendar_uris(proof)
+    ops = calendar_operators(cals)
+    state = "upgraded" if has_bitcoin else ("pending" if has_pending else "empty")
+    return {"state": state, "selfContained": has_bitcoin, "bitcoinHeights": sorted(heights),
+            "calendars": cals, "calendarOperators": ops, "operatorRedundancy": len(ops)}

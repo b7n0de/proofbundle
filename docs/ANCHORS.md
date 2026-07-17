@@ -102,6 +102,17 @@ TSA policy OID is pinned. A relying party who cares which TSA policy issued the 
 `anchors.trusted_tsa_policy_oids`, or the producer declares a stricter-only `frozen.policyOid`; a token
 whose `TSTInfo.policy` differs then fails closed (a malformed OID string fails closed too).
 
+**RFC 3161 as a first-class legal second anchor (the eIDAS hedge).** RFC 3161 is not a lesser cousin of
+OpenTimestamps, it is the complementary trade-off: centralized and trust-bearing (you trust the TSA) but
+immediate (no wait for a Bitcoin confirmation) and legally recognized. A timestamp from an eIDAS
+QUALIFIED Time-Stamping Authority (profile ETSI EN 319 422, RFC 5816) carries a legal presumption of the
+date and time it shows under eIDAS (Regulation 910/2014, Article 41), recognized across EU Member States.
+So a receipt can carry BOTH anchors: OpenTimestamps for the neutral, trust-minimized, offline-verifiable
+Bitcoin existence proof, and a qualified RFC 3161 token for an immediate, legally recognized second
+opinion. They complement each other; neither replaces the other, and neither proves anything about the
+correctness of the timestamped content. The anchor registry stays open and fail-closed: an unknown anchor
+`type` is a FAIL, so adding a legal TSA anchor never weakens the verify contract.
+
 ### `opentimestamps`
 
 An OpenTimestamps proof anchored in the Bitcoin blockchain. Honest lifecycle: a fresh stamp goes to
@@ -118,6 +129,69 @@ for verification."*
 block height to that block's `hashMerkleRoot` in **internal (node) byte order** as returned by
 `bitcoind` — NOT the byte-reversed order that block explorers display. Use the internal order or every
 root comparison fails. (Confirmed correct on in-toto/attestation#565 · proofbundle#7.)
+
+**Library vs client (do not confuse the two).** The `[anchors]` extra installs the OpenTimestamps
+`opentimestamps` LIBRARY (`python-opentimestamps`, the consensus-critical `opentimestamps.core`
+modules), pinned on the 0.4.x line. The separate `opentimestamps-client` CLI tool is a DIFFERENT PyPI
+package on the 0.7.x line and is not a dependency of proofbundle. proofbundle only needs the library to
+deserialize and classify a proof; the actual stamping and the `ots upgrade` network step are done by the
+client (or your own tooling) out of band.
+
+### OTS lifecycle at the CLI, and calendar independence
+
+The `proofbundle anchor` group turns the honest OTS lifecycle into a small offline toolset. The stamp and
+the `ots upgrade` step are network and time gated (a Bitcoin confirmation takes time), so they live in the
+OpenTimestamps client; proofbundle owns the two steps that need no calendar:
+
+```bash
+# 1. (out of band) stamp and, after a Bitcoin confirmation, upgrade with the OpenTimestamps client:
+#    ots stamp receipt.canonical-root ; ... wait ... ; ots upgrade receipt.canonical-root.ots
+# 2. bundle the UPGRADED proof into a self-contained, calendar-independent evidence pack:
+proofbundle anchor upgrade --proof proof.ots --target-file target.bytes --out pack.json
+# 3. verify the pack OFFLINE against a relying-party Bitcoin header (your own node or a trusted checkpoint):
+proofbundle anchor verify-pack pack.json --bitcoin-header 800000:<MERKLEROOT_HEX_INTERNAL_ORDER>
+# transparency, no crypto trust: show the lifecycle state and which calendars carry a proof:
+proofbundle anchor inspect proof.ots
+```
+
+Exit contract: `anchor upgrade` exits 3 (never a fake pass) on a still-PENDING proof and writes no pack;
+`anchor verify-pack` exits 0 confirmed, 3 pending or upgraded-without-a-relying-party-header (honest
+not-pass), 1 hard fail (unbound / block mismatch / malformed pack), 2 malformed input. A calendar outage
+or a calendar defunding therefore affects only STAMPING availability, never the verifiability of a proof
+that is already upgraded: `verify-pack` opens no socket, and it never trusts the pack's own bundled header
+(a producer could self-commit a backdated one), only a header the relying party supplies.
+
+### Calendar transparency and running your own calendar (WP-B)
+
+The default OpenTimestamps configuration submits to three calendar endpoints across at least two
+independent operators (`a`/`b.pool.opentimestamps.org` operated by OpenTimestamps and
+`a.pool.eternitywall.com` operated by Eternity Wall), and requires at least two to reply, so any single
+calendar can be down with no effect. `anchor inspect` and the evidence pack surface WHICH calendars carry
+a proof and how many INDEPENDENT operators back it (`operatorRedundancy`), because two URLs on one
+operator are one point of failure, not two.
+
+A relying party who does not want to depend on the public calendars can run or pin their own. The
+OpenTimestamps client reads a calendar allowlist (its `--calendar` flags and its `otsclient` config), and
+a private or curated calendar server is the `opentimestamps-server` package pointed at your own Bitcoin
+node. Record the chosen calendars with `anchor upgrade --calendar <url>` so the pack documents its own
+redundancy set. proofbundle imposes no calendar; it records the ones you used.
+
+### Getting a trusted Bitcoin header for verification (WP-C)
+
+Confirming an upgraded proof needs the attested block's Merkle root, and that value is the last trust
+assumption. Three honest ways to obtain it, strongest first:
+
+- **Your own (pruned) Bitcoin node.** `bitcoin-cli getblockheader <hash>` gives `merkleroot` in internal
+  order; a pruned node keeps all headers, so this needs little disk. This removes third-party trust.
+- **A trusted checkpoint you ship.** A relying party may bundle a small, offline set of height to
+  Merkle-root pairs curated ahead of time. This trades the node for whoever curated the checkpoint, which
+  is why we surface it as an explicit assumption rather than hiding it.
+- **Several independent explorers, cross-checked.** Reading the same height from more than one public
+  explorer and requiring agreement is a weaker fallback (explorers can collude or err); reverse the
+  displayed big-endian root to internal order before use.
+
+The bundle's own frozen header is never a substitute for any of these: it is producer-controlled evidence,
+reported as `frozenEvidence`, never trusted.
 
 ## Extension mechanism — bring your own anchor type
 

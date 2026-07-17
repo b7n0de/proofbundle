@@ -1,0 +1,1 @@
+proofbundle synthetic upgraded OpenTimestamps vector (SHA-256 only, ripemd160-free confirmed-path fixture)

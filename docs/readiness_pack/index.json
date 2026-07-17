@@ -10,8 +10,11 @@
       "closes_external_open_problem": "AuditWeave open problem (a): 'tamper-evident, not resistant — actors controlling storage could recompute chains'.",
       "evidence_ordered": [
         {"ref": "docs/readiness_pack/tamper_resistance.md", "kind": "argument", "note": "the resistance story, stated before the auditor asks"},
-        {"ref": "src/proofbundle/anchors_ots.py", "kind": "code", "note": "OpenTimestamps (Bitcoin) external anchor verify"},
-        {"ref": "src/proofbundle/anchors_rfc3161.py", "kind": "code", "note": "RFC 3161 TSA external anchor verify"},
+        {"ref": "docs/readiness_pack/calendar_independence.md", "kind": "argument", "note": "OTS calendar-independence: an upgraded proof verifies offline against a relying-party Bitcoin header; donation-financed calendars affect stamping availability, not verifiability; RFC 3161 is the immediate legal second anchor (WP-E)"},
+        {"ref": "src/proofbundle/anchors_ots.py", "kind": "code", "note": "OpenTimestamps (Bitcoin) external anchor verify + calendar transparency (calendar_uris / operators)"},
+        {"ref": "src/proofbundle/evidence_pack.py", "kind": "code", "note": "self-contained evidence pack: build + OFFLINE verify (no socket), the calendar-independent verify path"},
+        {"ref": "src/proofbundle/anchors_rfc3161.py", "kind": "code", "note": "RFC 3161 TSA external anchor verify (the eIDAS-recognized legal second anchor)"},
+        {"ref": "tests/test_ots_calendar_hardening.py", "kind": "tests", "note": "calendar outage / collusion+backdating / pending-never-pass / operator redundancy, plus the ripemd160-free confirmed-path fixture"},
         {"ref": "conformance/relation", "kind": "vectors", "note": "F1 corpus incl. forged-anchor-own-frozen negative vector"}
       ],
       "open_questions": ["Q1_ANCHOR_TRUST_ROOT_DISTRIBUTION"]

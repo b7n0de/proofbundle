@@ -1071,6 +1071,204 @@ def _cmd_evalcard(args: argparse.Namespace) -> int:
         return 2
 
 
+# ── anchor operations (WP-A/B/C): OpenTimestamps evidence-pack lifecycle ─────────────────────────────
+def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
+    """The exact 32-byte root the OTS proof must commit to: SHA-256 of ``--target-file`` OR the raw
+    ``--canonical-root-hex``. Exactly one is required (malformed input → ValueError → exit 2)."""
+    import hashlib  # noqa: PLC0415
+    tf = getattr(args, "target_file", None)
+    rh = getattr(args, "canonical_root_hex", None)
+    if tf and rh:
+        raise ValueError("give either --target-file or --canonical-root-hex, not both")
+    if tf:
+        with open(tf, "rb") as handle:
+            return hashlib.sha256(handle.read()).digest()
+    if rh:
+        root = bytes.fromhex(rh.strip().lower())
+        if len(root) != 32:
+            raise ValueError("--canonical-root-hex must be a 32-byte (64 hex char) SHA-256")
+        return root
+    raise ValueError("need --target-file or --canonical-root-hex (the exact bytes the proof stamps)")
+
+
+def _parse_bundled_headers(specs) -> dict:
+    """Parse repeatable ``HEIGHT:MERKLEROOT_HEX`` into a ``{height: root_hex}`` map for the pack's frozen
+    EVIDENCE block (WP-A1: producer-controlled, never trusted at verify). Malformed → ValueError."""
+    out: dict = {}
+    for spec in specs or []:
+        if ":" not in spec:
+            raise ValueError(f"--bundled-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
+        height, _, root_hex = spec.partition(":")
+        height, root_hex = height.strip(), root_hex.strip().lower()
+        if not height.isdigit():
+            raise ValueError(f"--bundled-header {spec!r}: height must be a non-negative integer")
+        try:
+            if len(bytes.fromhex(root_hex)) != 32:
+                raise ValueError
+        except ValueError as exc:
+            raise ValueError(f"--bundled-header {spec!r}: merkle root must be 32-byte hex") from exc
+        out[height] = root_hex
+    return out
+
+
+def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
+    """WP-A1: bundle an UPGRADED OpenTimestamps proof into a self-contained, calendar-independent
+    evidence pack. A still-PENDING proof is refused (exit 3, never a fake pass): upgrading it (embedding
+    the Bitcoin block-header path) needs the OpenTimestamps client + a Bitcoin confirmation, which is
+    time-gated and outside this tool. Structural binding is fail-closed here (exit 2 on unbound)."""
+    from .anchors_ots import calendar_uris, verify_opentimestamps  # noqa: PLC0415
+    from .evidence_pack import (  # noqa: PLC0415
+        build_evidence_pack, describe_proof, ots_upgraded_proof_is_self_contained,
+    )
+    try:
+        with open(args.proof, "rb") as handle:
+            proof = handle.read()
+        canonical_root = _resolve_canonical_root(args)
+        # fail-closed structural binding: the proof MUST commit to exactly this root (a mismatch is a
+        # malformed request, not a lifecycle state). needs_rp_trust/pending here are fine — they mean
+        # bound-but-not-yet-confirmed; only unbound/malformed are hard binding errors.
+        binding = verify_opentimestamps(proof, canonical_root, frozen={})
+        if binding["status"] in ("unbound", "malformed", "no_lib"):
+            print(f"ERROR: {binding['detail']}", file=sys.stderr)
+            return 2
+        info = describe_proof(proof)
+        if not ots_upgraded_proof_is_self_contained(proof):
+            # §7.1 invariant at the CLI: PENDING (or empty) is never a pass and never gets a pack.
+            msg = {"schema": "proofbundle.anchor_upgrade.v1", "ok": False, "wrote": None,
+                   "state": info["state"], "selfContained": False,
+                   "detail": ("proof is not upgraded yet — no self-contained pack written. Upgrading a "
+                              "pending proof embeds the Bitcoin block-header path and needs the "
+                              "OpenTimestamps client after a Bitcoin confirmation (time-gated): run "
+                              "`ots upgrade <proof>.ots`, then re-run `proofbundle anchor upgrade`."),
+                   "calendars": info["calendars"], "calendarOperators": info["calendarOperators"]}
+            if getattr(args, "json", False):
+                print(json.dumps(msg, indent=2, ensure_ascii=False))
+            else:
+                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — {msg['detail']}")
+                if info["calendars"]:
+                    print(f"  calendars carrying it: {', '.join(info['calendars'])} "
+                          f"(operators: {', '.join(info['calendarOperators'])})")
+            return 3
+        calendars = list(getattr(args, "calendar", None) or []) or calendar_uris(proof)
+        bundled = _parse_bundled_headers(getattr(args, "bundled_header", None))
+        pack = build_evidence_pack(canonical_root, proof, calendars=calendars,
+                                   bundled_headers=bundled or None)
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(pack, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        report = {"schema": "proofbundle.anchor_upgrade.v1", "ok": True, "wrote": args.out,
+                  "state": "upgraded", "selfContained": True,
+                  "bitcoinHeights": info["bitcoinHeights"],
+                  "calendars": pack["calendars"], "calendarOperators": pack["calendarOperators"],
+                  "operatorRedundancy": pack["operatorRedundancy"],
+                  "bundledHeaderEvidence": pack["bundledHeaderEvidence"],
+                  "detail": ("self-contained evidence pack written — verifiable OFFLINE against a "
+                             "relying-party Bitcoin header, no calendar needed")}
+        if getattr(args, "json", False):
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            print(f"[anchor upgrade] OK — self-contained pack written to {args.out}")
+            print(f"  Bitcoin height(s): {report['bitcoinHeights']}  ·  "
+                  f"calendars: {report['operatorRedundancy']} operator(s) "
+                  f"{report['calendarOperators']}")
+            print("  verify offline:  proofbundle anchor verify-pack "
+                  f"{args.out} --bitcoin-header <HEIGHT:MERKLEROOT_HEX>")
+        return 0
+    except (ProofBundleError, OSError, ValueError, KeyError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
+    """WP-A2/WP-C: verify an evidence pack OFFLINE (no network, no calendar). Confirms only against a
+    relying-party Bitcoin header (``--bitcoin-header``; the pack's own bundled header is never trusted).
+    Exit 0 confirmed · 3 pending / needs-relying-party-header (honest not-pass) · 1 hard fail
+    (unbound / block mismatch / malformed pack) · 2 malformed input."""
+    from .evidence_pack import verify_evidence_pack  # noqa: PLC0415
+    try:
+        with open(args.pack, encoding="utf-8") as handle:
+            pack = json.load(handle)
+        if not isinstance(pack, dict):
+            raise ValueError("evidence pack must be a JSON object")
+        rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
+        res = verify_evidence_pack(pack, rp_trust=rp)
+        out = {"schema": "proofbundle.anchor_verify_pack.v1", "ok": bool(res.get("ok")),
+               "status": res.get("status"), "warn": bool(res.get("warn")),
+               "selfContained": bool(pack.get("selfContained")),
+               "calendars": pack.get("calendars", []),
+               "calendarOperators": pack.get("calendarOperators", []),
+               "detail": res.get("detail", "")}
+        for f in ("rp_trusted", "needs_rp_trust", "frozenEvidence", "trustedTime"):
+            if f in res:
+                out[f] = res[f]
+        if getattr(args, "json", False):
+            print(json.dumps(out, indent=2, ensure_ascii=False))
+        else:
+            verdict = "CONFIRMED" if out["ok"] else out["status"].upper()
+            print(f"[anchor verify-pack] {verdict} — {out['detail']}")
+        if out["ok"]:
+            return 0
+        # pending / needs-RP-header: not corruption, but the relying-party gate is unmet (mirrors
+        # verify --require-anchor exit 3). A hard fail (unbound/mismatch/malformed pack) is exit 1.
+        if res.get("warn") or res.get("status") in ("needs_rp_trust", "upgraded_unverified", "pending"):
+            return 3
+        return 1
+    except (ProofBundleError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
+    """WP-B1 transparency: print the lifecycle state (pending/upgraded/self-contained) and the
+    calendars/operators carrying an OpenTimestamps proof (.ots) or evidence pack. Read-only, no crypto
+    trust — it reports state, it never confirms. Exit 0 unless the file cannot be read (exit 2)."""
+    import base64 as _b64  # noqa: PLC0415
+    from .evidence_pack import describe_proof  # noqa: PLC0415
+    try:
+        with open(args.path, "rb") as handle:
+            raw = handle.read()
+        pack = None
+        try:
+            maybe = json.loads(raw.decode("utf-8"))
+            if isinstance(maybe, dict) and maybe.get("type") == "opentimestamps-evidence-pack":
+                pack = maybe
+        except (ValueError, UnicodeDecodeError):
+            pack = None
+        if pack is not None:
+            proof = _b64.b64decode(pack["proof"], validate=True)
+            info = describe_proof(proof)
+            info["source"] = "evidence_pack"
+            info["packSelfContained"] = bool(pack.get("selfContained"))
+            # an UPGRADED proof retains no pending calendar attestation, so describe_proof surfaces no
+            # calendars — but the PACK records the redundancy set it was built with (WP-B transparency).
+            # Prefer the pack's recorded set when the proof itself carries none, so redundancy stays visible.
+            if not info["calendars"] and pack.get("calendars"):
+                info["calendars"] = list(pack.get("calendars") or [])
+                info["calendarOperators"] = list(pack.get("calendarOperators") or [])
+                info["operatorRedundancy"] = int(pack.get("operatorRedundancy") or 0)
+                info["calendarsFrom"] = "pack_record"
+        else:
+            info = describe_proof(raw)
+            info["source"] = "ots_proof"
+        info["schema"] = "proofbundle.anchor_inspect.v1"
+        if getattr(args, "json", False):
+            print(json.dumps(info, indent=2, ensure_ascii=False))
+        else:
+            print(f"[anchor inspect] state={info['state']}  self-contained={info['selfContained']}  "
+                  f"heights={info['bitcoinHeights']}")
+            if info["calendars"]:
+                print(f"  calendars: {', '.join(info['calendars'])}")
+                print(f"  operators: {', '.join(info['calendarOperators'])} "
+                      f"(operator redundancy {info['operatorRedundancy']})")
+            else:
+                print("  calendars: none retained in the proof "
+                      "(an upgraded proof no longer needs a calendar to verify)")
+        return 0
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     import base64 as _b64  # noqa: PLC0415
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2343,6 +2541,67 @@ def build_parser() -> argparse.ArgumentParser:
     rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)")
     rs_inspect.add_argument("receipt", help="path to a DSSE statement or a raw in-toto Statement")
     rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
+
+    # ── anchor operations (OTS hardening + calendar-risk, EXPERIMENTAL, the [anchors] extra) ──
+    anchor = sub.add_parser(
+        "anchor",
+        help="external time-anchor operations (EXPERIMENTAL): package an UPGRADED OpenTimestamps proof "
+             "into a self-contained, calendar-independent evidence pack; verify one OFFLINE; inspect "
+             "the lifecycle and the calendars carrying it")
+    ansub = anchor.add_subparsers(dest="anchor_command", required=True)
+
+    a_up = ansub.add_parser(
+        "upgrade",
+        help="bundle an UPGRADED OpenTimestamps proof into a self-contained evidence pack "
+             "(calendar-independent verification). A still-PENDING proof is refused (exit 3)",
+        description=("Exit codes: 0 self-contained pack written · 2 malformed input / unbound proof · "
+                     "3 proof not upgraded yet (PENDING — upgrading embeds the Bitcoin block-header "
+                     "path and needs the OpenTimestamps client after a Bitcoin confirmation, which is "
+                     "time-gated; run `ots upgrade` first). The pack verifies OFFLINE against a "
+                     "relying-party Bitcoin header — no calendar needed."))
+    a_up.add_argument("--proof", required=True, help="path to the detached OpenTimestamps proof (.ots)")
+    a_up.add_argument("--target-file", dest="target_file", default=None,
+                      help="the exact bytes that were stamped; its SHA-256 is the canonical root the "
+                           "proof must commit to")
+    a_up.add_argument("--canonical-root-hex", dest="canonical_root_hex", default=None,
+                      help="the canonical root as 64-char hex (alternative to --target-file)")
+    a_up.add_argument("--calendar", action="append", default=None, metavar="URL",
+                      help="a calendar URL that carries the stamp (repeatable); omitted → auto-detected "
+                           "from the proof's pending attestations (transparency / redundancy evidence)")
+    a_up.add_argument("--bundled-header", dest="bundled_header", action="append", default=None,
+                      metavar="HEIGHT:MERKLEROOT_HEX",
+                      help="OPTIONAL Bitcoin block header (internal byte order) copied into the pack as "
+                           "EVIDENCE only — never trusted at verify (WP-A1); the relying party still "
+                           "supplies their own header to confirm")
+    a_up.add_argument("--out", required=True, help="output path for the evidence pack JSON")
+    a_up.add_argument("--json", action="store_true", help="machine readable output")
+    a_up.set_defaults(func=_cmd_anchor_upgrade)
+
+    a_vp = ansub.add_parser(
+        "verify-pack",
+        help="verify an evidence pack OFFLINE (no network, no calendar); confirms only against a "
+             "relying-party Bitcoin header",
+        description=("Exit codes: 0 confirmed · 1 hard fail (unbound / block mismatch / malformed "
+                     "pack) · 2 malformed input · 3 pending or upgraded-without-a-relying-party-header "
+                     "(honest not-pass). The pack's OWN bundled header is producer-controlled evidence "
+                     "and is never trusted (WP-A1); supply your own header from a pruned Bitcoin node "
+                     "or a trusted checkpoint."))
+    a_vp.add_argument("pack", help="path to the evidence pack JSON")
+    a_vp.add_argument("--bitcoin-header", dest="bitcoin_header", action="append", default=None,
+                      metavar="HEIGHT:MERKLEROOT_HEX",
+                      help="relying-party-supplied Bitcoin block header (internal byte order, from your "
+                           "own pruned node or a trusted checkpoint); the pack's frozen header is never "
+                           "trusted")
+    a_vp.add_argument("--json", action="store_true", help="machine readable output")
+    a_vp.set_defaults(func=_cmd_anchor_verify_pack)
+
+    a_in = ansub.add_parser(
+        "inspect",
+        help="print the lifecycle state (pending/upgraded/self-contained) and the calendars/operators "
+             "carrying an OpenTimestamps proof (.ots) or evidence pack — transparency, no crypto trust")
+    a_in.add_argument("path", help="path to a detached OTS proof (.ots) or an evidence pack JSON")
+    a_in.add_argument("--json", action="store_true", help="machine readable output")
+    a_in.set_defaults(func=_cmd_anchor_inspect)
 
     return parser
 

@@ -113,3 +113,72 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
             "frozenEvidence": bool(frozen_headers),
             "detail": f"OTS proof is upgraded (Bitcoin height {heights}) but the relying party supplied no "
                       "block header for that height; not claiming a pass"}
+
+
+# ── Calendar transparency (WP-B1) ──────────────────────────────────────────────────────────────────
+# A stamp is created with the aid of MULTIPLE remote calendars — the OpenTimestamps client submits to
+# three default endpoints across at least two independent operators (a/b.pool.opentimestamps.org run by
+# OpenTimestamps, a.pool.eternitywall.com run by Eternity Wall), and requires at least two to reply.
+# Surfacing WHICH calendars carry a proof is the redundancy evidence: an outage or defunding of any one
+# calendar removes none of the others' PendingAttestations, and verifying an UPGRADED proof needs no
+# calendar at all. These helpers are pure transparency: they read a proof, never trust it, never raise.
+
+_KNOWN_CALENDAR_OPERATORS = (
+    ("opentimestamps.org", "opentimestamps"),
+    ("eternitywall.com", "eternitywall"),
+    ("catallaxy.com", "catallaxy"),
+)
+
+
+def calendar_operator(uri: str) -> str:
+    """Best-effort operator label for a calendar URI. Operator redundancy (distinct OPERATORS), not URL
+    count, is what tolerates an outage or a defunding — two URLs on one operator are one point of
+    failure. Maps a known calendar host to its operator; an unknown host falls back to its last two
+    host labels so a distinct third-party or self-hosted calendar still counts as a distinct operator.
+    Never raises (a transparency helper must not break a verify path)."""
+    if not isinstance(uri, str) or not uri:
+        return "unknown"
+    from urllib.parse import urlparse  # noqa: PLC0415
+    host = (urlparse(uri if "://" in uri else "https://" + uri).hostname or "").lower()
+    if not host:
+        return "unknown"
+    for needle, label in _KNOWN_CALENDAR_OPERATORS:
+        if host == needle or host.endswith("." + needle):
+            return label
+    parts = [p for p in host.split(".") if p]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def calendar_uris(proof: bytes) -> list[str]:
+    """The distinct calendar URIs whose PendingAttestations carry ``proof`` (WP-B1 transparency).
+    Fail-closed: without the ``[anchors]`` extra, or on a malformed proof, returns ``[]`` (never raises).
+    An UPGRADED proof that no longer retains pending attestations honestly returns ``[]`` — its calendar
+    dependency is already discharged, which is precisely the calendar-independence being surfaced."""
+    try:
+        from opentimestamps.core.notary import PendingAttestation  # noqa: PLC0415
+        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
+        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+    except ImportError:
+        return []
+    try:
+        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except Exception:   # malformed → no calendars, never raise (fail-closed transparency)
+        return []
+    uris: set[str] = set()
+    for _msg, att in dtf.timestamp.all_attestations():
+        if isinstance(att, PendingAttestation):
+            uri = getattr(att, "uri", None)
+            if isinstance(uri, bytes):
+                try:
+                    uri = uri.decode("utf-8")
+                except Exception:
+                    continue
+            if isinstance(uri, str) and uri:
+                uris.add(uri)
+    return sorted(uris)
+
+
+def calendar_operators(uris) -> list[str]:
+    """The distinct, sorted operator labels behind a list of calendar URIs (WP-B1). ``len(...)`` is the
+    OPERATOR redundancy — the number that survives an outage, unlike a raw URL count."""
+    return sorted({calendar_operator(u) for u in (uris or [])})

@@ -91,6 +91,33 @@
       "fetched": "2026-07-14",
       "license": "public Bitcoin blockchain consensus data (no copyright license asserted); the merkle_root field is used, byte-reversed to Bitcoin's internal little-endian wire order, as the relying-party trust header for the OTS confirmed-path test",
       "verification": "the block's height/merkle_root pairing was independently confirmed live against https://blockstream.info/api/block-height/358391 and the resulting little-endian merkle root was confirmed to make proofbundle.anchors_ots.verify_opentimestamps() return status=confirmed/ok=True against hello-world.txt.ots (manual out-of-band check with the OpenSSL legacy provider enabled for ripemd160; see test module docstring)"
+    },
+    {
+      "filename": "synthetic-upgraded-sha256.txt",
+      "sha256": "4b5f89d1512770007c8bc39e9b494ed72c95a98e9d4f9ecce33ccc57f186d3cc",
+      "source_url": "proofbundle-generated (scripts/gen_synthetic_ots_fixture.py)",
+      "source_ref_or_commit": "SYNTHETIC - NOT an external OpenTimestamps vector; the target bytes stamped by the synthetic confirmed-path fixture",
+      "fetched": "2026-07-16",
+      "license": "proofbundle's own MIT test asset",
+      "note": "WP-D1 ripemd160-free confirmed-path fixture. Regenerate with: PYTHONPATH=src python scripts/gen_synthetic_ots_fixture.py"
+    },
+    {
+      "filename": "synthetic-upgraded-sha256.txt.ots",
+      "sha256": "842d7292685c7e981394ba5866d02f0f937568e0ba1f8102cbaa5c0b40958863",
+      "source_url": "proofbundle-generated (scripts/gen_synthetic_ots_fixture.py)",
+      "source_ref_or_commit": "SYNTHETIC - NOT an external OpenTimestamps vector. A DetachedTimestampFile whose op path is SHA-256 only and which carries one BitcoinBlockHeaderAttestation, so it deserializes/verifies WITHOUT ripemd160 (the exact gap that makes hello-world.txt.ots @skipUnless(ripemd160)).",
+      "fetched": "2026-07-16",
+      "license": "proofbundle's own MIT test asset",
+      "note": "synthetic upgraded proof; its attested 'merkle root' is the file's SHA-256 (not a real Bitcoin block). Exercises proofbundle's OWN verifier lifecycle (binding + upgraded classification + RP-header confirmation), never a claim about a real block."
+    },
+    {
+      "filename": "synthetic-upgraded-sha256.block.json",
+      "sha256": "0f692dea705befd23357513c35100c518c1e8a12f53cec76ea93991c87648ba7",
+      "source_url": "proofbundle-generated (scripts/gen_synthetic_ots_fixture.py)",
+      "source_ref_or_commit": "SYNTHETIC relying-party trust header for the synthetic confirmed-path fixture - NOT a real Bitcoin block",
+      "fetched": "2026-07-16",
+      "license": "proofbundle's own MIT test asset",
+      "note": "the value supplied as rp_trust.bitcoin_block_headers to reach status=confirmed offline in the ripemd160-free confirmed-path test"
     }
   ]
 }

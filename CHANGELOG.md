@@ -6,6 +6,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (OTS hardening + calendar-risk — anchor-longevity moat, EXPERIMENTAL, the `[anchors]` extra)
+- **`proofbundle anchor` CLI group (WP-A/B/C):** the honest OpenTimestamps lifecycle as an offline
+  toolset. `anchor upgrade` bundles an UPGRADED proof into a self-contained, calendar-independent
+  evidence pack (a still-PENDING proof is refused with exit 3 and writes nothing, never a fake pass);
+  `anchor verify-pack` verifies a pack OFFLINE (no socket) against a relying-party Bitcoin header
+  (exit 0 confirmed / 3 pending-or-needs-header / 1 hard fail / 2 malformed); `anchor inspect` prints
+  the lifecycle state and the calendars/operators carrying a proof (transparency, no crypto trust).
+  New CLI commands in `src/proofbundle/cli.py`; the pack mechanism (`src/proofbundle/evidence_pack.py`)
+  gains `describe_proof`. WP-A1 boundary kept: the pack's own bundled/frozen header is never trusted, so
+  a colluding or backdating producer cannot self-certify.
+- **Calendar transparency (WP-B):** `anchors_ots.calendar_uris` / `calendar_operator` /
+  `calendar_operators` surface WHICH calendars carry a proof and how many INDEPENDENT operators back it
+  (`operatorRedundancy`), because two URLs on one operator are one point of failure, not two. The
+  evidence pack records `calendarOperators` / `operatorRedundancy`. Docs (`docs/ANCHORS.md`) add how to
+  run or pin your own calendar and how to obtain a trusted Bitcoin header for verification.
+- **ripemd160-free confirmed-path fixture (WP-D1):** `tests/fixtures/ots/synthetic-upgraded-sha256.*`
+  (generator `scripts/gen_synthetic_ots_fixture.py`), a SHA-256-only upgraded proof that deserializes
+  and confirms WITHOUT ripemd160, so the confirmed/self-contained OTS path has an UNCONDITIONAL
+  regression in the cleanroom pytest where the ripemd160-gated external vector (`hello-world.txt.ots`)
+  is honestly skipped. Pinned in `PROVENANCE.json`, labelled synthetic (No-Fake, not an external vector).
+- **RFC 3161 framed as a first-class legal second anchor (WP-D3):** `docs/ANCHORS.md` documents the
+  eIDAS/QTSP hedge (Regulation 910/2014 Article 41, ETSI EN 319 422 / RFC 5816) as the complementary,
+  immediate, legally recognized anchor alongside the trust-minimized OpenTimestamps one. The anchor
+  registry stays open and fail-closed (an unknown type is a FAIL).
+- **Readiness-pack calendar-independence paragraph (WP-E):**
+  `docs/readiness_pack/calendar_independence.md`, wired into `index.json` conclusion C1, states the four
+  facts (calendar-independent verification, calendar fragility affects only stamping, verification needs
+  a Bitcoin header source, RFC 3161 legal second anchor) before an external audit asks.
+
+### Changed (OTS hardening)
+- **`opentimestamps` pin upper-bounded (WP-D2):** the `[anchors]` extra now requires
+  `opentimestamps>=0.4.5,<0.5` (the consensus-critical `python-opentimestamps` LIBRARY on the 0.4.x
+  line), so a future 0.5 wire/API change is a deliberate opt-in, not a silent break. Documented that the
+  `opentimestamps-client` CLI tool (0.7.x) is a SEPARATE package and not a proofbundle dependency.
+
 ### Added (relation-statement/v0.1 3.5.0 — standalone profile + Rust parity, still EXPERIMENTAL)
 - **`relation-statement/v0.1` standalone profile (WP-A):** a DSSE-signed statement OVER a
   target receipt, carrying EXACTLY ONE typed edge and no decision/outcome payload of its own —

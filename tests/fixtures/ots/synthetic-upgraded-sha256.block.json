@@ -1,0 +1,6 @@
+{
+  "height": 800000,
+  "merkle_root_internal_le_hex": "4b5f89d1512770007c8bc39e9b494ed72c95a98e9d4f9ecce33ccc57f186d3cc",
+  "synthetic": true,
+  "note": "SYNTHETIC relying-party trust header \u2014 NOT a real Bitcoin block. The value is the attestation's committed message (the file's SHA-256), which the confirmed-path test supplies as rp_trust.bitcoin_block_headers to reach status=confirmed offline."
+}
