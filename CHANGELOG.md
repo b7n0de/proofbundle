@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - audit-candidate (BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.0 is **NOT** stable, audited, or production-ready. The only
+progress claim is **audit-candidate: all internal assurance gates are green; the sole remaining gate to
+stable is an independent external security audit**. 4.0.0-stable = 3.6.0 + that external audit closed +
+findings accepted + relation wire-freeze. This section was produced under the six-lens / adversarial
+master-prompt-v2 pre-tag audit discipline (Front-Load §7); that INTERNAL audit is explicitly not a
+substitute for the external one.
+
+### Added (audit-candidate assurance, EXT §10 minus the external audit)
+- **33-check audit-candidate matrix (`scripts/audit_candidate_matrix.py`):** one machine-checkable
+  check per §9 acceptance obligation, orchestrating the foundation gates (formal model, type-confusion,
+  rust-parity, readiness pack, claims-hygiene, test-manifest, fuzz-soak). Honest verdict vocabulary
+  (PASS / PENDING_JUSTIFIED / DATA_BLOCKED / EXTERNAL_PENDING / FAIL) — a DATA_BLOCKED (needs
+  cargo/24h-soak/build-backend) is never a fake PASS, and the single external audit is EXTERNAL_PENDING.
+- **Trust-Pack payloadType-binding defense-in-depth (O7):** `verify_trust_pack` now pins the DSSE
+  envelope `payloadType` field fail-closed against the in-toto statement type (the PAE already bound the
+  signed bytes to the type; this closes the unexamined field for a downstream consumer). Negative
+  vectors in `tests/test_trust_pack_payloadtype_negatives.py`. Formal obligation O7 stays **RESERVED**
+  in `formal/model.py` — code-enforced and vector-tested, not a fabricated proof.
+- **WP-B locked test manifest (`scripts/test_manifest_gate.py` + `tests/test_manifest_lock.json`):**
+  pytest is the normative runner; a drop below the collected-test floor or any collection error is a CI
+  FAIL (no silent test schwund), and the pytest-only (unittest-invisible) module class is floor-locked.
+- **WP-D fuzz-soak (`scripts/fuzz_soak.py`):** a bounded, wall-clock soak over every AST-discovered
+  verifier class asserting never-raise + never-false-accept (0 crash / 0 false-accept on the recorded
+  run, hundreds of thousands of iterations); the four EXT robustness classes fixed as regression
+  vectors; the continuous coverage-guided leg is `.clusterfuzzlite/` + `fuzz/fuzz_verifiers.py`
+  (Atheris). The full 24h soak is an operational artifact (DATA_BLOCKED until an artifact records it).
+- **WP-C differential evidence:** `crosscheck.py --matrix` writes the reproducible Python<->Rust matrix
+  (40 relation vectors + the 54-case corpus reproduced independently); `docs/readiness_pack/`
+  `rust_parity_scope.md` declares the deliberately-PENDING Rust surface (No-Fake, no fake 100%).
+- **WP-G external-audit readiness pack (3.6.0 slot filled):** reproduction runbook, auditor open-points
+  list, threat-model delta, differential-matrix doc, SHA-256 pack manifest + advisory proofbundle
+  self-receipt (`scripts/readiness_pack_manifest.py`).
+- **Claims-hygiene extended (§9 criterion 11):** the forbidden list now catches the
+  `production-ready` / `externally audited` / `has-been-audited` claim class outside a negation; the
+  release-stability claim is guarded mechanically by the pyproject Development-Status classifier
+  (stays 4 - Beta).
+
 ## [Unreleased]
 
 ### Added (OTS hardening + calendar-risk — anchor-longevity moat, EXPERIMENTAL, the `[anchors]` extra)

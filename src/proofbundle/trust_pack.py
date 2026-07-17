@@ -418,6 +418,24 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     if not isinstance(_sigs, list) or not _sigs:
         raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
     DEFAULT_BUDGET.check("signatures", len(_sigs))
+    # O7 payloadType-binding defense-in-depth (3.6.0, EXT-P1 payloadType obligation): the threshold loop
+    # below binds its PAE to the INTOTO_STATEMENT constant (dsse.pae, line ~468) — already the STRONG
+    # binding, because the signed bytes commit to the type regardless of the field. What was never checked
+    # is the envelope.payloadType FIELD itself: a confused / mislabelled envelope (payloadType claiming a
+    # different type while carrying a trust-pack statement) passed the field through unexamined for any
+    # downstream consumer that reads it. Pin the field fail-closed: it MUST equal the in-toto statement
+    # type. A non-string field (type confusion IN the field) is a typed reject here, never a raw crash.
+    env_ptype = envelope.get("payloadType")
+    if env_ptype != INTOTO_STATEMENT_PAYLOAD_TYPE:
+        r["structure_ok"] = False
+        r["predicate_type_ok"] = False
+        r["ok"] = False
+        r["errors"].append(
+            f"envelope.payloadType is {env_ptype!r}, expected {INTOTO_STATEMENT_PAYLOAD_TYPE!r} "
+            "(payloadType-confusion, fail-closed)")
+        from .automation_verdict import automation_summary  # noqa: PLC0415
+        r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
+        return r
     try:
         statement = loads_strict(body.decode("utf-8"))
     except BundleFormatError:

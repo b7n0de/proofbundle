@@ -45,6 +45,12 @@ _DEFAULT_DOCS = [
     "docs/predicates/README.md", "docs/predicates/action-outcome.md", "docs/predicates/decision-receipt.md",
     "docs/predicates/run-ledger.md", "docs/predicates/trust-pack.md", "docs/predicates/verification-summary.md",
     "docs/SDJWT_VC_PROFILE.md", "docs/SUBJECT_BINDING.md",
+    # 3.6.0 audit-candidate readiness-pack reviewer docs (capability-claim genre, same discipline).
+    # PROGRESS.md is deliberately NOT here: it QUOTES the future goal "4.0.0-stable, externally audited"
+    # as an honest denominator, which the audit-candidate forbidden list would false-positive on.
+    "docs/readiness_pack/AUDITOR_OPEN_POINTS.md", "docs/readiness_pack/threat_model_delta_360.md",
+    "docs/readiness_pack/rust_parity_scope.md", "docs/readiness_pack/differential_matrix.md",
+    "docs/readiness_pack/REPRODUCTION_RUNBOOK.md",
 ]
 
 # The signed-root rule (P0-C §5.4) carries a per-sample SECTION exception (see `_CONTEXT_EXEMPT`), so
@@ -102,6 +108,21 @@ _FORBIDDEN = [
     # on NON_CLAIMS.md's own disclaimers. Ban the claim VERBS instead — that is the §5.2 intent.
     (r"(?:verif(?:ies|y|ied)|guarantees?|certif(?:ies|y)|establish(?:es)?|reveals?|delivers?)\s+(?:the\s+|semantic\s+)?truth",
      "truth as a claim (a receipt proves authorship + integrity, never truth)"),
+    # 3.6.0 audit-candidate status boundary (§9 criterion 11). The ONLY permitted progress claim is
+    # "audit-candidate: all internal assurance gates green; the sole remaining gate to stable is an
+    # independent external security audit." Any assertion that the project IS already stable / audited /
+    # production-ready / externally reviewed is the exact overclaim this release forbids. Each fires
+    # only OUTSIDE a negation, so the sanctioned sentence ("... the remaining gate to stable is an
+    # external audit", "not yet audited") stays legal; "external ... audit" (adjective+noun) is NOT
+    # matched by the adverb pattern "externally audited/reviewed".
+    # Kept SPECIFIC on purpose: bare "stable" (API-stability tiers "stable vs experimental") and bare
+    # "is audited" (the INTERNAL adversarial audit legitimately IS run) are overloaded and would
+    # over-fire — the release-stability claim is instead guarded MECHANICALLY by the pyproject
+    # Development-Status classifier check (audit_candidate_matrix C11.2), not by grepping the word.
+    (r"production[- ]ready", "production-ready (status is BETA/EXPERIMENTAL until an external audit)"),
+    (r"externally\s+(?:audited|reviewed|verified)",
+     "externally audited/reviewed/verified (no external audit has occurred)"),
+    (r"has\s+been\s+(?:externally\s+)?audited", "has been audited (no external audit has occurred)"),
 ]
 _FORBIDDEN_RE = [(re.compile(p, re.IGNORECASE), label) for p, label in _FORBIDDEN]
 

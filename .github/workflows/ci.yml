@@ -89,10 +89,38 @@ jobs:
         run: python formal/model.py
       - name: F5 readiness-pack integrity (evidence grounded in real artifacts)
         run: python scripts/readiness_pack_gate.py
+      - name: WP-B locked test manifest (no silent test shrink; pytest is the normative runner)
+        run: python scripts/test_manifest_gate.py
+      - name: WP-D fuzz-soak smoke (never-raise + never-false-accept over every parser class)
+        run: python scripts/fuzz_soak.py --duration-seconds 20 --no-write
+      - name: WP-G readiness-pack manifest + self-receipt integrity
+        run: python scripts/readiness_pack_manifest.py --check
       - name: Verify the example bundle end to end
         run: |
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
+
+  audit-candidate-matrix:
+    # 3.6.0 audit-candidate acceptance matrix (advisory): one machine-checkable check per §9 obligation.
+    # ADVISORY like rust-parity/branch-base — it prints an honest verdict per check (PASS/PENDING/
+    # DATA_BLOCKED/EXTERNAL/FAIL). It is NOT --strict here: a full run needs a soak box (24h) and the
+    # build backend, so DATA_BLOCKED is expected in CI and must not fail the build (No-Fake). The
+    # underlying obligations are each ALSO enforced by their own blocking gate/test elsewhere in CI.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev,eval]"
+      - name: Build the independent Rust second-verifier (for the differential leg)
+        run: cd tools/pb_verify_rs && cargo build --release
+      - name: Regenerate the Python<->Rust differential matrix artifact
+        run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_differential_matrix.json
+      - name: Audit-candidate matrix (advisory; DATA_BLOCKED expected for the 24h soak in CI)
+        run: PYTHONPATH=src python scripts/audit_candidate_matrix.py
 
   coverage:
     # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):

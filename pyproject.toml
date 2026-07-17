@@ -86,7 +86,7 @@ pytest = ["pytest>=7"]
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
 inspect = ['inspect_ai>=0.3.112,<0.4']
 dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", 'inspect_ai>=0.3.112,<0.4']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
