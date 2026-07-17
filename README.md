@@ -148,11 +148,25 @@ a preprint.
 
 | Neighbour | What it contributes that a receipt does not | Maturity | Where proofbundle draws the line |
 |---|---|---|---|
+| **AuditWeave** ([arXiv 2607.09682](https://arxiv.org/abs/2607.09682), Nakrani, Jun 2026) — tamper-evident, auditor-navigable evidence ledger for AI workflows | a hash-chained, dependency-free record of workflow steps, and navigation from a conclusion to its evidence | preprint + released (PyPI `auditweave`, CC BY 4.0) | complementary, not competing: proofbundle adds a signed (Ed25519) receipt, RFC 6962 Merkle inclusion, an external time anchor, offline third-party verification and typed relation/v0.1 lineage; the auditor-navigation idea already shapes our reviewer readiness pack (Fundament F5) |
 | **K-Veritas** ([arXiv 2605.08586](https://arxiv.org/abs/2605.08586)) — nonrepudiable experimental results | the academic case for tamper-evident, execution-bound experiment reports | preprint | proofbundle is a released, offline, eval-shaped receipt for exactly this problem, not the only take on it |
 | **Attestable Audits** ([arXiv 2506.23706](https://arxiv.org/abs/2506.23706)) — TEE-verified safety audits | that the computation actually ran, inside a trusted enclave | preprint (research prototype) | a receipt proves authorship + integrity, **not** that the computation was correct — that needs a TEE or independent reproduction |
 | **BenchJack** ([arXiv 2605.12673](https://arxiv.org/abs/2605.12673)) — auditing agent benchmarks | whether the benchmark itself is gameable (reward-hacking) | preprint | a receipt over a gameable benchmark is honestly still just a receipt; it says nothing about whether the eval was well designed |
 | **Evaluation Cards** ([arXiv 2606.09809](https://arxiv.org/abs/2606.09809)) — reporting / interpretation layer | a structured, human-facing account of what a result means | preprint | a receipt can bind a card's integrity (`evaluation_card_sha256`, EVAL_CLAIM.md), not its quality |
 | in-toto / Sigstore, SCITT / Rekor v2, OpenSSF Model Signing (stable standards / production) | artifact-provenance, public transparency, model-artifact signing | — | see [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) for the honest tool-by-tool comparison |
+
+**Adjacent audit-trail and tamper-evident-logging work** (it validates the field; the full write-up
+and the reusable JOSS/Note building block are in [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md)):
+
+- **From Runtime Records to Legal Findings** ([arXiv 2607.00941](https://arxiv.org/abs/2607.00941), Janssen, Jul 2026): when a runtime record is evidentially adequate to support a legal finding about agentic AI oversight.
+- **Audit Trails for Accountability in LLMs** ([arXiv 2601.20727](https://arxiv.org/abs/2601.20727), Ojewale et al., Jan 2026): a tamper-evident ledger of LLM lifecycle events linking technical and governance records.
+- **Who Audits the Auditor?** ([arXiv 2604.22096](https://arxiv.org/abs/2604.22096), Wang, Apr 2026): blockchain-anchored, tamper-resistant audit trails so a privileged operator cannot rewrite ML decision records.
+- **Rethinking Tamper-Evident Logging** ([arXiv 2509.03821](https://arxiv.org/abs/2509.03821), Zhao et al., Sep 2025): a high-performance systems approach (eBPF) to fine-grained tamper-evident logging.
+
+The pattern across these is convergence, not competition: verifiable, tamper-evident evidence for AI
+is an active field, and proofbundle's place in it is the released, offline, eval-shaped receipt with
+an external anchor and typed lineage. Dated public timestamps for that combination, never a priority
+claim, are in [docs/PRIORITY_RECORD.md](https://github.com/b7n0de/proofbundle/blob/main/docs/PRIORITY_RECORD.md).
 
 ## Cite this work
 

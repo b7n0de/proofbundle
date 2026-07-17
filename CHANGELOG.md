@@ -1990,8 +1990,9 @@ TRUCE arXiv:2403.00393, RFC 9901, RFC 6962/9162, RFC 3797, PoR literature)
 ### Changed
 - README leads with the integration story; fair demarcation from ai-audit-trail (runtime agent Decision
   Receipts) and ValiChord (which builds attestation bundles from inspect_ai logs *post-hoc* — its v1 library
-  is unsigned; signatures are v2 scope). Honest novelty: as far as documented, proofbundle is the first to
-  auto-emit an **Ed25519-signed** receipt of an inspect_ai eval / pytest run via the framework's native plugin.
+  is unsigned; signatures are v2 scope). Honest novelty: proofbundle auto-emits an **Ed25519-signed**
+  receipt of an inspect_ai eval / pytest run via the framework's native plugin, a capability not found in
+  a comparable released tool at the time of writing.
 - The inspect_ai adapter renders metric scores as fixed-point decimals (not `repr`), so tiny/large values
   (e.g. `1e-05`) no longer fail the claim's decimal format.
 
