@@ -155,6 +155,16 @@ def _edge_target_hex(edge: dict) -> str | None:
     return None
 
 
+def _edge_target_subject_hex(edge: dict) -> str | None:
+    """The edge's OPTIONAL targetSubjectDigest.digest (the successor's claim about the parent's
+    SUBJECT digest), or None. Purely structural here; the cross-check against the actually attached
+    target is a trust-policy decision (evaluate_relations_policy, O2 — RELATION_TARGET_SUBJECT_MISMATCH)."""
+    tsd = edge.get("targetSubjectDigest")
+    if isinstance(tsd, dict) and isinstance(tsd.get("digest"), str):
+        return tsd["digest"]
+    return None
+
+
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -199,6 +209,9 @@ def verify_relationship_edges(
     for i, edge in enumerate(relationships):
         target_hex = _edge_target_hex(edge)
         entry = {"relation": edge.get("relation"), "targetDigest": target_hex,
+                 # O2 (3.4.0): the successor's DECLARED claim about the parent's subject digest —
+                 # dormant until a trust policy cross-checks it against the attached target.
+                 "targetSubjectDigest": _edge_target_subject_hex(edge),
                  "resolution": LINEAGE_DECLARED_UNRESOLVED, "errors": []}
         # Self-reference is a degenerate cycle (a receipt can never be its own ancestor).
         if subject_hex is not None and target_hex == subject_hex:
