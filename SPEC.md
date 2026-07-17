@@ -653,6 +653,103 @@ payload contents: the anchored value is `canonicalRoot` (a SHA-256), so nothing
 about the underlying claim, protocol, or samples leaks to the timestamping
 authority, calendar, or chain.
 
+## 7j. Lineage / relationship profile — `relation/v0.1` (EXPERIMENTAL)
+
+Status: EXPERIMENTAL since 3.3.0 (API and wire format may change without deprecation).
+Normative-short here; the deep contract and interop mapping live in
+[`docs/predicates/relation.md`](docs/predicates/relation.md), the executable one in
+`src/proofbundle/relation.py`.
+
+Change is never expressed by mutation. A receipt binds exact bytes and stays valid for
+them forever; when a result is deliberately corrected, re-run, retracted, or renewed, the
+NEW receipt carries a TYPED, SIGNED relationship edge in an OPTIONAL `relationships: [edge,
+…]` field of the decision-receipt / action-outcome predicate — INSIDE the DSSE-signed
+bytes. The verifier reports the relationship as its own `lineage` state (VERIFIED /
+DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invisible
+(silent landing) or treating it as tampering.
+
+- Closed vocabulary: `supersedes` `revises` `corrects` `retracts` `renews` `derivedFrom`
+  `amends` (extension only via a spec change; an unknown relation is fail-closed).
+- `targetReceiptDigest` (required) is the target's `jcs-sha256-v1` content root with an
+  EXPLICIT, never-defaulted `digestAlgorithm`. `targetSubjectDigest` (optional) is the
+  target's subject digest — when PRESENT it is binding (checked against the resolved
+  target, since 3.4.0). Hard caps: 64 edges per receipt, attached-ancestry depth 32.
+- Honesty boundary (verbatim, claims-hygiene enforced): *relationship declared by issuer,
+  not a statement of correctness*. `lineage` NEVER feeds `cryptoValid` in either direction
+  (lattice monotonicity); a DECLARED_UNRESOLVED edge never reads as a pass.
+- Offline: targets are attached by the caller (`--with-related`), never fetched.
+
+### Trust-policy hook (trust-policy v0.2, section `relations`)
+
+All fail-closed and additive; a receipt without any of these pins behaves exactly as before.
+
+- `require_relation_resolution` — a named relation that APPEARS as an edge must resolve
+  (target attached + verified); unmet is exit 3, blocker `LINEAGE_REQUIREMENT_FAILED`.
+- `reject_superseded` — an attached, verified successor/retractor over the receipt under
+  verification blocks automation.
+- `relation_signer` (since 3.4.0, WHO may replace) — per relation, `{"mode":"same-key"}`
+  or `{"mode":"pinned","keys":[<b64>,…]}`. The SUCCESSOR's issuer key must satisfy the
+  rule (byte membership of the raw Ed25519 key, never a keyId alias). Unmet →
+  `RELATION_SIGNER_UNAUTHORIZED`, exit 3. Enables cross-issuer chains
+  (`--with-related PATH --related-pub B64`).
+- `require_relation_target` (since 3.4.0, WHICH parent) — per relation, an expected parent
+  content root or a list of them; a supersedes-like edge that resolves to any OTHER parent
+  (even a valid one) → `RELATION_TARGET_MISMATCH`, exit 3, on EVERY such edge, accept path
+  included (closes the decoy-parent gap).
+
+Authorization AND parent-pinning are RELYING-PARTY POLICY, never format truth: a passing
+check proves set membership / the named parent under the verifier's pins, not that anyone
+is "really" authorized or in the right (SCITT RFC 9943 line — authorization is Registration
+Policy terrain, not statement format). The `relations` gate is enforced identically on the
+decision AND outcome verify paths (`outcome verify --policy`).
+
+Deliberately OPEN (do not read them into 3.4.0/3.5.0): threshold signatures (TUF N-of-M) and
+identity indirection (DID/VC controller / CA chains). Pins are raw Ed25519 public keys and raw
+content-root digests, matching the offline house contract.
+
+## 7k. Standalone relation profile — `relation-statement/v0.1` (EXPERIMENTAL)
+
+Status: EXPERIMENTAL since 3.5.0. Normative-short here; prose in
+[`docs/predicates/relation.md`](docs/predicates/relation.md), executable in
+`src/proofbundle/relation_statement.py`.
+
+The in-receipt edges of 7j express change from the SUCCESSOR's side. A relation statement is the
+INDEPENDENT case: a DSSE-signed statement OVER a target receipt, carrying EXACTLY ONE typed edge and
+NO decision/outcome payload of its own — a retroactive retraction, supersession or amendment declared
+WITHOUT touching the original (status-as-a-separate-object precedent: W3C Bitstring Status List v1.0, CT/OCSP
+revocation, SCITT protected-object-binding). predicateType
+`https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`, predicate
+`{schemaVersion, statementId, relationships:[edge]}`.
+
+- The edge reuses the 7j edge schema verbatim; validation, lineage resolution and the trust-policy
+  `relations` gate reuse the SAME functions as the in-receipt path (`relation.validate_relationships`,
+  `relation.verify_relationship_edges`, `relation.evaluate_relations_policy`) — no second
+  implementation of the logic.
+- Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
+  DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
+  and whether the issuer may declare it is a relying-party policy decision. A `retracts` statement
+  sets a visible declared state BESIDE the target — the target receipt stays valid for its bytes
+  forever, and a verifier that does not know the statement still sees a valid target (offline reality;
+  a retraction is relying-party knowledge, not a global kill). `lineage` NEVER feeds `cryptoValid`
+  (lattice monotonicity).
+- CLI: `proofbundle relation-statement init|emit|verify|inspect`, exit contract 0/1/2/3 identical to
+  the decision/outcome verify paths.
+- Standalone policy extension: `relations.reject_retracted` (and `reject_superseded` for the successor
+  relations) — a relying party who knows BOTH the target and a verified retracts statement of a
+  pinned/authorized signer can treat continued automated use of the target as an exit-3 block. Without
+  the policy the verified statement is pure visibility, never a crypto invalidation. `relation_signer`
+  decides WHO may declare it, identically to 7j.
+
+### Independent Rust cross-verification (`tools/pb_verify_rs`)
+
+Since 3.5.0 the independent Rust verifier carries the relation profile (`verify-relation`,
+`verify-relation-statement`), sharing NO canonicalizer/parser code with Python. `crosscheck.py` drives
+ALL relation vectors — in-receipt (decision + outcome) and standalone, positive AND negative — through
+BOTH implementations and asserts they land on the SAME common-vocabulary label (exit class + lineage)
+on every vector. This is differential AGREEMENT on these vectors, not a correctness proof of either
+implementation; the parity registry (`scripts/rust_parity_registry.json`, AST-checked by
+`scripts/rust_parity_gate.py`) records honestly which surfaces are COVERED / PARTIAL / PENDING.
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).

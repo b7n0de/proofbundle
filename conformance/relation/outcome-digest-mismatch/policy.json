@@ -1,0 +1,9 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "relres-only",
+ "relations": {
+  "require_relation_resolution": [
+   "supersedes"
+  ]
+ }
+}

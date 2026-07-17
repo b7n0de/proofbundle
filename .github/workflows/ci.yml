@@ -81,6 +81,14 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
         run: python conformance/run_conformance.py
+      - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)
+        run: python conformance/cross_format.py
+      - name: F4 type-confusion matrix (public verifiers never raw-crash on JSON confusion)
+        run: python scripts/type_confusion_gate.py --strict
+      - name: F3 formal lineage-ladder model (bounded enumeration; z3-extended with the [formal] extra)
+        run: python formal/model.py
+      - name: F5 readiness-pack integrity (evidence grounded in real artifacts)
+        run: python scripts/readiness_pack_gate.py
       - name: Verify the example bundle end to end
         run: |
           python examples/make_example.py

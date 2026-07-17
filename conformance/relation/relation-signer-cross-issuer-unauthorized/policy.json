@@ -1,0 +1,14 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "relsig-cross-unauth",
+ "relations": {
+  "relation_signer": {
+   "supersedes": {
+    "mode": "pinned",
+    "keys": [
+     "aeoTO8iZG6u3l5md1JHhWNSt8+Im16dmS03VjmkKLJk="
+    ]
+   }
+  }
+ }
+}

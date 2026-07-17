@@ -6,6 +6,100 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (relation-statement/v0.1 3.5.0 — standalone profile + Rust parity, still EXPERIMENTAL)
+- **`relation-statement/v0.1` standalone profile (WP-A):** a DSSE-signed statement OVER a
+  target receipt, carrying EXACTLY ONE typed edge and no decision/outcome payload of its own —
+  the retroactive case the in-receipt edges cannot express (declaring a foreign or older receipt
+  retracted / superseded / amended without emitting a successor and without touching the
+  original). predicateType `.../relation-statement/v0.1`; new module
+  `src/proofbundle/relation_statement.py` and CLI `proofbundle relation-statement
+  init|emit|verify|inspect` (exit contract 0/1/2/3 identical to the decision/outcome paths). The
+  edge validation, lineage resolution and the `relations` trust-policy gate REUSE the in-receipt
+  functions (`relation.validate_relationships` / `verify_relationship_edges` /
+  `evaluate_relations_policy`) — no second implementation. Status-as-a-separate-object precedent: W3C
+  Bitstring Status List v1.0, CT/OCSP revocation, SCITT protected-object-binding.
+- **`relations.reject_retracted` trust-policy pin (WP-A):** a relying party who knows BOTH the
+  target and a verified retracts statement of a pinned/authorized signer can treat continued
+  automated use of the target as an exit-3 block (`LINEAGE_REQUIREMENT_FAILED`);
+  `reject_superseded` extends to the successor relations. Without the policy the verified statement
+  is pure visibility. Honesty boundary (verbatim): a relation statement proves the issuer DECLARED
+  the relation over exact bytes; it does not retract the target's cryptographic validity, and
+  whether the issuer may declare it is a relying-party policy decision. `lineage` never feeds
+  `cryptoValid` (lattice monotonicity).
+- **Rust parity of the relation profile (WP-B):** the independent Rust verifier
+  (`tools/pb_verify_rs`) now carries the profile — new subcommands `verify-relation` (in-receipt
+  decision/outcome edges) and `verify-relation-statement` (standalone), with its OWN parser
+  (serde_json + serde_jcs, sharing NO canonicalizer/parser with Python). `crosscheck.py` drives
+  ALL 40 relation vectors — decision, outcome and standalone, positive AND negative (incl. the
+  3.4.0 decoy-parent / subject-mismatch / signer / t1 vectors and the wrong-payloadType vector) —
+  through BOTH implementations and
+  asserts they land on the same common-vocabulary label (exit class + lineage) on every vector.
+  Differential AGREEMENT on these vectors, not a correctness proof of either implementation. The
+  parity registry (`scripts/rust_parity_registry.json`) is raised from PENDING to COVERED for
+  `relation.verify_relationship_edges` and the new
+  `relation_statement.verify_relation_statement`, AST-verified by `scripts/rust_parity_gate.py`.
+  The Vector × {Python, Rust} matrix is exported with an environment freeze
+  (`audit_artifacts/rust_relation_differential_matrix.json`).
+- **Conformance + tests:** six new standalone vectors under `conformance/relation/` (retracts
+  verified+blocked, retracts visible, retracts unauthorized, retracts declared-unresolved,
+  supersedes verified, malformed), a new `relation_statement` runner kind, property + never-raise +
+  exit-contract tests (`tests/test_relation_statement.py`) and the Rust differential gate
+  (`tests/test_relation_statement_rust_parity.py`). Existing 3.3.0/3.4.0 vectors and behaviour are
+  unchanged (pure additivity, no wire break); the profile stays EXPERIMENTAL through 4.0.
+
+### Fixed (relation-statement/v0.1 3.5.0 — pre-release audit)
+- **Rust payloadType fail-open (BLOCKER, security):** the independent Rust verifier's `verify_dsse`
+  derived the PAE from the envelope's OWN `payloadType` without pinning an expected type, so the
+  relation paths (`run_verify_relation` crypto check and `load_related`) would AUTHENTICATE a
+  same-key envelope presented under the WRONG payloadType — where Python pins
+  `application/vnd.in-toto+json` and rejects it. `verify_dsse` now takes an `expected_payload_type`
+  and the relation paths pin the in-toto type, mirroring Python fail-closed; the generic
+  `verify-dsse` subcommand stays deliberately type-agnostic. A new same-key wrong-payloadType
+  differential vector proves BOTH implementations now reject it (exit 2, lineage FAIL).
+- **`policy lint` missed `reject_retracted` (MAJOR):** `explain_policy` had no `reject_retracted`
+  branch, so `lint_policy` wrongly called a `reject_retracted`-only policy a vacuous pass while the
+  verify path enforces it at exit 3. `explain_policy` now lists it (explain⟺enforce parity).
+- **Docs:** the roadmap `O6_RETRACTS_NEVER_RAISES` note corrected to reserved (code-enforced +
+  tested + mutation-killed, not yet a formal proof); the dead `RELATION_STATEMENT_SCHEMA_VERSION`
+  constant removed; the `reject_superseded` double meaning cross-referenced in
+  `evaluate_relations_policy`.
+
+### Added (relation/v0.1 3.4.0 — three lineage pins, still EXPERIMENTAL)
+- **`relation_signer` trust-policy pin (WP-A, WHO may replace):** a new fail-closed
+  `relations.relation_signer` map — per relation `{"mode":"same-key"}` or
+  `{"mode":"pinned","keys":[<b64>,…]}`. The SUCCESSOR's issuer key must satisfy the rule
+  (byte membership of the raw Ed25519 key, never a keyId alias). Unmet →
+  `RELATION_SIGNER_UNAUTHORIZED`, exit 3. CLI `decision/outcome verify --with-related PATH
+  --related-pub B64` (position-paired) enables cross-issuer chains; the check runs against
+  the key the target ACTUALLY verified under (`verified_under`), never a claim. In-toto
+  layout/functionaries precedent (authorized keys per step); flat set, no thresholds (YAGNI).
+- **`require_relation_target` + `targetSubjectDigest` enforcement (WP-A2, WHICH parent —
+  KERNFUND F1/O1/O2, from Loek Verdonk / No Silent Landing's byte-verified adversarial
+  review):** `relations.require_relation_target` pins the expected parent content root(s)
+  per relation; a supersedes-like edge that resolves to any OTHER (even valid) parent →
+  `RELATION_TARGET_MISMATCH`, exit 3, on EVERY such edge, the accept path (T2) included —
+  closing the decoy-parent gap where `require_relation_resolution` alone only proved SOME
+  edge resolves. The previously dormant `targetSubjectDigest` edge field is now binding when
+  PRESENT (gegengeprueft against the resolved target's subject; mismatch →
+  `RELATION_TARGET_SUBJECT_MISMATCH`, lineage FAIL, exit 2).
+- **Outcome-path relations gate (WP-B):** `verify_outcome_receipt(..., policy=…)` /
+  `outcome verify --policy` enforce the `relations` section identically to the decision path
+  (require_relation_resolution / reject_superseded / relation_signer / require_relation_target),
+  same exit-code contract and blocker names. trust_pack role auth is separate and unchanged.
+- **Automation-surface consistency (WP-A3 / F5):** `referencesResolved` is no longer `true`
+  while a REQUESTED lineage relation is unresolved/failed; `policy explain` lists the two new
+  pins (explain⟺enforce parity).
+- **Conformance corpus:** the shared `relations`-policy evaluator (`relation.evaluate_relations_policy`,
+  cut as its own function for the future relation-statement verifier) and new vectors for
+  relation_signer, the decoy-parent fix (target-mismatch + must-pass gegenprobe + accept-path
+  + documented no-pin old behavior, `crossFormatId xfmt-t3-decoy`), the `targetSubjectDigest`
+  O2 gegenpruefung, a JCS-canonical invalid-signature vector (F2), and an `outcome_relation`
+  harness mirror. Lattice monotonicity preserved throughout: relation_signer / target-mismatch
+  change ONLY the policy verdict, never `cryptoValid`. relation/v0.1 stays EXPERIMENTAL.
+- Honest follow-ups (3.5.0): Rust differential parity for the new surface (NOT_RUN until the
+  Rust core carries the profile); threshold signer sets and DID/VC identity indirection remain
+  DELIBERATELY out of scope.
+
 ## [3.3.0] - 2026-07-16
 
 ### Added (relation/v0.1 lineage profile — EXPERIMENTAL)

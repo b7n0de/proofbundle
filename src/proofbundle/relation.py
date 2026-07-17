@@ -155,6 +155,16 @@ def _edge_target_hex(edge: dict) -> str | None:
     return None
 
 
+def _edge_subject_hex(edge: dict) -> str | None:
+    """The edge's OPTIONAL declared targetSubjectDigest (the successor's claim about the target's
+    subject digest). Returns the 64-hex digest string or None when the field is absent/malformed.
+    WP-A2/O2: when PRESENT it is gegengeprueft against the resolved target's real subject digest."""
+    tgt = edge.get("targetSubjectDigest")
+    if isinstance(tgt, dict) and isinstance(tgt.get("digest"), str):
+        return tgt["digest"]
+    return None
+
+
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -222,7 +232,23 @@ def verify_relationship_edges(
                     entry["resolution"] = LINEAGE_FAIL
                     entry["errors"].append(cycle_or_depth)
                 else:
-                    entry["resolution"] = LINEAGE_VERIFIED
+                    # WP-A (per-target key plumbing): expose the key the target actually verified
+                    # UNDER, so relation_signer checks against the TRUE verification, never a claim.
+                    entry["verified_under"] = target.get("verified_under")
+                    # WP-A2 / O2 (KERNFUND): the previously dormant targetSubjectDigest field is now
+                    # binding when PRESENT — the successor's declared subject digest of the target MUST
+                    # equal the resolved target's ACTUAL subject digest, else FAIL (a lying edge about
+                    # WHICH subject the parent commits to). Absent field stays optional (no wire-break).
+                    _declared_subj = _edge_subject_hex(edge)
+                    _actual_subj = target.get("subject_digest")
+                    if (_declared_subj is not None and _actual_subj is not None
+                            and _declared_subj != _actual_subj):
+                        entry["resolution"] = LINEAGE_FAIL
+                        entry["errors"].append(
+                            "relation:target_subject_mismatch (RELATION_TARGET_SUBJECT_MISMATCH): "
+                            "declared targetSubjectDigest does not match the resolved target's subject")
+                    else:
+                        entry["resolution"] = LINEAGE_VERIFIED
         # else: stays DECLARED_UNRESOLVED — no error, no PASS upgrade.
 
         if entry["resolution"] == LINEAGE_FAIL:
@@ -317,3 +343,110 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
                 return (f"retracted_by_attached: attached receipt {other_hex[:12]}… declares "
                         f"retracts over this receipt")
     return None
+
+
+# ── Trust-policy `relations` evaluation (WP-A signer · WP-A2 target-pin, pure/offline) ──────────
+#
+# Cut as its OWN function (SPEC §8.1 forward-compat): the decision AND outcome verify paths call it,
+# and the 3.5.0 standalone relation-statement verifier will call it UNCHANGED — the signer/target
+# rule evaluation is never inlined into a single verify path. It NEVER touches cryptoValid; every
+# violation lands ONLY in the policy verdict (lattice monotonicity). It never raises.
+
+# Stable policy-verdict violation codes (exit-3 class, mirrored as automation blockers).
+CODE_LINEAGE_REQUIREMENT_FAILED = "LINEAGE_REQUIREMENT_FAILED"
+CODE_RELATION_SIGNER_UNAUTHORIZED = "RELATION_SIGNER_UNAUTHORIZED"
+CODE_RELATION_TARGET_MISMATCH = "RELATION_TARGET_MISMATCH"
+
+
+def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
+    """Byte-equality of two base64 Ed25519 keys AFTER decode — never a string/keyId compare (the
+    formal keyid-alias gegenmodell, 2026-07-15: two different b64 encodings, or a keyId alias, must
+    never read as the same key). Fail-closed: an undecodable value is never equal to anything."""
+    import base64  # noqa: PLC0415
+    if not isinstance(a_b64, str) or not isinstance(b_b64, str):
+        return False
+    try:
+        ra = base64.b64decode(a_b64, validate=True)
+        rb = base64.b64decode(b_b64, validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(ra) == 32 and ra == rb
+
+
+def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
+                              successor_key_b64: str | None) -> list[dict]:
+    """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
+    ``lineage_result`` (from :func:`verify_relationship_edges`).
+
+    ``successor_key_b64`` is the base64 verify key of the receipt UNDER verification — the issuer of
+    the successor edge; relation_signer binds THIS key (never the target's, never a claim).
+
+    Returns a list of ``{"code", "message"}`` violations — empty means the policy is satisfied. Codes:
+    ``LINEAGE_REQUIREMENT_FAILED`` (require_relation_resolution / reject_superseded),
+    ``RELATION_SIGNER_UNAUTHORIZED`` (relation_signer), ``RELATION_TARGET_MISMATCH``
+    (require_relation_target). Pure, offline, never raises.
+
+    ``reject_superseded`` DOUBLE MEANING (cross-reference): here it blocks a receipt over which an
+    ATTACHED, verified successor is declared (the ``supersededByAttached`` warning — an EXTERNAL
+    statement pointing AT this receipt). The standalone relation-statement path
+    (:func:`relation_statement.verify_relation_statement`, SPEC §2.5) reuses the SAME flag for a
+    SECOND, disjoint case: the statement's OWN verified supersedes/revises/corrects edge (a
+    self-assertion) — same policy code, different subject. ``reject_retracted`` is the retracts sibling,
+    standalone-only. Both extensions live in ``relation_statement`` and are NOT evaluated here."""
+    out: list[dict] = []
+    if not isinstance(relations_section, dict):
+        return out
+    edges = lineage_result.get("edges") if isinstance(lineage_result, dict) else None
+    edges = edges if isinstance(edges, list) else []
+
+    # (1) require_relation_resolution — a named relation that APPEARS as an edge must VERIFY.
+    req = relations_section.get("require_relation_resolution") or []
+    for e in edges:
+        if e.get("relation") in req and e.get("resolution") != LINEAGE_VERIFIED:
+            out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                        "message": (f"relation {e.get('relation')!r} must resolve (target attached "
+                                    f"and verified), got {e.get('resolution')}")})
+
+    # (2) reject_superseded — an attached, verified successor/retractor over THIS receipt.
+    if relations_section.get("reject_superseded") and lineage_result.get("supersededByAttached"):
+        out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                    "message": f"reject_superseded: {lineage_result['supersededByAttached']}"})
+
+    # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
+    signer = relations_section.get("relation_signer") or {}
+    for e in edges:
+        rule = signer.get(e.get("relation"))
+        if not isinstance(rule, dict):
+            continue
+        mode = rule.get("mode")
+        if mode == "pinned":
+            keys = rule.get("keys") or []
+            if not any(_keys_equal(successor_key_b64, k) for k in keys):
+                out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
+                            "message": (f"relation {e.get('relation')!r}: successor issuer key is not "
+                                        "a member of the pinned relation_signer set")})
+        elif mode == "same-key":
+            # same-key can only be confirmed against a RESOLVED target's real verify key; absence is
+            # the resolution pin's job, not the signer's (no false unauthorized on a declared-only edge).
+            if e.get("resolution") == LINEAGE_VERIFIED:
+                vu = e.get("verified_under")
+                if vu is not None and not _keys_equal(successor_key_b64, vu):
+                    out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
+                                "message": (f"relation {e.get('relation')!r}: successor issuer key "
+                                            "differs from the target issuer key (same-key rule)")})
+
+    # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
+    #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the
+    #     decoy-parent fix: a valid-but-WRONG parent is rejected here, never in crypto.
+    target_pin = relations_section.get("require_relation_target") or {}
+    for e in edges:
+        pinned = target_pin.get(e.get("relation"))
+        if pinned is None:
+            continue
+        allowed = pinned if isinstance(pinned, list) else [pinned]
+        if e.get("targetDigest") not in set(allowed):
+            out.append({"code": CODE_RELATION_TARGET_MISMATCH,
+                        "message": (f"relation {e.get('relation')!r}: edge resolves to parent "
+                                    f"{str(e.get('targetDigest'))[:12]}… which is not in the pinned "
+                                    "require_relation_target set (decoy/wrong parent)")})
+    return out

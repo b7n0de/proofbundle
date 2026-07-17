@@ -1,0 +1,11 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "reltgt-r0",
+ "relations": {
+  "require_relation_target": {
+   "supersedes": [
+    "59ec746ea4e6db6bcc7824719c8e6ba4d54a59d50f58c4cbd967159ae6170fcd"
+   ]
+  }
+ }
+}

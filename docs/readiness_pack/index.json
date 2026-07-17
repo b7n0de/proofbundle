@@ -1,0 +1,77 @@
+{
+  "schema": "proofbundle.readiness_pack.index.v1",
+  "purpose": "Reviewer-oriented external-audit readiness pack. Navigation is conclusion -> ordered evidence (AuditWeave arXiv:2607.09682 lesson (b)): a reviewer starts from a verdict and walks to the evidence in order, instead of grepping. Front-loaded skeleton (GO_OWNER_PB_ROADMAP_FRONTLOAD_20260716 F5): the slots are laid out NOW; each release delta (3.4.0/3.5.0/3.6.0) drops its evidence into its named slot rather than assembling a pack from scratch at the end.",
+  "created_for_version": "3.3.1-frontload",
+  "honest_status": "PREPARATION, not an audit. No independent audit has occurred. See docs/AUDIT_READINESS.md and PROGRESS.md. Every artifact below is this project's OWN instrument — that is exactly the boundary an external review is for.",
+  "conclusions": [
+    {
+      "id": "C1_INTEGRITY_IS_ANCHORED_RESISTANCE_NOT_ONLY_EVIDENCE",
+      "statement": "A verified receipt is tamper-EVIDENT and, when anchored, tamper-RESISTANT: the chain head is bound to an external append-only reference so a storage-controlling actor cannot silently recompute it.",
+      "closes_external_open_problem": "AuditWeave open problem (a): 'tamper-evident, not resistant — actors controlling storage could recompute chains'.",
+      "evidence_ordered": [
+        {"ref": "docs/readiness_pack/tamper_resistance.md", "kind": "argument", "note": "the resistance story, stated before the auditor asks"},
+        {"ref": "src/proofbundle/anchors_ots.py", "kind": "code", "note": "OpenTimestamps (Bitcoin) external anchor verify"},
+        {"ref": "src/proofbundle/anchors_rfc3161.py", "kind": "code", "note": "RFC 3161 TSA external anchor verify"},
+        {"ref": "conformance/relation", "kind": "vectors", "note": "F1 corpus incl. forged-anchor-own-frozen negative vector"}
+      ],
+      "open_questions": ["Q1_ANCHOR_TRUST_ROOT_DISTRIBUTION"]
+    },
+    {
+      "id": "C2_VERIFY_DISTINGUISHES_AUTHENTIC_FROM_TAMPERED",
+      "statement": "verify correctly separates an authentic, unmodified receipt from a tampered or forged one, and never raw-crashes on hostile input.",
+      "evidence_ordered": [
+        {"ref": "conformance/run_conformance.py", "kind": "harness", "note": "F1 offline corpus, 29 cases, one common vocabulary"},
+        {"ref": "conformance/common_vocabulary.py", "kind": "code", "note": "F1 the one comparator all three differential layers share"},
+        {"ref": "tools/pb_verify_rs/crosscheck.py", "kind": "differential", "note": "independent Rust second verifier agrees"},
+        {"ref": "scripts/type_confusion_gate.py", "kind": "gate", "note": "F4 property-based JSON type-confusion matrix over the AST-discovered verify_* set — never-raise, structural"},
+        {"ref": "tests/test_fuzz_parsers.py", "kind": "tests", "note": "Hypothesis fuzz of the byte/string parser class"}
+      ],
+      "open_questions": ["Q2_PRIMITIVE_HARDNESS", "Q3_SIDE_CHANNELS"]
+    },
+    {
+      "id": "C3_LINEAGE_LADDER_LOGIC_IS_SOUND_AND_NEVER_UPGRADES_CRYPTO",
+      "statement": "The relation-lineage aggregation ladder is a sound join (one FAIL poisons the chain; an unresolved edge is never upgraded), and lineage never raises cryptoValid.",
+      "evidence_ordered": [
+        {"ref": "formal/model.py", "kind": "formal", "note": "F3 versioned model, obligations O1-O4 proven (bounded enumeration + z3-extended), grounded against the implementation"},
+        {"ref": "formal/README.md", "kind": "doc", "note": "honest scope: logic yes; primitives/side-channels no"},
+        {"ref": "src/proofbundle/relation.py", "kind": "code", "note": "the implementation the model mirrors"}
+      ],
+      "open_questions": ["Q2_PRIMITIVE_HARDNESS"]
+    },
+    {
+      "id": "C4_RELEASES_CARRY_VERIFIABLE_HERMETIC_PROVENANCE",
+      "statement": "Every published artifact is built hermetically, is byte-reproducible, and carries build provenance separated from the build (SLSA L3 shape).",
+      "evidence_ordered": [
+        {"ref": ".github/workflows/published-artifact-gate.yml", "kind": "ci", "note": "F2 hermetic cleanroom + determinism (two sdists byte-identical)"},
+        {"ref": "scripts/build_reproducible.py", "kind": "code", "note": "F2 deterministic sdist normaliser (SOURCE_DATE_EPOCH + canonical tar)"},
+        {"ref": ".github/workflows/reusable-build-attest.yml", "kind": "ci", "note": "F2 SLSA-L3 reusable signing workflow (signature separated from build) — built + CI-exercised (dry_run); release.yml adoption pending, see docs/roadmap/FRONTLOAD.md"},
+        {"ref": ".github/workflows/release.yml", "kind": "ci", "note": "build-once-attest-then-publish, sha256 gate"}
+      ],
+      "open_questions": ["Q4_REUSABLE_WORKFLOW_ORG_SHARED"]
+    }
+  ],
+  "release_evidence_slots": {
+    "3.3.1-frontload": {
+      "status": "filled",
+      "delivers": ["F1 corpus+vocabulary+comparator", "F2 hermetic gate + reproducible sdist + reusable attest workflow", "F3 formal model O1-O4", "F4 type-confusion generator", "F5 this pack", "F7 pre-tag adversarial audit gate"]
+    },
+    "3.4.0": {
+      "status": "reserved",
+      "expected_evidence": ["relation_signer ceremony receipts", "decoy-parent F1 enforcement vectors (into conformance/relation)", "formal obligation O5 TARGET_PIN_NOT_CRYPTO (into formal/model.py)", "outcome-gate evidence"]
+    },
+    "3.5.0": {
+      "status": "reserved",
+      "expected_evidence": ["relation_statement Rust parity (into rust_parity_registry.json + crosscheck.py)", "formal obligation O6 RETRACTS_NEVER_RAISES", "new verifier auto-covered by F4"]
+    },
+    "3.6.0": {
+      "status": "reserved",
+      "expected_evidence": ["fuzz-soak corpora", "differential matrix", "formal obligation O7 PAYLOADTYPE_BINDING (33-check matrix)", "threat-model chapter delta", "final audit-candidate scope freeze"]
+    }
+  },
+  "navigation": {
+    "open_questions": "OPEN_QUESTIONS.md",
+    "progress": "PROGRESS.md",
+    "tamper_resistance": "tamper_resistance.md",
+    "entry": "README.md"
+  }
+}
