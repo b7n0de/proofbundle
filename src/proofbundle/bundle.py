@@ -208,11 +208,13 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     if isinstance(bundle, str):
         try:
             bundle = load_bundle(bundle)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
             # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
-            # instead of a path gets a typed error, not an OS crash.)
+            # instead of a path gets a typed error, not an OS crash.) 6-lens gate L3-01: an embedded-NUL path
+            # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
+            # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
@@ -616,11 +618,13 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     if isinstance(bundle, str):
         try:
             bundle = load_bundle(bundle)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
             # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
-            # instead of a path gets a typed error, not an OS crash.)
+            # instead of a path gets a typed error, not an OS crash.) 6-lens gate L3-01: an embedded-NUL path
+            # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
+            # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")

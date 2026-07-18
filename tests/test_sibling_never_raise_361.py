@@ -314,6 +314,26 @@ class CallerPathTypedErrors(unittest.TestCase):
         for li, ts in (("x", 1), (None, 1), (1.5, 2), (0, "x"), (0, None)):
             self.assertIs(verify_inclusion(b"leaf", li, ts, [], root), False)
 
+    def test_merkle_non_bytes_root_proof_is_false_not_raise(self):
+        # 6-lens gate L3-02: a non-bytes expected_root/root/proof-element reached hmac.compare_digest /
+        # _node_hash (outside the guards) as a raw TypeError. Now fail-closed False on both public surfaces.
+        from proofbundle import verify_consistency, verify_inclusion
+        for bad_root in ("x", None, 123):
+            self.assertIs(verify_inclusion(b"leaf", 0, 1, [], bad_root), False)
+        self.assertIs(verify_consistency(1, 2, [b"\x00" * 32], None, None), False)
+        self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
+        self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
+
+    def test_verify_bundle_nul_or_surrogate_path_is_typed(self):
+        # 6-lens gate L3-01: a str bundle is a PATH; an embedded-NUL ('embedded null byte' -> ValueError) or
+        # lone-surrogate (UnicodeEncodeError -> ValueError) path escaped the OSError-only guard as a raw
+        # exception. Now a typed BundleFormatError, like every other bad path.
+        from proofbundle import verify_bundle
+        from proofbundle.bundle import BundleFormatError
+        for bad in ('{"a":"\x00b"}', '{"a":"\ud800"}', "/no/such/file.json"):
+            with self.assertRaises(BundleFormatError):
+                verify_bundle(bad)
+
     def test_evaluate_public_transparency_non_str_note_is_verdict(self):
         # a non-str signed_note is a fail-closed verdict (all statuses FAIL), never a raw AttributeError —
         # this evaluate surface returns a named-status dict.

@@ -158,6 +158,9 @@ def verify_inclusion(
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
     except (ValueError, TypeError):
         return False
+    if not isinstance(expected_root, (bytes, bytearray)):
+        return False  # 6-lens gate L3-02: a non-bytes expected_root reached the tail hmac.compare_digest
+                      # (outside the try) as a raw TypeError; fail-closed False on this public surface.
     return hmac.compare_digest(computed, expected_root)
 
 
@@ -175,6 +178,12 @@ def verify_consistency(
     if not isinstance(first_size, int) or isinstance(first_size, bool) \
             or not isinstance(second_size, int) or isinstance(second_size, bool):
         return False   # non-int sizes are malformed input, fail-closed (never a raw comparison TypeError)
+    if not isinstance(first_root, (bytes, bytearray)) or not isinstance(second_root, (bytes, bytearray)) \
+            or not all(isinstance(p, (bytes, bytearray)) for p in proof):
+        # 6-lens gate L3-02: non-bytes roots or proof elements reached hmac.compare_digest / _node_hash as a
+        # raw TypeError (the tail compare, the first_size==second_size branch, and the _node_hash loop were
+        # outside any guard); every byte input is validated up front so this public surface fails closed.
+        return False
     if first_size <= 0 or first_size > second_size:
         return False
     if first_size == second_size:
