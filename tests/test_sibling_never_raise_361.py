@@ -243,6 +243,32 @@ class CliInspectLoneSurrogate(unittest.TestCase):
             pathlib.Path(p).unlink()
 
 
+class CallerPathTypedErrors(unittest.TestCase):
+    """Final sweep: the last two raw-exception CALLER paths are now typed BundleFormatError, so the whole
+    public verify surface is uniformly typed (no raw OSError / AttributeError on any probed input)."""
+
+    def test_verify_bundle_bad_path_is_bundleformaterror(self):
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.errors import BundleFormatError
+        # a `str` bundle is a PATH; a huge / unreadable path is the documented BundleFormatError, not OSError.
+        with self.assertRaises(BundleFormatError):
+            verify_bundle("W" * 5000)          # File name too long -> OSError, now typed
+        with self.assertRaises(BundleFormatError):
+            verify_bundle("/no/such/proofbundle/path/deadbeef.json")
+
+    def test_checkpoint_non_str_vkey_is_bundleformaterror(self):
+        from proofbundle.checkpoint import (verify_checkpoint, verify_cosignature,
+                                            verify_witnessed_checkpoint)
+        from proofbundle.errors import BundleFormatError
+        for bad in (None, 123, [1], {}):
+            with self.assertRaises(BundleFormatError):
+                verify_checkpoint("origin\n\nsig", bad)         # was raw AttributeError on .split
+            with self.assertRaises(BundleFormatError):
+                verify_cosignature("origin\n\nsig", bad)
+            with self.assertRaises(BundleFormatError):
+                verify_witnessed_checkpoint("origin\n\nsig", bad, ())
+
+
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):
         # PB06-RELSTMT-CANON-FAILOPEN: without the canonicalizer, verify must NOT pass (ok=True) in default

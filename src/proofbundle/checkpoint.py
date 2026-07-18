@@ -335,6 +335,10 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     """Parse a witness vkey, dispatching on the algorithm byte: 0x04 (Ed25519 cosignature/v1,
     32-byte key) or 0x06 (ML-DSA-44, 1312-byte key). Any other byte/length is rejected —
     including 0x01: a LOG key must never be accepted as a witness (domain separation)."""
+    # RE-GATE never-raise consistency (mirror _parse_vkey): a non-str witness vkey is a typed
+    # BundleFormatError, never a raw AttributeError from `.split` (verify_cosignature routes here).
+    if not isinstance(vkey_str, str):
+        raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     parts = vkey_str.split("+", 2)
     if len(parts) != 3:
         raise BundleFormatError("vkey must have 3 '+'-separated parts (name+hexKeyID+base64KeyMaterial)")
