@@ -167,6 +167,82 @@ class MerklePathBudgetDirectDict(unittest.TestCase):
         self.assertTrue(verify_inclusion(b"a", 0, 2, [h1], root))
 
 
+class SdJwtFamilyBudgetNeverRaise(unittest.TestCase):
+    """RE-GATE round-final: the SD-JWT / status-list / KB-JWT / sample-opening verify surfaces parse their
+    JWT parts with loads_strict, but their except caught only BundleFormatError + ValueError/TypeError — not
+    BudgetExceeded (a ProofBundleError sibling). A wide/oversized JWT part must be a fail-closed verdict."""
+
+    def _b64u(self, obj):
+        import base64
+        import json
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+
+    def test_budget_overrun_is_failclosed_not_raise(self):
+        wide = self._b64u([0] * 200_005) + "." + self._b64u({"x": 1}) + ".AA"
+        over = self._b64u({"x": 1}) + "." + self._b64u({"p": "A" * (9 * 1024 * 1024)}) + ".AA"
+        pub = generate_signer().public_key().public_bytes_raw()
+        from proofbundle.kbjwt import verify_key_binding
+        from proofbundle.sdjwt import verify_sd_jwt
+        from proofbundle.sdjwt_vc import verify_sdjwt_vc
+        from proofbundle.statuslist import verify_status_snapshot
+        for tok in (wide, over):
+            self.assertIs(verify_status_snapshot(tok, expected_uri="x", index=0, issuer_pubkey=pub)["ok"], False)
+            self.assertIsNot(verify_sd_jwt(tok)["sig_ok"], True)   # verify_sd_jwt reports sig_ok/structure_ok
+        self.assertIsNot(verify_key_binding(wide + "~" + wide)["ok"], True)
+        self.assertIsNot(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
+                                         issuer_pubkey=b"\x00" * 32)["ok"], True)
+        # persample.verify_sample_opening's BudgetExceeded fix (same except-ProofBundleError change) is
+        # covered by the Berkeley-gate reproducer (its opening/root_b64 shape validation runs before the
+        # disclosure parse, so a self-contained budget-only probe here is brittle).
+
+
+class RelationStatementPolicyGuard(unittest.TestCase):
+    def test_non_dict_policy_is_failclosed(self):
+        # REGATE-CRYPTO-RELSTMT-POLICY: verify_relation_statement was missing the non-dict policy guard its
+        # decision/outcome siblings carry — policy.get('relations') raised a raw AttributeError.
+        from proofbundle.relation_statement import emit_relation_statement, verify_relation_statement
+        s = generate_signer()
+        edge = {"relation": "supersedes",
+                "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b" * 64}}
+        env = emit_relation_statement({"schemaVersion": "0.1.0", "statementId": "s1",
+                                       "relationships": [edge]}, s)
+        pub = s.public_key().public_bytes_raw()
+        for pol in (123, "str", [1, 2]):
+            r = verify_relation_statement(env, pub, policy=pol)   # must NOT raise AttributeError
+            self.assertIs(r["ok"], False)
+            self.assertIs(r["policy_ok"], False)
+        self.assertIs(verify_relation_statement(env, pub)["ok"], True)  # no-policy regression
+
+
+class CliInspectLoneSurrogate(unittest.TestCase):
+    def test_inspect_lone_surrogate_is_clean_exit_2(self):
+        # TCE-01/02/03: `<verb> inspect` dumped a raw UnicodeEncodeError on a lone-surrogate payload under
+        # strict utf-8 stdout — now a clean exit 2 (ascii-escaped fallback), never a traceback.
+        import contextlib
+        import io
+        import json
+        import pathlib
+        import tempfile
+
+        from proofbundle import cli, dsse
+        s = generate_signer()
+        body = json.dumps({"predicateType": "x", "predicate": {"s": "\ud800"}},
+                          ensure_ascii=False).encode("utf-8", "surrogatepass")
+        env = dsse.sign_envelope(body, s, payload_type=_INTOTO)
+        fd, p = tempfile.mkstemp(suffix=".json")
+        pathlib.Path(p).write_text(json.dumps(env))
+        try:
+            for verb in ("decision", "outcome", "relation-statement"):
+                # a STRICT utf-8 stdout (like a real terminal) is where the lone surrogate would crash — pytest's
+                # own capture is lenient, so force strict to exercise the fix. Clean exit 2, never a traceback.
+                strict = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+                with contextlib.redirect_stdout(strict):
+                    rc = cli.main([verb, "inspect", p])
+                self.assertEqual(rc, 2)
+        finally:
+            pathlib.Path(p).unlink()
+
+
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):
         # PB06-RELSTMT-CANON-FAILOPEN: without the canonicalizer, verify must NOT pass (ok=True) in default

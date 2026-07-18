@@ -28,7 +28,7 @@ import zlib
 from typing import Optional
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519
 
 __all__ = ["STATUS_LABELS", "verify_status_snapshot", "status_claim", "issue_status_list_token"]
@@ -128,7 +128,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         header = loads_strict(_b64url_decode(header_b64))
         payload = loads_strict(_b64url_decode(payload_b64))
         sig = _b64url_decode(sig_b64)
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) — a ProofBundleError sibling
         result["detail"] = f"malformed status list token: {exc}"
         return result
     except (ValueError, TypeError):
@@ -195,7 +195,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         return result
     try:
         status = _status_at(bit_array, bits, index)
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) — a ProofBundleError sibling
         result["detail"] = str(exc)
         return result
 

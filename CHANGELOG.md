@@ -94,6 +94,20 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
   `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
   token is now a fail-closed verdict, like a garbage string already was.
+- **PB-2026-0718-SDJWT-BUDGET (P1) the SD-JWT family leaked raw BudgetExceeded:** `verify_status_snapshot`,
+  `verify_key_binding`, `verify_sd_jwt` (header/payload + per-disclosure), `verify_sdjwt_vc` and
+  `verify_sample_opening` parse their JWT parts with `loads_strict`, but their `except` caught only
+  `BundleFormatError` + `ValueError`/`TypeError` — not `BudgetExceeded` (a `ProofBundleError` sibling). A
+  wide (`json_nodes` over cap) or oversized (`input_bytes` over cap) JWT part raised a raw `BudgetExceeded`
+  out of these dict-returning verify surfaces. All now catch `ProofBundleError` (which covers both
+  `BudgetExceeded` and the dup-key `BundleFormatError`), returning a fail-closed verdict.
+- **PB-2026-0718-RELSTMT-POLICY (P1) verify_relation_statement crashed on a non-dict policy:** it was
+  missing the non-dict `policy` guard its decision/outcome siblings carry, so `policy.get('relations')`
+  raised a raw `AttributeError` on a scalar/list policy. Now a fail-closed `policy_ok=False` verdict.
+- **PB-2026-0718-CLI-INSPECT (P2) `<verb> inspect` dumped a raw UnicodeEncodeError on a lone surrogate:**
+  `decision` / `outcome` / `relation-statement inspect` printed the payload with `ensure_ascii=False`,
+  which crashes under strict utf-8 stdout on a lone surrogate. Now guarded: it falls back to ascii-escaped
+  output + a clean exit 2, never a traceback.
 - **PB-2026-0718-SWEEP (P2) four verifiers crashed on a type-confused primary argument:** a full breadth
   sweep (annotation-typed) of every public `verify_*` entrypoint found `verify_tlog_proof` raising a raw
   `TypeError` on a non-str `text` (and `BundleFormatError` on a bad `threshold`), `verify_key_binding` a raw

@@ -37,7 +37,7 @@ import json
 from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import ProofBundleError
 from .signature import verify_ed25519
 
 __all__ = ["split_key_binding", "verify_key_binding", "holder_key_from_cnf"]
@@ -138,8 +138,8 @@ def verify_key_binding(
         kb_header = loads_strict(_b64url_decode(kb_header_b64))
         kb_payload = loads_strict(_b64url_decode(kb_payload_b64))
         kb_sig = _b64url_decode(kb_sig_b64)
-    except BundleFormatError:
-        result["detail"] = "duplicate JSON key in KB-JWT or issuer JWT (parser-differential, rejected)"
+    except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
+        result["detail"] = "KB-JWT or issuer JWT rejected (duplicate JSON key or over verification budget)"
         return result
     except (ValueError, TypeError, json.JSONDecodeError):
         result["detail"] = "malformed KB-JWT or issuer JWT"

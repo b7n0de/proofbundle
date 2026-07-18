@@ -1675,7 +1675,14 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 
@@ -1869,7 +1876,14 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 
@@ -2004,7 +2018,14 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 

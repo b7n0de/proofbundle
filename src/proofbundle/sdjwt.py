@@ -48,7 +48,7 @@ from collections import deque
 from typing import Optional, Set
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import ProofBundleError
 from .signature import verify_ecdsa_p256, verify_ed25519
 
 # Finding 20 / issue #27: issuer-signature algorithms this verifier accepts, each dispatched to its
@@ -126,7 +126,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     try:
         header = loads_strict(_b64url_decode(header_b64))
         payload = loads_strict(_b64url_decode(payload_b64))
-    except BundleFormatError:
+    except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
         # WP-C1 (F12, 2026-07-12): a DUPLICATE JSON key in the issuer-signed JWT header/payload is a
         # parser differential — plain json.loads is last-wins, so a duplicated `cnf` lets an attacker
         # holder key silently win over the intended one (kbjwt.holder_key_from_cnf). Every other verify
@@ -170,7 +170,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     for d in disclosures:
         try:
             parsed = loads_strict(_b64url_decode(d))
-        except BundleFormatError:
+        except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
             # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set a
             # duplicate-specific detail so it is not masked by the generic "N disclosure(s)" fall-through.
             result["detail"] = "duplicate JSON key in an SD-JWT disclosure (parser-differential, rejected)"

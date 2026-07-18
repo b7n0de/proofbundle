@@ -289,7 +289,13 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     # (require_relation_resolution / relation_signer / require_relation_target). The successor issuer
     # key is the STATEMENT's own signing key (--pub). Plus the ONE standalone extension:
     # reject_retracted / reject_superseded fire on the statement's OWN verified assertion.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (REGATE-CRYPTO-RELSTMT-POLICY / mirror decision.py + outcome.py): a caller-
+        # supplied non-dict `policy` (a JSON scalar or list) must be a fail-closed policy verdict, not a raw
+        # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
         relations = policy["relations"]
         _viol = evaluate_relations_policy(
