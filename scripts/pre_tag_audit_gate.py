@@ -38,9 +38,11 @@ _AUDIT_MARKERS = re.compile(r"\b\d+\s*-?\s*lens(es)?\b|\badversarial\b|\bmaster[
 # POSITIVE attestation when its own line is not negated by one of these (line-scoped, so a negation elsewhere
 # in the file does not suppress a genuine positive line).
 _AUDIT_NEGATION = re.compile(
-    r"\bnot\b|\bnicht\b|\bno\b|\bwithout\b|\bohne\b|\bskip(?:ped|ping)?\b|\bpending\b|\btodo\b|\bt\.?b\.?d\.?\b"
-    r"|did\s*n[o']t|has\s*n[o']t|was\s*n[o']t|were\s*n[o']t|is\s*n[o']t|\bunrun\b|\bnot\s+run\b|\bfailed\s+to\b"
-    r"|\bausstehend\b|\bnicht\s+durchgef", re.IGNORECASE)
+    r"\bnot\b|\bnicht\b|\bno\b|\bnever\b|\bnie\b|\bwithout\b|\bohne\b|\bskip(?:ped|ping)?\b|\bpending\b"
+    r"|\bdeferred?\b|\bpostponed?\b|\bvertagt\b|\bverschoben\b|\bnoch\s+nicht\b|\bnot\s+yet\b|\btbd\b|\btodo\b"
+    r"|\bt\.?b\.?d\.?\b|did\s*n[o']t|has\s*n[o']t|have\s*n[o']t|was\s*n[o']t|were\s*n[o']t|is\s*n[o']t"
+    r"|\bunrun\b|\bnot\s+run\b|\bfailed\s+to\b|\bausstehend\b|\bnicht\s+durchgef|\bplanned\b|\bgeplant\b",
+    re.IGNORECASE)
 
 
 def _positive_audit_marker(text: str) -> bool:

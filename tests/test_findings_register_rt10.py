@@ -159,6 +159,15 @@ class TestResolveCurrent(unittest.TestCase):
         _e, _c, anomalies, _s = self.fr._resolve_current([{"id": 123, "severity": "P0", "status": "open"}])
         self.assertTrue(anomalies)
 
+    def test_non_string_severity_or_status_is_anomaly(self):
+        # 6-lens gate: a non-string severity (e.g. the LIST ["P0"]) would slip past the {P0,P1} test and hide
+        # an open P0 (str(["P0"]).upper() != "P0"); non-string severity/status must be an anomaly -> FAIL.
+        for bad in ([{"id": "X", "severity": ["P0"], "status": "open"}],
+                    [{"id": "X", "severity": "P0", "status": ["open"]}],
+                    [{"id": "X", "severity": 0, "status": "open"}]):
+            _e, _c, anomalies, _s = self.fr._resolve_current(bad)
+            self.assertTrue(anomalies, bad)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,14 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
         if not isinstance(fid, str) or not fid:
             anomalies.append(f"index{idx}:bad-id={fid!r}")
             continue
+        # RT10-REG severity/status TYPE-confusion fail-open (6-lens gate): a non-string severity (e.g. the
+        # LIST ["P0"]) or status would slip past the {P0,P1}/"closed" comparisons below and HIDE an open P0
+        # (str(["P0"]).upper() != "P0" -> not gating). Any non-string severity/status is an anomaly -> the
+        # caller fails closed, so type-confusion can never mask an open finding.
+        if not isinstance(f.get("severity"), str) or not isinstance(f.get("status"), str):
+            anomalies.append(f"{fid}:non-string-severity-or-status="
+                             f"{f.get('severity')!r}/{f.get('status')!r}")
+            continue
         sby = f.get("superseded_by")
         if isinstance(sby, str) and sby:
             if sby == fid or sby not in ids_present:

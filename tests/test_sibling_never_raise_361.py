@@ -306,6 +306,14 @@ class CallerPathTypedErrors(unittest.TestCase):
         except ProofBundleError:
             pass  # a downstream schema/content rejection is fine; only a budget false-positive is a bug
 
+    def test_verify_inclusion_non_int_index_is_false_not_raise(self):
+        # 6-lens gate: a non-int / float / None leaf_index or tree_size reached the `<=` / bit-ops in
+        # root_from_inclusion as a raw TypeError on this PUBLIC never-raise surface. Now fail-closed False.
+        from proofbundle import verify_inclusion
+        root = b"\x00" * 32
+        for li, ts in (("x", 1), (None, 1), (1.5, 2), (0, "x"), (0, None)):
+            self.assertIs(verify_inclusion(b"leaf", li, ts, [], root), False)
+
     def test_evaluate_public_transparency_non_str_note_is_verdict(self):
         # a non-str signed_note is a fail-closed verdict (all statuses FAIL), never a raw AttributeError —
         # this evaluate surface returns a named-status dict.

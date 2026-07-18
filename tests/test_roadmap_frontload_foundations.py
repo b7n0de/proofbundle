@@ -165,6 +165,20 @@ class TestF7PreTagAudit(unittest.TestCase):
             self.assertEqual(self.gate.audit_records_for(Path(td), "7.7.0"), [])
             self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
 
+    def test_negation_covers_never_deferred_postponed(self):
+        # 6-lens gate: the negation guard must also reject 'never ran' / 'deferred' / 'postponed' /
+        # 'noch nicht durchgeführt', not only 'not/pending'.
+        import tempfile
+        for concession in ("The 6-lens adversarial audit never ran.",
+                           "6-lens adversarial review deferred to 3.6.2.",
+                           "Adversarial audit postponed.",
+                           "Adversariales 6-Linsen-Review noch nicht durchgeführt."):
+            with tempfile.TemporaryDirectory() as td:
+                rec = Path(td) / "audit_artifacts" / "770"
+                rec.mkdir(parents=True)
+                (rec / "note.md").write_text(f"# 7.7.0\n\n{concession}\n")
+                self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"], concession)
+
     def test_positive_marker_still_passes(self):
         # counterpart: a genuine positive audit note IS accepted (discriminates the negation guard from a
         # blanket reject).

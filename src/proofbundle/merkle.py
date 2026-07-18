@@ -148,9 +148,15 @@ def verify_inclusion(
         # log2(tree_size) proof needs <= 256 steps for any realistic tree; a longer (or non-list) proof is
         # fail-closed, never an unbounded per-step hash loop.
         return False
+    if not isinstance(leaf_index, int) or isinstance(leaf_index, bool) \
+            or not isinstance(tree_size, int) or isinstance(tree_size, bool):
+        # 6-lens gate: a non-int leaf_index/tree_size reached the `leaf_index <= ...` / bit-ops in
+        # root_from_inclusion as a raw TypeError (this public never-raise surface must fail closed, matching
+        # verify_consistency's size guard) — never a raw comparison/operand TypeError.
+        return False
     try:
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
-    except ValueError:
+    except (ValueError, TypeError):
         return False
     return hmac.compare_digest(computed, expected_root)
 
