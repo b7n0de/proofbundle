@@ -324,6 +324,31 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_verify_prereg_bad_path_is_verdict(self):
+        # 6-lens gate L2-01: verify_prereg read the protocol file unguarded, so a missing/dir/None/NUL
+        # protocol_path (with a claim that DOES carry prereg_sha256, reaching the read) raised a raw
+        # OSError/TypeError/ValueError. Now a fail-closed verdict; the read is also input_bytes-bounded.
+        from proofbundle import verify_prereg
+        claim = {"prereg_sha256": "a" * 64}
+        for bad in ("/no/such/file", "/tmp", None, "/no\x00nul"):
+            r = verify_prereg(bad, claim)
+            self.assertIsInstance(r, dict)
+            self.assertFalse(r["ok"])
+        self.assertFalse(verify_prereg("/no/such", {})["present"])  # no prereg ref -> present=False, no read
+
+    def test_evaluate_renewal_policy_type_confused_sequence_is_verdict(self):
+        # 6-lens gate L3-02: a type-confused / empty sequence dereferenced newest.hash_alg as a raw
+        # AttributeError/TypeError (or raised RenewalError). Now a fail-closed VerificationResult, mirroring
+        # the sibling verify_sequence's renewal:shape / renewal:nonempty checks.
+        from proofbundle import evaluate_renewal_policy
+        from proofbundle.errors import VerificationResult
+        from proofbundle.renewal import RenewalPolicy
+        pol = RenewalPolicy()
+        for bad in ("notlist", [123], [["x"]], [[1]], [[{}]], []):
+            r = evaluate_renewal_policy(bad, policy=pol, now=0)
+            self.assertIsInstance(r, VerificationResult)
+            self.assertFalse(r.ok)
+
     def test_verify_evaluation_card_bad_path_is_verdict(self):
         # 6-lens gate L1-01: verify_evaluation_card read the card file unguarded, so a missing / directory /
         # None / NUL / surrogate card_path raised a raw FileNotFoundError/IsADirectoryError/TypeError/ValueError
