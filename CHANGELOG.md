@@ -70,6 +70,30 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   example", was absent from the tarball (the allowlist grafted only `docs/readiness_pack`). It is now
   shipped by exact path (not `graft docs/adr`, which would also ship ADR markdowns whose links reference
   pruned repo files).
+- **PB-2026-0718-CB-01 (P1) bytearray public key crashed every DSSE verify entrypoint:** the shared
+  `signature.verify_ed25519` primitive admitted a `bytearray` in its type guard but passed it straight to
+  `Ed25519PublicKey.from_public_bytes` / `.verify`, which require exact `bytes` and raise a raw `TypeError`
+  — escaping decision / outcome / relation-statement / run-ledger / verification-summary verify as an
+  uncaught crash (defeating the never-raise fix above). It now coerces `bytes(public_key)` / `bytes(signature)`
+  so a VALID bytearray key VERIFIES (mirrors `verify_ecdsa_p256`, which already coerced), never a crash or a
+  wrong False.
+- **PB-2026-0718-BUDGET (P1) sibling DSSE verifiers leaked raw BudgetExceeded:** `verify_run_ledger`,
+  `verify_relation_statement`, `verify_verification_summary` and `verify_trust_pack` are dict-returning
+  never-raise surfaces, but a wide (json_nodes over cap) / oversized (input_bytes over 8 MiB) / over-signatures
+  untrusted envelope raised a raw `BudgetExceeded` (a `ProofBundleError` sibling of `BundleFormatError`) —
+  the crypto/load/budget/parse ran outside the guard and the except only caught `BundleFormatError`. All four
+  now move that prefix inside the never-raise try and catch `ProofBundleError`, returning a fail-closed
+  verdict (mirrors decision/outcome). `verify_trust_pack`'s non-list-signatures case is now a fail-closed
+  verdict too, not a raise.
+- **PB-2026-0718-CANON (P2) sibling verifiers failed OPEN without the canonicalizer:** `verify_run_ledger`,
+  `verify_relation_statement`, `verify_verification_summary` and `verify_trust_pack` used
+  `canonical_ok is True or (canonical_ok is None and not strict)`, so with `rfc8785` absent a non-canonical
+  payload passed with `ok=true` in default mode — the same False Accept PB-2026-0717-06 already closed for
+  decision. Since `rfc8785` is now a core dependency, an absent canonicalizer is a broken install: all four
+  fail closed regardless of `strict`.
+- **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
+  `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
+  token is now a fail-closed verdict, like a garbage string already was.
 - **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
   (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
   **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an
