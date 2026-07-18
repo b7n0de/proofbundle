@@ -57,6 +57,12 @@ class TestF1CommonVocabulary(unittest.TestCase):
 
 
 class TestF1CrossFormatCorpus(unittest.TestCase):
+    def setUp(self):
+        # L6-02 follow-up: cross_format validates against JSON Schema (needs jsonschema, a [test]-extra dep) —
+        # skip cleanly on a bare `[eval]` sdist install instead of erroring at `import cross_format`.
+        import pytest
+        pytest.importorskip("jsonschema")
+
     def test_real_corpus_is_schema_valid_and_consistent(self):
         import cross_format
         ok, problems = cross_format.run()

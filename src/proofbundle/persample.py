@@ -189,7 +189,15 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("opening proof/root is not valid base64") from exc
 
-    if not merkle.verify_inclusion(disclosure.encode("ascii"), index, n, proof, root):
+    try:
+        disclosure_bytes = disclosure.encode("ascii")
+    except UnicodeEncodeError:
+        # 6-lens gate L3-01: a non-ASCII / surrogate disclosure passed the isinstance(str) structural guard but
+        # can never re-derive the ASCII-committed leaf, so the correct fail-closed answer on this public
+        # never-raise surface is ok=False, not a raw UnicodeEncodeError traceback to a relying party.
+        result["detail"] = "disclosure is not ASCII, cannot bind to the samples root"
+        return result
+    if not merkle.verify_inclusion(disclosure_bytes, index, n, proof, root):
         result["detail"] = "inclusion proof does not bind this disclosure to the samples root"
         return result
 

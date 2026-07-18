@@ -32,6 +32,17 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_audit_candidate_360::test_matrix_is_ready_and_has_33_checks",
     "test_audit_candidate_360::test_c12_2_green_on_real_repo",
     "test_audit_candidate_360::test_c1_1_green_on_real_repo",
+    # L6-02: the c1_1 CI-gate discrimination tests build temp workflow YAML and parse it via
+    # audit_candidate_matrix._ci_workflow_facts -> `import yaml`. PyYAML is a [test]-extra dep, so from a bare
+    # `[eval]` sdist install c1_1 honestly returns DATA_BLOCKED and these asserts fail -> skip them outside a
+    # git checkout (they run in the normal `test` CI job which has the dev deps).
+    "test_audit_candidate_360::test_c1_1_fails_when_second_gate_missing",
+    "test_audit_candidate_360::test_c1_1_fails_when_second_gate_is_not_a_test_gate",
+    "test_audit_candidate_360::test_c1_1_which_pytest_is_not_a_test_run",
+    "test_audit_candidate_360::test_c1_1_collect_only_is_not_a_test_run",
+    "test_audit_candidate_360::test_c1_1_real_unittest_discover_passes",
+    "test_audit_candidate_360::test_variant3_pytest_only_in_comment_echo_or_disabled_job_fails_c1_1",
+    "test_audit_candidate_360::test_variant3b_real_executing_run_step_passes_c1_1",
     # PKG-01: these read REPO/audit_artifacts/findings_register_361.json, which `prune audit_artifacts` in
     # MANIFEST.in deliberately drops from the sdist — skip them outside a git checkout (never in CI).
     "test_audit_candidate_360::test_c12_2_fails_on_tampered_register",

@@ -14,6 +14,12 @@ import importlib.util
 import pathlib
 import unittest
 
+import pytest
+
+# L6-02 follow-up: cross_format.py validates against JSON Schema (needs jsonschema, a [test]-extra dep) —
+# from a bare `[eval]` sdist install it is absent, so skip cleanly rather than error at import.
+pytest.importorskip("jsonschema")
+
 _CONF = pathlib.Path(__file__).resolve().parents[1] / "conformance"
 _spec = importlib.util.spec_from_file_location("cross_format", _CONF / "cross_format.py")
 _cf = importlib.util.module_from_spec(_spec)

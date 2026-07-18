@@ -324,6 +324,32 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_verify_evaluation_card_bad_path_is_verdict(self):
+        # 6-lens gate L1-01: verify_evaluation_card read the card file unguarded, so a missing / directory /
+        # None / NUL / surrogate card_path raised a raw FileNotFoundError/IsADirectoryError/TypeError/ValueError
+        # on this public surface. Now a fail-closed verdict dict (present, no match).
+        import base64
+        from proofbundle import verify_evaluation_card
+        claim = {"evaluation_card_sha256": "a" * 64}
+        for bad in ("/no/such/file", "/tmp", None, "/no\x00nul", "/no\ud800sur"):
+            r = verify_evaluation_card(bad, claim)
+            self.assertIsInstance(r, dict)
+            self.assertFalse(r["ok"])
+        # unchanged: a claim with no card reference returns present=False before any read
+        self.assertFalse(verify_evaluation_card("/no/such", {})["present"])
+        _ = base64  # keep import symmetry with the sibling tests
+
+    def test_verify_sample_opening_non_ascii_disclosure_is_verdict(self):
+        # 6-lens gate L3-01: a non-ASCII / surrogate / emoji disclosure passed the isinstance(str) guard but
+        # disclosure.encode("ascii") raised a raw UnicodeEncodeError. Now a fail-closed verdict (ok=False).
+        import base64
+        from proofbundle import verify_sample_opening
+        root = base64.b64encode(b"\x00" * 32).decode()
+        for disc in ("café☕", "\ud800sur", "emoji🎯"):
+            r = verify_sample_opening({"index": 0, "disclosure": disc, "proof_b64": []}, root, 1)
+            self.assertIsInstance(r, dict)
+            self.assertFalse(r["ok"])
+
     def test_verify_dual_hash_non_bytes_data_is_result_not_raise(self):
         # 6-lens gate L3-02: verify_dual_hash's compute_digest(data, ...) call sat outside the guards, so a
         # non-bytes primary `data` (str/int/None/list) raised a raw TypeError from h.update(data). Now a
