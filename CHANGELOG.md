@@ -108,6 +108,13 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   over-claim); fields retained for backward compat.
 
 ### Changed / Added
+- **PB-2026-0718-11 (P1) cross-format comparator passed vacuously on singleton groups:** the conformance
+  corpus-integrity check grouped cases by `crossFormatId` and SKIPPED any group with fewer than two members
+  — but all six `xfmt-*` groups had exactly one member, so the "the same scenario agrees across formats"
+  check was vacuously true and reported ok=true while verifying nothing. A singleton `crossFormatId` is now
+  a fail-closed problem (a cross-format id must link >= 2 format representations), and the six ids now link
+  their decision AND outcome encodings (which agree on every shared axis), so the comparator is non-vacuous.
+  RT-07: a sweep confirmed `cross_format.py` was the only group-by-id comparator with the skip-on-<2 pattern.
 - **PB-2026-0717-05 (P1):** conformance corpus gains normative subject-pin negative-state vectors
   `relation/target-subject-missing` + `relation/target-subject-ambiguous` (independent SPEC oracle).
 - **PB-2026-0717-02 (P1):** `MANIFEST.in` ships the tests' runtime assets in the sdist (fixtures,

@@ -533,14 +533,18 @@ def main() -> None:
                          attribution=loek))
 
     # ══ WP-B: outcome-path mirror (kind outcome_relation) — the relations gate on the outcome verb ══
-    # (e) five-skeleton mirror (internal names, NO crossFormatId — the shared skeleton is decision-side)
+    # (e) five-skeleton mirror. PB-2026-0718-11: these carry the SAME crossFormatId as their decision
+    # counterpart (xfmt-c0/t1/t2/t3/t4 + t3-decoy) — the decision and outcome encodings are the two format
+    # representations of one logical scenario, so the cross-format comparator has >= 2 members per id to
+    # compare (a singleton id is now fail-closed) and their declared verdicts must agree on every shared axis.
     o_pred = emit_outcome({"outcomeId": "urn:uuid:11111111-1111-1111-1111-11111111000e"}, signer)
     write_case("outcome-valid-baseline",
                {"receipt.json": o_pred, "pub.b64": x_pub},
                base_case("outcome-relation-valid-baseline",
                          {"exitCode": 0, "lineage": None},
                          "WP-B (e/c0): an outcome receipt without the profile verifies exactly as "
-                         "before; lineage NOT_EVALUATED (null).", kind="outcome_relation"))
+                         "before; lineage NOT_EVALUATED (null).", kind="outcome_relation",
+                         cross_format_id="xfmt-c0"))
 
     o_pred_body = json.loads(base64.b64decode(o_pred["payload"]))
     o_pred_body["predicate"]["outcomeId"] = "urn:uuid:tampered"
@@ -551,7 +555,8 @@ def main() -> None:
                base_case("outcome-relation-silent-landing",
                          {"exitCode": 1},
                          "WP-B (e/t1): new outcome bytes under the old identity with NO declared "
-                         "relation → crypto FAIL, exit 1.", kind="outcome_relation"))
+                         "relation → crypto FAIL, exit 1.", kind="outcome_relation",
+                         cross_format_id="xfmt-t1"))
 
     o_pred_b = emit_outcome({"outcomeId": "urn:uuid:11111111-1111-1111-1111-1111110000b0"}, signer)
     o_b_root = content_root_hex(o_pred_b)
@@ -563,7 +568,8 @@ def main() -> None:
                          {"exitCode": 0, "lineage": "VERIFIED"},
                          "WP-B (e/t2): declared supersession with the predecessor attached and "
                          "standalone-verified on the OUTCOME path: lineage VERIFIED.",
-                         related=["related_b.json"], kind="outcome_relation"))
+                         related=["related_b.json"], kind="outcome_relation",
+                         cross_format_id="xfmt-t2"))
 
     o_wrong = "0" * 63 + "2"
     o_mismatch = emit_outcome({"outcomeId": "urn:uuid:11111111-1111-1111-1111-1111110000t3",
@@ -577,7 +583,8 @@ def main() -> None:
                          "WP-B (e/t3): the outcome-path relations gate — a required supersedes edge "
                          "that cannot resolve (the named digest matches no attached target) FAILs "
                          "policy, exit 3. Identical gate + code as the decision path.",
-                         related=["related_b.json"], policy="policy.json", kind="outcome_relation"))
+                         related=["related_b.json"], policy="policy.json", kind="outcome_relation",
+                         cross_format_id="xfmt-t3"))
 
     o_renew = emit_outcome({"outcomeId": "urn:uuid:11111111-1111-1111-1111-1111110000t4",
                             "relationships": [edge(o_b_root, relation="renews")]}, signer)
@@ -587,7 +594,8 @@ def main() -> None:
                          {"exitCode": 0, "lineage": "VERIFIED"},
                          "WP-B (e/t4): renews on the OUTCOME path — same evidence, new anchors; the "
                          "predecessor stays attached and valid.",
-                         related=["related_b.json"], kind="outcome_relation"))
+                         related=["related_b.json"], kind="outcome_relation",
+                         cross_format_id="xfmt-t4"))
 
     # WP-B relation_signer + require_relation_target ON the outcome path (exit-3 mirror of decision).
     o_fb = emit_outcome({"outcomeId": "urn:uuid:11111111-1111-1111-1111-11111100f000"}, stranger)
@@ -624,7 +632,7 @@ def main() -> None:
                          "exit 3, RELATION_TARGET_MISMATCH.",
                          related=["related_r0.json", "related_rx.json"],
                          related_pubs=[x_pub, x_pub], policy="policy.json",
-                         kind="outcome_relation", attribution=loek))
+                         kind="outcome_relation", attribution=loek, cross_format_id="xfmt-t3-decoy"))
 
     # 15) wrong-payloadType target (Berkeley audit — Rust payloadType fail-open regression, 3.5.0):
     #     a SAME-KEY related target whose DSSE envelope carries the WRONG payloadType (validly signed

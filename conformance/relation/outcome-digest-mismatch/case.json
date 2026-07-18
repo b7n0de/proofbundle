@@ -18,5 +18,6 @@
   "related": [
     "related_b.json"
   ],
-  "policy": "policy.json"
+  "policy": "policy.json",
+  "crossFormatId": "xfmt-t3"
 }
