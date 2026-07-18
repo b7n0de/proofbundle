@@ -49,7 +49,7 @@ def _reject_duplicate_keys(pairs: list) -> dict:
     return obj
 
 
-def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int) -> None:
+def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int) -> None:
     """Bounded iterative walk (crypto-review 2026-07-15; depth added PB-2026-0718-11b): refuse a PARSED
     structure that is either too WIDE (combined dict-key + list-item count exceeds ``json_nodes`` — a
     wide-but-small-bytes document that slips under the raw ``input_bytes`` cap) or too DEEP (nesting depth
@@ -69,11 +69,20 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int) -> No
         cur, depth = stack.pop()
         if depth > json_depth:
             raise BundleFormatError("JSON nesting is too deep")
-        if isinstance(cur, dict):
+        if isinstance(cur, str):
+            # RT-BDOS-01 / RT09-STRINGLEN-INERT: cap a single oversized string VALUE. On the direct-dict
+            # path input_bytes is inert (no bytes to measure), so without this a ~13 MB payload_b64 string
+            # is processed uncapped (memory-amplification DoS) while the identical content on the str/file
+            # path is rejected by input_bytes. This restores rejection parity between both paths.
+            if len(cur) > string_len:
+                raise BudgetExceeded("string_len", len(cur), string_len)
+        elif isinstance(cur, dict):
             count += len(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            for value in cur.values():
+            for key, value in cur.items():
+                if isinstance(key, str) and len(key) > string_len:
+                    raise BudgetExceeded("string_len", len(key), string_len)
                 stack.append((value, depth + 1))
         elif isinstance(cur, list):
             count += len(cur)
@@ -96,7 +105,7 @@ def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
     ``DEFAULT_BUDGET``; pass a tighter one to test the guard."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
-    _enforce_structural_budget(obj, b.json_nodes, b.json_depth)
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len)
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
@@ -139,5 +148,5 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         if "integer string conversion" in str(exc):
             raise BundleFormatError("JSON integer literal is implausibly long (fail-closed)") from exc
         raise
-    _enforce_structural_budget(obj, b.json_nodes, b.json_depth)
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len)
     return obj

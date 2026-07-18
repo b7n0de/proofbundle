@@ -287,6 +287,15 @@ class CallerPathTypedErrors(unittest.TestCase):
         wide = {"schema": "proofbundle/v0.1", "big": {f"k{i}": i for i in range(250000)}}
         with self.assertRaises(BudgetExceeded):
             verify_bundle(wide)
+        # RT-BDOS-01 / RT09-STRINGLEN-INERT: a single oversized string VALUE (or key) is capped on the
+        # direct-dict path too (input_bytes is inert there), with rejection parity to the str/file path.
+        from proofbundle._strict_json import enforce_structural_budget
+        with self.assertRaises(BudgetExceeded):
+            enforce_structural_budget({"k": "A" * 2_000_000})
+        with self.assertRaises(BudgetExceeded):
+            enforce_structural_budget({"K" * 2_000_000: 1})
+        with self.assertRaises(ProofBundleError):
+            verify_bundle({"schema": "proofbundle/v0.1", "payload_b64": "Z" * 2_000_000})
         # a legitimately shallow bundle is NOT rejected by the budget (it fails later on schema/content, but
         # never on the structural budget) — proves the guard is not over-tight.
         shallow = {"schema": "proofbundle/v0.1", "payload_b64": base64.b64encode(b"{}").decode()}

@@ -73,6 +73,26 @@ class TestFindingsRegisterVerify(unittest.TestCase):
         r = self._run_with(reg)
         self.assertFalse(r["ok"])
 
+    def test_verify_and_count_fails_closed_on_hidden_open_p0(self):
+        # RT10-REG-01 wiring: a (simulated validly-signed) register that hides an open P0 behind a dangling
+        # supersession must return ok=False. The private key is gitignored (absent in CI), so bypass only the
+        # signature step to exercise the anomaly-FAIL path that the live key-signed reproducer confirmed.
+        reg = {
+            "schema": "proofbundle.findings_register.v1", "version": "3.6.1",
+            "generated_at": "2026-07-18T00:00:00Z",
+            "findings": [
+                {"id": "X", "severity": "P0", "status": "open", "superseded_by": "DOES_NOT_EXIST"},
+                {"id": "Y", "severity": "P2", "status": "closed"},
+            ],
+        }
+        orig = self.fr._signature_ok
+        self.fr._signature_ok = lambda register: (True, "bypassed for wiring test")
+        try:
+            r = self._run_with(reg)
+        finally:
+            self.fr._signature_ok = orig
+        self.assertFalse(r["ok"], "a hidden open P0 must fail closed, never PASS")
+
     def test_foreign_key_fails(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -104,18 +124,40 @@ class TestResolveCurrent(unittest.TestCase):
             {"id": "A", "severity": "P1", "status": "open", "superseded_by": "A2"},
             {"id": "A2", "severity": "P1", "status": "closed"},
         ]
-        effective, contradictions = self.fr._resolve_current(findings)
-        self.assertNotIn("A", effective)       # superseded entry drops out
+        effective, contradictions, anomalies, superseded = self.fr._resolve_current(findings)
+        self.assertNotIn("A", effective)       # superseded entry drops out (legit: A2 present)
         self.assertEqual(effective["A2"]["status"], "closed")
         self.assertEqual(contradictions, [])
+        self.assertEqual(anomalies, [])
+        self.assertIn("A", superseded)
 
     def test_contradiction_detected(self):
         findings = [
             {"id": "B", "severity": "P0", "status": "closed"},
             {"id": "B", "severity": "P0", "status": "open"},  # same id, conflicting, no supersession
         ]
-        _effective, contradictions = self.fr._resolve_current(findings)
+        _effective, contradictions, _anomalies, _superseded = self.fr._resolve_current(findings)
         self.assertIn("B", contradictions)
+
+    def test_dangling_supersession_is_anomaly_not_dropped(self):
+        # RT10-REG-01: a dangling superseded_by (target absent) must NOT silently drop the finding.
+        findings = [
+            {"id": "X", "severity": "P0", "status": "open", "superseded_by": "NOPE"},
+            {"id": "Y", "severity": "P2", "status": "closed"},
+        ]
+        effective, _c, anomalies, superseded = self.fr._resolve_current(findings)
+        self.assertNotIn("X", superseded)      # not legitimately superseded
+        self.assertTrue(any("X" in a for a in anomalies))
+
+    def test_self_supersession_is_anomaly(self):
+        findings = [{"id": "X", "severity": "P0", "status": "open", "superseded_by": "X"}]
+        _e, _c, anomalies, superseded = self.fr._resolve_current(findings)
+        self.assertNotIn("X", superseded)
+        self.assertTrue(any("X" in a for a in anomalies))
+
+    def test_non_string_id_is_anomaly(self):
+        _e, _c, anomalies, _s = self.fr._resolve_current([{"id": 123, "severity": "P0", "status": "open"}])
+        self.assertTrue(anomalies)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,14 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_audit_candidate_360::test_matrix_is_ready_and_has_33_checks",
     "test_audit_candidate_360::test_c12_2_green_on_real_repo",
     "test_audit_candidate_360::test_c1_1_green_on_real_repo",
+    # PKG-01: these read REPO/audit_artifacts/findings_register_361.json, which `prune audit_artifacts` in
+    # MANIFEST.in deliberately drops from the sdist — skip them outside a git checkout (never in CI).
+    "test_audit_candidate_360::test_c12_2_fails_on_tampered_register",
+    "test_audit_candidate_360::test_c12_2_fails_on_foreign_key_register",
+    "test_findings_register_rt10::test_control_real_register_verifies",
+    "test_findings_register_rt10::test_tampered_status_fails",
+    "test_findings_register_rt10::test_foreign_key_fails",
+    "test_findings_register_rt10::test_emptied_findings_fails",
     "test_claims_hygiene::test_real_docs_are_clean",
     "test_claims_hygiene::test_every_default_doc_exists_and_scan_covers_all",
     "test_claims_hygiene::test_injected_overclaim_in_every_listed_doc_fails",

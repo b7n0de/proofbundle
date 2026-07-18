@@ -154,6 +154,27 @@ class TestF7PreTagAudit(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("9.9.9", result["reason"])
 
+    def test_negated_marker_does_not_grant_pass(self):
+        # RT10-PRETAG-02: a version-scoped record whose only audit-marker line NEGATES having run the audit
+        # ("the adversarial audit did NOT run") must NOT satisfy the gate — a marker substring is not proof.
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "770"
+            rec.mkdir(parents=True)
+            (rec / "note.md").write_text("# 7.7.0\n\nThe 6-lens adversarial audit did NOT run yet (pending).\n")
+            self.assertEqual(self.gate.audit_records_for(Path(td), "7.7.0"), [])
+            self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+
+    def test_positive_marker_still_passes(self):
+        # counterpart: a genuine positive audit note IS accepted (discriminates the negation guard from a
+        # blanket reject).
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "770"
+            rec.mkdir(parents=True)
+            (rec / "note.md").write_text("# 7.7.0\n\nRan a 6-lens adversarial audit; all findings fixed.\n")
+            self.assertTrue(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -151,15 +151,45 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   not `cargo fmt`-clean and `cargo clippy -D warnings` failed (a collapsible-match in the same-key
   fail-closed branch, a redundant closure). Applied `cargo fmt` + the two machine-applicable clippy fixes
   (cosmetic / semantically-identical, no behavior change — verified by the 56/56 Python↔Rust crosscheck).
-  A CI fmt/clippy gate is deferred to 3.6.2: it is toolchain-version-fragile (the runner's rustfmt disagreed
-  on line breaks), so a deterministic gate needs a pinned `rust-toolchain.toml` + a version-matched reformat.
+  A deterministic CI fmt/clippy gate is now wired (Teil-5): `tools/pb_verify_rs/rust-toolchain.toml` pins the
+  exact toolchain (1.95.0 + rustfmt + clippy), so rustup installs the same rustfmt/clippy the code was
+  formatted with — no version drift disagreeing on line breaks at main.rs:1132/1496. `cargo fmt --check` +
+  `cargo clippy --all-targets -D warnings` run in the rust-parity job and are clean under the pinned toolchain.
 - **PB-2026-0718-16 (P2) merkle-path step budget was not enforced on the direct dict path:** the
   `merkle_path` budget (256) existed but was checked nowhere — `verify_inclusion` / `verify_consistency` ran
   a per-step hash loop over an unbounded `proof` list, and the 8 MiB `input_bytes` byte-proxy never applies
   when a bundle is passed as a dict (no bytes to measure). A proof over the budget (257 / 4096 / 65536 steps)
   now fails closed in the verification core, effective on the direct dict path (RT-09); a non-list proof or
   non-int tree size is fail-closed too (no raw comparison crash). A legitimate `<= log2(tree_size)` proof is
-  unaffected.
+  unaffected. RT-09 extended (Teil-5): the node-count + nesting-depth structural budget (not only the
+  merkle-path step budget) is now enforced on the direct-dict `verify_bundle(dict)` path via
+  `_strict_json.enforce_structural_budget`, called at the direct-dict entry — the 8 MiB input-bytes cap is a
+  file proxy that is inert on an already-parsed dict, so a hostile over-limit dict (nested past json_depth 64,
+  or over json_nodes 200000) is now a fail-closed BudgetExceeded / BundleFormatError verdict, never a raw
+  RecursionError. Verified: depths 257/4096/65536 and 250000 nodes all rejected; a deep-nesting sweep over all
+  public verify surfaces at recursionlimit 3000 escapes 0 raw RecursionError. A Berkeley re-gate then closed
+  the last inert dimension: `string_len` (a single oversized JSON string/key value) is now enforced inside
+  `enforce_structural_budget` too, restoring rejection parity between the str/file path (input_bytes) and the
+  direct-dict path for a ~13 MB `payload_b64` value (RT-BDOS-01).
+- **PB-2026-0718-14 (P1) audit-candidate "0 open P0/P1" was a stale-substring false-pass (RT-10):**
+  `scripts/audit_candidate_matrix.py` C12.2 derived PASS from a lexical "0 open P0/P1" line in a version-scoped
+  .md, with no freshness / supersession / signature / contradiction check — a STALE record that still said
+  "0 open" granted PASS while current open P0/P1 existed (false_accept=true). Replaced by a signed, structured
+  findings register (`audit_artifacts/findings_register_361.json`): C12.2 now counts from structured
+  severity+status fields, requires a valid ed25519 signature by the pinned key (absent / tampered / foreign-key
+  / empty → FAIL, never PASS or PENDING), resolves supersession current-wins, treats a contradiction as ERROR,
+  and carries the RT-10 triple `(population_size, evaluated_count, source_digest)` with `evaluated_count==0`
+  → FAIL. Self-attested (independent verifier + tamper-evidence; private key gitignored, committed pubkey
+  pinned). A Berkeley re-gate hardened this: a finding can no longer be SILENTLY DROPPED from the count — a
+  dangling `superseded_by` (target absent), a self-supersession, or a non-string id is an anomaly that fails
+  closed (was a fail-open that let a validly-signed register hide an open P0 and still report 0 open);
+  severity is upper-folded and status counts closed only when exactly `closed`. Bidirectional meta-test in
+  `tests/test_findings_register_rt10.py`.
+- **PB-2026-0718-17 (P1) never-raise RecursionError via the anchor verify-pack on the direct-dict path:**
+  covered by the RT-09 structural-depth budget above — a deeply-nested anchor/bundle dict handed directly to a
+  public verify surface is depth-capped before the walk, so no raw RecursionError escapes on any supported
+  interpreter (the `loads_strict` depth cap only covered the parse path; the direct-dict path was the residual
+  gap that this closes).
 - **PB-2026-0717-05 (P1):** conformance corpus gains normative subject-pin negative-state vectors
   `relation/target-subject-missing` + `relation/target-subject-ambiguous` (independent SPEC oracle).
 - **PB-2026-0717-02 (P1):** `MANIFEST.in` ships the tests' runtime assets in the sdist (fixtures,

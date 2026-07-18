@@ -1362,12 +1362,17 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
     )
     if args.verify:
+        if args.pub is None:
+            # MJ-1: --verify needs --pub. --pub cannot be argparse-required (these commands also EMIT, where
+            # --pub is unused), so guard here — a clean 'exit 2' instead of a raw TypeError from b64decode(None).
+            print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
                 envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
-        except (OSError, ValueError, ProofBundleError) as exc:
+        except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         pt = res.get("predicate_type")
@@ -1405,11 +1410,15 @@ def _cmd_svr(args: argparse.Namespace) -> int:
 
     from .intoto import SVR_PREDICATE_TYPE, export_svr_dsse, verify_svr_dsse  # noqa: PLC0415
     if args.verify:
+        if args.pub is None:
+            # MJ-1: --verify needs --pub (cannot be argparse-required — this command also EMITs).
+            print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
                 envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
-        except (OSError, ValueError, ProofBundleError) as exc:
+        except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         pt = res.get("predicate_type")
