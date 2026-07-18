@@ -159,6 +159,28 @@ class TestResolveCurrent(unittest.TestCase):
         _e, _c, anomalies, _s = self.fr._resolve_current([{"id": 123, "severity": "P0", "status": "open"}])
         self.assertTrue(anomalies)
 
+    def test_supersession_cycle_is_anomaly(self):
+        # 6-lens gate L5-01 (P0): a supersession RING (A->B->A, or a longer loop) makes every member point to
+        # a present+different id, so without cycle detection all members drop as "legit superseded" and open
+        # P0s hidden in the ring vanish (ok=True, 0 open). A cycle must be an anomaly -> fail-closed.
+        ring2 = [{"id": "A", "severity": "P0", "status": "open", "superseded_by": "B"},
+                 {"id": "B", "severity": "P0", "status": "open", "superseded_by": "A"}]
+        _e, _c, anomalies, superseded = self.fr._resolve_current(ring2)
+        self.assertTrue(any("cycle" in a for a in anomalies))
+        self.assertNotIn("A", superseded)
+        self.assertNotIn("B", superseded)
+        ring3 = [{"id": "A", "severity": "P0", "status": "open", "superseded_by": "B"},
+                 {"id": "B", "severity": "P1", "status": "open", "superseded_by": "C"},
+                 {"id": "C", "severity": "P0", "status": "open", "superseded_by": "A"}]
+        _e, _c, anomalies3, _s = self.fr._resolve_current(ring3)
+        self.assertTrue(any("cycle" in a for a in anomalies3))
+        # a LINEAR terminating chain is NOT a cycle (stays legit)
+        chain = [{"id": "A", "severity": "P1", "status": "open", "superseded_by": "A2"},
+                 {"id": "A2", "severity": "P1", "status": "closed"}]
+        _e, _c, anomalies_ok, superseded_ok = self.fr._resolve_current(chain)
+        self.assertEqual(anomalies_ok, [])
+        self.assertIn("A", superseded_ok)
+
     def test_non_string_severity_or_status_is_anomaly(self):
         # 6-lens gate: a non-string severity (e.g. the LIST ["P0"]) would slip past the {P0,P1} test and hide
         # an open P0 (str(["P0"]).upper() != "P0"); non-string severity/status must be an anomaly -> FAIL.

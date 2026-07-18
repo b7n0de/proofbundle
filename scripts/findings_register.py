@@ -84,6 +84,7 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     contradictions: list[str] = []
     anomalies: list[str] = []
     legit_superseded: set[str] = set()
+    sby_map: dict[str, str] = {}
     for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             anomalies.append(f"index{idx}:non-dict-entry")
@@ -106,6 +107,22 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
                 anomalies.append(f"{fid}:dangling-or-self-supersede={sby!r}")  # do NOT drop, fail-closed
             else:
                 legit_superseded.add(fid)
+                sby_map[fid] = sby
+    # 6-lens gate L5-01: a supersession CYCLE (a ring A->B->A, or a longer loop) makes EVERY member point to
+    # a present+different id, so all members drop as "legitimately superseded", accounted==population holds,
+    # and open P0s hidden inside the ring are never counted (ok=True, 0 open — the exact fail-open this module
+    # exists to close). A legit chain must TERMINATE at a present, non-superseded node; walk each chain with a
+    # visited-set and treat any cycle as an anomaly -> fail-closed (no ring member stays legitimately dropped).
+    for fid in list(legit_superseded):
+        seen_chain: set[str] = set()
+        cur = fid
+        while cur in sby_map:
+            if cur in seen_chain:
+                anomalies.append(f"{fid}:supersession-cycle")
+                legit_superseded.discard(fid)
+                break
+            seen_chain.add(cur)
+            cur = sby_map[cur]
     for f in findings:
         if not isinstance(f, dict):
             continue

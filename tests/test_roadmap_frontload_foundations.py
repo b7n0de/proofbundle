@@ -172,6 +172,10 @@ class TestF7PreTagAudit(unittest.TestCase):
         for concession in ("The 6-lens adversarial audit never ran.",
                            "6-lens adversarial review deferred to 3.6.2.",
                            "Adversarial audit postponed.",
+                           "The adversarial audit was cancelled.",
+                           "6-lens adversarial review aborted.",
+                           "Adversarial audit waived.",
+                           "Adversarial audit incomplete.",
                            "Adversariales 6-Linsen-Review noch nicht durchgeführt."):
             with tempfile.TemporaryDirectory() as td:
                 rec = Path(td) / "audit_artifacts" / "770"

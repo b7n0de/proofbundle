@@ -41,7 +41,8 @@ _AUDIT_NEGATION = re.compile(
     r"\bnot\b|\bnicht\b|\bno\b|\bnever\b|\bnie\b|\bwithout\b|\bohne\b|\bskip(?:ped|ping)?\b|\bpending\b"
     r"|\bdeferred?\b|\bpostponed?\b|\bvertagt\b|\bverschoben\b|\bnoch\s+nicht\b|\bnot\s+yet\b|\btbd\b|\btodo\b"
     r"|\bt\.?b\.?d\.?\b|did\s*n[o']t|has\s*n[o']t|have\s*n[o']t|was\s*n[o']t|were\s*n[o']t|is\s*n[o']t"
-    r"|\bunrun\b|\bnot\s+run\b|\bfailed\s+to\b|\bausstehend\b|\bnicht\s+durchgef|\bplanned\b|\bgeplant\b",
+    r"|\bunrun\b|\bnot\s+run\b|\bfailed\s+to\b|\bausstehend\b|\bnicht\s+durchgef|\bplanned\b|\bgeplant\b"
+    r"|\bcancell?ed\b|\baborted\b|\bwaived\b|\bincomplete\b|\bunfinished\b|\babgebrochen\b|\bstorniert\b",
     re.IGNORECASE)
 
 
