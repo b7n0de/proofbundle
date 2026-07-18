@@ -882,6 +882,11 @@ def _cmd_emit(args: argparse.Namespace) -> int:
 
 def _cmd_verify_proof(args: argparse.Namespace) -> int:
     from .tlogproof import verify_tlog_proof  # noqa: PLC0415
+    # 6-lens gate L3-01 (never-raise-fix-must-wrap-all): the RESULT FORMATTING is inside the try too, and the
+    # except is widened to the shape-error family (AttributeError/KeyError/TypeError). verify_tlog_proof now
+    # always returns the canonical dict shape (witnesses is a dict on both the happy and fail-closed paths), so
+    # this is belt-and-suspenders — but it guarantees `verify-proof` can never emit a raw traceback on any
+    # malformed proof, whatever a future verdict-shape drift might do.
     try:
         with open(args.proof, encoding="utf-8") as handle:
             text = handle.read()
@@ -889,27 +894,28 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             leaf = handle.read()
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
-    except (ProofBundleError, OSError, ValueError) as exc:  # ValueError stopgap: never a raw traceback (D-1)
+        if args.json:
+            out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
+                                       "origin", "tree_size", "index")}
+            out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
+                                for n, w in res["witnesses"].items()}
+            print(json.dumps(out, indent=2))
+        else:
+            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
+            n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
+            print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
+                  f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
+            print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
+                  f"index {res['index']} of {res['tree_size']}")
+            print("=> OK" if res["ok"] else "=> FAILED")
+        return 0 if res["ok"] else 1
+    except (ProofBundleError, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+        # never a raw traceback (D-1): I/O + parse + verdict-shape errors all fail closed to ERROR/return 2.
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
             print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    if args.json:
-        out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
-                                   "origin", "tree_size", "index")}
-        out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
-                            for n, w in res["witnesses"].items()}
-        print(json.dumps(out, indent=2))
-    else:
-        print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
-        n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
-        print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
-              f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
-        print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
-              f"index {res['index']} of {res['tree_size']}")
-        print("=> OK" if res["ok"] else "=> FAILED")
-    return 0 if res["ok"] else 1
 
 
 def _cmd_hf_token(args: argparse.Namespace) -> int:

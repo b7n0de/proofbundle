@@ -310,9 +310,22 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
         size_ok = (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
                    and tree_size == expected_tree_size)
-        result.add("tree-size", size_ok,
-                   f"tree_size {tree_size} matches the expected size" if size_ok
-                   else f"tree_size {tree_size} != expected {expected_tree_size} — possible tree-size substitution")
+        # 6-lens gate L2-BDOS-EXPECTED-TREE-SIZE: expected_tree_size is RP-supplied and NOT routed through
+        # _require_int, so str()-rendering an absurd int (e.g. 10**5000) in the mismatch detail tripped
+        # CPython's int<->str cap (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of this
+        # never-raise API. Keep the established fail-closed contract (bool/float/huge/ill-typed -> recorded
+        # tree-size FAIL, never a raise) but render the raw expectation ONLY when it is a bounded int; a huge
+        # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
+        if size_ok:
+            detail = f"tree_size {tree_size} matches the expected size"
+        elif (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
+              and expected_tree_size.bit_length() <= 8192):
+            detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
+                      "— possible tree-size substitution")
+        else:
+            detail = (f"tree_size {tree_size} != expected (ill-typed or out-of-range expectation) "
+                      "— possible tree-size substitution")
+        result.add("tree-size", size_ok, detail)
 
     # 3. optional SD-JWT selective disclosure credential
     sd = bundle.get("sd_jwt_vc")

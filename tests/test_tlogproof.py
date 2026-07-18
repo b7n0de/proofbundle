@@ -161,6 +161,21 @@ class TestVerify(unittest.TestCase):
         self.assertIs(r["ok"], False)
         self.assertIn("threshold", r["detail"])
 
+    def test_failclosed_witnesses_is_a_dict_like_the_happy_path(self):
+        # 6-lens gate L3-01: the fail-closed verdict returned "witnesses": [] (a LIST) while the happy path
+        # returns a name->verdict DICT (checkpoint.witness_quorum). A consumer formatting the verdict with
+        # res["witnesses"].items()/.values()/len() crashed with a raw AttributeError on malformed input.
+        # Every malformed/type-confused input must now yield witnesses as a DICT so the shape is stable.
+        for bad in ("", "garbage", b"\x00", 12345, None,
+                    "c2sp.org/tlog-proof@v1\n\nx\n\ny\n"):
+            r = verify_tlog_proof(bad, b"leaf", "log+deadbeef+abc")
+            self.assertIs(r["ok"], False)
+            self.assertIsInstance(r["witnesses"], dict,
+                                  "witnesses must be a dict on the fail-closed path (matches happy path)")
+            # the exact consumer access that used to crash must now work
+            self.assertEqual(dict(r["witnesses"].items()), {})
+            self.assertEqual(sum(1 for w in r["witnesses"].values() if w.get("ok")), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -476,6 +476,30 @@ class CallerPathTypedErrors(unittest.TestCase):
             r = evaluate_public_transparency(bad, {})   # must NOT raise
             self.assertIsInstance(r, dict)
 
+    def test_verify_bundle_absurd_expected_tree_size_never_raises(self):
+        # 6-lens gate L2-BDOS-EXPECTED-TREE-SIZE: expected_tree_size is an RP-supplied keyword NOT routed
+        # through _require_int, so str()-rendering an absurd int (10**5000, ~16610 bits) in the mismatch
+        # detail tripped CPython's int<->str cap (CVE-2020-10735) as a RAW ValueError out of the never-raise
+        # verify_bundle. The established contract is fail-closed WITHOUT raising: an ill-typed / out-of-range
+        # expectation records a tree-size FAIL. No input may leak a raw exception, and none may spuriously
+        # pass (True==1 / 1.0==1 must NOT satisfy a real tree_size of 1).
+        from proofbundle import emit_bundle, generate_signer, verify_bundle
+        bundle = emit_bundle(b'{"result": 1}', generate_signer())   # single leaf -> tree_size 1
+        # NB: never str()/repr() the absurd int in the TEST'S OWN messages either — that would itself trip the
+        # int<->str cap. Label each case by type, not value.
+        cases = [("huge_positive", 10 ** 5000), ("huge_negative", -(10 ** 5000)),
+                 ("str", "1000"), ("float", 1.0), ("bool_true", True), ("list", [1])]
+        for label, bad_size in cases:
+            try:
+                res = verify_bundle(bundle, expected_tree_size=bad_size)   # must NOT raise
+            except Exception as exc:  # noqa: BLE001
+                self.fail(f"expected_tree_size case {label} leaked a raw {type(exc).__name__}: {exc}")
+            checks = {c.name: c.ok for c in res.checks}
+            self.assertIn("tree-size", checks)
+            self.assertFalse(checks["tree-size"], f"case {label} must record a tree-size FAIL, not pass")
+        # a genuine matching int still passes — the safe-render guard is not over-broad.
+        self.assertTrue({c.name: c.ok for c in verify_bundle(bundle, expected_tree_size=1).checks}["tree-size"])
+
 
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):

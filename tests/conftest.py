@@ -51,6 +51,11 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_findings_register_rt10::test_tampered_status_fails",
     "test_findings_register_rt10::test_foreign_key_fails",
     "test_findings_register_rt10::test_emptied_findings_fails",
+    # 6-lens gate L6-01: reads REPO/audit_artifacts/findings_register_361.json (pruned from the sdist) to reuse
+    # the real body before overwriting findings — skip outside a git checkout like its 4 siblings above. The
+    # security property (a hidden open-P0 cannot report 0-open) is ALSO covered from-sdist by the inline
+    # TestResolveCurrent tests, which build findings in-memory and read no pruned file.
+    "test_findings_register_rt10::test_invisible_or_confusable_severity_cannot_hide_open_p0",
     "test_claims_hygiene::test_real_docs_are_clean",
     "test_claims_hygiene::test_every_default_doc_exists_and_scan_covers_all",
     "test_claims_hygiene::test_injected_overclaim_in_every_listed_doc_fails",

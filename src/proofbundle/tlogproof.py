@@ -143,8 +143,11 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
 def _tlog_failclosed(detail: str) -> dict:
     """RE-GATE never-raise: a fail-closed tlog-proof verdict (ok=False, every sub-verdict False) for
     malformed / type-confused untrusted input — the SAME dict shape as a full run, never a raw exception."""
+    # 6-lens gate L3-01: "witnesses" must be a DICT to match the happy path (witness_quorum returns a name->
+    # verdict dict). It was [] here, so a CLI/RP formatter doing res["witnesses"].items()/.values() on a fail-
+    # closed verdict crashed with a raw AttributeError. Empty dict = same shape, still fail-closed (no witnesses).
     return {"ok": False, "log_ok": False, "witnesses_ok": False, "inclusion_ok": False,
-            "origin": None, "tree_size": None, "root": None, "index": None, "witnesses": [],
+            "origin": None, "tree_size": None, "root": None, "index": None, "witnesses": {},
             "detail": detail}
 
 
