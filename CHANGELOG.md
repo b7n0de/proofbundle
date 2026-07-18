@@ -94,6 +94,14 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
   `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
   token is now a fail-closed verdict, like a garbage string already was.
+- **PB-2026-0718-CALLER-PATHS (P2, final sweep) two caller-argument crashes became typed:** a comprehensive
+  gate-substitute sweep (every public verify surface × budget / malformed-JSON / type-confusion) confirmed
+  the whole surface is never-raise for untrusted WIRE input, and closed the last two raw-exception CALLER
+  paths: `verify_bundle` given a huge / unreadable `str` path (a `str` bundle is a documented path) now
+  raises the documented `BundleFormatError` rather than a raw `OSError`, and `checkpoint._parse_vkey` (used by
+  `verify_checkpoint` / `verify_cosignature` / `verify_witnessed_checkpoint`) raises `BundleFormatError` on a
+  non-str vkey rather than a raw `AttributeError`. The public verify surface is now uniformly typed on every
+  probed input.
 - **PB-2026-0718-INTOTO-HF-BUDGET (P1, proactive sweep) the in-toto + HF-token verify surfaces leaked
   BudgetExceeded / raised on malformed input:** a full `loads_strict`-call-site sweep found the three
   in-toto DSSE verifiers (`verify_intoto_dsse`, `verify_eval_result_dsse`, `verify_svr_dsse`) re-raised

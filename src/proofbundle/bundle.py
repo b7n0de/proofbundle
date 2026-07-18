@@ -206,7 +206,14 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
     """
     if isinstance(bundle, str):
-        bundle = load_bundle(bundle)
+        try:
+            bundle = load_bundle(bundle)
+        except OSError as exc:
+            # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
+            # unreadable path surfaces as the documented BundleFormatError this function already raises for
+            # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
+            # instead of a path gets a typed error, not an OS crash.)
+            raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
 
@@ -598,7 +605,14 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     ``BundleFormatError``, never a raw traceback.
     """
     if isinstance(bundle, str):
-        bundle = load_bundle(bundle)
+        try:
+            bundle = load_bundle(bundle)
+        except OSError as exc:
+            # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
+            # unreadable path surfaces as the documented BundleFormatError this function already raises for
+            # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
+            # instead of a path gets a typed error, not an OS crash.)
+            raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")

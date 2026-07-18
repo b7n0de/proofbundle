@@ -91,6 +91,11 @@ def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: s
 
 
 def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, bytes, bytes]:
+    # RE-GATE never-raise consistency: a non-str vkey (None/int/list from a caller/config) is a typed
+    # BundleFormatError, never a raw AttributeError from `.split` — this parse helper raises BundleFormatError
+    # for every other malformed vkey, so a wrong-type vkey joins that contract instead of an untyped crash.
+    if not isinstance(vkey_str, str):
+        raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     # The key material is standard base64, which can itself contain '+'. Since the name has no '+' (a
     # schemeless origin) and the hex keyID has none, the FIRST TWO '+' are the separators and everything
     # after is the base64 — so split with maxsplit=2, never a plain split (that would over-split the b64).
