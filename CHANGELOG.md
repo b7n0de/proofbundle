@@ -115,6 +115,11 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   a fail-closed problem (a cross-format id must link >= 2 format representations), and the six ids now link
   their decision AND outcome encodings (which agree on every shared axis), so the comparator is non-vacuous.
   RT-07: a sweep confirmed `cross_format.py` was the only group-by-id comparator with the skip-on-<2 pattern.
+- **PB-2026-0718-15 (P2) Rust second-verifier failed cargo fmt / clippy -D warnings:** the Rust tree was
+  not `cargo fmt`-clean and `cargo clippy -D warnings` failed (a collapsible-match in the same-key
+  fail-closed branch, a redundant closure). Applied `cargo fmt` + the two machine-applicable clippy fixes
+  (cosmetic / semantically-identical, no behavior change — verified by the 56/56 Python↔Rust crosscheck),
+  and added a fmt + clippy gate to the CI rust job so a regression is caught.
 - **PB-2026-0718-16 (P2) merkle-path step budget was not enforced on the direct dict path:** the
   `merkle_path` budget (256) existed but was checked nowhere — `verify_inclusion` / `verify_consistency` ran
   a per-step hash loop over an unbounded `proof` list, and the 8 MiB `input_bytes` byte-proxy never applies
