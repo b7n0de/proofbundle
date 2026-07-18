@@ -473,30 +473,21 @@ def c12_1_pretag_audit():
 
 
 def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
-    # The '0 open P0/P1' obligation must be carried by a version-scoped adversarial audit record under
-    # audit_artifacts/<token>/ — the exact subfolder C12.1 locates (version-scoped + _AUDIT_MARKERS
-    # lens/adversarial gate), NOT any *.md in the tree. A fabricated note in an unrelated file, a
-    # sibling 1360/ folder, or a review_1360_notes.md cannot satisfy it (the internal audit, NOT the
-    # external one). It scans EVERY version-scoped record for the line, so a decoy record that matches
-    # the locator but omits the line cannot mask a genuine record that carries it (no silent PENDING
-    # while a real 0-P0/P1 record exists). A NEGATED/conceded '0 open P0/P1' line (NOT / nicht /
-    # still open / remaining / offen on the SAME line) does NOT satisfy the obligation — the guard is
-    # deliberately lexical and line-scoped (a known limitation; see AUDITOR_OPEN_POINTS.md).
-    import pre_tag_audit_gate as pta
-    recs = pta.audit_records_for(repo, VERSION_UNDER_TEST)
-    if not recs:
-        return PENDING, ("no version-scoped adversarial audit record for "
-                         f"{VERSION_UNDER_TEST} (write the pre-tag audit pack with a lens/adversarial "
-                         "note before tag)")
-    zero_re = re.compile(r"\b0\s+(?:open\s+)?P0(?:\s*/\s*P1)?\b", re.IGNORECASE)
-    neg_re = re.compile(r"\bnot\b|\bnicht\b|still\s+open|\bremaining\b|\boffen\b", re.IGNORECASE)
-    for rel in recs:
-        for line in _read(rel, repo).splitlines():
-            if zero_re.search(line) and not neg_re.search(line):
-                return PASS, f"internal adversarial audit pack declares 0 open P0/P1 ({Path(rel).name})"
-    names = ", ".join(Path(r).name for r in recs)
-    return PENDING, (f"the version-scoped {VERSION_UNDER_TEST} audit record(s) ({names}) carry no "
-                     "explicit '0 open P0/P1' line")
+    # RT-10 / PB-2026-0718-14 (was a proven FALSE-PASS): the '0 open P0/P1' obligation is carried by the
+    # SIGNED, STRUCTURED findings register (audit_artifacts/findings_register_361.json), counted from
+    # structured severity+status fields — NOT a lexical '0 open P0/P1' substring in a possibly-stale .md.
+    # The old guard derived PASS from any non-negated '0 open P0/P1' line in a version-scoped record, with
+    # NO freshness/supersession/signature/contradiction check, so a STALE record that still said '0 open'
+    # granted PASS while current open P0/P1 existed (false_accept=true). The register replacement is
+    # fail-closed: a valid ed25519 signature by the pinned key is required (unsigned/tampered/wrong-key =
+    # FAIL); supersession is resolved current-wins; a contradiction is an ERROR; and absence / an empty
+    # register is FAIL, not PASS (evaluated_count==0 -> FAIL, the assertion-by-absence guard). Every verdict
+    # carries the RT-10 triple (population_size, evaluated_count, source_digest).
+    import findings_register as fr
+    r = fr.verify_and_count(repo)
+    triple = (f"population_size={r['population_size']} evaluated_count={r['evaluated_count']} "
+              f"source_digest={r['source_digest']}")
+    return (PASS if r["ok"] else FAIL), f"{r['reason']} [{triple}]"
 
 
 def ext_1_external_audit():

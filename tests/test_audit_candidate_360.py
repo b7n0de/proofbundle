@@ -140,49 +140,62 @@ class TestCheckDiscrimination(unittest.TestCase):
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
 
-    # --- C12.2 '0 open P0/P1' — falsifiable: a fabricated/unbound note must not satisfy it ---
+    # --- C12.2 '0 open P0/P1' — RT-10 / PB-2026-0718-14: the SIGNED structured findings register, NOT a
+    # substring scan. The old lexical '0 open P0/P1' md-scan granted a FALSE PASS from a stale record; it is
+    # replaced by a fail-closed signed register (absent/tampered/foreign-key/empty -> FAIL, never PENDING). ---
 
     def test_c12_2_green_on_real_repo(self):
         verdict, _ = self.m.c12_2_audit_pack_zero_p0p1()
         self.assertEqual(verdict, self.m.PASS)
 
-    def test_c12_2_rejects_fabricated_unbound_note(self):
-        # the OLD broad-glob regex passed on ANY *.md; an unrelated md carrying '3.6.0' + '0 P0/P1'
-        # but NO lens/adversarial marker (not a version-scoped audit record) must now go PENDING.
+    def test_c12_2_fails_when_register_absent(self):
+        # RT-10: absence of the register is FAIL, not PASS and not PENDING (assertion-by-absence guard).
+        # A fabricated '0 open P0/P1' note in a bare .md no longer grants anything — only the register counts.
         with tempfile.TemporaryDirectory() as td:
             art = Path(td) / "audit_artifacts"
             art.mkdir(parents=True)
-            (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.0. 0 open P0/P1 issues.\n")
+            (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.1. 0 open P0/P1 issues.\n")
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertNotEqual(verdict, self.m.PASS, detail)
-            self.assertEqual(verdict, self.m.PENDING, detail)
+            self.assertEqual(verdict, self.m.FAIL, detail)
 
-    def test_c12_2_pending_when_record_absent(self):
+    def test_c12_2_fails_on_tampered_register(self):
+        # a copy of the real register with a P0 flipped to 'open' breaks the pinned-key signature -> FAIL
+        # (the same guard rejects an injected-open-finding, an emptied findings list, or any byte change).
+        import json
+        real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
+        reg = json.loads(real.read_text(encoding="utf-8"))
+        reg["findings"][0]["status"] = "open"  # tamper: does not re-sign
         with tempfile.TemporaryDirectory() as td:
-            verdict, _ = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PENDING)
-
-    def test_c12_2_pending_when_record_lacks_zero_p0p1_line(self):
-        # a genuine version-scoped adversarial record, but WITHOUT the '0 open P0/P1' obligation line.
-        with tempfile.TemporaryDirectory() as td:
-            rec = Path(td) / "audit_artifacts" / "360"
-            rec.mkdir(parents=True)
-            (rec / "pre_tag_adversarial_audit_360.md").write_text(
-                "# 3.6.0 six-lens adversarial audit\n\nOne P1 still open.\n")
+            art = Path(td) / "audit_artifacts"
+            art.mkdir(parents=True)
+            (art / "findings_register_361.json").write_text(json.dumps(reg))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PENDING, detail)
+            self.assertEqual(verdict, self.m.FAIL, detail)
 
-    def test_c12_2_rejects_negated_zero_p0p1_line(self):
-        # FIX 2: a version-scoped record whose only '0 open P0/P1' line is NEGATED/conceded does not
-        # satisfy the obligation -> PENDING (the old negation-blind regex would have PASSed it).
+    def test_c12_2_fails_on_foreign_key_register(self):
+        # a register validly signed by a DIFFERENT key must be rejected by the committed pin -> FAIL.
+        import base64
+        import json
+        import sys as _sys
+        _sys.path.insert(0, str(Path(REPO) / "src"))
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from proofbundle import canonical
+        real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
+        body = {k: v for k, v in json.loads(real.read_text(encoding="utf-8")).items() if k != "signature"}
+        k = Ed25519PrivateKey.generate()
+        pub = k.public_key().public_bytes(encoding=serialization.Encoding.Raw,
+                                          format=serialization.PublicFormat.Raw)
+        forged = dict(body)
+        forged["signature"] = {"alg": "ed25519",
+                               "public_key_b64": base64.b64encode(pub).decode(),
+                               "sig_b64": base64.b64encode(k.sign(canonical.canonicalize_statement(body))).decode()}
         with tempfile.TemporaryDirectory() as td:
-            rec = Path(td) / "audit_artifacts" / "360"
-            rec.mkdir(parents=True)
-            (rec / "pre_tag_adversarial_audit_360.md").write_text(
-                "# 3.6.0 six-lens adversarial audit\n\n"
-                "It is NOT true that 0 open P0/P1 — one P1 is still open.\n")
+            art = Path(td) / "audit_artifacts"
+            art.mkdir(parents=True)
+            (art / "findings_register_361.json").write_text(json.dumps(forged))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PENDING, detail)
+            self.assertEqual(verdict, self.m.FAIL, detail)
 
     # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
 
@@ -200,25 +213,21 @@ class TestCheckDiscrimination(unittest.TestCase):
             # C12.1: the existence locator finds no version-scoped record, evaluate() is not ok
             self.assertIsNone(pta.audit_artifact_for(Path(td), "3.6.0"))
             self.assertFalse(pta.evaluate(Path(td), version="3.6.0")["ok"])
-            # C12.2: not PASS (PENDING — no version-scoped record)
+            # C12.2 (RT-10): no signed register in the temp repo -> FAIL (a fake note grants nothing)
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PENDING, detail)
+            self.assertEqual(verdict, self.m.FAIL, detail)
 
-    def test_variant2_decoy_in_subfolder_does_not_mask_real_record(self):
-        # Variant 2: two records IN the version-scoped subfolder — a decoy that matches the locator
-        # (audit marker) but omits the '0 open P0/P1' line and sorts FIRST, plus the genuine record
-        # carrying the line. C12.2 must scan past the decoy and PASS on the real record (no silent
-        # PENDING while a real 0-P0/P1 record exists).
+    def test_variant2_decoy_md_does_not_grant_pass_only_register_does(self):
+        # RT-10 (was: substring scan-past-decoy): the register is the SINGLE source. Even a genuine-looking
+        # version-scoped .md carrying '0 open P0/P1' grants NOTHING now — with no signed register present,
+        # C12.2 is FAIL. This is the anti-gaming improvement: a stale/forged .md can no longer mask reality.
         with tempfile.TemporaryDirectory() as td:
             rec = Path(td) / "audit_artifacts" / "360"
             rec.mkdir(parents=True)
-            (rec / "aaa_decoy.md").write_text(  # 'aaa' sorts before 'pre_tag'
-                "# 3.6.0 six-lens adversarial scratch\n\nStill triaging; P1 count TBD.\n")
             (rec / "pre_tag_adversarial_audit_360.md").write_text(
                 "# 3.6.0 six-lens adversarial audit\n\n**0 open P0 / P1.** All findings fixed.\n")
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PASS, detail)
-            self.assertIn("pre_tag_adversarial_audit_360.md", detail)
+            self.assertEqual(verdict, self.m.FAIL, detail)
 
     def test_variant3_pytest_only_in_comment_echo_or_disabled_job_fails_c1_1(self):
         # Variant 3: ci.yml names CI but 'pytest' appears ONLY in a YAML comment, an echo argument, a
@@ -318,8 +327,9 @@ class TestCheckDiscrimination(unittest.TestCase):
                 "# review 1360 notes — adversarial\n\n0 open P0 / P1 for 3.6.0.\n")
             self.assertEqual(pta.audit_records_for(Path(td), "3.6.0"), [])
             self.assertIsNone(pta.audit_artifact_for(Path(td), "3.6.0"))
+            # C12.2 (RT-10): no signed register in the temp repo -> FAIL (the 1360 decoys grant nothing)
             verdict, _ = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
-            self.assertEqual(verdict, self.m.PENDING)
+            self.assertEqual(verdict, self.m.FAIL)
 
 
 class TestReadinessPackManifest(unittest.TestCase):

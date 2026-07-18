@@ -30,3 +30,6 @@ signer.key
 # Mutation-testing scratch (dev-only; mutmut sandbox + cache)
 mutants/
 .mutmut-cache
+
+# RT-10 findings-register signing key (self-attested ceremony, never committed)
+audit_artifacts/.findings_register_key.ed25519
