@@ -41,6 +41,8 @@
     "relation/decoy-accept-path",
     "relation/target-subject-mismatch",
     "relation/target-subject-correct-pass",
+    "relation/target-subject-missing",
+    "relation/target-subject-ambiguous",
     "relation/t1-canonical-invalid-signature",
     "relation/outcome-valid-baseline",
     "relation/outcome-silent-landing",
