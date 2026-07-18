@@ -118,8 +118,9 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0718-15 (P2) Rust second-verifier failed cargo fmt / clippy -D warnings:** the Rust tree was
   not `cargo fmt`-clean and `cargo clippy -D warnings` failed (a collapsible-match in the same-key
   fail-closed branch, a redundant closure). Applied `cargo fmt` + the two machine-applicable clippy fixes
-  (cosmetic / semantically-identical, no behavior change — verified by the 56/56 Python↔Rust crosscheck),
-  and added a fmt + clippy gate to the CI rust job so a regression is caught.
+  (cosmetic / semantically-identical, no behavior change — verified by the 56/56 Python↔Rust crosscheck).
+  A CI fmt/clippy gate is deferred to 3.6.2: it is toolchain-version-fragile (the runner's rustfmt disagreed
+  on line breaks), so a deterministic gate needs a pinned `rust-toolchain.toml` + a version-matched reformat.
 - **PB-2026-0718-16 (P2) merkle-path step budget was not enforced on the direct dict path:** the
   `merkle_path` budget (256) existed but was checked nowhere — `verify_inclusion` / `verify_consistency` ran
   a per-step hash loop over an unbounded `proof` list, and the 8 MiB `input_bytes` byte-proxy never applies
