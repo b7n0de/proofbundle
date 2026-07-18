@@ -175,12 +175,19 @@ def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file. Deeply-nested JSON overflows the parser's C-recursion; that
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
     escaping as a raw RecursionError traceback (verify-lens L3, 2026-07-09)."""
-    with open(path, "r", encoding="utf-8") as handle:
-        # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path
-        # silently kept the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser
-        # differential across JSON implementations. loads_strict ALSO owns the RecursionError →
-        # BundleFormatError mapping for deep nesting (the old outer handler here became dead code).
-        return loads_strict(handle.read())
+    # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path silently kept
+    # the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser differential across JSON
+    # implementations. loads_strict ALSO owns the RecursionError -> BundleFormatError mapping for deep nesting.
+    # 6-lens gate L3-01: this exported loader must honor the documented never-raise BundleFormatError contract
+    # — a missing/directory/binary/embedded-NUL/BOM/invalid-UTF-8 path or an ordinary JSON syntax error
+    # (loads_strict re-raises those as a bare ValueError/JSONDecodeError) is mapped to BundleFormatError, not a
+    # raw OSError/UnicodeDecodeError/JSONDecodeError traceback. loads_strict's own BundleFormatError (a
+    # ProofBundleError, not a ValueError) propagates unchanged.
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return loads_strict(handle.read())
+    except (OSError, ValueError) as exc:
+        raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
@@ -628,6 +635,10 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
+    # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
+    # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
+    # string_len never fired on the recompute path.
+    enforce_structural_budget(bundle)
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value
@@ -644,6 +655,13 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     # Display the stated root in CANONICAL base64 (re-encode from the decoded bytes), so a non-canonical but
     # byte-equal stated root does not read as a spurious mismatch next to the canonical recomputed root (LOW #10/#15).
     stated_b64 = base64.b64encode(_b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")).decode("ascii")
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    if len(proof) > DEFAULT_BUDGET.merkle_path:
+        # 6-lens gate L2-BDOS-01: cap the audit-path STEP count exactly as merkle.verify_inclusion does, so a
+        # >256-step inclusion_proof_b64 cannot drive an uncapped per-step SHA-256 walk (measured multi-second
+        # DoS) on this public surface. Fail-closed (an over-length proof's recomputed root was never accepted).
+        return {"stated_b64": stated_b64, "recomputed_b64": None,
+                "detail": "inclusion proof exceeds merkle_path budget (DoS guard)"}
     try:
         recomputed = merkle.root_from_inclusion(
             leaf_index, tree_size, merkle.leaf_hash(payload), proof)

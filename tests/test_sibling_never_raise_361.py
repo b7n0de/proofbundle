@@ -324,6 +324,43 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_load_bundle_malformed_inputs_are_bundleformaterror(self):
+        # 6-lens gate L3-01: the exported load_bundle leaked raw JSONDecodeError/OSError/UnicodeDecodeError on
+        # missing/directory/empty/BOM/invalid-utf8/binary/syntax/NUL paths. All now map to BundleFormatError.
+        import os
+        import tempfile
+        from proofbundle.bundle import BundleFormatError, load_bundle
+        d = tempfile.mkdtemp()
+        cases = {"empty.json": b"", "bom.json": b"\xef\xbb\xbf{bad", "badutf.json": b"\xff\xfe{",
+                 "binary.json": bytes(range(256)), "syntax.json": b"{not json"}
+        for name, data in cases.items():
+            with open(os.path.join(d, name), "wb") as fh:
+                fh.write(data)
+        paths = ["/no/such/file", d, "/no\x00nul"] + [os.path.join(d, n) for n in cases]
+        for p in paths:
+            with self.assertRaises(BundleFormatError):
+                load_bundle(p)
+
+    def test_recompute_merkle_root_b64_large_proof_is_fast_failclosed(self):
+        # 6-lens gate L2-BDOS-01: recompute_merkle_root_b64(dict) walked merkle.inclusion_proof_b64 with no
+        # budget (measured multi-second DoS at 100k steps). enforce_structural_budget + the merkle_path cap
+        # now make an over-length proof a fast fail-closed outcome (typed error or recomputed_b64=None).
+        import base64
+        import time
+        from proofbundle.bundle import recompute_merkle_root_b64
+        from proofbundle.errors import ProofBundleError
+        b = {"schema": "proofbundle/v0.1", "payload_b64": base64.b64encode(b"{}").decode(),
+             "merkle": {"hash_alg": "sha256", "leaf_index": 0, "tree_size": 1,
+                        "root_b64": base64.b64encode(b"\x00" * 32).decode(),
+                        "inclusion_proof_b64": [base64.b64encode(b"\x00" * 32).decode()] * 100_000}}
+        t = time.time()
+        try:
+            r = recompute_merkle_root_b64(b)
+            self.assertIsNone(r["recomputed_b64"])
+        except ProofBundleError:
+            pass  # a typed fail-closed rejection is equally acceptable
+        self.assertLess(time.time() - t, 2.0, "over-length proof must fail closed fast, not DoS")
+
     def test_verify_prereg_bad_path_is_verdict(self):
         # 6-lens gate L2-01: verify_prereg read the protocol file unguarded, so a missing/dir/None/NUL
         # protocol_path (with a claim that DOES carry prereg_sha256, reaching the read) raised a raw
