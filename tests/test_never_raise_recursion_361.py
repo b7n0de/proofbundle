@@ -41,6 +41,30 @@ class BoundedDepth(unittest.TestCase):
                 loads_strict(deep)
             self.assertIn("nesting is too deep", str(ctx.exception))
 
+    def test_bounded_depth_is_interpreter_independent(self):
+        # PB-2026-0718-11b: the 4000-deep cases above rely on CPython <=3.11 raising RecursionError DURING
+        # parse — on 3.12+ the C scanner accepts far deeper nesting WITHOUT raising, so the RecursionError
+        # mapping alone left the bounded-depth guarantee version-dependent (the 3 CI failures on 3.12/3.13/
+        # 3.14). This probes a MODERATE depth that parses cleanly on EVERY interpreter (well under any
+        # C-recursion limit) yet exceeds the explicit budget.json_depth (64) — so it must be refused by the
+        # explicit bound, not by an interpreter-version accident. It fails on 3.11 too without the fix.
+        from proofbundle.budget import DEFAULT_BUDGET
+        n = DEFAULT_BUDGET.json_depth + 20
+        for opener, closer, tail in (("[", "]", ""), ('{"a":', "}", "1")):
+            payload = opener * n + tail + closer * n
+            with self.assertRaises(BundleFormatError) as ctx:
+                loads_strict(payload)
+            self.assertIn("nesting is too deep", str(ctx.exception))
+
+    def test_legitimate_depth_still_parses(self):
+        # No false positive: a document at the repo's deepest legitimate nesting (observed max 9) must
+        # still parse — the depth cap (64) is comfortably above legitimate use.
+        import json as _json
+        d = 1
+        for _ in range(9):
+            d = {"n": d}
+        self.assertEqual(loads_strict(_json.dumps(d)), d)
+
 
 class NeverRaiseAllSurfaces(unittest.TestCase):
     def test_cli_anchor_verify_pack_no_raw_recursionerror(self):

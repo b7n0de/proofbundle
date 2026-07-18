@@ -49,35 +49,48 @@ def _reject_duplicate_keys(pairs: list) -> dict:
     return obj
 
 
-def _enforce_node_budget(obj: Any, json_nodes: int) -> None:
-    """Bounded iterative walk (crypto-review 2026-07-15): refuse a PARSED structure whose combined
-    dict-key + list-item count exceeds ``json_nodes`` — a wide-but-small-bytes document that slips under the
-    raw ``input_bytes`` cap. Aborts the moment the ceiling is passed, so it never walks the whole of an
-    over-budget document; the raw cap already bounds this walk's own worst case. Raises
-    :class:`proofbundle.budget.BudgetExceeded` (a ``ProofBundleError`` subclass), fail-closed."""
+def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int) -> None:
+    """Bounded iterative walk (crypto-review 2026-07-15; depth added PB-2026-0718-11b): refuse a PARSED
+    structure that is either too WIDE (combined dict-key + list-item count exceeds ``json_nodes`` — a
+    wide-but-small-bytes document that slips under the raw ``input_bytes`` cap) or too DEEP (nesting depth
+    exceeds ``json_depth``). The depth bound is enforced HERE, interpreter-independently, rather than relying
+    on ``json.loads`` raising ``RecursionError`` — which it does on CPython <=3.11 but NOT on 3.12+ (the C
+    scanner accepts far deeper nesting without raising), so the ``RecursionError`` mapping alone left the
+    bounded-depth guarantee version-dependent. Depth-first, so it aborts the moment either ceiling is
+    passed and never walks the whole of an over-budget document. Over-width raises
+    :class:`proofbundle.budget.BudgetExceeded`; over-depth raises :class:`BundleFormatError` with the SAME
+    ``"JSON nesting is too deep"`` message + class as the ``RecursionError`` mapping, so a deep document is
+    one stable malformed-input outcome on every interpreter. Both are ``ProofBundleError`` subclasses,
+    fail-closed."""
     from .budget import BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
     count = 0
-    stack = [obj]
+    stack = [(obj, 1)]
     while stack:
-        cur = stack.pop()
+        cur, depth = stack.pop()
+        if depth > json_depth:
+            raise BundleFormatError("JSON nesting is too deep")
         if isinstance(cur, dict):
             count += len(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            stack.extend(cur.values())
+            for value in cur.values():
+                stack.append((value, depth + 1))
         elif isinstance(cur, list):
             count += len(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
-            stack.extend(cur)
+            for value in cur:
+                stack.append((value, depth + 1))
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
     """``json.loads`` that rejects duplicate object keys at any nesting depth.
 
-    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), maps
-    ``RecursionError`` from pathologically deep nesting to the same documented malformed-input
-    error, and maps the ``int``/``str`` conversion-limit ``ValueError`` from a JSON integer literal
+    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), for
+    pathologically deep nesting (both the CPython ``RecursionError`` on <=3.11 AND the explicit
+    ``budget.json_depth`` bound that catches the 3.12+ case where the C scanner accepts deep input without
+    raising — one stable ``"JSON nesting is too deep"`` outcome on every interpreter), and maps the
+    ``int``/``str`` conversion-limit ``ValueError`` from a JSON integer literal
     with more than ``sys.get_int_max_str_digits()`` digits (CWE-674 / CVE-2020-10735) to it too —
     never a raw traceback — mirroring :func:`proofbundle.bundle.load_bundle`. Ordinary JSON syntax
     errors keep raising ``ValueError`` (``json.JSONDecodeError``) so existing ``except (ValueError,
@@ -100,6 +113,8 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
     try:
         obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     except RecursionError as exc:
+        # CPython <=3.11 raises here on deep nesting; 3.12+ accepts it and the explicit depth bound in
+        # _enforce_structural_budget catches it below. Both map to the SAME BundleFormatError.
         raise BundleFormatError("JSON nesting is too deep") from exc
     except ValueError as exc:
         # The int<->str conversion cap raises a plain ValueError DURING parsing (not a JSONDecodeError),
@@ -108,5 +123,5 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         if "integer string conversion" in str(exc):
             raise BundleFormatError("JSON integer literal is implausibly long (fail-closed)") from exc
         raise
-    _enforce_node_budget(obj, b.json_nodes)
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth)
     return obj

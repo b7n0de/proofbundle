@@ -25,12 +25,24 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   `verified_under` produced no violation; now `RELATION_SIGNER_UNAUTHORIZED` (Python + Rust).
 - **PB-2026-0717-07 (P1) verify-API raised on malformed input:** `verify_decision_receipt` /
   `verify_outcome_receipt` now return a stable fail-closed verdict for untrusted unparseable input; the
-  explicit `verify_*_or_raise` variants raise.
+  explicit `verify_*_or_raise` variants raise. The RE-GATE closed a residual hole in the same class: a
+  wide (`json_nodes` over cap) or oversized (`input_bytes` over the 8 MiB cap) but validly-signed payload
+  raised a raw `BudgetExceeded` (a `ProofBundleError` sibling of `BundleFormatError`) because the crypto
+  verify + body load + budget check ran outside the never-raise guard; they now sit inside it and surface
+  as a fail-closed verdict. The low-level primitives (`dsse.verify_envelope`, `_strict_json.loads_strict`)
+  keep their raising contract.
 - **PB-2026-0718-11 (P1) never-raise broken on the CLI (RecursionError):** a pathologically deep JSON
   pack raised a RAW `RecursionError` out of `anchor verify-pack` (and other raw `json.load` verify
   surfaces). All verify surfaces (CLI `anchor verify-pack` / `anchor inspect` / key-extract, the bundle
   claim-payload path) now route through the strict parser, which maps deep nesting to a clean
   `BundleFormatError` (bounded depth) with the same malformed class on API and CLI, never a raw traceback.
+- **PB-2026-0718-11b (P1) bounded-depth was interpreter-version-dependent:** the deep-nesting guard relied
+  solely on CPython raising `RecursionError` during parse — true on <=3.11 but NOT on 3.12+, where the C
+  scanner accepts far deeper input without raising, so the documented bounded-depth guarantee silently did
+  not hold on 3.12/3.13/3.14. The strict parser now enforces an EXPLICIT `budget.json_depth` cap (default
+  64, comfortably above the repo's deepest legitimate document at depth 9 and far below CPython's
+  ~1000-frame recursion limit so downstream JCS canonicalization stays safe), giving one stable
+  `"JSON nesting is too deep"` outcome on every interpreter.
 - **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
   (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
   **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an
