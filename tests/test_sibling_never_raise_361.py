@@ -324,6 +324,17 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_verify_dual_hash_non_bytes_data_is_result_not_raise(self):
+        # 6-lens gate L3-02: verify_dual_hash's compute_digest(data, ...) call sat outside the guards, so a
+        # non-bytes primary `data` (str/int/None/list) raised a raw TypeError from h.update(data). Now a
+        # fail-closed VerificationResult on this public relying-party surface.
+        from proofbundle import verify_dual_hash
+        from proofbundle.errors import VerificationResult
+        for bad in ("str", 123, None, [1], {"a": 1}):
+            r = verify_dual_hash(bad, {"sha256": "abc"})
+            self.assertIsInstance(r, VerificationResult)
+            self.assertFalse(r.ok)
+
     def test_verify_bundle_nul_or_surrogate_path_is_typed(self):
         # 6-lens gate L3-01: a str bundle is a PATH; an embedded-NUL ('embedded null byte' -> ValueError) or
         # lone-surrogate (UnicodeEncodeError -> ValueError) path escaped the OSError-only guard as a raw

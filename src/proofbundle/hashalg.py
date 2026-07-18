@@ -152,6 +152,12 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
         result.checks.append(Check("hashalg:dual", False,
                                    "digests must be a non-empty mapping of alg -> hex"))
         return result
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        # 6-lens gate L3-02: compute_digest(data, ...) -> h.update(data) raised a raw TypeError on a non-bytes
+        # `data` (the digests + each expected are guarded, but the primary data arg was not). This public
+        # never-raise surface must return a fail-closed VerificationResult, not crash a relying party.
+        result.checks.append(Check("hashalg:dual", False, "data must be bytes-like"))
+        return result
 
     current_ok = 0
     for alg_id, expected in digests.items():

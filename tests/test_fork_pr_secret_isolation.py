@@ -8,7 +8,11 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ImportError:  # PB-2026-0718-L6-01: PyYAML is a dev-only dep — clean skip from a bare sdist install
+    import pytest
+    pytest.skip("PyYAML not installed (dev-only dependency)", allow_module_level=True)
 
 _ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("fpi", _ROOT / "scripts" / "fork_pr_secret_isolation.py")

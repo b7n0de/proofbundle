@@ -15,8 +15,12 @@ import pathlib
 import tempfile
 import unittest
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
+try:
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+except ImportError:  # PB-2026-0718-L6-01: hypothesis is a dev-only dep — clean skip from a bare sdist install
+    import pytest
+    pytest.skip("hypothesis not installed (dev-only dependency)", allow_module_level=True)
 
 from proofbundle import anchors, dsse
 from proofbundle.cli import main as cli

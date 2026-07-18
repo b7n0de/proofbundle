@@ -74,13 +74,16 @@ jobs:
             echo "::error::tampered receipt verified OK — the published artifact is broken"; exit 1
           fi
           echo "tampered receipt correctly FAILED on the published artifact"
-      - name: Published bytes — the shipped test suite runs green from the EXTRACTED sdist (PKG-01)
-        # The documented invariant is "pip install <sdist> && pytest is green". Enforce it: extract the sdist
-        # tree and run its shipped tests from OUTSIDE a git checkout, so a repo-context test that reads a
-        # pruned artifact (e.g. audit_artifacts/findings_register_361.json) must be conftest-skipped, never a
-        # silent failure. This stops the invariant from drifting false again (it did — 6 register tests).
+      - name: Published bytes — the shipped test suite runs green from the EXTRACTED sdist (PKG-01 + L6-01)
+        # The documented invariant is "pip install proofbundle[eval,test] && pytest is green" from an
+        # extracted sdist. Enforce it: install the [test] extra (the deps needed to RUN the shipped tests —
+        # hypothesis/PyYAML/jsonschema/sd-jwt), extract the sdist tree and run its tests from OUTSIDE a git
+        # checkout. Two things this pins: (1) a repo-context test that reads a pruned artifact (e.g.
+        # audit_artifacts/findings_register_361.json) is conftest-skipped, never a silent failure; (2) the
+        # optional-dep modules degrade to a clean module-level skip on a bare [eval] install rather than a
+        # collection error (L6-01). Stops the invariant from drifting false again.
         run: |
-          /tmp/clean/bin/pip install --quiet pytest
+          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
           mkdir -p /tmp/sdisttree
           tar -xzf "$(ls dist/*.tar.gz)" -C /tmp/sdisttree --strip-components=1
           cd /tmp/sdisttree

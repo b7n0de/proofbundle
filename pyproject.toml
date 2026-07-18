@@ -80,6 +80,11 @@ formal = ["z3-solver>=4.12"]
 # The pytest plugin (opt-in test-run receipt via the pytest11 entry-point) — pytest is an optional extra,
 # never a core dependency. Floor 7.0: the hooks/stats API is signature-stable across pytest 7/8/9.
 pytest = ["pytest>=7"]
+# PB-2026-0718-L6-01: the deps needed to RUN the shipped test suite from a distributed sdist (a subset of
+# `dev`, without the lint/typecheck/build tools). `pip install proofbundle[eval,test] && pytest` is green
+# from an extracted sdist; a bare `[eval]` install degrades to clean skips (the optional-dep test modules
+# guard their hypothesis/PyYAML imports and skip at module level, never a collection error).
+test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.10", "rfc8785>=0.1.4"]
 # The inspect_ai adapter uses the STABLE read_eval_log API (lazy import). Pinned with an UPPER bound:
 # the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
