@@ -165,6 +165,52 @@ def _edge_subject_hex(edge: dict) -> str | None:
     return None
 
 
+def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
+    """PB-2026-0717-01 fail-closed subject-pin gate.
+
+    When the successor edge DECLARES a ``targetSubjectDigest`` (an optional pin), the resolved
+    target MUST expose a PRESENT, UNAMBIGUOUS, well-formed actual subject digest that EQUALS the
+    declared value; otherwise the edge FAILs with a stable, Python/Rust-identical wire code. Before
+    3.6.1 a declared pin against an absent/null/malformed/ambiguous actual subject fell through to
+    VERIFIED (False Accept — PB-2026-0717-01). An ABSENT declared pin returns None (optional field,
+    no wire-break). The only unchanged accept path is ``present`` AND ``equal``.
+
+    Robust by construction: the resolver (:func:`proofbundle.cli._load_related`) annotates
+    ``subject_digest_state`` (``present``/``absent``/``ambiguous``/``malformed``); when that field
+    is missing (target dict built by an older/foreign caller) the state is INFERRED fail-closed from
+    the actual value (``None`` -> absent, non-64-hex -> malformed). Weakening evidence can therefore
+    only move present -> absent/malformed = PASS -> FAIL, never FAIL -> PASS (metamorphic monotonicity)."""
+    declared = _edge_subject_hex(edge)
+    if declared is None:
+        return None  # optional field absent — declared-only semantics unchanged
+    actual = target.get("subject_digest")
+    state = target.get("subject_digest_state")
+    if state is None:  # fail-closed inference for un-annotated target dicts
+        if actual is None:
+            state = "absent"
+        elif isinstance(actual, str) and _SHA256_HEX.match(actual):
+            state = "present"
+        else:
+            state = "malformed"
+    # An explicit resolver state wins over the None-inference; only a well-formed, present, EQUAL
+    # actual subject verifies. The order matters: a "malformed" target carries subject_digest=None
+    # too, so classify on the state first, never on the None-ness of the value.
+    if state == "ambiguous":
+        return (f"relation:target_subject_ambiguous ({CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS}): "
+                "resolved target exposes multiple subjects; a declared targetSubjectDigest cannot "
+                "bind an ambiguous subject")
+    if state == "absent":
+        return (f"relation:target_subject_missing ({CODE_RELATION_TARGET_SUBJECT_MISSING}): "
+                "declared targetSubjectDigest but the resolved target exposes no subject digest")
+    if state == "malformed" or not (isinstance(actual, str) and _SHA256_HEX.match(actual)):
+        return (f"relation:target_subject_malformed ({CODE_RELATION_TARGET_SUBJECT_MALFORMED}): "
+                "resolved target subject digest is not a well-formed sha-256")
+    if declared != actual:
+        return (f"relation:target_subject_mismatch ({CODE_RELATION_TARGET_SUBJECT_MISMATCH}): "
+                "declared targetSubjectDigest does not match the resolved target's subject")
+    return None
+
+
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -235,18 +281,15 @@ def verify_relationship_edges(
                     # WP-A (per-target key plumbing): expose the key the target actually verified
                     # UNDER, so relation_signer checks against the TRUE verification, never a claim.
                     entry["verified_under"] = target.get("verified_under")
-                    # WP-A2 / O2 (KERNFUND): the previously dormant targetSubjectDigest field is now
-                    # binding when PRESENT — the successor's declared subject digest of the target MUST
-                    # equal the resolved target's ACTUAL subject digest, else FAIL (a lying edge about
-                    # WHICH subject the parent commits to). Absent field stays optional (no wire-break).
-                    _declared_subj = _edge_subject_hex(edge)
-                    _actual_subj = target.get("subject_digest")
-                    if (_declared_subj is not None and _actual_subj is not None
-                            and _declared_subj != _actual_subj):
+                    # WP-A2 / O2 (KERNFUND) + PB-2026-0717-01 fail-closed: the targetSubjectDigest
+                    # pin is binding when DECLARED — the resolved target must expose a present,
+                    # unambiguous, well-formed actual subject digest EQUAL to the declared value, else
+                    # FAIL (absent/null/malformed/ambiguous/unequal). Before 3.6.1 only the unequal
+                    # case FAILed and absent/malformed/ambiguous fell open to VERIFIED (False Accept).
+                    _subject_pin_error = _target_subject_pin_error(edge, target)
+                    if _subject_pin_error is not None:
                         entry["resolution"] = LINEAGE_FAIL
-                        entry["errors"].append(
-                            "relation:target_subject_mismatch (RELATION_TARGET_SUBJECT_MISMATCH): "
-                            "declared targetSubjectDigest does not match the resolved target's subject")
+                        entry["errors"].append(_subject_pin_error)
                     else:
                         entry["resolution"] = LINEAGE_VERIFIED
         # else: stays DECLARED_UNRESOLVED — no error, no PASS upgrade.
@@ -356,6 +399,14 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
 CODE_LINEAGE_REQUIREMENT_FAILED = "LINEAGE_REQUIREMENT_FAILED"
 CODE_RELATION_SIGNER_UNAUTHORIZED = "RELATION_SIGNER_UNAUTHORIZED"
 CODE_RELATION_TARGET_MISMATCH = "RELATION_TARGET_MISMATCH"
+
+# Stable targetSubjectDigest-pin fail-closed codes (PB-2026-0717-01). Identical strings in the Rust
+# verifier so the Python/Rust parity vectors have a defined Sollwert. MISMATCH pre-dates 3.6.1 (a
+# present-but-wrong actual subject); MISSING/AMBIGUOUS/MALFORMED are the 3.6.1 fail-closed additions.
+CODE_RELATION_TARGET_SUBJECT_MISMATCH = "RELATION_TARGET_SUBJECT_MISMATCH"
+CODE_RELATION_TARGET_SUBJECT_MISSING = "RELATION_TARGET_SUBJECT_MISSING"
+CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS = "RELATION_TARGET_SUBJECT_AMBIGUOUS"
+CODE_RELATION_TARGET_SUBJECT_MALFORMED = "RELATION_TARGET_SUBJECT_MALFORMED"
 
 
 def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:

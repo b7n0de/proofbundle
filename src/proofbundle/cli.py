@@ -1469,6 +1469,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     import base64  # noqa: PLC0415
     from . import anchors as _anchors_mod  # noqa: PLC0415
     from . import dsse as _dsse  # noqa: PLC0415
+    from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
     errs: list[str] = []
     paths = paths or []
@@ -1494,6 +1495,11 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             continue
         rels = None
         subject_digest = None
+        # PB-2026-0717-01: classify the target's actual subject state so the verifier fails closed
+        # on absent/ambiguous/malformed. NEVER silently pick subject[0] from a multi-subject
+        # statement (that was the resolver half of the subject-pin fail-open). "absent" is the
+        # fail-closed default if the statement cannot even be parsed.
+        subject_digest_state = "absent"
         try:
             stmt = loads_strict(body.decode("utf-8"))
             if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
@@ -1501,16 +1507,25 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
             subj = stmt.get("subject") if isinstance(stmt, dict) else None
-            if isinstance(subj, list) and subj and isinstance(subj[0], dict):
-                d = subj[0].get("digest")
-                if isinstance(d, dict) and isinstance(d.get("sha256"), str):
-                    subject_digest = d["sha256"]
+            if not isinstance(subj, list) or not subj:
+                subject_digest_state = "absent"
+            elif len(subj) != 1:
+                subject_digest_state = "ambiguous"   # multiple subjects — do NOT bind subject[0]
+            elif (isinstance(subj[0], dict) and isinstance(subj[0].get("digest"), dict)
+                  and isinstance(subj[0]["digest"].get("sha256"), str)
+                  and _RELATION_SHA256_HEX.match(subj[0]["digest"]["sha256"])):
+                subject_digest = subj[0]["digest"]["sha256"]
+                subject_digest_state = "present"
+            else:
+                subject_digest_state = "malformed"   # single subject but no well-formed sha-256
         except (ProofBundleError, ValueError):
             rels = None
+            subject_digest_state = "absent"
         related[root_hex] = {
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
+            "subject_digest_state": subject_digest_state,
         }
     return related, errs
 
