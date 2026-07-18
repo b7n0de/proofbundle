@@ -268,6 +268,14 @@ class CallerPathTypedErrors(unittest.TestCase):
             with self.assertRaises(BundleFormatError):
                 verify_witnessed_checkpoint("origin\n\nsig", bad, ())
 
+    def test_evaluate_public_transparency_non_str_note_is_verdict(self):
+        # a non-str signed_note is a fail-closed verdict (all statuses FAIL), never a raw AttributeError —
+        # this evaluate surface returns a named-status dict.
+        from proofbundle.public_transparency import evaluate_public_transparency
+        for bad in (123, None, [1]):
+            r = evaluate_public_transparency(bad, {})   # must NOT raise
+            self.assertIsInstance(r, dict)
+
 
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):
