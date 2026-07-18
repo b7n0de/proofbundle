@@ -142,6 +142,13 @@ def _require_int(obj: dict, key: str, field: str) -> int:
     val = _require(obj, key, field)
     if isinstance(val, bool) or not isinstance(val, int):   # bool is an int subclass; a float/str/None is not
         raise BundleFormatError(f"field {field} must be an integer, got {type(val).__name__}")
+    # 6-lens gate L2-BDOS-01: bound the magnitude so an implausibly-large int (e.g. tree_size = 10**5000) can
+    # never be str()-rendered in a detail message and trip CPython's int<->str conversion cap
+    # (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of verify_bundle(dict). The
+    # loads_strict int-cap already fails closed on the str/file path; this restores parity on the direct-dict
+    # path. A real leaf_index/tree_size is <= 2**64; an 8192-bit ceiling is astronomically generous.
+    if val.bit_length() > 8192:
+        raise BundleFormatError(f"field {field} integer is implausibly large (fail-closed)")
     return val
 
 

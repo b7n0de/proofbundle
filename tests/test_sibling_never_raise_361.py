@@ -324,6 +324,23 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_verify_bundle_huge_int_field_is_typed_not_raw_valueerror(self):
+        # 6-lens gate L2-BDOS-01: a huge merkle.tree_size / leaf_index (e.g. 10**5000) was str()-rendered in a
+        # detail message and tripped CPython's int<->str conversion cap as a RAW ValueError out of
+        # verify_bundle(dict). _require_int now bounds the magnitude -> typed fail-closed, matching the
+        # str/file loads_strict int-cap (parity).
+        import base64
+        from proofbundle import verify_bundle
+        from proofbundle.errors import ProofBundleError
+        huge = 10 ** 5000
+        base = {"schema": "proofbundle/v0.1", "payload_b64": base64.b64encode(b"{}").decode(),
+                "merkle": {"hash_alg": "sha256", "leaf_index": 0, "tree_size": huge,
+                           "root_b64": base64.b64encode(b"\x00" * 32).decode(), "inclusion_proof_b64": []}}
+        with self.assertRaises(ProofBundleError):
+            verify_bundle(base, expected_tree_size=5)
+        with self.assertRaises(ProofBundleError):
+            verify_bundle({**base, "merkle": {**base["merkle"], "tree_size": 1, "leaf_index": huge}})
+
     def test_load_bundle_malformed_inputs_are_bundleformaterror(self):
         # 6-lens gate L3-01: the exported load_bundle leaked raw JSONDecodeError/OSError/UnicodeDecodeError on
         # missing/directory/empty/BOM/invalid-utf8/binary/syntax/NUL paths. All now map to BundleFormatError.
