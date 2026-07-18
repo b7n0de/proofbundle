@@ -477,14 +477,19 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                             "message": (f"relation {e.get('relation')!r}: successor issuer key is not "
                                         "a member of the pinned relation_signer set")})
         elif mode == "same-key":
-            # same-key can only be confirmed against a RESOLVED target's real verify key; absence is
-            # the resolution pin's job, not the signer's (no false unauthorized on a declared-only edge).
+            # same-key can only be confirmed against a RESOLVED target's real verify key; absence on a
+            # DECLARED-ONLY edge is the resolution pin's job, not the signer's (no false unauthorized there).
+            # PB-2026-0717-04 fail-closed: once an edge is VERIFIED (target resolved), same-key REQUIRES a
+            # present verified_under that byte-matches the successor key. A VERIFIED edge with a missing/None
+            # verified_under is a fail-open footgun in the direct related-API path (the CLI loader always sets
+            # it) — treat it as unauthorized, never as satisfied.
             if e.get("resolution") == LINEAGE_VERIFIED:
                 vu = e.get("verified_under")
-                if vu is not None and not _keys_equal(successor_key_b64, vu):
+                if vu is None or not _keys_equal(successor_key_b64, vu):
                     out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
-                                "message": (f"relation {e.get('relation')!r}: successor issuer key "
-                                            "differs from the target issuer key (same-key rule)")})
+                                "message": (f"relation {e.get('relation')!r}: same-key requires a target "
+                                            "verified_under that byte-matches the successor key; got "
+                                            f"{'none' if vu is None else 'a differing key'}")})
 
     # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
     #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the
