@@ -201,13 +201,22 @@ class TestDecisionPath(unittest.TestCase):
         return env, signer.public_key().public_bytes_raw()
 
     def test_decision_verify_rejects_duplicate_key(self):
-        from proofbundle.decision import verify_decision_receipt
+        # PB-2026-0717-07: verify() is NEVER-RAISE (returns a stable fail-closed verdict); the explicit
+        # verify_decision_receipt_or_raise() variant raises. Both reject a duplicate-key payload.
+        from proofbundle.decision import verify_decision_receipt, verify_decision_receipt_or_raise
         env, pub = self._decision_envelope()
         body = base64.b64decode(env["payload"]).decode("utf-8")
         body = body[0] + '"predicateType":"https://evil.example/x",' + body[1:]
         env = {**env, "payload": base64.b64encode(body.encode()).decode("ascii")}
+        # never-raise: a stable fail-closed verdict, the reason preserved in errors[]
+        r = verify_decision_receipt(env, pub)
+        self.assertFalse(r["ok"])
+        self.assertFalse(r["structure_ok"])
+        self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
+        self.assertTrue(any("duplicate JSON key" in e for e in r["errors"]), r["errors"])
+        # explicit variant: raises
         with self.assertRaises(BundleFormatError) as ctx:
-            verify_decision_receipt(env, pub)
+            verify_decision_receipt_or_raise(env, pub)
         self.assertIn("duplicate JSON key", str(ctx.exception))
 
     def test_decision_verify_cli_exits_two(self):
@@ -221,7 +230,12 @@ class TestDecisionPath(unittest.TestCase):
                                "--pub", base64.b64encode(pub).decode("ascii")])
         finally:
             os.unlink(path)
-        self.assertEqual(rc, 2)
+        # PB-2026-0717-07: verify() is now never-raise, so the CLI reads a structured verdict instead of
+        # catching a raised BundleFormatError. This payload was TAMPERED after signing (a duplicate key
+        # injected into the signed bytes) → the signature no longer matches → crypto_ok=False, which is the
+        # more accurate failure and takes exit-code precedence (1 = crypto fail). The malformed reason is
+        # still surfaced in the printed errors (never masked).
+        self.assertEqual(rc, 1)
         self.assertIn("duplicate JSON key", err)
 
     def test_decision_emit_refuses_duplicate_key_in_predicate_file(self):

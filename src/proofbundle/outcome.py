@@ -443,13 +443,50 @@ def _empty_result() -> dict:
     }
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """Finalize a never-raise fail-closed verify result (parse/structure failure over untrusted input):
+    ok=False plus a consistent automation verdict, mirroring the full-run shape. PB-2026-0717-07."""
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["ok"] = False
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
+        "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
+                       "subject_derived_ok", "lineage_ok"],
+    })
+    return r
+
+
+def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
+                                    expected_decision_ref: str | None = None,
+                                    decision_maker_id: str | None = None,
+                                    expected_audience: str | None = None,
+                                    expected_nonce: str | None = None,
+                                    require_derived_subject: bool = False,
+                                    trust_pack: dict | None = None,
+                                    evidence_resolver: Callable[[dict], bool] | None = None,
+                                    receiver_attestation_resolver: Callable[[dict], bool] | None = None,
+                                    related: dict | None = None, policy: dict | None = None) -> dict:
+    """Explicit-exception variant of :func:`verify_outcome_receipt`: raises :class:`BundleFormatError`
+    when the payload is not a well-formed in-toto Statement, instead of returning a fail-closed verdict.
+    Use :func:`verify_outcome_receipt` (never-raise) for untrusted input (PB-2026-0717-07). The explicit
+    signature (not ``*args``) keeps it a first-class, fuzz-soakable/parity-discoverable verify surface."""
+    return verify_outcome_receipt(
+        envelope, public_key, strict=strict, expected_decision_ref=expected_decision_ref,
+        decision_maker_id=decision_maker_id, expected_audience=expected_audience,
+        expected_nonce=expected_nonce, require_derived_subject=require_derived_subject,
+        trust_pack=trust_pack, evidence_resolver=evidence_resolver,
+        receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
+        _raise_on_malformed=True)
+
+
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
-                           related: dict | None = None, policy: dict | None = None) -> dict:
+                           related: dict | None = None, policy: dict | None = None,
+                           _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -510,14 +547,15 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (BundleFormatError, ValueError, UnicodeDecodeError) as exc:
+        # PB-2026-0717-07 never-raise: untrusted unparseable input -> STABLE fail-closed verdict, never a
+        # raw exception. The specific reason is preserved in errors[]. verify_outcome_receipt_or_raise() is
+        # the explicit exception variant.
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        if _raise_on_malformed:
+            raise BundleFormatError(f"DSSE payload is not a well-formed in-toto Statement: {exc}") from exc
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == ACTION_OUTCOME_PREDICATE_TYPE
