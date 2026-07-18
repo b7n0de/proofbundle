@@ -140,6 +140,11 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   over-claim); fields retained for backward compat.
 
 ### Changed / Added
+- **CI: `published-artifact-gate` no longer fails at startup (P3, PR #102 integrated):** the
+  `reusable-attest-dryrun` job now declares the `id-token: write` + `attestations: write` permissions its
+  called reusable workflow needs (a called workflow cannot exceed the workflow-wide `contents: read`, which
+  refused the run at job level, reproduced daily as a "Startup failure"), plus a fork-PR guard. CI-only, no
+  package change; the reusable workflow is unchanged.
 - **PB-2026-0718-11 (P1) cross-format comparator passed vacuously on singleton groups:** the conformance
   corpus-integrity check grouped cases by `crossFormatId` and SKIPPED any group with fewer than two members
   — but all six `xfmt-*` groups had exactly one member, so the "the same scenario agrees across formats"
