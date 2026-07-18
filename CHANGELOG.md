@@ -43,6 +43,33 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   64, comfortably above the repo's deepest legitimate document at depth 9 and far below CPython's
   ~1000-frame recursion limit so downstream JCS canonicalization stays safe), giving one stable
   `"JSON nesting is too deep"` outcome on every interpreter.
+- **PB-2026-0718-F3 (P1) verify raised on malformed detached anchors:** `verify_decision_receipt`, given a
+  caller-supplied malformed `anchors` (a non-dict entry, an unknown field, invalid base64, a non-list),
+  raised a raw `BundleFormatError` out of the detached-anchor block, which ran outside the never-raise
+  guard. It now fails closed to `anchors_ok=False` + an error, consistent with the fail-closed verdicts
+  `verify_anchor` already returns for a bad target/type/root.
+- **PB-2026-0718-F2 (P1) verify crashed on a type-confused non-dict `policy`:** a caller-supplied non-dict
+  `policy` (a JSON scalar or list) made `verify_decision_receipt` / `verify_outcome_receipt` raise a raw
+  `AttributeError` from `policy.get(...)` — not even a `ProofBundleError`, so an `except ProofBundleError`
+  consumer got a raw traceback (and on the outcome path the crash fired even on an unauthenticated
+  envelope). Guarded in two layers: `evaluate_decision_policy` returns a fail-closed verdict for a non-dict
+  policy, and the decision/outcome call sites treat a non-dict policy as a fail-closed `policy_ok=False`
+  (a requested-but-malformed policy is never a silent pass).
+- **PB-2026-0718-MJSON-01 (P2) `decode_eval_claim` broke its "None on any failure" contract:**
+  `load_bundle` (a bad path → `OSError`) and `verify_bundle` (a non-bundle dict → `UnsupportedError` /
+  `BundleFormatError`) ran outside its try, so a non-bundle / non-path argument raised a raw exception. Both
+  now sit inside the guard and the except covers the malformed-input family, so the documented `None` holds.
+- **PB-2026-0718-PKG-01 (P1) sdist was not genuinely self-testable:** the sdist collected cleanly but 26
+  shipped tests FAILED from an extracted sdist because they assert repo/CI/Rust/docs layout facts (the
+  contents of `.github/workflows`, the Rust verifier source under `tools/`, `SPEC.md`/`CITATION.cff`, audit
+  records) — material the allowlist deliberately prunes. Those repo-context tests now SKIP outside a git
+  checkout (`tests/conftest.py`), so `pip install <sdist> && pytest` runs clean (1873 passed, 0 failed);
+  the MANIFEST.in "self-testable" claim is corrected to this honest form.
+- **PB-2026-0718-PKG-02 (P2) shipped-example policy missing from the sdist:**
+  `docs/adr/renewal_policy.example.json`, which `tests/test_renewal_policy.py` loads as a "shipped
+  example", was absent from the tarball (the allowlist grafted only `docs/readiness_pack`). It is now
+  shipped by exact path (not `graft docs/adr`, which would also ship ADR markdowns whose links reference
+  pruned repo files).
 - **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
   (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
   **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an

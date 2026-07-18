@@ -779,7 +779,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # SAME shared evaluator. NEVER touches crypto (lattice monotonicity); a violation lands only in
     # policy_ok (exit-3 class at the CLI). trust_pack role auth (executor_role_trusted) is unchanged and
     # SEPARATE — this comes DAZU, it replaces nothing.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
+        # or list) must be a fail-closed policy verdict, not a raw AttributeError from policy.get('relations')
+        # — the crash fired even on an unauthenticated envelope (the `.get` runs before the crypto_ok term in
+        # the old `and` chain). A requested-but-malformed policy is NEVER a silent pass (fail-open).
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

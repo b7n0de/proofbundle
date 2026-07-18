@@ -20,6 +20,9 @@ _MANIFEST = _REPO / "MANIFEST.in"
 # docs/readiness_pack). An explicit allowlist, NOT "graft everything" (Befund C: avoid the bloat trap).
 _REQUIRED_GRAFTS = ("tests", "schemas", "examples", "conformance", "formal", "scripts",
                     "docs/readiness_pack")
+# The exact shipped-example file the renewal-policy test loads — included by path, not a graft
+# (PKG-2026-0718-02), so the sdist carries the example without the ADR markdowns.
+_REQUIRED_INCLUDES = ("docs/adr/renewal_policy.example.json",)
 # Never ship: the Rust verifier + its build tree (runs from a git checkout with a toolchain, never the
 # Python sdist), and repo/CI meta.
 _REQUIRED_PRUNES = ("tools",)
@@ -36,6 +39,12 @@ class SdistManifestAllowlist(unittest.TestCase):
         for d in _REQUIRED_GRAFTS:
             self.assertIn(d, grafts, f"MANIFEST.in must `graft {d}` so the sdist tests can collect")
 
+    def test_shipped_example_policy_is_included_by_path(self):
+        # PKG-2026-0718-02: the renewal-policy test loads docs/adr/renewal_policy.example.json from the sdist.
+        includes = {ln.split(None, 1)[1] for ln in self.lines if ln.startswith("include ")}
+        for f in _REQUIRED_INCLUDES:
+            self.assertIn(f, includes, f"MANIFEST.in must `include {f}` so the sdist ships the example")
+
     def test_rust_tree_is_not_shipped_in_sdist(self):
         prunes = {ln.split(None, 1)[1] for ln in self.lines if ln.startswith("prune ")}
         for d in _REQUIRED_PRUNES:
@@ -46,6 +55,21 @@ class SdistManifestAllowlist(unittest.TestCase):
         self.assertIn("global-exclude", blob)
         self.assertTrue(any("*.py[cod]" in ln or "*.pyc" in ln for ln in self.lines),
                         "MANIFEST.in must global-exclude compiled bytecode")
+
+    def test_repo_context_tests_skip_outside_a_checkout(self):
+        # PKG-2026-0718-01 (RE-GATE): the "self-testable" claim is honest only because the repo-context
+        # tests (which read pruned .github/tools/SPEC material) SKIP outside a checkout instead of failing.
+        # Enforce that the mechanism EXISTS and is well-formed (a real check, not a wording promise). This
+        # runs BOTH in the repo AND from an extracted sdist, so it must be context-INDEPENDENT: it asserts
+        # the skip set is populated + well-formed and that the repo-detection helper is callable and agrees
+        # with the markers actually present in the current tree (whichever context that is).
+        from conftest import _REPO_CONTEXT_TESTS, _REPO_ONLY_MARKERS, _REPO_ROOT, running_in_repo_checkout
+        self.assertTrue(_REPO_CONTEXT_TESTS, "the repo-context skip set must be populated")
+        self.assertTrue(all("::" in t for t in _REPO_CONTEXT_TESTS),
+                        "each entry must be 'module_stem::test_method'")
+        expected = any((_REPO_ROOT / m).exists() for m in _REPO_ONLY_MARKERS)
+        self.assertEqual(running_in_repo_checkout(), expected,
+                         "repo-detection must match the markers actually present in the current tree")
 
 
 if __name__ == "__main__":

@@ -722,29 +722,48 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # WP-A1: thread the relying-party trust material so a real OTS/rfc3161 statement anchor can
             # confirm here (the bundle's frozen material is never trust). Without it a time anchor is
             # needs_rp_trust — fail-closed, not a silent frozen pass.
-            ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
-                                             rp_trust=rp_trust)
-            # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but a
-            # FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
-            # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
-            _results = ar.get("results") or []
-            _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
-            _has_full = any(x["ok"] and not x["warn"] for x in _results)
-            _has_pending = any(x["warn"] for x in _results)
-            anchor_status = ("FAIL" if _has_fail else "PASS" if _has_full
-                             else "WARN" if _has_pending else ar["status"])
-            r["anchors_ok"] = (True if anchor_status == "PASS"
-                               else False if anchor_status == "FAIL" else None)
-            if anchor_status == "WARN":
-                r["warnings"].append(
-                    f"anchor(s) pending / inclusion-only — not a full time anchor: {ar['detail']}")
-            elif anchor_status == "FAIL":
-                r["errors"].append(f"anchor verification failed: {ar['detail']}")
+            # RE-GATE never-raise (REGATE-CRYPTO-01 / F3): a caller-supplied malformed anchor (a non-dict
+            # entry, an unknown field, invalid base64, or a non-list `anchors`) makes verify_anchor(s) raise
+            # BundleFormatError. On this never-raise surface that must be a fail-closed anchors verdict, not a
+            # raw traceback out of verify() — verify_anchor already returns fail-closed dicts for bad
+            # target/type/root, so a malformed entry is the SAME class of outcome (deny), just surfaced here.
+            try:
+                ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
+                                                 rp_trust=rp_trust)
+            except ProofBundleError as exc:
+                anchor_status = "FAIL"
+                r["anchors_ok"] = False
+                r["errors"].append(f"anchor verification refused malformed anchor input (fail-closed): {exc}")
+                ar = None
+            if ar is not None:
+                # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but
+                # a FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
+                # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
+                _results = ar.get("results") or []
+                _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
+                _has_full = any(x["ok"] and not x["warn"] for x in _results)
+                _has_pending = any(x["warn"] for x in _results)
+                anchor_status = ("FAIL" if _has_fail else "PASS" if _has_full
+                                 else "WARN" if _has_pending else ar["status"])
+                r["anchors_ok"] = (True if anchor_status == "PASS"
+                                   else False if anchor_status == "FAIL" else None)
+                if anchor_status == "WARN":
+                    r["warnings"].append(
+                        f"anchor(s) pending / inclusion-only — not a full time anchor: {ar['detail']}")
+                elif anchor_status == "FAIL":
+                    r["errors"].append(f"anchor verification failed: {ar['detail']}")
 
     # Trust policy (v0.2 decision_receipt section) over the CRYPTO-VERIFIED statement. WP5. A policy is NEVER
     # evaluated on unverified bytes (fail-open fix, mirrors the eval path): if crypto did not pass, policy_ok
     # and signer_trusted stay None — a policy is never a reason to trust bytes whose signature failed.
-    if policy is not None and isinstance(predicate, dict):
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
+        # or list) must be a fail-closed policy verdict, not a raw AttributeError out of policy.get(...) —
+        # evaluate_decision_policy is defended too (layer a), this is the call-site layer (b). A
+        # requested-but-malformed policy is NEVER a silent pass (fail-open): it fails policy_ok.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(predicate, dict):
         if not r["crypto_ok"]:
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
@@ -775,7 +794,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

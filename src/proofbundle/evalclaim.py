@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .bundle import load_bundle, verify_bundle
 from .emit import emit_bundle
+from .errors import ProofBundleError
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -270,12 +271,12 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
     ``context_binding`` field (cross-context replay guard): if supplied and the claim's binding
     is absent or different, the claim is rejected.
     """
-    if isinstance(bundle, str):
-        bundle = load_bundle(bundle)   # resolve the PATH to a dict ONCE — verify + parse the SAME bytes (no TOCTOU re-read)
-    result = verify_bundle(bundle)
-    if not result.ok:
-        return None
     try:
+        if isinstance(bundle, str):
+            bundle = load_bundle(bundle)   # resolve the PATH to a dict ONCE — verify + parse the SAME bytes (no TOCTOU re-read)
+        result = verify_bundle(bundle)
+        if not result.ok:
+            return None
         payload = base64.b64decode(bundle["payload_b64"])
         claim = load_claim_text(payload.decode("utf-8"))
         if claim.get("schema") != EVAL_CLAIM_SCHEMA:
@@ -326,7 +327,13 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         if expected_context is not None and claim.get("context_binding") != expected_context:
             return None
         return claim
-    except (KeyError, ValueError, TypeError, EvalClaimError):
+    except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError, OSError):
+        # MJSON-01 (RE-GATE never-raise): the documented contract is "Returns the parsed claim on success,
+        # None on any failure". load_bundle (a bad path str -> OSError) and verify_bundle (a non-bundle dict
+        # -> UnsupportedError / BundleFormatError, both ProofBundleError) previously ran OUTSIDE this try, so
+        # a non-bundle / non-path argument raised a raw exception instead of returning None. Both now sit
+        # inside the guard and the except covers the malformed-input family, so decode_eval_claim on
+        # {'not':'a bundle'} / [1,2,3] / a bad path all return None as documented.
         return None
 
 

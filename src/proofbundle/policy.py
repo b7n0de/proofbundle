@@ -512,6 +512,13 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     ``anchor_status`` is the PASS/WARN/FAIL/SKIP verdict from the DETACHED anchor verification done in
     verify_decision_receipt (anchors are not in the signed predicate; Fix 2). require_external_anchor gates on
     it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object)."""
+    # RE-GATE never-raise (F2 / REGATE-CRYPTO-02, layer a): a non-dict `policy` (a caller-supplied JSON
+    # scalar/list) must not raise a raw AttributeError from policy.get(...) — the never-raise verify surfaces
+    # reach here with attacker-influenceable input. Fail-closed: a malformed policy is a hard policy fail, not
+    # a silent None (a requested-but-unparseable policy must never read as "no policy to check").
+    if not isinstance(policy, dict):
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": ["policy must be a JSON object — malformed policy (fail-closed)"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
