@@ -88,3 +88,28 @@ in v3.6.0 (No-Fake: the audit trail must match the released code, not an earlier
   Python == Rust.
 - **0 open P0 / P1 still holds.** The OTS finding was resolved before this release; no P0/P1 is open.
   The single deliberately-open acceptance criterion remains the external human crypto / protocol audit.
+
+## Addendum 2 — reconciled to the shipped v3.6.1 release tree (2026-07-18, P5 of the release-vorlauf)
+
+The 3.6.1 security-patch cycle (Teil-1..Teil-5 audit findings + an iterative 6-lens Berkeley re-gate)
+landed on top of the above. This addendum reconciles every number to the 3.6.1 tree; each carries its
+command source (No-Fake, `b7n0de.pb_361_vorlauf.v2` P5). Numbers that changed vs the v3.6.0 addendum are
+called out explicitly so nothing here contradicts the shipped state.
+
+- **Audit-candidate matrix** (`python scripts/audit_candidate_matrix.py`, live on the 3.6.1 tree):
+  **31 PASS, 0 PENDING, 1 DATA_BLOCKED (24h soak, env), 1 EXTERNAL_PENDING (the external audit), 0 FAIL** —
+  identical shape to the v3.6.0 addendum, no regression. C12.2 now derives its "0 open P0/P1" from the
+  SIGNED structured findings register (`audit_artifacts/findings_register_361.json`), not a lexical
+  substring (RT-10 fix), so the 0-open claim is machine-checkable.
+- **Differential Python==Rust crosscheck** (`PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py`):
+  now **56/56 conformance-corpus cases incl. 42 relation vectors** — CHANGED from the v3.6.0 figure of
+  54/54 + 40 relation vectors (the 3.6.1 relation subject-pin work added conformance + relation vectors).
+- **Test suite** (authoritatively the CI `test` job across Python 3.10-3.14; local command sources given,
+  the exact count varies with installed extras): in-repo `pytest tests/ -q` = **1951 passed / 7 skipped**;
+  from an EXTRACTED sdist `pip install proofbundle[eval,test] && pytest` = **1812 passed / 138 skipped / 0
+  failed**; a bare `pip install proofbundle[eval]` degrades to clean skips = **1613 passed / 197 skipped /
+  0 failed** (the shipped-sdist self-testability invariant, PB-2026-0718-L6-01). The v3.6.0 base figure of
+  1655/118 above is a historical branch-base snapshot, NOT the shipped 3.6.1 count.
+- **0 open P0 / P1** holds on the 3.6.1 tree, verified by the signed findings register (all Teil-2..Teil-5
+  P0/P1 closed). The single deliberately-open gate remains the external human crypto/protocol audit; status
+  boundary unchanged (audit-candidate BETA, relation/v0.1 EXPERIMENTAL, not stable/audited/production-ready).
