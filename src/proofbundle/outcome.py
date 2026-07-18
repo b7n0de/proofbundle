@@ -539,18 +539,24 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
-    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
+        # (_payload_bytes raises BudgetExceeded on an OVERSIZED envelope) BEFORE the parse, and loads_strict's
+        # node/byte caps raise BudgetExceeded on a WIDE payload — all ProofBundleError SIBLINGS of
+        # BundleFormatError. So the crypto verify + body load + budget + parse ALL live inside the never-raise
+        # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
+        # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity).
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)
+        # Finding 15b: refuse an absurdly oversized payload before any JSON parsing work.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
-    except (BundleFormatError, ValueError, UnicodeDecodeError) as exc:
-        # PB-2026-0717-07 never-raise: untrusted unparseable input -> STABLE fail-closed verdict, never a
-        # raw exception. The specific reason is preserved in errors[]. verify_outcome_receipt_or_raise() is
-        # the explicit exception variant.
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input -> STABLE
+        # fail-closed verdict, never a raw exception. The reason is preserved in errors[].
+        # verify_outcome_receipt_or_raise() is the explicit exception variant.
         r["structure_ok"] = False
         r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
         if _raise_on_malformed:

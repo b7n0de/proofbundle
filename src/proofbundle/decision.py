@@ -503,25 +503,31 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
-    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
-        # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs
-    # (mirrors anchors_chia.py / hf_evals.py / statuslist.py's "cap before the expensive work" pattern).
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
+        # (_payload_bytes raises BudgetExceeded on an OVERSIZED envelope) BEFORE the parse, and loads_strict's
+        # own node/byte caps raise BudgetExceeded on a WIDE payload — all ProofBundleError SIBLINGS of
+        # BundleFormatError. So the crypto verify + body load + budget + parse ALL live inside the never-raise
+        # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
+        # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity — the CLI
+        # already caught it via its ProofBundleError handler, the API did not).
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
+            # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
+        # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
         # but only when the rfc8785 extra is installed.
         statement = loads_strict(body.decode("utf-8"))
-    except (BundleFormatError, ValueError, UnicodeDecodeError) as exc:
-        # PB-2026-0717-07 never-raise: untrusted, unparseable input yields a STABLE fail-closed verdict
-        # (structure_ok=False, ok=False, safeForAutomation=False), never a raw exception — a consumer of
-        # verify() can always read a verdict. The specific reason (e.g. "duplicate JSON key") is preserved
-        # in errors[]. verify_decision_receipt_or_raise() is the explicit exception variant.
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
+        # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
+        # exception — a consumer of verify() can always read a verdict. The specific reason (duplicate key /
+        # too deep / budget exceeded) is preserved in errors[]. *_or_raise() is the explicit exception variant.
         r["structure_ok"] = False
         r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
         if _raise_on_malformed:

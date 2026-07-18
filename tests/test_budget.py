@@ -127,7 +127,11 @@ class TestInputBytesBudgetEnforced(unittest.TestCase):
     (decision/outcome/trust_pack/verification_summary/run_ledger): a normal payload is completely
     unaffected; an absurdly oversized one is refused before parsing, as a typed ProofBundleError."""
 
-    def test_decision_verify_raises_budget_exceeded_over_cap(self):
+    def test_decision_verify_over_cap_is_failclosed_verdict_not_raise(self):
+        # PB-2026-0718-11 RE-GATE never-raise: an over-budget payload yields a fail-closed VERDICT
+        # (structure_ok=False, ok!=True), NEVER a raw uncaught BudgetExceeded — that would be an
+        # uncaught-exception DoS on a verify surface whose contract is never-raise. The budget guard still
+        # fires (the payload is refused), it just surfaces as a verdict + errors[] entry, not an exception.
         import json
         from pathlib import Path
 
@@ -140,11 +144,13 @@ class TestInputBytesBudgetEnforced(unittest.TestCase):
         tiny = VerificationBudget(input_bytes=8)
         import unittest.mock as mock
         with mock.patch("proofbundle.budget.DEFAULT_BUDGET", tiny):
-            with self.assertRaises(BudgetExceeded):
-                verify_decision_receipt(env, pub, strict=True)
+            r = verify_decision_receipt(env, pub, strict=True)   # must RETURN a verdict, never raise
+        self.assertIs(r["structure_ok"], False)
+        self.assertIsNot(r["ok"], True)
+        self.assertTrue(any("budget" in e.lower() for e in r["errors"]), r["errors"])
         # sanity: the SAME envelope verifies fine under the real (generous) default budget.
-        r = verify_decision_receipt(env, pub, strict=True)
-        self.assertTrue(r["ok"])
+        r2 = verify_decision_receipt(env, pub, strict=True)
+        self.assertTrue(r2["ok"])
 
     def test_legitimate_receipts_never_hit_the_default_input_bytes_cap(self):
         import json

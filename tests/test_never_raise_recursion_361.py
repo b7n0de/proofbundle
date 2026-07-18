@@ -84,6 +84,35 @@ class NeverRaiseAllSurfaces(unittest.TestCase):
         self.assertEqual(_read_pubkey_line(_DEEP_OBJECT), "")
 
 
+class BudgetNeverRaise(unittest.TestCase):
+    """PB-2026-0718-11 RE-GATE: budget overruns (wide json_nodes / oversized input_bytes) map to a
+    fail-closed verdict on the verify API, never a raw uncaught BudgetExceeded (a ProofBundleError sibling
+    of BundleFormatError that the never-raise except tuple originally missed)."""
+
+    def _signed(self, payload_bytes):
+        signer = generate_signer()
+        env = dsse.sign_envelope(payload_bytes, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        return env, signer.public_key().public_bytes_raw()
+
+    def test_wide_payload_over_node_budget_returns_verdict(self):
+        import json as _json
+        from proofbundle.decision import verify_decision_receipt as vd
+        from proofbundle.outcome import verify_outcome_receipt as vo
+        env, pub = self._signed(_json.dumps([0] * 200005).encode("utf-8"))  # json_nodes over cap, under bytes
+        for fn in (vd, vo):
+            r = fn(env, pub)   # must NOT raise BudgetExceeded
+            self.assertIs(r["structure_ok"], False)
+            self.assertIsNot(r["ok"], True)
+
+    def test_oversized_payload_over_byte_budget_returns_verdict(self):
+        import json as _json
+        from proofbundle.decision import verify_decision_receipt as vd
+        env, pub = self._signed(_json.dumps([0] * 3000000).encode("utf-8"))  # ~12MB, over the 8MiB byte cap
+        r = vd(env, pub)   # dsse.verify_envelope budget-checks BEFORE parse -> must be caught, not raised
+        self.assertIs(r["structure_ok"], False)
+        self.assertIsNot(r["ok"], True)
+
+
 class ApiCliErrorClassParity(unittest.TestCase):
     def test_api_cli_error_class_parity(self):
         # API surface: deep nesting -> BundleFormatError (a ProofBundleError). CLI surface: deep nesting ->
