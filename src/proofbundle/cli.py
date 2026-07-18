@@ -586,7 +586,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
-    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
+    except (ProofBundleError, OSError, ValueError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
         # maps to the documented exit 2, never a raw traceback (verify-lens L3; load_bundle also guards
         # it centrally). PolicyError (a ProofBundleError) — malformed policy or aud ambiguity — also

@@ -519,5 +519,54 @@ class RelationCanonicalityFailClosed(unittest.TestCase):
             rsm._rfc8785_available = orig
 
 
+class LoadBundleFilePathClass(unittest.TestCase):
+    """DEEP-gate RT-04 (file/path class): load_bundle's 8 MiB input_bytes cap was enforced only INSIDE
+    loads_strict, i.e. AFTER an unbounded handle.read() — so a char/block device (/dev/zero) grew the read
+    until a RAW MemoryError escaped, and a writer-less FIFO made read() hang forever (no verdict, DoS on the
+    shared host). load_bundle now stats FIRST, refuses non-regular files + oversized files, and bounds the
+    read — every path is a typed BundleFormatError, never a raw MemoryError and never a hang."""
+
+    def test_char_device_is_typed_not_memoryerror(self):
+        import os
+        from proofbundle.bundle import BundleFormatError, load_bundle
+        if not os.path.exists("/dev/zero"):
+            self.skipTest("/dev/zero not present")
+        with self.assertRaises(BundleFormatError):
+            load_bundle("/dev/zero")
+
+    def test_writerless_fifo_does_not_hang_and_is_typed(self):
+        import os
+        import signal
+        import tempfile
+        from proofbundle.bundle import BundleFormatError, load_bundle
+        if not hasattr(os, "mkfifo") or not hasattr(signal, "SIGALRM"):
+            self.skipTest("no mkfifo/SIGALRM on this platform")
+        d = tempfile.mkdtemp()
+        fifo = os.path.join(d, "b.fifo")
+        os.mkfifo(fifo)
+
+        def _to(_s, _f):
+            raise TimeoutError("load_bundle hung on a writer-less FIFO")
+        old = signal.signal(signal.SIGALRM, _to)
+        signal.alarm(10)
+        try:
+            with self.assertRaises(BundleFormatError):
+                load_bundle(fifo)   # must return promptly, never hang
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    def test_oversized_regular_file_is_typed(self):
+        import os
+        import tempfile
+        from proofbundle.bundle import BundleFormatError, load_bundle
+        d = tempfile.mkdtemp()
+        big = os.path.join(d, "big.json")
+        with open(big, "wb") as fh:
+            fh.write(b'{"x":"' + b"a" * (9 * 1024 * 1024) + b'"}')   # > 8 MiB input_bytes cap
+        with self.assertRaises(BundleFormatError):
+            load_bundle(big)
+
+
 if __name__ == "__main__":
     unittest.main()

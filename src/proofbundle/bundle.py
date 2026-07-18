@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import base64
 import hmac
+import os
+import stat
 from typing import Optional, Union
 
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
+from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -190,10 +193,26 @@ def load_bundle(path: str) -> dict:
     # (loads_strict re-raises those as a bare ValueError/JSONDecodeError) is mapped to BundleFormatError, not a
     # raw OSError/UnicodeDecodeError/JSONDecodeError traceback. loads_strict's own BundleFormatError (a
     # ProofBundleError, not a ValueError) propagates unchanged.
+    # 6-lens DEEP gate RT-04 (file/path class): the 8 MiB input_bytes budget was enforced only INSIDE
+    # loads_strict, i.e. AFTER handle.read() had already slurped the whole file — so it was post-read and
+    # inert on the FILE path. A character/block device (/dev/zero) made handle.read() grow until a RAW
+    # MemoryError escaped (not OSError/ValueError), and a writer-less FIFO made open()/read() hang forever
+    # (no verdict, no exit code). Both are a real memory-amplification / DoS on the shared host. Fix: stat
+    # FIRST and refuse non-regular files (FIFO/char/block device) and oversized files BEFORE any read, then
+    # do a BOUNDED read capped at the input_bytes budget, and map MemoryError to the typed contract too.
+    cap = DEFAULT_BUDGET.input_bytes
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return loads_strict(handle.read())
-    except (OSError, ValueError) as exc:
+        st = os.stat(path)   # metadata only — does NOT block on a FIFO and does NOT read a device
+        if not stat.S_ISREG(st.st_mode):
+            raise BundleFormatError("bundle path is not a regular file (fail-closed: FIFO/device/socket refused)")
+        if st.st_size > cap:
+            raise BundleFormatError(f"bundle file exceeds the {cap}-byte input_bytes budget (fail-closed)")
+        with open(path, "rb") as handle:
+            raw = handle.read(cap + 1)   # bounded: a device that lies about st_size cannot grow this unbounded
+        if len(raw) > cap:
+            raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
+        return loads_strict(raw.decode("utf-8"))
+    except (OSError, ValueError, MemoryError) as exc:
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
