@@ -202,6 +202,11 @@ def load_bundle(path: str) -> dict:
     # do a BOUNDED read capped at the input_bytes budget, and map MemoryError to the typed contract too.
     cap = DEFAULT_BUDGET.input_bytes
     try:
+        # 6-lens DEEP gate L3-01: a non-path argument (None/float/int) must be typed, not a raw TypeError —
+        # and an int path would be misread by os.stat as a FILE DESCRIPTOR (os.stat(1) = fstat stdout). Reject
+        # anything that is not a real path type up front.
+        if not isinstance(path, (str, bytes, os.PathLike)):
+            raise BundleFormatError(f"bundle path must be a path string, got {type(path).__name__} (fail-closed)")
         st = os.stat(path)   # metadata only — does NOT block on a FIFO and does NOT read a device
         if not stat.S_ISREG(st.st_mode):
             raise BundleFormatError("bundle path is not a regular file (fail-closed: FIFO/device/socket refused)")
@@ -212,7 +217,9 @@ def load_bundle(path: str) -> dict:
         if len(raw) > cap:
             raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
         return loads_strict(raw.decode("utf-8"))
-    except (OSError, ValueError, MemoryError) as exc:
+    except (OSError, ValueError, MemoryError, TypeError) as exc:
+        # 6-lens DEEP gate L3-01: TypeError too — a non-str path argument (None/float) makes os.stat raise a
+        # raw TypeError; the docstring promises TOTAL mapping to typed BundleFormatError (never-raise-wrap-all).
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 

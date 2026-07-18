@@ -123,6 +123,11 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     True iff a signature line whose keyID matches the vkey verifies (Ed25519) over the exact note-text
     bytes. Reconstructs the note text from the parsed bytes — never re-derives it."""
     name, kid_v, pubkey = _parse_vkey(vkey_str)
+    # 6-lens DEEP gate L1-02 (never-raise): a non-str signed_note made `"\n\n" not in signed_note` raise a
+    # raw TypeError out of the public verify_witnessed_checkpoint/verify_checkpoint surface — mirror the
+    # isinstance(str) guard already on witness_vkey (_parse_witness_vkey, RE-GATE never-raise consistency).
+    if not isinstance(signed_note, str):
+        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
     # note text = everything up to (and including the \n before) the separating empty line
     if "\n\n" not in signed_note:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
@@ -213,6 +218,10 @@ def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
 
 def _note_text_of(signed_note: str) -> str:
     """The note body of a signed note: everything before the empty-line separator, newline restored."""
+    # 6-lens DEEP gate L1-01 (never-raise): a non-str signed_note leaked a raw TypeError out of the public
+    # verify_cosignature surface — same isinstance(str) guard class as verify_checkpoint.
+    if not isinstance(signed_note, str):
+        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
     if "\n\n" not in signed_note:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
     note_text = signed_note.split("\n\n", 1)[0] + "\n"

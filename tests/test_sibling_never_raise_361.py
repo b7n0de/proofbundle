@@ -567,6 +567,36 @@ class LoadBundleFilePathClass(unittest.TestCase):
         with self.assertRaises(BundleFormatError):
             load_bundle(big)
 
+    def test_wrong_type_path_is_typed_not_fstat(self):
+        # DEEP gate L3-01: a non-path argument (None/float/int) must be a typed BundleFormatError, never a raw
+        # TypeError from os.stat — and an int must NOT be misread as a file descriptor (os.stat(1)=fstat stdout)
+        from proofbundle.bundle import BundleFormatError, load_bundle
+        for bad in (None, 1.5, 123, True, [1], {"a": 1}):
+            with self.assertRaises(BundleFormatError):
+                load_bundle(bad)
+
+
+class CheckpointNonStrNoteTyped(unittest.TestCase):
+    """DEEP gate L1-01/L1-02: a non-str signed_note leaked a raw TypeError out of the public
+    verify_cosignature / verify_witnessed_checkpoint surfaces (`"\\n\\n" not in signed_note`). Now a typed
+    BundleFormatError, mirroring the witness_vkey isinstance guard."""
+
+    def test_verify_cosignature_non_str_note_is_typed(self):
+        import proofbundle
+        from proofbundle.bundle import BundleFormatError
+        vkey = "log.example/l1+00000000+" + "A" * 43
+        for bad in (None, 123, 1.5, True, [1], {"a": 1}):
+            with self.assertRaises(BundleFormatError):
+                proofbundle.verify_cosignature(bad, vkey)
+
+    def test_verify_witnessed_checkpoint_non_str_note_is_typed(self):
+        import proofbundle
+        from proofbundle.bundle import BundleFormatError
+        vkey = "log.example/l1+00000000+" + "A" * 43
+        for bad in (None, 123, 1.5, True, [1], {"a": 1}):
+            with self.assertRaises(BundleFormatError):
+                proofbundle.verify_witnessed_checkpoint(bad, vkey, [], threshold=0)
+
 
 if __name__ == "__main__":
     unittest.main()
