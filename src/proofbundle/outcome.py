@@ -695,6 +695,27 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         else:
             r["evidence_levels"]["receiverRefs"] = None
 
+        # PB-2026-0717-08: the legacy digest-presence booleans (execution_proven, receiver_bound) OVERSTATE —
+        # True on a mere well-formed digest (REFERENCE_WELL_FORMED, attacker-choosable content), a STRONGER
+        # name than the additive evidence_levels ladder. They stay for backward compat (3.x format frozen,
+        # §0.8) but are DEPRECATED: the ladder is the normative assurance semantic. Warn when a proven/bound
+        # True is not backed by a CONTENT_RESOLVED (or stronger) ladder level.
+        _EL = _assurance.EvidenceLevel
+        _eff = r["evidence_levels"].get("effect")
+        _recvlvl = r["evidence_levels"].get("receiverRefs")
+        _exec_overstated = r["execution_proven"] is True and not (
+            isinstance(_eff, dict) and isinstance(_eff.get("level"), int)
+            and _eff["level"] >= _EL.CONTENT_RESOLVED)
+        _recv_overstated = r["receiver_bound"] is True and not (
+            isinstance(_recvlvl, dict) and isinstance(_recvlvl.get("level"), int)
+            and _recvlvl["level"] >= _EL.CONTENT_RESOLVED)
+        if _exec_overstated or _recv_overstated:
+            r["warnings"].append(
+                "DEPRECATED: execution_proven / receiver_bound are digest-presence booleans "
+                "(evidence_levels REFERENCE_WELL_FORMED — attacker-choosable content), NOT a content proof. "
+                "Use evidence_levels; only CONTENT_RESOLVED or stronger is a real binding. These legacy fields "
+                "will be removed in the next breaking format version.")
+
         # replay/audience binding (fail-closed when requested), mirrors decision.py.
         _val = predicate.get("validity")
         _validity = _val if isinstance(_val, dict) else {}

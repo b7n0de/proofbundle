@@ -289,7 +289,11 @@ def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) ->
 
 
 def action_outcome_proven(predicate: Any) -> bool | None:
-    """Whether `actionOutcome.status == executed` is backed by a signed/digest-bound outcomeRef.
+    """DEPRECATED (PB-2026-0717-08) — a digest-PRESENCE boolean whose name OVERSTATES. It reads True on a
+    mere well-formed sha256 outcomeRef (evidence_levels REFERENCE_WELL_FORMED, attacker-choosable content),
+    NOT a proof that the outcome content was resolved. Use ``evidence_levels`` (only CONTENT_RESOLVED, via
+    an ``evidence_resolver``, is a real binding); this field stays for backward compat and will be removed
+    in the next breaking format version.
 
     Returns None when there is no actionOutcome or the status is not 'executed' (not applicable), True when an
     executed outcome carries a sha256 outcomeRef, False when executed is self-asserted (the honesty limit)."""
@@ -588,6 +592,24 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             "actionOutcome.outcomeRef": _outcome_level,
             "evidenceRefs": _evref_levels,
         }
+
+        # PB-2026-0717-08: the legacy digest-presence booleans (action_outcome_proven, evidence_bound)
+        # OVERSTATE — they read True on a mere well-formed digest (REFERENCE_WELL_FORMED, attacker-choosable
+        # content), a STRONGER name than the additive evidence_levels ladder they parallel. They STAY for
+        # backward compat (no field removal — the 3.x format is frozen, §0.8), but are DEPRECATED: the ladder
+        # is the sole normative assurance semantic. Warn whenever a proven/bound True is not actually backed by
+        # a CONTENT_RESOLVED ladder level, so a consumer is never silently misled by the stronger legacy name.
+        _EL = _assurance.EvidenceLevel
+        _proven_overstated = r["action_outcome_proven"] is True and not (
+            isinstance(_outcome_level, dict) and _outcome_level.get("level") == _EL.CONTENT_RESOLVED)
+        _bound_overstated = r["evidence_bound"] is True and not (
+            isinstance(_evref_levels, dict) and _evref_levels.get("level") == _EL.CONTENT_RESOLVED)
+        if _proven_overstated or _bound_overstated:
+            r["warnings"].append(
+                "DEPRECATED: action_outcome_proven / evidence_bound are digest-presence booleans "
+                "(evidence_levels REFERENCE_WELL_FORMED — attacker-choosable content), NOT a content proof. "
+                "Use evidence_levels; only CONTENT_RESOLVED (an evidence_resolver confirmed the bytes) is a "
+                "real binding. These legacy fields will be removed in the next breaking format version.")
 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
