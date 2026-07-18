@@ -139,6 +139,34 @@ class BreadthSweepTypeConfusion(unittest.TestCase):
             self.assertIs(verify_commitment(bad, b"salt", "commit"), False)   # must NOT raise
 
 
+class MerklePathBudgetDirectDict(unittest.TestCase):
+    """PB-2026-0718-16 (RT-09): the merkle_path step budget is enforced in the verification core, effective
+    on the direct dict path where the input_bytes byte-proxy never runs — an over-budget or non-list proof
+    is fail-closed, never an unbounded per-step hash loop or a raw comparison crash."""
+
+    def test_over_budget_proof_is_failclosed(self):
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.merkle import verify_consistency, verify_inclusion
+        cap = DEFAULT_BUDGET.merkle_path
+        big = [b"\x00" * 32] * (cap + 1)
+        self.assertFalse(verify_inclusion(b"leaf", 0, 1, big, b"\x00" * 32))
+        self.assertFalse(verify_inclusion(b"leaf", 0, 1, [b"\x00" * 32] * 65536, b"\x00" * 32))
+        self.assertFalse(verify_consistency(1, 2, big, b"\x00" * 32, b"\x00" * 32))
+
+    def test_type_confused_proof_or_sizes_are_failclosed(self):
+        from proofbundle.merkle import verify_consistency, verify_inclusion
+        self.assertFalse(verify_inclusion(b"leaf", 0, 1, "notlist", b"\x00" * 32))
+        self.assertFalse(verify_consistency("x", None, [], b"\x00" * 32, b"\x00" * 32))
+
+    def test_legit_small_proof_still_verifies(self):
+        import hashlib
+
+        from proofbundle.merkle import leaf_hash, verify_inclusion
+        h1 = leaf_hash(b"b")
+        root = hashlib.sha256(b"\x01" + leaf_hash(b"a") + h1).digest()
+        self.assertTrue(verify_inclusion(b"a", 0, 2, [h1], root))
+
+
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):
         # PB06-RELSTMT-CANON-FAILOPEN: without the canonicalizer, verify must NOT pass (ok=True) in default

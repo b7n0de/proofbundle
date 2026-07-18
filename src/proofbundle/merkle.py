@@ -141,6 +141,13 @@ def verify_inclusion(
     triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
     can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
     read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+        # PB-2026-0718-16: enforce the audit-path STEP budget (merkle_path) in the verification core, so it
+        # is effective on the DIRECT dict path where the byte-size proxy (input_bytes) never runs. A
+        # log2(tree_size) proof needs <= 256 steps for any realistic tree; a longer (or non-list) proof is
+        # fail-closed, never an unbounded per-step hash loop.
+        return False
     try:
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
     except ValueError:
@@ -156,6 +163,12 @@ def verify_consistency(
     second_root: bytes,
 ) -> bool:
     """Return True iff ``first_root`` is a consistent prefix of ``second_root`` (RFC 9162 2.1.4.2)."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+        return False   # PB-2026-0718-16: audit-path step budget, effective on the direct dict path
+    if not isinstance(first_size, int) or isinstance(first_size, bool) \
+            or not isinstance(second_size, int) or isinstance(second_size, bool):
+        return False   # non-int sizes are malformed input, fail-closed (never a raw comparison TypeError)
     if first_size <= 0 or first_size > second_size:
         return False
     if first_size == second_size:
