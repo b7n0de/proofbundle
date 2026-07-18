@@ -147,12 +147,14 @@ class TestDsseStatementPaths(unittest.TestCase):
         return {**env, "payload": base64.b64encode(text.encode()).decode("ascii")}
 
     def test_eval_result_verify_names_the_duplicate(self):
+        # RE-GATE never-raise: a dup-key payload is a fail-closed VERDICT (ok=False) whose detail names the
+        # duplicate — the strict parser still fires, but this dict-returning verify surface returns, not raises.
         from proofbundle.intoto import verify_eval_result_dsse
         for mode in (None, "legacy"):
             env, pub = self._eval_envelope(mode)
-            with self.assertRaises(BundleFormatError) as ctx:
-                verify_eval_result_dsse(self._with_dup_payload(env), pub)
-            self.assertIn("duplicate JSON key", str(ctx.exception),
+            r = verify_eval_result_dsse(self._with_dup_payload(env), pub)
+            self.assertIs(r["ok"], False)
+            self.assertIn("duplicate JSON key", r["content_root_detail"],
                           f"mode={mode}: the STRICT parser must fire, not a downstream mismatch")
 
     def test_svr_and_test_result_verify_reject_duplicates_both_modes(self):
@@ -166,14 +168,15 @@ class TestDsseStatementPaths(unittest.TestCase):
         pub = signer.public_key().public_bytes_raw()
         receipt = emit_eval_receipt(claim, signer)
         for mode_kwargs in ({}, {"content_root_alg": LEGACY_CONTENT_ROOT_ALG}):
+            # RE-GATE never-raise: dup-key -> fail-closed verdict (ok=False) with the duplicate named in detail.
             svr_env = export_svr_dsse(receipt, signer, **mode_kwargs)
-            with self.assertRaises(BundleFormatError) as ctx:
-                verify_svr_dsse(self._with_dup_payload(svr_env), pub)
-            self.assertIn("duplicate JSON key", str(ctx.exception), f"svr {mode_kwargs}")
+            r = verify_svr_dsse(self._with_dup_payload(svr_env), pub)
+            self.assertIs(r["ok"], False)
+            self.assertIn("duplicate JSON key", r["content_root_detail"], f"svr {mode_kwargs}")
             tr_env = export_intoto_dsse(claim, signer, **mode_kwargs)
-            with self.assertRaises(BundleFormatError) as ctx:
-                verify_intoto_dsse(self._with_dup_payload(tr_env), pub)
-            self.assertIn("duplicate JSON key", str(ctx.exception), f"test-result {mode_kwargs}")
+            r = verify_intoto_dsse(self._with_dup_payload(tr_env), pub)
+            self.assertIs(r["ok"], False)
+            self.assertIn("duplicate JSON key", r["content_root_detail"], f"test-result {mode_kwargs}")
 
 
 class TestDecisionPath(unittest.TestCase):

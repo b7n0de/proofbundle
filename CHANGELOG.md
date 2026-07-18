@@ -94,6 +94,16 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
   `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
   token is now a fail-closed verdict, like a garbage string already was.
+- **PB-2026-0718-INTOTO-HF-BUDGET (P1, proactive sweep) the in-toto + HF-token verify surfaces leaked
+  BudgetExceeded / raised on malformed input:** a full `loads_strict`-call-site sweep found the three
+  in-toto DSSE verifiers (`verify_intoto_dsse`, `verify_eval_result_dsse`, `verify_svr_dsse`) re-raised
+  `BundleFormatError` on a malformed/dup-key payload and leaked a raw `BudgetExceeded` on a wide/oversized
+  one — they are dict-returning verify surfaces, so they now fail closed to a verdict (`ok=False`, the
+  duplicate still named in `content_root_detail`), mirroring decision/outcome/run_ledger. `verify_receipt_token`
+  (documented raising-by-design) now surfaces a budget overrun as its documented `BundleFormatError` rather
+  than a raw `BudgetExceeded`. (The `except Exception` backstops in `bundle` / `anchors_chia` /
+  `anchors_markovian`, and the raising `load_bundle` / `load_claim_text` whose callers already catch
+  `ProofBundleError`, swept clean.)
 - **PB-2026-0718-SDJWT-BUDGET (P1) the SD-JWT family leaked raw BudgetExceeded:** `verify_status_snapshot`,
   `verify_key_binding`, `verify_sd_jwt` (header/payload + per-disclosure), `verify_sdjwt_vc` and
   `verify_sample_opening` parse their JWT parts with `loads_strict`, but their `except` caught only
