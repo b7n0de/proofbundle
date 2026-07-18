@@ -48,6 +48,10 @@ jobs:
           # F2: ship the byte-reproducible, normalised sdist (SOURCE_DATE_EPOCH + canonical tar),
           # then the wheel alongside it. Same dist/ layout as before; the reproducibility gate
           # (published-artifact-gate.yml) proves two builds are byte-identical.
+          # PB-2026-0717-03: export the SAME epoch build_reproducible.py uses (HEAD commit time) so the
+          # WHEEL is byte-reproducible too — a bare `python -m build --wheel` embeds the current
+          # wall-clock mtime and is NOT reproducible across two clean builds.
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           python scripts/build_reproducible.py --outdir dist
           python -m build --wheel --outdir dist
 
