@@ -845,13 +845,19 @@ fn verify_relationship_edges(
                         entry.resolution = LINEAGE_FAIL.into();
                     } else {
                         entry.verified_under = Some(target.verified_under.clone());
+                        // PB-2026-0717-01 fail-closed: a DECLARED targetSubjectDigest requires a
+                        // present, well-formed, EQUAL actual subject. subject_digest is None whenever
+                        // the resolved target subject is absent / ambiguous (>1) / malformed (the
+                        // loader normalises those to None), and that case now FAILs — before 3.6.1 it
+                        // fell into VERIFIED (the False Accept). No declared pin -> optional (verified).
                         let declared_subj = edge_subject_hex(edge);
-                        match (declared_subj, &target.subject_digest) {
-                            (Some(d), Some(a)) if &d != a => {
-                                entry.resolution = LINEAGE_FAIL.into(); // targetSubjectDigest mismatch
-                            }
-                            _ => entry.resolution = LINEAGE_VERIFIED.into(),
-                        }
+                        entry.resolution = match declared_subj {
+                            None => LINEAGE_VERIFIED.into(),
+                            Some(d) => match &target.subject_digest {
+                                Some(a) if &d == a => LINEAGE_VERIFIED.into(),
+                                _ => LINEAGE_FAIL.into(), // absent / ambiguous / malformed / mismatch
+                            },
+                        };
                     }
                 }
             }
@@ -972,10 +978,13 @@ fn evaluate_relations_policy(
                 }
                 Some("same-key") => {
                     if e.resolution == LINEAGE_VERIFIED {
-                        if let Some(vu) = &e.verified_under {
-                            if !keys_equal(successor_key_b64, vu) {
-                                out.push(Violation { code: "RELATION_SIGNER_UNAUTHORIZED".into() });
-                            }
+                        // PB-2026-0717-04 fail-closed: a VERIFIED same-key edge REQUIRES a present
+                        // verified_under that byte-matches the successor key; a missing/None
+                        // verified_under is unauthorized (was a fail-open footgun on the direct
+                        // related-API path — before 3.6.1 it produced no violation).
+                        match &e.verified_under {
+                            Some(vu) if keys_equal(successor_key_b64, vu) => {}
+                            _ => out.push(Violation { code: "RELATION_SIGNER_UNAUTHORIZED".into() }),
                         }
                     }
                 }
@@ -1036,12 +1045,18 @@ fn load_related(
                     relationships = Some(r.clone());
                 }
             }
+            // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject. An empty subject
+            // array (absent), MULTIPLE subjects (ambiguous — never silently take subject[0]), or a
+            // malformed sha256 all leave subject_digest = None, which the verifier treats fail-closed
+            // against a declared targetSubjectDigest pin.
             subject_digest = stmt
                 .get("subject").and_then(|v| v.as_array())
+                .filter(|a| a.len() == 1)
                 .and_then(|a| a.first())
                 .and_then(|s| s.get("digest"))
                 .and_then(|d| d.get("sha256"))
                 .and_then(|v| v.as_str())
+                .filter(|s| is_sha256_hex(s))
                 .map(String::from);
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
