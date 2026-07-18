@@ -356,7 +356,6 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # receipt root) must match A's own signed claim + merkle root, else the disclosures do NOT belong to
         # this bundle. Only meaningful once the issuer signature verified (an unsigned SD-JWT already fails C2).
         if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
-            import json as _json  # noqa: PLC0415
             from .sdjwt_issue import _jwt_payload as _sd_payload  # noqa: PLC0415
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
             try:
@@ -395,8 +394,10 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
 
             try:
-                _claim = _json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
-            except (ValueError, KeyError, TypeError):
+                # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
+                # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
+                _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+            except (ValueError, KeyError, TypeError, BundleFormatError):
                 _claim = None
             _root = (bundle.get("merkle") or {}).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a

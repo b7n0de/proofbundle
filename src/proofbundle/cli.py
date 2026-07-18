@@ -1200,7 +1200,10 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
     from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
         with open(args.pack, encoding="utf-8") as handle:
-            pack = json.load(handle)
+            # PB-2026-0718-11 never-raise: route through the bounded strict parser so a pathologically
+            # deep pack maps to a clean BundleFormatError (owned RecursionError) instead of a raw
+            # RecursionError traceback out of `anchor verify-pack`. loads_strict also caps nodes + int-len.
+            pack = loads_strict(handle.read())
         if not isinstance(pack, dict):
             raise ValueError("evidence pack must be a JSON object")
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
@@ -1266,10 +1269,13 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             raw = handle.read()
         pack = None
         try:
-            maybe = json.loads(raw.decode("utf-8"))
+            maybe = loads_strict(raw.decode("utf-8"))
             if isinstance(maybe, dict) and maybe.get("type") == "opentimestamps-evidence-pack":
                 pack = maybe
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, ProofBundleError):
+            # PB-2026-0718-11: loads_strict maps deep nesting (RecursionError) / oversized input to a
+            # ProofBundleError; a file that cannot be safely parsed as a pack is simply "not a pack" here,
+            # falling through to the raw-proof inspect branch — never a raw RecursionError traceback.
             pack = None
         if pack is not None:
             proof = _b64.b64decode(pack["proof"], validate=True)
@@ -2091,8 +2097,8 @@ def _read_pubkey_line(text: str) -> str:
     s = text.strip()
     if s.startswith("{"):
         try:
-            obj = json.loads(s)
-        except ValueError:
+            obj = loads_strict(s)
+        except (ValueError, ProofBundleError):   # PB-2026-0718-11: deep nesting -> clean "", never a raw crash
             return ""
         return obj.get("public_key_b64") or obj.get("issuer_public_key_b64") or ""
     if s.startswith("ed25519:"):

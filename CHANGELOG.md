@@ -26,6 +26,11 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0717-07 (P1) verify-API raised on malformed input:** `verify_decision_receipt` /
   `verify_outcome_receipt` now return a stable fail-closed verdict for untrusted unparseable input; the
   explicit `verify_*_or_raise` variants raise.
+- **PB-2026-0718-11 (P1) never-raise broken on the CLI (RecursionError):** a pathologically deep JSON
+  pack raised a RAW `RecursionError` out of `anchor verify-pack` (and other raw `json.load` verify
+  surfaces). All verify surfaces (CLI `anchor verify-pack` / `anchor inspect` / key-extract, the bundle
+  claim-payload path) now route through the strict parser, which maps deep nesting to a clean
+  `BundleFormatError` (bounded depth) with the same malformed class on API and CLI, never a raw traceback.
 - **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
   (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
   **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an
