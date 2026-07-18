@@ -140,6 +140,14 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     return format_tlog_proof(mk["leaf_index"], proof, signed_checkpoint, extra=extra)
 
 
+def _tlog_failclosed(detail: str) -> dict:
+    """RE-GATE never-raise: a fail-closed tlog-proof verdict (ok=False, every sub-verdict False) for
+    malformed / type-confused untrusted input — the SAME dict shape as a full run, never a raw exception."""
+    return {"ok": False, "log_ok": False, "witnesses_ok": False, "inclusion_ok": False,
+            "origin": None, "tree_size": None, "root": None, "index": None, "witnesses": [],
+            "detail": detail}
+
+
 def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
                       witness_vkeys: Sequence[str] = (), *, threshold: int = 0,
                       expected_origin: "str | None" = None) -> dict:
@@ -152,9 +160,17 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
     inclusion_ok, origin, tree_size, root, index, witnesses}`` — every sub-verdict reported,
     ``ok`` is their conjunction (fail-closed).
     """
+    # RE-GATE never-raise (breadth sweep): this dict-returning verify surface must return a fail-closed
+    # verdict for malformed / type-confused untrusted input, never a raw exception — a non-str `text` crashed
+    # parse_tlog_proof with a raw TypeError, and a bad threshold raised BundleFormatError. Both fail-closed.
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
-        raise BundleFormatError("witness threshold must be a non-negative integer")
-    parsed = parse_tlog_proof(text)
+        return _tlog_failclosed("witness threshold must be a non-negative integer")
+    if not isinstance(text, str):
+        return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)")
+    try:
+        parsed = parse_tlog_proof(text)
+    except (BundleFormatError, ValueError, TypeError) as exc:
+        return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}")
     checkpoint = parsed["checkpoint"]
 
     log_res = verify_checkpoint(checkpoint, log_vkey)       # step 2: log signature

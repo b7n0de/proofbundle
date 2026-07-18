@@ -112,6 +112,12 @@ def verify_key_binding(
     ``holder_pubkey``. If neither exists the check fails — never skips.
     """
     result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None}
+    if not isinstance(compact, str):
+        # RE-GATE never-raise (breadth sweep): a non-str `compact` presentation is malformed input — a
+        # fail-closed verdict (present=False, ok=False), never a raw AttributeError from split_key_binding's
+        # string operations (e.g. `.endswith`). This dict-returning surface must always return a verdict.
+        result["detail"] = "compact presentation must be a string (non-str is malformed, fail-closed)"
+        return result
     sd_part, kb = split_key_binding(compact)
     if kb is None:
         result["detail"] = "no key binding JWT attached"

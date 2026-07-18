@@ -106,6 +106,26 @@ class StatusSnapshotTypeConfusion(unittest.TestCase):
             self.assertIs(r["ok"], False)
 
 
+class BreadthSweepTypeConfusion(unittest.TestCase):
+    """RE-GATE breadth sweep: the remaining dict-returning verify surfaces return a verdict, not a raw
+    exception, for a type-confused primary argument (same class as RE-TCE-06)."""
+
+    def test_verify_tlog_proof_non_str_text_is_verdict(self):
+        from proofbundle import verify_tlog_proof
+        for bad in (123, None, [1], {}):
+            r = verify_tlog_proof(bad, b"leaf", "vkey")   # must NOT raise
+            self.assertIs(r["ok"], False)
+        # a bad threshold is also a verdict, not a raise
+        self.assertIs(verify_tlog_proof("x\n\nsig", b"leaf", "vkey", threshold=-1)["ok"], False)
+
+    def test_verify_key_binding_non_str_compact_is_verdict(self):
+        from proofbundle import verify_key_binding
+        for bad in (123, None, [1], {}):
+            r = verify_key_binding(bad)   # must NOT raise
+            self.assertIs(r["ok"], False)
+            self.assertIs(r["present"], False)
+
+
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):
         # PB06-RELSTMT-CANON-FAILOPEN: without the canonicalizer, verify must NOT pass (ok=True) in default

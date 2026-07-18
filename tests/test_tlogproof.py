@@ -154,9 +154,12 @@ class TestVerify(unittest.TestCase):
         self.assertFalse(verify_tlog_proof(tampered, payload, log_vkey)["ok"])
 
     def test_red_bad_threshold(self):
+        # RE-GATE never-raise (breadth sweep): a bad threshold is a fail-closed VERDICT (ok=False), not a
+        # raw BundleFormatError — this dict-returning verify surface must always return a verdict.
         proof, payload, log_vkey, _, _ = _setup(0)
-        with self.assertRaises(BundleFormatError):
-            verify_tlog_proof(proof, payload, log_vkey, (), threshold=-1)
+        r = verify_tlog_proof(proof, payload, log_vkey, (), threshold=-1)
+        self.assertIs(r["ok"], False)
+        self.assertIn("threshold", r["detail"])
 
 
 if __name__ == "__main__":
