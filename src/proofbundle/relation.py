@@ -57,7 +57,7 @@ LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")

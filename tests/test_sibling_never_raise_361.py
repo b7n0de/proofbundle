@@ -324,6 +324,24 @@ class CallerPathTypedErrors(unittest.TestCase):
         self.assertIs(verify_consistency(1, 2, [123], b"\x00" * 32, b"\x00" * 32), False)
         self.assertIs(verify_consistency(2, 2, [], None, None), False)  # first==second branch
 
+    def test_anchored_validators_reject_trailing_newline(self):
+        # 6-lens gate L1-01: `^...$` matches BEFORE a trailing newline in Python, so a sha256/date/semver with
+        # a trailing '\n' false-PASSed strict structural/canonicality validation on the public verify surfaces
+        # (relation.py:61 was fixed to \A..\Z; the sibling decision/outcome/run_ledger/etc. diverged). Swept
+        # every anchored validator to \A..\Z. A valid value still matches; a trailing '\n' is rejected.
+        from proofbundle import (
+            assurance, decision, outcome, relation, relation_statement, run_ledger, verification_summary,
+        )
+        good = "a" * 64
+        for mod in (decision, outcome, relation, run_ledger, verification_summary, assurance):
+            self.assertIsNotNone(mod._SHA256_HEX.match(good), mod.__name__)
+            self.assertIsNone(mod._SHA256_HEX.match(good + "\n"), f"{mod.__name__} accepts trailing newline")
+        for mod in (decision, outcome, run_ledger, verification_summary, relation, relation_statement):
+            sem = getattr(mod, "_SEMVER_0_1_X", None)
+            if sem is not None:
+                self.assertIsNotNone(sem.match("0.1.0"))
+                self.assertIsNone(sem.match("0.1.0\n"), f"{mod.__name__} semver accepts trailing newline")
+
     def test_verify_bundle_huge_int_field_is_typed_not_raw_valueerror(self):
         # 6-lens gate L2-BDOS-01: a huge merkle.tree_size / leaf_index (e.g. 10**5000) was str()-rendered in a
         # detail message and tripped CPython's int<->str conversion cap as a RAW ValueError out of

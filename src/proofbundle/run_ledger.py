@@ -25,9 +25,9 @@ RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _RUN_STATUS = {"completed", "aborted", "failed"}
 _REQUIRED_ALWAYS = ("schemaVersion", "studyId", "runBudget", "runs", "nonClaims")

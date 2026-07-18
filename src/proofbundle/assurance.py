@@ -25,7 +25,7 @@ __all__ = [
     "evidence_ladder_summary", "evidence_ladder_best", "EFFECT_OBSERVED_NOT_IMPLEMENTED",
 ]
 
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 
 class EvidenceLevel(enum.IntEnum):

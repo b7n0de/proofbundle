@@ -36,7 +36,7 @@ COMMIT_ALG = "sha256-salted-v1"
 _COMPARATORS = {">=", ">", "<=", "<"}
 _MAX_SAFE_INT = 2 ** 53 - 1
 # The published eval-claim schema's decimal pattern for threshold/score (no exponent, no sign+, no spaces).
-_DECIMAL_RE = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+_DECIMAL_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 # Assurance level (v1.1): how much a PASS is worth. Signed into the claim (tamper-evident + bound to the
 # issuer, so a third party cannot alter it) — but issuer-DECLARED: a dishonest issuer can sign a higher level,
 # the signature attributes that claim to them, it does not make it true. Ordered weakest→strongest. Default

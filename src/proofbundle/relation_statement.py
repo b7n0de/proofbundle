@@ -33,7 +33,7 @@ RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/r
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _REQUIRED = ("schemaVersion", "statementId", "relationships")
 _ALLOWED_TOP = set(_REQUIRED)
