@@ -71,8 +71,8 @@ FINDINGS = [
      "note": "rust verifier has zero native unit tests for boundary states; follow-up"},
     {"id": "PB-2026-0718-13", "severity": "P2", "status": "open",
      "note": "dev typecheck pq-mldsa version floor mismatch (mypy gate); follow-up"},
-    {"id": "PB-2026-0718-15", "severity": "P2", "status": "open",
-     "note": "rust cargo fmt/clippy quality gates not yet green with a pinned toolchain; follow-up"},
+    {"id": "PB-2026-0718-15", "severity": "P2", "status": "closed",
+     "note": "rust cargo fmt/clippy green with a pinned toolchain (tools/pb_verify_rs/rust-toolchain.toml 1.95.0); deterministic CI fmt/clippy gate wired"},
 ]
 
 

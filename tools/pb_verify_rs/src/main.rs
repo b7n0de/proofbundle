@@ -1132,19 +1132,18 @@ fn evaluate_relations_policy(
                         });
                     }
                 }
-                Some("same-key")
-                    if e.resolution == LINEAGE_VERIFIED => {
-                        // PB-2026-0717-04 fail-closed: a VERIFIED same-key edge REQUIRES a present
-                        // verified_under that byte-matches the successor key; a missing/None
-                        // verified_under is unauthorized (was a fail-open footgun on the direct
-                        // related-API path — before 3.6.1 it produced no violation).
-                        match &e.verified_under {
-                            Some(vu) if keys_equal(successor_key_b64, vu) => {}
-                            _ => out.push(Violation {
-                                code: "RELATION_SIGNER_UNAUTHORIZED".into(),
-                            }),
-                        }
+                Some("same-key") if e.resolution == LINEAGE_VERIFIED => {
+                    // PB-2026-0717-04 fail-closed: a VERIFIED same-key edge REQUIRES a present
+                    // verified_under that byte-matches the successor key; a missing/None
+                    // verified_under is unauthorized (was a fail-open footgun on the direct
+                    // related-API path — before 3.6.1 it produced no violation).
+                    match &e.verified_under {
+                        Some(vu) if keys_equal(successor_key_b64, vu) => {}
+                        _ => out.push(Violation {
+                            code: "RELATION_SIGNER_UNAUTHORIZED".into(),
+                        }),
                     }
+                }
                 _ => {}
             }
         }
@@ -1496,8 +1495,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             }
         }
         "merkle-root" => {
-            let leaves: Result<Vec<Vec<u8>>, _> =
-                args[2..].iter().map(hex::decode).collect();
+            let leaves: Result<Vec<Vec<u8>>, _> = args[2..].iter().map(hex::decode).collect();
             let leaves = leaves.unwrap_or_else(|e| fatal(&format!("bad leaf hex: {e}")));
             match rfc6962_tree_head(leaves) {
                 Ok(root) => println!("{root}"),

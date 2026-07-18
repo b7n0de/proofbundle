@@ -102,13 +102,13 @@
     {
       "id": "PB-2026-0718-15",
       "severity": "P2",
-      "status": "open",
-      "note": "rust cargo fmt/clippy quality gates not yet green with a pinned toolchain; follow-up"
+      "status": "closed",
+      "note": "rust cargo fmt/clippy green with a pinned toolchain (tools/pb_verify_rs/rust-toolchain.toml 1.95.0); deterministic CI fmt/clippy gate wired"
     }
   ],
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o=",
-    "sig_b64": "aOg1oqvVq40sv/JxCf3CUnvQfNrQU3SaZXFzddiALjz/aCn20XOXM/SJTVflsnY5uZfM8WnO9/jeoJKS77J1Dg=="
+    "sig_b64": "PAUCRI/c3BBbhbTBDefz8s2RAgCHWN69Ec51YDBlfkqpk7/NVfaeyhFO10YJCpXEA4YvQB3W9mTTVuNOa8iaCA=="
   }
 }
