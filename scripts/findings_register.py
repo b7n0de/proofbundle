@@ -24,6 +24,7 @@ import base64
 import hashlib
 import json
 import sys
+import unicodedata
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -37,6 +38,18 @@ REGISTER_REL = "audit_artifacts/findings_register_361.json"
 PINNED_PUBKEY_B64 = "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o="
 
 _GATING_SEVERITIES = {"P0", "P1"}
+# 6-lens gate L5-01: severity is DENY-by-default (like status) — a string severity whose normalized form is
+# not a KNOWN token is an anomaly, never silently non-gating. So an open P0 cannot hide behind an invisible
+# zero-width (U+200B) or confusable/fullwidth severity char that renders as "P0" to a human reviewer.
+_KNOWN_SEVERITIES = {"P0", "P1", "P2", "P3", "INFO"}
+
+
+def _norm(s: str) -> str:
+    """NFKC-normalize and strip Unicode whitespace + Cc/Cf (control/format, incl. the zero-width U+200B) so a
+    severity/status cannot smuggle gating state past the {P0,P1} / 'closed' comparisons behind an invisible
+    or confusable/fullwidth character (which str.strip() alone does not remove/normalize)."""
+    nfkc = unicodedata.normalize("NFKC", s)
+    return "".join(ch for ch in nfkc if unicodedata.category(ch) not in ("Cc", "Cf")).strip()
 
 
 def _canonical_bytes(body: dict) -> bytes:
@@ -100,6 +113,12 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
         if not isinstance(f.get("severity"), str) or not isinstance(f.get("status"), str):
             anomalies.append(f"{fid}:non-string-severity-or-status="
                              f"{f.get('severity')!r}/{f.get('status')!r}")
+            continue
+        # 6-lens gate L5-01: severity DENY-by-default — a string severity whose NFKC/Cc/Cf-normalized form is
+        # not a KNOWN token is an anomaly (fail-closed), so an open P0 cannot hide behind an invisible U+200B
+        # or a confusable/fullwidth 'P0' that scores as non-gating while rendering as P0 to a reviewer.
+        if _norm(f["severity"]).upper() not in _KNOWN_SEVERITIES:
+            anomalies.append(f"{fid}:unknown-severity={f['severity']!r}")
             continue
         sby = f.get("superseded_by")
         if isinstance(sby, str) and sby:
@@ -189,8 +208,8 @@ def verify_and_count(repo: Path | str = REPO) -> dict:
     # folded); any other value (open/OPEN/partial/garbage) is treated as OPEN. Severity is upper-folded so a
     # lower-case 'p0' cannot slip past the {P0,P1} gate.
     open_p0p1 = sorted(fid for fid, f in effective.items()
-                       if str(f.get("severity", "")).strip().upper() in _GATING_SEVERITIES
-                       and str(f.get("status", "")).strip().lower() != "closed")
+                       if _norm(str(f.get("severity", ""))).upper() in _GATING_SEVERITIES
+                       and _norm(str(f.get("status", ""))).lower() != "closed")
     ok = not open_p0p1
     reason = ("0 open P0/P1 from the signed structured register "
               f"({evaluated_count} findings evaluated, {source_digest})") if ok \

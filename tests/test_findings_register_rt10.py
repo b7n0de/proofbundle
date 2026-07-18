@@ -159,6 +159,44 @@ class TestResolveCurrent(unittest.TestCase):
         _e, _c, anomalies, _s = self.fr._resolve_current([{"id": 123, "severity": "P0", "status": "open"}])
         self.assertTrue(anomalies)
 
+    def test_invisible_or_confusable_severity_cannot_hide_open_p0(self):
+        # 6-lens gate L5-01: severity was ALLOW-by-default (anything not exactly {P0,P1} after .strip().upper()
+        # was silently non-gating), and str.strip() removes neither zero-width/format chars nor confusables, so
+        # an open P0 could hide behind a U+200B / fullwidth / unknown severity that renders as "P0" to a human.
+        # Two defences close it: (a) NFKC + Cc/Cf folding maps an invisible/confusable severity back to its real
+        # token so a hidden P0 is correctly GATED; (b) a normalized severity NOT in the known allowlist is an
+        # ANOMALY (deny-by-default). Either way an open P0 can never report as 0-open.
+        import json
+        import tempfile
+        real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
+        body = {k: v for k, v in json.loads(real.read_text(encoding="utf-8")).items() if k != "signature"}
+        orig = self.fr._signature_ok
+        self.fr._signature_ok = lambda register: (True, "bypassed for wiring test")
+        try:
+            for hidden in ("P0​", "​P0", "​", "P0 ", "XYZ", "", "critical"):
+                reg = dict(body)
+                reg["findings"] = [{"id": "X", "severity": hidden, "status": "open"},
+                                   {"id": "Y", "severity": "P2", "status": "closed"}]
+                d = Path(tempfile.mkdtemp())
+                (d / "audit_artifacts").mkdir()
+                (d / "audit_artifacts/findings_register_361.json").write_text(json.dumps(reg))
+                r = self.fr.verify_and_count(d)
+                self.assertFalse(r["ok"], "an open P0 hidden behind severity %r must not report 0-open" % hidden)
+        finally:
+            self.fr._signature_ok = orig
+
+    def test_unknown_severity_is_anomaly_known_is_accepted(self):
+        # deny-by-default at the resolve level: a truly-unknown string severity is an anomaly; every known
+        # token (incl. a value that NFKC-normalizes to a known token) is accepted.
+        for unknown in ("XYZ", "", "critical", "P9"):
+            _e, _c, anomalies, _s = self.fr._resolve_current(
+                [{"id": "X", "severity": unknown, "status": "closed"}])
+            self.assertTrue(anomalies, "severity %r must be an anomaly" % unknown)
+        for known in ("P0", "P1", "P2", "P3", "INFO", "Ｐ０"):  # fullwidth -> P0
+            _e, _c, anomalies, _s = self.fr._resolve_current(
+                [{"id": "X", "severity": known, "status": "closed"}])
+            self.assertEqual(anomalies, [], "severity %r must be accepted" % known)
+
     def test_supersession_cycle_is_anomaly(self):
         # 6-lens gate L5-01 (P0): a supersession RING (A->B->A, or a longer loop) makes every member point to
         # a present+different id, so without cycle detection all members drop as "legit superseded" and open
