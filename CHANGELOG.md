@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] - 2026-07-18 (security patch, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.1 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL —
+NOT stable/audited/production-ready. This is a targeted security patch closing the eight findings of
+the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is unchanged (Research Beta).
+
+### Fixed (security)
+- **PB-2026-0717-01 (P0) targetSubjectDigest pin fail-open:** a declared `targetSubjectDigest` against a
+  cryptographically valid target whose actual subject is absent / null / malformed / ambiguous fell
+  through to `VERIFIED` (False Accept, reaching `safeForAutomation=true`). Now fail-closed with a stable
+  wire code (`RELATION_TARGET_SUBJECT_MISSING` / `_AMBIGUOUS` / `_MALFORMED`; present-but-wrong stays
+  `_MISMATCH`); the CLI loader no longer silently binds `subject[0]` from a multi-subject statement.
+  Fixed in Python (decision + outcome closed by construction) AND the Rust second-verifier.
+- **PB-2026-0717-06 (P0) canonicality optional without JCS:** without `rfc8785` the `strict=False` path
+  accepted a non-canonical, validly-signed payload with `ok=true`. `rfc8785` is now a **core dependency**
+  and the security-verify path fails closed regardless of `strict` (an absent canonicalizer is a broken
+  install, never a lenient mode).
+- **PB-2026-0717-04 (P1) same-key missing verified_under:** a VERIFIED same-key edge with a missing
+  `verified_under` produced no violation; now `RELATION_SIGNER_UNAUTHORIZED` (Python + Rust).
+- **PB-2026-0717-07 (P1) verify-API raised on malformed input:** `verify_decision_receipt` /
+  `verify_outcome_receipt` now return a stable fail-closed verdict for untrusted unparseable input; the
+  explicit `verify_*_or_raise` variants raise.
+- **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
+  (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
+  **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an
+  over-claim); fields retained for backward compat.
+
+### Changed / Added
+- **PB-2026-0717-05 (P1):** conformance corpus gains normative subject-pin negative-state vectors
+  `relation/target-subject-missing` + `relation/target-subject-ambiguous` (independent SPEC oracle).
+- **PB-2026-0717-02 (P1):** `MANIFEST.in` ships the tests' runtime assets in the sdist (fixtures,
+  schemas, examples, conformance, formal, scripts) → a fresh-from-sdist pytest collects with 0 errors
+  (was 13); the Rust tree is excluded (not a Python-sdist artifact).
+- **PB-2026-0717-03 (P2):** byte-reproducible sdist regression test over the existing F2 normaliser
+  (`scripts/build_reproducible.py --check` proves two clean builds are byte-identical). The published
+  3.6.0 predates F2 and is honestly NOT byte-reproducible.
+
 ## [3.6.0] - 2026-07-17 (audit-candidate, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.0 is **NOT** stable, audited, or production-ready. The only
