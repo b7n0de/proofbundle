@@ -94,12 +94,14 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
 - **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
   `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
   token is now a fail-closed verdict, like a garbage string already was.
-- **PB-2026-0718-SWEEP (P2) two remaining dict-returning verifiers crashed on a type-confused primary
-  argument:** a full breadth sweep of every public `verify_*` entrypoint found `verify_tlog_proof` raising a
-  raw `TypeError` on a non-str `text` (and `BundleFormatError` on a bad `threshold`), and `verify_key_binding`
-  raising a raw `AttributeError` on a non-str `compact` presentation. Both now return a fail-closed verdict
-  for those inputs. The other verifiers swept clean (`verify_inclusion` / `verify_consistency` return `bool`
-  on hostile well-typed input; `verify_witnessed_checkpoint` / `verify_sample_opening` already typed-reject).
+- **PB-2026-0718-SWEEP (P2) four verifiers crashed on a type-confused primary argument:** a full breadth
+  sweep (annotation-typed) of every public `verify_*` entrypoint found `verify_tlog_proof` raising a raw
+  `TypeError` on a non-str `text` (and `BundleFormatError` on a bad `threshold`), `verify_key_binding` a raw
+  `AttributeError` on a non-str `compact`, `verify_sd_jwt` a raw `AttributeError` on a non-str `compact`, and
+  `verify_commitment` a raw `AttributeError` on a non-str presented `identifier`. All four now return a
+  fail-closed verdict / `False` for those inputs. The remaining verifiers swept clean (`verify_inclusion` /
+  `verify_consistency` return `bool` on hostile well-typed input, type-confusion there is a caller error not
+  an untrusted-wire path; `verify_witnessed_checkpoint` / `verify_sample_opening` already typed-reject).
 - **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
   (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
   **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an

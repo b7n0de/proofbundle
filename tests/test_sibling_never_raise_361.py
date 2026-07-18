@@ -125,6 +125,19 @@ class BreadthSweepTypeConfusion(unittest.TestCase):
             self.assertIs(r["ok"], False)
             self.assertIs(r["present"], False)
 
+    def test_verify_sd_jwt_non_str_compact_is_verdict(self):
+        from proofbundle.sdjwt import verify_sd_jwt
+        for bad in (123, None, [1], {}):
+            r = verify_sd_jwt(bad)   # must NOT raise
+            self.assertIsInstance(r, dict)
+            self.assertIs(r["sig_ok"], False)
+            self.assertIs(r["structure_ok"], False)
+
+    def test_verify_commitment_non_str_identifier_is_false(self):
+        from proofbundle.evalclaim import verify_commitment
+        for bad in (123, None, [1], {}):
+            self.assertIs(verify_commitment(bad, b"salt", "commit"), False)   # must NOT raise
+
 
 class RelationCanonicalityFailClosed(unittest.TestCase):
     def test_rfc8785_unavailable_fails_closed_regardless_of_strict(self):

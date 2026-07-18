@@ -417,6 +417,9 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     (``model_id_commit`` / ``dataset_id_commit``). Makes a model-swap visible: a claim that silently swapped
     the model cannot produce a matching (identifier, salt). Constant-time compare; the salt stays outside the
     payload (the holder presents it to a verifier out of band)."""
+    if not isinstance(identifier, str):
+        return False   # RE-GATE never-raise: a non-str PRESENTED identifier is a fail-closed False, not a
+        # raw AttributeError from identifier.encode() inside salted_commit (untrusted presentation input).
     try:
         expected = salted_commit(identifier, salt)
     except EvalClaimError:

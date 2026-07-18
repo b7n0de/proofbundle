@@ -111,6 +111,12 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         "alg": None,
         "detail": "",
     }
+    if not isinstance(compact, str):
+        # RE-GATE never-raise (breadth sweep): a non-str compact presentation is malformed input — a
+        # fail-closed verdict, never a raw AttributeError from `.split("~")`. This dict-returning verify
+        # surface (untrusted SD-JWT from a holder) must always return a verdict.
+        result["detail"] = "SD-JWT compact presentation must be a string (non-str is malformed, fail-closed)"
+        return result
     parts = compact.split("~")
     if len(parts) < 1 or parts[0].count(".") != 2:
         result["detail"] = "not a compact SD-JWT"
