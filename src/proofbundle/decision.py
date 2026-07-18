@@ -499,9 +499,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["errors"].extend(struct_errs)
 
     # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
-    # Canonicality IS the core guarantee behind the content root, so in strict mode an absent canonicalizer is
-    # fail-closed (structure_ok=False) — never a silent pass over possibly non-canonical bytes (the research
-    # gap: without the extra the whole content-root invariant would be unenforced).
+    # Canonicality IS the core guarantee behind the content root. PB-2026-0717-06 (Owner-GO 3.6.1): rfc8785 is
+    # now a HARD core dependency, so an absent canonicalizer is a broken install, NOT a lenient mode — the
+    # security-verify path fails closed REGARDLESS of `strict` (never a silent pass over possibly non-canonical
+    # bytes with ok=true, which was the strict=False False Accept). Only a PRESENT, EQUAL canonicalization passes.
     canonical_ok = None
     if _rfc8785_available():
         try:
@@ -510,13 +511,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
 
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     # The predicate-derived fields describe AUTHENTICATED bytes only — never compute them over a payload

@@ -36,7 +36,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Security :: Cryptography",
 ]
-dependencies = ["cryptography>=42"]
+dependencies = ["cryptography>=42", "rfc8785>=0.1.4"]
 
 [project.optional-dependencies]
 # SD-JWT support is an optional capability. It adds NO runtime dependency beyond the core

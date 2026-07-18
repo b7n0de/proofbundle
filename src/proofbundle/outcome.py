@@ -529,6 +529,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     r["errors"].extend(struct_errs)
 
     # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
+    # PB-2026-0717-06 (Owner-GO 3.6.1): rfc8785 is a HARD core dependency; an absent canonicalizer is a broken
+    # install, not a lenient mode. The security-verify path fails closed REGARDLESS of `strict` — never a
+    # silent ok=true over possibly non-canonical bytes (the strict=False False Accept). Only present+equal passes.
     canonical_ok = None
     if _rfc8785_available():
         try:
@@ -537,13 +540,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
 
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if isinstance(predicate, dict) and r["crypto_ok"]:
