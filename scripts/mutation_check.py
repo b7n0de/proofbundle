@@ -95,7 +95,7 @@ MUTATIONS = [
      'if record.get("idx") != index:', "if False:",
      "persample: replay guard disabled", True),
     ("src/proofbundle/persample.py",
-     'if not merkle.verify_inclusion(disclosure.encode("ascii"), index, n, proof, root):',
+     "if not merkle.verify_inclusion(disclosure_bytes, index, n, proof, root):",
      "if False:",
      "persample: inclusion check disabled", True),
     ("src/proofbundle/persample.py",
@@ -361,8 +361,8 @@ MUTATIONS = [
     # (iii) same-key verified_under binding removed (cross-issuer sneaks past same-key): killed by
     #       test_same_key_cross_issuer_rejected / verified-under-not-claim vector.
     ("src/proofbundle/relation.py",
-     "                if vu is not None and not _keys_equal(successor_key_b64, vu):",
-     "                if False:",
+     "if vu is None or not _keys_equal(successor_key_b64, vu):",
+     "if False:",
      "relation_signer: same-key verified_under binding removed", True),
     # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by
     #      test_decoy_parent_fails_closed / decoy-parent conformance vectors.
@@ -373,8 +373,8 @@ MUTATIONS = [
     # (v) targetSubjectDigest gegenpruefung inverted (O2 no longer catches a lying subject): killed by
     #     TestTargetSubjectDigestO2.test_wrong_subject_digest_fails_lineage (and the correct-subject one).
     ("src/proofbundle/relation.py",
-     "                            and _declared_subj != _actual_subj):",
-     "                            and _declared_subj == _actual_subj):",
+     "if declared != actual:",
+     "if declared == actual:",
      "targetSubjectDigest: O2 gegenpruefung inverted (lying subject not caught)", True),
     # relation-statement/v0.1 3.5.0 — three new load-bearing guards on the standalone profile.
     # (vi) exactly-one-edge structure gate removed (a multi-edge / zero-edge statement no longer fails):
