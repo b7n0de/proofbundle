@@ -35,7 +35,7 @@ from typing import Any, Union
 
 from .errors import BundleFormatError
 
-__all__ = ["loads_strict"]
+__all__ = ["loads_strict", "enforce_structural_budget"]
 
 
 def _reject_duplicate_keys(pairs: list) -> dict:
@@ -81,6 +81,22 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int) -> No
                 raise BudgetExceeded("json_nodes", count, json_nodes)
             for value in cur:
                 stack.append((value, depth + 1))
+
+
+def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
+    """Public wrapper (RT-09 / PB-2026-0718-16): enforce the node-count + nesting-depth structural budget
+    on an ALREADY-PARSED structure — the DIRECT-DICT verify path, where a caller hands a parsed ``dict``
+    straight to ``verify_bundle`` / the anchor verify-pack and bypasses the ``loads_strict`` chokepoint that
+    owns the ``input_bytes`` + ``json_nodes`` + ``json_depth`` caps. The 8MiB byte cap is a FILE proxy that is
+    inert on this path, so an over-limit inner structure (a proof with too many steps, nesting past
+    ``json_depth``) would otherwise be walked unbounded and could surface as a raw ``RecursionError`` instead
+    of a fail-closed budget verdict. Raises :class:`proofbundle.budget.BudgetExceeded` (over-width) or
+    :class:`BundleFormatError` (over-depth) — both ``ProofBundleError`` subclasses, so existing
+    ``except (ProofBundleError, ...)`` sites treat it as fail-closed over-limit input. ``budget`` defaults to
+    ``DEFAULT_BUDGET``; pass a tighter one to test the guard."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    b = budget if budget is not None else DEFAULT_BUDGET
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth)
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:

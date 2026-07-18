@@ -268,6 +268,35 @@ class CallerPathTypedErrors(unittest.TestCase):
             with self.assertRaises(BundleFormatError):
                 verify_witnessed_checkpoint("origin\n\nsig", bad, ())
 
+    def test_rt09_direct_dict_structural_budget(self):
+        # RT-09 / PB-2026-0718-16: the structural budget (node count + nesting depth) must be enforced on the
+        # DIRECT-DICT verify_bundle path, not only via loads_strict on the STR path. An over-limit hostile
+        # dict is a fail-closed ProofBundleError verdict, never accepted and never a raw RecursionError.
+        import base64
+        from proofbundle import verify_bundle
+        from proofbundle.budget import BudgetExceeded
+        from proofbundle.errors import ProofBundleError
+        # nesting depth past json_depth (64) — Teil-5 called out 257/4096/65536
+        for depth in (257, 4096):
+            inner = {"x": 1}
+            for _ in range(depth):
+                inner = {"a": inner}
+            with self.assertRaises(ProofBundleError):
+                verify_bundle({"schema": "proofbundle/v0.1", "deep": inner})
+        # node count past json_nodes (200000)
+        wide = {"schema": "proofbundle/v0.1", "big": {f"k{i}": i for i in range(250000)}}
+        with self.assertRaises(BudgetExceeded):
+            verify_bundle(wide)
+        # a legitimately shallow bundle is NOT rejected by the budget (it fails later on schema/content, but
+        # never on the structural budget) — proves the guard is not over-tight.
+        shallow = {"schema": "proofbundle/v0.1", "payload_b64": base64.b64encode(b"{}").decode()}
+        try:
+            verify_bundle(shallow)
+        except BudgetExceeded:  # pragma: no cover - must NOT be a budget rejection
+            self.fail("a shallow bundle must not trip the structural budget")
+        except ProofBundleError:
+            pass  # a downstream schema/content rejection is fine; only a budget false-positive is a bug
+
     def test_evaluate_public_transparency_non_str_note_is_verdict(self):
         # a non-str signed_note is a fail-closed verdict (all statuses FAIL), never a raw AttributeError —
         # this evaluate surface returns a named-status dict.

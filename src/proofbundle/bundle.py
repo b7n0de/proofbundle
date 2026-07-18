@@ -26,7 +26,7 @@ import hmac
 from typing import Optional, Union
 
 from . import merkle
-from ._strict_json import loads_strict
+from ._strict_json import enforce_structural_budget, loads_strict
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -216,6 +216,15 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
+
+    # RT-09 (PB-2026-0718-16): the input_bytes + json_nodes + json_depth budget lives in loads_strict, which a
+    # STR path funnels through (load_bundle -> loads_strict). A caller that hands an ALREADY-PARSED dict
+    # bypasses that chokepoint, so the structural budget was INERT on the direct-dict path — an over-limit
+    # hostile structure (a body/claim nested past json_depth, an over-wide node count) would be walked
+    # unbounded and could surface as a raw RecursionError instead of a fail-closed budget verdict. Enforce the
+    # same node-count + nesting-depth budget on the direct-dict input here (BudgetExceeded / BundleFormatError,
+    # both ProofBundleError -> the never-raise callers absorb it).
+    enforce_structural_budget(bundle)
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
