@@ -743,6 +743,19 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     ``policy.deprecated_algs`` OR (``max_ats_age`` set AND ``now - newest.time > max_ats_age``). An overdue
     renewal is a WARN or a FAIL per ``policy.strictness``; a fresh, strong newest ATS is a PASS."""
     result = VerificationResult()
+    # 6-lens gate L3-02: a type-confused sequence ('notlist', [123], [['x']], [[{}]], ...) reached
+    # _newest(sequence).hash_alg as a raw AttributeError/TypeError, and an empty sequence raised RenewalError,
+    # out of this exported never-raise surface. Fail closed with the SAME renewal:shape / renewal:nonempty
+    # checks the sibling verify_sequence already carries (a shared shape contract), never an uncaught crash.
+    if not isinstance(sequence, (list, tuple)) or not all(
+            isinstance(chain, (list, tuple)) and all(isinstance(a, ArchiveTimeStamp) for a in chain)
+            for chain in sequence):
+        result.checks.append(Check("renewal:shape", False,
+                                   "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
+        return result
+    if not sequence or not sequence[-1]:
+        result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
+        return result
     newest = _newest(sequence)
 
     reasons = []

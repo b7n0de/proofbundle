@@ -91,6 +91,11 @@ def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: s
 
 
 def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, bytes, bytes]:
+    # RE-GATE never-raise consistency: a non-str vkey (None/int/list from a caller/config) is a typed
+    # BundleFormatError, never a raw AttributeError from `.split` — this parse helper raises BundleFormatError
+    # for every other malformed vkey, so a wrong-type vkey joins that contract instead of an untyped crash.
+    if not isinstance(vkey_str, str):
+        raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     # The key material is standard base64, which can itself contain '+'. Since the name has no '+' (a
     # schemeless origin) and the hex keyID has none, the FIRST TWO '+' are the separators and everything
     # after is the base64 — so split with maxsplit=2, never a plain split (that would over-split the b64).
@@ -118,6 +123,11 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     True iff a signature line whose keyID matches the vkey verifies (Ed25519) over the exact note-text
     bytes. Reconstructs the note text from the parsed bytes — never re-derives it."""
     name, kid_v, pubkey = _parse_vkey(vkey_str)
+    # 6-lens DEEP gate L1-02 (never-raise): a non-str signed_note made `"\n\n" not in signed_note` raise a
+    # raw TypeError out of the public verify_witnessed_checkpoint/verify_checkpoint surface — mirror the
+    # isinstance(str) guard already on witness_vkey (_parse_witness_vkey, RE-GATE never-raise consistency).
+    if not isinstance(signed_note, str):
+        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
     # note text = everything up to (and including the \n before) the separating empty line
     if "\n\n" not in signed_note:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
@@ -208,6 +218,10 @@ def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
 
 def _note_text_of(signed_note: str) -> str:
     """The note body of a signed note: everything before the empty-line separator, newline restored."""
+    # 6-lens DEEP gate L1-01 (never-raise): a non-str signed_note leaked a raw TypeError out of the public
+    # verify_cosignature surface — same isinstance(str) guard class as verify_checkpoint.
+    if not isinstance(signed_note, str):
+        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
     if "\n\n" not in signed_note:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
     note_text = signed_note.split("\n\n", 1)[0] + "\n"
@@ -330,6 +344,10 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     """Parse a witness vkey, dispatching on the algorithm byte: 0x04 (Ed25519 cosignature/v1,
     32-byte key) or 0x06 (ML-DSA-44, 1312-byte key). Any other byte/length is rejected —
     including 0x01: a LOG key must never be accepted as a witness (domain separation)."""
+    # RE-GATE never-raise consistency (mirror _parse_vkey): a non-str witness vkey is a typed
+    # BundleFormatError, never a raw AttributeError from `.split` (verify_cosignature routes here).
+    if not isinstance(vkey_str, str):
+        raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     parts = vkey_str.split("+", 2)
     if len(parts) != 3:
         raise BundleFormatError("vkey must have 3 '+'-separated parts (name+hexKeyID+base64KeyMaterial)")

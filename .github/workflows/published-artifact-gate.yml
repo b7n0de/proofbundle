@@ -74,9 +74,35 @@ jobs:
             echo "::error::tampered receipt verified OK — the published artifact is broken"; exit 1
           fi
           echo "tampered receipt correctly FAILED on the published artifact"
+      - name: Published bytes — the shipped test suite runs green from the EXTRACTED sdist (PKG-01 + L6-01)
+        # The documented invariant is "pip install proofbundle[eval,test] && pytest is green" from an
+        # extracted sdist. Enforce it: install the [test] extra (the deps needed to RUN the shipped tests —
+        # hypothesis/PyYAML/jsonschema/sd-jwt), extract the sdist tree and run its tests from OUTSIDE a git
+        # checkout. Two things this pins: (1) a repo-context test that reads a pruned artifact (e.g.
+        # audit_artifacts/findings_register_361.json) is conftest-skipped, never a silent failure; (2) the
+        # optional-dep modules degrade to a clean module-level skip on a bare [eval] install rather than a
+        # collection error (L6-01). Stops the invariant from drifting false again.
+        run: |
+          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
+          mkdir -p /tmp/sdisttree
+          tar -xzf "$(ls dist/*.tar.gz)" -C /tmp/sdisttree --strip-components=1
+          cd /tmp/sdisttree
+          test ! -e audit_artifacts/findings_register_361.json  # confirm it really is pruned from the sdist
+          /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider
 
   reusable-attest-dryrun:
     # Live-exercise the SLSA-L3 reusable workflow's build+determinism half (no attestation on PRs).
+    # Fork-PRs get no id-token:write, so don't start the job there (fork-pr-isolation line).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # P3 / PR #102 (integrated into 3.6.1): a called reusable workflow may not exceed the caller's
+    # permissions; reusable-build-attest's build-attest job declares id-token:write + attestations:write, so
+    # grant them to THIS job (the workflow-wide `contents: read` stays unchanged for the other jobs). Without
+    # this the run is refused at startup (the observed daily "Startup failure"), because permissions are
+    # validated at job level before any step runs and dry_run: true does not bypass it.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/reusable-build-attest.yml
     with:
       dry_run: true

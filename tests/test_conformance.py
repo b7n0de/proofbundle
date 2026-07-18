@@ -9,6 +9,12 @@ import importlib.util
 import pathlib
 import unittest
 
+import pytest
+
+# L6-02 follow-up: the conformance harness validates the corpus against JSON Schema, so it needs jsonschema
+# (a [test]-extra dep). From a bare `[eval]` sdist install it is absent -> skip cleanly rather than error.
+pytest.importorskip("jsonschema")
+
 _CONF = pathlib.Path(__file__).resolve().parents[1] / "conformance"
 
 _spec = importlib.util.spec_from_file_location("run_conformance", _CONF / "run_conformance.py")

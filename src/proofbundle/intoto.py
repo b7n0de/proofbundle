@@ -314,14 +314,20 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before)."""
     from . import dsse  # noqa: PLC0415
-    from .errors import BundleFormatError  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
 
-    ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
-    body = dsse.load_payload(envelope)
     try:
+        # RE-GATE never-raise: crypto verify + body load + input_bytes budget + strict parse inside the
+        # never-raise guard; a wide/oversized (BudgetExceeded) / dup-key (BundleFormatError) / malformed
+        # untrusted envelope yields a fail-closed verdict, never a raw exception out of this dict-returning
+        # verify surface (mirrors decision/outcome/run_ledger).
+        ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
+        body = dsse.load_payload(envelope)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
-    except (ValueError, UnicodeDecodeError) as exc:   # valid base64 but not a JSON Statement → malformed
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        return _intoto_verify_result(False, False, None, None,
+                                     f"DSSE payload rejected (fail-closed): {exc}",
+                                     expected_predicate_type)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
 
@@ -482,13 +488,19 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     the type was previously only returned, so a swapped SVR/test-result envelope was accepted as an
     eval-result). Pass `expected_predicate_type=None` to opt out."""
     from . import dsse  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
 
-    ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-    body = dsse.load_payload(envelope)
     try:
+        # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
+        # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
+        # exception out of this dict-returning verify surface.
+        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        body = dsse.load_payload(envelope)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        return _intoto_verify_result(False, False, None, None,
+                                     f"DSSE payload rejected (fail-closed): {exc}",
+                                     expected_predicate_type)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
 
@@ -604,12 +616,18 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
     SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out."""
     from . import dsse  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
 
-    ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-    body = dsse.load_payload(envelope)
     try:
+        # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
+        # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
+        # exception out of this dict-returning verify surface.
+        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        body = dsse.load_payload(envelope)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        return _intoto_verify_result(False, False, None, None,
+                                     f"DSSE payload rejected (fail-closed): {exc}",
+                                     expected_predicate_type)
     binding_ok, alg, detail = _content_root_binding(statement, body)
     return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)

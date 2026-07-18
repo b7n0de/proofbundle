@@ -52,7 +52,15 @@ def verify_evaluation_card(card_path, claim: dict) -> dict:
     if expected is None:
         result["detail"] = "claim carries no evaluation_card_sha256 (no eval card referenced)"
         return result
-    actual = evaluation_card_hash(card_path)
+    try:
+        actual = evaluation_card_hash(card_path)
+    except (OSError, TypeError, ValueError):
+        # 6-lens gate L1-01: a missing / directory / None / NUL / surrogate card_path raised a raw
+        # FileNotFoundError/IsADirectoryError/TypeError/ValueError ('embedded null byte' + surrogate are
+        # ValueError) from Path(card_path).read_bytes(). This public never-raise surface returns a fail-closed
+        # verdict (present, no match) instead of crashing a caller.
+        result["detail"] = "eval card file could not be read (missing/unreadable path)"
+        return result
     result["actual"] = actual
     if actual == expected:
         result["ok"] = True

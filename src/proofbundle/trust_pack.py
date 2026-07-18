@@ -343,6 +343,16 @@ def _empty_result() -> dict:
             "warnings": [], "errors": []}
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """RE-GATE never-raise (MJSON-TP-01): a budget/parse/malformed-envelope failure over untrusted input
+    yields ok=False plus a consistent automation verdict (safeForAutomation=False) — the SAME shape as a
+    full run, never a raw exception out of this dict-returning verify surface (mirrors decision/outcome)."""
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["ok"] = False
+    r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
+    return r
+
+
 def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict, msg: bytes) -> bool:
     """True iff ``entry`` (``{"keyid":, "sig":[, "sigPq":]}``) carries a valid signature over ``msg`` for a
     root / old-root key of algorithm ``alg`` (``ed25519`` | ``mldsa65`` | ``hybrid-ed25519-mldsa65``), whose
@@ -407,45 +417,40 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     alone."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
-    body = dsse.load_payload(envelope)
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
-    DEFAULT_BUDGET.check("input_bytes", len(body))
-    _sigs = envelope.get("signatures")
-    # Fail-closed on a non-list signatures (crypto-review 2026-07-15): a truthy non-list (JSON true, a
-    # number, a huge dict) previously skipped the cap entirely — a 2M-key dict then reached the threshold
-    # loop uncapped, and `signatures: true` raised an uncaught TypeError instead of a clean ProofBundleError.
-    # Match dsse.verify_envelope's contract: signatures MUST be a non-empty list, then cap it.
-    if not isinstance(_sigs, list) or not _sigs:
-        raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
-    DEFAULT_BUDGET.check("signatures", len(_sigs))
-    # O7 payloadType-binding defense-in-depth (3.6.0, EXT-P1 payloadType obligation): the threshold loop
-    # below binds its PAE to the INTOTO_STATEMENT constant (dsse.pae, line ~468) — already the STRONG
-    # binding, because the signed bytes commit to the type regardless of the field. What was never checked
-    # is the envelope.payloadType FIELD itself: a confused / mislabelled envelope (payloadType claiming a
-    # different type while carrying a trust-pack statement) passed the field through unexamined for any
-    # downstream consumer that reads it. Pin the field fail-closed: it MUST equal the in-toto statement
-    # type. A non-string field (type confusion IN the field) is a typed reject here, never a raw crash.
-    env_ptype = envelope.get("payloadType")
-    if env_ptype != INTOTO_STATEMENT_PAYLOAD_TYPE:
-        r["structure_ok"] = False
-        r["predicate_type_ok"] = False
-        r["ok"] = False
-        r["errors"].append(
-            f"envelope.payloadType is {env_ptype!r}, expected {INTOTO_STATEMENT_PAYLOAD_TYPE!r} "
-            "(payloadType-confusion, fail-closed)")
-        from .automation_verdict import automation_summary  # noqa: PLC0415
-        r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
-        return r
     try:
+        # RE-GATE never-raise (MJSON-TP-01): trust_pack takes NO public_key and never calls verify_envelope,
+        # so its budget/signature-shape/parse raises originate in its OWN body. An oversized payload, a >512
+        # signatures array (BudgetExceeded), a non-list `signatures` (BundleFormatError), or a malformed
+        # payload must ALL be a fail-closed verdict, never a raw exception out of this dict-returning verify
+        # surface (mirrors decision/outcome — BudgetExceeded is a ProofBundleError the old narrow except
+        # missed). The documented BundleFormatError raise on non-list signatures is now surfaced as the
+        # fail-closed verdict + errors[] entry instead.
+        body = dsse.load_payload(envelope)
+        # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
+        _sigs = envelope.get("signatures")
+        # Fail-closed on a non-list signatures (crypto-review 2026-07-15): a truthy non-list (JSON true, a
+        # number, a huge dict) previously skipped the cap entirely — a 2M-key dict then reached the threshold
+        # loop uncapped. Match dsse.verify_envelope's contract: signatures MUST be a non-empty list, then cap.
+        if not isinstance(_sigs, list) or not _sigs:
+            raise BundleFormatError("DSSE envelope.signatures must be a non-empty list")
+        DEFAULT_BUDGET.check("signatures", len(_sigs))
+        # O7 payloadType-binding defense-in-depth (3.6.0): the threshold loop below binds its PAE to the
+        # INTOTO_STATEMENT constant (already the STRONG binding). Pin the envelope.payloadType FIELD too,
+        # fail-closed: a confused / mislabelled envelope must not pass the field through unexamined.
+        env_ptype = envelope.get("payloadType")
+        if env_ptype != INTOTO_STATEMENT_PAYLOAD_TYPE:
+            r["structure_ok"] = False
+            r["predicate_type_ok"] = False
+            r["errors"].append(
+                f"envelope.payloadType is {env_ptype!r}, expected {INTOTO_STATEMENT_PAYLOAD_TYPE!r} "
+                "(payloadType-confusion, fail-closed)")
+            return _finalize_failclosed(r)
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"trust pack envelope is malformed or over-limit (fail-closed): {exc}")
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == TRUST_PACK_PREDICATE_TYPE
@@ -464,11 +469,13 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append("cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+        # PB-06 parity (rfc8785 is now a declared CORE dependency): an absent canonicalizer is a broken
+        # install, not a lenient mode — fail closed REGARDLESS of strict (mirrors decision.py).
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if not isinstance(predicate, dict) or struct_errs:

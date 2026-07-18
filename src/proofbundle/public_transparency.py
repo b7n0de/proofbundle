@@ -166,6 +166,11 @@ def evaluate_public_transparency(
     additive: the default (``strict_consistency=False``) preserves every existing caller's behavior
     exactly."""
     from . import checkpoint as cp  # noqa: PLC0415
+    if not isinstance(signed_note, str):
+        # RE-GATE never-raise: a non-str signed_note is malformed input — coerce to "" so every checkpoint
+        # parse below fails gracefully (all statuses FAIL, a fail-closed verdict), never a raw AttributeError
+        # from an early string op on this dict-returning evaluate surface.
+        signed_note = ""
 
     perrs = validate_public_transparency_policy(policy)
     if perrs:

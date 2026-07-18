@@ -92,7 +92,14 @@ def validate_schema(cases: list[tuple[str, dict]]) -> list[str]:
 
 
 def check_cross_format(cases: list[tuple[str, dict]]) -> list[str]:
-    """Group by crossFormatId; every axis two members of a group both pin must agree."""
+    """Group by crossFormatId; every axis two members of a group both pin must agree.
+
+    PB-2026-0718-11 (fail-closed, non-vacuous): a ``crossFormatId`` is a CLAIM that the SAME logical scenario
+    is represented in at least two encodings/levels whose declared verdicts must agree. A SINGLETON group
+    (exactly one member) verifies nothing — the agreement check is vacuously true and the comparator would
+    report ok=true for a scenario present in only one format. A singleton is therefore a fail-closed problem:
+    a cross-format id must carry >= 2 members, or it must not be declared at all. (Its counterpart, a
+    contradictory PAIR, is caught by the axis-disagreement check below.)"""
     groups: dict[str, list[tuple[str, dict]]] = {}
     for rel, case in cases:
         xid = case.get("crossFormatId")
@@ -101,6 +108,10 @@ def check_cross_format(cases: list[tuple[str, dict]]) -> list[str]:
     problems: list[str] = []
     for xid, members in groups.items():
         if len(members) < 2:
+            problems.append(
+                f"crossFormatId {xid!r} has only {len(members)} member ({members[0][0]}) — a cross-format id "
+                "must link >= 2 format representations of the same scenario, else the agreement check is "
+                "vacuous (PB-2026-0718-11 fail-closed). Add a second-format vector or drop the id.")
             continue
         for axis in AXES:
             pinned = [(rel, lbl[axis]) for rel, lbl in members if lbl.get(axis) is not None]

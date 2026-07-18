@@ -48,7 +48,7 @@ from typing import List, Optional, Sequence
 
 from . import merkle
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["LEAF_ALG", "derive_leaf_salt", "make_disclosure", "build_sample_tree",
            "sample_opening", "verify_sample_opening", "audit_challenge"]
@@ -189,7 +189,15 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("opening proof/root is not valid base64") from exc
 
-    if not merkle.verify_inclusion(disclosure.encode("ascii"), index, n, proof, root):
+    try:
+        disclosure_bytes = disclosure.encode("ascii")
+    except UnicodeEncodeError:
+        # 6-lens gate L3-01: a non-ASCII / surrogate disclosure passed the isinstance(str) structural guard but
+        # can never re-derive the ASCII-committed leaf, so the correct fail-closed answer on this public
+        # never-raise surface is ok=False, not a raw UnicodeEncodeError traceback to a relying party.
+        result["detail"] = "disclosure is not ASCII, cannot bind to the samples root"
+        return result
+    if not merkle.verify_inclusion(disclosure_bytes, index, n, proof, root):
         result["detail"] = "inclusion proof does not bind this disclosure to the samples root"
         return result
 
@@ -198,7 +206,7 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         # a duplicated key ({"idx":0,...,"verdict":"PASS","verdict":"FAIL"}) parsed last-wins while
         # the LEAF committed the raw string; strict parse keeps one parse = one truth.
         parsed = loads_strict(_b64url_decode(disclosure))
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
         result["detail"] = f"disclosure rejected: {exc}"
         return result
     except (ValueError, TypeError):

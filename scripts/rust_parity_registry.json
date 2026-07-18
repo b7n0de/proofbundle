@@ -296,6 +296,18 @@
         "\"verify-relation-statement\""
       ],
       "notes": "relation-statement/v0.1 standalone profile (EXPERIMENTAL, 3.5.0): a signed statement OVER a target receipt carrying exactly one edge. The Rust verify-relation-statement subcommand ports the predicateType gate, the exactly-one-edge + closed-top-field structure check, the shared lineage engine, and the standalone reject_retracted / reject_superseded self-assertion gate. crosscheck.py drives the six statement vectors (retracts verified+blocked, retracts visible, retracts unauthorized, retracts declared-unresolved, supersedes verified, malformed) differentially — Python==Rust on exit class + lineage. Honest boundary: exit-class + aggregate lineage agreement, not per-edge error-message parity; a retracts statement never invalidates the target's crypto (lattice monotonicity)."
+    },
+    "proofbundle.decision.verify_decision_receipt_or_raise": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "PB-2026-0717-07 explicit-exception variant of verify_decision_receipt (raises BundleFormatError on a malformed payload instead of returning the never-raise fail-closed verdict). Thin wrapper delegating to verify_decision_receipt with _raise_on_malformed=True; inherits the same parity posture (PENDING) as its base. No separate Rust port."
+    },
+    "proofbundle.outcome.verify_outcome_receipt_or_raise": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "PB-2026-0717-07 explicit-exception variant of verify_outcome_receipt (raises instead of the never-raise fail-closed verdict). Thin wrapper delegating with _raise_on_malformed=True; inherits its base PENDING posture. No separate Rust port."
     }
   }
 }

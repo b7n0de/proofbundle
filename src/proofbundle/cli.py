@@ -586,7 +586,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
-    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:   # file/JSON/format/policy errors → clean exit 2, never a raw traceback
+    except (ProofBundleError, OSError, ValueError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
         # maps to the documented exit 2, never a raw traceback (verify-lens L3; load_bundle also guards
         # it centrally). PolicyError (a ProofBundleError) — malformed policy or aud ambiguity — also
@@ -882,6 +882,11 @@ def _cmd_emit(args: argparse.Namespace) -> int:
 
 def _cmd_verify_proof(args: argparse.Namespace) -> int:
     from .tlogproof import verify_tlog_proof  # noqa: PLC0415
+    # 6-lens gate L3-01 (never-raise-fix-must-wrap-all): the RESULT FORMATTING is inside the try too, and the
+    # except is widened to the shape-error family (AttributeError/KeyError/TypeError). verify_tlog_proof now
+    # always returns the canonical dict shape (witnesses is a dict on both the happy and fail-closed paths), so
+    # this is belt-and-suspenders — but it guarantees `verify-proof` can never emit a raw traceback on any
+    # malformed proof, whatever a future verdict-shape drift might do.
     try:
         with open(args.proof, encoding="utf-8") as handle:
             text = handle.read()
@@ -889,27 +894,28 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             leaf = handle.read()
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
-    except (ProofBundleError, OSError, ValueError) as exc:  # ValueError stopgap: never a raw traceback (D-1)
+        if args.json:
+            out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
+                                       "origin", "tree_size", "index")}
+            out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
+                                for n, w in res["witnesses"].items()}
+            print(json.dumps(out, indent=2))
+        else:
+            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
+            n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
+            print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
+                  f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
+            print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
+                  f"index {res['index']} of {res['tree_size']}")
+            print("=> OK" if res["ok"] else "=> FAILED")
+        return 0 if res["ok"] else 1
+    except (ProofBundleError, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+        # never a raw traceback (D-1): I/O + parse + verdict-shape errors all fail closed to ERROR/return 2.
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
         else:
             print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    if args.json:
-        out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
-                                   "origin", "tree_size", "index")}
-        out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
-                            for n, w in res["witnesses"].items()}
-        print(json.dumps(out, indent=2))
-    else:
-        print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
-        n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
-        print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
-              f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
-        print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
-              f"index {res['index']} of {res['tree_size']}")
-        print("=> OK" if res["ok"] else "=> FAILED")
-    return 0 if res["ok"] else 1
 
 
 def _cmd_hf_token(args: argparse.Namespace) -> int:
@@ -1200,7 +1206,10 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
     from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
         with open(args.pack, encoding="utf-8") as handle:
-            pack = json.load(handle)
+            # PB-2026-0718-11 never-raise: route through the bounded strict parser so a pathologically
+            # deep pack maps to a clean BundleFormatError (owned RecursionError) instead of a raw
+            # RecursionError traceback out of `anchor verify-pack`. loads_strict also caps nodes + int-len.
+            pack = loads_strict(handle.read())
         if not isinstance(pack, dict):
             raise ValueError("evidence pack must be a JSON object")
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
@@ -1266,10 +1275,13 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             raw = handle.read()
         pack = None
         try:
-            maybe = json.loads(raw.decode("utf-8"))
+            maybe = loads_strict(raw.decode("utf-8"))
             if isinstance(maybe, dict) and maybe.get("type") == "opentimestamps-evidence-pack":
                 pack = maybe
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, ProofBundleError):
+            # PB-2026-0718-11: loads_strict maps deep nesting (RecursionError) / oversized input to a
+            # ProofBundleError; a file that cannot be safely parsed as a pack is simply "not a pack" here,
+            # falling through to the raw-proof inspect branch — never a raw RecursionError traceback.
             pack = None
         if pack is not None:
             proof = _b64.b64decode(pack["proof"], validate=True)
@@ -1356,12 +1368,17 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
     )
     if args.verify:
+        if args.pub is None:
+            # MJ-1: --verify needs --pub. --pub cannot be argparse-required (these commands also EMIT, where
+            # --pub is unused), so guard here — a clean 'exit 2' instead of a raw TypeError from b64decode(None).
+            print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
                 envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
-        except (OSError, ValueError, ProofBundleError) as exc:
+        except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         pt = res.get("predicate_type")
@@ -1399,11 +1416,15 @@ def _cmd_svr(args: argparse.Namespace) -> int:
 
     from .intoto import SVR_PREDICATE_TYPE, export_svr_dsse, verify_svr_dsse  # noqa: PLC0415
     if args.verify:
+        if args.pub is None:
+            # MJ-1: --verify needs --pub (cannot be argparse-required — this command also EMITs).
+            print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
                 envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
-        except (OSError, ValueError, ProofBundleError) as exc:
+        except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
         pt = res.get("predicate_type")
@@ -1469,6 +1490,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     import base64  # noqa: PLC0415
     from . import anchors as _anchors_mod  # noqa: PLC0415
     from . import dsse as _dsse  # noqa: PLC0415
+    from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
     errs: list[str] = []
     paths = paths or []
@@ -1494,6 +1516,11 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             continue
         rels = None
         subject_digest = None
+        # PB-2026-0717-01: classify the target's actual subject state so the verifier fails closed
+        # on absent/ambiguous/malformed. NEVER silently pick subject[0] from a multi-subject
+        # statement (that was the resolver half of the subject-pin fail-open). "absent" is the
+        # fail-closed default if the statement cannot even be parsed.
+        subject_digest_state = "absent"
         try:
             stmt = loads_strict(body.decode("utf-8"))
             if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
@@ -1501,16 +1528,25 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
             subj = stmt.get("subject") if isinstance(stmt, dict) else None
-            if isinstance(subj, list) and subj and isinstance(subj[0], dict):
-                d = subj[0].get("digest")
-                if isinstance(d, dict) and isinstance(d.get("sha256"), str):
-                    subject_digest = d["sha256"]
+            if not isinstance(subj, list) or not subj:
+                subject_digest_state = "absent"
+            elif len(subj) != 1:
+                subject_digest_state = "ambiguous"   # multiple subjects — do NOT bind subject[0]
+            elif (isinstance(subj[0], dict) and isinstance(subj[0].get("digest"), dict)
+                  and isinstance(subj[0]["digest"].get("sha256"), str)
+                  and _RELATION_SHA256_HEX.match(subj[0]["digest"]["sha256"])):
+                subject_digest = subj[0]["digest"]["sha256"]
+                subject_digest_state = "present"
+            else:
+                subject_digest_state = "malformed"   # single subject but no well-formed sha-256
         except (ProofBundleError, ValueError):
             rels = None
+            subject_digest_state = "absent"
         related[root_hex] = {
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
+            "subject_digest_state": subject_digest_state,
         }
     return related, errs
 
@@ -1654,7 +1690,14 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 
@@ -1848,7 +1891,14 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 
@@ -1983,7 +2033,14 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     predicate = statement.get("predicate", statement) if isinstance(statement, dict) else statement
-    print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    try:
+        print(json.dumps(predicate, indent=2, ensure_ascii=False))
+    except UnicodeEncodeError:
+        # TCE-01/02/03 (RE-GATE never-raise): a lone surrogate in the payload crashes the human-readable
+        # dump under strict utf-8 stdout — fall back to ascii-escaped output + a clean exit 2, never a raw
+        # traceback.
+        print(json.dumps(predicate, indent=2, ensure_ascii=True))
+        return 2
     return 0
 
 
@@ -2076,8 +2133,8 @@ def _read_pubkey_line(text: str) -> str:
     s = text.strip()
     if s.startswith("{"):
         try:
-            obj = json.loads(s)
-        except ValueError:
+            obj = loads_strict(s)
+        except (ValueError, ProofBundleError):   # PB-2026-0718-11: deep nesting -> clean "", never a raw crash
             return ""
         return obj.get("public_key_b64") or obj.get("issuer_public_key_b64") or ""
     if s.startswith("ed25519:"):

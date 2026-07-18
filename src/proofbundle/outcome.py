@@ -30,9 +30,9 @@ OUTCOME_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _OUTCOME_STATUS = {"executed", "refused", "failed", "partial"}
 _OUTCOME_POLICY_PURPOSE = "outcome"
@@ -443,13 +443,50 @@ def _empty_result() -> dict:
     }
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """Finalize a never-raise fail-closed verify result (parse/structure failure over untrusted input):
+    ok=False plus a consistent automation verdict, mirroring the full-run shape. PB-2026-0717-07."""
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["ok"] = False
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
+        "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
+                       "subject_derived_ok", "lineage_ok"],
+    })
+    return r
+
+
+def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
+                                    expected_decision_ref: str | None = None,
+                                    decision_maker_id: str | None = None,
+                                    expected_audience: str | None = None,
+                                    expected_nonce: str | None = None,
+                                    require_derived_subject: bool = False,
+                                    trust_pack: dict | None = None,
+                                    evidence_resolver: Callable[[dict], bool] | None = None,
+                                    receiver_attestation_resolver: Callable[[dict], bool] | None = None,
+                                    related: dict | None = None, policy: dict | None = None) -> dict:
+    """Explicit-exception variant of :func:`verify_outcome_receipt`: raises :class:`BundleFormatError`
+    when the payload is not a well-formed in-toto Statement, instead of returning a fail-closed verdict.
+    Use :func:`verify_outcome_receipt` (never-raise) for untrusted input (PB-2026-0717-07). The explicit
+    signature (not ``*args``) keeps it a first-class, fuzz-soakable/parity-discoverable verify surface."""
+    return verify_outcome_receipt(
+        envelope, public_key, strict=strict, expected_decision_ref=expected_decision_ref,
+        decision_maker_id=decision_maker_id, expected_audience=expected_audience,
+        expected_nonce=expected_nonce, require_derived_subject=require_derived_subject,
+        trust_pack=trust_pack, evidence_resolver=evidence_resolver,
+        receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
+        _raise_on_malformed=True)
+
+
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
-                           related: dict | None = None, policy: dict | None = None) -> dict:
+                           related: dict | None = None, policy: dict | None = None,
+                           _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
     Outcome-specific fail-closed checks (each applies only after crypto passes; non-applicable = None):
@@ -502,22 +539,29 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
-    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
+        # (_payload_bytes raises BudgetExceeded on an OVERSIZED envelope) BEFORE the parse, and loads_strict's
+        # node/byte caps raise BudgetExceeded on a WIDE payload — all ProofBundleError SIBLINGS of
+        # BundleFormatError. So the crypto verify + body load + budget + parse ALL live inside the never-raise
+        # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
+        # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity).
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)
+        # Finding 15b: refuse an absurdly oversized payload before any JSON parsing work.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input -> STABLE
+        # fail-closed verdict, never a raw exception. The reason is preserved in errors[].
+        # verify_outcome_receipt_or_raise() is the explicit exception variant.
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        if _raise_on_malformed:
+            raise BundleFormatError(f"DSSE payload is not a well-formed in-toto Statement: {exc}") from exc
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == ACTION_OUTCOME_PREDICATE_TYPE
@@ -529,6 +573,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     r["errors"].extend(struct_errs)
 
     # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
+    # PB-2026-0717-06 (Owner-GO 3.6.1): rfc8785 is a HARD core dependency; an absent canonicalizer is a broken
+    # install, not a lenient mode. The security-verify path fails closed REGARDLESS of `strict` — never a
+    # silent ok=true over possibly non-canonical bytes (the strict=False False Accept). Only present+equal passes.
     canonical_ok = None
     if _rfc8785_available():
         try:
@@ -537,13 +584,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
 
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if isinstance(predicate, dict) and r["crypto_ok"]:
@@ -655,6 +701,27 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         else:
             r["evidence_levels"]["receiverRefs"] = None
 
+        # PB-2026-0717-08: the legacy digest-presence booleans (execution_proven, receiver_bound) OVERSTATE —
+        # True on a mere well-formed digest (REFERENCE_WELL_FORMED, attacker-choosable content), a STRONGER
+        # name than the additive evidence_levels ladder. They stay for backward compat (3.x format frozen,
+        # §0.8) but are DEPRECATED: the ladder is the normative assurance semantic. Warn when a proven/bound
+        # True is not backed by a CONTENT_RESOLVED (or stronger) ladder level.
+        _EL = _assurance.EvidenceLevel
+        _eff = r["evidence_levels"].get("effect")
+        _recvlvl = r["evidence_levels"].get("receiverRefs")
+        _exec_overstated = r["execution_proven"] is True and not (
+            isinstance(_eff, dict) and isinstance(_eff.get("level"), int)
+            and _eff["level"] >= _EL.CONTENT_RESOLVED)
+        _recv_overstated = r["receiver_bound"] is True and not (
+            isinstance(_recvlvl, dict) and isinstance(_recvlvl.get("level"), int)
+            and _recvlvl["level"] >= _EL.CONTENT_RESOLVED)
+        if _exec_overstated or _recv_overstated:
+            r["warnings"].append(
+                "DEPRECATED: execution_proven / receiver_bound are digest-presence booleans "
+                "(evidence_levels REFERENCE_WELL_FORMED — attacker-choosable content), NOT a content proof. "
+                "Use evidence_levels; only CONTENT_RESOLVED or stronger is a real binding. These legacy fields "
+                "will be removed in the next breaking format version.")
+
         # replay/audience binding (fail-closed when requested), mirrors decision.py.
         _val = predicate.get("validity")
         _validity = _val if isinstance(_val, dict) else {}
@@ -712,7 +779,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # SAME shared evaluator. NEVER touches crypto (lattice monotonicity); a violation lands only in
     # policy_ok (exit-3 class at the CLI). trust_pack role auth (executor_role_trusted) is unchanged and
     # SEPARATE — this comes DAZU, it replaces nothing.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
+        # or list) must be a fail-closed policy verdict, not a raw AttributeError from policy.get('relations')
+        # — the crash fired even on an unauthenticated envelope (the `.get` runs before the crypto_ok term in
+        # the old `and` chain). A requested-but-malformed policy is NEVER a silent pass (fail-open).
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

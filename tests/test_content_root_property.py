@@ -26,8 +26,9 @@ import unittest
 try:
     from hypothesis import given, settings
     from hypothesis import strategies as st
-except ImportError:  # pragma: no cover - dev-only dependency
-    given = None
+except ImportError:  # PB-2026-0718-L6-01: hypothesis is a dev-only dep and every test here is @given, and the
+    import pytest    # module builds `st`-based strategies at import time, so skip the whole module cleanly
+    pytest.skip("hypothesis not installed (dev-only dependency)", allow_module_level=True)
 
 try:
     import rfc8785  # noqa: F401

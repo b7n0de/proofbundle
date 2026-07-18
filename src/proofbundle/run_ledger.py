@@ -18,16 +18,16 @@ import re
 from typing import Any
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError, ProofBundleError
+from .errors import ProofBundleError
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _RUN_STATUS = {"completed", "aborted", "failed"}
 _REQUIRED_ALWAYS = ("schemaVersion", "studyId", "runBudget", "runs", "nonClaims")
@@ -239,6 +239,18 @@ def _empty_result() -> dict:
             "warnings": [], "errors": []}
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """RE-GATE never-raise (REGATE-BUDGET-02): a crypto/budget/parse failure over untrusted input yields
+    ok=False plus a consistent automation verdict (safeForAutomation=False) — the SAME shape as a full run,
+    never a raw exception out of this dict-returning verify surface. Mirrors decision._finalize_failclosed."""
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["ok"] = False
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
+        "references": ["chain_intact", "within_budget"]})
+    return r
+
+
 def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
     """Verify a DSSE-signed Run Ledger. Crypto first, then structure over the EXACT signed bytes.
 
@@ -249,22 +261,23 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
-    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # RE-GATE never-raise (REGATE-BUDGET-02): crypto verify + body load + the input_bytes budget check
+        # + the strict parse ALL live inside the never-raise try, and the except catches ProofBundleError, so
+        # an OVERSIZED (BudgetExceeded) / WIDE (BudgetExceeded from loads_strict) / malformed (BundleFormatError)
+        # untrusted envelope yields a fail-closed verdict — never a raw uncaught exception out of this
+        # dict-returning verify surface (mirrors decision/outcome; BudgetExceeded is a ProofBundleError sibling
+        # of BundleFormatError the old narrow except let escape).
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == RUN_LEDGER_PREDICATE_TYPE
@@ -283,13 +296,15 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+        # PB-06 parity (rfc8785 is now a declared CORE dependency): an absent canonicalizer is a broken
+        # install, not a lenient mode — fail closed REGARDLESS of strict (mirrors decision.py), never a
+        # silent pass over possibly non-canonical bytes.
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
 
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if isinstance(predicate, dict) and r["crypto_ok"]:

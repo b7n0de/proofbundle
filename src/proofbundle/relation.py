@@ -57,7 +57,7 @@ LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
@@ -165,6 +165,52 @@ def _edge_subject_hex(edge: dict) -> str | None:
     return None
 
 
+def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
+    """PB-2026-0717-01 fail-closed subject-pin gate.
+
+    When the successor edge DECLARES a ``targetSubjectDigest`` (an optional pin), the resolved
+    target MUST expose a PRESENT, UNAMBIGUOUS, well-formed actual subject digest that EQUALS the
+    declared value; otherwise the edge FAILs with a stable, Python/Rust-identical wire code. Before
+    3.6.1 a declared pin against an absent/null/malformed/ambiguous actual subject fell through to
+    VERIFIED (False Accept — PB-2026-0717-01). An ABSENT declared pin returns None (optional field,
+    no wire-break). The only unchanged accept path is ``present`` AND ``equal``.
+
+    Robust by construction: the resolver (:func:`proofbundle.cli._load_related`) annotates
+    ``subject_digest_state`` (``present``/``absent``/``ambiguous``/``malformed``); when that field
+    is missing (target dict built by an older/foreign caller) the state is INFERRED fail-closed from
+    the actual value (``None`` -> absent, non-64-hex -> malformed). Weakening evidence can therefore
+    only move present -> absent/malformed = PASS -> FAIL, never FAIL -> PASS (metamorphic monotonicity)."""
+    declared = _edge_subject_hex(edge)
+    if declared is None:
+        return None  # optional field absent — declared-only semantics unchanged
+    actual = target.get("subject_digest")
+    state = target.get("subject_digest_state")
+    if state is None:  # fail-closed inference for un-annotated target dicts
+        if actual is None:
+            state = "absent"
+        elif isinstance(actual, str) and _SHA256_HEX.match(actual):
+            state = "present"
+        else:
+            state = "malformed"
+    # An explicit resolver state wins over the None-inference; only a well-formed, present, EQUAL
+    # actual subject verifies. The order matters: a "malformed" target carries subject_digest=None
+    # too, so classify on the state first, never on the None-ness of the value.
+    if state == "ambiguous":
+        return (f"relation:target_subject_ambiguous ({CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS}): "
+                "resolved target exposes multiple subjects; a declared targetSubjectDigest cannot "
+                "bind an ambiguous subject")
+    if state == "absent":
+        return (f"relation:target_subject_missing ({CODE_RELATION_TARGET_SUBJECT_MISSING}): "
+                "declared targetSubjectDigest but the resolved target exposes no subject digest")
+    if state == "malformed" or not (isinstance(actual, str) and _SHA256_HEX.match(actual)):
+        return (f"relation:target_subject_malformed ({CODE_RELATION_TARGET_SUBJECT_MALFORMED}): "
+                "resolved target subject digest is not a well-formed sha-256")
+    if declared != actual:
+        return (f"relation:target_subject_mismatch ({CODE_RELATION_TARGET_SUBJECT_MISMATCH}): "
+                "declared targetSubjectDigest does not match the resolved target's subject")
+    return None
+
+
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -235,18 +281,15 @@ def verify_relationship_edges(
                     # WP-A (per-target key plumbing): expose the key the target actually verified
                     # UNDER, so relation_signer checks against the TRUE verification, never a claim.
                     entry["verified_under"] = target.get("verified_under")
-                    # WP-A2 / O2 (KERNFUND): the previously dormant targetSubjectDigest field is now
-                    # binding when PRESENT — the successor's declared subject digest of the target MUST
-                    # equal the resolved target's ACTUAL subject digest, else FAIL (a lying edge about
-                    # WHICH subject the parent commits to). Absent field stays optional (no wire-break).
-                    _declared_subj = _edge_subject_hex(edge)
-                    _actual_subj = target.get("subject_digest")
-                    if (_declared_subj is not None and _actual_subj is not None
-                            and _declared_subj != _actual_subj):
+                    # WP-A2 / O2 (KERNFUND) + PB-2026-0717-01 fail-closed: the targetSubjectDigest
+                    # pin is binding when DECLARED — the resolved target must expose a present,
+                    # unambiguous, well-formed actual subject digest EQUAL to the declared value, else
+                    # FAIL (absent/null/malformed/ambiguous/unequal). Before 3.6.1 only the unequal
+                    # case FAILed and absent/malformed/ambiguous fell open to VERIFIED (False Accept).
+                    _subject_pin_error = _target_subject_pin_error(edge, target)
+                    if _subject_pin_error is not None:
                         entry["resolution"] = LINEAGE_FAIL
-                        entry["errors"].append(
-                            "relation:target_subject_mismatch (RELATION_TARGET_SUBJECT_MISMATCH): "
-                            "declared targetSubjectDigest does not match the resolved target's subject")
+                        entry["errors"].append(_subject_pin_error)
                     else:
                         entry["resolution"] = LINEAGE_VERIFIED
         # else: stays DECLARED_UNRESOLVED — no error, no PASS upgrade.
@@ -357,6 +400,14 @@ CODE_LINEAGE_REQUIREMENT_FAILED = "LINEAGE_REQUIREMENT_FAILED"
 CODE_RELATION_SIGNER_UNAUTHORIZED = "RELATION_SIGNER_UNAUTHORIZED"
 CODE_RELATION_TARGET_MISMATCH = "RELATION_TARGET_MISMATCH"
 
+# Stable targetSubjectDigest-pin fail-closed codes (PB-2026-0717-01). Identical strings in the Rust
+# verifier so the Python/Rust parity vectors have a defined Sollwert. MISMATCH pre-dates 3.6.1 (a
+# present-but-wrong actual subject); MISSING/AMBIGUOUS/MALFORMED are the 3.6.1 fail-closed additions.
+CODE_RELATION_TARGET_SUBJECT_MISMATCH = "RELATION_TARGET_SUBJECT_MISMATCH"
+CODE_RELATION_TARGET_SUBJECT_MISSING = "RELATION_TARGET_SUBJECT_MISSING"
+CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS = "RELATION_TARGET_SUBJECT_AMBIGUOUS"
+CODE_RELATION_TARGET_SUBJECT_MALFORMED = "RELATION_TARGET_SUBJECT_MALFORMED"
+
 
 def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
     """Byte-equality of two base64 Ed25519 keys AFTER decode — never a string/keyId compare (the
@@ -426,14 +477,19 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                             "message": (f"relation {e.get('relation')!r}: successor issuer key is not "
                                         "a member of the pinned relation_signer set")})
         elif mode == "same-key":
-            # same-key can only be confirmed against a RESOLVED target's real verify key; absence is
-            # the resolution pin's job, not the signer's (no false unauthorized on a declared-only edge).
+            # same-key can only be confirmed against a RESOLVED target's real verify key; absence on a
+            # DECLARED-ONLY edge is the resolution pin's job, not the signer's (no false unauthorized there).
+            # PB-2026-0717-04 fail-closed: once an edge is VERIFIED (target resolved), same-key REQUIRES a
+            # present verified_under that byte-matches the successor key. A VERIFIED edge with a missing/None
+            # verified_under is a fail-open footgun in the direct related-API path (the CLI loader always sets
+            # it) — treat it as unauthorized, never as satisfied.
             if e.get("resolution") == LINEAGE_VERIFIED:
                 vu = e.get("verified_under")
-                if vu is not None and not _keys_equal(successor_key_b64, vu):
+                if vu is None or not _keys_equal(successor_key_b64, vu):
                     out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
-                                "message": (f"relation {e.get('relation')!r}: successor issuer key "
-                                            "differs from the target issuer key (same-key rule)")})
+                                "message": (f"relation {e.get('relation')!r}: same-key requires a target "
+                                            "verified_under that byte-matches the successor key; got "
+                                            f"{'none' if vu is None else 'a differing key'}")})
 
     # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
     #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the

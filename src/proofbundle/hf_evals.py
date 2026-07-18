@@ -29,7 +29,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
-from .errors import BundleFormatError, UnsupportedError, VerificationResult
+from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
@@ -70,6 +70,11 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         bundle = loads_strict(raw)   # WP-C1: duplicate keys rejected fail-closed
     except BundleFormatError:
         raise
+    except ProofBundleError as exc:
+        # RE-GATE never-raise: loads_strict raises BudgetExceeded (a ProofBundleError, NOT a BundleFormatError
+        # nor a ValueError) on a wide/oversized token — surface it as the DOCUMENTED BundleFormatError raise,
+        # never a raw BudgetExceeded leak (this function's contract is "malformed tokens raise BundleFormatError").
+        raise BundleFormatError("receipt token exceeds the verification budget") from exc
     except (ValueError, TypeError, zlib.error) as exc:
         raise BundleFormatError("receipt token is not valid base64url(zlib(JSON))") from exc
     if not isinstance(bundle, dict):

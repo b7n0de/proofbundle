@@ -1,0 +1,114 @@
+{
+  "schema": "proofbundle.findings_register.v1",
+  "version": "3.6.1",
+  "generated_at": "2026-07-18T00:00:00Z",
+  "findings": [
+    {
+      "id": "PB-2026-0718-01",
+      "severity": "P0",
+      "status": "closed",
+      "note": "lineage target-subject-digest: 6 invalid states fail-closed (relation._target_subject_pin_error, 4 wire codes); conformance green"
+    },
+    {
+      "id": "PB-2026-0718-06",
+      "severity": "P0",
+      "status": "closed",
+      "note": "decision canonicality fail-closed (canonicality_ok = canonical_ok is True); minimal-env rfc8785-absent rejects"
+    },
+    {
+      "id": "PB-2026-0718-02",
+      "severity": "P1",
+      "status": "closed",
+      "note": "sdist ships tests/schemas/examples/conformance/formal; repo-context tests skip outside checkout; packaging suite green"
+    },
+    {
+      "id": "PB-2026-0718-04",
+      "severity": "P1",
+      "status": "closed",
+      "note": "relation same-key requires verified_under; RELATION_SIGNER_UNAUTHORIZED fail-closed; conformance green"
+    },
+    {
+      "id": "PB-2026-0718-05",
+      "severity": "P1",
+      "status": "closed",
+      "note": "relation conformance carries the missing-subject negative state (present-equal..absent..ambiguous)"
+    },
+    {
+      "id": "PB-2026-0718-07",
+      "severity": "P1",
+      "status": "closed",
+      "note": "malformed untrusted json to the verify API yields a fail-closed verdict, never a raw exception (never-raise sweep clean)"
+    },
+    {
+      "id": "PB-2026-0718-08",
+      "severity": "P1",
+      "status": "closed",
+      "note": "decision legacy proven-digest presence deprecated/coupled, no longer overstates assurance"
+    },
+    {
+      "id": "PB-2026-0718-11",
+      "severity": "P1",
+      "status": "closed",
+      "note": "cross-format singleton groups fail-closed (no vacuous pass); every xfmt id linked decision<->outcome"
+    },
+    {
+      "id": "PB-2026-0718-14",
+      "severity": "P1",
+      "status": "closed",
+      "note": "audit-candidate stale-zero false-pass fixed: this signed structured register + C12.2 rewrite (current-wins, evaluated_count>0, contradiction=ERROR)"
+    },
+    {
+      "id": "PB-2026-0718-17",
+      "severity": "P1",
+      "status": "closed",
+      "note": "RecursionError never-raise: structural depth budget enforced on the direct-dict path (RT-09), 0 raw RecursionError across public verify surfaces at recursionlimit 3000"
+    },
+    {
+      "id": "PB-2026-0718-16",
+      "severity": "P2",
+      "status": "closed",
+      "note": "structural budgets (depth/nodes/merkle_path) enforced on the direct-dict verify path (RT-09), per-dimension direct-dict acceptance verified"
+    },
+    {
+      "id": "PB-2026-0718-03",
+      "severity": "P2",
+      "status": "open",
+      "note": "published wheel/sdist not yet byte-reproducibility-attested (Sigstore bundle/Rekor); follow-up"
+    },
+    {
+      "id": "PB-2026-0718-09",
+      "severity": "P2",
+      "status": "open",
+      "note": "rust relation parity not yet dynamically replayable from the published artifact; follow-up"
+    },
+    {
+      "id": "PB-2026-0718-10",
+      "severity": "P2",
+      "status": "open",
+      "note": "formal lineage model not yet refined to the release implementation; follow-up"
+    },
+    {
+      "id": "PB-2026-0718-12",
+      "severity": "P2",
+      "status": "open",
+      "note": "rust verifier has zero native unit tests for boundary states; follow-up"
+    },
+    {
+      "id": "PB-2026-0718-13",
+      "severity": "P2",
+      "status": "open",
+      "note": "dev typecheck pq-mldsa version floor mismatch (mypy gate); follow-up"
+    },
+    {
+      "id": "PB-2026-0718-15",
+      "severity": "P2",
+      "status": "closed",
+      "note": "rust cargo fmt/clippy green with a pinned toolchain (tools/pb_verify_rs/rust-toolchain.toml 1.95.0); deterministic CI fmt/clippy gate wired"
+    }
+  ],
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o=",
+    "sig_b64": "PAUCRI/c3BBbhbTBDefz8s2RAgCHWN69Ec51YDBlfkqpk7/NVfaeyhFO10YJCpXEA4YvQB3W9mTTVuNOa8iaCA=="
+  }
+}

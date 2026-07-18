@@ -156,6 +156,12 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
     from ``cnf.jwk`` inside the issuer payload, so it is only trustworthy once the issuer signature above is
     verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone."""
     from . import kbjwt, sdjwt  # noqa: PLC0415
+    if not isinstance(policy, dict):
+        # RE-GATE never-raise (policy type-confusion, mirror decision/outcome/relation_statement): a non-dict
+        # policy must be a fail-closed verdict, not a raw AttributeError from policy.get(...). A requested-but-
+        # malformed policy is never a silent pass.
+        return {"ok": False, "profile": None, "issuer": None, "binding": None,
+                "detail": "policy must be a JSON object — malformed policy argument (fail-closed)"}
     require_binding = policy.get("requireKeyBinding", True)
     require_issuer_sig = policy.get("requireIssuerSignature", True)
     profile = check_vc_profile(compact, policy, offline_metadata=offline_metadata)

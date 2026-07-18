@@ -74,10 +74,11 @@ class TestDSSE(unittest.TestCase):
         self.assertTrue(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"])
 
     def test_non_json_payload_is_format_error_not_crash(self):
+        # RE-GATE never-raise: a non-JSON payload is a fail-closed VERDICT (ok=False), never a raw crash and
+        # (mirroring decision/outcome/run_ledger) no longer a raised BundleFormatError out of this surface.
         import base64
-        from proofbundle.errors import BundleFormatError
         signer = generate_signer()
         env = intoto.export_intoto_dsse(_claim(), signer)
         env["payload"] = base64.b64encode(b"not json at all").decode()
-        with self.assertRaises(BundleFormatError):
-            intoto.verify_intoto_dsse(env, _raw_pub(signer))
+        r = intoto.verify_intoto_dsse(env, _raw_pub(signer))
+        self.assertIs(r["ok"], False)

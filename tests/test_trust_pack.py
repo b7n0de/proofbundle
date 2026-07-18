@@ -467,14 +467,18 @@ class TestTrustPackSignaturesFailClosed(unittest.TestCase):
     ProofBundleError, not skip the DoS cap or raise an uncaught TypeError."""
 
     def test_non_list_signatures_rejected_cleanly(self):
-        from proofbundle.errors import BundleFormatError
+        # RE-GATE never-raise (MJSON-TP-01): a non-list `signatures` is a fail-closed VERDICT
+        # (ok=False, structure_ok=False), NOT a raw BundleFormatError out of this dict-returning verify
+        # surface. It still never skips the DoS cap and never raises an uncaught TypeError.
         pred, sks = _fixture()
         env = sign_trust_pack(pred, {"root-0": sks["root-0"], "root-1": sks["root-1"]})
         for bogus in (True, 5, {"a": 1}, "x"):
             env2 = dict(env)
             env2["signatures"] = bogus
-            with self.assertRaises(BundleFormatError):
-                verify_trust_pack(env2, strict=True, now=_NOW)
+            r = verify_trust_pack(env2, strict=True, now=_NOW)
+            self.assertIs(r["ok"], False)
+            self.assertIs(r["structure_ok"], False)
+            self.assertTrue(any("non-empty list" in e or "malformed" in e for e in r["errors"]), r["errors"])
 
     def test_valid_rotation_size_signature_list_still_verifies(self):
         # X1 headroom: a normal multi-signer pack (well under the 512 cap) is unaffected.

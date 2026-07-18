@@ -28,7 +28,7 @@ import zlib
 from typing import Optional
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519
 
 __all__ = ["STATUS_LABELS", "verify_status_snapshot", "status_claim", "issue_status_list_token"]
@@ -111,6 +111,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
                                  and len(issuer_pubkey) == len(receipt_issuer_pubkey)
                                  and _hmac.compare_digest(bytes(issuer_pubkey),
                                                           bytes(receipt_issuer_pubkey)))
+    if not isinstance(status_list_token, str):
+        # RE-TCE-06 (RE-GATE never-raise): a non-str token (int / None / list) must be a fail-closed verdict,
+        # not a raw AttributeError from `.count(...)`. A garbage STRING already returns ok=False (lone
+        # surrogate / bad shape), so a wrong-TYPE token must too — this surface declares "never crashes".
+        result["detail"] = "status list token must be a string (non-str is malformed input, fail-closed)"
+        return result
     if status_list_token.count(".") != 2:
         result["detail"] = "not a compact JWS"
         return result
@@ -122,7 +128,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         header = loads_strict(_b64url_decode(header_b64))
         payload = loads_strict(_b64url_decode(payload_b64))
         sig = _b64url_decode(sig_b64)
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) — a ProofBundleError sibling
         result["detail"] = f"malformed status list token: {exc}"
         return result
     except (ValueError, TypeError):
@@ -189,7 +195,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         return result
     try:
         status = _status_at(bit_array, bits, index)
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) — a ProofBundleError sibling
         result["detail"] = str(exc)
         return result
 

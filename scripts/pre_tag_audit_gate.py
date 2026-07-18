@@ -33,6 +33,28 @@ from pathlib import Path
 _AUDIT_MARKERS = re.compile(r"\b\d+\s*-?\s*lens(es)?\b|\badversarial\b|\bmaster[- ]prompt\b|\blinsen\b",
                             re.IGNORECASE)
 
+# RT10-PRETAG-02: a bare marker SUBSTRING is not proof the audit ran — a line like "the adversarial audit
+# did NOT run" / "adversarial review pending" matches the marker but NEGATES it. A marker only counts as a
+# POSITIVE attestation when its own line is not negated by one of these (line-scoped, so a negation elsewhere
+# in the file does not suppress a genuine positive line).
+_AUDIT_NEGATION = re.compile(
+    r"\bnot\b|\bnicht\b|\bno\b|\bnever\b|\bnie\b|\bwithout\b|\bohne\b|\bskip(?:ped|ping)?\b|\bpending\b"
+    r"|\bdeferred?\b|\bpostponed?\b|\bvertagt\b|\bverschoben\b|\bnoch\s+nicht\b|\bnot\s+yet\b|\btbd\b|\btodo\b"
+    r"|\bt\.?b\.?d\.?\b|did\s*n[o']t|has\s*n[o']t|have\s*n[o']t|was\s*n[o']t|were\s*n[o']t|is\s*n[o']t"
+    r"|\bunrun\b|\bnot\s+run\b|\bfailed\s+to\b|\bausstehend\b|\bnicht\s+durchgef|\bplanned\b|\bgeplant\b"
+    r"|\bcancell?ed\b|\baborted\b|\bwaived\b|\bincomplete\b|\bunfinished\b|\babgebrochen\b|\bstorniert\b",
+    re.IGNORECASE)
+
+
+def _positive_audit_marker(text: str) -> bool:
+    """True iff some line ASSERTS an adversarial/N-lens audit was run — a discipline marker on a line that
+    is NOT negated. Line-scoped so a real positive note survives an unrelated negation elsewhere in the file,
+    while a marker whose own sentence concedes the audit did not run does not grant a false PASS."""
+    for line in text.splitlines():
+        if _AUDIT_MARKERS.search(line) and not _AUDIT_NEGATION.search(line):
+            return True
+    return False
+
 
 def pyproject_version(repo: Path) -> str | None:
     text = (repo / "pyproject.toml").read_text(encoding="utf-8")
@@ -90,7 +112,7 @@ def audit_records_for(repo: Path, version: str) -> list[str]:
         if not f.is_file():
             continue
         body = f.read_text(encoding="utf-8", errors="ignore")
-        if _AUDIT_MARKERS.search(body):
+        if _positive_audit_marker(body):   # RT10-PRETAG-02: a negated marker line does not count
             out.append(str(f.relative_to(repo)))
     return out
 
@@ -112,7 +134,7 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
         return {"ok": False, "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
     section = changelog_section(repo, version)
-    changelog_ok = bool(section and _AUDIT_MARKERS.search(section))
+    changelog_ok = bool(section and _positive_audit_marker(section))  # RT10-PRETAG-02 negation guard
     artifact = audit_artifact_for(repo, version)
     ok = changelog_ok or bool(artifact)
     return {

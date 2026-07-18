@@ -24,9 +24,9 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
 # RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms).
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
@@ -289,7 +289,11 @@ def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) ->
 
 
 def action_outcome_proven(predicate: Any) -> bool | None:
-    """Whether `actionOutcome.status == executed` is backed by a signed/digest-bound outcomeRef.
+    """DEPRECATED (PB-2026-0717-08) — a digest-PRESENCE boolean whose name OVERSTATES. It reads True on a
+    mere well-formed sha256 outcomeRef (evidence_levels REFERENCE_WELL_FORMED, attacker-choosable content),
+    NOT a proof that the outcome content was resolved. Use ``evidence_levels`` (only CONTENT_RESOLVED, via
+    an ``evidence_resolver``, is a real binding); this field stays for backward compat and will be removed
+    in the next breaking format version.
 
     Returns None when there is no actionOutcome or the status is not 'executed' (not applicable), True when an
     executed outcome carries a sha256 outcomeRef, False when executed is self-asserted (the honesty limit)."""
@@ -416,12 +420,45 @@ def _empty_result() -> dict:
     }
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """Finalize a never-raise fail-closed verify result (a parse/structure failure over untrusted input):
+    ``ok=False`` plus a consistent automation verdict, so a never-raise verify returns the SAME shape as a
+    full run (a consumer reading ``automation.safeForAutomation`` gets False, never None). PB-2026-0717-07."""
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["ok"] = False
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
+        "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
+                       "lineage_ok"],
+    })
+    return r
+
+
+def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
+                                     expected_audience: str | None = None,
+                                     expected_nonce: str | None = None, policy: dict | None = None,
+                                     anchors: list | None = None, rp_trust: dict | None = None,
+                                     require_derived_subject: bool = False,
+                                     evidence_resolver: Callable[[dict], bool] | None = None,
+                                     related: dict | None = None) -> dict:
+    """Explicit-exception variant of :func:`verify_decision_receipt`: raises :class:`BundleFormatError`
+    when the payload is not a well-formed in-toto Statement (malformed JSON, duplicate key, bad UTF-8),
+    instead of returning a fail-closed verdict. Use :func:`verify_decision_receipt` (never-raise) for
+    untrusted input; use this when a malformed payload SHOULD raise (PB-2026-0717-07). The explicit
+    signature (not ``*args``) keeps it a first-class, fuzz-soakable/parity-discoverable verify surface."""
+    return verify_decision_receipt(
+        envelope, public_key, strict=strict, expected_audience=expected_audience,
+        expected_nonce=expected_nonce, policy=policy, anchors=anchors, rp_trust=rp_trust,
+        require_derived_subject=require_derived_subject, evidence_resolver=evidence_resolver,
+        related=related, _raise_on_malformed=True)
+
+
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
                             evidence_resolver: Callable[[dict], bool] | None = None,
-                            related: dict | None = None) -> dict:
+                            related: dict | None = None, _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -466,28 +503,36 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
 
-    r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
-        # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
-    # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs
-    # (mirrors anchors_chia.py / hf_evals.py / statuslist.py's "cap before the expensive work" pattern).
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
+        # (_payload_bytes raises BudgetExceeded on an OVERSIZED envelope) BEFORE the parse, and loads_strict's
+        # own node/byte caps raise BudgetExceeded on a WIDE payload — all ProofBundleError SIBLINGS of
+        # BundleFormatError. So the crypto verify + body load + budget + parse ALL live inside the never-raise
+        # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
+        # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity — the CLI
+        # already caught it via its ProofBundleError handler, the API did not).
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
+            # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
+        # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
         # but only when the rfc8785 extra is installed.
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
+        # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
+        # exception — a consumer of verify() can always read a verdict. The specific reason (duplicate key /
+        # too deep / budget exceeded) is preserved in errors[]. *_or_raise() is the explicit exception variant.
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        if _raise_on_malformed:
+            raise BundleFormatError(f"DSSE payload is not a well-formed in-toto Statement: {exc}") from exc
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == DECISION_RECEIPT_PREDICATE_TYPE
@@ -499,9 +544,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["errors"].extend(struct_errs)
 
     # hash_binding: received bytes must BE their own RFC-8785 canonicalization (verify never re-canonicalizes).
-    # Canonicality IS the core guarantee behind the content root, so in strict mode an absent canonicalizer is
-    # fail-closed (structure_ok=False) — never a silent pass over possibly non-canonical bytes (the research
-    # gap: without the extra the whole content-root invariant would be unenforced).
+    # Canonicality IS the core guarantee behind the content root. PB-2026-0717-06 (Owner-GO 3.6.1): rfc8785 is
+    # now a HARD core dependency, so an absent canonicalizer is a broken install, NOT a lenient mode — the
+    # security-verify path fails closed REGARDLESS of `strict` (never a silent pass over possibly non-canonical
+    # bytes with ok=true, which was the strict=False False Accept). Only a PRESENT, EQUAL canonicalization passes.
     canonical_ok = None
     if _rfc8785_available():
         try:
@@ -510,13 +556,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
 
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     # The predicate-derived fields describe AUTHENTICATED bytes only — never compute them over a payload
@@ -553,6 +598,24 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             "actionOutcome.outcomeRef": _outcome_level,
             "evidenceRefs": _evref_levels,
         }
+
+        # PB-2026-0717-08: the legacy digest-presence booleans (action_outcome_proven, evidence_bound)
+        # OVERSTATE — they read True on a mere well-formed digest (REFERENCE_WELL_FORMED, attacker-choosable
+        # content), a STRONGER name than the additive evidence_levels ladder they parallel. They STAY for
+        # backward compat (no field removal — the 3.x format is frozen, §0.8), but are DEPRECATED: the ladder
+        # is the sole normative assurance semantic. Warn whenever a proven/bound True is not actually backed by
+        # a CONTENT_RESOLVED ladder level, so a consumer is never silently misled by the stronger legacy name.
+        _EL = _assurance.EvidenceLevel
+        _proven_overstated = r["action_outcome_proven"] is True and not (
+            isinstance(_outcome_level, dict) and _outcome_level.get("level") == _EL.CONTENT_RESOLVED)
+        _bound_overstated = r["evidence_bound"] is True and not (
+            isinstance(_evref_levels, dict) and _evref_levels.get("level") == _EL.CONTENT_RESOLVED)
+        if _proven_overstated or _bound_overstated:
+            r["warnings"].append(
+                "DEPRECATED: action_outcome_proven / evidence_bound are digest-presence booleans "
+                "(evidence_levels REFERENCE_WELL_FORMED — attacker-choosable content), NOT a content proof. "
+                "Use evidence_levels; only CONTENT_RESOLVED (an evidence_resolver confirmed the bytes) is a "
+                "real binding. These legacy fields will be removed in the next breaking format version.")
 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
@@ -659,29 +722,48 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # WP-A1: thread the relying-party trust material so a real OTS/rfc3161 statement anchor can
             # confirm here (the bundle's frozen material is never trust). Without it a time anchor is
             # needs_rp_trust — fail-closed, not a silent frozen pass.
-            ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
-                                             rp_trust=rp_trust)
-            # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but a
-            # FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
-            # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
-            _results = ar.get("results") or []
-            _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
-            _has_full = any(x["ok"] and not x["warn"] for x in _results)
-            _has_pending = any(x["warn"] for x in _results)
-            anchor_status = ("FAIL" if _has_fail else "PASS" if _has_full
-                             else "WARN" if _has_pending else ar["status"])
-            r["anchors_ok"] = (True if anchor_status == "PASS"
-                               else False if anchor_status == "FAIL" else None)
-            if anchor_status == "WARN":
-                r["warnings"].append(
-                    f"anchor(s) pending / inclusion-only — not a full time anchor: {ar['detail']}")
-            elif anchor_status == "FAIL":
-                r["errors"].append(f"anchor verification failed: {ar['detail']}")
+            # RE-GATE never-raise (REGATE-CRYPTO-01 / F3): a caller-supplied malformed anchor (a non-dict
+            # entry, an unknown field, invalid base64, or a non-list `anchors`) makes verify_anchor(s) raise
+            # BundleFormatError. On this never-raise surface that must be a fail-closed anchors verdict, not a
+            # raw traceback out of verify() — verify_anchor already returns fail-closed dicts for bad
+            # target/type/root, so a malformed entry is the SAME class of outcome (deny), just surfaced here.
+            try:
+                ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
+                                                 rp_trust=rp_trust)
+            except ProofBundleError as exc:
+                anchor_status = "FAIL"
+                r["anchors_ok"] = False
+                r["errors"].append(f"anchor verification refused malformed anchor input (fail-closed): {exc}")
+                ar = None
+            if ar is not None:
+                # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but
+                # a FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
+                # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
+                _results = ar.get("results") or []
+                _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
+                _has_full = any(x["ok"] and not x["warn"] for x in _results)
+                _has_pending = any(x["warn"] for x in _results)
+                anchor_status = ("FAIL" if _has_fail else "PASS" if _has_full
+                                 else "WARN" if _has_pending else ar["status"])
+                r["anchors_ok"] = (True if anchor_status == "PASS"
+                                   else False if anchor_status == "FAIL" else None)
+                if anchor_status == "WARN":
+                    r["warnings"].append(
+                        f"anchor(s) pending / inclusion-only — not a full time anchor: {ar['detail']}")
+                elif anchor_status == "FAIL":
+                    r["errors"].append(f"anchor verification failed: {ar['detail']}")
 
     # Trust policy (v0.2 decision_receipt section) over the CRYPTO-VERIFIED statement. WP5. A policy is NEVER
     # evaluated on unverified bytes (fail-open fix, mirrors the eval path): if crypto did not pass, policy_ok
     # and signer_trusted stay None — a policy is never a reason to trust bytes whose signature failed.
-    if policy is not None and isinstance(predicate, dict):
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
+        # or list) must be a fail-closed policy verdict, not a raw AttributeError out of policy.get(...) —
+        # evaluate_decision_policy is defended too (layer a), this is the call-site layer (b). A
+        # requested-but-malformed policy is NEVER a silent pass (fail-open): it fails policy_ok.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(predicate, dict):
         if not r["crypto_ok"]:
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
@@ -712,7 +794,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

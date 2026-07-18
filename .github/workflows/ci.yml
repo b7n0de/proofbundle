@@ -50,6 +50,14 @@ jobs:
         run: python -m pip install -e ".[dev,eval]"
       - name: Build the independent Rust second-verifier (ubuntu-latest ships cargo/rustup preinstalled)
         run: cd tools/pb_verify_rs && cargo build --release
+      # PB-2026-0718-15: fmt/clippy are now a DETERMINISTIC gate. tools/pb_verify_rs/rust-toolchain.toml
+      # pins the exact toolchain (1.95.0 + rustfmt + clippy), so rustup installs the SAME rustfmt/clippy the
+      # code was formatted with — no more version drift disagreeing on line breaks at main.rs:1132/1496. The
+      # job stays continue-on-error (advisory, like rust-parity), but with the pin these should be green.
+      - name: Rust format check (pinned toolchain)
+        run: cd tools/pb_verify_rs && cargo fmt --check
+      - name: Rust clippy (deny warnings, pinned toolchain)
+        run: cd tools/pb_verify_rs && cargo clippy --all-targets -- -D warnings
       - name: Cross-implementation agreement (crosscheck.py)
         run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py
       - name: Rust parity report (advisory — PENDING is the expected, honest majority state)

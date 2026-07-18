@@ -57,6 +57,12 @@ class TestF1CommonVocabulary(unittest.TestCase):
 
 
 class TestF1CrossFormatCorpus(unittest.TestCase):
+    def setUp(self):
+        # L6-02 follow-up: cross_format validates against JSON Schema (needs jsonschema, a [test]-extra dep) —
+        # skip cleanly on a bare `[eval]` sdist install instead of erroring at `import cross_format`.
+        import pytest
+        pytest.importorskip("jsonschema")
+
     def test_real_corpus_is_schema_valid_and_consistent(self):
         import cross_format
         ok, problems = cross_format.run()
@@ -153,6 +159,45 @@ class TestF7PreTagAudit(unittest.TestCase):
         result = self.gate.evaluate(REPO, version="9.9.9")
         self.assertFalse(result["ok"])
         self.assertIn("9.9.9", result["reason"])
+
+    def test_negated_marker_does_not_grant_pass(self):
+        # RT10-PRETAG-02: a version-scoped record whose only audit-marker line NEGATES having run the audit
+        # ("the adversarial audit did NOT run") must NOT satisfy the gate — a marker substring is not proof.
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "770"
+            rec.mkdir(parents=True)
+            (rec / "note.md").write_text("# 7.7.0\n\nThe 6-lens adversarial audit did NOT run yet (pending).\n")
+            self.assertEqual(self.gate.audit_records_for(Path(td), "7.7.0"), [])
+            self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+
+    def test_negation_covers_never_deferred_postponed(self):
+        # 6-lens gate: the negation guard must also reject 'never ran' / 'deferred' / 'postponed' /
+        # 'noch nicht durchgeführt', not only 'not/pending'.
+        import tempfile
+        for concession in ("The 6-lens adversarial audit never ran.",
+                           "6-lens adversarial review deferred to 3.6.2.",
+                           "Adversarial audit postponed.",
+                           "The adversarial audit was cancelled.",
+                           "6-lens adversarial review aborted.",
+                           "Adversarial audit waived.",
+                           "Adversarial audit incomplete.",
+                           "Adversariales 6-Linsen-Review noch nicht durchgeführt."):
+            with tempfile.TemporaryDirectory() as td:
+                rec = Path(td) / "audit_artifacts" / "770"
+                rec.mkdir(parents=True)
+                (rec / "note.md").write_text(f"# 7.7.0\n\n{concession}\n")
+                self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"], concession)
+
+    def test_positive_marker_still_passes(self):
+        # counterpart: a genuine positive audit note IS accepted (discriminates the negation guard from a
+        # blanket reject).
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "770"
+            rec.mkdir(parents=True)
+            (rec / "note.md").write_text("# 7.7.0\n\nRan a 6-lens adversarial audit; all findings fixed.\n")
+            self.assertTrue(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
 
 
 if __name__ == "__main__":

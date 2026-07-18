@@ -141,10 +141,26 @@ def verify_inclusion(
     triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
     can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
     read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+        # PB-2026-0718-16: enforce the audit-path STEP budget (merkle_path) in the verification core, so it
+        # is effective on the DIRECT dict path where the byte-size proxy (input_bytes) never runs. A
+        # log2(tree_size) proof needs <= 256 steps for any realistic tree; a longer (or non-list) proof is
+        # fail-closed, never an unbounded per-step hash loop.
+        return False
+    if not isinstance(leaf_index, int) or isinstance(leaf_index, bool) \
+            or not isinstance(tree_size, int) or isinstance(tree_size, bool):
+        # 6-lens gate: a non-int leaf_index/tree_size reached the `leaf_index <= ...` / bit-ops in
+        # root_from_inclusion as a raw TypeError (this public never-raise surface must fail closed, matching
+        # verify_consistency's size guard) — never a raw comparison/operand TypeError.
+        return False
     try:
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
-    except ValueError:
+    except (ValueError, TypeError):
         return False
+    if not isinstance(expected_root, (bytes, bytearray)):
+        return False  # 6-lens gate L3-02: a non-bytes expected_root reached the tail hmac.compare_digest
+                      # (outside the try) as a raw TypeError; fail-closed False on this public surface.
     return hmac.compare_digest(computed, expected_root)
 
 
@@ -156,6 +172,18 @@ def verify_consistency(
     second_root: bytes,
 ) -> bool:
     """Return True iff ``first_root`` is a consistent prefix of ``second_root`` (RFC 9162 2.1.4.2)."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+        return False   # PB-2026-0718-16: audit-path step budget, effective on the direct dict path
+    if not isinstance(first_size, int) or isinstance(first_size, bool) \
+            or not isinstance(second_size, int) or isinstance(second_size, bool):
+        return False   # non-int sizes are malformed input, fail-closed (never a raw comparison TypeError)
+    if not isinstance(first_root, (bytes, bytearray)) or not isinstance(second_root, (bytes, bytearray)) \
+            or not all(isinstance(p, (bytes, bytearray)) for p in proof):
+        # 6-lens gate L3-02: non-bytes roots or proof elements reached hmac.compare_digest / _node_hash as a
+        # raw TypeError (the tail compare, the first_size==second_size branch, and the _node_hash loop were
+        # outside any guard); every byte input is validated up front so this public surface fails closed.
+        return False
     if first_size <= 0 or first_size > second_size:
         return False
     if first_size == second_size:

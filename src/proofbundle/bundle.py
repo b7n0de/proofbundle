@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import base64
 import hmac
+import os
+import stat
 from typing import Optional, Union
 
 from . import merkle
-from ._strict_json import loads_strict
+from ._strict_json import enforce_structural_budget, loads_strict
+from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -142,6 +145,13 @@ def _require_int(obj: dict, key: str, field: str) -> int:
     val = _require(obj, key, field)
     if isinstance(val, bool) or not isinstance(val, int):   # bool is an int subclass; a float/str/None is not
         raise BundleFormatError(f"field {field} must be an integer, got {type(val).__name__}")
+    # 6-lens gate L2-BDOS-01: bound the magnitude so an implausibly-large int (e.g. tree_size = 10**5000) can
+    # never be str()-rendered in a detail message and trip CPython's int<->str conversion cap
+    # (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of verify_bundle(dict). The
+    # loads_strict int-cap already fails closed on the str/file path; this restores parity on the direct-dict
+    # path. A real leaf_index/tree_size is <= 2**64; an 8192-bit ceiling is astronomically generous.
+    if val.bit_length() > 8192:
+        raise BundleFormatError(f"field {field} integer is implausibly large (fail-closed)")
     return val
 
 
@@ -175,12 +185,42 @@ def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file. Deeply-nested JSON overflows the parser's C-recursion; that
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
     escaping as a raw RecursionError traceback (verify-lens L3, 2026-07-09)."""
-    with open(path, "r", encoding="utf-8") as handle:
-        # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path
-        # silently kept the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser
-        # differential across JSON implementations. loads_strict ALSO owns the RecursionError →
-        # BundleFormatError mapping for deep nesting (the old outer handler here became dead code).
-        return loads_strict(handle.read())
+    # WP-C1: duplicate keys are rejected fail-closed (loads_strict) — the native bundle path silently kept
+    # the LAST duplicate (e.g. a second `root_b64`/`sig_b64`), a classic parser differential across JSON
+    # implementations. loads_strict ALSO owns the RecursionError -> BundleFormatError mapping for deep nesting.
+    # 6-lens gate L3-01: this exported loader must honor the documented never-raise BundleFormatError contract
+    # — a missing/directory/binary/embedded-NUL/BOM/invalid-UTF-8 path or an ordinary JSON syntax error
+    # (loads_strict re-raises those as a bare ValueError/JSONDecodeError) is mapped to BundleFormatError, not a
+    # raw OSError/UnicodeDecodeError/JSONDecodeError traceback. loads_strict's own BundleFormatError (a
+    # ProofBundleError, not a ValueError) propagates unchanged.
+    # 6-lens DEEP gate RT-04 (file/path class): the 8 MiB input_bytes budget was enforced only INSIDE
+    # loads_strict, i.e. AFTER handle.read() had already slurped the whole file — so it was post-read and
+    # inert on the FILE path. A character/block device (/dev/zero) made handle.read() grow until a RAW
+    # MemoryError escaped (not OSError/ValueError), and a writer-less FIFO made open()/read() hang forever
+    # (no verdict, no exit code). Both are a real memory-amplification / DoS on the shared host. Fix: stat
+    # FIRST and refuse non-regular files (FIFO/char/block device) and oversized files BEFORE any read, then
+    # do a BOUNDED read capped at the input_bytes budget, and map MemoryError to the typed contract too.
+    cap = DEFAULT_BUDGET.input_bytes
+    try:
+        # 6-lens DEEP gate L3-01: a non-path argument (None/float/int) must be typed, not a raw TypeError —
+        # and an int path would be misread by os.stat as a FILE DESCRIPTOR (os.stat(1) = fstat stdout). Reject
+        # anything that is not a real path type up front.
+        if not isinstance(path, (str, bytes, os.PathLike)):
+            raise BundleFormatError(f"bundle path must be a path string, got {type(path).__name__} (fail-closed)")
+        st = os.stat(path)   # metadata only — does NOT block on a FIFO and does NOT read a device
+        if not stat.S_ISREG(st.st_mode):
+            raise BundleFormatError("bundle path is not a regular file (fail-closed: FIFO/device/socket refused)")
+        if st.st_size > cap:
+            raise BundleFormatError(f"bundle file exceeds the {cap}-byte input_bytes budget (fail-closed)")
+        with open(path, "rb") as handle:
+            raw = handle.read(cap + 1)   # bounded: a device that lies about st_size cannot grow this unbounded
+        if len(raw) > cap:
+            raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
+        return loads_strict(raw.decode("utf-8"))
+    except (OSError, ValueError, MemoryError, TypeError) as exc:
+        # 6-lens DEEP gate L3-01: TypeError too — a non-str path argument (None/float) makes os.stat raise a
+        # raw TypeError; the docstring promises TOTAL mapping to typed BundleFormatError (never-raise-wrap-all).
+        raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
@@ -206,9 +246,27 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
     """
     if isinstance(bundle, str):
-        bundle = load_bundle(bundle)
+        try:
+            bundle = load_bundle(bundle)
+        except (OSError, ValueError) as exc:
+            # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
+            # unreadable path surfaces as the documented BundleFormatError this function already raises for
+            # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
+            # instead of a path gets a typed error, not an OS crash.) 6-lens gate L3-01: an embedded-NUL path
+            # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
+            # also raises a ValueError from open(), so widen to (OSError, ValueError).
+            raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
+
+    # RT-09 (PB-2026-0718-16): the input_bytes + json_nodes + json_depth budget lives in loads_strict, which a
+    # STR path funnels through (load_bundle -> loads_strict). A caller that hands an ALREADY-PARSED dict
+    # bypasses that chokepoint, so the structural budget was INERT on the direct-dict path — an over-limit
+    # hostile structure (a body/claim nested past json_depth, an over-wide node count) would be walked
+    # unbounded and could surface as a raw RecursionError instead of a fail-closed budget verdict. Enforce the
+    # same node-count + nesting-depth budget on the direct-dict input here (BudgetExceeded / BundleFormatError,
+    # both ProofBundleError -> the never-raise callers absorb it).
+    enforce_structural_budget(bundle)
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -278,9 +336,22 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
         size_ok = (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
                    and tree_size == expected_tree_size)
-        result.add("tree-size", size_ok,
-                   f"tree_size {tree_size} matches the expected size" if size_ok
-                   else f"tree_size {tree_size} != expected {expected_tree_size} — possible tree-size substitution")
+        # 6-lens gate L2-BDOS-EXPECTED-TREE-SIZE: expected_tree_size is RP-supplied and NOT routed through
+        # _require_int, so str()-rendering an absurd int (e.g. 10**5000) in the mismatch detail tripped
+        # CPython's int<->str cap (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of this
+        # never-raise API. Keep the established fail-closed contract (bool/float/huge/ill-typed -> recorded
+        # tree-size FAIL, never a raise) but render the raw expectation ONLY when it is a bounded int; a huge
+        # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
+        if size_ok:
+            detail = f"tree_size {tree_size} matches the expected size"
+        elif (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
+              and expected_tree_size.bit_length() <= 8192):
+            detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
+                      "— possible tree-size substitution")
+        else:
+            detail = (f"tree_size {tree_size} != expected (ill-typed or out-of-range expectation) "
+                      "— possible tree-size substitution")
+        result.add("tree-size", size_ok, detail)
 
     # 3. optional SD-JWT selective disclosure credential
     sd = bundle.get("sd_jwt_vc")
@@ -356,7 +427,6 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # receipt root) must match A's own signed claim + merkle root, else the disclosures do NOT belong to
         # this bundle. Only meaningful once the issuer signature verified (an unsigned SD-JWT already fails C2).
         if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
-            import json as _json  # noqa: PLC0415
             from .sdjwt_issue import _jwt_payload as _sd_payload  # noqa: PLC0415
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
             try:
@@ -395,8 +465,10 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                     "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
 
             try:
-                _claim = _json.loads(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
-            except (ValueError, KeyError, TypeError):
+                # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
+                # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
+                _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+            except (ValueError, KeyError, TypeError, BundleFormatError):
                 _claim = None
             _root = (bundle.get("merkle") or {}).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
@@ -597,9 +669,22 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     ``BundleFormatError``, never a raw traceback.
     """
     if isinstance(bundle, str):
-        bundle = load_bundle(bundle)
+        try:
+            bundle = load_bundle(bundle)
+        except (OSError, ValueError) as exc:
+            # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
+            # unreadable path surfaces as the documented BundleFormatError this function already raises for
+            # every malformed input, never a raw OSError. (A relying party that passed serialized bundle JSON
+            # instead of a path gets a typed error, not an OS crash.) 6-lens gate L3-01: an embedded-NUL path
+            # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
+            # also raises a ValueError from open(), so widen to (OSError, ValueError).
+            raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("bundle must be a JSON object")
+    # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
+    # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
+    # string_len never fired on the recompute path.
+    enforce_structural_budget(bundle)
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value
@@ -616,6 +701,13 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     # Display the stated root in CANONICAL base64 (re-encode from the decoded bytes), so a non-canonical but
     # byte-equal stated root does not read as a spurious mismatch next to the canonical recomputed root (LOW #10/#15).
     stated_b64 = base64.b64encode(_b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")).decode("ascii")
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    if len(proof) > DEFAULT_BUDGET.merkle_path:
+        # 6-lens gate L2-BDOS-01: cap the audit-path STEP count exactly as merkle.verify_inclusion does, so a
+        # >256-step inclusion_proof_b64 cannot drive an uncapped per-step SHA-256 walk (measured multi-second
+        # DoS) on this public surface. Fail-closed (an over-length proof's recomputed root was never accepted).
+        return {"stated_b64": stated_b64, "recomputed_b64": None,
+                "detail": "inclusion proof exceeds merkle_path budget (DoS guard)"}
     try:
         recomputed = merkle.root_from_inclusion(
             leaf_index, tree_size, merkle.leaf_hash(payload), proof)

@@ -4,8 +4,12 @@ verifier must TERMINATE, NEVER RAISE, respect the depth bound, honor lattice dom
 flagging a legitimate DAG."""
 import unittest
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
+try:
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+except ImportError:  # PB-2026-0718-L6-01: hypothesis is a dev-only dep — from a bare `[eval]`+pytest sdist
+    import pytest    # install it is absent; a clean module-level skip beats a collection error.
+    pytest.skip("hypothesis not installed (dev-only dependency)", allow_module_level=True)
 
 from proofbundle.relation import (
     LINEAGE_DECLARED_UNRESOLVED,

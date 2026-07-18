@@ -1,0 +1,39 @@
+# PB-2026-0717-02: the published sdist shipped tests/ WITHOUT their runtime assets (fixtures, schemas,
+# examples, conformance corpus, formal-model results, the scripts the tests invoke) → the full sdist
+# pytest aborted with collection errors. This allowlist grafts exactly the assets the shipped tests need
+# to COLLECT AND RUN.
+#
+# Self-testable, honestly (PKG-2026-0718-01 / RE-GATE): `pip install <sdist> && pytest` runs the
+# package-level suite green. A documented subset of tests assert facts about the REPO/CI/Rust/docs LAYOUT
+# (`.github/workflows` contents, the Rust verifier source under `tools/`, `SPEC.md`/`CITATION.cff`, audit
+# records) — material this allowlist DELIBERATELY prunes (not a Python-package artifact). Those repo-context
+# tests SKIP outside a git checkout (tests/conftest.py::_REPO_CONTEXT_TESTS) rather than fail, so a
+# from-sdist run is clean — the honest form of "self-testable" (package tests run; repo-layout tests declare
+# themselves N/A).
+#
+# Per-directory allowlist (Befund C: not `package-data` — that targets the wheel/import package; the
+# sdist is the right vehicle for top-level tests/ + their assets). Large / non-Python-sdist material is
+# pruned: `tools/` is the Rust verifier + its 138M build tree (Rust runs from a git checkout with a
+# toolchain, never from the Python sdist — a category error to ship it), and build/CI-meta is excluded.
+# The shipped-example policy tests/test_renewal_policy.py loads is included by exact path (PKG-2026-0718-02)
+# — NOT `graft docs/adr`, which would also ship the ADR markdowns whose internal links reference pruned
+# repo files (breaking test_docs_truth from the sdist).
+graft tests
+graft schemas
+graft examples
+graft conformance
+graft formal
+graft docs/readiness_pack
+include docs/adr/renewal_policy.example.json
+graft scripts
+
+# Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
+prune tools
+prune audit_artifacts
+prune .github
+prune target
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude *.rs
+global-exclude *.orig

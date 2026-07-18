@@ -4,6 +4,206 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] - 2026-07-18 (security patch, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.1 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL —
+NOT stable/audited/production-ready. This is a targeted security patch closing the eight findings of
+the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is unchanged (Research Beta).
+
+### Fixed (security)
+- **PB-2026-0717-01 (P0) targetSubjectDigest pin fail-open:** a declared `targetSubjectDigest` against a
+  cryptographically valid target whose actual subject is absent / null / malformed / ambiguous fell
+  through to `VERIFIED` (False Accept, reaching `safeForAutomation=true`). Now fail-closed with a stable
+  wire code (`RELATION_TARGET_SUBJECT_MISSING` / `_AMBIGUOUS` / `_MALFORMED`; present-but-wrong stays
+  `_MISMATCH`); the CLI loader no longer silently binds `subject[0]` from a multi-subject statement.
+  Fixed in Python (decision + outcome closed by construction) AND the Rust second-verifier.
+- **PB-2026-0717-06 (P0) canonicality optional without JCS:** without `rfc8785` the `strict=False` path
+  accepted a non-canonical, validly-signed payload with `ok=true`. `rfc8785` is now a **core dependency**
+  and the security-verify path fails closed regardless of `strict` (an absent canonicalizer is a broken
+  install, never a lenient mode).
+- **PB-2026-0717-04 (P1) same-key missing verified_under:** a VERIFIED same-key edge with a missing
+  `verified_under` produced no violation; now `RELATION_SIGNER_UNAUTHORIZED` (Python + Rust).
+- **PB-2026-0717-07 (P1) verify-API raised on malformed input:** `verify_decision_receipt` /
+  `verify_outcome_receipt` now return a stable fail-closed verdict for untrusted unparseable input; the
+  explicit `verify_*_or_raise` variants raise. The RE-GATE closed a residual hole in the same class: a
+  wide (`json_nodes` over cap) or oversized (`input_bytes` over the 8 MiB cap) but validly-signed payload
+  raised a raw `BudgetExceeded` (a `ProofBundleError` sibling of `BundleFormatError`) because the crypto
+  verify + body load + budget check ran outside the never-raise guard; they now sit inside it and surface
+  as a fail-closed verdict. The low-level primitives (`dsse.verify_envelope`, `_strict_json.loads_strict`)
+  keep their raising contract.
+- **PB-2026-0718-11 (P1) never-raise broken on the CLI (RecursionError):** a pathologically deep JSON
+  pack raised a RAW `RecursionError` out of `anchor verify-pack` (and other raw `json.load` verify
+  surfaces). All verify surfaces (CLI `anchor verify-pack` / `anchor inspect` / key-extract, the bundle
+  claim-payload path) now route through the strict parser, which maps deep nesting to a clean
+  `BundleFormatError` (bounded depth) with the same malformed class on API and CLI, never a raw traceback.
+- **PB-2026-0718-11b (P1) bounded-depth was interpreter-version-dependent:** the deep-nesting guard relied
+  solely on CPython raising `RecursionError` during parse — true on <=3.11 but NOT on 3.12+, where the C
+  scanner accepts far deeper input without raising, so the documented bounded-depth guarantee silently did
+  not hold on 3.12/3.13/3.14. The strict parser now enforces an EXPLICIT `budget.json_depth` cap (default
+  64, comfortably above the repo's deepest legitimate document at depth 9 and far below CPython's
+  ~1000-frame recursion limit so downstream JCS canonicalization stays safe), giving one stable
+  `"JSON nesting is too deep"` outcome on every interpreter.
+- **PB-2026-0718-F3 (P1) verify raised on malformed detached anchors:** `verify_decision_receipt`, given a
+  caller-supplied malformed `anchors` (a non-dict entry, an unknown field, invalid base64, a non-list),
+  raised a raw `BundleFormatError` out of the detached-anchor block, which ran outside the never-raise
+  guard. It now fails closed to `anchors_ok=False` + an error, consistent with the fail-closed verdicts
+  `verify_anchor` already returns for a bad target/type/root.
+- **PB-2026-0718-F2 (P1) verify crashed on a type-confused non-dict `policy`:** a caller-supplied non-dict
+  `policy` (a JSON scalar or list) made `verify_decision_receipt` / `verify_outcome_receipt` raise a raw
+  `AttributeError` from `policy.get(...)` — not even a `ProofBundleError`, so an `except ProofBundleError`
+  consumer got a raw traceback (and on the outcome path the crash fired even on an unauthenticated
+  envelope). Guarded in two layers: `evaluate_decision_policy` returns a fail-closed verdict for a non-dict
+  policy, and the decision/outcome call sites treat a non-dict policy as a fail-closed `policy_ok=False`
+  (a requested-but-malformed policy is never a silent pass).
+- **PB-2026-0718-MJSON-01 (P2) `decode_eval_claim` broke its "None on any failure" contract:**
+  `load_bundle` (a bad path → `OSError`) and `verify_bundle` (a non-bundle dict → `UnsupportedError` /
+  `BundleFormatError`) ran outside its try, so a non-bundle / non-path argument raised a raw exception. Both
+  now sit inside the guard and the except covers the malformed-input family, so the documented `None` holds.
+- **PB-2026-0718-PKG-01 (P1) sdist was not genuinely self-testable:** the sdist collected cleanly but 26
+  shipped tests FAILED from an extracted sdist because they assert repo/CI/Rust/docs layout facts (the
+  contents of `.github/workflows`, the Rust verifier source under `tools/`, `SPEC.md`/`CITATION.cff`, audit
+  records) — material the allowlist deliberately prunes. Those repo-context tests now SKIP outside a git
+  checkout (`tests/conftest.py`), so `pip install <sdist> && pytest` runs clean (1873 passed, 0 failed);
+  the MANIFEST.in "self-testable" claim is corrected to this honest form.
+- **PB-2026-0718-PKG-02 (P2) shipped-example policy missing from the sdist:**
+  `docs/adr/renewal_policy.example.json`, which `tests/test_renewal_policy.py` loads as a "shipped
+  example", was absent from the tarball (the allowlist grafted only `docs/readiness_pack`). It is now
+  shipped by exact path (not `graft docs/adr`, which would also ship ADR markdowns whose links reference
+  pruned repo files).
+- **PB-2026-0718-CB-01 (P1) bytearray public key crashed every DSSE verify entrypoint:** the shared
+  `signature.verify_ed25519` primitive admitted a `bytearray` in its type guard but passed it straight to
+  `Ed25519PublicKey.from_public_bytes` / `.verify`, which require exact `bytes` and raise a raw `TypeError`
+  — escaping decision / outcome / relation-statement / run-ledger / verification-summary verify as an
+  uncaught crash (defeating the never-raise fix above). It now coerces `bytes(public_key)` / `bytes(signature)`
+  so a VALID bytearray key VERIFIES (mirrors `verify_ecdsa_p256`, which already coerced), never a crash or a
+  wrong False.
+- **PB-2026-0718-BUDGET (P1) sibling DSSE verifiers leaked raw BudgetExceeded:** `verify_run_ledger`,
+  `verify_relation_statement`, `verify_verification_summary` and `verify_trust_pack` are dict-returning
+  never-raise surfaces, but a wide (json_nodes over cap) / oversized (input_bytes over 8 MiB) / over-signatures
+  untrusted envelope raised a raw `BudgetExceeded` (a `ProofBundleError` sibling of `BundleFormatError`) —
+  the crypto/load/budget/parse ran outside the guard and the except only caught `BundleFormatError`. All four
+  now move that prefix inside the never-raise try and catch `ProofBundleError`, returning a fail-closed
+  verdict (mirrors decision/outcome). `verify_trust_pack`'s non-list-signatures case is now a fail-closed
+  verdict too, not a raise.
+- **PB-2026-0718-CANON (P2) sibling verifiers failed OPEN without the canonicalizer:** `verify_run_ledger`,
+  `verify_relation_statement`, `verify_verification_summary` and `verify_trust_pack` used
+  `canonical_ok is True or (canonical_ok is None and not strict)`, so with `rfc8785` absent a non-canonical
+  payload passed with `ok=true` in default mode — the same False Accept PB-2026-0717-06 already closed for
+  decision. Since `rfc8785` is now a core dependency, an absent canonicalizer is a broken install: all four
+  fail closed regardless of `strict`.
+- **PB-2026-0718-RE-TCE-06 (P2) `verify_status_snapshot` crashed on a non-str token:** a non-str
+  `status_list_token` (int / None / list) raised a raw `AttributeError` from `.count(".")`. A wrong-type
+  token is now a fail-closed verdict, like a garbage string already was.
+- **PB-2026-0718-CALLER-PATHS (P2, final sweep) two caller-argument crashes became typed:** a comprehensive
+  gate-substitute sweep (every public verify surface × budget / malformed-JSON / type-confusion) confirmed
+  the whole surface is never-raise for untrusted WIRE input, and closed the last two raw-exception CALLER
+  paths: `verify_bundle` given a huge / unreadable `str` path (a `str` bundle is a documented path) now
+  raises the documented `BundleFormatError` rather than a raw `OSError`, and `checkpoint._parse_vkey` (used by
+  `verify_checkpoint` / `verify_cosignature` / `verify_witnessed_checkpoint`) raises `BundleFormatError` on a
+  non-str vkey rather than a raw `AttributeError`. The public verify surface is now uniformly typed on every
+  probed input.
+- **PB-2026-0718-INTOTO-HF-BUDGET (P1, proactive sweep) the in-toto + HF-token verify surfaces leaked
+  BudgetExceeded / raised on malformed input:** a full `loads_strict`-call-site sweep found the three
+  in-toto DSSE verifiers (`verify_intoto_dsse`, `verify_eval_result_dsse`, `verify_svr_dsse`) re-raised
+  `BundleFormatError` on a malformed/dup-key payload and leaked a raw `BudgetExceeded` on a wide/oversized
+  one — they are dict-returning verify surfaces, so they now fail closed to a verdict (`ok=False`, the
+  duplicate still named in `content_root_detail`), mirroring decision/outcome/run_ledger. `verify_receipt_token`
+  (documented raising-by-design) now surfaces a budget overrun as its documented `BundleFormatError` rather
+  than a raw `BudgetExceeded`. (The `except Exception` backstops in `bundle` / `anchors_chia` /
+  `anchors_markovian`, and the raising `load_bundle` / `load_claim_text` whose callers already catch
+  `ProofBundleError`, swept clean.)
+- **PB-2026-0718-SDJWT-BUDGET (P1) the SD-JWT family leaked raw BudgetExceeded:** `verify_status_snapshot`,
+  `verify_key_binding`, `verify_sd_jwt` (header/payload + per-disclosure), `verify_sdjwt_vc` and
+  `verify_sample_opening` parse their JWT parts with `loads_strict`, but their `except` caught only
+  `BundleFormatError` + `ValueError`/`TypeError` — not `BudgetExceeded` (a `ProofBundleError` sibling). A
+  wide (`json_nodes` over cap) or oversized (`input_bytes` over cap) JWT part raised a raw `BudgetExceeded`
+  out of these dict-returning verify surfaces. All now catch `ProofBundleError` (which covers both
+  `BudgetExceeded` and the dup-key `BundleFormatError`), returning a fail-closed verdict.
+- **PB-2026-0718-RELSTMT-POLICY (P1) verify_relation_statement crashed on a non-dict policy:** it was
+  missing the non-dict `policy` guard its decision/outcome siblings carry, so `policy.get('relations')`
+  raised a raw `AttributeError` on a scalar/list policy. Now a fail-closed `policy_ok=False` verdict.
+- **PB-2026-0718-CLI-INSPECT (P2) `<verb> inspect` dumped a raw UnicodeEncodeError on a lone surrogate:**
+  `decision` / `outcome` / `relation-statement inspect` printed the payload with `ensure_ascii=False`,
+  which crashes under strict utf-8 stdout on a lone surrogate. Now guarded: it falls back to ascii-escaped
+  output + a clean exit 2, never a traceback.
+- **PB-2026-0718-SWEEP (P2) four verifiers crashed on a type-confused primary argument:** a full breadth
+  sweep (annotation-typed) of every public `verify_*` entrypoint found `verify_tlog_proof` raising a raw
+  `TypeError` on a non-str `text` (and `BundleFormatError` on a bad `threshold`), `verify_key_binding` a raw
+  `AttributeError` on a non-str `compact`, `verify_sd_jwt` a raw `AttributeError` on a non-str `compact`, and
+  `verify_commitment` a raw `AttributeError` on a non-str presented `identifier`. All four now return a
+  fail-closed verdict / `False` for those inputs. The remaining verifiers swept clean (`verify_inclusion` /
+  `verify_consistency` return `bool` on hostile well-typed input, type-confusion there is a caller error not
+  an untrusted-wire path; `verify_witnessed_checkpoint` / `verify_sample_opening` already typed-reject).
+- **PB-2026-0717-08 (P1) legacy assurance booleans overstate:** `action_outcome_proven` / `evidence_bound`
+  (decision) and `execution_proven` / `receiver_bound` (outcome) are digest-presence booleans, now
+  **deprecated** in favour of the `evidence_levels` ladder (a deprecation warning fires on an
+  over-claim); fields retained for backward compat.
+
+### Changed / Added
+- **CI: `published-artifact-gate` no longer fails at startup (P3, PR #102 integrated):** the
+  `reusable-attest-dryrun` job now declares the `id-token: write` + `attestations: write` permissions its
+  called reusable workflow needs (a called workflow cannot exceed the workflow-wide `contents: read`, which
+  refused the run at job level, reproduced daily as a "Startup failure"), plus a fork-PR guard. CI-only, no
+  package change; the reusable workflow is unchanged.
+- **PB-2026-0718-11 (P1) cross-format comparator passed vacuously on singleton groups:** the conformance
+  corpus-integrity check grouped cases by `crossFormatId` and SKIPPED any group with fewer than two members
+  — but all six `xfmt-*` groups had exactly one member, so the "the same scenario agrees across formats"
+  check was vacuously true and reported ok=true while verifying nothing. A singleton `crossFormatId` is now
+  a fail-closed problem (a cross-format id must link >= 2 format representations), and the six ids now link
+  their decision AND outcome encodings (which agree on every shared axis), so the comparator is non-vacuous.
+  RT-07: a sweep confirmed `cross_format.py` was the only group-by-id comparator with the skip-on-<2 pattern.
+- **PB-2026-0718-15 (P2) Rust second-verifier failed cargo fmt / clippy -D warnings:** the Rust tree was
+  not `cargo fmt`-clean and `cargo clippy -D warnings` failed (a collapsible-match in the same-key
+  fail-closed branch, a redundant closure). Applied `cargo fmt` + the two machine-applicable clippy fixes
+  (cosmetic / semantically-identical, no behavior change — verified by the 56/56 Python↔Rust crosscheck).
+  A deterministic CI fmt/clippy gate is now wired (Teil-5): `tools/pb_verify_rs/rust-toolchain.toml` pins the
+  exact toolchain (1.95.0 + rustfmt + clippy), so rustup installs the same rustfmt/clippy the code was
+  formatted with — no version drift disagreeing on line breaks at main.rs:1132/1496. `cargo fmt --check` +
+  `cargo clippy --all-targets -D warnings` run in the rust-parity job and are clean under the pinned toolchain.
+- **PB-2026-0718-16 (P2) merkle-path step budget was not enforced on the direct dict path:** the
+  `merkle_path` budget (256) existed but was checked nowhere — `verify_inclusion` / `verify_consistency` ran
+  a per-step hash loop over an unbounded `proof` list, and the 8 MiB `input_bytes` byte-proxy never applies
+  when a bundle is passed as a dict (no bytes to measure). A proof over the budget (257 / 4096 / 65536 steps)
+  now fails closed in the verification core, effective on the direct dict path (RT-09); a non-list proof or
+  non-int tree size is fail-closed too (no raw comparison crash). A legitimate `<= log2(tree_size)` proof is
+  unaffected. RT-09 extended (Teil-5): the node-count + nesting-depth structural budget (not only the
+  merkle-path step budget) is now enforced on the direct-dict `verify_bundle(dict)` path via
+  `_strict_json.enforce_structural_budget`, called at the direct-dict entry — the 8 MiB input-bytes cap is a
+  file proxy that is inert on an already-parsed dict, so a hostile over-limit dict (nested past json_depth 64,
+  or over json_nodes 200000) is now a fail-closed BudgetExceeded / BundleFormatError verdict, never a raw
+  RecursionError. Verified: depths 257/4096/65536 and 250000 nodes all rejected; a deep-nesting sweep over all
+  public verify surfaces at recursionlimit 3000 escapes 0 raw RecursionError. A Berkeley re-gate then closed
+  the last inert dimension: `string_len` (a single oversized JSON string/key value) is now enforced inside
+  `enforce_structural_budget` too, restoring rejection parity between the str/file path (input_bytes) and the
+  direct-dict path for a ~13 MB `payload_b64` value (RT-BDOS-01).
+- **PB-2026-0718-14 (P1) audit-candidate "0 open P0/P1" was a stale-substring false-pass (RT-10):**
+  `scripts/audit_candidate_matrix.py` C12.2 derived PASS from a lexical "0 open P0/P1" line in a version-scoped
+  .md, with no freshness / supersession / signature / contradiction check — a STALE record that still said
+  "0 open" granted PASS while current open P0/P1 existed (false_accept=true). Replaced by a signed, structured
+  findings register (`audit_artifacts/findings_register_361.json`): C12.2 now counts from structured
+  severity+status fields, requires a valid ed25519 signature by the pinned key (absent / tampered / foreign-key
+  / empty → FAIL, never PASS or PENDING), resolves supersession current-wins, treats a contradiction as ERROR,
+  and carries the RT-10 triple `(population_size, evaluated_count, source_digest)` with `evaluated_count==0`
+  → FAIL. Self-attested (independent verifier + tamper-evidence; private key gitignored, committed pubkey
+  pinned). A Berkeley re-gate hardened this: a finding can no longer be SILENTLY DROPPED from the count — a
+  dangling `superseded_by` (target absent), a self-supersession, or a non-string id is an anomaly that fails
+  closed (was a fail-open that let a validly-signed register hide an open P0 and still report 0 open);
+  severity is upper-folded and status counts closed only when exactly `closed`. Bidirectional meta-test in
+  `tests/test_findings_register_rt10.py`.
+- **PB-2026-0718-17 (P1) never-raise RecursionError via the anchor verify-pack on the direct-dict path:**
+  covered by the RT-09 structural-depth budget above — a deeply-nested anchor/bundle dict handed directly to a
+  public verify surface is depth-capped before the walk, so no raw RecursionError escapes on any supported
+  interpreter (the `loads_strict` depth cap only covered the parse path; the direct-dict path was the residual
+  gap that this closes).
+- **PB-2026-0717-05 (P1):** conformance corpus gains normative subject-pin negative-state vectors
+  `relation/target-subject-missing` + `relation/target-subject-ambiguous` (independent SPEC oracle).
+- **PB-2026-0717-02 (P1):** `MANIFEST.in` ships the tests' runtime assets in the sdist (fixtures,
+  schemas, examples, conformance, formal, scripts) → a fresh-from-sdist pytest collects with 0 errors
+  (was 13); the Rust tree is excluded (not a Python-sdist artifact).
+- **PB-2026-0717-03 (P2):** byte-reproducible sdist regression test over the existing F2 normaliser
+  (`scripts/build_reproducible.py --check` proves two clean builds are byte-identical). The published
+  3.6.0 predates F2 and is honestly NOT byte-reproducible.
+
 ## [3.6.0] - 2026-07-17 (audit-candidate, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.0 is **NOT** stable, audited, or production-ready. The only

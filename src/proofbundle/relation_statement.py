@@ -27,13 +27,13 @@ import re
 from typing import Any
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError, ProofBundleError
+from .errors import ProofBundleError
 
 RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _REQUIRED = ("schemaVersion", "statementId", "relationships")
 _ALLOWED_TOP = set(_REQUIRED)
@@ -153,6 +153,14 @@ def _empty_result() -> dict:
     }
 
 
+def _finalize_failclosed(r: dict) -> dict:
+    """RE-GATE never-raise (REGATE-BUDGET-01 / RE-TCE-01): a crypto/budget/parse failure over untrusted
+    input yields ok=False — a fail-closed verdict dict, never a raw exception out of this dict-returning
+    verify surface (mirrors decision/outcome). relation-statement carries no separate automation field."""
+    r["ok"] = False
+    return r
+
+
 def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool = False,
                               require_derived_subject: bool = False,
                               related: dict | None = None, policy: dict | None = None) -> dict:
@@ -185,22 +193,23 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     r = _empty_result()
     related = related if isinstance(related, dict) else None
 
-    r["crypto_ok"] = bool(dsse.verify_envelope(
-        envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
-    if not r["crypto_ok"]:
-        r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-    body = dsse.load_payload(envelope)
-    DEFAULT_BUDGET.check("input_bytes", len(body))
     try:
+        # RE-GATE never-raise (REGATE-BUDGET-01 / RE-TCE-01): crypto verify + body load + input_bytes budget
+        # + strict parse inside the never-raise try; the except catches ProofBundleError so an oversized/wide/
+        # malformed untrusted envelope yields a fail-closed verdict, never a raw uncaught BudgetExceeded (a
+        # ProofBundleError sibling of BundleFormatError the old narrow except let escape) out of this
+        # dict-returning verify surface (mirrors decision/outcome).
+        r["crypto_ok"] = bool(dsse.verify_envelope(
+            envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)
+        DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
-    except BundleFormatError:
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
-        r["errors"].append("DSSE payload rejected (duplicate JSON key or malformed)")
-        raise
-    except (ValueError, UnicodeDecodeError) as exc:
-        r["structure_ok"] = False
-        r["errors"].append("DSSE payload is not a JSON in-toto Statement")
-        raise BundleFormatError("DSSE payload is not a JSON in-toto Statement") from exc
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        return _finalize_failclosed(r)
 
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == RELATION_STATEMENT_PREDICATE_TYPE
@@ -220,12 +229,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
             canonical_ok = False
         if canonical_ok is False:
             r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
-    elif strict:
-        r["errors"].append(
-            "cannot verify RFC-8785 canonicality (install proofbundle[eval]); fail-closed in strict mode")
     else:
-        r["warnings"].append("rfc8785 not installed: hash_binding canonicality not checked")
-    canonicality_ok = canonical_ok is True or (canonical_ok is None and not strict)
+        # PB06-RELSTMT-CANON-FAILOPEN (rfc8785 is now a declared CORE dependency): an absent canonicalizer is
+        # a broken install, not a lenient mode — fail closed REGARDLESS of strict (mirrors decision.py). The
+        # old `canonical_ok is None and not strict` branch let a payload whose canonicality could not be
+        # verified pass with ok=True in default mode (a False Accept the decision sibling already closed).
+        r["errors"].append(
+            "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
+            "hash_binding fail-closed, cannot verify canonicality")
+    canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
     if isinstance(predicate, dict) and r["crypto_ok"]:
@@ -277,7 +289,13 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     # (require_relation_resolution / relation_signer / require_relation_target). The successor issuer
     # key is the STATEMENT's own signing key (--pub). Plus the ONE standalone extension:
     # reject_retracted / reject_superseded fire on the statement's OWN verified assertion.
-    if policy is not None and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if policy is not None and not isinstance(policy, dict):
+        # RE-GATE never-raise (REGATE-CRYPTO-RELSTMT-POLICY / mirror decision.py + outcome.py): a caller-
+        # supplied non-dict `policy` (a JSON scalar or list) must be a fail-closed policy verdict, not a raw
+        # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
+    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
         relations = policy["relations"]
         _viol = evaluate_relations_policy(

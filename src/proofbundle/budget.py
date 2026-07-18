@@ -59,6 +59,14 @@ class VerificationBudget:
                                (a coarse proxy for "how much did the parser have to walk", independent of
                                ``json.loads``'s own C-recursion depth limit, which ``_strict_json`` already
                                maps to a clean error).
+    * ``json_depth``        — maximum nesting depth of one parsed JSON document, enforced EXPLICITLY by
+                               ``_strict_json`` so the bounded-depth guarantee holds interpreter-independently
+                               (CPython <=3.11 raises ``RecursionError`` on deep nesting, but 3.12+ accepts
+                               far deeper input without raising — relying on the exception alone left the
+                               guarantee version-dependent, PB-2026-0718-11b). Sized comfortably above any
+                               legitimate document (repo max observed depth = 9) yet far below CPython's own
+                               ~1000-frame recursion limit, so downstream recursive walks (JCS
+                               canonicalization) stay safe too.
     * ``string_len``        — length of a single JSON string value.
     * ``signatures``        — DSSE / threshold-signature entries on one envelope. Sized to admit a
                                legitimate TWO-STAGE ROTATION envelope (``trust_pack``'s rotation reuses ONE
@@ -78,6 +86,7 @@ class VerificationBudget:
 
     input_bytes: int = 8 * 1024 * 1024
     json_nodes: int = 200_000
+    json_depth: int = 64
     string_len: int = 1_000_000
     signatures: int = 512
     merkle_path: int = 256

@@ -24,16 +24,34 @@ a deployment choice, not built in here.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
+
+from .errors import ProofBundleError
 
 __all__ = ["prereg_hash", "verify_prereg"]
 
 
 def prereg_hash(protocol_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the protocol file — the value to
-    place in a claim's ``prereg_sha256`` BEFORE running the eval."""
-    data = Path(protocol_path).read_bytes()
-    return hashlib.sha256(data).hexdigest()
+    place in a claim's ``prereg_sha256`` BEFORE running the eval.
+
+    6-lens gate L2-01: the read is bounded to the same ``input_bytes`` (8MiB) budget the JSON loader uses
+    and STREAMED into hashlib, so an oversized/infinite protocol path cannot exhaust memory. Byte-exact
+    hashing is unchanged; an over-cap file raises :class:`BundleFormatError` (fail-closed)."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .errors import BundleFormatError  # noqa: PLC0415
+    cap = DEFAULT_BUDGET.input_bytes
+    h = hashlib.sha256()
+    total = 0
+    with open(protocol_path, "rb") as fh:
+        while True:
+            chunk = fh.read(1 << 16)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > cap:
+                raise BundleFormatError(f"protocol file exceeds the {cap}-byte read budget (DoS guard)")
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def verify_prereg(protocol_path, claim: dict) -> dict:
@@ -48,7 +66,15 @@ def verify_prereg(protocol_path, claim: dict) -> dict:
     if expected is None:
         result["detail"] = "claim carries no prereg_sha256 (not pre-registered)"
         return result
-    actual = prereg_hash(protocol_path)
+    try:
+        actual = prereg_hash(protocol_path)
+    except (OSError, TypeError, ValueError, ProofBundleError):
+        # 6-lens gate L2-01: a missing / directory / None / NUL / surrogate / over-cap protocol_path raised a
+        # raw FileNotFoundError/IsADirectoryError/TypeError/ValueError/BundleFormatError from the file read.
+        # This exported never-raise surface returns a fail-closed verdict (present, no match) instead of
+        # crashing a caller — mirroring the sibling verify_evaluation_card (L1-01).
+        result["detail"] = "protocol file could not be read (missing/unreadable/over-limit path)"
+        return result
     result["actual"] = actual
     if actual == expected:
         result["ok"] = True

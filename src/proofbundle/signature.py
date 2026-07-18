@@ -34,7 +34,12 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     if len(public_key) != 32 or len(signature) != 64:
         return False
     try:
-        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, message)
+        # CB-01 (RE-GATE never-raise): the isinstance guard admits a bytearray, but
+        # Ed25519PublicKey.from_public_bytes / .verify require exact ``bytes`` and raise a raw TypeError on a
+        # bytearray — which escaped every DSSE verify_* entrypoint (decision/outcome/…) as an uncaught crash,
+        # defeating their never-raise contract. Coerce to bytes so a VALID bytearray key/sig VERIFIES
+        # (correct) rather than crashing; mirrors verify_ecdsa_p256, which already coerces.
+        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), message)
         return True
     except (InvalidSignature, ValueError):
         return False
