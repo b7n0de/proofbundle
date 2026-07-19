@@ -1,0 +1,43 @@
+{
+  "format": "tlog-bitcoin-anchor conformance vectors",
+  "note": "committed note body sha256 = 7208a041bc85370dcb295cafc1699e935a3dea2f9414278c869c848c0752852b",
+  "vectors": [
+    {
+      "file": "01-valid.txt",
+      "desc": "real anchor + grease line, shuffled",
+      "expect": {
+        "known_anchors": 1,
+        "ignored": 1,
+        "binding": true,
+        "reject": false
+      }
+    },
+    {
+      "file": "02-unknown-id.txt",
+      "desc": "only an unknown-identifier anchor; forward-compat",
+      "expect": {
+        "known_anchors": 0,
+        "ignored": 1,
+        "reject": false
+      }
+    },
+    {
+      "file": "03-tampered-body.txt",
+      "desc": "root hash altered; note body no longer matches proof",
+      "expect": {
+        "known_anchors": 1,
+        "binding": false,
+        "reject": true
+      }
+    },
+    {
+      "file": "04-tampered-proof.txt",
+      "desc": "OTS proof corrupted",
+      "expect": {
+        "known_anchors": 1,
+        "binding": false,
+        "reject": true
+      }
+    }
+  ]
+}

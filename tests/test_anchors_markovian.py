@@ -168,5 +168,132 @@ class TestMarkovianThroughGenericLayer(unittest.TestCase):
         self.assertEqual(res["status"], "FAIL")
 
 
+# ── Cross-implementation: the upstream C2SP tlog-bitcoin-anchor corpus ────────────────────────────────
+# Vendored (pure data, digest-pinned) from MarkovianProtocol/tlog-bitcoin-anchor @ aaea18d. proofbundle's
+# OWN note-body canonicalization (checkpoint.py) + OpenTimestamps binding verifier (anchors_ots.py) act as
+# a SECOND, independent implementation of the spec: they must reproduce the upstream expected outcomes over
+# these vectors, fully offline (no calendar, no Bitcoin node). See docs/ANCHORS_MARKOVIAN.md and
+# tests/fixtures/anchors/tlog_bitcoin_anchor/{MANIFEST.json,README.md}.
+_TLOG_FIXDIR = pathlib.Path(__file__).parent / "fixtures" / "anchors" / "tlog_bitcoin_anchor"
+_TLOG_KEY_NAME = "markovianprotocol.com/bitcoin-anchor"
+_TLOG_SIG_TYPE = 0xFF
+_TLOG_IDENTIFIER = b"markovianprotocol.com/bitcoin-anchor/ots/v1"
+_TLOG_NOTE_BODY_SHA256 = "7208a041bc85370dcb295cafc1699e935a3dea2f9414278c869c848c0752852b"
+
+
+def _tlog_read(name: str) -> str:
+    return (_TLOG_FIXDIR / "vectors" / name).read_text()
+
+
+def _tlog_expected_key_id(identifier: bytes) -> bytes:
+    # spec: key ID = SHA-256(<key name> || 0x0A || 0xff || <identifier>)[:4]
+    return hashlib.sha256(_TLOG_KEY_NAME.encode() + b"\x0a" + bytes([_TLOG_SIG_TYPE]) + identifier).digest()[:4]
+
+
+def _tlog_known_anchor_proofs(text: str):
+    """(known_ots_proofs, ignored_count) for the checkpoint's anchor lines. Data extraction only (no
+    verification): a line under OUR key name is decoded to key ID || 0xff || len || identifier || ots; it is
+    a KNOWN anchor iff the key ID and identifier match this spec, else it is IGNORED (unknown id / grease)."""
+    sig_block = text.split("\n\n", 1)[1]
+    known, ignored = [], 0
+    for line in sig_block.splitlines():
+        if not line.startswith(f"— {_TLOG_KEY_NAME} "):   # U+2014 EM DASH signature line under our key name
+            continue
+        try:
+            payload = base64.b64decode(line.split(" ", 2)[2])
+            kid, stype, idlen = payload[:4], payload[4], payload[5]
+            ident, opaque = payload[6:6 + idlen], payload[6 + idlen:]
+            if stype == _TLOG_SIG_TYPE and kid == _tlog_expected_key_id(ident) and ident == _TLOG_IDENTIFIER:
+                known.append(opaque)
+            else:
+                ignored += 1                                   # unknown identifier / grease -> ignore
+        except Exception:
+            ignored += 1
+    return known, ignored
+
+
+def _tlog_our_note_body_root(text: str) -> bytes:
+    """The checkpoint note-body root as proofbundle derives it — via the PUBLIC C2SP checkpoint API
+    (parse the note, re-serialize origin/tree_size/root through checkpoint_note), then SHA-256. This is our
+    canonicalization, not a raw slice of the vendored bytes, so it genuinely re-derives the committed root."""
+    from proofbundle import checkpoint
+    dummy = checkpoint.vkey("dummy-verifier", bytes(32))          # ok=False (no matching sig) but parses fields
+    parsed = checkpoint.verify_checkpoint(text, dummy)
+    note = checkpoint.checkpoint_note(parsed["origin"], parsed["tree_size"], parsed["root"])
+    return hashlib.sha256(note.encode("utf-8")).digest()
+
+
+class TestTlogBitcoinAnchorVectorsManifest(unittest.TestCase):
+    """G1 mechanism: every vendored file is digest-pinned; a single changed byte fails this test."""
+
+    def test_tlog_bitcoin_vectors_manifest_digests_pinned(self):
+        manifest = json.loads((_TLOG_FIXDIR / "MANIFEST.json").read_text())
+        for entry in manifest["files"]:
+            path = _TLOG_FIXDIR / entry["path"]
+            got = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(got, entry["sha256"],
+                             f"vendored {entry['path']} drifted from its MANIFEST digest pin")
+        up = manifest["upstream"]                               # No-Fake provenance / attribution present
+        self.assertEqual(up["commit"], "aaea18da69eb76b37df6c2ea2e262d4aa99cf01f")
+        self.assertEqual(up["license"], "MIT")
+        self.assertEqual(manifest["committed_note_body_sha256"], _TLOG_NOTE_BODY_SHA256)
+
+
+@unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
+class TestTlogBitcoinAnchorVectors(unittest.TestCase):
+    def setUp(self):
+        from proofbundle.anchors_ots import verify_opentimestamps
+        self.verify_ots = verify_opentimestamps
+
+    def test_01_valid_binds_through_our_derivation(self):
+        text = _tlog_read("01-valid.txt")
+        root = _tlog_our_note_body_root(text)
+        # our canonicalization reproduces the upstream committed note-body digest
+        self.assertEqual(root.hex(), _TLOG_NOTE_BODY_SHA256)
+        known, ignored = _tlog_known_anchor_proofs(text)
+        self.assertEqual(len(known), 1)                        # one known-identifier anchor
+        self.assertEqual(ignored, 1)                           # the grease line is ignored, not rejected
+        # SECOND-IMPLEMENTATION check: the independently-built OTS proof commits EXACTLY our derived root
+        res = self.verify_ots(known[0], root, frozen={})
+        self.assertNotIn(res["status"], ("unbound", "malformed"))   # binding holds under our verifier
+        # offline, with no relying-party Bitcoin header, an upgraded proof is honestly not-a-pass
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["status"], "needs_rp_trust")
+        # teeth: a WRONG root is rejected as unbound — proves the binding actually checks
+        self.assertEqual(self.verify_ots(known[0], b"\x00" * 32, frozen={})["status"], "unbound")
+
+    def test_02_unknown_id_is_ignored_not_rejected(self):
+        text = _tlog_read("02-unknown-id.txt")
+        known, ignored = _tlog_known_anchor_proofs(text)
+        self.assertEqual(len(known), 0)                        # no anchor of our identifier to verify
+        self.assertEqual(ignored, 1)                           # unknown-id line ignored (forward-compat), not a rejection
+        # an unknown anchor never corrupts the note body; our canonicalization still derives the same root
+        self.assertEqual(_tlog_our_note_body_root(text).hex(), _TLOG_NOTE_BODY_SHA256)
+
+    def test_03_tampered_body_fails_closed(self):
+        text = _tlog_read("03-tampered-body.txt")
+        root = _tlog_our_note_body_root(text)
+        # the altered root-hash line makes our derived note-body root differ from the committed one
+        self.assertNotEqual(root.hex(), _TLOG_NOTE_BODY_SHA256)
+        known, _ = _tlog_known_anchor_proofs(text)
+        self.assertEqual(len(known), 1)
+        res = self.verify_ots(known[0], root, frozen={})
+        self.assertFalse(res["ok"])
+        self.assertFalse(res["warn"])
+        self.assertEqual(res["status"], "unbound")             # note body no longer binds the proof
+
+    def test_04_tampered_proof_fails_closed(self):
+        text = _tlog_read("04-tampered-proof.txt")
+        root = _tlog_our_note_body_root(text)
+        # the body is intact, so our derived root is the genuine committed one
+        self.assertEqual(root.hex(), _TLOG_NOTE_BODY_SHA256)
+        known, _ = _tlog_known_anchor_proofs(text)
+        self.assertEqual(len(known), 1)
+        res = self.verify_ots(known[0], root, frozen={})
+        self.assertFalse(res["ok"])
+        self.assertFalse(res["warn"])
+        self.assertIn(res["status"], ("unbound", "malformed"))  # corrupted proof no longer commits our root
+
+
 if __name__ == "__main__":
     unittest.main()
