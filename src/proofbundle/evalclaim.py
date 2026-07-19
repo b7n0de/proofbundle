@@ -140,6 +140,11 @@ def load_claim_text(text: str) -> dict:
     ``except (ValueError, EvalClaimError)`` handling at the call sites — including the batch
     verifier ``hf_evals.verify_eval_results_entry`` — stays correct and never crashes."""
     from ._strict_json import loads_strict  # noqa: PLC0415
+    if not isinstance(text, (str, bytes, bytearray)):
+        # Berkeley re-gate round 8: a non-str/bytes primary makes loads_strict's len(text)/json.loads(text)
+        # raise a raw TypeError BEFORE any typed path — this public load_ primitive's docstring promises
+        # "never a raw traceback", so a type-confused input maps to the documented EvalClaimError.
+        raise EvalClaimError(f"claim text must be str or bytes, got {type(text).__name__} (malformed)")
     try:
         return loads_strict(text)
     except ProofBundleError as e:

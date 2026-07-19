@@ -98,18 +98,39 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     checked, so this composes with a top-level ``additionalProperties:false`` rather than duplicating it.
     Fail-closed usage: declare every nested object whose closure matters; an undeclared key under a declared
     path is a violation (a versioned extensions container is the sanctioned way to extend)."""
+    # Berkeley re-gate round 8: ITERATIVE (explicit stack), not recursive — a relying party that calls this
+    # public validator directly on a deeply-nested predicate obtained WITHOUT loads_strict (a REST body
+    # json.loads'd by an integrator) would otherwise get a raw RecursionError, violating the
+    # validate/require_valid contract. The CLI + DSSE paths are already loads_strict depth-bounded (64); this
+    # closes the direct-primitive path. Bounded at the same json_depth / json_nodes budget so a hostile deep or
+    # node-heavy structure is a FAIL-CLOSED violation (a returned error string), never a crash. DFS pre-order is
+    # preserved (children pushed reversed) so the reported violation order is unchanged for legitimate inputs.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
-    if isinstance(obj, dict):
-        allowed = allowed_map.get(path)
-        if allowed is not None:
-            for k in obj:
-                if k not in allowed:
-                    out.append(f"{path or '<root>'}.{k}: undeclared nested key (nested closure violated)")
-        for k, v in obj.items():
-            child = f"{path}.{k}" if path else k
-            out.extend(nested_closure_violations(v, allowed_map, path=child))
-    elif isinstance(obj, list):
-        item_path = f"{path}[]"
-        for v in obj:
-            out.extend(nested_closure_violations(v, allowed_map, path=item_path))
+    stack: list[tuple[Any, str, int]] = [(obj, path, 0)]
+    nodes = 0
+    while stack:
+        cur, cur_path, depth = stack.pop()
+        nodes += 1
+        if nodes > max_nodes:
+            out.append("<root>: structure exceeds the validation node budget (nested closure fail-closed)")
+            break
+        if depth > max_depth:
+            out.append(f"{cur_path or '<root>'}: nesting exceeds the validation depth budget "
+                       "(nested closure fail-closed)")
+            continue  # do not descend past the depth bound
+        if isinstance(cur, dict):
+            allowed = allowed_map.get(cur_path)
+            if allowed is not None:
+                for k in cur:
+                    if k not in allowed:
+                        out.append(f"{cur_path or '<root>'}.{k}: undeclared nested key (nested closure violated)")
+            for k, v in reversed(list(cur.items())):
+                child = f"{cur_path}.{k}" if cur_path else k
+                stack.append((v, child, depth + 1))
+        elif isinstance(cur, list):
+            item_path = f"{cur_path}[]"
+            for v in reversed(cur):
+                stack.append((v, item_path, depth + 1))
     return out
