@@ -104,6 +104,32 @@ class PolicyLoadBoundedRead(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
+    def test_wide_policy_under_byte_cap_is_policy_error_not_raw_budget_exceeded(self):
+        # Berkeley re-gate round 2: a small (< byte cap) but node-heavy policy trips loads_strict's SIBLING
+        # BudgetExceeded (a ProofBundleError that is NOT BundleFormatError) — the except must catch the BASE.
+        import json
+        import os
+        import tempfile
+        from proofbundle.policy import PolicyError, load_policy
+        wide = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "x",
+                "allowed_schema_versions": list(range(200_001))}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(wide, f)
+            tmp = f.name
+        try:
+            with self.assertRaises(PolicyError):
+                load_policy(tmp)
+        finally:
+            os.unlink(tmp)
+
+
+class CliMainCatchAllBackstop(unittest.TestCase):
+    def test_escaping_proofbundle_error_maps_to_exit_2(self):
+        # Berkeley re-gate round 2: anchor inspect's own except does not catch BundleFormatError; the
+        # main() backstop must map any escaping ProofBundleError sibling to a clean exit 2, not a traceback.
+        from proofbundle.cli import main
+        self.assertEqual(main(["anchor", "inspect", "/dev/zero"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

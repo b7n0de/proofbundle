@@ -285,7 +285,11 @@ def load_policy(source: Union[str, dict]) -> dict:
                 if len(_raw) > _cap:
                     raise BundleFormatError(f"policy file exceeds the {_cap}-byte input_bytes budget (fail-closed)")
                 policy = loads_strict(_raw)
-        except (OSError, ValueError, BundleFormatError) as exc:
+        except (OSError, ValueError, ProofBundleError) as exc:
+            # Berkeley re-gate (3.6.2): catch the BASE ProofBundleError, not just BundleFormatError — a
+            # wide-but-small or oversized-string policy trips loads_strict's SIBLING BudgetExceeded
+            # (json_nodes / string_len, ProofBundleError-derived but not BundleFormatError), which would
+            # otherwise escape load_policy's "raises PolicyError on anything malformed" contract.
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object

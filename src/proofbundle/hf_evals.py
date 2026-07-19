@@ -123,7 +123,15 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not isinstance(token, str) or not token:
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
         return out
-    result, bundle = verify_receipt_token(token)
+    # Berkeley re-gate (3.6.2): honour this surface's OWN never-raise contract (comment above: "a malformed
+    # token is reported, not raised"). verify_receipt_token raises BundleFormatError (a ProofBundleError) on a
+    # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
+    # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.
+    try:
+        result, bundle = verify_receipt_token(token)
+    except ProofBundleError as exc:
+        out["detail"] = f"malformed verifyToken — not verifiable, fail-closed ({exc})"
+        return out
     out["crypto_ok"] = bool(result.ok)
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"

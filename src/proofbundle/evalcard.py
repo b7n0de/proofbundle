@@ -25,7 +25,6 @@ unknown-field guard), not silently ignore it.
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 
 __all__ = ["evaluation_card_hash", "verify_evaluation_card"]
 
@@ -33,8 +32,15 @@ __all__ = ["evaluation_card_hash", "verify_evaluation_card"]
 def evaluation_card_hash(card_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the Eval Card document — the value to
     place in a claim's ``evaluation_card_sha256`` when signing the receipt."""
-    data = Path(card_path).read_bytes()
-    return hashlib.sha256(data).hexdigest()
+    # Berkeley re-gate (3.6.2): hash in 1 MiB chunks instead of read_bytes() — an Eval Card may legitimately
+    # be large (so it is not capped like an untrusted verify input), but read_bytes() on `--card /dev/zero`
+    # (reached from verify_evaluation_card and the CLI evalcard --card <path>) grew unbounded to a raw
+    # MemoryError that escaped both the library and CLI handlers. Chunked hashing bounds memory at any size.
+    h = hashlib.sha256()
+    with open(card_path, "rb") as _handle:
+        for _chunk in iter(lambda: _handle.read(1 << 20), b""):
+            h.update(_chunk)
+    return h.hexdigest()
 
 
 def verify_evaluation_card(card_path, claim: dict) -> dict:

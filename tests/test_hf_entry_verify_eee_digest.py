@@ -41,8 +41,13 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
     def test_tampered_token_fails_crypto(self):
         entry = to_eval_results_entry(_receipt(), dataset_id="d/x", task_id="t", value=0.9)
         entry["verifyToken"] = entry["verifyToken"][:-6] + "AAAAAA"
-        with self.assertRaises(BundleFormatError):
-            verify_eval_results_entry(entry)   # not valid zlib/json anymore → malformed
+        # Berkeley re-gate (3.6.2): a malformed token (not valid zlib/json anymore) is REPORTED fail-closed,
+        # not raised — a batch verifier over an untrusted list must not crash (consistent with the sibling
+        # missing-token test). Previously this enshrined the never-raise-contract violation as expected.
+        res = verify_eval_results_entry(entry)
+        self.assertIsNot(res["ok"], True)
+        self.assertFalse(res["crypto_ok"])
+        self.assertIn("not verifiable", res["detail"])
 
     def test_missing_token_is_fail_closed_not_a_raise(self):
         # verifyToken is OPTIONAL in the HF schema (six-lens review): a batch verifier over a mixed

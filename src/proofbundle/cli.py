@@ -894,7 +894,10 @@ def _cmd_emit(args: argparse.Namespace) -> int:
         return 2
 
     with open(args.payload_file, "rb") as handle:
-        payload = _read_capped_bytes(handle)
+        # NOT capped (Berkeley re-gate 3.6.2): this is `emit` — the operator signs their OWN payload, which
+        # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
+        # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+        payload = handle.read()
 
     bundle = emit_bundle(payload, signer)
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -2752,7 +2755,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ProofBundleError as exc:
+        # Never-raise backstop (bug-hunt 3.6.2, Berkeley re-gate): NO ProofBundleError sibling
+        # (BundleFormatError / BudgetExceeded / PQUnavailable / EvalClaimError / …) may escape the CLI as a
+        # raw traceback. A per-command handler that catches only a subclass (or misses a step) would
+        # otherwise leak one on hostile input; an uncaught format/budget/verify error is a malformed-input
+        # class → clean exit 2. Per-command handlers keep their specific exit codes (1 fail / 3 policy);
+        # this only catches what escapes them.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover
