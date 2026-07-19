@@ -459,6 +459,11 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     counts as non-verifying (False), never a raw UnsupportedError out of the batch (Berkeley re-gate round 5)."""
     keys_ok = set()
     witnesses = {}
+    # Berkeley re-gate round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
+    # public_transparency.evaluate_public_transparency both funnel witness_vkeys into this loop; a non-iterable
+    # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
+    if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
+        return False, {}
     for wv in witness_vkeys:
         try:
             res = verify_cosignature(signed_note, wv)

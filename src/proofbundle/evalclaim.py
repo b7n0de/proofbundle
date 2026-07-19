@@ -449,6 +449,16 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
         # None (decode returns None on a non-eval bundle) straight into claim.get(...) — a raw AttributeError.
         # A non-dict claim is a fail-closed "not parsed" verdict, never a crash.
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "claim is not a dict"}
+    # Berkeley re-gate round 4 (G1 non-primary args): the primary `claim` was guarded, but a non-datetime
+    # `now` reached `ref.tzinfo` (AttributeError) and a non-numeric `max_age_seconds` reached `0 <= age <= ...`
+    # (TypeError) — both are natural RP/policy mis-values (policy.evaluate_policy forwards the untrusted
+    # max_iat_age_seconds straight in). A malformed config arg is a fail-closed "not parsed" verdict, never a crash.
+    if now is not None and not isinstance(now, datetime):
+        return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "invalid 'now' (not a datetime)"}
+    if max_age_seconds is not None and (isinstance(max_age_seconds, bool)
+                                        or not isinstance(max_age_seconds, (int, float))):
+        return {"parsed": False, "age_seconds": None, "fresh": None,
+                "reason": "invalid 'max_age_seconds' (not a number)"}
     ts = claim.get("timestamp")
     if not isinstance(ts, str):
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "no timestamp"}

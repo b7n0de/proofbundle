@@ -451,7 +451,8 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     edges = edges if isinstance(edges, list) else []
 
     # (1) require_relation_resolution — a named relation that APPEARS as an edge must VERIFY.
-    req = relations_section.get("require_relation_resolution") or []
+    _req = relations_section.get("require_relation_resolution")  # Berkeley re-gate round 4: non-list guard ('in')
+    req = _req if isinstance(_req, (list, tuple)) else []
     for e in edges:
         if e.get("relation") in req and e.get("resolution") != LINEAGE_VERIFIED:
             out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
@@ -464,7 +465,8 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                     "message": f"reject_superseded: {lineage_result['supersededByAttached']}"})
 
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
-    signer = relations_section.get("relation_signer") or {}
+    _signer = relations_section.get("relation_signer")  # Berkeley re-gate round 4: non-dict guard (.get below)
+    signer = _signer if isinstance(_signer, dict) else {}
     for e in edges:
         rule = signer.get(e.get("relation"))
         if not isinstance(rule, dict):

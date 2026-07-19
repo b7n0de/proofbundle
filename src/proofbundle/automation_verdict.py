@@ -92,7 +92,10 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     crypto_key = required_checks.get("crypto")
     structure_key = required_checks.get("structure")
     policy_key = required_checks.get("policy")
-    reference_keys: Sequence[str] = required_checks.get("references") or ()
+    # Berkeley re-gate round 4: the top-level Mapping args were guarded, but a truthy non-iterable
+    # required_checks['references'] (int/bool/object) survived `... or ()` and crashed the iteration below.
+    _refs = required_checks.get("references")
+    reference_keys: Sequence[str] = _refs if isinstance(_refs, (list, tuple)) else ()
 
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)

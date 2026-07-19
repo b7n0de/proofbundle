@@ -183,11 +183,12 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     never a vacuous strong verdict over an empty set)."""
     # Berkeley re-gate: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
-    applicable = [f for f in fields if isinstance(f, dict) and f.get("level") is not None]
+    applicable = [f for f in fields
+                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     weakest = min(applicable, key=lambda f: f["level"])
-    return {"level": weakest["level"], "level_name": weakest["level_name"], "fields": list(fields)}
+    return {"level": weakest.get("level"), "level_name": weakest.get("level_name"), "fields": list(fields)}
 
 
 def evidence_ladder_best(*fields: dict) -> dict:
@@ -198,8 +199,9 @@ def evidence_ladder_best(*fields: dict) -> dict:
     is applicable, returns ``level=None``."""
     # Berkeley re-gate: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
-    applicable = [f for f in fields if isinstance(f, dict) and f.get("level") is not None]
+    applicable = [f for f in fields
+                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     strongest = max(applicable, key=lambda f: f["level"])
-    return {"level": strongest["level"], "level_name": strongest["level_name"], "fields": list(fields)}
+    return {"level": strongest.get("level"), "level_name": strongest.get("level_name"), "fields": list(fields)}

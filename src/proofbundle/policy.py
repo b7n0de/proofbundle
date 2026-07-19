@@ -581,8 +581,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
                       "decision verify path (wrong purpose, fail-closed)")
 
     # predicateType allow-list (confusion defense at the policy layer)
-    apt = section.get("accepted_predicate_types")
-    if apt and statement.get("predicateType") not in apt:
+    apt = section.get("accepted_predicate_types")  # Berkeley re-gate round 4: guard non-iterable apt ('in' crash)
+    if isinstance(apt, (list, tuple)) and statement.get("predicateType") not in apt:
         errors.append(f"predicateType {statement.get('predicateType')!r} not in accepted_predicate_types")
 
     # signer <-> trusted_decision_makers (by public key; decisionMaker.id only as a hint that must not conflict)
@@ -613,7 +613,9 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
 
     req_rel = section.get("required_evidence_relations") or []
     if req_rel:
-        have = {r.get("relation") for r in predicate.get("evidenceRefs", []) if isinstance(r, dict)}
+        _erefs = predicate.get("evidenceRefs", [])  # Berkeley re-gate round 4: non-iterable evidenceRefs guard
+        have = ({r.get("relation") for r in _erefs if isinstance(r, dict)}
+                if isinstance(_erefs, (list, tuple)) else set())
         missing = [r for r in req_rel if r not in have]
         if missing:
             errors.append(f"required evidence relations missing: {missing}")
@@ -697,6 +699,10 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     Offline: the only network-free trust inputs are the policy file and the already-verified bundle.
     """
+    # Berkeley re-gate round 4: a non-dict `policy` (raw dict bypasses load_policy's validation) crashed the
+    # `.get`/section walks below — a malformed policy is a fail-closed verdict, never a raw AttributeError.
+    if not isinstance(policy, dict):
+        return {"policy_ok": False, "checks": [], "reason": "policy is not a dict"}
     checks: list = []
 
     def add(name: str, ok: bool, detail: str = "") -> None:
