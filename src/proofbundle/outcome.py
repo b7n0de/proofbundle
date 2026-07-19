@@ -833,10 +833,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # relations violation. Only ever ADDS a blocker (never turns it true); a satisfied/absent policy is untouched.
     if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
         _blk = r["automation"].setdefault("automationBlockers", [])
-        _codes = list(r.get("relations_policy_codes") or [])
-        if not _codes:
-            _codes = ["LINEAGE_REQUIREMENT_FAILED"] if r.get("relations_policy_failed") else ["POLICY_FAILED"]
-        for _code in _codes:
+        # NB: a distinct name from the `_codes` SET bound earlier in this function (the relations-violation
+        # code set) — reusing it would be a list-into-set type conflict (mypy) with no behavioural reason.
+        _auto_codes = list(r.get("relations_policy_codes") or [])
+        if not _auto_codes:
+            _auto_codes = ["LINEAGE_REQUIREMENT_FAILED"] if r.get("relations_policy_failed") else ["POLICY_FAILED"]
+        for _code in _auto_codes:
             if _code not in _blk:
                 _blk.append(_code)
         r["automation"]["safeForAutomation"] = False
