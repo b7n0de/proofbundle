@@ -29,8 +29,12 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     the 64 byte raw signature. Any malformed input returns False rather than
     raising, so callers get a boolean per check.
     """
-    if not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray)):
-        return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract)
+    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
+            or not isinstance(message, (bytes, bytearray))):
+        return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
+        # Berkeley re-gate: ``message`` was previously unguarded — a non-bytes ``message`` (None) reached
+        # cryptography's .verify(sig, data) and raised a raw TypeError that the (InvalidSignature, ValueError)
+        # except did NOT catch, defeating the never-raise contract one arg past where CB-01 stopped (key/sig).
     if len(public_key) != 32 or len(signature) != 64:
         return False
     try:
@@ -39,10 +43,10 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
         # bytearray — which escaped every DSSE verify_* entrypoint (decision/outcome/…) as an uncaught crash,
         # defeating their never-raise contract. Coerce to bytes so a VALID bytearray key/sig VERIFIES
         # (correct) rather than crashing; mirrors verify_ecdsa_p256, which already coerces.
-        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), message)
+        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))
         return True
-    except (InvalidSignature, ValueError):
-        return False
+    except (InvalidSignature, ValueError, TypeError):
+        return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
 
 
 def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bool:
@@ -59,8 +63,11 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     verifies. Any malformed input returns False rather than raising, matching
     :func:`verify_ed25519`'s contract so callers get a boolean per check regardless of alg.
     """
-    if not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray)):
-        return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract)
+    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
+            or not isinstance(message, (bytes, bytearray))):
+        return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
+        # Berkeley re-gate: ``message`` guard mirrors verify_ed25519 — a non-bytes ``message`` reached
+        # pub.verify(sig, data) and raised a raw TypeError the (InvalidSignature, ValueError) except missed.
     if len(public_key) != 65 or bytes(public_key[:1]) != b"\x04" or len(signature) != 64:
         return False   # SEC1 uncompressed only (0x04 prefix) — compressed/hybrid points are rejected
     try:
@@ -68,7 +75,7 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
         r = int.from_bytes(bytes(signature[:32]), "big")
         s = int.from_bytes(bytes(signature[32:]), "big")
         der_sig = encode_dss_signature(r, s)
-        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))
+        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))
         return True
-    except (InvalidSignature, ValueError):
-        return False
+    except (InvalidSignature, ValueError, TypeError):
+        return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False

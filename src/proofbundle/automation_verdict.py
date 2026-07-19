@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
+from .errors import BundleFormatError
+
 __all__ = ["automation_summary", "AUTOMATION_BLOCKER_REASONS"]
 
 # The human-legible reason for each automationBlockers enum value (mirrors bundle.py's
@@ -81,6 +83,12 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
     the caller is responsible for stashing the return value at ``result["automation"]``.
     """
+    # Berkeley re-gate: both Mapping args were unguarded — a non-Mapping ``required_checks`` (None) crashed
+    # ``required_checks.get(...)`` and a non-Mapping ``result`` crashed ``_tri``'s ``result.get(...)`` with a
+    # raw AttributeError out of this public verdict surface. A malformed config/result is a typed
+    # BundleFormatError (fail-closed), never a raw crash and never a silently-safe verdict.
+    if not isinstance(required_checks, Mapping) or not isinstance(result, Mapping):
+        raise BundleFormatError("automation_summary requires Mapping 'result' and 'required_checks'")
     crypto_key = required_checks.get("crypto")
     structure_key = required_checks.get("structure")
     policy_key = required_checks.get("policy")

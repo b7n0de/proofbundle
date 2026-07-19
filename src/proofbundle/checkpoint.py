@@ -489,6 +489,12 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     """
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
+    # Berkeley re-gate: ``witness_vkeys`` (the relying party's witness roster, a trust-config arg like
+    # ``threshold``) was unguarded — a non-iterable (int) crashed ``for wv in witness_vkeys`` in witness_quorum
+    # with a raw TypeError out of this public verify_* surface, and a str would silently iterate per-character.
+    # Guard it like its sibling config arg: a malformed roster is a typed BundleFormatError, never a raw crash.
+    if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
+        raise BundleFormatError("witness_vkeys must be an iterable of witness vkey strings")
     log_res = verify_checkpoint(signed_note, log_vkey)
     witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold)
     return {"ok": bool(log_res["ok"]) and witnesses_ok, "log_ok": log_res["ok"],
