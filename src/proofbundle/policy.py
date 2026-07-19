@@ -25,7 +25,7 @@ import re
 from datetime import datetime, timezone
 from typing import Union
 
-from ._strict_json import loads_strict
+from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
@@ -273,6 +273,15 @@ def load_policy(source: Union[str, dict]) -> dict:
     file. Raises :class:`PolicyError` on anything malformed."""
     if isinstance(source, str):
         try:
+            import os  # noqa: PLC0415
+            import stat as _stat  # noqa: PLC0415
+            # Berkeley re-gate round 5: stat-guard BEFORE open() — the round-4 byte cap stopped /dev/zero but a
+            # FIFO with no writer blocks open() forever (a DoS hang the cap can never reach). os.stat reads
+            # metadata only and never blocks; refuse anything that is not a regular file (mirrors load_bundle).
+            _st = os.stat(source)
+            if not _stat.S_ISREG(_st.st_mode):
+                raise BundleFormatError(
+                    "policy path is not a regular file (fail-closed: FIFO/device/socket refused)")
             with open(source, encoding="utf-8") as handle:
                 # WP-C1: a duplicated key in a policy is a differential in the TRUST DECISION
                 # itself (two parsers could enforce different allowed_issuers) — reject.
@@ -292,6 +301,15 @@ def load_policy(source: Union[str, dict]) -> dict:
             # otherwise escape load_policy's "raises PolicyError on anything malformed" contract.
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
+        # Berkeley re-gate round 5: the str/file path bounds nesting via loads_strict (json_depth), but the
+        # symmetric dict overload ran copy.deepcopy on an unbounded structure → a raw RecursionError escaped
+        # the "raises PolicyError on anything malformed" contract. Enforce the same structural budget BEFORE
+        # the deepcopy so a deeply-nested / node-heavy dict fails closed as PolicyError (over-depth is
+        # BundleFormatError, over-width BudgetExceeded — both ProofBundleError, mapped here).
+        try:
+            enforce_structural_budget(source)
+        except ProofBundleError as exc:
+            raise PolicyError(f"trust policy structure exceeds the verification budget: {exc}") from exc
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object
         # before evaluate_policy must not be able to bypass these checks — evaluate the copy.
         policy = copy.deepcopy(source)

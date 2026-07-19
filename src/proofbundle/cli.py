@@ -462,8 +462,12 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
         der_b64: list = []
         for path in roots:
             try:
-                raw = open(path, "rb").read()  # noqa: SIM115
-            except OSError as exc:
+                # Berkeley re-gate round 5: route through _open_input (stat-guard) + cap — a bare open().read()
+                # on a FIFO --trusted-tsa-root blocked forever, the same DoS class the round-4 sweep closed on
+                # the main verify inputs but missed on this auxiliary trust-material path.
+                with _open_input(path, binary=True) as _fh:
+                    raw = _read_capped_bytes(_fh)
+            except (OSError, ProofBundleError) as exc:
                 raise ValueError(f"--trusted-tsa-root {path!r}: cannot read ({exc})") from exc
             try:   # accept PEM or DER; normalize to base64 DER (what the verifier loads)
                 cert = x509.load_pem_x509_certificate(raw) if b"-----BEGIN" in raw \

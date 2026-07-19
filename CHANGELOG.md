@@ -54,6 +54,15 @@ surface. None touch a crypto verdict; `.ok` was already correct on every path.
     corroboration reporter and surface, `check_binds_bundle`, `verify_receipt_token`, `verify_tlog_proof`,
     the in-toto canonicality check, and the bundle/policy SD-JWT issuer-payload paths now catch the base
     `ProofBundleError`; `present_with_key_binding` maps an oversized compact to its documented `ValueError`.
+  - **`load_policy` and the canonical primitives:** the `load_policy` dict overload enforces the structural
+    budget before `copy.deepcopy` (a deeply-nested policy dict was a raw `RecursionError`, now `PolicyError`)
+    and stat-guards its file path (a FIFO no longer hangs); `canonicalize_statement` / `statement_content_root`
+    bound nesting before `rfc8785.dumps` so a directly-supplied deep object is typed, not a `RecursionError`.
+  - **Post-quantum sibling on the verify path:** `renewal.verify_sequence` fails an ML-DSA/hybrid-labelled
+    anchor closed on a build without FIPS-204 instead of leaking `PQUnavailable`; a batch `witness_quorum` /
+    `verify_witnessed_checkpoint` counts an un-verifiable ML-DSA witness as non-verifying rather than raising
+    `UnsupportedError` out of the batch (a single explicitly-named `verify_cosignature` keeps its loud raise).
+  - **CLI `--trusted-tsa-root`:** routed through the same stat-guarded reader, so a FIFO maps to exit 2.
 
 ## [Unreleased]
 

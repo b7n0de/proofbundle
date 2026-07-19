@@ -454,11 +454,23 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     Alg-agnostic (Ed25519 0x04 + ML-DSA 0x06). Used by BOTH verify_witnessed_checkpoint AND tlogproof.
     verify_tlog_proof so the hardening can never drift between the two call sites again. Returns
     (witnesses_ok, witnesses_dict); the dict is keyed by name+keyID so a same-name-different-key entry does not
-    overwrite. Fail-closed: an unparseable witness vkey raises (verify_cosignature); a non-verifying one is False."""
+    overwrite. Fail-closed: an unparseable witness vkey raises (verify_cosignature); a non-verifying one is
+    False; and a witness whose algorithm this build cannot verify (an ML-DSA vkey without the [pq] extra) also
+    counts as non-verifying (False), never a raw UnsupportedError out of the batch (Berkeley re-gate round 5)."""
     keys_ok = set()
     witnesses = {}
     for wv in witness_vkeys:
-        res = verify_cosignature(signed_note, wv)
+        try:
+            res = verify_cosignature(signed_note, wv)
+        except UnsupportedError as exc:
+            # Berkeley re-gate round 5: a BATCH quorum must not crash because ONE witness in the list is an
+            # ML-DSA (0x06) vkey the current build cannot verify (no FIPS-204). verify_cosignature keeps its
+            # documented loud raise for a SINGLE explicitly-named witness (a caller config choice, tested), but
+            # here — iterating an attacker-influenceable list — an un-verifiable witness counts as non-verifying
+            # (fail-closed False), never a raw UnsupportedError out of witness_quorum / verify_witnessed_checkpoint.
+            res = {"ok": False, "alg": "ml-dsa-44", "origin": None, "tree_size": None,
+                   "root": None, "timestamp": None,
+                   "detail": f"witness needs the [pq] extra (FIPS 204) — cannot verify, fail-closed ({exc})"}
         witnesses["+".join(wv.split("+")[:2])] = res
         if res["ok"]:
             keys_ok.add(_witness_key_material(wv))
@@ -472,7 +484,8 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     The log signature (0x01) is always required — witnesses attest consistency, they do not
     replace the log's own signature. Returns ``{ok, log_ok, witnesses_ok, witnesses, origin,
     tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature result.
-    Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False.
+    Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
+    this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (Berkeley re-gate round 5).
     """
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")

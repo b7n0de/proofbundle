@@ -287,5 +287,83 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
             os.rmdir(d)
 
 
+class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
+    """Berkeley DEEP re-gate round 4 (3 confirmed + completeness escapes): the same direct-object budget-bypass,
+    FIFO DoS and PQ-sibling classes at the surfaces round-4 did not reach — load_policy, canonical primitives,
+    renewal.verify_sequence, and the witness quorum. Each must fail closed / return a verdict, never a raw
+    RecursionError / PQ sibling / hang. The PQ cases assert 'returns a verdict, never raises' so they hold on
+    both a PQ-capable and a stock (non-FIPS-204) build."""
+
+    def test_load_policy_deep_dict_is_policyerror_not_recursion(self):
+        from proofbundle.policy import PolicyError, load_policy
+        d = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "p"}
+        c = d
+        for _ in range(3000):
+            c["allowed_issuers"] = {}
+            c = c["allowed_issuers"]
+        with self.assertRaises(PolicyError):
+            load_policy(d)
+
+    def test_load_policy_fifo_fails_closed(self):
+        import os
+        import tempfile
+        from proofbundle.policy import PolicyError, load_policy
+        dd = tempfile.mkdtemp()
+        fifo = os.path.join(dd, "pfifo")
+        os.mkfifo(fifo)
+        try:
+            with self.assertRaises(PolicyError):
+                load_policy(fifo)
+        finally:
+            os.unlink(fifo)
+            os.rmdir(dd)
+
+    def test_statement_content_root_deep_is_typed_not_recursion(self):
+        from proofbundle import statement_content_root
+        from proofbundle.errors import ProofBundleError
+        d = {}
+        c = d
+        for _ in range(5000):
+            c["a"] = {}
+            c = c["a"]
+        with self.assertRaises(ProofBundleError):
+            statement_content_root(d)
+
+    def test_verify_sequence_mldsa_label_returns_verdict_never_raises(self):
+        from proofbundle import ArchiveTimeStamp, verify_sequence
+        ats = ArchiveTimeStamp(hash_alg="sha256", covered_digest="ab" * 32, time=1,
+                               anchor_status="confirmed", sig_alg="mldsa65",
+                               signatures=(("mldsa65", "AAAA"),))
+        res = verify_sequence([[ats]], ["cd" * 32], authority_keys={"mldsa65": b"\x00" * 32})
+        self.assertTrue(hasattr(res, "ok"))  # a VerificationResult, never a raw PQUnavailable
+
+    def test_witness_quorum_mldsa_witness_returns_verdict_never_raises(self):
+        import base64
+        from proofbundle import checkpoint as cp
+        keymat = bytes([0x06]) + b"\x00" * 1312
+        vkey = "w+00000000+" + base64.b64encode(keymat).decode()
+        note = ("o\n1\n" + base64.b64encode(b"\x00" * 32).decode() + "\nx\n\n— w "
+                + base64.b64encode(b"\x00" * 2432).decode())
+        ok, witnesses = cp.witness_quorum(note, [vkey], 1)  # must not raise UnsupportedError out of the batch
+        self.assertIsInstance(witnesses, dict)
+
+    def test_cli_verify_trusted_tsa_root_fifo_does_not_hang(self):
+        import os
+        import tempfile
+        from proofbundle.cli import main
+        dd = tempfile.mkdtemp()
+        fifo = os.path.join(dd, "tsafifo")
+        bundle = os.path.join(dd, "b.json")
+        os.mkfifo(fifo)
+        with open(bundle, "w") as fh:
+            fh.write("{}")
+        try:
+            self.assertEqual(main(["verify", bundle, "--trusted-tsa-root", fifo]), 2)
+        finally:
+            os.unlink(fifo)
+            os.unlink(bundle)
+            os.rmdir(dd)
+
+
 if __name__ == "__main__":
     unittest.main()

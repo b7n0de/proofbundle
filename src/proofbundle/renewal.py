@@ -31,7 +31,7 @@ from typing import Optional
 
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
-from .pqsig import sign_mldsa, verify_hybrid, verify_mldsa
+from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
 from .signature import verify_ed25519
 
 # ATS signature algorithms (the RFC-4998 TimeStampToken role, B3↔B5 wiring). A renewal may UPGRADE the
@@ -208,15 +208,25 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     if ats.sig_alg == "ed25519":
         pub = authority_keys.get("ed25519")
         return isinstance(pub, (bytes, bytearray)) and verify_ed25519(bytes(pub), _dec("ed25519"), content)
+    # Berkeley re-gate round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
+    # without FIPS-204 ML-DSA (the common case) verify_mldsa/verify_hybrid raise PQUnavailable (a
+    # ProofBundleError sibling) which escaped verify_sequence raw. A verdict-returning verify surface must fail
+    # closed on attacker-influenceable PQ input, never raise — parity with trust_pack._verify_signature_for_alg.
     if ats.sig_alg == "mldsa65":
         pub = authority_keys.get("mldsa65")
-        return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
+        try:
+            return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
+        except PQUnavailable:
+            return False
     if ats.sig_alg == "hybrid-ed25519-mldsa65":
         edp, mp = authority_keys.get("ed25519"), authority_keys.get("mldsa65")
         if edp is None or mp is None:
             return False
-        return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
-                             pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
+        try:
+            return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
+                                 pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
+        except PQUnavailable:
+            return False
     return False
 
 
