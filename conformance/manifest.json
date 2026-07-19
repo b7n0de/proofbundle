@@ -4,6 +4,7 @@
   "cases": [
     "decision/crossimpl/confirmed-anchor-lifecycle",
     "decision/crossimpl/canonicalization-root-binding",
+    "decision/crossimpl/schema-conformant",
     "bundle/valid-minimal",
     "bundle/duplicate-json-key",
     "bundle/tampered-payload",

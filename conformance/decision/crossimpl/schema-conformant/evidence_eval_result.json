@@ -1,0 +1,30 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "model/acme-intent-classifier@1.4.2",
+      "digest": {
+        "sha256": "2931a9b8100d45cc2fae06bd150919283a6b7c26a16304ed13e835b6593584f7"
+      }
+    }
+  ],
+  "predicateType": "https://b7n0de.com/attestation/eval-result/v0.1",
+  "predicate": {
+    "harness": {
+      "name": "deepeval",
+      "version": "3.2.0"
+    },
+    "dataset": {
+      "name": "holdout-2026-06",
+      "digest": {
+        "sha256": "165dee5e8cd78240bd9232891f0dcdff6f8977ba3f2cb3de4e43709d8077408d"
+      }
+    },
+    "metrics": {
+      "accuracy": 0.947,
+      "f1": 0.933,
+      "auroc": 0.981
+    },
+    "evaluatedAt": "2026-07-09T14:12:00Z"
+  }
+}
