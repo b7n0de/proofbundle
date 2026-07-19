@@ -57,14 +57,17 @@ Bishop-Fox parser-differential defense), a single flipped payload byte fails the
 
 | caseId | proves | does NOT prove |
 |---|---|---|
+| `decision-crossimpl-schema-conformant` | **full end-to-end `decision-receipt/v0.1` conformance cross-impl**: RFC 8785 canonicalization + content-root binding, the predicate validates clean in NORMAL **and** STRICT mode (0 findings), **and** a confirmed Bitcoin anchor at block 958761 (OTS-committed root matches the real block merkle root, independently fetched from blockstream.info + blockchain.info, verified offline) | that the decision was *correct* — the anchor fixes existence and evidence binding, never correctness |
 | `decision-crossimpl-confirmed-anchor-lifecycle` | RFC 8785 canonicalization + content-root binding cross-impl, **and** a confirmed Bitcoin anchor at block 957504 (OTS proof committed root matches the real block merkle root, independently fetched, verified offline) | `decision-receipt/v0.1` schema conformance (predicate reports 12 findings) |
-| `decision-crossimpl-canonicalization-root-binding` | RFC 8785 canonicalization + content-root binding cross-impl | schema conformance (12 findings, expected-fail) **and** a confirmed anchor (still pending) |
+| `decision-crossimpl-canonicalization-root-binding` *(historical — superseded by `decision-crossimpl-schema-conformant`)* | RFC 8785 canonicalization + content-root binding cross-impl | schema conformance (12 findings, expected-fail) **and** a confirmed anchor (still pending) |
 
-Both vectors are contributed by MarkovianProtocol / Colin (audit-anchor), vendored digest-pinned
-as pure data, credited. The gap between "canonicalization proven" and "full v0.1 conformance" is
-recorded in `audit_artifacts/crossimpl_fixture_gap_20260711.md`; a case graduates to a full
-end-to-end `decision-receipt/v0.1` conformance case after a schema-conformant regeneration and a
-confirmed anchor.
+All three vectors are contributed by MarkovianProtocol / Colin (audit-anchor), vendored digest-pinned
+as pure data, credited (MIT / SigmaSynth LLC). The gap between "canonicalization proven" and "full v0.1
+conformance", recorded in `audit_artifacts/crossimpl_fixture_gap_20260711.md`, is now closed: **full
+decision-receipt/v0.1 conformance: done (graduated 2026-07-19, block 958761)** with
+`decision-crossimpl-schema-conformant`. The canonicalization-only iteration is retained as a historical
+case (CONFORMANCE.md rule 5, no silent changes: a regeneration is a new case, the old one kept, so its
+historical green run stays reproducible).
 
 ## Adding a case
 

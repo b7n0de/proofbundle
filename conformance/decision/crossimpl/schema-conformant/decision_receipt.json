@@ -1,0 +1,90 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "deploy/acme-intent-classifier@1.4.2",
+      "digest": {
+        "sha256": "2f0aea2dae36951bbf0eb604a98041cc78ec55f85bf84bb5a6bea96f38c8922e"
+      }
+    }
+  ],
+  "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+  "predicate": {
+    "schemaVersion": "0.1.0",
+    "decisionId": "urn:uuid:87a3e6d6-321c-4ea4-85be-3c9941e600a6",
+    "decisionType": "preActionAuthorization",
+    "decidedAt": "2026-07-09T14:20:00Z",
+    "decisionMaker": {
+      "id": "https://github.com/MarkovianProtocol/audit-anchor/decision-gate/v1"
+    },
+    "agent": {
+      "id": "agent://acme/deploy-pipeline",
+      "version": "1.4.2"
+    },
+    "principal": {
+      "id": "workload://acme/release-engineering"
+    },
+    "proposedAction": {
+      "actionType": "model.deploy",
+      "target": {
+        "name": "deploy/acme-intent-classifier@1.4.2",
+        "digest": {
+          "sha256": "2f0aea2dae36951bbf0eb604a98041cc78ec55f85bf84bb5a6bea96f38c8922e"
+        }
+      },
+      "parametersDigest": {
+        "sha256": "6bb2b8c062d77a0369a13e291e1c3f3171ee656cb935f5e24c76298d91b77e84"
+      }
+    },
+    "inputSnapshot": [
+      {
+        "name": "deployment input bundle",
+        "digest": {
+          "sha256": "bb8601c1fc3cf1dc3e829652df409b1bdd9e866e18f25bf7750c9f8702096edc"
+        }
+      }
+    ],
+    "policyBoundary": {
+      "policyEngine": "audit-anchor",
+      "policyId": "release-gate/prod",
+      "decisionPath": "release.gate.prod.allow",
+      "policyDigest": {
+        "sha256": "8c561dd1f0c5eb47c9353a60d573dccda3ee30b1a820ccb08660466a36450be9"
+      }
+    },
+    "evidenceRefs": [
+      {
+        "relation": "evalResult",
+        "digest": {
+          "sha256": "323adb188f840e90331c920b32a73f348acc5caea8d40f9a84ea384d46c258d4"
+        },
+        "predicateType": "https://b7n0de.com/attestation/eval-result/v0.1"
+      }
+    ],
+    "decision": {
+      "verdict": "ALLOW",
+      "reasonCodes": [
+        "eval.metrics.above-threshold"
+      ]
+    },
+    "notChecked": [
+      "fairness-subgroup-parity",
+      "adversarial-robustness"
+    ],
+    "decisionChangeConditions": [
+      {
+        "conditionType": "metricRegression",
+        "description": "accuracy on holdout-2026-06 below 0.90",
+        "requiredEvidenceType": "evalResult"
+      },
+      {
+        "conditionType": "policyChange",
+        "description": "any listed notChecked property becomes a release requirement"
+      }
+    ],
+    "privacy": {
+      "rawInputsIncluded": false,
+      "redactionProfile": "none-required"
+    }
+  }
+}

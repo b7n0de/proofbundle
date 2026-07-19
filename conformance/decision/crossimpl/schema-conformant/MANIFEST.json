@@ -1,0 +1,13 @@
+{
+  "rule": "anchor root = SHA-256 over RFC 8785 (JCS) canonical statement bytes (content root); signatures are a separate layer.",
+  "predicate_uri": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+  "evidence_uri": "https://b7n0de.com/attestation/eval-result/v0.1",
+  "evidence_content_root_sha256": "323adb188f840e90331c920b32a73f348acc5caea8d40f9a84ea384d46c258d4",
+  "decision_content_root_sha256": "97e1d74b810a9fea454ac890c0e17f8a401fb4abbf42827a39aea30846de2fb5",
+  "anchored_file": "decision_receipt.jcs",
+  "evidenceRefs_bind_to": "evidence content root (survives re-signing / counter-signing / key rotation)",
+  "note": "predicateType URIs frozen against proofbundle v2.1.0 (2026-07-10); they are inside the anchored bytes.",
+  "parameters_file": "parameters.json",
+  "parameters_digest_sha256": "6bb2b8c062d77a0369a13e291e1c3f3171ee656cb935f5e24c76298d91b77e84",
+  "fixture_note": "conformance fixture: the acme-intent-classifier scenario is illustrative, not a production decision"
+}
