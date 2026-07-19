@@ -278,6 +278,32 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 run(f"relation.{fld}={b!r}", lambda f=fld, x=b: relation.evaluate_relations_policy(
                     {f: x}, {"edges": [{"relation": "p", "targetDigest": "d", "resolution": "x"}]},
                     successor_key_b64=None))
+
+        # 3.6.3 never-raise residual (Berkeley NORMAL re-gate r7): three P3/P4 direct-low-level-API sinks
+        # one param / one list-ELEMENT over from the r5 fix. Each must fail-closed (a returned verdict or a
+        # typed _ACCEPTED error), never a raw _FORBIDDEN. See roadmap/3_6_3_never_raise_residual.md.
+        # R7-1 — verify_relationship_edges subject_hex: a TRUTHY UNHASHABLE value crashed the {subject_hex}
+        #        cycle seed on a RESOLVED edge (TypeError: unhashable type).
+        _r7_edge = [{"relation": "supersedes",
+                     "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "a" * 64}}]
+        _r7_related = {"a" * 64: {"verified": True}}
+        for sh in ([1], {1: 2}, {1, 2}, bytearray(b"x"), 5, True):
+            run(f"R7-1 verify_relationship_edges subject_hex={type(sh).__name__}",
+                lambda x=sh: relation.verify_relationship_edges(_r7_edge, _r7_related, subject_hex=x))
+        # R7-2 — evaluate_relations_policy edges ELEMENT non-dict: protects ALL THREE sinks
+        #        (relation/resolution :466, signer :481, target :508/510 loops).
+        for _sec in ({}, {"require_relation_resolution": ["supersedes"]},
+                     {"relation_signer": {"supersedes": {"mode": "same-key"}}},
+                     {"require_relation_target": {"supersedes": ["d"]}}):
+            for _bad_edges in ([5], ["x"], [None], [[1]], [{"relation": "supersedes"}, 5]):
+                run(f"R7-2 evaluate_relations_policy edges={_bad_edges!r}",
+                    lambda s=_sec, be=_bad_edges: relation.evaluate_relations_policy(
+                        s, {"edges": be}, successor_key_b64=None))
+        # R7-3 — evaluate_policy merkle.trusted_checkpoints ELEMENT non-dict: entry.get('hashAlg') ran
+        #        BEFORE _authenticate_trusted_checkpoint's own try/except and escaped raw.
+        for _bad_cp in (5, "x", None, [1], True):
+            run(f"R7-3 evaluate_policy trusted_checkpoints=[{_bad_cp!r}]",
+                lambda c=_bad_cp: policy.evaluate_policy(B, _R(), {"merkle": {"trusted_checkpoints": [c]}}))
         self.assertEqual(escapes, [], "round-5 nested-config-subfield escapes:\n" + "\n".join(escapes))
 
 

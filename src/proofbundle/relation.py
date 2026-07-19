@@ -247,6 +247,11 @@ def verify_relationship_edges(
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
     related = related if isinstance(related, dict) else {}
+    # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
+    # value ([1]/{1:2}/{1,2}/bytearray) crashed the ``{subject_hex}`` seed in the resolved-edge branch
+    # (TypeError: unhashable type). A non-str hex can never legitimately equal a str target_hex, so
+    # None is the correct fail-closed coercion (self-reference check + cycle seed both stay honest).
+    subject_hex = subject_hex if isinstance(subject_hex, str) else None
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": []}
 
@@ -458,6 +463,11 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         return out
     edges = lineage_result.get("edges") if isinstance(lineage_result, dict) else None
     edges = edges if isinstance(edges, list) else []
+    # R7-2 (3.6.3 never-raise residual): the container is already list-coerced, but a non-dict ELEMENT
+    # (5 / 'x' / None / [1]; mixed [{...},5]) crashed all three sinks below — the relation/resolution
+    # loop (e.get('relation')), the signer loop (signer.get(e.get('relation'))) and the target loop
+    # (target_pin.get(e.get('relation'))). Filter to dict elements once, protecting every sink.
+    edges = [e for e in edges if isinstance(e, dict)]
 
     # (1) require_relation_resolution — a named relation that APPEARS as an edge must VERIFY.
     _req = relations_section.get("require_relation_resolution")  # Berkeley re-gate round 4: non-list guard ('in')

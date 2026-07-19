@@ -395,6 +395,25 @@ MUTATIONS = [
      "        r[\"crypto_ok\"] and r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "        r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "relation-statement: cryptoValid dropped from aggregate ok (lattice violation)", True),
+    # 3.6.3 never-raise residual (Berkeley NORMAL re-gate r7) — three new fail-closed guards on
+    # direct-low-level-API sinks. Each disabled guard re-opens a raw type-confusion crash caught by
+    # tests/test_never_raise_surface_family_property.py::test_round5_nested_config_subfield_regression
+    # (R7-1/R7-2/R7-3 pins). Generator-hardening: a future rewrite that drops one goes red HERE.
+    # R7-1 — verify_relationship_edges subject_hex non-str coercion (unhashable {subject_hex} seed).
+    ("src/proofbundle/relation.py",
+     "    subject_hex = subject_hex if isinstance(subject_hex, str) else None",
+     "    subject_hex = subject_hex",
+     "relation: R7-1 subject_hex non-str coercion disabled (unhashable cycle-seed crash)", True),
+    # R7-2 — evaluate_relations_policy non-dict edges-element filter (three sinks: relation/signer/target).
+    ("src/proofbundle/relation.py",
+     "    edges = [e for e in edges if isinstance(e, dict)]",
+     "    edges = list(edges)",
+     "relation: R7-2 non-dict edges-element filter disabled (e.get crash on all three sinks)", True),
+    # R7-3 — _authenticate_trusted_checkpoint non-dict entry guard (entry.get before its own try/except).
+    ("src/proofbundle/policy.py",
+     "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
+     "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
+     "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
 ]
 
 
