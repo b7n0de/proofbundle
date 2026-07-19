@@ -364,9 +364,14 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     downgrade); the ``sigPq`` leg over ``publicKeyPq`` MUST also verify. The alg label itself cannot be
     forged in isolation: it lives inside the signed predicate, so relabeling it invalidates every signature
     over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header)."""
-    from .pqsig import verify_hybrid, verify_mldsa  # noqa: PLC0415
+    from .pqsig import PQUnavailable, verify_hybrid, verify_mldsa  # noqa: PLC0415
     from .signature import verify_ed25519  # noqa: PLC0415
     sig_b64 = entry.get("sig")
+    # Bug-hunt follow-up (3.6.2): verify_mldsa / verify_hybrid raise PQUnavailable when the running
+    # `cryptography` has no FIPS-204 (ML-DSA) build. That escaped this bool-returning helper (and its two
+    # trust_pack verify callers) as a RAW crash on an untrusted trust-pack that names an ML-DSA root key.
+    # A signature we cannot verify is not a valid signature: return False (fail-closed — the signer simply
+    # does not count toward the threshold), never a raw exception out of the never-raise verify surface.
     if alg == "mldsa65":
         if not isinstance(sig_b64, str):
             return False
@@ -374,7 +379,10 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             sig = base64.b64decode(sig_b64, validate=True)
         except Exception:  # noqa: BLE001
             return False
-        return verify_mldsa(pub, sig, msg, level="mldsa65")
+        try:
+            return verify_mldsa(pub, sig, msg, level="mldsa65")
+        except PQUnavailable:
+            return False
     if alg == "hybrid-ed25519-mldsa65":
         sig_pq_b64 = entry.get("sigPq")
         if not isinstance(pq_pub_b64, str) or not isinstance(sig_b64, str) or not isinstance(sig_pq_b64, str):
@@ -385,7 +393,10 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             sig_pq = base64.b64decode(sig_pq_b64, validate=True)
         except Exception:  # noqa: BLE001
             return False
-        return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
+        try:
+            return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
+        except PQUnavailable:
+            return False
     # default / "ed25519" (an unrecognised alg on prev_root_keys — caller-supplied trust material, outside
     # the predicate's own schema gate — safely falls back to the classical check rather than raising).
     if not isinstance(sig_b64, str):

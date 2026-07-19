@@ -8,9 +8,23 @@ import sys
 
 from . import SPEC_REVISION, __version__
 from ._strict_json import loads_strict
+from .budget import DEFAULT_BUDGET
 from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
-from .errors import ProofBundleError
+from .errors import BundleFormatError, ProofBundleError
+
+
+def _read_capped(handle) -> str:
+    """Bounded read of an already-open text handle. ``loads_strict`` caps nodes / int-length / depth, but
+    only AFTER the whole file is in memory — an unbounded ``handle.read()`` on a huge or streaming file
+    (e.g. ``/dev/zero``) can OOM the process first. Cap the read at the input_bytes budget so a
+    pathological input maps to a clean exit-2 BundleFormatError instead of memory exhaustion (bug-hunt 3.6.2).
+    """
+    cap = DEFAULT_BUDGET.input_bytes
+    data = handle.read(cap + 1)
+    if len(data) > cap:
+        raise BundleFormatError(f"input exceeds the {cap}-byte input_bytes budget (fail-closed)")
+    return data
 
 
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
@@ -987,7 +1001,7 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
     from .persample import verify_sample_opening  # noqa: PLC0415
     try:
         with open(args.opening, encoding="utf-8") as handle:
-            opening = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+            opening = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         res = verify_sample_opening(opening, args.root, args.n)
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1209,7 +1223,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             # PB-2026-0718-11 never-raise: route through the bounded strict parser so a pathologically
             # deep pack maps to a clean BundleFormatError (owned RecursionError) instead of a raw
             # RecursionError traceback out of `anchor verify-pack`. loads_strict also caps nodes + int-len.
-            pack = loads_strict(handle.read())
+            pack = loads_strict(_read_capped(handle))
         if not isinstance(pack, dict):
             raise ValueError("evidence pack must be a JSON object")
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
@@ -1375,7 +1389,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+                envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
@@ -1422,7 +1436,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
             return 2
         try:
             with open(args.receipt, encoding="utf-8") as handle:
-                envelope = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+                envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -1465,7 +1479,7 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.predicate, encoding="utf-8") as handle:
-            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
+            predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_decision_receipt(predicate, signer, strict=not args.lenient)
     except (DecisionReceiptError, ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1505,7 +1519,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             continue
         try:
             with open(path, encoding="utf-8") as handle:
-                env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+                env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             body = _dsse.load_payload(env)
             root_hex = _anchors_mod.statement_content_root(body).hex()
             # L3-audit fix: inside the try so a malformed-envelope error names the offending file too.
@@ -1572,13 +1586,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if getattr(args, "anchors", None):
         try:
             with open(args.anchors, encoding="utf-8") as handle:
-                anchors = loads_strict(handle.read())   # WP-C1
+                anchors = loads_strict(_read_capped(handle))   # WP-C1
         except (ProofBundleError, OSError, ValueError) as exc:
             print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
             return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
-            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+            env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
         # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
@@ -1680,7 +1694,7 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
         with open(args.receipt, encoding="utf-8") as handle:
-            obj = loads_strict(handle.read())   # WP-C1
+            obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1763,7 +1777,7 @@ def _cmd_outcome_emit(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.predicate, encoding="utf-8") as handle:
-            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
+            predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_outcome_receipt(predicate, signer, strict=not args.lenient)
     except (OutcomeReceiptError, ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1795,7 +1809,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
-            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+            env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
@@ -1881,7 +1895,7 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
         with open(args.receipt, encoding="utf-8") as handle:
-            obj = loads_strict(handle.read())   # WP-C1
+            obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -1932,7 +1946,7 @@ def _cmd_relation_statement_emit(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.predicate, encoding="utf-8") as handle:
-            predicate = loads_strict(handle.read())   # WP-C1: a duplicate key must never be signed
+            predicate = loads_strict(_read_capped(handle))   # WP-C1: a duplicate key must never be signed
         env = emit_relation_statement(predicate, signer)
     except (RelationStatementError, ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1961,7 +1975,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             return 2
     try:
         with open(args.envelope, encoding="utf-8") as handle:
-            env = loads_strict(handle.read())   # WP-C1: duplicate keys rejected
+            env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
@@ -2023,7 +2037,7 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
         with open(args.receipt, encoding="utf-8") as handle:
-            obj = loads_strict(handle.read())   # WP-C1
+            obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

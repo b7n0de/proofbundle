@@ -185,7 +185,16 @@ def verify_key_binding(
         result["detail"] = f"unsupported _sd_alg {sd_alg}"
         return result
     h = hashlib.new(_HASH_ALG[sd_alg])
-    h.update(sd_part.encode("ascii"))
+    # Bug-hunt follow-up (3.6.2): sd_part is attacker-controlled (the presented SD-JWT). A compact SD-JWT is
+    # ASCII base64url; a non-ASCII sd_part is malformed, but `.encode("ascii")` raised a RAW UnicodeEncodeError
+    # out of this dict-returning verify surface (crash-DoS) instead of a fail-closed verdict. Treat non-ASCII
+    # as malformed and fail closed (a non-ASCII presentation can never match a legitimate holder-committed sd_hash).
+    try:
+        _sd_bytes = sd_part.encode("ascii")
+    except UnicodeEncodeError:
+        result["detail"] = "presented SD-JWT contains non-ASCII bytes (malformed)"
+        return result
+    h.update(_sd_bytes)
     if _b64url_nopad(h.digest()) != sd_hash:
         result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
         return result
