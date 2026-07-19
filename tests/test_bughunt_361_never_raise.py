@@ -182,5 +182,110 @@ class CliMainCatchAllBackstop(unittest.TestCase):
         self.assertEqual(main(["anchor", "inspect", "/dev/zero"]), 2)
 
 
+class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
+    """Berkeley DEEP re-gate round 3 (11 confirmed escapes): the round-3 library widening fixed the inner
+    loads_strict except sites but MISSED the flagship top-level surfaces, the rfc8785 ValueError family, and
+    two file-read DoS classes. Each must now map hostile input to a typed fail-closed result."""
+
+    def _node_heavy_dict(self):
+        from proofbundle.budget import DEFAULT_BUDGET
+        return {"schema": "proofbundle/v0.1", "big": list(range(DEFAULT_BUDGET.json_nodes + 50))}
+
+    def _node_heavy_file(self):
+        import tempfile
+        from proofbundle.budget import DEFAULT_BUDGET
+        p = tempfile.mktemp(suffix=".json")
+        with open(p, "wb") as fh:
+            fh.write(b"[" + b"1," * (DEFAULT_BUDGET.json_nodes + 50) + b"1]")
+        return p
+
+    def test_verify_bundle_node_heavy_dict_and_file_are_bundleformat(self):
+        from proofbundle.bundle import verify_bundle
+        with self.assertRaises(BundleFormatError):
+            verify_bundle(self._node_heavy_dict())
+        with self.assertRaises(BundleFormatError):
+            verify_bundle(self._node_heavy_file())
+
+    def test_load_bundle_node_heavy_file_is_bundleformat(self):
+        from proofbundle.bundle import load_bundle
+        with self.assertRaises(BundleFormatError):
+            load_bundle(self._node_heavy_file())
+
+    def test_recompute_merkle_node_heavy_dict_and_file_are_bundleformat(self):
+        from proofbundle.bundle import recompute_merkle_root_b64
+        with self.assertRaises(BundleFormatError):
+            recompute_merkle_root_b64(self._node_heavy_dict())
+        with self.assertRaises(BundleFormatError):
+            recompute_merkle_root_b64(self._node_heavy_file())
+
+    def test_verify_enclave_node_heavy_eat_is_dict_not_raw(self):
+        import base64
+        import warnings
+        warnings.filterwarnings("ignore")
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.experimental.enclave import verify_enclave_attestation
+        b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()  # noqa: E731
+        over = DEFAULT_BUDGET.json_nodes + 50
+        eat = b(b"{}") + "." + b(b"[" + b"1," * over + b"1]") + ".AAAA"
+        res = verify_enclave_attestation(eat, verifier_pubkey=b"\x00" * 32, expected_binding="x")
+        self.assertIsInstance(res, dict)
+        self.assertFalse(res["ok"])
+
+    def test_intoto_verify_nan_inf_hugeint_are_dict_not_raw(self):
+        import base64
+        import json
+        from proofbundle import intoto
+
+        def envelope(pred):
+            s = {"_type": "https://in-toto.io/Statement/v1",
+                 "subject": [{"name": "x", "digest": {"sha256": "a" * 64}}],
+                 "predicateType": "https://in-toto.io/attestation/test-result/v0.1",
+                 "predicate": pred, "contentRootAlg": "jcs-sha256-v1"}
+            body = json.dumps(s).encode()
+            return {"payload": base64.b64encode(body).decode(),
+                    "payloadType": "application/vnd.in-toto+json",
+                    "signatures": [{"sig": base64.b64encode(b"x" * 64).decode()}]}
+
+        for pred in ({"x": float("nan")}, {"x": float("inf")}, {"x": int("1" + "0" * 400)}):
+            res = intoto.verify_intoto_dsse(envelope(pred), b"\x00" * 32)
+            self.assertIsInstance(res, dict)
+            self.assertFalse(res["ok"])
+
+    def test_evalcard_and_prereg_devzero_and_fifo_fail_closed(self):
+        import os
+        import tempfile
+        from proofbundle import verify_evaluation_card, verify_prereg
+        # /dev/zero (character device) must fail-closed, not hang
+        r = verify_evaluation_card("/dev/zero", {"evaluation_card_sha256": "bb"})
+        self.assertFalse(r["ok"])
+        # a FIFO with no writer must be refused by the stat-guard before open() blocks
+        d = tempfile.mkdtemp()
+        fifo = os.path.join(d, "fifo")
+        os.mkfifo(fifo)
+        try:
+            self.assertFalse(verify_evaluation_card(fifo, {"evaluation_card_sha256": "bb"})["ok"])
+            self.assertFalse(verify_prereg(fifo, {"prereg_sha256": "aa"})["ok"])
+        finally:
+            os.unlink(fifo)
+            os.rmdir(d)
+
+    def test_cli_verify_on_fifo_does_not_hang(self):
+        # Berkeley re-gate round 4 completeness critic: a CLI verify command given a FIFO path blocked at
+        # open() forever. The _open_input stat-guard maps it to a clean exit 2 via main()'s backstop.
+        import base64
+        import os
+        import tempfile
+        from proofbundle.cli import main
+        d = tempfile.mkdtemp()
+        fifo = os.path.join(d, "fifo")
+        os.mkfifo(fifo)
+        pub = base64.b64encode(b"\x00" * 32).decode()
+        try:
+            self.assertEqual(main(["intoto", fifo, "--verify", "--pub", pub]), 2)
+        finally:
+            os.unlink(fifo)
+            os.rmdir(d)
+
+
 if __name__ == "__main__":
     unittest.main()

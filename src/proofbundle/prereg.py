@@ -37,9 +37,20 @@ def prereg_hash(protocol_path) -> str:
     6-lens gate L2-01: the read is bounded to the same ``input_bytes`` (8MiB) budget the JSON loader uses
     and STREAMED into hashlib, so an oversized/infinite protocol path cannot exhaust memory. Byte-exact
     hashing is unchanged; an over-cap file raises :class:`BundleFormatError` (fail-closed)."""
+    import os  # noqa: PLC0415
+    import stat as _stat  # noqa: PLC0415
+
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     from .errors import BundleFormatError  # noqa: PLC0415
     cap = DEFAULT_BUDGET.input_bytes
+    # Berkeley re-gate round 4: stat-guard BEFORE open() — a FIFO with no writer blocks open() forever (a DoS
+    # hang, not an over-cap read the loop below could catch). os.stat reads metadata only, never blocks on a
+    # FIFO and never reads a device; refuse anything that is not a regular file (mirrors load_bundle).
+    _st = os.stat(protocol_path)
+    if not _stat.S_ISREG(_st.st_mode):
+        raise BundleFormatError("protocol path is not a regular file (fail-closed: FIFO/device/socket refused)")
+    if _st.st_size > cap:
+        raise BundleFormatError(f"protocol file exceeds the {cap}-byte read budget (DoS guard)")
     h = hashlib.sha256()
     total = 0
     with open(protocol_path, "rb") as fh:

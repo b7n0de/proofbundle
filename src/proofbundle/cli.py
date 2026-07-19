@@ -37,6 +37,24 @@ def _read_capped_bytes(handle) -> bytes:
     return data
 
 
+def _open_input(path, *, binary: bool = False):
+    """Open an UNTRUSTED input file after a stat-guard — the CLI counterpart of ``load_bundle``'s S_ISREG
+    check (Berkeley re-gate round 4). ``open()`` on a FIFO with no writer blocks FOREVER (a DoS hang the
+    ``_read_capped`` cap cannot reach, because it never gets past ``open``), and ``/dev/zero`` is a device;
+    ``os.stat`` reads metadata only and never blocks, so refuse anything that is not a regular file up front.
+    The raised ``BundleFormatError`` is mapped to a clean exit 2 by ``main()``'s backstop. Use this for every
+    untrusted verify INPUT read; operator OUTPUT files (``--out``) and the operator's own emit payloads do not
+    need it (they are the operator's own destination/data, not hostile input)."""
+    import os  # noqa: PLC0415
+    import stat as _stat  # noqa: PLC0415
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        raise BundleFormatError(f"input path must be a path, got {type(path).__name__} (fail-closed)")
+    st = os.stat(path)   # metadata only — does not block on a FIFO, does not read a device
+    if not _stat.S_ISREG(st.st_mode):
+        raise BundleFormatError("input path is not a regular file (fail-closed: FIFO/device/socket refused)")
+    return open(path, "rb") if binary else open(path, encoding="utf-8")
+
+
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
 # `verify --json`. Verification proves authenticity + integrity of the bytes, never the truth of the
 # result (see docs/NON_CLAIMS.md). Kept as data so the human text and the JSON say exactly the same thing.
@@ -338,7 +356,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         # ERROR+exit-2 handling as the receipt itself, never a raw traceback.
         eat_jws = None
         if getattr(args, "eat", None):
-            with open(args.eat, encoding="utf-8") as handle:
+            with _open_input(args.eat) as handle:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
         if getattr(args, "verifier_key", None):
@@ -536,7 +554,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             assert cp_vkey is not None   # the guard above ties cp_supplied ⇔ cp_vkey present (mypy narrowing)
             import base64 as _b64mod  # noqa: PLC0415
             from .checkpoint import verify_checkpoint  # noqa: PLC0415
-            with open(args.trusted_checkpoint, encoding="utf-8") as handle:
+            with _open_input(args.trusted_checkpoint) as handle:
                 note = _read_capped(handle)
             cp_res = verify_checkpoint(note, cp_vkey)   # malformed note/vkey → BundleFormatError → exit 2
             cp_ok = bool(cp_res["ok"])
@@ -915,9 +933,9 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
     # this is belt-and-suspenders — but it guarantees `verify-proof` can never emit a raw traceback on any
     # malformed proof, whatever a future verdict-shape drift might do.
     try:
-        with open(args.proof, encoding="utf-8") as handle:
+        with _open_input(args.proof) as handle:
             text = _read_capped(handle)
-        with open(args.payload_file, "rb") as handle:
+        with _open_input(args.payload_file, binary=True) as handle:
             leaf = _read_capped_bytes(handle)
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
@@ -952,7 +970,7 @@ def _cmd_hf_token(args: argparse.Namespace) -> int:
         if args.verify:
             token = args.bundle_or_token
             if token.endswith(".txt") or "/" in token:
-                with open(token, encoding="utf-8") as handle:
+                with _open_input(token) as handle:
                     token = _read_capped(handle).strip()
             result, _bundle = verify_receipt_token(token)
             for check in result.checks:
@@ -1013,7 +1031,7 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
 def _cmd_verify_opening(args: argparse.Namespace) -> int:
     from .persample import verify_sample_opening  # noqa: PLC0415
     try:
-        with open(args.opening, encoding="utf-8") as handle:
+        with _open_input(args.opening) as handle:
             opening = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         res = verify_sample_opening(opening, args.root, args.n)
     except (ProofBundleError, OSError, ValueError) as exc:
@@ -1160,7 +1178,7 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         build_evidence_pack, describe_proof, ots_upgraded_proof_is_self_contained,
     )
     try:
-        with open(args.proof, "rb") as handle:
+        with _open_input(args.proof, binary=True) as handle:
             proof = _read_capped_bytes(handle)
         canonical_root = _resolve_canonical_root(args)
         # fail-closed structural binding: the proof MUST commit to exactly this root (a mismatch is a
@@ -1238,7 +1256,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
 
     from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
-        with open(args.pack, encoding="utf-8") as handle:
+        with _open_input(args.pack) as handle:
             # PB-2026-0718-11 never-raise: route through the bounded strict parser so a pathologically
             # deep pack maps to a clean BundleFormatError (owned RecursionError) instead of a raw
             # RecursionError traceback out of `anchor verify-pack`. loads_strict also caps nodes + int-len.
@@ -1304,7 +1322,7 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
     import base64 as _b64  # noqa: PLC0415
     from .evidence_pack import describe_proof  # noqa: PLC0415
     try:
-        with open(args.path, "rb") as handle:
+        with _open_input(args.path, binary=True) as handle:
             raw = _read_capped_bytes(handle)
         pack = None
         try:
@@ -1372,7 +1390,7 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
                                        verify_enclave_attestation)
     try:
         bundle = load_bundle(args.receipt)
-        with open(args.eat, encoding="utf-8") as handle:
+        with _open_input(args.eat) as handle:
             eat = _read_capped(handle).strip()
         verifier_pub = _b64.b64decode(args.verifier_key, validate=True)
         res = verify_enclave_attestation(
@@ -1407,7 +1425,7 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             print("ERROR: --verify requires --pub", file=sys.stderr)
             return 2
         try:
-            with open(args.receipt, encoding="utf-8") as handle:
+            with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = base64.b64decode(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
@@ -1454,7 +1472,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
             print("ERROR: --verify requires --pub", file=sys.stderr)
             return 2
         try:
-            with open(args.receipt, encoding="utf-8") as handle:
+            with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
@@ -1537,7 +1555,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             errs.append(f"cannot decode --related-pub for {path}: {exc}")
             continue
         try:
-            with open(path, encoding="utf-8") as handle:
+            with _open_input(path) as handle:
                 env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             body = _dsse.load_payload(env)
             root_hex = _anchors_mod.statement_content_root(body).hex()
@@ -1604,13 +1622,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     anchors = None
     if getattr(args, "anchors", None):
         try:
-            with open(args.anchors, encoding="utf-8") as handle:
+            with _open_input(args.anchors) as handle:
                 anchors = loads_strict(_read_capped(handle))   # WP-C1
         except (ProofBundleError, OSError, ValueError) as exc:
             print(f"ERROR: cannot read --anchors: {exc}", file=sys.stderr)
             return 2
     try:
-        with open(args.envelope, encoding="utf-8") as handle:
+        with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
@@ -1712,7 +1730,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
 def _cmd_decision_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
-        with open(args.receipt, encoding="utf-8") as handle:
+        with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1827,7 +1845,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
     try:
-        with open(args.envelope, encoding="utf-8") as handle:
+        with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
@@ -1913,7 +1931,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
 def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
-        with open(args.receipt, encoding="utf-8") as handle:
+        with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1993,7 +2011,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
     try:
-        with open(args.envelope, encoding="utf-8") as handle:
+        with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
         pub = base64.b64decode(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
@@ -2055,7 +2073,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
 def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
     import base64  # noqa: PLC0415
     try:
-        with open(args.receipt, encoding="utf-8") as handle:
+        with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
     except (ProofBundleError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

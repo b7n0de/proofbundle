@@ -220,9 +220,14 @@ def load_bundle(path: str) -> dict:
         if len(raw) > cap:
             raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
         return loads_strict(raw.decode("utf-8"))
-    except (OSError, ValueError, MemoryError, TypeError) as exc:
+    except BundleFormatError:
+        raise
+    except (OSError, ValueError, MemoryError, TypeError, ProofBundleError) as exc:
         # 6-lens DEEP gate L3-01: TypeError too — a non-str path argument (None/float) makes os.stat raise a
         # raw TypeError; the docstring promises TOTAL mapping to typed BundleFormatError (never-raise-wrap-all).
+        # Berkeley re-gate round 4: a node-heavy FILE (<8MiB but >json_nodes) passes the byte caps, then
+        # loads_strict raises a SIBLING BudgetExceeded (a ProofBundleError, NOT BundleFormatError) — include the
+        # BASE so it maps to the documented BundleFormatError, never a raw DoS traceback out of this load surface.
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
@@ -269,7 +274,15 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     # unbounded and could surface as a raw RecursionError instead of a fail-closed budget verdict. Enforce the
     # same node-count + nesting-depth budget on the direct-dict input here (BudgetExceeded / BundleFormatError,
     # both ProofBundleError -> the never-raise callers absorb it).
-    enforce_structural_budget(bundle)
+    # Berkeley re-gate round 4: enforce_structural_budget raises a SIBLING BudgetExceeded (over-width) which is
+    # NOT BundleFormatError, so on the direct-dict path it escaped verify_bundle raw. Map it to the documented
+    # BundleFormatError (over-depth already IS BundleFormatError and propagates unchanged).
+    try:
+        enforce_structural_budget(bundle)
+    except BundleFormatError:
+        raise
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -687,7 +700,14 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
     # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
     # string_len never fired on the recompute path.
-    enforce_structural_budget(bundle)
+    # Berkeley re-gate round 4: same sibling map as verify_bundle — BudgetExceeded (over-width) is not a
+    # BundleFormatError, so on the direct-dict path it escaped this surface raw; map it to BundleFormatError.
+    try:
+        enforce_structural_budget(bundle)
+    except BundleFormatError:
+        raise
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value

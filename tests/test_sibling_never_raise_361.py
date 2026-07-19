@@ -275,7 +275,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         import base64
         from proofbundle import verify_bundle
         from proofbundle.budget import BudgetExceeded
-        from proofbundle.errors import ProofBundleError
+        from proofbundle.errors import BundleFormatError, ProofBundleError
         # nesting depth past json_depth (64) — Teil-5 called out 257/4096/65536
         for depth in (257, 4096):
             inner = {"x": 1}
@@ -284,8 +284,13 @@ class CallerPathTypedErrors(unittest.TestCase):
             with self.assertRaises(ProofBundleError):
                 verify_bundle({"schema": "proofbundle/v0.1", "deep": inner})
         # node count past json_nodes (200000)
+        # Berkeley re-gate round 4: verify_bundle's docstring promises malformed input is "rejected with a
+        # BundleFormatError — never a raw traceback"; a raw BudgetExceeded (a ProofBundleError SIBLING) broke a
+        # relying party using the documented `except BundleFormatError` pattern. The direct-dict path now maps
+        # the over-width BudgetExceeded to the documented BundleFormatError (still a ProofBundleError, honoring
+        # this test's stated "fail-closed ProofBundleError verdict" intent — just the contract-correct subtype).
         wide = {"schema": "proofbundle/v0.1", "big": {f"k{i}": i for i in range(250000)}}
-        with self.assertRaises(BudgetExceeded):
+        with self.assertRaises(BundleFormatError):
             verify_bundle(wide)
         # RT-BDOS-01 / RT09-STRINGLEN-INERT: a single oversized string VALUE (or key) is capped on the
         # direct-dict path too (input_bytes is inert there), with rejection parity to the str/file path.
