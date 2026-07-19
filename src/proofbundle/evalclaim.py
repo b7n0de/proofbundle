@@ -140,10 +140,12 @@ def load_claim_text(text: str) -> dict:
     ``except (ValueError, EvalClaimError)`` handling at the call sites — including the batch
     verifier ``hf_evals.verify_eval_results_entry`` — stays correct and never crashes."""
     from ._strict_json import loads_strict  # noqa: PLC0415
-    from .errors import BundleFormatError  # noqa: PLC0415
     try:
         return loads_strict(text)
-    except BundleFormatError as e:
+    except ProofBundleError as e:
+        # Berkeley re-gate round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
+        # BudgetExceeded (over-width/over-node input) NOT a BundleFormatError, which `except BundleFormatError`
+        # let escape as a raw traceback. Both map to the DOCUMENTED EvalClaimError (a ValueError).
         raise EvalClaimError(str(e)) from e
 
 
@@ -472,7 +474,6 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     if not isinstance(token, str) or "." not in token:
         return None
     from ._strict_json import loads_strict  # noqa: PLC0415
-    from .errors import BundleFormatError  # noqa: PLC0415
     try:
         jwt = token.split("~", 1)[0]                     # issuer JWT, before any disclosures
         payload_b64 = jwt.split(".")[1]
@@ -481,7 +482,10 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         # issuer-payload parse site of the same parser-differential class. A duplicate key (e.g. two
         # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.
         payload = loads_strict(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-    except (BundleFormatError, ValueError, KeyError, IndexError):
+    except (ProofBundleError, ValueError, KeyError, IndexError):
+        # Berkeley re-gate round 3 (repro-confirmed): sd_jwt_hidden_count is PUBLIC — a node-heavy embedded
+        # payload made loads_strict raise a SIBLING BudgetExceeded that `except BundleFormatError` let escape
+        # as a raw DoS traceback. The BASE ProofBundleError catch maps every over-limit/malformed case to None.
         return None
     if not isinstance(payload, dict):                    # a valid-JSON non-object payload → nothing to count
         return None
@@ -521,12 +525,14 @@ def enclave_assurance_proven(claim: dict, bundle, *, eat_jws: Optional[str] = No
     if not eat_jws or verifier_pubkey is None or bundle is None:
         return False
     try:
-        from .errors import BundleFormatError  # noqa: PLC0415
         from .experimental.enclave import enclave_binding_for, verify_enclave_attestation  # noqa: PLC0415
         binding = enclave_binding_for(bundle)
         res = verify_enclave_attestation(eat_jws, verifier_pubkey=verifier_pubkey,
                                          expected_binding=binding, expected_profile=expected_profile,
                                          now=now)
-    except (BundleFormatError, ValueError, TypeError, KeyError):
+    except (ProofBundleError, ValueError, TypeError, KeyError):
+        # Berkeley re-gate round 3: the enclave path funnels through loads_strict (BudgetExceeded) and may
+        # hit PQUnavailable — both ProofBundleError SIBLINGS that `except BundleFormatError` let escape. The
+        # BASE catch keeps this corroboration reporter fail-closed (unverifiable → not BACKED → False).
         return False
     return bool(res.get("ok"))

@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
-from .errors import BundleFormatError
+from .errors import BundleFormatError, ProofBundleError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://b7n0de.com/proofbundle/eval-receipt/v0.1"
@@ -187,7 +187,9 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
     except CanonicalizerUnavailable:
         return False, alg, ("cannot verify jcs-sha256-v1 canonicality — install proofbundle[eval] "
                             "(fail-closed; never a silent pass over non-canonical bytes)")
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:
+        # Berkeley re-gate round 3: the BASE ProofBundleError (CanonicalizerUnavailable already handled
+        # above) keeps any sibling — a BudgetExceeded/UnsupportedError from serialization — fail-closed here.
         return False, alg, str(exc)
     if expected != body:
         return False, alg, (f"payload is not canonical for its declared contentRootAlg={alg!r} "

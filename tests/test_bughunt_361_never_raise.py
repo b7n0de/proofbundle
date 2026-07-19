@@ -123,6 +123,57 @@ class PolicyLoadBoundedRead(unittest.TestCase):
             os.unlink(tmp)
 
 
+class LibrarySurfaceBudgetSiblingIsFailClosed(unittest.TestCase):
+    """Berkeley re-gate round 3 (repro-confirmed): several PUBLIC library verify surfaces funnel an embedded
+    SD-JWT/claim payload through loads_strict, which raises a SIBLING BudgetExceeded (a ProofBundleError that
+    is NOT BundleFormatError) on a node-heavy payload. An `except (BundleFormatError, ...)` that omits the
+    BASE let a raw DoS exception escape. Each surface must now map it to its own fail-closed verdict."""
+
+    def _node_heavy_compact(self, extra_top=None):
+        import base64
+        import json
+
+        from proofbundle.budget import DEFAULT_BUDGET
+        over = DEFAULT_BUDGET.json_nodes + 50
+        payload = {"pad": list(range(over))}
+        if extra_top:
+            payload.update(extra_top)
+        raw = json.dumps(payload).encode()
+        assert len(raw) < DEFAULT_BUDGET.input_bytes, "byte-cap would fire first"
+        b64 = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        return "hdr." + b64 + ".sig"
+
+    def test_sd_jwt_hidden_count_is_none_not_raw_budget(self):
+        from proofbundle.evalclaim import sd_jwt_hidden_count
+        compact = self._node_heavy_compact({"_sd": []})
+        self.assertIsNone(sd_jwt_hidden_count({"sd_jwt_vc": {"compact": compact}}))
+
+    def test_check_binds_bundle_is_false_not_raw_budget(self):
+        from proofbundle.sdjwt_issue import check_binds_bundle
+        compact = self._node_heavy_compact()
+        self.assertFalse(check_binds_bundle(compact, {"passed": True}, "root"))
+
+    def test_present_with_key_binding_maps_oversized_to_valueerror(self):
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from proofbundle.sdjwt_issue import present_with_key_binding
+        compact = self._node_heavy_compact({"_sd_alg": "sha-256"}) + "~"
+        with self.assertRaises(ValueError):
+            present_with_key_binding(compact, Ed25519PrivateKey.generate(),
+                                     aud="a", nonce="n", iat=1)
+
+    def test_load_claim_text_maps_budget_to_evalclaim_error(self):
+        # evalclaim.load_claim_text: a node-heavy claim must raise the documented EvalClaimError
+        # (a ValueError), never a raw BudgetExceeded.
+        import json
+
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.evalclaim import EvalClaimError, load_claim_text
+        over = DEFAULT_BUDGET.json_nodes + 50
+        text = json.dumps({"pad": list(range(over))})
+        with self.assertRaises(EvalClaimError):
+            load_claim_text(text)
+
+
 class CliMainCatchAllBackstop(unittest.TestCase):
     def test_escaping_proofbundle_error_maps_to_exit_2(self):
         # Berkeley re-gate round 2: anchor inspect's own except does not catch BundleFormatError; the

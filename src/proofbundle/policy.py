@@ -922,7 +922,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             if isinstance(_compact, str):
                 try:
                     _issuer_payload = _sd_issuer_payload(_compact)
-                except (BundleFormatError, ValueError, KeyError, IndexError):
+                except (ProofBundleError, ValueError, KeyError, IndexError):
                     # F12-style fail-closed: a duplicate-key or malformed issuer payload cannot yield a
                     # trustworthy vct → treat as absent, never a raw traceback out of the policy layer.
                     _issuer_payload = {}

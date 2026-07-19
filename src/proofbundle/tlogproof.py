@@ -172,7 +172,9 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
         return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)")
     try:
         parsed = parse_tlog_proof(text)
-    except (BundleFormatError, ValueError, TypeError) as exc:
+    except (ProofBundleError, ValueError, TypeError) as exc:
+        # Berkeley re-gate round 3: catch the BASE ProofBundleError so any sibling (BudgetExceeded / an
+        # UnsupportedError from a future parse step) maps to the same fail-closed verdict, never a raw escape.
         return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}")
     checkpoint = parsed["checkpoint"]
 

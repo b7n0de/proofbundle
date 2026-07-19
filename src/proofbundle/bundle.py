@@ -30,7 +30,7 @@ from typing import Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET
-from .errors import BundleFormatError, UnsupportedError, VerificationResult
+from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
@@ -76,8 +76,11 @@ def _issuer_requires_holder_binding(sd_part: str) -> bool:
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
         payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
-    except BundleFormatError:
-        # A duplicated key in the issuer payload must NOT read as "no cnf ⇒ no binding required" (that
+    except ProofBundleError:
+        # Berkeley re-gate round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
+        # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw
+        # exception escape this verify helper. A duplicated key in the issuer payload must NOT read as "no cnf
+        # ⇒ no binding required" (that
         # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
         # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
         return True
@@ -431,7 +434,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
             try:
                 _sd_p = _sd_payload(compact)
-            except (BundleFormatError, ValueError, KeyError, IndexError):
+            except (ProofBundleError, ValueError, KeyError, IndexError):
                 # F12: a duplicate-key payload yields {} here → the issuer-identity check is skipped, but the
                 # bundle already fails at the sd-jwt-disclosures structure gate (verify_sd_jwt rejects the
                 # duplicate) and check_binds_bundle returns False → net fail-closed.
@@ -468,7 +471,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                 # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
                 # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
                 _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
-            except (ValueError, KeyError, TypeError, BundleFormatError):
+            except (ValueError, KeyError, TypeError, ProofBundleError):
                 _claim = None
             _root = (bundle.get("merkle") or {}).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a

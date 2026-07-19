@@ -29,7 +29,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
-from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
+from .errors import BundleFormatError, ProofBundleError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
@@ -83,7 +83,11 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     # token never escapes as a different exception type (release-review fix).
     try:
         return verify_bundle(bundle), bundle
-    except UnsupportedError as exc:
+    except ProofBundleError as exc:
+        # Berkeley re-gate round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
+        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
+        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization above already does this
+        # for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign exception type either.
         raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
 
 
