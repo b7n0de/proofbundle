@@ -829,6 +829,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
                        "lineage_ok"],
     })
+    # Bug-hunt follow-up (3.6.2, P1): mirror the eval-path SIGNER_NOT_PINNED bar (bundle.py:617-619) onto
+    # the decision automation surface. automation_summary carries NO signer dimension, so a crypto-valid
+    # decision receipt whose policy makes policy_ok=True but pins NO decision-maker (signer_trusted is None
+    # — the 'attributes to nobody' case that only emitted a stderr warning above) wrongly stayed
+    # safeForAutomation=True. A receipt that attributes to nobody is never automation-safe; block it, and
+    # name SIGNER_NOT_PINNED so a consumer sees the reason. Only ADDS a blocker (never turns it true); the
+    # pinned-and-matched safe case (signer_trusted is True) is untouched, and an explicit rejection
+    # (signer_trusted is False) already fires POLICY_FAILED via policy_ok=False.
+    if (r.get("crypto_ok") and r.get("signer_trusted") is not True
+            and isinstance(r.get("automation"), dict)):
+        _blk = r["automation"].setdefault("automationBlockers", [])
+        if r.get("signer_trusted") is None and "SIGNER_NOT_PINNED" not in _blk:
+            _blk.append("SIGNER_NOT_PINNED")
+        r["automation"]["safeForAutomation"] = False
     # relation/v0.1: the dedicated blocker name (LIVE, not dormant) — POLICY_FAILED already fires via
     # policy_ok=False above; this names the REASON so a consumer can distinguish a lineage gate from
     # any other policy failure. Only ever ADDS a blocker (never turns safeForAutomation true).
