@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
-from .errors import BundleFormatError
+from .errors import ProofBundleError
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -145,7 +145,14 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
         raise ValueError("iat must be a POSIX timestamp integer")
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).
-    sd_alg = _jwt_payload(compact).get("_sd_alg", SD_ALG)
+    # Berkeley re-gate round 3: a node-heavy/oversized issuer payload makes _jwt_payload raise
+    # BudgetExceeded (a ProofBundleError) — map it to this constructor's DOCUMENTED ValueError (like the
+    # "or is malformed" branch above), so a bad compact never leaks a foreign exception type to the holder.
+    try:
+        _issuer_payload = _jwt_payload(compact)
+    except ProofBundleError as exc:
+        raise ValueError(f"presented SD-JWT issuer payload is malformed or oversized: {exc}") from exc
+    sd_alg = _issuer_payload.get("_sd_alg", SD_ALG)
     if sd_alg not in _HASH_BY_SD_ALG:
         raise ValueError(f"unsupported _sd_alg {sd_alg!r} in the presented SD-JWT")
     sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
@@ -177,10 +184,17 @@ def _jwt_payload(compact: str) -> dict:
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     """No-Fake binding: the SD-JWT's always-open claims MUST match the signed bundle payload bit-exact and
     bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected."""
+    if not isinstance(compact, str):
+        # Berkeley re-gate round 7: a non-str presented `compact` is a fail-closed False, not a raw
+        # AttributeError from compact.split('~') in _jwt_payload — the except tuple below omits AttributeError/
+        # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
+        return False
     try:
         p = _jwt_payload(compact)
-    except (BundleFormatError, ValueError, KeyError, IndexError):
-        # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12)
+    except (ProofBundleError, ValueError, KeyError, IndexError):
+        # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12).
+        # Berkeley re-gate round 3: the BASE ProofBundleError also catches loads_strict's SIBLING
+        # BudgetExceeded on a node-heavy compact, which `except BundleFormatError` let escape verify.
         return False
     # `claim` is an attacker-controllable, only-schema-checked bundle payload — read every field with
     # .get() (WP-C1 6-lens review): a missing field must yield a mismatch (unbound → False), never a

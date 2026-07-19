@@ -65,6 +65,15 @@ _AUTOMATION_REQUIRED_CHECKS = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class TrustPackError(ProofBundleError):
     """A Trust Pack predicate is malformed (fail-closed)."""
 
@@ -320,7 +329,7 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
-    known = set((predicate.get("keys") or {}).keys())
+    known = set(_as_dict(predicate.get("keys")).keys())
     for kid in signers:
         if kid not in known:
             raise TrustPackError(f"signer keyId {kid!r} is not declared in the pack's keys")
@@ -364,9 +373,14 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     downgrade); the ``sigPq`` leg over ``publicKeyPq`` MUST also verify. The alg label itself cannot be
     forged in isolation: it lives inside the signed predicate, so relabeling it invalidates every signature
     over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header)."""
-    from .pqsig import verify_hybrid, verify_mldsa  # noqa: PLC0415
+    from .pqsig import PQUnavailable, verify_hybrid, verify_mldsa  # noqa: PLC0415
     from .signature import verify_ed25519  # noqa: PLC0415
     sig_b64 = entry.get("sig")
+    # Bug-hunt follow-up (3.6.2): verify_mldsa / verify_hybrid raise PQUnavailable when the running
+    # `cryptography` has no FIPS-204 (ML-DSA) build. That escaped this bool-returning helper (and its two
+    # trust_pack verify callers) as a RAW crash on an untrusted trust-pack that names an ML-DSA root key.
+    # A signature we cannot verify is not a valid signature: return False (fail-closed — the signer simply
+    # does not count toward the threshold), never a raw exception out of the never-raise verify surface.
     if alg == "mldsa65":
         if not isinstance(sig_b64, str):
             return False
@@ -374,7 +388,10 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             sig = base64.b64decode(sig_b64, validate=True)
         except Exception:  # noqa: BLE001
             return False
-        return verify_mldsa(pub, sig, msg, level="mldsa65")
+        try:
+            return verify_mldsa(pub, sig, msg, level="mldsa65")
+        except PQUnavailable:
+            return False
     if alg == "hybrid-ed25519-mldsa65":
         sig_pq_b64 = entry.get("sigPq")
         if not isinstance(pq_pub_b64, str) or not isinstance(sig_b64, str) or not isinstance(sig_pq_b64, str):
@@ -385,7 +402,10 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             sig_pq = base64.b64decode(sig_pq_b64, validate=True)
         except Exception:  # noqa: BLE001
             return False
-        return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
+        try:
+            return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
+        except PQUnavailable:
+            return False
     # default / "ed25519" (an unrecognised alg on prev_root_keys — caller-supplied trust material, outside
     # the predicate's own schema gate — safely falls back to the classical check rather than raising).
     if not isinstance(sig_b64, str):
@@ -485,10 +505,10 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         return r
 
     # Threshold-of-root over the EXACT signed bytes.
-    keys = predicate.get("keys") or {}
-    revoked = set(predicate.get("revoked") or [])
-    root = (predicate.get("roles") or {}).get("root") or {}
-    root_ids = [k for k in (root.get("keyIds") or []) if k not in revoked]
+    keys = _as_dict(predicate.get("keys"))
+    revoked = set(_as_list(predicate.get("revoked")))
+    root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
+    root_ids = [k for k in _as_list(root.get("keyIds")) if k not in revoked]
     threshold = root.get("threshold")
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     # Count DISTINCT KEY MATERIAL, not keyId labels (defense-in-depth beyond the validator's aliasing check):
@@ -497,7 +517,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # alg label lives INSIDE the signed predicate, so an attacker cannot relabel a key without invalidating
     # every signature over this pack.
     valid_root: dict[bytes, str] = {}
-    for entry in envelope.get("signatures") or []:
+    for entry in _as_list(envelope.get("signatures")):
         if not isinstance(entry, dict):
             continue
         kid = entry.get("keyid")
@@ -537,7 +557,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:
-        r["version_monotone"] = _is_int(predicate.get("version")) and predicate["version"] > prev_version
+        # Berkeley r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
+        r["version_monotone"] = (_is_int(predicate.get("version")) and _is_int(prev_version)
+                                 and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
                 f"version {predicate.get('version')!r} is not greater than the previous version "
@@ -554,9 +576,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
     # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
     if prev_root_keys is not None or prev_root_threshold is not None:
-        old_keys = prev_root_keys or {}
+        old_keys = _as_dict(prev_root_keys)  # Berkeley r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
         old_valid: dict[bytes, str] = {}
-        for entry in envelope.get("signatures") or []:
+        for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
                 continue
             kid = entry.get("keyid")

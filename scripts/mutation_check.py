@@ -285,7 +285,7 @@ MUTATIONS = [
     # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
     # tests/test_signature.py's TestVerifyEcdsaP256 (wrong key / tampered message / tampered signature).
     ("src/proofbundle/signature.py",
-     "        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))\n        return True",
+     "        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))\n        return True",
      "        return True",
      "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the

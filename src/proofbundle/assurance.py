@@ -181,11 +181,14 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     (``level=None``) fields are ignored, never silently counted as CLAIMED. When no field is applicable,
     returns ``level=None`` (mirrors the existing ``evidence_bound=None`` "nothing to bind" convention —
     never a vacuous strong verdict over an empty set)."""
-    applicable = [f for f in fields if f.get("level") is not None]
+    # Berkeley re-gate: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
+    # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
+    applicable = [f for f in fields
+                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     weakest = min(applicable, key=lambda f: f["level"])
-    return {"level": weakest["level"], "level_name": weakest["level_name"], "fields": list(fields)}
+    return {"level": weakest.get("level"), "level_name": weakest.get("level_name"), "fields": list(fields)}
 
 
 def evidence_ladder_best(*fields: dict) -> dict:
@@ -194,8 +197,11 @@ def evidence_ladder_best(*fields: dict) -> dict:
     ``outcome.py``'s ``effectDigest`` OR ``actualActionDigest`` — the existing boolean
     ``outcome_execution_proven`` is exactly this OR). Picks the STRONGEST applicable field. When no field
     is applicable, returns ``level=None``."""
-    applicable = [f for f in fields if f.get("level") is not None]
+    # Berkeley re-gate: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
+    # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
+    applicable = [f for f in fields
+                  if isinstance(f, dict) and isinstance(f.get("level"), int) and not isinstance(f.get("level"), bool)]
     if not applicable:
         return {"level": None, "level_name": None, "fields": list(fields)}
     strongest = max(applicable, key=lambda f: f["level"])
-    return {"level": strongest["level"], "level_name": strongest["level_name"], "fields": list(fields)}
+    return {"level": strongest.get("level"), "level_name": strongest.get("level_name"), "fields": list(fields)}

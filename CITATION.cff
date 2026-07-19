@@ -15,7 +15,7 @@ type: software
 license: MIT
 repository-code: "https://github.com/b7n0de/proofbundle"
 url: "https://github.com/b7n0de/proofbundle"
-version: 3.6.1
+version: 3.6.2
 doi: 10.5281/zenodo.21110642
 keywords:
   - cryptography

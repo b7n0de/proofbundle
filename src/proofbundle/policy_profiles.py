@@ -74,6 +74,15 @@ _RESERVED_OVERLAY_KEYS = {"deploymentReady", "requiresIdentityOverlay", "policyP
                           "schema", "generatedFromTemplate"}
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def list_profiles() -> list:
     """The sorted list of CANONICAL profile short names (no prefix, no aliases)."""
     return sorted(PROFILE_NAMES)
@@ -198,22 +207,22 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
         _validate_pinned_ed25519_pubkey(key, "instantiate issuer key")   # fail-closed on low-order/malformed
         entries.append({"public_key_b64": key})
     if is_decision:
-        dr = dict(inst.get("decision_receipt") or {})
+        dr = dict(_as_dict(inst.get("decision_receipt")))
         dr["trusted_decision_makers"] = entries
         inst["decision_receipt"] = dr
     else:
         inst["allowed_issuers"] = entries
-        sig = dict(inst.get("signature") or {})
+        sig = dict(_as_dict(inst.get("signature")))
         sig["require_expected_signer"] = True   # enforce the pin (evaluate_policy matches the signer key)
         inst["signature"] = sig
 
     # root pinning when the template demands an authenticated root (completeness is derived from the
     # RESULTING inst below, not tracked here, so an overlay cannot desync a flag from the actual policy).
-    require_auth_root = bool((base.get("merkle") or {}).get("require_authenticated_root"))
+    require_auth_root = bool(_as_dict(base.get("merkle")).get("require_authenticated_root"))
     if expected_root is not None:
         if not (isinstance(expected_root, str) and expected_root):
             raise PolicyError("expected_root must be a non-empty base64 string")
-        mk = dict(inst.get("merkle") or {})
+        mk = dict(_as_dict(inst.get("merkle")))
         mk["trusted_roots"] = [expected_root]
         inst["merkle"] = mk
 
@@ -246,9 +255,9 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
     # production-ready (L2 pre-land review). An incomplete instance stays deploymentReady:false so
     # `policy lint --strict` still refuses it (No-Fake).
     from .policy import POLICY_PURPOSES, policy_expired, policy_not_yet_valid  # noqa: PLC0415
-    final_identity = ((inst.get("decision_receipt") or {}).get("trusted_decision_makers")
+    final_identity = (_as_dict(inst.get("decision_receipt")).get("trusted_decision_makers")
                       if is_decision else inst.get("allowed_issuers"))
-    final_root_ok = (not require_auth_root) or bool((inst.get("merkle") or {}).get("trusted_roots"))
+    final_root_ok = (not require_auth_root) or bool(_as_dict(inst.get("merkle")).get("trusted_roots"))
     purpose_defined = inst.get("policyPurpose") in POLICY_PURPOSES
     lifecycle_ok = policy_expired(inst) is not True and policy_not_yet_valid(inst) is not True
     not_template = inst.get("requiresIdentityOverlay") is not True

@@ -49,7 +49,7 @@ import json
 from typing import Optional
 
 from .._strict_json import loads_strict
-from ..errors import BundleFormatError
+from ..errors import BundleFormatError, ProofBundleError
 from ..signature import verify_ed25519
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
@@ -120,7 +120,10 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
         header = loads_strict(_b64url_decode(header_b64))   # WP-C1: dup keys fail-closed
         claims = loads_strict(_b64url_decode(payload_b64))
         sig = _b64url_decode(sig_b64)
-    except BundleFormatError as exc:
+    except ProofBundleError as exc:
+        # Berkeley re-gate round 4: catch the BASE ProofBundleError, not just BundleFormatError — a node-heavy
+        # or >8MiB EAT payload makes loads_strict raise a SIBLING BudgetExceeded that escaped this verify
+        # surface raw (the round-3 fix widened the CALLER evalclaim but left the surface itself un-widened).
         result["detail"] = f"malformed EAT token: {exc}"
         return result
     except (ValueError, TypeError):

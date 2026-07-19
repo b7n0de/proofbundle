@@ -65,6 +65,11 @@ def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: 
     ``public_key`` is the raw ML-DSA public key. Malformed input returns False (never raises), matching
     ``verify_ed25519``. A missing FIPS-204 build raises ``PQUnavailable`` (a wiring problem, not a check
     result)."""
+    # Berkeley re-gate round 6: an UNKNOWN `level` is malformed input, not a wiring problem — return False per
+    # the contract above (it otherwise raised PQUnavailable from _mldsa_classes, contradicting "never raises").
+    # A MISSING FIPS-204 build still raises PQUnavailable below (an honest "cannot check", never a false False).
+    if level not in ("mldsa44", "mldsa65", "mldsa87"):
+        return False
     _priv_cls, pub_cls = _mldsa_classes(level)
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
     try:

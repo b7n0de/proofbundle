@@ -64,6 +64,13 @@ def _b64url(data: bytes) -> str:
 
 
 def _b64url_decode(s: str) -> bytes:
+    # Berkeley re-gate round 7: cap the raw segment length BEFORE decoding — base64-decoding an oversized
+    # segment allocates before loads_strict's input_bytes cap (which runs on the DECODED value) can fire, a
+    # memory-amplification DoS. Mirrors anchors_markovian's _MAX_PROOF_BYTES.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    if len(s) > DEFAULT_BUDGET.input_bytes:
+        raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
     return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
 
@@ -236,16 +243,26 @@ def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     ONLY — grinding by re-salting is possible and documented). Index mapping uses rejection
     sampling over u64 draws — zero modulo bias by construction.
     """
+    # Bug-hunt follow-up (3.6.2): audit_challenge is a typed-error helper — bad input must raise the typed
+    # BundleFormatError, never a RAW binascii.Error / OverflowError / TypeError. root/n/nonce are all derived
+    # from a receipt-controlled field (n mirrors verify_sample_opening's tree size), so a hostile receipt could
+    # otherwise crash the auditor's process: a non-base64 root (binascii.Error), an n >= 2**64 that overflows
+    # n.to_bytes(8) (OverflowError), or a non-bytes nonce (TypeError on the concatenation).
     if isinstance(root, str):
-        root = base64.b64decode(root, validate=True)
+        try:
+            root = base64.b64decode(root, validate=True)
+        except (ValueError, TypeError) as exc:   # binascii.Error is a ValueError subclass
+            raise BundleFormatError("root must be valid base64 (or the raw 32-byte samples root)") from exc
     if not isinstance(root, bytes) or len(root) != 32:
         raise BundleFormatError("root must be the 32-byte samples root (or its base64)")
-    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
-        raise BundleFormatError("n must be a positive integer")
+    if isinstance(n, bool) or not isinstance(n, int) or not 0 < n < (1 << 64):
+        raise BundleFormatError("n must be a positive integer below 2**64 (a samples tree size)")
     if isinstance(k, bool) or not isinstance(k, int) or not 0 < k <= n:
         raise BundleFormatError("k must be an integer in [1, n]")
+    if not isinstance(nonce, (bytes, bytearray)):
+        raise BundleFormatError("nonce must be bytes")
     seed = hashlib.sha256(_CHALLENGE_DOMAIN + root + n.to_bytes(8, "big")
-                          + k.to_bytes(8, "big") + nonce).digest()
+                          + k.to_bytes(8, "big") + bytes(nonce)).digest()
     chosen: List[int] = []
     seen = set()
     counter = 0

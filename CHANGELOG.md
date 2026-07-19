@@ -4,6 +4,102 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.2] - 2026-07-19 (security patch, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.2 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. An
+adversarial re-audit of the 3.6.1 release (12 finder lenses, each finding refuted by 3 independent
+skeptics) found ten more defects: the 3.6.1 never-raise sweep had wrapped some public entrypoints but
+left siblings unwrapped, plus two genuine trust-policy fail-opens on the `.automation.safeForAutomation`
+surface. None touch a crypto verdict; `.ok` was already correct on every path.
+
+Release-scope honesty (No-Overclaim): the never-raise class fix in this 3.6.2 is large and verified but NOT
+claimed complete. It is codebase-wide and converges module-by-module; the ~16 modules listed below are
+hardened and locally fuzz-clean (full suite green), but a full adversarial Berkeley WITHSTANDS across the
+ENTIRE public surface is not certified at this tag. 3.6.2 ships under an explicit maintainer decision to
+release the large, verified batch now rather than withhold it — any never-raise residual a deeper re-gate
+still surfaces (plus the reverted `anchors_chia_add` transform, left for careful per-site handling) ships in
+3.6.3. No crypto verdict (`.ok`) is affected by any residual: the class is robustness / DoS hardening on the
+verify surface, never a correctness change.
+
+### Fixed (security, automation-verdict fail-open)
+- **Decision automation verdict no longer fail-open for an unpinned signer:** a v0.2
+  `decision_receipt` policy that constrained the type/verdict but pinned no `trusted_decision_makers`
+  left `safeForAutomation` true (the 'attributes to nobody' hole the eval path already blocks). It now
+  blocks with `SIGNER_NOT_PINNED`, mirroring the eval-path bar.
+- **Outcome automation verdict no longer fail-open on a relations-policy violation:** a violated
+  `require_relation_resolution` / `reject_superseded` set `policy_ok` false but reached no automation
+  dimension. It now names the blocker and forces `safeForAutomation` false, mirroring the decision path.
+
+### Fixed (never-raise / DoS robustness on the public verify surface)
+- `verify_tlog_proof` no longer raises a raw `BundleFormatError` on a malformed embedded checkpoint
+  (all steps wrapped, base exception caught).
+- `audit_challenge` maps a hostile receipt-controlled root/n/nonce (non-base64 / `n >= 2**64` /
+  non-bytes) to the typed `BundleFormatError` instead of `binascii.Error` / `OverflowError` / `TypeError`.
+- `verify_key_binding` fail-closes on a non-ASCII presented SD-JWT instead of raising `UnicodeEncodeError`.
+- `_verify_signature_for_alg` returns a fail-closed `False` when ML-DSA verification is unavailable
+  (no FIPS-204 build) instead of leaking `PQUnavailable`.
+- The CLI bounds every file read at the `input_bytes` budget, so a huge/streaming input (`/dev/zero`)
+  maps to a clean exit-2 instead of memory exhaustion.
+- **Never-raise closed as a CLASS, not point fixes (four iterated Berkeley re-gates).** Successive
+  adversarial re-gates (6 falsification lenses, each finding refuted by 3 independent skeptics, plus a
+  completeness critic) proved the sibling-escape was systemic across the whole public verify surface, not a
+  handful of sites. Every fix below maps hostile/oversized untrusted input to a typed fail-closed result;
+  emit/sign surfaces stay uncapped (operator's own data), and the four DSSE-receipt verify paths were
+  already fail-closed and are unchanged.
+  - **CLI closed at one place:** a `main()` backstop maps any escaping `ProofBundleError` to a clean exit 2.
+  - **Flagship bundle surfaces:** `verify_bundle`, `load_bundle` and `recompute_merkle_root_b64` mapped a
+    node-heavy dict/file (under the byte cap but over the node budget) to the documented `BundleFormatError`
+    instead of a raw `BudgetExceeded` (the sibling their `except (OSError, ValueError, ...)` missed; the
+    direct-dict `enforce_structural_budget` call was unguarded).
+  - **in-toto verify (`verify_intoto_dsse` / `verify_eval_result_dsse` / `verify_svr_dsse`):** a signed
+    statement carrying NaN / Infinity / an oversized integer made `rfc8785.dumps` raise a
+    `FloatDomainError` / `IntegerDomainError` (the `ValueError` family, not a `ProofBundleError`) out of the
+    content-root binding; now caught and failed closed.
+  - **DoS on file-reading verify surfaces:** `verify_evaluation_card` (and the `evalcard --check` CLI) hung
+    forever on `/dev/zero` (unbounded chunked read) and, together with `verify_prereg`, blocked forever on a
+    FIFO at `open()`. Both now stat-guard (regular files only) and cap total bytes. Every CLI verify command
+    that opened an untrusted path gained the same `S_ISREG` stat-guard, so a FIFO argument maps to exit 2.
+  - **Library except widening:** `sd_jwt_hidden_count`, `load_claim_text` (→ `EvalClaimError`), the enclave
+    corroboration reporter and surface, `check_binds_bundle`, `verify_receipt_token`, `verify_tlog_proof`,
+    the in-toto canonicality check, and the bundle/policy SD-JWT issuer-payload paths now catch the base
+    `ProofBundleError`; `present_with_key_binding` maps an oversized compact to its documented `ValueError`.
+  - **`load_policy` and the canonical primitives:** the `load_policy` dict overload enforces the structural
+    budget before `copy.deepcopy` (a deeply-nested policy dict was a raw `RecursionError`, now `PolicyError`)
+    and stat-guards its file path (a FIFO no longer hangs); `canonicalize_statement` / `statement_content_root`
+    bound nesting before `rfc8785.dumps` so a directly-supplied deep object is typed, not a `RecursionError`.
+  - **Post-quantum sibling on the verify path:** `renewal.verify_sequence` fails an ML-DSA/hybrid-labelled
+    anchor closed on a build without FIPS-204 instead of leaking `PQUnavailable`; a batch `witness_quorum` /
+    `verify_witnessed_checkpoint` counts an un-verifiable ML-DSA witness as non-verifying rather than raising
+    `UnsupportedError` out of the batch (a single explicitly-named `verify_cosignature` keeps its loud raise).
+  - **CLI `--trusted-tsa-root`:** routed through the same stat-guarded reader, so a FIFO maps to exit 2.
+  - **DSSE + anchor canonicalization (last public leak points):** `dsse.verify_envelope` / `load_payload`
+    map an oversized signatures list / payload to `BundleFormatError` instead of a raw `BudgetExceeded`;
+    `anchors.receipt_canonical_root` maps a non-JCS number (a `2**53` int or NaN that `loads_strict` admits
+    but `rfc8785` rejects) to `BundleFormatError`, closing the raw `IntegerDomainError` on the
+    `verify --require-anchor` path (the lone `verify` block that did not already `except ValueError`). A
+    truthy non-dict `frozen` in an attacker anchor is normalized before it reaches a verifier.
+  - **`verify_mldsa` contract fix:** an unknown `level` is malformed input and now returns `False` (honoring
+    the documented "malformed input returns False"); a genuinely missing FIPS-204 build still raises
+    `PQUnavailable` (an honest "cannot check", never a false negative).
+  - **`receipt_canonical_root` deep-nesting:** bounds the structure before `rfc8785.dumps` (mirroring the
+    `canonicalize_statement` peer), so a directly-supplied deeply-nested bundle is a typed `BundleFormatError`,
+    not a raw `RecursionError`.
+  - **JWT/token pre-decode DoS:** `kbjwt` / `sdjwt` / `statuslist` / `persample` cap each base64 segment
+    length before decoding, so a 25 MB token no longer allocates ~5x its size before the downstream caps
+    (which run on the decoded value) can fire. `parse_tlog_proof` fails a non-string input closed instead of
+    a raw `TypeError`, honoring its "never a crash" docstring.
+  - **Nested-config-subfield sub-class closed codebase-wide (two more re-gates, r5–r6).** The re-gates did not
+    converge on point fixes (5 → 12 → 16 findings) because the pervasive `(cfg.get(k) or {})` idiom only
+    replaces a FALSY value: a truthy non-container config sub-field (an `int`/`str` where a `dict`/`list` was
+    expected), and unhashable / non-dict LIST ELEMENTS inside it, reached `.get()` / iteration / `set()` / `in`
+    and raised a raw `AttributeError` / `TypeError`. Fixed systematically with `_as_dict` / `_as_list` helpers
+    replacing every such idiom, plus element- and keyword-argument-level type guards, across `policy`,
+    `relation`, `anchors`, `automation_verdict`, `public_transparency`, `trust_pack`, `sdjwt_vc`, `renewal`,
+    `evalclaim`, `assurance`, `policy_profiles`, `outcome`, `decision`, `relation_statement`, `evidence_pack`
+    and `bundle`. A broad nested-fuzz (~250 hostile inputs across nested + element levels on the policy /
+    relation / decision verify surfaces) is zero escapes; the full suite (1859 tests) is green; pinned as a
+    regression in the never-raise property test.
+
 ## [Unreleased]
 
 ### Added

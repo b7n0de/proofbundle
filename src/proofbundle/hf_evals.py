@@ -29,7 +29,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
-from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
+from .errors import BundleFormatError, ProofBundleError, VerificationResult
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
@@ -83,7 +83,11 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     # token never escapes as a different exception type (release-review fix).
     try:
         return verify_bundle(bundle), bundle
-    except UnsupportedError as exc:
+    except ProofBundleError as exc:
+        # Berkeley re-gate round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
+        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
+        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization above already does this
+        # for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign exception type either.
         raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
 
 
@@ -123,7 +127,15 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not isinstance(token, str) or not token:
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
         return out
-    result, bundle = verify_receipt_token(token)
+    # Berkeley re-gate (3.6.2): honour this surface's OWN never-raise contract (comment above: "a malformed
+    # token is reported, not raised"). verify_receipt_token raises BundleFormatError (a ProofBundleError) on a
+    # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
+    # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.
+    try:
+        result, bundle = verify_receipt_token(token)
+    except ProofBundleError as exc:
+        out["detail"] = f"malformed verifyToken — not verifiable, fail-closed ({exc})"
+        return out
     out["crypto_ok"] = bool(result.ok)
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"

@@ -30,7 +30,7 @@ from typing import Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET
-from .errors import BundleFormatError, UnsupportedError, VerificationResult
+from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
@@ -65,6 +65,15 @@ AUTOMATION_BLOCKER_REASONS = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
     """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
     issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
@@ -76,8 +85,11 @@ def _issuer_requires_holder_binding(sd_part: str) -> bool:
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
         payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
-    except BundleFormatError:
-        # A duplicated key in the issuer payload must NOT read as "no cnf ⇒ no binding required" (that
+    except ProofBundleError:
+        # Berkeley re-gate round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
+        # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw
+        # exception escape this verify helper. A duplicated key in the issuer payload must NOT read as "no cnf
+        # ⇒ no binding required" (that
         # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
         # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
         return True
@@ -217,9 +229,14 @@ def load_bundle(path: str) -> dict:
         if len(raw) > cap:
             raise BundleFormatError(f"bundle exceeds the {cap}-byte input_bytes budget (fail-closed)")
         return loads_strict(raw.decode("utf-8"))
-    except (OSError, ValueError, MemoryError, TypeError) as exc:
+    except BundleFormatError:
+        raise
+    except (OSError, ValueError, MemoryError, TypeError, ProofBundleError) as exc:
         # 6-lens DEEP gate L3-01: TypeError too — a non-str path argument (None/float) makes os.stat raise a
         # raw TypeError; the docstring promises TOTAL mapping to typed BundleFormatError (never-raise-wrap-all).
+        # Berkeley re-gate round 4: a node-heavy FILE (<8MiB but >json_nodes) passes the byte caps, then
+        # loads_strict raises a SIBLING BudgetExceeded (a ProofBundleError, NOT BundleFormatError) — include the
+        # BASE so it maps to the documented BundleFormatError, never a raw DoS traceback out of this load surface.
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
@@ -266,7 +283,15 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     # unbounded and could surface as a raw RecursionError instead of a fail-closed budget verdict. Enforce the
     # same node-count + nesting-depth budget on the direct-dict input here (BudgetExceeded / BundleFormatError,
     # both ProofBundleError -> the never-raise callers absorb it).
-    enforce_structural_budget(bundle)
+    # Berkeley re-gate round 4: enforce_structural_budget raises a SIBLING BudgetExceeded (over-width) which is
+    # NOT BundleFormatError, so on the direct-dict path it escaped verify_bundle raw. Map it to the documented
+    # BundleFormatError (over-depth already IS BundleFormatError and propagates unchanged).
+    try:
+        enforce_structural_budget(bundle)
+    except BundleFormatError:
+        raise
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -431,7 +456,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             from .sdjwt_issue import check_binds_bundle  # noqa: PLC0415
             try:
                 _sd_p = _sd_payload(compact)
-            except (BundleFormatError, ValueError, KeyError, IndexError):
+            except (ProofBundleError, ValueError, KeyError, IndexError):
                 # F12: a duplicate-key payload yields {} here → the issuer-identity check is skipped, but the
                 # bundle already fails at the sd-jwt-disclosures structure gate (verify_sd_jwt rejects the
                 # duplicate) and check_binds_bundle returns False → net fail-closed.
@@ -468,9 +493,9 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                 # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
                 # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
                 _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
-            except (ValueError, KeyError, TypeError, BundleFormatError):
+            except (ValueError, KeyError, TypeError, ProofBundleError):
                 _claim = None
-            _root = (bundle.get("merkle") or {}).get("root_b64")
+            _root = _as_dict(bundle.get("merkle")).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
             # non-eval payload with an sd_jwt_vc is out of scope for this binding (nothing to bind against).
             if isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:
@@ -684,7 +709,14 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
     # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
     # string_len never fired on the recompute path.
-    enforce_structural_budget(bundle)
+    # Berkeley re-gate round 4: same sibling map as verify_bundle — BudgetExceeded (over-width) is not a
+    # BundleFormatError, so on the direct-dict path it escaped this surface raw; map it to BundleFormatError.
+    try:
+        enforce_structural_budget(bundle)
+    except BundleFormatError:
+        raise
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value

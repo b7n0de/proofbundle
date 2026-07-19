@@ -68,6 +68,15 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class OutcomeReceiptError(ProofBundleError):
     """An Action Outcome Receipt predicate is malformed (fail-closed)."""
 
@@ -306,7 +315,7 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
     function only resolves CONTENT, mirroring the same layering ``resolve_evidence_ref`` uses."""
     from . import anchors as _anchors_mod  # noqa: PLC0415
     out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
-    want = (ref.get("digest") or {}).get("sha256") if isinstance(ref, dict) else None
+    want = _as_dict(ref.get("digest")).get("sha256") if isinstance(ref, dict) else None
     if receiver_payload is not None:
         got = _anchors_mod.statement_content_root(receiver_payload).hex()
         out["content_root_ok"] = (got == want)
@@ -314,7 +323,7 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
             out["detail"] = "receiver content root != receiverRefs[].digest (receiver content changed?)"
     if artifact_bytes is not None and isinstance(ref, dict) and "artifactDigest" in ref:
         got_a = hashlib.sha256(artifact_bytes).hexdigest()
-        out["artifact_ok"] = (got_a == (ref.get("artifactDigest") or {}).get("sha256"))
+        out["artifact_ok"] = (got_a == _as_dict(ref.get("artifactDigest")).get("sha256"))
         if out["artifact_ok"] is False:
             out["detail"] = (out["detail"] + "; " if out["detail"] else "") + "artifactDigest != fetched blob"
     return out
@@ -594,7 +603,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
 
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # decisionRef binding (replay against another decision fails).
-        _dref = (predicate.get("decisionRef") or {}).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
+        _dref = _as_dict(predicate.get("decisionRef")).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
         if expected_decision_ref is not None:
             r["decision_bound"] = _dref == expected_decision_ref
             if not r["decision_bound"]:
@@ -603,7 +612,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "(replay across decisions?, fail-closed)")
 
         # role separation (executor must differ from the decision maker).
-        _exid = (predicate.get("executor") or {}).get("id") if isinstance(predicate.get("executor"), dict) else None
+        _exid = _as_dict(predicate.get("executor")).get("id") if isinstance(predicate.get("executor"), dict) else None
         if decision_maker_id is not None:
             r["role_separation_ok"] = bool(_exid) and _exid != decision_maker_id
             if not r["role_separation_ok"]:
@@ -790,7 +799,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(
-            policy["relations"], r.get("lineage") or {},
+            policy["relations"], _as_dict(r.get("lineage")),
             successor_key_b64=_b64_rel.b64encode(public_key).decode())
         r["policy_ok"] = not _viol
         if _viol:
@@ -823,4 +832,25 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
                        "subject_derived_ok", "lineage_ok"],
     })
+    # Bug-hunt follow-up (3.6.2, P1) + Berkeley re-gate (P1 sibling): outcome's automation_summary maps the
+    # "policy" dimension to executor_role_trusted, NOT policy_ok — so ANY policy_ok=False (a relations
+    # violation LINEAGE_REQUIREMENT_FAILED/reject_superseded, OR a malformed non-dict `policy` argument that
+    # fail-closed at :787) reached NO automation dimension, leaving a crypto-valid outcome with a trusted
+    # executor at safeForAutomation=True despite the requested policy failing. The decision path wires this
+    # correctly (its policy dimension IS policy_ok); mirror the effect here: clamp on policy_ok is False,
+    # name the blocker (the relations code(s), else POLICY_FAILED), and clear referencesResolved on a real
+    # relations violation. Only ever ADDS a blocker (never turns it true); a satisfied/absent policy is untouched.
+    if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
+        _blk = r["automation"].setdefault("automationBlockers", [])
+        # NB: a distinct name from the `_codes` SET bound earlier in this function (the relations-violation
+        # code set) — reusing it would be a list-into-set type conflict (mypy) with no behavioural reason.
+        _auto_codes = list(_as_list(r.get("relations_policy_codes")))
+        if not _auto_codes:
+            _auto_codes = ["LINEAGE_REQUIREMENT_FAILED"] if r.get("relations_policy_failed") else ["POLICY_FAILED"]
+        for _code in _auto_codes:
+            if _code not in _blk:
+                _blk.append(_code)
+        r["automation"]["safeForAutomation"] = False
+        if r.get("relations_policy_failed"):
+            r["automation"]["referencesResolved"] = False
     return r

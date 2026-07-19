@@ -40,6 +40,15 @@ __all__ = [
 ]
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     """True iff ``proof`` is an UPGRADED OTS proof (a Bitcoin block-header attestation) — self-contained,
     so verifying existence-in-Bitcoin no longer needs a calendar. A pending-only or malformed proof is
@@ -130,7 +139,7 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     except (KeyError, ValueError, TypeError) as exc:
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack is missing or has a non-base64 proof/canonicalRoot: {exc}"}
-    frozen = pack.get("frozen") or {}
+    frozen = _as_dict(pack.get("frozen"))
     return verify_opentimestamps(proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
 
 

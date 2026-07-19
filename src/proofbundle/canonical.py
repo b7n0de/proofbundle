@@ -94,6 +94,13 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     subject-commitment digest); turning the check on by default would break those callers."""
     if require_statement_shape:
         _require_statement_shape(statement)
+    # Berkeley re-gate round 5: bound nesting/node count BEFORE rfc8785.dumps recurses — a relying party that
+    # calls this documented primitive (or statement_content_root) directly on a deeply-nested received JSON
+    # object would otherwise get a raw RecursionError. The DSSE verify_* surfaces already re-parse via
+    # loads_strict (json_depth-bounded) so they were safe; this closes the direct-primitive path. A legitimate
+    # emit-side statement is shallow and well under the budget, so this never changes producer behaviour.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    enforce_structural_budget(statement)
     try:
         import rfc8785  # noqa: PLC0415 — lazy: only the canonical/emit path pulls the JCS dependency
     except ImportError as exc:

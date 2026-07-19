@@ -31,7 +31,7 @@ from typing import Optional
 
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
-from .pqsig import sign_mldsa, verify_hybrid, verify_mldsa
+from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
 from .signature import verify_ed25519
 
 # ATS signature algorithms (the RFC-4998 TimeStampToken role, B3↔B5 wiring). A renewal may UPGRADE the
@@ -58,6 +58,15 @@ __all__ = [
 
 _CONFIRMED = "confirmed"
 _SEP = "\n"
+
+
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
 
 
 class RenewalError(ProofBundleError):
@@ -188,6 +197,7 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     """True iff the ATS carries a valid time-authority signature under ``authority_keys`` (a dict of raw
     public keys ``{"ed25519": bytes, "mldsa65": bytes}``). Fail-closed: an unsigned ATS, a missing key for
     the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
+    authority_keys = _as_dict(authority_keys)  # Berkeley r6: non-dict kwarg fail-closed
     if not ats.sig_alg:
         return False
     content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
@@ -208,15 +218,25 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     if ats.sig_alg == "ed25519":
         pub = authority_keys.get("ed25519")
         return isinstance(pub, (bytes, bytearray)) and verify_ed25519(bytes(pub), _dec("ed25519"), content)
+    # Berkeley re-gate round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
+    # without FIPS-204 ML-DSA (the common case) verify_mldsa/verify_hybrid raise PQUnavailable (a
+    # ProofBundleError sibling) which escaped verify_sequence raw. A verdict-returning verify surface must fail
+    # closed on attacker-influenceable PQ input, never raise — parity with trust_pack._verify_signature_for_alg.
     if ats.sig_alg == "mldsa65":
         pub = authority_keys.get("mldsa65")
-        return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
+        try:
+            return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
+        except PQUnavailable:
+            return False
     if ats.sig_alg == "hybrid-ed25519-mldsa65":
         edp, mp = authority_keys.get("ed25519"), authority_keys.get("mldsa65")
         if edp is None or mp is None:
             return False
-        return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
-                             pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
+        try:
+            return verify_hybrid(classical_pub=edp, classical_sig=_dec("ed25519"),
+                                 pq_pub=mp, pq_sig=_dec("mldsa65"), message=content)
+        except PQUnavailable:
+            return False
     return False
 
 
@@ -729,7 +749,7 @@ class RenewalPolicy:
         if strictness not in ("warn", "fail"):
             raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {strictness!r}")
         return cls(
-            deprecated_algs=frozenset(obj.get("deprecated_algs", []) or []),
+            deprecated_algs=frozenset(_as_list(obj.get("deprecated_algs", []))),
             max_ats_age=obj.get("max_ats_age"),
             strictness=strictness,
         )

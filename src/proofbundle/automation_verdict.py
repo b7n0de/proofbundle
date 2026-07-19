@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
+from .errors import BundleFormatError
+
 __all__ = ["automation_summary", "AUTOMATION_BLOCKER_REASONS"]
 
 # The human-legible reason for each automationBlockers enum value (mirrors bundle.py's
@@ -50,7 +52,9 @@ AUTOMATION_BLOCKER_REASONS = {
 
 
 def _tri(result: Mapping[str, Any], key: Optional[str]) -> Optional[bool]:
-    if key is None:
+    # Berkeley r5: ein Dimensions-Schluessel MUSS ein Feldname (str) sein; ein unhashbarer/nicht-str Wert
+    # (list/dict) aus required_checks crasht sonst result.get(key) — fail-closed als "nicht anwendbar".
+    if not isinstance(key, str):
         return None
     value = result.get(key)
     return None if value is None else bool(value)
@@ -81,15 +85,24 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
     the caller is responsible for stashing the return value at ``result["automation"]``.
     """
+    # Berkeley re-gate: both Mapping args were unguarded — a non-Mapping ``required_checks`` (None) crashed
+    # ``required_checks.get(...)`` and a non-Mapping ``result`` crashed ``_tri``'s ``result.get(...)`` with a
+    # raw AttributeError out of this public verdict surface. A malformed config/result is a typed
+    # BundleFormatError (fail-closed), never a raw crash and never a silently-safe verdict.
+    if not isinstance(required_checks, Mapping) or not isinstance(result, Mapping):
+        raise BundleFormatError("automation_summary requires Mapping 'result' and 'required_checks'")
     crypto_key = required_checks.get("crypto")
     structure_key = required_checks.get("structure")
     policy_key = required_checks.get("policy")
-    reference_keys: Sequence[str] = required_checks.get("references") or ()
+    # Berkeley re-gate round 4: the top-level Mapping args were guarded, but a truthy non-iterable
+    # required_checks['references'] (int/bool/object) survived `... or ()` and crashed the iteration below.
+    _refs = required_checks.get("references")
+    reference_keys: Sequence[str] = _refs if isinstance(_refs, (list, tuple)) else ()
 
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)
-    policy_val = result.get(policy_key) if policy_key is not None else None
-    unresolved = [name for name in reference_keys if result.get(name) is False]
+    policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # Berkeley r5: unhashable key
+    unresolved = [name for name in reference_keys if isinstance(name, str) and result.get(name) is False]
 
     blockers: list[str] = []
     if crypto_ok is not True:

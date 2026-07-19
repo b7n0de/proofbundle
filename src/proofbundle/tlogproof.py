@@ -39,7 +39,7 @@ from typing import Optional, Sequence
 
 from . import merkle
 from .checkpoint import verify_checkpoint, witness_quorum
-from .errors import BundleFormatError
+from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
            "verify_tlog_proof"]
@@ -83,6 +83,10 @@ def parse_tlog_proof(text: str) -> dict:
     """Parse a tlog-proof into ``{extra, index, proof, checkpoint}``. Strict, fail-closed:
     unknown leading lines, bad base64, bad index formatting or a missing separator are
     ``BundleFormatError`` — never a crash, never a silent skip."""
+    if not isinstance(text, str):
+        # Berkeley re-gate round 7: honor the "never a crash" contract for a direct caller — a non-str (None
+        # from a mis-wired caller) previously raised a raw TypeError from the `in` test below.
+        raise BundleFormatError("tlog-proof text must be a string (non-str is malformed, fail-closed)")
     if "\n\n" not in text:
         raise BundleFormatError("tlog-proof has no empty-line separator before the checkpoint")
     head, checkpoint = text.split("\n\n", 1)
@@ -172,28 +176,39 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
         return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)")
     try:
         parsed = parse_tlog_proof(text)
-    except (BundleFormatError, ValueError, TypeError) as exc:
+    except (ProofBundleError, ValueError, TypeError) as exc:
+        # Berkeley re-gate round 3: catch the BASE ProofBundleError so any sibling (BudgetExceeded / an
+        # UnsupportedError from a future parse step) maps to the same fail-closed verdict, never a raw escape.
         return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}")
     checkpoint = parsed["checkpoint"]
 
-    log_res = verify_checkpoint(checkpoint, log_vkey)       # step 2: log signature
-    # origin acceptance (release-review fix #5): the log signature alone does not bind the checkpoint ORIGIN
-    # line; a relying party that knows which log it expects passes expected_origin to reject a validly-signed
-    # checkpoint from a DIFFERENT origin than intended. Default None = origin not constrained (documented).
-    log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)
-    # step 3 — witness quorum via the SHARED helper (dedup by KEY MATERIAL, not name): a single key under N
-    # names must NOT satisfy threshold>1. Reuses checkpoint.witness_quorum so this reimplementation cannot
-    # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix).
-    witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold)
+    # Bug-hunt follow-up (3.6.2): parse_tlog_proof only frames the checkpoint (endswith newline + an internal
+    # blank line) — it does NOT validate the note interior. An attacker-supplied checkpoint with a non-base64
+    # root / <3 lines / an over-long tree_size flows through to verify_checkpoint (and witness_quorum), which
+    # raise BundleFormatError on a valid log_vkey — a RAW exception out of this documented never-raise surface
+    # (crash/DoS for a direct API integrator). Wrap ALL remaining steps and catch the BASE ProofBundleError
+    # (not just BundleFormatError, so no sibling escapes — repo lesson never_raise_fix_must_wrap_all_and_catch_base).
+    try:
+        log_res = verify_checkpoint(checkpoint, log_vkey)       # step 2: log signature
+        # origin acceptance (release-review fix #5): the log signature alone does not bind the checkpoint ORIGIN
+        # line; a relying party that knows which log it expects passes expected_origin to reject a validly-signed
+        # checkpoint from a DIFFERENT origin than intended. Default None = origin not constrained (documented).
+        log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)
+        # step 3 — witness quorum via the SHARED helper (dedup by KEY MATERIAL, not name): a single key under N
+        # names must NOT satisfy threshold>1. Reuses checkpoint.witness_quorum so this reimplementation cannot
+        # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix).
+        witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold)
 
-    inclusion_ok = False                                     # steps 1 + 4
-    if 0 <= parsed["index"] < log_res["tree_size"]:
-        try:
-            computed = merkle.root_from_inclusion(
-                parsed["index"], log_res["tree_size"], merkle.leaf_hash(leaf_data), parsed["proof"])
-            inclusion_ok = hmac.compare_digest(computed, log_res["root"])
-        except ValueError:
-            inclusion_ok = False
+        inclusion_ok = False                                     # steps 1 + 4
+        if 0 <= parsed["index"] < log_res["tree_size"]:
+            try:
+                computed = merkle.root_from_inclusion(
+                    parsed["index"], log_res["tree_size"], merkle.leaf_hash(leaf_data), parsed["proof"])
+                inclusion_ok = hmac.compare_digest(computed, log_res["root"])
+            except ValueError:
+                inclusion_ok = False
+    except (ProofBundleError, ValueError, TypeError, KeyError) as exc:
+        return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}")
 
     return {"ok": log_ok and witnesses_ok and inclusion_ok,
             "log_ok": log_ok, "witnesses_ok": witnesses_ok, "inclusion_ok": inclusion_ok,

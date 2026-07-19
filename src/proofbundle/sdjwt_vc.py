@@ -33,6 +33,15 @@ _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBindi
                 "requireIssuerSignature"}
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class SdjwtVcError(ProofBundleError):
     """An SD-JWT VC profile policy is malformed, or a required profile check could not be enforced."""
 
@@ -90,6 +99,11 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
 
     r: dict[str, Any] = {"ok": False, "typ_ok": None, "vct_ok": None,
                          "metadata_integrity_ok": None, "vct": None, "errors": []}
+    if not isinstance(compact, str):
+        # Berkeley re-gate round 7: a direct caller of this public check_* peer must also fail closed on a
+        # non-str compact (verify_sdjwt_vc guards it too) — never a raw AttributeError from compact.split('~').
+        r["errors"].append("compact SD-JWT VC must be a string (malformed presentation, fail-closed)")
+        return r
     try:
         header, payload = _issuer_header_payload(compact)
     except SdjwtVcError as exc:
@@ -110,13 +124,13 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
 
     vct = payload.get("vct")
     r["vct"] = vct if isinstance(vct, str) else None
-    allow = policy.get("vctAllowlist") or []
+    allow = _as_list(policy.get("vctAllowlist"))
     r["vct_ok"] = isinstance(vct, str) and vct in allow
     if not r["vct_ok"]:
         r["errors"].append(f"vct {vct!r} is not on the relying party's vctAllowlist (unknown type, fail-closed)")
 
     if policy.get("requireTypeMetadataIntegrity"):
-        entry = (offline_metadata or {}).get(vct) if isinstance(vct, str) else None
+        entry = _as_dict(offline_metadata).get(vct) if isinstance(vct, str) else None
         if not isinstance(entry, dict) or "bytes_b64" not in entry or "integrity" not in entry:
             r["metadata_integrity_ok"] = False
             r["errors"].append(
@@ -162,6 +176,12 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
         # malformed policy is never a silent pass.
         return {"ok": False, "profile": None, "issuer": None, "binding": None,
                 "detail": "policy must be a JSON object — malformed policy argument (fail-closed)"}
+    if not isinstance(compact, str):
+        # Berkeley re-gate round 7: the presented `compact` credential is untrusted holder input — a non-str
+        # must be a fail-closed verdict, not a raw AttributeError from compact.split('~') in _issuer_header_
+        # payload. The sibling verify_sd_jwt / verify_key_binding already guard this; sdjwt_vc was missed.
+        return {"ok": False, "profile": None, "issuer": None, "binding": None,
+                "detail": "compact SD-JWT VC must be a string (malformed presentation, fail-closed)"}
     require_binding = policy.get("requireKeyBinding", True)
     require_issuer_sig = policy.get("requireIssuerSignature", True)
     profile = check_vc_profile(compact, policy, offline_metadata=offline_metadata)

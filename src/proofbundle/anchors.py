@@ -53,6 +53,15 @@ _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "froze
 _VERIFIERS: dict[str, Callable] = {}
 
 
+def _as_dict(v):
+    """Berkeley r5 class-fix: Config-Sub-Feld als dict, sonst {} (schliesst das ``_as_dict(x.get(k))``-Loch)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
@@ -111,7 +120,23 @@ def receipt_canonical_root(bundle: dict) -> bytes:
     except ImportError as exc:   # pragma: no cover - guarded by the extra
         raise BundleFormatError(
             "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
-    return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        # Berkeley re-gate round 7: bound depth (<=64) / node count BEFORE rfc8785.dumps recurses — a deeply
+        # nested bundle made rfc8785.dumps raise a raw RecursionError (a RuntimeError, NOT the ValueError arm
+        # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
+        # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
+        enforce_structural_budget(bundle)
+        return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+    except BundleFormatError:
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        # loads_strict admits NaN/Infinity and ints >= 2^53, but rfc8785.dumps rejects them (FloatDomainError /
+        # IntegerDomainError, both ValueError); over-width trips BudgetExceeded (a ProofBundleError); a deep dict
+        # that slips past the budget could still recurse. All map to the documented BundleFormatError, never raw.
+        raise BundleFormatError(
+            f"receipt is not RFC 8785 canonicalizable (fail-closed): {exc}") from exc
 
 
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
@@ -191,7 +216,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = (f"no verifier registered for anchor type {atype!r} "
                          "(install proofbundle[anchors] or register the extension type)")
         return out
-    expected_root = target_roots.get(target)
+    expected_root = _as_dict(target_roots).get(target)  # Berkeley r5: target_roots kwarg (None/int) fail-closed
     if expected_root is None:
         out["detail"] = f"the receipt has no {target} target to anchor against"
         return out
@@ -201,9 +226,16 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = f"canonicalRoot does not match the {target} root (cross-target or tampered)"
         return out
     proof = _b64d(anchor.get("proof"), "proof")
+    # Berkeley re-gate round 6 (defensive): `_as_dict(anchor.get("frozen"))` only replaces a FALSY non-dict; a
+    # TRUTHY non-dict from an attacker bundle ("frozen":"x" / [...]) would reach a verifier's frozen.get(...).
+    # The `except Exception` below already fail-closes that, but normalize any non-dict to {} up front so the
+    # verifiers never see a wrong type.
+    _frozen = anchor.get("frozen")
+    if not isinstance(_frozen, dict):
+        _frozen = {}
     try:
         res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
-                             frozen=anchor.get("frozen") or {}, now=now, rp_trust=rp_trust)
+                             frozen=_frozen, now=now, rp_trust=rp_trust)
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out

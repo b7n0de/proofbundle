@@ -46,6 +46,13 @@ _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
 
 
 def _b64url_decode(s: str) -> bytes:
+    # Berkeley re-gate round 7: cap the raw segment length BEFORE decoding — base64-decoding an oversized
+    # segment allocates before loads_strict's input_bytes cap (which runs on the DECODED value) can fire, a
+    # memory-amplification DoS; kbjwt had no cap at all. Mirrors anchors_markovian's _MAX_PROOF_BYTES.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    if len(s) > DEFAULT_BUDGET.input_bytes:
+        raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
     return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
 
@@ -185,7 +192,16 @@ def verify_key_binding(
         result["detail"] = f"unsupported _sd_alg {sd_alg}"
         return result
     h = hashlib.new(_HASH_ALG[sd_alg])
-    h.update(sd_part.encode("ascii"))
+    # Bug-hunt follow-up (3.6.2): sd_part is attacker-controlled (the presented SD-JWT). A compact SD-JWT is
+    # ASCII base64url; a non-ASCII sd_part is malformed, but `.encode("ascii")` raised a RAW UnicodeEncodeError
+    # out of this dict-returning verify surface (crash-DoS) instead of a fail-closed verdict. Treat non-ASCII
+    # as malformed and fail closed (a non-ASCII presentation can never match a legitimate holder-committed sd_hash).
+    try:
+        _sd_bytes = sd_part.encode("ascii")
+    except UnicodeEncodeError:
+        result["detail"] = "presented SD-JWT contains non-ASCII bytes (malformed)"
+        return result
+    h.update(_sd_bytes)
     if _b64url_nopad(h.digest()) != sd_hash:
         result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
         return result
