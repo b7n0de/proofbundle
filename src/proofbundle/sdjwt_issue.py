@@ -184,6 +184,11 @@ def _jwt_payload(compact: str) -> dict:
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     """No-Fake binding: the SD-JWT's always-open claims MUST match the signed bundle payload bit-exact and
     bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected."""
+    if not isinstance(compact, str):
+        # Berkeley re-gate round 7: a non-str presented `compact` is a fail-closed False, not a raw
+        # AttributeError from compact.split('~') in _jwt_payload — the except tuple below omits AttributeError/
+        # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
+        return False
     try:
         p = _jwt_payload(compact)
     except (ProofBundleError, ValueError, KeyError, IndexError):

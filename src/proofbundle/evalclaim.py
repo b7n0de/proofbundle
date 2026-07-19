@@ -419,9 +419,12 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     (``model_id_commit`` / ``dataset_id_commit``). Makes a model-swap visible: a claim that silently swapped
     the model cannot produce a matching (identifier, salt). Constant-time compare; the salt stays outside the
     payload (the holder presents it to a verifier out of band)."""
-    if not isinstance(identifier, str):
+    if not isinstance(identifier, str) or not isinstance(salt, (bytes, bytearray)):
         return False   # RE-GATE never-raise: a non-str PRESENTED identifier is a fail-closed False, not a
         # raw AttributeError from identifier.encode() inside salted_commit (untrusted presentation input).
+        # Berkeley re-gate round 7: the `salt` is the SAME out-of-band presentation channel — a non-bytes salt
+        # is a raw TypeError from len(salt) in salted_commit; guard it here too (the identifier-only guard was
+        # half-finished).
     try:
         expected = salted_commit(identifier, salt)
     except EvalClaimError:
@@ -436,6 +439,11 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
     from datetime import datetime, timezone  # noqa: PLC0415
+    if not isinstance(claim, dict):
+        # Berkeley re-gate round 7: the natural RP pattern check_freshness(decode_eval_claim(bundle)) passes a
+        # None (decode returns None on a non-eval bundle) straight into claim.get(...) — a raw AttributeError.
+        # A non-dict claim is a fail-closed "not parsed" verdict, never a crash.
+        return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "claim is not a dict"}
     ts = claim.get("timestamp")
     if not isinstance(ts, str):
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "no timestamp"}
