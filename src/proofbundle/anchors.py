@@ -111,15 +111,23 @@ def receipt_canonical_root(bundle: dict) -> bytes:
     except ImportError as exc:   # pragma: no cover - guarded by the extra
         raise BundleFormatError(
             "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
     try:
+        # Berkeley re-gate round 7: bound depth (<=64) / node count BEFORE rfc8785.dumps recurses — a deeply
+        # nested bundle made rfc8785.dumps raise a raw RecursionError (a RuntimeError, NOT the ValueError arm
+        # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
+        # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
+        enforce_structural_budget(bundle)
         return hashlib.sha256(rfc8785.dumps(bundle)).digest()
-    except ValueError as exc:
-        # Berkeley re-gate round 6: loads_strict admits NaN/Infinity and ints >= 2^53, but rfc8785.dumps
-        # rejects them (FloatDomainError / IntegerDomainError, both ValueError subclasses). A crypto-valid
-        # attacker bundle carrying such a non-JCS number reaches here on the `verify --require-anchor` path;
-        # map it to the documented BundleFormatError so it fails closed, never a raw traceback.
+    except BundleFormatError:
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        # loads_strict admits NaN/Infinity and ints >= 2^53, but rfc8785.dumps rejects them (FloatDomainError /
+        # IntegerDomainError, both ValueError); over-width trips BudgetExceeded (a ProofBundleError); a deep dict
+        # that slips past the budget could still recurse. All map to the documented BundleFormatError, never raw.
         raise BundleFormatError(
-            f"receipt is not RFC 8785 canonicalizable (non-JCS number, fail-closed): {exc}") from exc
+            f"receipt is not RFC 8785 canonicalizable (fail-closed): {exc}") from exc
 
 
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:

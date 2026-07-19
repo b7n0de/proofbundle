@@ -401,5 +401,43 @@ class Round6DsseAnchorPqsig(unittest.TestCase):
         self.assertFalse(verify_mldsa(b"\x00" * 32, b"\x00" * 64, b"msg", level="bogus-level"))
 
 
+class Round7CanonicalRootJwtDecodeParse(unittest.TestCase):
+    """Berkeley DEEP re-gate round 6 (1 confirmed + completeness): the last direct-primitive RecursionError,
+    the JWT/token pre-decode memory amplification, and a public parse_ contract fix."""
+
+    def test_receipt_canonical_root_deeply_nested_is_bundleformat_not_recursion(self):
+        from proofbundle.anchors import receipt_canonical_root
+        o = {}
+        cur = o
+        for _ in range(2000):
+            nxt = {}
+            cur["a"] = nxt
+            cur = nxt
+        cur["a"] = 1
+        with self.assertRaises(BundleFormatError):
+            receipt_canonical_root(o)
+
+    def test_jwt_b64url_decode_oversized_segment_is_fail_closed(self):
+        # kbjwt/statuslist/sdjwt/persample cap the raw segment before base64-decode — a huge segment fails
+        # closed (a dict verdict or a typed error), never an unbounded pre-cap allocation.
+        import base64
+        from proofbundle import verify_key_binding
+        big = base64.urlsafe_b64encode(b"A" * (18 * 1024 * 1024)).rstrip(b"=").decode()
+        res = verify_key_binding("e30." + big + ".AA~kbh.kbp.kbs")
+        self.assertIsInstance(res, dict)
+        self.assertFalse(res["ok"])
+
+    def test_b64url_decode_direct_oversized_is_typed(self):
+        from proofbundle.kbjwt import _b64url_decode
+        with self.assertRaises(BundleFormatError):
+            _b64url_decode("A" * (9 * 1024 * 1024))
+
+    def test_parse_tlog_proof_non_str_is_bundleformat_not_crash(self):
+        from proofbundle.tlogproof import parse_tlog_proof
+        for bad in (None, 123, b"bytes"):
+            with self.assertRaises(BundleFormatError):
+                parse_tlog_proof(bad)
+
+
 if __name__ == "__main__":
     unittest.main()

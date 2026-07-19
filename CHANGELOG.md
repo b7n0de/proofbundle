@@ -72,6 +72,13 @@ surface. None touch a crypto verdict; `.ok` was already correct on every path.
   - **`verify_mldsa` contract fix:** an unknown `level` is malformed input and now returns `False` (honoring
     the documented "malformed input returns False"); a genuinely missing FIPS-204 build still raises
     `PQUnavailable` (an honest "cannot check", never a false negative).
+  - **`receipt_canonical_root` deep-nesting:** bounds the structure before `rfc8785.dumps` (mirroring the
+    `canonicalize_statement` peer), so a directly-supplied deeply-nested bundle is a typed `BundleFormatError`,
+    not a raw `RecursionError`.
+  - **JWT/token pre-decode DoS:** `kbjwt` / `sdjwt` / `statuslist` / `persample` cap each base64 segment
+    length before decoding, so a 25 MB token no longer allocates ~5x its size before the downstream caps
+    (which run on the decoded value) can fire. `parse_tlog_proof` fails a non-string input closed instead of
+    a raw `TypeError`, honoring its "never a crash" docstring.
 
 ## [Unreleased]
 

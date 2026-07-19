@@ -83,6 +83,10 @@ def parse_tlog_proof(text: str) -> dict:
     """Parse a tlog-proof into ``{extra, index, proof, checkpoint}``. Strict, fail-closed:
     unknown leading lines, bad base64, bad index formatting or a missing separator are
     ``BundleFormatError`` — never a crash, never a silent skip."""
+    if not isinstance(text, str):
+        # Berkeley re-gate round 7: honor the "never a crash" contract for a direct caller — a non-str (None
+        # from a mis-wired caller) previously raised a raw TypeError from the `in` test below.
+        raise BundleFormatError("tlog-proof text must be a string (non-str is malformed, fail-closed)")
     if "\n\n" not in text:
         raise BundleFormatError("tlog-proof has no empty-line separator before the checkpoint")
     head, checkpoint = text.split("\n\n", 1)
