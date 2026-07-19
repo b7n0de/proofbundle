@@ -27,6 +27,16 @@ def _read_capped(handle) -> str:
     return data
 
 
+def _read_capped_bytes(handle) -> bytes:
+    """Bytes-mode counterpart of :func:`_read_capped` for ``open(..., "rb")`` verify handles — same
+    input_bytes cap so an ``rb`` read of a huge/streaming file cannot OOM the process (bug-hunt 3.6.2)."""
+    cap = DEFAULT_BUDGET.input_bytes
+    data = handle.read(cap + 1)
+    if len(data) > cap:
+        raise BundleFormatError(f"input exceeds the {cap}-byte input_bytes budget (fail-closed)")
+    return data
+
+
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
 # `verify --json`. Verification proves authenticity + integrity of the bytes, never the truth of the
 # result (see docs/NON_CLAIMS.md). Kept as data so the human text and the JSON say exactly the same thing.
@@ -300,7 +310,7 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
         return 2
     try:
         with open(args.claim, encoding="utf-8") as handle:
-            claim = load_claim_text(handle.read())
+            claim = load_claim_text(_read_capped(handle))
         bundle = emit_eval_receipt(claim, signer)
     except (EvalClaimError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -329,7 +339,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         eat_jws = None
         if getattr(args, "eat", None):
             with open(args.eat, encoding="utf-8") as handle:
-                eat_jws = handle.read().strip()
+                eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
         if getattr(args, "verifier_key", None):
             import base64 as _b64  # noqa: PLC0415
@@ -527,7 +537,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             import base64 as _b64mod  # noqa: PLC0415
             from .checkpoint import verify_checkpoint  # noqa: PLC0415
             with open(args.trusted_checkpoint, encoding="utf-8") as handle:
-                note = handle.read()
+                note = _read_capped(handle)
             cp_res = verify_checkpoint(note, cp_vkey)   # malformed note/vkey → BundleFormatError → exit 2
             cp_ok = bool(cp_res["ok"])
             if cp_ok:
@@ -884,7 +894,7 @@ def _cmd_emit(args: argparse.Namespace) -> int:
         return 2
 
     with open(args.payload_file, "rb") as handle:
-        payload = handle.read()
+        payload = _read_capped_bytes(handle)
 
     bundle = emit_bundle(payload, signer)
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -903,9 +913,9 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
     # malformed proof, whatever a future verdict-shape drift might do.
     try:
         with open(args.proof, encoding="utf-8") as handle:
-            text = handle.read()
+            text = _read_capped(handle)
         with open(args.payload_file, "rb") as handle:
-            leaf = handle.read()
+            leaf = _read_capped_bytes(handle)
         res = verify_tlog_proof(text, leaf, args.log_vkey,
                                 args.witness_vkey or (), threshold=args.threshold)
         if args.json:
@@ -940,7 +950,7 @@ def _cmd_hf_token(args: argparse.Namespace) -> int:
             token = args.bundle_or_token
             if token.endswith(".txt") or "/" in token:
                 with open(token, encoding="utf-8") as handle:
-                    token = handle.read().strip()
+                    token = _read_capped(handle).strip()
             result, _bundle = verify_receipt_token(token)
             for check in result.checks:
                 print(str(check))
@@ -1101,8 +1111,14 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     if tf and rh:
         raise ValueError("give either --target-file or --canonical-root-hex, not both")
     if tf:
+        # --target-file is the user's OWN artifact to anchor and MAY legitimately exceed the input_bytes
+        # verify budget, so it is not capped — but hash it in 1 MiB chunks so a large file bounds memory
+        # instead of read()-ing the whole file in at once (bug-hunt Berkeley re-gate, 3.6.2).
+        h = hashlib.sha256()
         with open(tf, "rb") as handle:
-            return hashlib.sha256(handle.read()).digest()
+            for _chunk in iter(lambda: handle.read(1 << 20), b""):
+                h.update(_chunk)
+        return h.digest()
     if rh:
         root = bytes.fromhex(rh.strip().lower())
         if len(root) != 32:
@@ -1142,7 +1158,7 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
     )
     try:
         with open(args.proof, "rb") as handle:
-            proof = handle.read()
+            proof = _read_capped_bytes(handle)
         canonical_root = _resolve_canonical_root(args)
         # fail-closed structural binding: the proof MUST commit to exactly this root (a mismatch is a
         # malformed request, not a lifecycle state). needs_rp_trust/pending here are fine — they mean
@@ -1286,7 +1302,7 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
     from .evidence_pack import describe_proof  # noqa: PLC0415
     try:
         with open(args.path, "rb") as handle:
-            raw = handle.read()
+            raw = _read_capped_bytes(handle)
         pack = None
         try:
             maybe = loads_strict(raw.decode("utf-8"))
@@ -1354,7 +1370,7 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     try:
         bundle = load_bundle(args.receipt)
         with open(args.eat, encoding="utf-8") as handle:
-            eat = handle.read().strip()
+            eat = _read_capped(handle).strip()
         verifier_pub = _b64.b64decode(args.verifier_key, validate=True)
         res = verify_enclave_attestation(
             eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),

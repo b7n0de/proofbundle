@@ -70,6 +70,40 @@ class CliBoundedReadCapsHugeInput(unittest.TestCase):
         from proofbundle.cli import _read_capped
         self.assertEqual(_read_capped(io.StringIO("{}")), "{}")
 
+    def test_bytes_mode_cap(self):
+        # Berkeley re-gate: the rb verify handles (verify-proof --payload-file, anchor inspect/upgrade)
+        # use the bytes-mode cap
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.cli import _read_capped_bytes
+        cap = DEFAULT_BUDGET.input_bytes
+
+        class HugeB:
+            def read(self, n=-1):
+                return b"\x00" * (n if n and n > 0 else cap * 4)
+
+        with self.assertRaises(BundleFormatError):
+            _read_capped_bytes(HugeB())
+        self.assertEqual(_read_capped_bytes(io.BytesIO(b"abc")), b"abc")
+
+
+class PolicyLoadBoundedRead(unittest.TestCase):
+    def test_oversized_policy_file_is_policy_error_not_oom(self):
+        # Berkeley re-gate P1: load_policy bounded the read at input_bytes (policy lint --policy /dev/zero
+        # would otherwise OOM before loads_strict's cap)
+        import os
+        import tempfile
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.policy import PolicyError, load_policy
+        cap = DEFAULT_BUDGET.input_bytes
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write("{" + '"pad":' + "9" * (cap + 16) + "}")
+            tmp = f.name
+        try:
+            with self.assertRaises(PolicyError):
+                load_policy(tmp)
+        finally:
+            os.unlink(tmp)
+
 
 if __name__ == "__main__":
     unittest.main()

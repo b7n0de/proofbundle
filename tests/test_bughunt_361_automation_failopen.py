@@ -102,6 +102,30 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
             self.assertFalse(r["automation"]["safeForAutomation"])
             self.assertFalse(r["automation"]["referencesResolved"])
 
+    def test_malformed_non_dict_policy_blocks_outcome_automation(self):
+        # Berkeley re-gate P1 sibling: a non-dict `policy` fail-closes policy_ok=False WITHOUT
+        # relations_policy_failed; the clamp must still block automation (outcome maps 'policy' to
+        # executor_role_trusted, not policy_ok, so a trusted executor otherwise stayed safe).
+        from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
+        s = generate_signer()
+        pub = s.public_key().public_bytes_raw()
+        pred = {"schemaVersion": "0.1.0", "outcomeId": "urn:uuid:o", "decisionRef": {"sha256": "1" * 64},
+                "executor": {"id": "ex", "keyId": "kid-exec"}, "requestedActionDigest": {"sha256": "1" * 64},
+                "effectDigest": {"sha256": "1" * 64}, "status": "executed",
+                "performedAt": "2026-07-17T00:00:00Z", "policyPurpose": "outcome"}
+        tp = {"schemaVersion": "0.1.0", "trustPackId": "tp", "version": 1, "expires": "2099-01-01T00:00:00Z",
+              "prevVersionDigest": None,
+              "roles": {"root": {"keyIds": ["root-0"], "threshold": 1},
+                        "outcomeExecutors": {"keyIds": ["kid-exec"], "threshold": 1}},
+              "keys": {"root-0": {"publicKey": "A" * 43 + "="}}, "nonClaims": ["x"]}
+        env = emit_outcome_receipt(pred, s, strict=False)
+        for bad in (42, ["x"], "str"):
+            r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp)
+            self.assertIs(r["policy_ok"], False)
+            self.assertTrue(r["executor_role_trusted"])   # the executor IS trusted; only the policy failed
+            self.assertFalse(r["automation"]["safeForAutomation"])
+            self.assertIn("POLICY_FAILED", r["automation"]["automationBlockers"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import loads_strict
+from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -275,7 +276,15 @@ def load_policy(source: Union[str, dict]) -> dict:
             with open(source, encoding="utf-8") as handle:
                 # WP-C1: a duplicated key in a policy is a differential in the TRUST DECISION
                 # itself (two parsers could enforce different allowed_issuers) — reject.
-                policy = loads_strict(handle.read())
+                # Bug-hunt Berkeley re-gate (3.6.2, P1): bound the read at the input_bytes budget BEFORE
+                # loads_strict — its cap only applies AFTER the whole file is in memory, so `policy lint
+                # --policy /dev/zero` (a source path is untrusted, reachable from 7 CLI sites) would OOM
+                # first. A too-large policy is fail-closed via BundleFormatError (caught below → PolicyError).
+                _cap = DEFAULT_BUDGET.input_bytes
+                _raw = handle.read(_cap + 1)
+                if len(_raw) > _cap:
+                    raise BundleFormatError(f"policy file exceeds the {_cap}-byte input_bytes budget (fail-closed)")
+                policy = loads_strict(_raw)
         except (OSError, ValueError, BundleFormatError) as exc:
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:

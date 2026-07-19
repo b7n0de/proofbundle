@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.2] - 2026-07-19 (security patch, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.2 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. An
+adversarial re-audit of the 3.6.1 release (12 finder lenses, each finding refuted by 3 independent
+skeptics) found ten more defects: the 3.6.1 never-raise sweep had wrapped some public entrypoints but
+left siblings unwrapped, plus two genuine trust-policy fail-opens on the `.automation.safeForAutomation`
+surface. None touch a crypto verdict; `.ok` was already correct on every path.
+
+### Fixed (security, automation-verdict fail-open)
+- **Decision automation verdict no longer fail-open for an unpinned signer:** a v0.2
+  `decision_receipt` policy that constrained the type/verdict but pinned no `trusted_decision_makers`
+  left `safeForAutomation` true (the 'attributes to nobody' hole the eval path already blocks). It now
+  blocks with `SIGNER_NOT_PINNED`, mirroring the eval-path bar.
+- **Outcome automation verdict no longer fail-open on a relations-policy violation:** a violated
+  `require_relation_resolution` / `reject_superseded` set `policy_ok` false but reached no automation
+  dimension. It now names the blocker and forces `safeForAutomation` false, mirroring the decision path.
+
+### Fixed (never-raise / DoS robustness on the public verify surface)
+- `verify_tlog_proof` no longer raises a raw `BundleFormatError` on a malformed embedded checkpoint
+  (all steps wrapped, base exception caught).
+- `audit_challenge` maps a hostile receipt-controlled root/n/nonce (non-base64 / `n >= 2**64` /
+  non-bytes) to the typed `BundleFormatError` instead of `binascii.Error` / `OverflowError` / `TypeError`.
+- `verify_key_binding` fail-closes on a non-ASCII presented SD-JWT instead of raising `UnicodeEncodeError`.
+- `_verify_signature_for_alg` returns a fail-closed `False` when ML-DSA verification is unavailable
+  (no FIPS-204 build) instead of leaking `PQUnavailable`.
+- The CLI bounds every file read at the `input_bytes` budget, so a huge/streaming input (`/dev/zero`)
+  maps to a clean exit-2 instead of memory exhaustion.
+
 ## [Unreleased]
 
 ### Added

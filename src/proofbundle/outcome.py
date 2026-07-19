@@ -823,17 +823,23 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
                        "subject_derived_ok", "lineage_ok"],
     })
-    # Bug-hunt follow-up (3.6.2, P1): the relations trust-policy verdict (policy_ok, set False by a
-    # LINEAGE_REQUIREMENT_FAILED / reject_superseded violation above) mapped to NO automation dimension —
-    # the "policy" dimension is executor_role_trusted, not policy_ok — so a policy-violating outcome wrongly
-    # stayed safeForAutomation=True. The decision path already wires this correctly; mirror it: a violated
-    # relations policy names its blocker(s), forces safeForAutomation=False, and clears referencesResolved.
-    # Only ever ADDS a blocker (never turns it true); a satisfied/absent relations policy is untouched.
-    if r.get("relations_policy_failed") and isinstance(r.get("automation"), dict):
+    # Bug-hunt follow-up (3.6.2, P1) + Berkeley re-gate (P1 sibling): outcome's automation_summary maps the
+    # "policy" dimension to executor_role_trusted, NOT policy_ok — so ANY policy_ok=False (a relations
+    # violation LINEAGE_REQUIREMENT_FAILED/reject_superseded, OR a malformed non-dict `policy` argument that
+    # fail-closed at :787) reached NO automation dimension, leaving a crypto-valid outcome with a trusted
+    # executor at safeForAutomation=True despite the requested policy failing. The decision path wires this
+    # correctly (its policy dimension IS policy_ok); mirror the effect here: clamp on policy_ok is False,
+    # name the blocker (the relations code(s), else POLICY_FAILED), and clear referencesResolved on a real
+    # relations violation. Only ever ADDS a blocker (never turns it true); a satisfied/absent policy is untouched.
+    if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
         _blk = r["automation"].setdefault("automationBlockers", [])
-        for _code in (r.get("relations_policy_codes") or ["LINEAGE_REQUIREMENT_FAILED"]):
+        _codes = list(r.get("relations_policy_codes") or [])
+        if not _codes:
+            _codes = ["LINEAGE_REQUIREMENT_FAILED"] if r.get("relations_policy_failed") else ["POLICY_FAILED"]
+        for _code in _codes:
             if _code not in _blk:
                 _blk.append(_code)
         r["automation"]["safeForAutomation"] = False
-        r["automation"]["referencesResolved"] = False
+        if r.get("relations_policy_failed"):
+            r["automation"]["referencesResolved"] = False
     return r
