@@ -1,0 +1,55 @@
+{
+  "namespace": "tlog_bitcoin_anchor",
+  "kind": "vendored-third-party-conformance-vectors",
+  "purpose": "Upstream C2SP tlog-bitcoin-anchor conformance corpus, vendored as PURE DATA (no executable payload reaches proofbundle's verify path). proofbundle's own note-body canonicalization (checkpoint.py) plus its OpenTimestamps binding verifier (anchors_ots.py) form a SECOND, independent implementation that must reproduce the upstream expected outcomes over these vectors (tests/test_anchors_markovian.py::TestTlogBitcoinAnchorVectors). Digest-pinned so a byte change to any vendored file fails the manifest check.",
+  "spec": "https://c2sp.org/tlog-bitcoin-anchor (draft)",
+  "upstream": {
+    "project": "MarkovianProtocol/tlog-bitcoin-anchor",
+    "author": "Markovian Protocol / Colin <hello@quantsynth.net>",
+    "repo": "https://github.com/MarkovianProtocol/tlog-bitcoin-anchor",
+    "commit": "aaea18da69eb76b37df6c2ea2e262d4aa99cf01f",
+    "commit_short": "aaea18d",
+    "commit_date": "2026-07-09T22:34:39-06:00",
+    "retrieved_at_utc": "2026-07-19T23:00:32Z",
+    "license": "MIT",
+    "license_holder": "Copyright (c) 2026 Markovian Protocol"
+  },
+  "committed_note_body_sha256": "7208a041bc85370dcb295cafc1699e935a3dea2f9414278c869c848c0752852b",
+  "files": [
+    {
+      "path": "vectors/01-valid.txt",
+      "upstream_path": "vectors/01-valid.txt",
+      "sha256": "9eca5d78dacd855b3abf510d66538c41bd414c2ff7be138eaa51a8df711fc67c",
+      "case": "real anchor + grease line",
+      "expect": "one known-identifier anchor binds through our note-body canonicalization; the grease line is ignored, not rejected"
+    },
+    {
+      "path": "vectors/02-unknown-id.txt",
+      "upstream_path": "vectors/02-unknown-id.txt",
+      "sha256": "63d9bd867c6bcc2a018ef95a2d5d531b920868820e6712dc8410e595e55eb2e7",
+      "case": "only an unknown-identifier anchor (forward-compat)",
+      "expect": "no anchor of our identifier is present; the unknown line MUST be ignored, MUST NOT cause a checkpoint rejection"
+    },
+    {
+      "path": "vectors/03-tampered-body.txt",
+      "upstream_path": "vectors/03-tampered-body.txt",
+      "sha256": "ecd6f266bca9ef21212d562c7b39651986757b610e8f34a76967c6788c31a93f",
+      "case": "root-hash line altered; note body no longer matches the proof",
+      "expect": "our derived note-body root differs from what the proof commits -> binding fails closed (status unbound)"
+    },
+    {
+      "path": "vectors/04-tampered-proof.txt",
+      "upstream_path": "vectors/04-tampered-proof.txt",
+      "sha256": "086656ce0eea8bdf603c57ff75b7c47c3ce38f60674132d2cbc98d83c7d12e62",
+      "case": "embedded OpenTimestamps proof corrupted",
+      "expect": "the proof no longer commits our derived note-body root -> binding fails closed (status unbound/malformed)"
+    },
+    {
+      "path": "vectors/manifest.json",
+      "upstream_path": "vectors/manifest.json",
+      "sha256": "cda2cb7cf6b0319c0f2721d042786874be72de3adcc6fe6f11d061e3f6ed0c0f",
+      "case": "upstream corpus manifest (expected outcomes), vendored verbatim",
+      "expect": "informative only; our tests do not execute upstream code"
+    }
+  ]
+}
