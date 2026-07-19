@@ -245,7 +245,12 @@ def evaluate_public_transparency(
     # `confirmed` is accepted; a bare consistency_confirmed boolean is an unbound plaintext claim, and
     # strict_consistency=True refuses it entirely.
     if bool(policy.get("requireConsistencyProof")):
-        if consistency_result is not None:
+        if consistency_result is not None and not hasattr(consistency_result, "validate"):
+            # Berkeley r5: consistency_result kwarg muss ein ConsistencyVerificationResult sein; ein
+            # Nicht-Objekt (int/str/list/dict) crasht sonst .validate() — fail-closed statt roh.
+            statuses["CONSISTENCY"] = "FAIL"
+            errors.append("consistency result is not a valid ConsistencyVerificationResult (fail-closed)")
+        elif consistency_result is not None:
             cerrs = consistency_result.validate()
             if cerrs:
                 statuses["CONSISTENCY"] = "FAIL"

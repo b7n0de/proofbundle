@@ -66,6 +66,15 @@ _EDGE_ALLOWED = ("relation", "targetReceiptDigest", "targetSubjectDigest",
 _DIGEST_ALLOWED = ("digestAlgorithm", "digest")
 
 
+def _as_dict(v):
+    """Berkeley r5 class-fix: Config-Sub-Feld als dict, sonst {} (schliesst das ``_as_dict(x.get(k))``-Loch)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class RelationProfileError(ProofBundleError):
     """A relation/v0.1 relationships block is malformed (fail-closed)."""
 
@@ -473,7 +482,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
             continue
         mode = rule.get("mode")
         if mode == "pinned":
-            keys = rule.get("keys") or []
+            keys = _as_list(rule.get("keys"))
             if not any(_keys_equal(successor_key_b64, k) for k in keys):
                 out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
                             "message": (f"relation {e.get('relation')!r}: successor issuer key is not "
@@ -496,12 +505,14 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
     #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the
     #     decoy-parent fix: a valid-but-WRONG parent is rejected here, never in crypto.
-    target_pin = relations_section.get("require_relation_target") or {}
+    target_pin = _as_dict(relations_section.get("require_relation_target"))
     for e in edges:
         pinned = target_pin.get(e.get("relation"))
         if pinned is None:
             continue
-        allowed = pinned if isinstance(pinned, list) else [pinned]
+        # Berkeley r5: nur hashbare str-Digests in die Menge; ein dict/list-Wert crasht sonst set() (unhashable).
+        _cand = pinned if isinstance(pinned, list) else [pinned]
+        allowed = [a for a in _cand if isinstance(a, str)]
         if e.get("targetDigest") not in set(allowed):
             out.append({"code": CODE_RELATION_TARGET_MISMATCH,
                         "message": (f"relation {e.get('relation')!r}: edge resolves to parent "

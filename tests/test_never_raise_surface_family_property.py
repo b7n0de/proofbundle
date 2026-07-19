@@ -237,6 +237,49 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 escapes.append(f"{label}: raw {type(exc).__name__}: {exc}")
         self.assertEqual(escapes, [], "round-4 non-primary regression escapes:\n" + "\n".join(escapes))
 
+    def test_round5_nested_config_subfield_regression(self):
+        """Generator-hardening r5: der r5-Re-Gate fand die never-raise-Klasse NICHT konvergierend (5->12->16),
+        weil das systemische ``(cfg.get(k) or {})``-Idiom nur FALSY ersetzte und truthy Nicht-Container +
+        Listen-Elemente durchliess. Der Klassen-Fix (_as_dict/_as_list + Element-Guards) wird hier gepinnt:
+        jedes nested Config-Sub-Feld der verdict-Surfaces mit hostilen Werten (nested + Element-Ebene) MUSS
+        fail-closed terminieren, nie ein rohes _FORBIDDEN."""
+        from proofbundle import policy, relation
+        DP = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p"}
+        S = {"predicate": {"decisionMaker": {"id": "x"}, "decisionType": "t",
+                           "decision": {"verdict": "v"}, "evidenceRefs": [], "policyBoundary": {}},
+             "predicateType": "pt"}
+
+        class _R:
+            ok = True
+            checks = []
+        B = {"schema": "v1", "signature": {"alg": "ed25519", "public_key_b64": "a"}, "merkle": {}}
+        BAD = [5, "x", [5], {"a": 1}, [{"a": 1}], True, None, [None], ["x", 5]]
+        escapes = []
+
+        def run(label, fn):
+            try:
+                fn()
+            except _ACCEPTED:
+                pass
+            except _FORBIDDEN as exc:
+                escapes.append(f"{label}: raw {type(exc).__name__}: {exc}")
+
+        for fld in ("trusted_decision_makers", "allowed_decision_types", "allowed_verdicts",
+                    "required_evidence_relations", "accepted_predicate_types", "require_policy_digest"):
+            for b in BAD:
+                run(f"decision.{fld}={b!r}", lambda f=fld, x=b: policy.evaluate_decision_policy(
+                    S, {"ok": True}, {**DP, "decision_receipt": {f: x}}, signer_public_key_b64="abc"))
+        for fld in ("signature", "merkle", "anchors", "sd_jwt", "allowed_issuers", "allowed_schema_versions"):
+            for b in BAD:
+                run(f"policy.{fld}={b!r}", lambda f=fld, x=b: policy.evaluate_policy(B, _R(), {f: x}))
+        for fld in ("require_relation_resolution", "relation_signer", "require_relation_target",
+                    "reject_superseded"):
+            for b in BAD + [{"p": 5}, {"p": {"a": 1}}, {"p": [{"a": 1}]}]:
+                run(f"relation.{fld}={b!r}", lambda f=fld, x=b: relation.evaluate_relations_policy(
+                    {f: x}, {"edges": [{"relation": "p", "targetDigest": "d", "resolution": "x"}]},
+                    successor_key_b64=None))
+        self.assertEqual(escapes, [], "round-5 nested-config-subfield escapes:\n" + "\n".join(escapes))
+
 
 if __name__ == "__main__":
     unittest.main()

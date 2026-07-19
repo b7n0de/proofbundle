@@ -52,7 +52,9 @@ AUTOMATION_BLOCKER_REASONS = {
 
 
 def _tri(result: Mapping[str, Any], key: Optional[str]) -> Optional[bool]:
-    if key is None:
+    # Berkeley r5: ein Dimensions-Schluessel MUSS ein Feldname (str) sein; ein unhashbarer/nicht-str Wert
+    # (list/dict) aus required_checks crasht sonst result.get(key) — fail-closed als "nicht anwendbar".
+    if not isinstance(key, str):
         return None
     value = result.get(key)
     return None if value is None else bool(value)
@@ -99,7 +101,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
 
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)
-    policy_val = result.get(policy_key) if policy_key is not None else None
+    policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # Berkeley r5: unhashable key
     unresolved = [name for name in reference_keys if result.get(name) is False]
 
     blockers: list[str] = []

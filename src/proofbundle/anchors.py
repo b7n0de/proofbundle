@@ -53,6 +53,15 @@ _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "froze
 _VERIFIERS: dict[str, Callable] = {}
 
 
+def _as_dict(v):
+    """Berkeley r5 class-fix: Config-Sub-Feld als dict, sonst {} (schliesst das ``_as_dict(x.get(k))``-Loch)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
@@ -207,7 +216,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = (f"no verifier registered for anchor type {atype!r} "
                          "(install proofbundle[anchors] or register the extension type)")
         return out
-    expected_root = target_roots.get(target)
+    expected_root = _as_dict(target_roots).get(target)  # Berkeley r5: target_roots kwarg (None/int) fail-closed
     if expected_root is None:
         out["detail"] = f"the receipt has no {target} target to anchor against"
         return out
@@ -217,7 +226,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = f"canonicalRoot does not match the {target} root (cross-target or tampered)"
         return out
     proof = _b64d(anchor.get("proof"), "proof")
-    # Berkeley re-gate round 6 (defensive): `anchor.get("frozen") or {}` only replaces a FALSY non-dict; a
+    # Berkeley re-gate round 6 (defensive): `_as_dict(anchor.get("frozen"))` only replaces a FALSY non-dict; a
     # TRUTHY non-dict from an attacker bundle ("frozen":"x" / [...]) would reach a verifier's frozen.get(...).
     # The `except Exception` below already fail-closes that, but normalize any non-dict to {} up front so the
     # verifiers never see a wrong type.
