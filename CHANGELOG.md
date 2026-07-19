@@ -12,6 +12,15 @@ skeptics) found ten more defects: the 3.6.1 never-raise sweep had wrapped some p
 left siblings unwrapped, plus two genuine trust-policy fail-opens on the `.automation.safeForAutomation`
 surface. None touch a crypto verdict; `.ok` was already correct on every path.
 
+Release-scope honesty (No-Overclaim): the never-raise class fix in this 3.6.2 is large and verified but NOT
+claimed complete. It is codebase-wide and converges module-by-module; the ~16 modules listed below are
+hardened and locally fuzz-clean (full suite green), but a full adversarial Berkeley WITHSTANDS across the
+ENTIRE public surface is not certified at this tag. 3.6.2 ships under an explicit maintainer decision to
+release the large, verified batch now rather than withhold it — any never-raise residual a deeper re-gate
+still surfaces (plus the reverted `anchors_chia_add` transform, left for careful per-site handling) ships in
+3.6.3. No crypto verdict (`.ok`) is affected by any residual: the class is robustness / DoS hardening on the
+verify surface, never a correctness change.
+
 ### Fixed (security, automation-verdict fail-open)
 - **Decision automation verdict no longer fail-open for an unpinned signer:** a v0.2
   `decision_receipt` policy that constrained the type/verdict but pinned no `trusted_decision_makers`
@@ -79,6 +88,17 @@ surface. None touch a crypto verdict; `.ok` was already correct on every path.
     length before decoding, so a 25 MB token no longer allocates ~5x its size before the downstream caps
     (which run on the decoded value) can fire. `parse_tlog_proof` fails a non-string input closed instead of
     a raw `TypeError`, honoring its "never a crash" docstring.
+  - **Nested-config-subfield sub-class closed codebase-wide (two more re-gates, r5–r6).** The re-gates did not
+    converge on point fixes (5 → 12 → 16 findings) because the pervasive `(cfg.get(k) or {})` idiom only
+    replaces a FALSY value: a truthy non-container config sub-field (an `int`/`str` where a `dict`/`list` was
+    expected), and unhashable / non-dict LIST ELEMENTS inside it, reached `.get()` / iteration / `set()` / `in`
+    and raised a raw `AttributeError` / `TypeError`. Fixed systematically with `_as_dict` / `_as_list` helpers
+    replacing every such idiom, plus element- and keyword-argument-level type guards, across `policy`,
+    `relation`, `anchors`, `automation_verdict`, `public_transparency`, `trust_pack`, `sdjwt_vc`, `renewal`,
+    `evalclaim`, `assurance`, `policy_profiles`, `outcome`, `decision`, `relation_statement`, `evidence_pack`
+    and `bundle`. A broad nested-fuzz (~250 hostile inputs across nested + element levels on the policy /
+    relation / decision verify surfaces) is zero escapes; the full suite (1859 tests) is green; pinned as a
+    regression in the never-raise property test.
 
 ## [Unreleased]
 
