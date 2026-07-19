@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`make conformance-crossimpl` acceptance target (#55 S2):** a named gate that builds the
+  independent Rust second-verifier (`tools/pb_verify_rs`) and runs the cross-implementation
+  agreement harness (`crosscheck.py`) over the verifier core — content root, DSSE/Ed25519
+  verify (real + tampered), duplicate-key reject, RFC 6962 Merkle head, trust-pack
+  root-of-trust threshold (met + unmet), and 56/56 conformance-corpus cases reproduced
+  independently (Python == Rust). The harness already ran in CI (`rust-parity`); this
+  formalizes it as a runnable, named acceptance gate. CI/test-only, no package change.
+
 ## [3.6.1] - 2026-07-18 (security patch, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.1 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL —
