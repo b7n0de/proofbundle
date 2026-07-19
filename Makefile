@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance all
+.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance conformance-crossimpl all
 
 PYTHON ?= python3
 
@@ -39,5 +39,9 @@ examples:  ## run every offline example (those without optional extras)
 
 conformance:  ## offline conformance corpus (anchor sub-checks need the [anchors] extra)
 	PYTHONPATH=src $(PYTHON) conformance/run_conformance.py
+
+conformance-crossimpl:  ## cross-impl acceptance gate: the independent Rust second-verifier must AGREE with Python over the verifier core (needs cargo; #55 S2)
+	cd tools/pb_verify_rs && cargo build --release
+	PYTHONPATH=src $(PYTHON) tools/pb_verify_rs/crosscheck.py
 
 all: lint typecheck test
