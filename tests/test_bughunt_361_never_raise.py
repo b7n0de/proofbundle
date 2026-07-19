@@ -192,10 +192,13 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         return {"schema": "proofbundle/v0.1", "big": list(range(DEFAULT_BUDGET.json_nodes + 50))}
 
     def _node_heavy_file(self):
+        import os
         import tempfile
         from proofbundle.budget import DEFAULT_BUDGET
-        p = tempfile.mktemp(suffix=".json")
-        with open(p, "wb") as fh:
+        # mkstemp (not the deprecated/insecure mktemp — CodeQL py/insecure-temporary-file): creates the file
+        # atomically and returns an open fd, no name-then-open race.
+        fd, p = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "wb") as fh:
             fh.write(b"[" + b"1," * (DEFAULT_BUDGET.json_nodes + 50) + b"1]")
         return p
 
