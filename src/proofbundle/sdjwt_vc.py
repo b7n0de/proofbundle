@@ -33,6 +33,15 @@ _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBindi
                 "requireIssuerSignature"}
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class SdjwtVcError(ProofBundleError):
     """An SD-JWT VC profile policy is malformed, or a required profile check could not be enforced."""
 
@@ -115,13 +124,13 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
 
     vct = payload.get("vct")
     r["vct"] = vct if isinstance(vct, str) else None
-    allow = policy.get("vctAllowlist") or []
+    allow = _as_list(policy.get("vctAllowlist"))
     r["vct_ok"] = isinstance(vct, str) and vct in allow
     if not r["vct_ok"]:
         r["errors"].append(f"vct {vct!r} is not on the relying party's vctAllowlist (unknown type, fail-closed)")
 
     if policy.get("requireTypeMetadataIntegrity"):
-        entry = (offline_metadata or {}).get(vct) if isinstance(vct, str) else None
+        entry = _as_dict(offline_metadata).get(vct) if isinstance(vct, str) else None
         if not isinstance(entry, dict) or "bytes_b64" not in entry or "integrity" not in entry:
             r["metadata_integrity_ok"] = False
             r["errors"].append(

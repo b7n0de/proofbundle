@@ -102,7 +102,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)
     policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # Berkeley r5: unhashable key
-    unresolved = [name for name in reference_keys if result.get(name) is False]
+    unresolved = [name for name in reference_keys if isinstance(name, str) and result.get(name) is False]
 
     blockers: list[str] = []
     if crypto_ok is not True:

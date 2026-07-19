@@ -65,6 +65,15 @@ AUTOMATION_BLOCKER_REASONS = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
     """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
     issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
@@ -486,7 +495,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                 _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
             except (ValueError, KeyError, TypeError, ProofBundleError):
                 _claim = None
-            _root = (bundle.get("merkle") or {}).get("root_b64")
+            _root = _as_dict(bundle.get("merkle")).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
             # non-eval payload with an sd_jwt_vc is out of scope for this binding (nothing to bind against).
             if isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:

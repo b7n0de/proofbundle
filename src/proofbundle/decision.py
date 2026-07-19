@@ -84,6 +84,15 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class DecisionReceiptError(ProofBundleError):
     """A Decision Receipt predicate is malformed (fail-closed)."""
 
@@ -316,7 +325,7 @@ def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
     a check that was not requested is ``None``. WHO signed the evidence is a Trust-Policy question, not this."""
     from . import anchors as _anchors_mod  # noqa: PLC0415
     out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
-    want = (ref.get("digest") or {}).get("sha256") if isinstance(ref, dict) else None
+    want = _as_dict(ref.get("digest")).get("sha256") if isinstance(ref, dict) else None
     if evidence_payload is not None:
         got = _anchors_mod.statement_content_root(evidence_payload).hex()
         out["content_root_ok"] = (got == want)
@@ -324,7 +333,7 @@ def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
             out["detail"] = "evidence content root != evidenceRefs[].digest (evidence content changed?)"
     if artifact_bytes is not None and isinstance(ref, dict) and "artifactDigest" in ref:
         got_a = hashlib.sha256(artifact_bytes).hexdigest()
-        out["artifact_ok"] = (got_a == (ref.get("artifactDigest") or {}).get("sha256"))
+        out["artifact_ok"] = (got_a == _as_dict(ref.get("artifactDigest")).get("sha256"))
         if out["artifact_ok"] is False:
             out["detail"] = (out["detail"] + "; " if out["detail"] else "") + "artifactDigest != fetched blob"
     return out
@@ -739,7 +748,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but
                 # a FULL verifying anchor satisfies the obligation even when bundled with a pending one — the
                 # aggregate WARN would otherwise wrongly reject a receipt that DOES carry a full time anchor.
-                _results = ar.get("results") or []
+                _results = _as_list(ar.get("results"))
                 _has_fail = any(not x["ok"] and not x["warn"] for x in _results)
                 _has_full = any(x["ok"] and not x["warn"] for x in _results)
                 _has_pending = any(x["warn"] for x in _results)
@@ -798,7 +807,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(
-            policy["relations"], r.get("lineage") or {},
+            policy["relations"], _as_dict(r.get("lineage")),
             successor_key_b64=_b64_rel.b64encode(public_key).decode())
         if _viol:
             r["policy_ok"] = False

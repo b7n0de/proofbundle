@@ -39,6 +39,15 @@ _REQUIRED = ("schemaVersion", "statementId", "relationships")
 _ALLOWED_TOP = set(_REQUIRED)
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class RelationStatementError(ProofBundleError):
     """A relation-statement/v0.1 predicate is malformed (fail-closed)."""
 
@@ -299,14 +308,14 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         import base64 as _b64  # noqa: PLC0415
         relations = policy["relations"]
         _viol = evaluate_relations_policy(
-            relations, r.get("lineage") or {},
+            relations, _as_dict(r.get("lineage")),
             successor_key_b64=_b64.b64encode(public_key).decode())
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
         # (pinned/authorized) signer is a LIVE blocker for a relying party who asks "is my target still
         # safe for automation?". reject_retracted covers `retracts`; reject_superseded covers the
         # successor relations (supersedes/revises/corrects) — the same visible-state-not-crypto-kill
         # semantics as the in-receipt retracts-then-use vector.
-        edges = (r.get("lineage") or {}).get("edges") or []
+        edges = _as_dict(r.get("lineage")).get("edges") or []
         edge0 = edges[0] if edges else {}
         rel0 = edge0.get("relation")
         resolved = edge0.get("resolution") == LINEAGE_VERIFIED

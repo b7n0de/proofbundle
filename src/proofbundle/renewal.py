@@ -60,6 +60,15 @@ _CONFIRMED = "confirmed"
 _SEP = "\n"
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class RenewalError(ProofBundleError):
     """A renewal was attempted without a confirmed prior anchor, or with a broken/weak input."""
 
@@ -188,6 +197,7 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     """True iff the ATS carries a valid time-authority signature under ``authority_keys`` (a dict of raw
     public keys ``{"ed25519": bytes, "mldsa65": bytes}``). Fail-closed: an unsigned ATS, a missing key for
     the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
+    authority_keys = _as_dict(authority_keys)  # Berkeley r6: non-dict kwarg fail-closed
     if not ats.sig_alg:
         return False
     content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
@@ -739,7 +749,7 @@ class RenewalPolicy:
         if strictness not in ("warn", "fail"):
             raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {strictness!r}")
         return cls(
-            deprecated_algs=frozenset(obj.get("deprecated_algs", []) or []),
+            deprecated_algs=frozenset(_as_list(obj.get("deprecated_algs", []))),
             max_ats_age=obj.get("max_ats_age"),
             strictness=strictness,
         )

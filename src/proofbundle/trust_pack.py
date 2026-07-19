@@ -65,6 +65,15 @@ _AUTOMATION_REQUIRED_CHECKS = {
 }
 
 
+def _as_dict(v):
+    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 class TrustPackError(ProofBundleError):
     """A Trust Pack predicate is malformed (fail-closed)."""
 
@@ -320,7 +329,7 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
-    known = set((predicate.get("keys") or {}).keys())
+    known = set(_as_dict(predicate.get("keys")).keys())
     for kid in signers:
         if kid not in known:
             raise TrustPackError(f"signer keyId {kid!r} is not declared in the pack's keys")
@@ -496,10 +505,10 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         return r
 
     # Threshold-of-root over the EXACT signed bytes.
-    keys = predicate.get("keys") or {}
-    revoked = set(predicate.get("revoked") or [])
-    root = (predicate.get("roles") or {}).get("root") or {}
-    root_ids = [k for k in (root.get("keyIds") or []) if k not in revoked]
+    keys = _as_dict(predicate.get("keys"))
+    revoked = set(_as_list(predicate.get("revoked")))
+    root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
+    root_ids = [k for k in _as_list(root.get("keyIds")) if k not in revoked]
     threshold = root.get("threshold")
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     # Count DISTINCT KEY MATERIAL, not keyId labels (defense-in-depth beyond the validator's aliasing check):
@@ -508,7 +517,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # alg label lives INSIDE the signed predicate, so an attacker cannot relabel a key without invalidating
     # every signature over this pack.
     valid_root: dict[bytes, str] = {}
-    for entry in envelope.get("signatures") or []:
+    for entry in _as_list(envelope.get("signatures")):
         if not isinstance(entry, dict):
             continue
         kid = entry.get("keyid")
@@ -548,7 +557,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:
-        r["version_monotone"] = _is_int(predicate.get("version")) and predicate["version"] > prev_version
+        # Berkeley r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
+        r["version_monotone"] = (_is_int(predicate.get("version")) and _is_int(prev_version)
+                                 and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
                 f"version {predicate.get('version')!r} is not greater than the previous version "
@@ -565,9 +576,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
     # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
     if prev_root_keys is not None or prev_root_threshold is not None:
-        old_keys = prev_root_keys or {}
+        old_keys = _as_dict(prev_root_keys)  # Berkeley r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
         old_valid: dict[bytes, str] = {}
-        for entry in envelope.get("signatures") or []:
+        for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
                 continue
             kid = entry.get("keyid")
