@@ -427,8 +427,12 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
         try:
             receipt_only = {k: v for k, v in bundle.items() if k != "anchors"}
             target_roots["receipt"] = receipt_canonical_root(receipt_only)
-        except ProofBundleError:
-            pass   # canonicalizer extra absent → no receipt target; a receipt anchor then fails closed
+        except (ProofBundleError, ValueError):
+            # canonicalizer extra absent → no receipt target; a receipt anchor then fails closed.
+            # Berkeley re-gate round 6: also catch the rfc8785 ValueError family (a non-JCS number in an
+            # attacker bundle) — the sibling decision/outcome/relation verify blocks already `except ValueError`;
+            # this block was the lone `verify` path that let it escape as a raw IntegerDomainError traceback.
+            pass
         try:
             from .evalclaim import decode_eval_claim  # noqa: PLC0415
             claim = decode_eval_claim(bundle)

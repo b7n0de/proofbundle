@@ -368,5 +368,38 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
             os.rmdir(dd)
 
 
+class Round6DsseAnchorPqsig(unittest.TestCase):
+    """Berkeley DEEP re-gate round 5 (2 confirmed + completeness): the last public verify/load surfaces that
+    leaked a raw BudgetExceeded / rfc8785 ValueError sibling, plus a documented-contract fix in pqsig."""
+
+    def test_dsse_verify_envelope_oversized_signatures_is_bundleformat(self):
+        from proofbundle.dsse import verify_envelope
+        env = {"payload": "eyJhIjoxfQ==", "payloadType": "application/vnd.in-toto+json",
+               "signatures": [{"sig": "AA=="} for _ in range(600)]}
+        with self.assertRaises(BundleFormatError):
+            verify_envelope(env, b"\x00" * 32, payload_type="application/vnd.in-toto+json")
+
+    def test_dsse_load_payload_oversized_payload_is_bundleformat(self):
+        from proofbundle.dsse import load_payload
+        big = {"payload": "A" * (8 * 1024 * 1024 + 10), "payloadType": "x",
+               "signatures": [{"sig": "AA=="}]}
+        with self.assertRaises(BundleFormatError):
+            load_payload(big)
+
+    def test_receipt_canonical_root_non_jcs_number_is_bundleformat(self):
+        # a crypto-valid attacker bundle can carry a 2**53 int / NaN (loads_strict admits them) that rfc8785
+        # rejects — the `verify --require-anchor` path reached this; now typed, not a raw IntegerDomainError.
+        from proofbundle.anchors import receipt_canonical_root
+        for bundle in ({"schema": "x", "merkle": {"tree_size": 2 ** 53}}, {"x": float("nan")}):
+            with self.assertRaises(BundleFormatError):
+                receipt_canonical_root(bundle)
+
+    def test_verify_mldsa_unknown_level_returns_false_not_raise(self):
+        # docstring: "Malformed input returns False (never raises)". An unknown level is malformed input, so
+        # it must fail closed to False (not PQUnavailable) — while a MISSING FIPS-204 build still raises.
+        from proofbundle.pqsig import verify_mldsa
+        self.assertFalse(verify_mldsa(b"\x00" * 32, b"\x00" * 64, b"msg", level="bogus-level"))
+
+
 if __name__ == "__main__":
     unittest.main()

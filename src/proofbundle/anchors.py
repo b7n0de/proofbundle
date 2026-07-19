@@ -111,7 +111,15 @@ def receipt_canonical_root(bundle: dict) -> bytes:
     except ImportError as exc:   # pragma: no cover - guarded by the extra
         raise BundleFormatError(
             "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
-    return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+    try:
+        return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+    except ValueError as exc:
+        # Berkeley re-gate round 6: loads_strict admits NaN/Infinity and ints >= 2^53, but rfc8785.dumps
+        # rejects them (FloatDomainError / IntegerDomainError, both ValueError subclasses). A crypto-valid
+        # attacker bundle carrying such a non-JCS number reaches here on the `verify --require-anchor` path;
+        # map it to the documented BundleFormatError so it fails closed, never a raw traceback.
+        raise BundleFormatError(
+            f"receipt is not RFC 8785 canonicalizable (non-JCS number, fail-closed): {exc}") from exc
 
 
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
@@ -201,9 +209,16 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = f"canonicalRoot does not match the {target} root (cross-target or tampered)"
         return out
     proof = _b64d(anchor.get("proof"), "proof")
+    # Berkeley re-gate round 6 (defensive): `anchor.get("frozen") or {}` only replaces a FALSY non-dict; a
+    # TRUTHY non-dict from an attacker bundle ("frozen":"x" / [...]) would reach a verifier's frozen.get(...).
+    # The `except Exception` below already fail-closes that, but normalize any non-dict to {} up front so the
+    # verifiers never see a wrong type.
+    _frozen = anchor.get("frozen")
+    if not isinstance(_frozen, dict):
+        _frozen = {}
     try:
         res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
-                             frozen=anchor.get("frozen") or {}, now=now, rp_trust=rp_trust)
+                             frozen=_frozen, now=now, rp_trust=rp_trust)
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out

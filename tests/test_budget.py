@@ -11,7 +11,7 @@ import unittest
 
 from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget
 from proofbundle.emit import generate_signer
-from proofbundle.errors import ProofBundleError
+from proofbundle.errors import BundleFormatError, ProofBundleError
 
 
 class TestVerificationBudgetUnit(unittest.TestCase):
@@ -183,7 +183,11 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         # one real sig + enough junk entries to exceed the cap: without the guard this drives O(n) ed25519
         # verifies (none match, no early exit) = seconds of CPU; the input_bytes cap bounds only the payload.
         env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures)]
-        with self.assertRaises(BudgetExceeded):
+        # Berkeley re-gate round 6: verify_envelope is a public verify surface whose docstring signals only
+        # BundleFormatError; the over-cap list now maps the internal BudgetExceeded to it (still a
+        # ProofBundleError, so in-repo `except ProofBundleError` callers are unaffected — see the note at
+        # dsse.py:108) rather than leaking the raw sibling to a direct third-party caller.
+        with self.assertRaises(BundleFormatError):
             dsse.verify_envelope(env, pub)
 
     def test_verify_envelope_accepts_at_signatures_limit(self):
@@ -208,7 +212,9 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         env = dsse.sign_envelope(b'{"x": 1}', s, payload_type="application/x.proofbundle-test")
         tiny = VerificationBudget(input_bytes=4)   # the base64 payload is longer than 4 chars
         with mock.patch("proofbundle.budget.DEFAULT_BUDGET", tiny):
-            with self.assertRaises(BudgetExceeded):
+            # Berkeley re-gate round 6: mapped to the documented BundleFormatError (a ProofBundleError) instead
+            # of leaking the raw BudgetExceeded sibling from this public verify/load surface.
+            with self.assertRaises(BundleFormatError):
                 dsse.verify_envelope(env, pub)
 
 

@@ -63,6 +63,15 @@ surface. None touch a crypto verdict; `.ok` was already correct on every path.
     `verify_witnessed_checkpoint` counts an un-verifiable ML-DSA witness as non-verifying rather than raising
     `UnsupportedError` out of the batch (a single explicitly-named `verify_cosignature` keeps its loud raise).
   - **CLI `--trusted-tsa-root`:** routed through the same stat-guarded reader, so a FIFO maps to exit 2.
+  - **DSSE + anchor canonicalization (last public leak points):** `dsse.verify_envelope` / `load_payload`
+    map an oversized signatures list / payload to `BundleFormatError` instead of a raw `BudgetExceeded`;
+    `anchors.receipt_canonical_root` maps a non-JCS number (a `2**53` int or NaN that `loads_strict` admits
+    but `rfc8785` rejects) to `BundleFormatError`, closing the raw `IntegerDomainError` on the
+    `verify --require-anchor` path (the lone `verify` block that did not already `except ValueError`). A
+    truthy non-dict `frozen` in an attacker anchor is normalized before it reaches a verifier.
+  - **`verify_mldsa` contract fix:** an unknown `level` is malformed input and now returns `False` (honoring
+    the documented "malformed input returns False"); a genuinely missing FIPS-204 build still raises
+    `PQUnavailable` (an honest "cannot check", never a false negative).
 
 ## [Unreleased]
 
