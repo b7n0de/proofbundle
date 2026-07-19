@@ -33,9 +33,12 @@ _MODULES = [
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
+# Round 4 (v4): + the verdict families evaluate_*/audit_*/automation_*/evidence_ladder_* — the G2 gap the
+# round-4 re-gate proved (evaluate_policy/evaluate_public_transparency/automation_summary/evidence_ladder_*).
 _NAME_PATTERN = re.compile(
     r"^(verify_|check_|load_|decode_|count_|recompute_|receipt_canonical|sd_jwt_hidden"
-    r"|validate_|require_valid_|require_derived_|classify_|derive_)")
+    r"|validate_|require_valid_|require_derived_|classify_|derive_"
+    r"|evaluate_|audit_|automation_|evidence_ladder_)")
 
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
@@ -157,6 +160,82 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                                    f"{type(exc).__name__}: {exc}")
         self.assertEqual(escapes, [], "raw type-confusion escapes over the AUTO-DISCOVERED surface family:\n"
                          + "\n".join(escapes))
+
+
+    def test_var_positional_surfaces_fuzzed_with_hostile_args(self):
+        """Round-4 v4 (G4): the primary sweep SKIPS *var_positional params, so *fields aggregators
+        (evidence_ladder_*) were called with ZERO args and never fuzzed. Here every all-*args public surface is
+        called with hostile elements — this is where the evidence_ladder non-comparable-level escape lived."""
+        import warnings
+        warnings.filterwarnings("ignore")
+        hostile_args = [(123,), ("x",), (None,), ({"level": 1}, {"level": "z"}), ({"level": object()},), (b"b",)]
+        escapes = []
+        for mod_name, name, fn in _discover_surfaces():
+            try:
+                params = list(inspect.signature(fn).parameters.values())
+            except (ValueError, TypeError):
+                continue
+            if not any(p.kind == p.VAR_POSITIONAL for p in params):
+                continue
+            if any(p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
+                   and p.default is inspect.Parameter.empty for p in params):
+                continue  # has a required non-*args param -> covered by the primary/regression tests
+            for args in hostile_args:
+                try:
+                    fn(*args)
+                except _ACCEPTED:
+                    pass
+                except _FORBIDDEN as exc:
+                    escapes.append(f"{mod_name}.{name}(*{args!r}): raw {type(exc).__name__}: {exc}")
+        self.assertEqual(escapes, [], "raw *var_positional escapes:\n" + "\n".join(escapes))
+
+    def test_round4_nonprimary_regression(self):
+        """Generator-hardening (Berkeley v3): each round-4 re-gate escape becomes a PERMANENT corpus entry so it
+        can never silently regress. These are the exact 12 confirmed escapes at HEAD 956cbe5 — a VALID primary
+        plus a hostile NON-PRIMARY / nested-sub-field / non-comparable value. Each must terminate fail-closed
+        (a returned verdict or a typed _ACCEPTED error), never a raw _FORBIDDEN. Auto-fuzzing cannot reach these
+        (they need a valid primary to reach the non-primary sink), so they are pinned explicitly."""
+        from proofbundle.evalclaim import check_freshness
+        from proofbundle.automation_verdict import automation_summary
+        from proofbundle.assurance import evidence_ladder_summary, evidence_ladder_best
+        from proofbundle.public_transparency import evaluate_public_transparency
+        from proofbundle.policy import evaluate_decision_policy, evaluate_policy
+        from proofbundle.relation import evaluate_relations_policy
+        C = {"timestamp": "2026-01-01T00:00:00Z"}
+        cases = [
+            ("check_freshness now=int", lambda: check_freshness(C, None, 123)),
+            ("check_freshness max_age=str", lambda: check_freshness(C, "x", None)),
+            ("automation references=int", lambda: automation_summary({}, required_checks={"references": 5})),
+            ("automation references=bool", lambda: automation_summary({}, required_checks={"references": True})),
+            ("evidence_ladder mixed-level", lambda: evidence_ladder_summary({"level": 1}, {"level": "z"})),
+            ("evidence_ladder obj-level", lambda: evidence_ladder_best({"level": 1}, {"level": object()})),
+            ("evidence_ladder level-only", lambda: evidence_ladder_best({"level": 1})),
+            ("evaluate_public_transparency vkeys=int",
+             lambda: evaluate_public_transparency("x", {"witnessQuorum": {"threshold": 1}}, witness_vkeys=5)),
+            ("evaluate_public_transparency vkeys=bool",
+             lambda: evaluate_public_transparency("x", {"witnessQuorum": {"threshold": 1}}, witness_vkeys=True)),
+            ("evaluate_decision_policy evidenceRefs=int",
+             lambda: evaluate_decision_policy(
+                 {"predicate": {"evidenceRefs": 5}}, {"ok": True},
+                 {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
+                  "decision_receipt": {"required_evidence_relations": ["r"]}}, signer_public_key_b64="abc")),
+            ("evaluate_policy non-dict-policy", lambda: evaluate_policy({}, {"ok": True}, 5)),
+            ("evaluate_relations require_res=int",
+             lambda: evaluate_relations_policy({"require_relation_resolution": 5}, {"edges": []},
+                                               successor_key_b64=None)),
+            ("evaluate_relations signer=int",
+             lambda: evaluate_relations_policy({"relation_signer": 5}, {"edges": [{"relation": "x"}]},
+                                               successor_key_b64=None)),
+        ]
+        escapes = []
+        for label, fn in cases:
+            try:
+                fn()
+            except _ACCEPTED:
+                pass
+            except _FORBIDDEN as exc:
+                escapes.append(f"{label}: raw {type(exc).__name__}: {exc}")
+        self.assertEqual(escapes, [], "round-4 non-primary regression escapes:\n" + "\n".join(escapes))
 
 
 if __name__ == "__main__":
