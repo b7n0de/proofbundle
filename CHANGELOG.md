@@ -4,11 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+_Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
+
 ## [3.6.3] - Unreleased (never-raise residual, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.3 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. It closes
 precisely the never-raise residual that 3.6.2 shipped deferred under an explicit maintainer decision — the
-three sites the Berkeley NORMAL re-gate of the 3.6.2 candidate pinned, plus the reverted `anchors_chia_add`
+three sites the adversarial re-audit of the 3.6.2 candidate pinned, plus the reverted `anchors_chia_add`
 transform left for careful per-site handling. No crypto verdict (`.ok`) is affected by any of these: the
 class is robustness hardening on direct-low-level-API surfaces, never a correctness change.
 
@@ -27,7 +29,7 @@ a public `evaluate_*`/`verify_*` helper got a raw exception where the docstring 
   list-coerced) `lineage_result['edges']` (`5` / `'x'` / `None` / `[1]`; mixed `[{...},5]`) raised a raw
   `AttributeError` from `e.get(...)`. The edges are now filtered to dict elements once, protecting all three
   sinks (relation/resolution, signer, target loops).
-- **R7-2b (same function, found by the Berkeley NORMAL re-gate of this increment):** two more never-raise
+- **R7-2b (same function, found by the adversarial re-audit of this increment):** two more never-raise
   siblings one param over. A non-dict `lineage_result` crashed the `reject_superseded` branch
   (`lineage_result.get('supersededByAttached')`, outside the edges isinstance guard) — now coerced to `{}` at
   entry. An UNHASHABLE `edge['relation']` / `edge['targetDigest']` (`[1]` / `{1:2}` / `{1,2}` / `bytearray`)
@@ -61,7 +63,7 @@ surface. None touch a crypto verdict; `.ok` was already correct on every path.
 
 Release-scope honesty (No-Overclaim): the never-raise class fix in this 3.6.2 is large and verified but NOT
 claimed complete. It is codebase-wide and converges module-by-module; the ~16 modules listed below are
-hardened and locally fuzz-clean (full suite green), but a full adversarial Berkeley WITHSTANDS across the
+hardened and locally fuzz-clean (full suite green), but a full adversarial deep-gate WITHSTANDS across the
 ENTIRE public surface is not certified at this tag. 3.6.2 ships under an explicit maintainer decision to
 release the large, verified batch now rather than withhold it — any never-raise residual a deeper re-gate
 still surfaces (plus the reverted `anchors_chia_add` transform, left for careful per-site handling) ships in
@@ -87,7 +89,7 @@ verify surface, never a correctness change.
   (no FIPS-204 build) instead of leaking `PQUnavailable`.
 - The CLI bounds every file read at the `input_bytes` budget, so a huge/streaming input (`/dev/zero`)
   maps to a clean exit-2 instead of memory exhaustion.
-- **Never-raise closed as a CLASS, not point fixes (four iterated Berkeley re-gates).** Successive
+- **Never-raise closed as a CLASS, not point fixes (four iterated adversarial re-audits).** Successive
   adversarial re-gates (6 falsification lenses, each finding refuted by 3 independent skeptics, plus a
   completeness critic) proved the sibling-escape was systemic across the whole public verify surface, not a
   handful of sites. Every fix below maps hostile/oversized untrusted input to a typed fail-closed result;
@@ -326,7 +328,7 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   file proxy that is inert on an already-parsed dict, so a hostile over-limit dict (nested past json_depth 64,
   or over json_nodes 200000) is now a fail-closed BudgetExceeded / BundleFormatError verdict, never a raw
   RecursionError. Verified: depths 257/4096/65536 and 250000 nodes all rejected; a deep-nesting sweep over all
-  public verify surfaces at recursionlimit 3000 escapes 0 raw RecursionError. A Berkeley re-gate then closed
+  public verify surfaces at recursionlimit 3000 escapes 0 raw RecursionError. A adversarial re-audit then closed
   the last inert dimension: `string_len` (a single oversized JSON string/key value) is now enforced inside
   `enforce_structural_budget` too, restoring rejection parity between the str/file path (input_bytes) and the
   direct-dict path for a ~13 MB `payload_b64` value (RT-BDOS-01).
@@ -339,7 +341,7 @@ the 3.6.0 Teil-1/Teil-2 adversarial audit; the overall maturity verdict is uncha
   / empty → FAIL, never PASS or PENDING), resolves supersession current-wins, treats a contradiction as ERROR,
   and carries the RT-10 triple `(population_size, evaluated_count, source_digest)` with `evaluated_count==0`
   → FAIL. Self-attested (independent verifier + tamper-evidence; private key gitignored, committed pubkey
-  pinned). A Berkeley re-gate hardened this: a finding can no longer be SILENTLY DROPPED from the count — a
+  pinned). A adversarial re-audit hardened this: a finding can no longer be SILENTLY DROPPED from the count — a
   dangling `superseded_by` (target absent), a self-supersession, or a non-string id is an anomaly that fails
   closed (was a fail-open that let a validly-signed register hide an open P0 and still report 0 open);
   severity is upper-folded and status counts closed only when exactly `closed`. Bidirectional meta-test in
@@ -429,7 +431,7 @@ substitute for the external one.
   facts (calendar-independent verification, calendar fragility affects only stamping, verification needs
   a Bitcoin header source, RFC 3161 legal second anchor) before an external audit asks.
 
-### Fixed (OTS hardening — Berkeley live-reproduced audit, 2026-07-16)
+### Fixed (OTS hardening — adversarial deep live-reproduced audit, 2026-07-16)
 - **`verify-pack` refuses a self-fabricated Null-Op pack and a Litecoin-height confusion (CRITICAL,
   No-Fake, `anchors_ots.verify_opentimestamps` + `cli.py` + `evidence_pack`, 2026-07-17):** the 6-lens
   re-review reproduced a CRITICAL live on the standalone `anchor verify-pack` / `verify_evidence_pack`
