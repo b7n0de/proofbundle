@@ -88,7 +88,7 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     The prior version SILENTLY DROPPED a finding whenever it carried ANY ``superseded_by`` string — even a
     DANGLING link (target id absent), a SELF-supersession (superseded_by == own id) or a non-string id —
     which let a validly-signed register hide an open P0 behind a bogus supersession and still report 0 open
-    (a fail-open the Berkeley gate reproduced). Now a finding is legitimately superseded ONLY by a PRESENT,
+    (a fail-open the adversarial deep-gate reproduced). Now a finding is legitimately superseded ONLY by a PRESENT,
     DIFFERENT id; a dangling/self supersession, a non-string/empty id, or a non-dict entry is an ANOMALY that
     is NEVER dropped (the caller fails closed on any anomaly), so no finding can vanish from the count."""
     ids_present = {f["id"] for f in findings
