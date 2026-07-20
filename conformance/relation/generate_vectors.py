@@ -634,7 +634,7 @@ def main() -> None:
                          related_pubs=[x_pub, x_pub], policy="policy.json",
                          kind="outcome_relation", attribution=loek, cross_format_id="xfmt-t3-decoy"))
 
-    # 15) wrong-payloadType target (Berkeley audit — Rust payloadType fail-open regression, 3.5.0):
+    # 15) wrong-payloadType target (adversarial deep audit — Rust payloadType fail-open regression, 3.5.0):
     #     a SAME-KEY related target whose DSSE envelope carries the WRONG payloadType (validly signed
     #     over a foreign type). Python _load_related pins the in-toto payloadType (cli.py:1241-1242), so
     #     the target is attached-but-unverified -> lineage FAIL, exit 2; the independent Rust verifier
@@ -653,7 +653,7 @@ def main() -> None:
                base_case("relation-wrong-payloadtype-target",
                          {"exitCode": 2, "lineage": "FAIL",
                           "errorContains": "relation:target_verification_failed"},
-                         "payloadType type-confusion (Berkeley audit, Rust fail-open regression): a "
+                         "payloadType type-confusion (adversarial deep audit, Rust fail-open regression): a "
                          "same-key related target signed under the WRONG payloadType is "
                          "attached-but-unverified. Python pins the in-toto payloadType in _load_related "
                          "and the independent Rust verifier now pins it too (verify_dsse "
