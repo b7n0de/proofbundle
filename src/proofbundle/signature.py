@@ -32,7 +32,7 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
             or not isinstance(message, (bytes, bytearray))):
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
-        # Berkeley re-gate: ``message`` was previously unguarded — a non-bytes ``message`` (None) reached
+        # adversarial re-audit: ``message`` was previously unguarded — a non-bytes ``message`` (None) reached
         # cryptography's .verify(sig, data) and raised a raw TypeError that the (InvalidSignature, ValueError)
         # except did NOT catch, defeating the never-raise contract one arg past where CB-01 stopped (key/sig).
     if len(public_key) != 32 or len(signature) != 64:
@@ -66,7 +66,7 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
             or not isinstance(message, (bytes, bytearray))):
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
-        # Berkeley re-gate: ``message`` guard mirrors verify_ed25519 — a non-bytes ``message`` reached
+        # adversarial re-audit: ``message`` guard mirrors verify_ed25519 — a non-bytes ``message`` reached
         # pub.verify(sig, data) and raised a raw TypeError the (InvalidSignature, ValueError) except missed.
     if len(public_key) != 65 or bytes(public_key[:1]) != b"\x04" or len(signature) != 64:
         return False   # SEC1 uncompressed only (0x04 prefix) — compressed/hybrid points are rejected

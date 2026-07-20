@@ -188,9 +188,9 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
         return False, alg, ("cannot verify jcs-sha256-v1 canonicality — install proofbundle[eval] "
                             "(fail-closed; never a silent pass over non-canonical bytes)")
     except (ProofBundleError, ValueError) as exc:
-        # Berkeley re-gate round 3: the BASE ProofBundleError (CanonicalizerUnavailable already handled
+        # adversarial re-audit round 3: the BASE ProofBundleError (CanonicalizerUnavailable already handled
         # above) keeps any sibling — a BudgetExceeded/UnsupportedError from serialization — fail-closed here.
-        # Berkeley re-gate round 4: rfc8785.dumps raises FloatDomainError (NaN/Infinity) and IntegerDomainError
+        # adversarial re-audit round 4: rfc8785.dumps raises FloatDomainError (NaN/Infinity) and IntegerDomainError
         # (an oversized JSON integer under loads_strict's digit cap) — BOTH ValueError subclasses, NOT
         # ProofBundleError. A hostile signed statement carrying such a value escaped verify_*_dsse raw
         # (_content_root_binding runs even when ok=False). Catching the ValueError family fails it closed.

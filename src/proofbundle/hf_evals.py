@@ -84,7 +84,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     try:
         return verify_bundle(bundle), bundle
     except ProofBundleError as exc:
-        # Berkeley re-gate round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
+        # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
         # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
         # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization above already does this
         # for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign exception type either.
@@ -127,7 +127,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not isinstance(token, str) or not token:
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
         return out
-    # Berkeley re-gate (3.6.2): honour this surface's OWN never-raise contract (comment above: "a malformed
+    # adversarial re-audit (3.6.2): honour this surface's OWN never-raise contract (comment above: "a malformed
     # token is reported, not raised"). verify_receipt_token raises BundleFormatError (a ProofBundleError) on a
     # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
     # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.

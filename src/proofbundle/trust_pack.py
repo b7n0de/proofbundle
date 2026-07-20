@@ -66,7 +66,7 @@ _AUTOMATION_REQUIRED_CHECKS = {
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -557,7 +557,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:
-        # Berkeley r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
+        # adversarial re-audit r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
         r["version_monotone"] = (_is_int(predicate.get("version")) and _is_int(prev_version)
                                  and predicate["version"] > prev_version)
         if not r["version_monotone"]:
@@ -576,7 +576,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
     # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
     if prev_root_keys is not None or prev_root_threshold is not None:
-        old_keys = _as_dict(prev_root_keys)  # Berkeley r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
+        old_keys = _as_dict(prev_root_keys)  # adversarial re-audit r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
         old_valid: dict[bytes, str] = {}
         for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):

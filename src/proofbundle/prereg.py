@@ -43,7 +43,7 @@ def prereg_hash(protocol_path) -> str:
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     from .errors import BundleFormatError  # noqa: PLC0415
     cap = DEFAULT_BUDGET.input_bytes
-    # Berkeley re-gate round 4: stat-guard BEFORE open() — a FIFO with no writer blocks open() forever (a DoS
+    # adversarial re-audit round 4: stat-guard BEFORE open() — a FIFO with no writer blocks open() forever (a DoS
     # hang, not an over-cap read the loop below could catch). os.stat reads metadata only, never blocks on a
     # FIFO and never reads a device; refuse anything that is not a regular file (mirrors load_bundle).
     _st = os.stat(protocol_path)

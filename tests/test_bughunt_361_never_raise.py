@@ -71,7 +71,7 @@ class CliBoundedReadCapsHugeInput(unittest.TestCase):
         self.assertEqual(_read_capped(io.StringIO("{}")), "{}")
 
     def test_bytes_mode_cap(self):
-        # Berkeley re-gate: the rb verify handles (verify-proof --payload-file, anchor inspect/upgrade)
+        # adversarial re-audit: the rb verify handles (verify-proof --payload-file, anchor inspect/upgrade)
         # use the bytes-mode cap
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.cli import _read_capped_bytes
@@ -88,7 +88,7 @@ class CliBoundedReadCapsHugeInput(unittest.TestCase):
 
 class PolicyLoadBoundedRead(unittest.TestCase):
     def test_oversized_policy_file_is_policy_error_not_oom(self):
-        # Berkeley re-gate P1: load_policy bounded the read at input_bytes (policy lint --policy /dev/zero
+        # adversarial re-audit P1: load_policy bounded the read at input_bytes (policy lint --policy /dev/zero
         # would otherwise OOM before loads_strict's cap)
         import os
         import tempfile
@@ -105,7 +105,7 @@ class PolicyLoadBoundedRead(unittest.TestCase):
             os.unlink(tmp)
 
     def test_wide_policy_under_byte_cap_is_policy_error_not_raw_budget_exceeded(self):
-        # Berkeley re-gate round 2: a small (< byte cap) but node-heavy policy trips loads_strict's SIBLING
+        # adversarial re-audit round 2: a small (< byte cap) but node-heavy policy trips loads_strict's SIBLING
         # BudgetExceeded (a ProofBundleError that is NOT BundleFormatError) — the except must catch the BASE.
         import json
         import os
@@ -124,7 +124,7 @@ class PolicyLoadBoundedRead(unittest.TestCase):
 
 
 class LibrarySurfaceBudgetSiblingIsFailClosed(unittest.TestCase):
-    """Berkeley re-gate round 3 (repro-confirmed): several PUBLIC library verify surfaces funnel an embedded
+    """adversarial re-audit round 3 (repro-confirmed): several PUBLIC library verify surfaces funnel an embedded
     SD-JWT/claim payload through loads_strict, which raises a SIBLING BudgetExceeded (a ProofBundleError that
     is NOT BundleFormatError) on a node-heavy payload. An `except (BundleFormatError, ...)` that omits the
     BASE let a raw DoS exception escape. Each surface must now map it to its own fail-closed verdict."""
@@ -176,14 +176,14 @@ class LibrarySurfaceBudgetSiblingIsFailClosed(unittest.TestCase):
 
 class CliMainCatchAllBackstop(unittest.TestCase):
     def test_escaping_proofbundle_error_maps_to_exit_2(self):
-        # Berkeley re-gate round 2: anchor inspect's own except does not catch BundleFormatError; the
+        # adversarial re-audit round 2: anchor inspect's own except does not catch BundleFormatError; the
         # main() backstop must map any escaping ProofBundleError sibling to a clean exit 2, not a traceback.
         from proofbundle.cli import main
         self.assertEqual(main(["anchor", "inspect", "/dev/zero"]), 2)
 
 
 class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
-    """Berkeley DEEP re-gate round 3 (11 confirmed escapes): the round-3 library widening fixed the inner
+    """adversarial deep re-audit round 3 (11 confirmed escapes): the round-3 library widening fixed the inner
     loads_strict except sites but MISSED the flagship top-level surfaces, the rfc8785 ValueError family, and
     two file-read DoS classes. Each must now map hostile input to a typed fail-closed result."""
 
@@ -273,7 +273,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
             os.rmdir(d)
 
     def test_cli_verify_on_fifo_does_not_hang(self):
-        # Berkeley re-gate round 4 completeness critic: a CLI verify command given a FIFO path blocked at
+        # adversarial re-audit round 4 completeness critic: a CLI verify command given a FIFO path blocked at
         # open() forever. The _open_input stat-guard maps it to a clean exit 2 via main()'s backstop.
         import base64
         import os
@@ -291,7 +291,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
 
 
 class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
-    """Berkeley DEEP re-gate round 4 (3 confirmed + completeness escapes): the same direct-object budget-bypass,
+    """adversarial deep re-audit round 4 (3 confirmed + completeness escapes): the same direct-object budget-bypass,
     FIFO DoS and PQ-sibling classes at the surfaces round-4 did not reach — load_policy, canonical primitives,
     renewal.verify_sequence, and the witness quorum. Each must fail closed / return a verdict, never a raw
     RecursionError / PQ sibling / hang. The PQ cases assert 'returns a verdict, never raises' so they hold on
@@ -369,7 +369,7 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
 
 
 class Round6DsseAnchorPqsig(unittest.TestCase):
-    """Berkeley DEEP re-gate round 5 (2 confirmed + completeness): the last public verify/load surfaces that
+    """adversarial deep re-audit round 5 (2 confirmed + completeness): the last public verify/load surfaces that
     leaked a raw BudgetExceeded / rfc8785 ValueError sibling, plus a documented-contract fix in pqsig."""
 
     def test_dsse_verify_envelope_oversized_signatures_is_bundleformat(self):
@@ -402,7 +402,7 @@ class Round6DsseAnchorPqsig(unittest.TestCase):
 
 
 class Round7CanonicalRootJwtDecodeParse(unittest.TestCase):
-    """Berkeley DEEP re-gate round 6 (1 confirmed + completeness): the last direct-primitive RecursionError,
+    """adversarial deep re-audit round 6 (1 confirmed + completeness): the last direct-primitive RecursionError,
     the JWT/token pre-decode memory amplification, and a public parse_ contract fix."""
 
     def test_receipt_canonical_root_deeply_nested_is_bundleformat_not_recursion(self):

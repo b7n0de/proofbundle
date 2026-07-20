@@ -44,7 +44,7 @@ _SUPPORTED_SCHEMAS = (POLICY_SCHEMA, POLICY_SCHEMA_V0_2)
 
 
 def _as_dict(v):
-    """Berkeley r5 class-fix: ein Config-Sub-Feld als dict, sonst {} — schliesst das systemische
+    """adversarial re-audit r5 class-fix: ein Config-Sub-Feld als dict, sonst {} — schliesst das systemische
     ``_as_dict(x.get(k))``-Loch, das nur FALSY ersetzte und einen truthy Nicht-Container durchliess."""
     return v if isinstance(v, dict) else {}
 
@@ -286,7 +286,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         try:
             import os  # noqa: PLC0415
             import stat as _stat  # noqa: PLC0415
-            # Berkeley re-gate round 5: stat-guard BEFORE open() — the round-4 byte cap stopped /dev/zero but a
+            # adversarial re-audit round 5: stat-guard BEFORE open() — the round-4 byte cap stopped /dev/zero but a
             # FIFO with no writer blocks open() forever (a DoS hang the cap can never reach). os.stat reads
             # metadata only and never blocks; refuse anything that is not a regular file (mirrors load_bundle).
             _st = os.stat(source)
@@ -296,7 +296,7 @@ def load_policy(source: Union[str, dict]) -> dict:
             with open(source, encoding="utf-8") as handle:
                 # WP-C1: a duplicated key in a policy is a differential in the TRUST DECISION
                 # itself (two parsers could enforce different allowed_issuers) — reject.
-                # Bug-hunt Berkeley re-gate (3.6.2, P1): bound the read at the input_bytes budget BEFORE
+                # Bug-hunt adversarial re-audit (3.6.2, P1): bound the read at the input_bytes budget BEFORE
                 # loads_strict — its cap only applies AFTER the whole file is in memory, so `policy lint
                 # --policy /dev/zero` (a source path is untrusted, reachable from 7 CLI sites) would OOM
                 # first. A too-large policy is fail-closed via BundleFormatError (caught below → PolicyError).
@@ -306,13 +306,13 @@ def load_policy(source: Union[str, dict]) -> dict:
                     raise BundleFormatError(f"policy file exceeds the {_cap}-byte input_bytes budget (fail-closed)")
                 policy = loads_strict(_raw)
         except (OSError, ValueError, ProofBundleError) as exc:
-            # Berkeley re-gate (3.6.2): catch the BASE ProofBundleError, not just BundleFormatError — a
+            # adversarial re-audit (3.6.2): catch the BASE ProofBundleError, not just BundleFormatError — a
             # wide-but-small or oversized-string policy trips loads_strict's SIBLING BudgetExceeded
             # (json_nodes / string_len, ProofBundleError-derived but not BundleFormatError), which would
             # otherwise escape load_policy's "raises PolicyError on anything malformed" contract.
             raise PolicyError(f"cannot read trust policy: {exc}") from exc
     else:
-        # Berkeley re-gate round 5: the str/file path bounds nesting via loads_strict (json_depth), but the
+        # adversarial re-audit round 5: the str/file path bounds nesting via loads_strict (json_depth), but the
         # symmetric dict overload ran copy.deepcopy on an unbounded structure → a raw RecursionError escaped
         # the "raises PolicyError on anything malformed" contract. Enforce the same structural budget BEFORE
         # the deepcopy so a deeply-nested / node-heavy dict fails closed as PolicyError (over-depth is
@@ -592,13 +592,13 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
                       "decision verify path (wrong purpose, fail-closed)")
 
     # predicateType allow-list (confusion defense at the policy layer)
-    apt = section.get("accepted_predicate_types")  # Berkeley re-gate round 4: guard non-iterable apt ('in' crash)
+    apt = section.get("accepted_predicate_types")  # adversarial re-audit round 4: guard non-iterable apt ('in' crash)
     if isinstance(apt, (list, tuple)) and statement.get("predicateType") not in apt:
         errors.append(f"predicateType {statement.get('predicateType')!r} not in accepted_predicate_types")
 
     # signer <-> trusted_decision_makers (by public key; decisionMaker.id only as a hint that must not conflict)
     signer_trusted = None
-    tdm = _as_list(section.get("trusted_decision_makers"))  # Berkeley r5: nicht-Liste -> [] statt Crash
+    tdm = _as_list(section.get("trusted_decision_makers"))  # adversarial re-audit r5: nicht-Liste -> [] statt Crash
     if tdm:
         claimed_id = _as_dict(predicate.get("decisionMaker")).get("id")
         match = next((m for m in tdm
@@ -617,17 +617,17 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
             errors.append("decisionMaker.id does not match the trusted entry for this signer key")
 
     dt = predicate.get("decisionType")
-    _adt = _as_list(section.get("allowed_decision_types"))  # Berkeley r5: non-list -> kein 'x in 5'-Crash
+    _adt = _as_list(section.get("allowed_decision_types"))  # adversarial re-audit r5: non-list -> kein 'x in 5'-Crash
     if _adt and dt not in _adt:
         errors.append(f"decisionType {dt!r} not allowed by policy")
     verdict = _as_dict(predicate.get("decision")).get("verdict")
-    _av = _as_list(section.get("allowed_verdicts"))  # Berkeley r5: non-list -> kein 'x in 5'-Crash
+    _av = _as_list(section.get("allowed_verdicts"))  # adversarial re-audit r5: non-list -> kein 'x in 5'-Crash
     if _av and verdict not in _av:
         errors.append(f"verdict {verdict!r} not allowed by policy")
 
-    req_rel = [r for r in _as_list(section.get("required_evidence_relations")) if isinstance(r, str)]  # Berkeley r5
+    req_rel = [r for r in _as_list(section.get("required_evidence_relations")) if isinstance(r, str)]  # adversarial re-audit r5
     if req_rel:
-        _erefs = predicate.get("evidenceRefs", [])  # Berkeley re-gate round 4: non-iterable evidenceRefs guard
+        _erefs = predicate.get("evidenceRefs", [])  # adversarial re-audit round 4: non-iterable evidenceRefs guard
         have = ({r.get("relation") for r in _erefs if isinstance(r, dict)}
                 if isinstance(_erefs, (list, tuple)) else set())
         missing = [r for r in req_rel if r not in have]
@@ -713,7 +713,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     Offline: the only network-free trust inputs are the policy file and the already-verified bundle.
     """
-    # Berkeley re-gate round 4: a non-dict `policy` (raw dict bypasses load_policy's validation) crashed the
+    # adversarial re-audit round 4: a non-dict `policy` (raw dict bypasses load_policy's validation) crashed the
     # `.get`/section walks below — a malformed policy is a fail-closed verdict, never a raw AttributeError.
     if not isinstance(policy, dict):
         return {"policy_ok": False, "checks": [], "reason": "policy is not a dict"}
@@ -779,7 +779,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         signer_key = sig.get("public_key_b64")
         # defense-in-depth (fix-review Finding 2): a low-order/non-canonical allowed_issuers key is
         # forgeable — never let it match, even if this policy dict skipped load_policy.
-        allowed_keys = {i.get("public_key_b64") for i in allowed_issuers  # Berkeley r5: non-dict element guard
+        allowed_keys = {i.get("public_key_b64") for i in allowed_issuers  # adversarial re-audit r5: non-dict element guard
                         if isinstance(i, dict) and not _pinned_key_forgeable(i.get("public_key_b64") or "")}
         matched = signer_key in allowed_keys and signer_key is not None
         if not allowed_issuers and require_signer:

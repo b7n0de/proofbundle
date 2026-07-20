@@ -141,14 +141,14 @@ def load_claim_text(text: str) -> dict:
     verifier ``hf_evals.verify_eval_results_entry`` — stays correct and never crashes."""
     from ._strict_json import loads_strict  # noqa: PLC0415
     if not isinstance(text, (str, bytes, bytearray)):
-        # Berkeley re-gate round 8: a non-str/bytes primary makes loads_strict's len(text)/json.loads(text)
+        # adversarial re-audit round 8: a non-str/bytes primary makes loads_strict's len(text)/json.loads(text)
         # raise a raw TypeError BEFORE any typed path — this public load_ primitive's docstring promises
         # "never a raw traceback", so a type-confused input maps to the documented EvalClaimError.
         raise EvalClaimError(f"claim text must be str or bytes, got {type(text).__name__} (malformed)")
     try:
         return loads_strict(text)
     except ProofBundleError as e:
-        # Berkeley re-gate round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
+        # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
         # BudgetExceeded (over-width/over-node input) NOT a BundleFormatError, which `except BundleFormatError`
         # let escape as a raw traceback. Both map to the DOCUMENTED EvalClaimError (a ValueError).
         raise EvalClaimError(str(e)) from e
@@ -427,7 +427,7 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     if not isinstance(identifier, str) or not isinstance(salt, (bytes, bytearray)):
         return False   # RE-GATE never-raise: a non-str PRESENTED identifier is a fail-closed False, not a
         # raw AttributeError from identifier.encode() inside salted_commit (untrusted presentation input).
-        # Berkeley re-gate round 7: the `salt` is the SAME out-of-band presentation channel — a non-bytes salt
+        # adversarial re-audit round 7: the `salt` is the SAME out-of-band presentation channel — a non-bytes salt
         # is a raw TypeError from len(salt) in salted_commit; guard it here too (the identifier-only guard was
         # half-finished).
     try:
@@ -445,11 +445,11 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
     from datetime import datetime, timezone  # noqa: PLC0415
     if not isinstance(claim, dict):
-        # Berkeley re-gate round 7: the natural RP pattern check_freshness(decode_eval_claim(bundle)) passes a
+        # adversarial re-audit round 7: the natural RP pattern check_freshness(decode_eval_claim(bundle)) passes a
         # None (decode returns None on a non-eval bundle) straight into claim.get(...) — a raw AttributeError.
         # A non-dict claim is a fail-closed "not parsed" verdict, never a crash.
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "claim is not a dict"}
-    # Berkeley re-gate round 4 (G1 non-primary args): the primary `claim` was guarded, but a non-datetime
+    # adversarial re-audit round 4 (G1 non-primary args): the primary `claim` was guarded, but a non-datetime
     # `now` reached `ref.tzinfo` (AttributeError) and a non-numeric `max_age_seconds` reached `0 <= age <= ...`
     # (TypeError) — both are natural RP/policy mis-values (policy.evaluate_policy forwards the untrusted
     # max_iat_age_seconds straight in). A malformed config arg is a fail-closed "not parsed" verdict, never a crash.
@@ -506,7 +506,7 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.
         payload = loads_strict(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
     except (ProofBundleError, ValueError, KeyError, IndexError):
-        # Berkeley re-gate round 3 (repro-confirmed): sd_jwt_hidden_count is PUBLIC — a node-heavy embedded
+        # adversarial re-audit round 3 (repro-confirmed): sd_jwt_hidden_count is PUBLIC — a node-heavy embedded
         # payload made loads_strict raise a SIBLING BudgetExceeded that `except BundleFormatError` let escape
         # as a raw DoS traceback. The BASE ProofBundleError catch maps every over-limit/malformed case to None.
         return None
@@ -554,7 +554,7 @@ def enclave_assurance_proven(claim: dict, bundle, *, eat_jws: Optional[str] = No
                                          expected_binding=binding, expected_profile=expected_profile,
                                          now=now)
     except (ProofBundleError, ValueError, TypeError, KeyError):
-        # Berkeley re-gate round 3: the enclave path funnels through loads_strict (BudgetExceeded) and may
+        # adversarial re-audit round 3: the enclave path funnels through loads_strict (BudgetExceeded) and may
         # hit PQUnavailable — both ProofBundleError SIBLINGS that `except BundleFormatError` let escape. The
         # BASE catch keeps this corroboration reporter fail-closed (unverifiable → not BACKED → False).
         return False

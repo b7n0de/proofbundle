@@ -1,4 +1,4 @@
-"""Generator-hardening property test (Berkeley re-gate round 7 completeness lesson).
+"""Generator-hardening property test (adversarial re-audit round 7 completeness lesson).
 
 The never-raise sweep was applied surface-by-surface and repeatedly left an unswept sibling: a public
 ``verify_*`` / ``check_*`` / ``load_*`` / ``decode_*`` / ``count_*`` function that guards SOME arguments but

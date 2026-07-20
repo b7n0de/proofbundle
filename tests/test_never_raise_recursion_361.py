@@ -1,6 +1,6 @@
 """3.6.1 — never-raise covers RecursionError on ALL verify surfaces (PB-2026-0718-11).
 
-The Teil-3 Berkeley gate found the never-raise contract broken on the CLI, not only the API: a deeply
+The Teil-3 adversarial deep-gate found the never-raise contract broken on the CLI, not only the API: a deeply
 nested pack (deep_array.json) raised a RAW, uncaught RecursionError out of `anchor verify-pack` (the
 handler used a raw json.load whose except did not cover RecursionError). The strict parser already OWNS
 RecursionError (maps it to BundleFormatError "JSON nesting is too deep"); the fix routes every verify

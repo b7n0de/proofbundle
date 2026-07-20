@@ -114,7 +114,7 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           "relying-party-supplied Bitcoin block header (--bitcoin-header / policy "
                           "anchors.bitcoin_block_headers). The bundle's own frozen header is producer-"
                           "controlled evidence, not trust; not claiming a pass"}
-    # WP-A1.b (Berkeley audit, 2026-07-16): a proof can carry SEVERAL Bitcoin attestations (independent
+    # WP-A1.b (adversarial deep audit, 2026-07-16): a proof can carry SEVERAL Bitcoin attestations (independent
     # calendar branches, a reorg-era re-anchor, a bad/tampered branch alongside a good one). Because the
     # structural binding above pins EVERY attestation's message to the same canonical root (the walk starts
     # at `file_digest`, which must equal `canonical_root`), confirming on ANY branch whose attested block
@@ -217,7 +217,7 @@ def calendar_operator(uri: str) -> str:
     host labels so a distinct third-party or self-hosted calendar still counts as a distinct operator.
     Never raises (a transparency helper must not break a verify path).
 
-    BLIND SPOT (documented, not hidden — Berkeley audit 2026-07-16): this is a bare-hostname heuristic,
+    BLIND SPOT (documented, not hidden — adversarial deep audit 2026-07-16): this is a bare-hostname heuristic,
     NOT a verified-independent-entity claim. The last-two-labels fallback does not know the public-suffix
     boundary, so a ccSLD host like ``cal.example.co.uk`` collapses to ``co.uk`` (and ``example.com.au`` to
     ``com.au``): two genuinely independent operators under the same ccSLD would be counted as one, and the

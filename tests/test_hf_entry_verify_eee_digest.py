@@ -41,7 +41,7 @@ class TestVerifyEvalResultsEntry(unittest.TestCase):
     def test_tampered_token_fails_crypto(self):
         entry = to_eval_results_entry(_receipt(), dataset_id="d/x", task_id="t", value=0.9)
         entry["verifyToken"] = entry["verifyToken"][:-6] + "AAAAAA"
-        # Berkeley re-gate (3.6.2): a malformed token (not valid zlib/json anymore) is REPORTED fail-closed,
+        # adversarial re-audit (3.6.2): a malformed token (not valid zlib/json anymore) is REPORTED fail-closed,
         # not raised — a batch verifier over an untrusted list must not crash (consistent with the sibling
         # missing-token test). Previously this enshrined the never-raise-contract violation as expected.
         res = verify_eval_results_entry(entry)

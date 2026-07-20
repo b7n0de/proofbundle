@@ -1,6 +1,6 @@
-"""Auto-enumerated never-raise class-closure test (Berkeley-gate v4 centerpiece, proof-of-concept in-repo).
+"""Auto-enumerated never-raise class-closure test (adversarial deep-gate v4 centerpiece, proof-of-concept in-repo).
 
-The round-by-round Berkeley re-gates converged 11 -> 3 -> 2 -> 1 but never to zero in one round because the fix
+The round-by-round adversarial re-audits converged 11 -> 3 -> 2 -> 1 but never to zero in one round because the fix
 target was "the one repro" and the SURFACE FAMILY was never made an explicit, machine-checked denominator. This
 test IS that denominator: it AUTO-DISCOVERS every public never-raise surface (verify_*/check_*/load_*/decode_*/
 count_*/recompute_*/receipt_canonical_root/sd_jwt_hidden_count) across the package via ``__all__``/``inspect``,
@@ -26,7 +26,7 @@ _MODULES = [
     "tlogproof", "hf_evals", "checkpoint", "merkle", "policy", "anchors", "dsse", "intoto", "decision",
     "outcome", "verification_summary", "relation_statement", "trust_pack", "run_ledger", "evidence_pack",
     "renewal", "hashalg", "prereg", "evalcard",
-    # Berkeley re-gate round 8 (v4 denominator broadening — the completeness critic found these were outside
+    # adversarial re-audit round 8 (v4 denominator broadening — the completeness critic found these were outside
     # the sweep, hiding the decision/outcome/subject_binding RecursionError class):
     "subject_binding", "relation", "assurance", "automation_verdict", "beacon", "public_transparency",
     "signature", "policy_profiles", "canonical",
@@ -190,7 +190,7 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
         self.assertEqual(escapes, [], "raw *var_positional escapes:\n" + "\n".join(escapes))
 
     def test_round4_nonprimary_regression(self):
-        """Generator-hardening (Berkeley v3): each round-4 re-gate escape becomes a PERMANENT corpus entry so it
+        """Generator-hardening (adversarial deep-gate v3): each round-4 re-gate escape becomes a PERMANENT corpus entry so it
         can never silently regress. These are the exact 12 confirmed escapes at HEAD 956cbe5 — a VALID primary
         plus a hostile NON-PRIMARY / nested-sub-field / non-comparable value. Each must terminate fail-closed
         (a returned verdict or a typed _ACCEPTED error), never a raw _FORBIDDEN. Auto-fuzzing cannot reach these
@@ -279,7 +279,7 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                     {f: x}, {"edges": [{"relation": "p", "targetDigest": "d", "resolution": "x"}]},
                     successor_key_b64=None))
 
-        # 3.6.3 never-raise residual (Berkeley NORMAL re-gate r7): three P3/P4 direct-low-level-API sinks
+        # 3.6.3 never-raise residual (adversarial re-audit r7): three P3/P4 direct-low-level-API sinks
         # one param / one list-ELEMENT over from the r5 fix. Each must fail-closed (a returned verdict or a
         # typed _ACCEPTED error), never a raw _FORBIDDEN. See roadmap/3_6_3_never_raise_residual.md.
         # R7-1 — verify_relationship_edges subject_hex: a TRUTHY UNHASHABLE value crashed the {subject_hex}
@@ -299,7 +299,7 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 run(f"R7-2 evaluate_relations_policy edges={_bad_edges!r}",
                     lambda s=_sec, be=_bad_edges: relation.evaluate_relations_policy(
                         s, {"edges": be}, successor_key_b64=None))
-        # R7-2b (3.6.3 Berkeley re-gate siblings, iter 1 → 2): non-dict lineage_result crashed the
+        # R7-2b (3.6.3 adversarial re-audit siblings, iter 1 → 2): non-dict lineage_result crashed the
         # reject_superseded branch (lineage_result.get outside the edges isinstance guard); and an
         # UNHASHABLE edge['relation']/edge['targetDigest'] crashed the dict-key lookup / set-membership.
         for _lr in BAD:

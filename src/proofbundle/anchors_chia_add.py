@@ -29,7 +29,7 @@ _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
 
 
 def _as_dict(v):
-    """3.6.3 never-raise residual — per-site application of the Berkeley r5 class-fix. A value as dict,
+    """3.6.3 never-raise residual — per-site application of the adversarial re-audit r5 class-fix. A value as dict,
     else {}: closes the ``(x.get(k) or {})`` loophole that only replaced FALSY, letting a truthy
     non-container (a foreign/misbehaving node's non-object RPC field) crash a downstream ``.get``."""
     return v if isinstance(v, dict) else {}

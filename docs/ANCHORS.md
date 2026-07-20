@@ -181,7 +181,7 @@ independent operators (`a`/`b.pool.opentimestamps.org` operated by OpenTimestamp
 `a.pool.eternitywall.com` operated by Eternity Wall), and requires at least two to reply, so any single
 calendar can be down with no effect.
 
-**Embedded vs declared (No-Fake, Berkeley audit 2026-07-16, corrected 2026-07-17).** `anchor inspect` and
+**Embedded vs declared (No-Fake, adversarial deep audit 2026-07-16, corrected 2026-07-17).** `anchor inspect` and
 the evidence pack surface two calendar classes split by FIELD PROVENANCE, but NEITHER is cryptographic
 redundancy evidence. The redundancy count is not a cryptographic guarantee: the ONLY cryptographic
 guarantees are the structural binding of the proof to the canonical root and the Bitcoin confirmation

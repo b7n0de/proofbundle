@@ -41,7 +41,7 @@ __all__ = [
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -72,7 +72,7 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
     """Assemble an offline-verifiable evidence pack around an OTS proof.
 
     Calendar figures are split by FIELD PROVENANCE into two classes — but neither is cryptographic
-    redundancy evidence (Berkeley audit 2026-07-16 split proven-vs-declared; the 2026-07-17 follow-up
+    redundancy evidence (adversarial deep audit 2026-07-16 split proven-vs-declared; the 2026-07-17 follow-up
     corrects the residual overclaim that the proof-embedded set was "proven"/evidence). The ONLY
     cryptographic guarantees a reviewer may rely on are (a) the structural binding of the proof to the
     canonical root and (b) the Bitcoin confirmation against a RELYING-PARTY header — NOT the count of

@@ -123,7 +123,7 @@ class TestLint(unittest.TestCase):
         self.assertNotIn("pins nothing", " ".join(lint_policy(pol)["errors"]))
 
     def test_reject_retracted_is_a_pin_not_vacuous(self):
-        # 3.5.0 Berkeley audit: relations.reject_retracted is ENFORCED at exit-3 by the verify path
+        # 3.5.0 adversarial deep audit: relations.reject_retracted is ENFORCED at exit-3 by the verify path
         # (relation_statement.verify_relation_statement) but explain_policy had no branch for it — lint
         # wrongly called a reject_retracted-only policy vacuous while verify actually FAILs it. explain
         # must list it; lint must NOT call it vacuous (explain⟺enforce parity, same rule as

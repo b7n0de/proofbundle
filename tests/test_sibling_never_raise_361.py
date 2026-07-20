@@ -1,7 +1,7 @@
 """3.6.1 RE-GATE round 2 — the never-raise contract holds on the SIBLING DSSE verify_* surfaces too.
 
 Round 1 closed the raw-BudgetExceeded / type-confusion hole on decision.verify_decision_receipt +
-outcome.verify_outcome_receipt. The Berkeley RE-GATE then found the SAME class STILL LIVE on the sibling
+outcome.verify_outcome_receipt. The adversarial re-audit then found the SAME class STILL LIVE on the sibling
 dict-returning verify surfaces (run_ledger / relation_statement / verification_summary / trust_pack), plus
 a crypto-boundary regression (a bytearray public key crashed ALL five DSSE entrypoints from the shared
 signature primitive) and a status-snapshot type-confusion. This guard pins every one of those fixes:
@@ -192,7 +192,7 @@ class SdJwtFamilyBudgetNeverRaise(unittest.TestCase):
         self.assertIsNot(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
                                          issuer_pubkey=b"\x00" * 32)["ok"], True)
         # persample.verify_sample_opening's BudgetExceeded fix (same except-ProofBundleError change) is
-        # covered by the Berkeley-gate reproducer (its opening/root_b64 shape validation runs before the
+        # covered by the adversarial deep-gate reproducer (its opening/root_b64 shape validation runs before the
         # disclosure parse, so a self-contained budget-only probe here is brittle).
 
 
@@ -284,7 +284,7 @@ class CallerPathTypedErrors(unittest.TestCase):
             with self.assertRaises(ProofBundleError):
                 verify_bundle({"schema": "proofbundle/v0.1", "deep": inner})
         # node count past json_nodes (200000)
-        # Berkeley re-gate round 4: verify_bundle's docstring promises malformed input is "rejected with a
+        # adversarial re-audit round 4: verify_bundle's docstring promises malformed input is "rejected with a
         # BundleFormatError — never a raw traceback"; a raw BudgetExceeded (a ProofBundleError SIBLING) broke a
         # relying party using the documented `except BundleFormatError` pattern. The direct-dict path now maps
         # the over-width BudgetExceeded to the documented BundleFormatError (still a ProofBundleError, honoring

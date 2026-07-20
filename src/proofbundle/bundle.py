@@ -66,7 +66,7 @@ AUTOMATION_BLOCKER_REASONS = {
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -86,7 +86,7 @@ def _issuer_requires_holder_binding(sd_part: str) -> bool:
         payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
     except ProofBundleError:
-        # Berkeley re-gate round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
+        # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
         # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw
         # exception escape this verify helper. A duplicated key in the issuer payload must NOT read as "no cnf
         # ⇒ no binding required" (that
@@ -234,7 +234,7 @@ def load_bundle(path: str) -> dict:
     except (OSError, ValueError, MemoryError, TypeError, ProofBundleError) as exc:
         # 6-lens DEEP gate L3-01: TypeError too — a non-str path argument (None/float) makes os.stat raise a
         # raw TypeError; the docstring promises TOTAL mapping to typed BundleFormatError (never-raise-wrap-all).
-        # Berkeley re-gate round 4: a node-heavy FILE (<8MiB but >json_nodes) passes the byte caps, then
+        # adversarial re-audit round 4: a node-heavy FILE (<8MiB but >json_nodes) passes the byte caps, then
         # loads_strict raises a SIBLING BudgetExceeded (a ProofBundleError, NOT BundleFormatError) — include the
         # BASE so it maps to the documented BundleFormatError, never a raw DoS traceback out of this load surface.
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
@@ -283,7 +283,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     # unbounded and could surface as a raw RecursionError instead of a fail-closed budget verdict. Enforce the
     # same node-count + nesting-depth budget on the direct-dict input here (BudgetExceeded / BundleFormatError,
     # both ProofBundleError -> the never-raise callers absorb it).
-    # Berkeley re-gate round 4: enforce_structural_budget raises a SIBLING BudgetExceeded (over-width) which is
+    # adversarial re-audit round 4: enforce_structural_budget raises a SIBLING BudgetExceeded (over-width) which is
     # NOT BundleFormatError, so on the direct-dict path it escaped verify_bundle raw. Map it to the documented
     # BundleFormatError (over-depth already IS BundleFormatError and propagates unchanged).
     try:
@@ -709,7 +709,7 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
     # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
     # string_len never fired on the recompute path.
-    # Berkeley re-gate round 4: same sibling map as verify_bundle — BudgetExceeded (over-width) is not a
+    # adversarial re-audit round 4: same sibling map as verify_bundle — BudgetExceeded (over-width) is not a
     # BundleFormatError, so on the direct-dict path it escaped this surface raw; map it to BundleFormatError.
     try:
         enforce_structural_budget(bundle)

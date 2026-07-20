@@ -98,7 +98,7 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     checked, so this composes with a top-level ``additionalProperties:false`` rather than duplicating it.
     Fail-closed usage: declare every nested object whose closure matters; an undeclared key under a declared
     path is a violation (a versioned extensions container is the sanctioned way to extend)."""
-    # Berkeley re-gate round 8: ITERATIVE (explicit stack), not recursive — a relying party that calls this
+    # adversarial re-audit round 8: ITERATIVE (explicit stack), not recursive — a relying party that calls this
     # public validator directly on a deeply-nested predicate obtained WITHOUT loads_strict (a REST body
     # json.loads'd by an integrator) would otherwise get a raw RecursionError, violating the
     # validate/require_valid contract. The CLI + DSSE paths are already loads_strict depth-bounded (64); this

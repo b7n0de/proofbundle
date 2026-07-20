@@ -76,7 +76,7 @@ def _payload_bytes(envelope: dict) -> bytes:
     # above any legitimate payload; the decoded value is separately re-checked downstream).
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids a cycle
     if len(p) > DEFAULT_BUDGET.input_bytes:
-        # Berkeley re-gate round 6: this public verify/load surface documents ONLY BundleFormatError as its
+        # adversarial re-audit round 6: this public verify/load surface documents ONLY BundleFormatError as its
         # malformed-input signal, so an oversized payload maps to it — not a raw BudgetExceeded sibling that
         # a direct third-party caller of verify_envelope / load_payload (following the docstring) would leak.
         raise BundleFormatError(
@@ -109,7 +109,7 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     # entry point (decision/outcome/verification_summary/run_ledger) funnels through; trust_pack keeps its
     # own equivalent cap before its separate threshold loop. BudgetExceeded is a ProofBundleError subclass,
     # so existing except(ProofBundleError) sites already treat it as fail-closed malformed/over-limit input.
-    # Berkeley re-gate round 6: map it to the documented BundleFormatError so a DIRECT third-party caller of
+    # adversarial re-audit round 6: map it to the documented BundleFormatError so a DIRECT third-party caller of
     # verify_envelope (docstring says only BundleFormatError) never gets a raw BudgetExceeded on a huge list.
     from .budget import BudgetExceeded  # noqa: PLC0415
     try:

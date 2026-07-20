@@ -395,7 +395,7 @@ MUTATIONS = [
      "        r[\"crypto_ok\"] and r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "        r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "relation-statement: cryptoValid dropped from aggregate ok (lattice violation)", True),
-    # 3.6.3 never-raise residual (Berkeley NORMAL re-gate r7) — three new fail-closed guards on
+    # 3.6.3 never-raise residual (adversarial re-audit r7) — three new fail-closed guards on
     # direct-low-level-API sinks. Each disabled guard re-opens a raw type-confusion crash caught by
     # tests/test_never_raise_surface_family_property.py::test_round5_nested_config_subfield_regression
     # (R7-1/R7-2/R7-3 pins). Generator-hardening: a future rewrite that drops one goes red HERE.
@@ -414,7 +414,7 @@ MUTATIONS = [
      "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
      "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
      "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
-    # R7-2b (Berkeley NORMAL re-gate siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
+    # R7-2b (adversarial re-audit siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
     ("src/proofbundle/relation.py",
      "    lineage_result = lineage_result if isinstance(lineage_result, dict) else {}",
      "    lineage_result = lineage_result",
