@@ -461,7 +461,12 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     out: list[dict] = []
     if not isinstance(relations_section, dict):
         return out
-    edges = lineage_result.get("edges") if isinstance(lineage_result, dict) else None
+    # R7-2b (3.6.3 Berkeley re-gate sibling): coerce lineage_result at entry — a non-dict 2nd arg
+    # crashed the reject_superseded branch (lineage_result.get('supersededByAttached')) which sits
+    # outside the isinstance guard on the edges read below (fail-closed to {}, no violation from a
+    # malformed lineage_result — a real supersededByAttached only rides on a well-formed dict).
+    lineage_result = lineage_result if isinstance(lineage_result, dict) else {}
+    edges = lineage_result.get("edges")
     edges = edges if isinstance(edges, list) else []
     # R7-2 (3.6.3 never-raise residual): the container is already list-coerced, but a non-dict ELEMENT
     # (5 / 'x' / None / [1]; mixed [{...},5]) crashed all three sinks below — the relation/resolution
@@ -487,7 +492,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     _signer = relations_section.get("relation_signer")  # Berkeley re-gate round 4: non-dict guard (.get below)
     signer = _signer if isinstance(_signer, dict) else {}
     for e in edges:
-        rule = signer.get(e.get("relation"))
+        # R7-2b: a non-str edge['relation'] is unhashable (list/dict/set/bytearray) and crashed the
+        # dict-key lookup; relations are always strings, so a non-str never names a rule (fail-closed None).
+        _rel = e.get("relation")
+        rule = signer.get(_rel) if isinstance(_rel, str) else None
         if not isinstance(rule, dict):
             continue
         mode = rule.get("mode")
@@ -517,13 +525,18 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     #     decoy-parent fix: a valid-but-WRONG parent is rejected here, never in crypto.
     target_pin = _as_dict(relations_section.get("require_relation_target"))
     for e in edges:
-        pinned = target_pin.get(e.get("relation"))
+        # R7-2b: a non-str relation is unhashable → guard the dict-key lookup (a non-str never names a pin).
+        _rel = e.get("relation")
+        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None
         if pinned is None:
             continue
         # Berkeley r5: nur hashbare str-Digests in die Menge; ein dict/list-Wert crasht sonst set() (unhashable).
         _cand = pinned if isinstance(pinned, list) else [pinned]
         allowed = [a for a in _cand if isinstance(a, str)]
-        if e.get("targetDigest") not in set(allowed):
+        # R7-2b: a non-str/unhashable targetDigest crashed ``x not in set(...)`` — a non-str can never be a
+        # pinned 64-hex root, so treat it as a mismatch (fail-closed decoy/wrong-parent), never a raw crash.
+        _td = e.get("targetDigest")
+        if not (isinstance(_td, str) and _td in set(allowed)):
             out.append({"code": CODE_RELATION_TARGET_MISMATCH,
                         "message": (f"relation {e.get('relation')!r}: edge resolves to parent "
                                     f"{str(e.get('targetDigest'))[:12]}… which is not in the pinned "

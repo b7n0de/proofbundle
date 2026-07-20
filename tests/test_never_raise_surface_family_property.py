@@ -299,6 +299,22 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 run(f"R7-2 evaluate_relations_policy edges={_bad_edges!r}",
                     lambda s=_sec, be=_bad_edges: relation.evaluate_relations_policy(
                         s, {"edges": be}, successor_key_b64=None))
+        # R7-2b (3.6.3 Berkeley re-gate siblings, iter 1 → 2): non-dict lineage_result crashed the
+        # reject_superseded branch (lineage_result.get outside the edges isinstance guard); and an
+        # UNHASHABLE edge['relation']/edge['targetDigest'] crashed the dict-key lookup / set-membership.
+        for _lr in BAD:
+            run(f"R7-2b lineage_result={_lr!r}",
+                lambda x=_lr: relation.evaluate_relations_policy({"reject_superseded": True}, x,
+                                                                 successor_key_b64=None))
+        _full_sec = {"require_relation_resolution": ["supersedes"],
+                     "relation_signer": {"supersedes": {"mode": "same-key"}},
+                     "require_relation_target": {"supersedes": ["d"]}}
+        for _k in ("relation", "targetDigest", "resolution", "verified_under"):
+            for _hv in ([1], {1: 2}, {1, 2}, bytearray(b"x"), 5, None):
+                run(f"R7-2b edge[{_k}]={type(_hv).__name__}",
+                    lambda kk=_k, x=_hv: relation.evaluate_relations_policy(_full_sec, {"edges": [
+                        {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "d",
+                         "verified_under": "vu", kk: x}]}, successor_key_b64="s"))
         # R7-3 — evaluate_policy merkle.trusted_checkpoints ELEMENT non-dict: entry.get('hashAlg') ran
         #        BEFORE _authenticate_trusted_checkpoint's own try/except and escaped raw.
         for _bad_cp in (5, "x", None, [1], True):

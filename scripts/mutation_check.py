@@ -367,7 +367,7 @@ MUTATIONS = [
     # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by
     #      test_decoy_parent_fails_closed / decoy-parent conformance vectors.
     ("src/proofbundle/relation.py",
-     "        if e.get(\"targetDigest\") not in set(allowed):",
+     "        if not (isinstance(_td, str) and _td in set(allowed)):",
      "        if False:",
      "require_relation_target: parent equality check disabled (decoy parent passes)", True),
     # (v) targetSubjectDigest gegenpruefung inverted (O2 no longer catches a lying subject): killed by
@@ -414,6 +414,19 @@ MUTATIONS = [
      "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
      "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
      "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
+    # R7-2b (Berkeley NORMAL re-gate siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
+    ("src/proofbundle/relation.py",
+     "    lineage_result = lineage_result if isinstance(lineage_result, dict) else {}",
+     "    lineage_result = lineage_result",
+     "relation: R7-2b non-dict lineage_result coercion disabled (reject_superseded .get crash)", True),
+    ("src/proofbundle/relation.py",
+     "        rule = signer.get(_rel) if isinstance(_rel, str) else None",
+     "        rule = signer.get(_rel)",
+     "relation: R7-2b unhashable relation signer-lookup guard disabled (dict-key TypeError)", True),
+    ("src/proofbundle/relation.py",
+     "        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None",
+     "        pinned = target_pin.get(_rel)",
+     "relation: R7-2b unhashable relation target-lookup guard disabled (dict-key TypeError)", True),
 ]
 
 

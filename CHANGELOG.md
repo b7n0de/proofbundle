@@ -27,6 +27,12 @@ a public `evaluate_*`/`verify_*` helper got a raw exception where the docstring 
   list-coerced) `lineage_result['edges']` (`5` / `'x'` / `None` / `[1]`; mixed `[{...},5]`) raised a raw
   `AttributeError` from `e.get(...)`. The edges are now filtered to dict elements once, protecting all three
   sinks (relation/resolution, signer, target loops).
+- **R7-2b (same function, found by the Berkeley NORMAL re-gate of this increment):** two more never-raise
+  siblings one param over. A non-dict `lineage_result` crashed the `reject_superseded` branch
+  (`lineage_result.get('supersededByAttached')`, outside the edges isinstance guard) — now coerced to `{}` at
+  entry. An UNHASHABLE `edge['relation']` / `edge['targetDigest']` (`[1]` / `{1:2}` / `{1,2}` / `bytearray`)
+  crashed the signer/target dict-key lookup and the `set(allowed)` membership with a raw `TypeError` — now
+  guarded (`isinstance(_rel, str)` before the lookup; a non-str targetDigest is a fail-closed decoy mismatch).
 - **R7-3 `policy.evaluate_policy` non-dict `trusted_checkpoints` element:** a non-dict element reached
   `entry.get('hashAlg')` inside `_authenticate_trusted_checkpoint` before that function's own try/except and
   escaped as a raw `AttributeError`. A non-dict entry now fails closed to a typed `(False, reason)`, mirroring
