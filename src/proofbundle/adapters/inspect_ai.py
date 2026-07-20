@@ -64,12 +64,14 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
         raise InspectAdapterError("inspect_ai log missing .eval or .results (empty or malformed log)")
 
     value = None
+    matched_score = None
     for score in (getattr(results, "scores", None) or []):
         metrics = getattr(score, "metrics", None) or {}
         if metric in metrics:
             value = getattr(metrics[metric], "value", None)
+            matched_score = score
             break
-    if value is None:
+    if value is None or matched_score is None:
         raise InspectAdapterError(f"metric {metric!r} not found in any score.metrics of the log")
 
     suite = str(getattr(ev, "task", "inspect_ai"))
@@ -90,6 +92,30 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     if tv is not None:
         provenance["task_version"] = str(tv)
 
+    # Bind the metric to the scorer that produced it. Without these fields, a deterministic scorer
+    # and an LLM judge can emit byte-identical claims when their aggregate numbers match. We record
+    # objective identity/configuration facts only; no reliability class is inferred here.
+    scorer = getattr(matched_score, "scorer", None)
+    if scorer:
+        provenance["scorer"] = str(scorer)
+    score_name = getattr(matched_score, "name", None)
+    if score_name:
+        provenance["score_name"] = str(score_name)
+    reducer = getattr(matched_score, "reducer", None)
+    if reducer:
+        provenance["score_reducer"] = str(reducer)
+    scored_samples = getattr(matched_score, "scored_samples", None)
+    unscored_samples = getattr(matched_score, "unscored_samples", None)
+    for name, count in (("scored_samples", scored_samples), ("unscored_samples", unscored_samples)):
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            provenance[name] = count
+    params = getattr(matched_score, "params", None)
+    if isinstance(params, dict) and params:
+        from ._provenance import config_hash
+        params_hash = config_hash(params)
+        if params_hash:
+            provenance["scorer_params_hash"] = params_hash
+
     # v1.8 (external review): run-id + config-hash + LOG-NATIVE timestamp so a receipt traces back
     # to the exact run. inspect_ai: eval.run_id (unique run id), eval.created (UTC datetime string),
     # eval.task_args (the config material — no native config hash exists, so we compute one).
@@ -99,9 +125,15 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
                    config=task_args if isinstance(task_args, dict) else None,
                    log_timestamp=getattr(ev, "created", None))
 
+    # EvalScore.scored_samples is the population the selected metric was actually computed over.
+    # total_samples can include unscored samples, so using it would overstate the signed claim's n.
+    metric_n = (scored_samples if isinstance(scored_samples, int)
+                and not isinstance(scored_samples, bool) and scored_samples >= 0
+                else int(getattr(results, "total_samples", 0) or 0))
+
     return build_eval_claim(
         suite=suite, suite_version=str(getattr(ev, "task_version", "1")),
         metric=metric, comparator=comparator, threshold=threshold, score=_score_str(value),
-        n=int(getattr(results, "total_samples", 0) or 0),
+        n=metric_n,
         model_id=model_id, dataset_id=dataset_id, issuer="", timestamp=timestamp,
         provenance=provenance, model_salt=model_salt, dataset_salt=dataset_salt)

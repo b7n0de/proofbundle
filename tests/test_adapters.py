@@ -1,4 +1,5 @@
 """Adapters map real exported eval JSON to a valid claim (file-based, no framework import)."""
+from copy import deepcopy
 import unittest
 from pathlib import Path
 
@@ -41,6 +42,43 @@ class TestAdapters(unittest.TestCase):
         self.assertNotIn("mockllm/model", str(claim))       # model id only as salted commitment
         self.assertEqual(claim["provenance"]["harness"], "inspect_ai")  # provenance parity with lm-eval
         self.assertIn("harness_version", claim["provenance"])
+        self.assertEqual(claim["provenance"]["scorer"], "includes")
+        self.assertEqual(claim["provenance"]["scored_samples"], 2)
+        self.assertEqual(claim["provenance"]["unscored_samples"], 0)
+
+    def test_inspect_ai_uses_metric_scored_sample_count(self):
+        try:
+            from inspect_ai.log import read_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        log = read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval"), header_only=True)
+        log = deepcopy(log)
+        score = log.results.scores[0]
+        score.scored_samples = 1
+        score.unscored_samples = 1
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16,
+                                       dataset_salt=b"1" * 16)
+        self.assertEqual(claim["n"], 1)
+        self.assertEqual(claim["provenance"]["scored_samples"], 1)
+        self.assertEqual(claim["provenance"]["unscored_samples"], 1)
+
+    def test_inspect_ai_scorer_change_changes_signed_provenance(self):
+        try:
+            from inspect_ai.log import read_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        log = read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval"), header_only=True)
+        changed = deepcopy(log)
+        changed.results.scores[0].scorer = "model_graded_fact"
+        changed.results.scores[0].params = {"model": "mockllm/judge", "rubric": "opaque"}
+        common = dict(metric="accuracy", comparator=">=", threshold="0.00", timestamp=TS,
+                      model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        base_claim, _ = from_inspect_ai_log(log, **common)
+        changed_claim, _ = from_inspect_ai_log(changed, **common)
+        self.assertNotEqual(base_claim["provenance"], changed_claim["provenance"])
+        self.assertEqual(changed_claim["provenance"]["scorer"], "model_graded_fact")
+        self.assertIn("scorer_params_hash", changed_claim["provenance"])
 
     def test_inspect_ai_missing_metric_clear_error(self):
         from proofbundle.adapters.inspect_ai import InspectAdapterError
