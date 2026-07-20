@@ -61,7 +61,7 @@ _SEP = "\n"
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -197,7 +197,7 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     """True iff the ATS carries a valid time-authority signature under ``authority_keys`` (a dict of raw
     public keys ``{"ed25519": bytes, "mldsa65": bytes}``). Fail-closed: an unsigned ATS, a missing key for
     the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
-    authority_keys = _as_dict(authority_keys)  # Berkeley r6: non-dict kwarg fail-closed
+    authority_keys = _as_dict(authority_keys)  # adversarial re-audit r6: non-dict kwarg fail-closed
     if not ats.sig_alg:
         return False
     content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
@@ -218,7 +218,7 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     if ats.sig_alg == "ed25519":
         pub = authority_keys.get("ed25519")
         return isinstance(pub, (bytes, bytearray)) and verify_ed25519(bytes(pub), _dec("ed25519"), content)
-    # Berkeley re-gate round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
+    # adversarial re-audit round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
     # without FIPS-204 ML-DSA (the common case) verify_mldsa/verify_hybrid raise PQUnavailable (a
     # ProofBundleError sibling) which escaped verify_sequence raw. A verdict-returning verify surface must fail
     # closed on attacker-influenceable PQ input, never raise — parity with trust_pack._verify_signature_for_alg.

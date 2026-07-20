@@ -34,8 +34,8 @@ __all__ = ["evaluation_card_hash", "verify_evaluation_card"]
 def evaluation_card_hash(card_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the Eval Card document — the value to
     place in a claim's ``evaluation_card_sha256`` when signing the receipt."""
-    # Berkeley re-gate (3.6.2): hash in 1 MiB chunks instead of read_bytes() so memory stays bounded.
-    # Berkeley re-gate round 4: chunked hashing bounded MEMORY but not TIME — `--card /dev/zero` (a character
+    # adversarial re-audit (3.6.2): hash in 1 MiB chunks instead of read_bytes() so memory stays bounded.
+    # adversarial re-audit round 4: chunked hashing bounded MEMORY but not TIME — `--card /dev/zero` (a character
     # device) never yields the b'' sentinel, so the loop spun forever (a CPU-bound DoS), and a FIFO with no
     # writer blocked open() forever. verify_evaluation_card checks an UNTRUSTED card, so this is a verify
     # surface: stat-guard (regular files only — refuses /dev/zero AND FIFO before open, os.stat never blocks)
@@ -84,7 +84,7 @@ def verify_evaluation_card(card_path, claim: dict) -> dict:
         # FileNotFoundError/IsADirectoryError/TypeError/ValueError ('embedded null byte' + surrogate are
         # ValueError) from Path(card_path).read_bytes(). This public never-raise surface returns a fail-closed
         # verdict (present, no match) instead of crashing a caller.
-        # Berkeley re-gate round 4: also catch ProofBundleError — the new stat-guard/over-cap in
+        # adversarial re-audit round 4: also catch ProofBundleError — the new stat-guard/over-cap in
         # evaluation_card_hash raises BundleFormatError (a ProofBundleError), which must fail-closed here too.
         result["detail"] = "eval card file could not be read (missing/unreadable/non-regular/over-limit path)"
         return result

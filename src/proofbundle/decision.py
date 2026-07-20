@@ -85,7 +85,7 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 

@@ -246,7 +246,7 @@ def evaluate_public_transparency(
     # strict_consistency=True refuses it entirely.
     if bool(policy.get("requireConsistencyProof")):
         if consistency_result is not None and not hasattr(consistency_result, "validate"):
-            # Berkeley r5: consistency_result kwarg muss ein ConsistencyVerificationResult sein; ein
+            # adversarial re-audit r5: consistency_result kwarg muss ein ConsistencyVerificationResult sein; ein
             # Nicht-Objekt (int/str/list/dict) crasht sonst .validate() — fail-closed statt roh.
             statuses["CONSISTENCY"] = "FAIL"
             errors.append("consistency result is not a valid ConsistencyVerificationResult (fail-closed)")

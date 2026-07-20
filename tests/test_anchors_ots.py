@@ -72,7 +72,7 @@ def _multi_bitcoin_proof(msg=_ROOT, heights=(111, 222)) -> bytes:
 
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestMultiBranchAttestationScan(unittest.TestCase):
-    """Berkeley audit 2026-07-16 (MAJOR): the attestation loop returned on the FIRST relying-party-covered
+    """adversarial deep audit 2026-07-16 (MAJOR): the attestation loop returned on the FIRST relying-party-covered
     height, so one wrong/tampered branch masked a genuinely confirmable one (False-REJECT / DoS). The fix
     scans ALL covered branches and confirms as soon as any matches. Both orderings are asserted because the
     library's iteration order is not caller-controlled — whichever ordering puts the WRONG branch first is

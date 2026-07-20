@@ -46,7 +46,7 @@ _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
 
 
 def _b64url_decode(s: str) -> bytes:
-    # Berkeley re-gate round 7: cap the raw segment length BEFORE decoding — base64-decoding an oversized
+    # adversarial re-audit round 7: cap the raw segment length BEFORE decoding — base64-decoding an oversized
     # segment allocates before loads_strict's input_bytes cap (which runs on the DECODED value) can fire, a
     # memory-amplification DoS; kbjwt had no cap at all. Mirrors anchors_markovian's _MAX_PROOF_BYTES.
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415

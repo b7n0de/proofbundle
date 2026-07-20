@@ -11,7 +11,7 @@ adversarial questions an external audit asks about OpenTimestamps' donation-fina
   * SINGLE POINT OF FAILURE — operator redundancy (distinct OPERATORS, not URLs) is surfaced honestly from
     what the proof carries (provenCalendars) as an embedded-but-UNVERIFIED transparency figure, NOT
     cryptographic evidence (a PendingAttestation URI is offline-constructible); producer-declared calendars
-    are recorded as testimony with verified:false and never counted as redundancy (Berkeley audit
+    are recorded as testimony with verified:false and never counted as redundancy (adversarial deep audit
     2026-07-16, corrected 2026-07-17).
 
 WP-D1: the confirmed/self-contained path is exercised by a SYNTHETIC, SHA-256-only fixture that

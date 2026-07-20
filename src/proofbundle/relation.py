@@ -67,7 +67,7 @@ _DIGEST_ALLOWED = ("digestAlgorithm", "digest")
 
 
 def _as_dict(v):
-    """Berkeley r5 class-fix: Config-Sub-Feld als dict, sonst {} (schliesst das ``_as_dict(x.get(k))``-Loch)."""
+    """adversarial re-audit r5 class-fix: Config-Sub-Feld als dict, sonst {} (schliesst das ``_as_dict(x.get(k))``-Loch)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -461,7 +461,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     out: list[dict] = []
     if not isinstance(relations_section, dict):
         return out
-    # R7-2b (3.6.3 Berkeley re-gate sibling): coerce lineage_result at entry — a non-dict 2nd arg
+    # R7-2b (3.6.3 adversarial re-audit sibling): coerce lineage_result at entry — a non-dict 2nd arg
     # crashed the reject_superseded branch (lineage_result.get('supersededByAttached')) which sits
     # outside the isinstance guard on the edges read below (fail-closed to {}, no violation from a
     # malformed lineage_result — a real supersededByAttached only rides on a well-formed dict).
@@ -475,7 +475,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     edges = [e for e in edges if isinstance(e, dict)]
 
     # (1) require_relation_resolution — a named relation that APPEARS as an edge must VERIFY.
-    _req = relations_section.get("require_relation_resolution")  # Berkeley re-gate round 4: non-list guard ('in')
+    _req = relations_section.get("require_relation_resolution")  # adversarial re-audit round 4: non-list guard ('in')
     req = _req if isinstance(_req, (list, tuple)) else []
     for e in edges:
         if e.get("relation") in req and e.get("resolution") != LINEAGE_VERIFIED:
@@ -489,7 +489,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                     "message": f"reject_superseded: {lineage_result['supersededByAttached']}"})
 
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
-    _signer = relations_section.get("relation_signer")  # Berkeley re-gate round 4: non-dict guard (.get below)
+    _signer = relations_section.get("relation_signer")  # adversarial re-audit round 4: non-dict guard (.get below)
     signer = _signer if isinstance(_signer, dict) else {}
     for e in edges:
         # R7-2b: a non-str edge['relation'] is unhashable (list/dict/set/bytearray) and crashed the
@@ -530,7 +530,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         pinned = target_pin.get(_rel) if isinstance(_rel, str) else None
         if pinned is None:
             continue
-        # Berkeley r5: nur hashbare str-Digests in die Menge; ein dict/list-Wert crasht sonst set() (unhashable).
+        # adversarial re-audit r5: nur hashbare str-Digests in die Menge; ein dict/list-Wert crasht sonst set() (unhashable).
         _cand = pinned if isinstance(pinned, list) else [pinned]
         allowed = [a for a in _cand if isinstance(a, str)]
         # R7-2b: a non-str/unhashable targetDigest crashed ``x not in set(...)`` — a non-str can never be a

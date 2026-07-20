@@ -69,7 +69,7 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
 
 
 def _as_dict(v):
-    """Berkeley r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
+    """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
 
 
@@ -832,7 +832,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
                        "subject_derived_ok", "lineage_ok"],
     })
-    # Bug-hunt follow-up (3.6.2, P1) + Berkeley re-gate (P1 sibling): outcome's automation_summary maps the
+    # Bug-hunt follow-up (3.6.2, P1) + adversarial re-audit (P1 sibling): outcome's automation_summary maps the
     # "policy" dimension to executor_role_trusted, NOT policy_ok — so ANY policy_ok=False (a relations
     # violation LINEAGE_REQUIREMENT_FAILED/reject_superseded, OR a malformed non-dict `policy` argument that
     # fail-closed at :787) reached NO automation dimension, leaving a crypto-valid outcome with a trusted

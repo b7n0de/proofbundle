@@ -52,7 +52,7 @@ AUTOMATION_BLOCKER_REASONS = {
 
 
 def _tri(result: Mapping[str, Any], key: Optional[str]) -> Optional[bool]:
-    # Berkeley r5: ein Dimensions-Schluessel MUSS ein Feldname (str) sein; ein unhashbarer/nicht-str Wert
+    # adversarial re-audit r5: ein Dimensions-Schluessel MUSS ein Feldname (str) sein; ein unhashbarer/nicht-str Wert
     # (list/dict) aus required_checks crasht sonst result.get(key) — fail-closed als "nicht anwendbar".
     if not isinstance(key, str):
         return None
@@ -85,7 +85,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
     the caller is responsible for stashing the return value at ``result["automation"]``.
     """
-    # Berkeley re-gate: both Mapping args were unguarded — a non-Mapping ``required_checks`` (None) crashed
+    # adversarial re-audit: both Mapping args were unguarded — a non-Mapping ``required_checks`` (None) crashed
     # ``required_checks.get(...)`` and a non-Mapping ``result`` crashed ``_tri``'s ``result.get(...)`` with a
     # raw AttributeError out of this public verdict surface. A malformed config/result is a typed
     # BundleFormatError (fail-closed), never a raw crash and never a silently-safe verdict.
@@ -94,14 +94,14 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     crypto_key = required_checks.get("crypto")
     structure_key = required_checks.get("structure")
     policy_key = required_checks.get("policy")
-    # Berkeley re-gate round 4: the top-level Mapping args were guarded, but a truthy non-iterable
+    # adversarial re-audit round 4: the top-level Mapping args were guarded, but a truthy non-iterable
     # required_checks['references'] (int/bool/object) survived `... or ()` and crashed the iteration below.
     _refs = required_checks.get("references")
     reference_keys: Sequence[str] = _refs if isinstance(_refs, (list, tuple)) else ()
 
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)
-    policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # Berkeley r5: unhashable key
+    policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # adversarial re-audit r5: unhashable key
     unresolved = [name for name in reference_keys if isinstance(name, str) and result.get(name) is False]
 
     blockers: list[str] = []

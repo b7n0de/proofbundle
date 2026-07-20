@@ -1,6 +1,6 @@
-"""3.6.1 — the conformance corpus MUST retain the subject-pin negative-state vectors (Berkeley residual c).
+"""3.6.1 — the conformance corpus MUST retain the subject-pin negative-state vectors (adversarial deep-gate residual c).
 
-The Berkeley-Gate v2 verdict (WITHSTANDS_BERKELEY) named one out-of-threat-model residual: the Python==Rust
+The adversarial deep-gate v2 verdict (WITHSTANDS_ADVERSARIAL_DEEP_GATE) named one out-of-threat-model residual: the Python==Rust
 differential safety net for PB-2026-0717-01 depends on the conformance corpus KEEPING the missing / ambiguous
 / mismatch target-subject vectors — silently pruning them would thin the guard without any test failing. This
 guard closes that hole: a future edit that drops (or renames away) any of the load-bearing subject-pin
@@ -33,7 +33,7 @@ class ConformanceRetention(unittest.TestCase):
                 case, self.cases,
                 f"conformance/manifest.json must retain {case!r} — it is load-bearing for the "
                 "PB-2026-0717-01 subject-pin guard (SPEC oracle + Python==Rust differential). Pruning it "
-                "silently thins the fail-closed net (Berkeley-Gate residual c).")
+                "silently thins the fail-closed net (adversarial deep-gate residual c).")
 
     def test_each_required_case_directory_exists_and_is_self_contained(self):
         # a manifest entry with no on-disk vector is a dead reference — the differential would skip it.

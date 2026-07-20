@@ -132,7 +132,7 @@ class TestBuildAndVerifyPack(unittest.TestCase):
         self.assertEqual(res["status"], "confirmed")
 
     def test_declared_calendars_never_count_as_proven_redundancy(self):
-        # No-Fake regression (Berkeley audit): a producer FABRICATES two independent-looking calendars via
+        # No-Fake regression (adversarial deep audit): a producer FABRICATES two independent-looking calendars via
         # declared_calendars. They must be recorded as testimony (verified:false) and must NOT inflate the
         # proven operator redundancy — which, for this upgraded-no-pending proof, stays 0.
         pack = self._pack(_upgraded_proof(),

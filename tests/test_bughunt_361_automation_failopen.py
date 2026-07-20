@@ -103,7 +103,7 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
             self.assertFalse(r["automation"]["referencesResolved"])
 
     def test_malformed_non_dict_policy_blocks_outcome_automation(self):
-        # Berkeley re-gate P1 sibling: a non-dict `policy` fail-closes policy_ok=False WITHOUT
+        # adversarial re-audit P1 sibling: a non-dict `policy` fail-closes policy_ok=False WITHOUT
         # relations_policy_failed; the clamp must still block automation (outcome maps 'policy' to
         # executor_role_trusted, not policy_ok, so a trusted executor otherwise stayed safe).
         from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt

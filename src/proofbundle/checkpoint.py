@@ -456,10 +456,10 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     (witnesses_ok, witnesses_dict); the dict is keyed by name+keyID so a same-name-different-key entry does not
     overwrite. Fail-closed: an unparseable witness vkey raises (verify_cosignature); a non-verifying one is
     False; and a witness whose algorithm this build cannot verify (an ML-DSA vkey without the [pq] extra) also
-    counts as non-verifying (False), never a raw UnsupportedError out of the batch (Berkeley re-gate round 5)."""
+    counts as non-verifying (False), never a raw UnsupportedError out of the batch (adversarial re-audit round 5)."""
     keys_ok = set()
     witnesses = {}
-    # Berkeley re-gate round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
+    # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
     # public_transparency.evaluate_public_transparency both funnel witness_vkeys into this loop; a non-iterable
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
     if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
@@ -468,7 +468,7 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
         try:
             res = verify_cosignature(signed_note, wv)
         except UnsupportedError as exc:
-            # Berkeley re-gate round 5: a BATCH quorum must not crash because ONE witness in the list is an
+            # adversarial re-audit round 5: a BATCH quorum must not crash because ONE witness in the list is an
             # ML-DSA (0x06) vkey the current build cannot verify (no FIPS-204). verify_cosignature keeps its
             # documented loud raise for a SINGLE explicitly-named witness (a caller config choice, tested), but
             # here — iterating an attacker-influenceable list — an un-verifiable witness counts as non-verifying
@@ -490,11 +490,11 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     replace the log's own signature. Returns ``{ok, log_ok, witnesses_ok, witnesses, origin,
     tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature result.
     Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
-    this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (Berkeley re-gate round 5).
+    this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (adversarial re-audit round 5).
     """
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
-    # Berkeley re-gate: ``witness_vkeys`` (the relying party's witness roster, a trust-config arg like
+    # adversarial re-audit: ``witness_vkeys`` (the relying party's witness roster, a trust-config arg like
     # ``threshold``) was unguarded — a non-iterable (int) crashed ``for wv in witness_vkeys`` in witness_quorum
     # with a raw TypeError out of this public verify_* surface, and a str would silently iterate per-character.
     # Guard it like its sibling config arg: a malformed roster is a typed BundleFormatError, never a raw crash.

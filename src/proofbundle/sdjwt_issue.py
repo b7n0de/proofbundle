@@ -145,7 +145,7 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
         raise ValueError("iat must be a POSIX timestamp integer")
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).
-    # Berkeley re-gate round 3: a node-heavy/oversized issuer payload makes _jwt_payload raise
+    # adversarial re-audit round 3: a node-heavy/oversized issuer payload makes _jwt_payload raise
     # BudgetExceeded (a ProofBundleError) — map it to this constructor's DOCUMENTED ValueError (like the
     # "or is malformed" branch above), so a bad compact never leaks a foreign exception type to the holder.
     try:
@@ -185,7 +185,7 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     """No-Fake binding: the SD-JWT's always-open claims MUST match the signed bundle payload bit-exact and
     bind its merkle root. A derived SD-JWT that diverges from its bundle source of truth is rejected."""
     if not isinstance(compact, str):
-        # Berkeley re-gate round 7: a non-str presented `compact` is a fail-closed False, not a raw
+        # adversarial re-audit round 7: a non-str presented `compact` is a fail-closed False, not a raw
         # AttributeError from compact.split('~') in _jwt_payload — the except tuple below omits AttributeError/
         # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
         return False
@@ -193,7 +193,7 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
         p = _jwt_payload(compact)
     except (ProofBundleError, ValueError, KeyError, IndexError):
         # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12).
-        # Berkeley re-gate round 3: the BASE ProofBundleError also catches loads_strict's SIBLING
+        # adversarial re-audit round 3: the BASE ProofBundleError also catches loads_strict's SIBLING
         # BudgetExceeded on a node-heavy compact, which `except BundleFormatError` let escape verify.
         return False
     # `claim` is an attacker-controllable, only-schema-checked bundle payload — read every field with

@@ -39,7 +39,7 @@ def _read_capped_bytes(handle) -> bytes:
 
 def _open_input(path, *, binary: bool = False):
     """Open an UNTRUSTED input file after a stat-guard — the CLI counterpart of ``load_bundle``'s S_ISREG
-    check (Berkeley re-gate round 4). ``open()`` on a FIFO with no writer blocks FOREVER (a DoS hang the
+    check (adversarial re-audit round 4). ``open()`` on a FIFO with no writer blocks FOREVER (a DoS hang the
     ``_read_capped`` cap cannot reach, because it never gets past ``open``), and ``/dev/zero`` is a device;
     ``os.stat`` reads metadata only and never blocks, so refuse anything that is not a regular file up front.
     The raised ``BundleFormatError`` is mapped to a clean exit 2 by ``main()``'s backstop. Use this for every
@@ -429,7 +429,7 @@ def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: b
             target_roots["receipt"] = receipt_canonical_root(receipt_only)
         except (ProofBundleError, ValueError, RecursionError):
             # canonicalizer extra absent → no receipt target; a receipt anchor then fails closed.
-            # Berkeley re-gate round 6: also catch the rfc8785 ValueError family (a non-JCS number in an
+            # adversarial re-audit round 6: also catch the rfc8785 ValueError family (a non-JCS number in an
             # attacker bundle) — the sibling decision/outcome/relation verify blocks already `except ValueError`;
             # this block was the lone `verify` path that let it escape as a raw IntegerDomainError traceback.
             pass
@@ -466,7 +466,7 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
         der_b64: list = []
         for path in roots:
             try:
-                # Berkeley re-gate round 5: route through _open_input (stat-guard) + cap — a bare open().read()
+                # adversarial re-audit round 5: route through _open_input (stat-guard) + cap — a bare open().read()
                 # on a FIFO --trusted-tsa-root blocked forever, the same DoS class the round-4 sweep closed on
                 # the main verify inputs but missed on this auxiliary trust-material path.
                 with _open_input(path, binary=True) as _fh:
@@ -920,7 +920,7 @@ def _cmd_emit(args: argparse.Namespace) -> int:
         return 2
 
     with open(args.payload_file, "rb") as handle:
-        # NOT capped (Berkeley re-gate 3.6.2): this is `emit` — the operator signs their OWN payload, which
+        # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
         # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
         # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
         payload = handle.read()
@@ -1142,7 +1142,7 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     if tf:
         # --target-file is the user's OWN artifact to anchor and MAY legitimately exceed the input_bytes
         # verify budget, so it is not capped — but hash it in 1 MiB chunks so a large file bounds memory
-        # instead of read()-ing the whole file in at once (bug-hunt Berkeley re-gate, 3.6.2).
+        # instead of read()-ing the whole file in at once (bug-hunt adversarial re-audit, 3.6.2).
         h = hashlib.sha256()
         with open(tf, "rb") as handle:
             for _chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -1273,7 +1273,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             raise ValueError("evidence pack must be a JSON object")
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
         res = verify_evidence_pack(pack, rp_trust=rp)
-        # No-Fake (Berkeley audit follow-up, 2026-07-17): NEVER echo the pack's own calendar/self-contained
+        # No-Fake (adversarial deep audit follow-up, 2026-07-17): NEVER echo the pack's own calendar/self-contained
         # fields into the authoritative report — a hand-edited pack can set operatorRedundancy /
         # provenCalendars / selfContained to anything (live repro: operatorRedundancy=3 with fabricated
         # operators under exit 0). RECOMPUTE them from the PROOF BYTES, exactly as `anchor inspect` does, so
@@ -1350,7 +1350,7 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             # already returns the AUTHORITATIVE `selfContained`, recomputed from the proof bytes; echoing a
             # second, raw, hand-editable `packSelfContained` field only invites a producer to contradict the
             # recomputed truth (the old field is dropped — the recomputed `info["selfContained"]` stands).
-            # No-Fake (Berkeley audit 2026-07-16): the PROVEN calendars come from describe_proof (the proof
+            # No-Fake (adversarial deep audit 2026-07-16): the PROVEN calendars come from describe_proof (the proof
             # itself). An upgraded proof retains none, and we do NOT borrow the producer's declared list into
             # operatorRedundancy — that would surface unverified testimony as evidence. Declared calendars are
             # shown SEPARATELY, always flagged unverified.
@@ -2784,7 +2784,7 @@ def main(argv=None) -> int:
     try:
         return args.func(args)
     except ProofBundleError as exc:
-        # Never-raise backstop (bug-hunt 3.6.2, Berkeley re-gate): NO ProofBundleError sibling
+        # Never-raise backstop (bug-hunt 3.6.2, adversarial re-audit): NO ProofBundleError sibling
         # (BundleFormatError / BudgetExceeded / PQUnavailable / EvalClaimError / …) may escape the CLI as a
         # raw traceback. A per-command handler that catches only a subclass (or misses a step) would
         # otherwise leak one on hostile input; an uncaught format/budget/verify error is a malformed-input
