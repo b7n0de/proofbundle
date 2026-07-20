@@ -28,6 +28,17 @@ from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
 
 
+def _as_dict(v):
+    """3.6.3 never-raise residual — per-site application of the Berkeley r5 class-fix. A value as dict,
+    else {}: closes the ``(x.get(k) or {})`` loophole that only replaced FALSY, letting a truthy
+    non-container (a foreign/misbehaving node's non-object RPC field) crash a downstream ``.get``."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, (list, tuple)) else []
+
+
 @contextmanager
 def _anchor_in_progress_lock(lock_path: Optional[str]) -> Iterator[None]:
     """Advisory 'anchor in progress' marker held around the on-chain batch_update + confirmation.
@@ -76,7 +87,13 @@ def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict
         data = json.loads(proc.stdout)
     except ValueError as exc:
         raise ChiaRpcError(f"chia rpc {service} {method}: non-JSON response") from exc
-    if isinstance(data, dict) and data.get("success") is False:
+    # 3.6.3 never-raise residual: chia data_layer/full_node RPC always answers with a JSON object; a
+    # non-object response is a foreign/misbehaving node — fail-closed to the module's typed error here
+    # (the choke point) so no downstream ``.get`` sees a non-dict. Belt-and-suspenders with the
+    # per-consumer ``_as_dict`` guards below (a test/caller may monkeypatch ``_rpc`` past this point).
+    if not isinstance(data, dict):
+        raise ChiaRpcError(f"chia rpc {service} {method}: response is not a JSON object")
+    if data.get("success") is False:
         raise ChiaRpcError(f"chia rpc {service} {method}: {data.get('error', 'success=false')}")
     return data
 
@@ -93,24 +110,27 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     independently. Returns the anchor dict (self-verifying offline before emit). Fail-closed.
     """
     key = _hx(bytes(canonical_root))   # key == canonicalRoot: the binding the verifier enforces
-    gp = _rpc("data_layer", "get_proof", {"store_id": store_id, "keys": [key]})
-    proofs = ((gp.get("proof") or {}).get("store_proofs") or {}).get("proofs") or []
+    gp = _as_dict(_rpc("data_layer", "get_proof", {"store_id": store_id, "keys": [key]}))
+    proof_blob = _as_dict(gp.get("proof"))   # 3.6.3: guard the nested RPC sub-object, not just falsy
+    proofs = _as_list(_as_dict(proof_blob.get("store_proofs")).get("proofs"))
     if not proofs:
         raise ChiaRpcError("get_proof returned no proof for the key (not in the store / not confirmed)")
     pr = proofs[0]
-    root_resp = _rpc("data_layer", "get_root", {"id": store_id})
+    if not isinstance(pr, dict):
+        raise ChiaRpcError("get_proof returned a malformed proof entry (not an object)")
+    root_resp = _as_dict(_rpc("data_layer", "get_root", {"id": store_id}))
     published_root = root_resp.get("hash")
-    if not published_root or set(published_root.replace("0x", "")) == {"0"}:
+    if not isinstance(published_root, str) or not published_root or set(published_root.replace("0x", "")) == {"0"}:
         raise ChiaRpcError("store has no confirmed published root yet")
 
-    coin_id = (gp.get("proof") or {}).get("coin_id")
-    inner_puzzle_hash = (gp.get("proof") or {}).get("inner_puzzle_hash")
+    coin_id = proof_blob.get("coin_id")
+    inner_puzzle_hash = proof_blob.get("inner_puzzle_hash")
     block_height = None
     root_timestamp = None
     if coin_id:                                   # best-effort: height + timestamp from the full node (Stufe iii material)
         try:
-            cr = _rpc("full_node", "get_coin_record_by_name", {"name": coin_id}, timeout=20)
-            rec = cr.get("coin_record") or {}
+            cr = _as_dict(_rpc("full_node", "get_coin_record_by_name", {"name": coin_id}, timeout=20))
+            rec = _as_dict(cr.get("coin_record"))
             block_height = rec.get("confirmed_block_index")
             root_timestamp = rec.get("timestamp")
         except ChiaRpcError:
@@ -144,8 +164,8 @@ def _wait_confirmed(store_id: str, prev_root: Optional[str], *, timeout: int = 1
     Raises ChiaRpcError on timeout. ``poll`` uses monotonic sleep; no busy loop."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        root = _rpc("data_layer", "get_root", {"id": store_id}).get("hash")
-        if root and root != prev_root and set(root.replace("0x", "")) != {"0"}:
+        root = _as_dict(_rpc("data_layer", "get_root", {"id": store_id})).get("hash")
+        if isinstance(root, str) and root and root != prev_root and set(root.replace("0x", "")) != {"0"}:
             return
         time.sleep(poll)
     raise ChiaRpcError("timed out waiting for the batch_update root to confirm on-chain")
@@ -170,7 +190,7 @@ def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Opti
     value_hex = value_hex if value_hex.startswith(("0x", "0X")) else "0x" + value_hex
 
     with _anchor_in_progress_lock(lock_path):
-        prev_root = _rpc("data_layer", "get_root", {"id": store_id}).get("hash")
+        prev_root = _as_dict(_rpc("data_layer", "get_root", {"id": store_id})).get("hash")
         changelist = [{"action": "insert", "key": canonical_root_hex, "value": value_hex}]
         already = False
         try:

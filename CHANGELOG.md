@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.3] - Unreleased (never-raise residual, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.6.3 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. It closes
+precisely the never-raise residual that 3.6.2 shipped deferred under an explicit maintainer decision — the
+three sites the Berkeley NORMAL re-gate of the 3.6.2 candidate pinned, plus the reverted `anchors_chia_add`
+transform left for careful per-site handling. No crypto verdict (`.ok`) is affected by any of these: the
+class is robustness hardening on direct-low-level-API surfaces, never a correctness change.
+
+Honest severity (No-Overclaim): all three are P3/P4 direct-low-level-API robustness gaps on self-documented
+never-raise surfaces. NONE is reachable through the high-level signed-envelope verify path — every in-tree
+caller passes a coerced value, so an attacker driving the untrusted verify input cannot reach them. They are
+library-caller robustness gaps: a downstream caller who hands an unvalidated policy/lineage dict straight to
+a public `evaluate_*`/`verify_*` helper got a raw exception where the docstring promises a fail-closed result.
+
+### Fixed (never-raise residual on direct-low-level-API surfaces)
+- **R7-1 `relation.verify_relationship_edges` unhashable `subject_hex`:** a truthy unhashable `subject_hex`
+  (`[1]` / `{1:2}` / `{1,2}` / `bytearray`) crashed the `{subject_hex}` cycle-seed on a resolved edge with a
+  raw `TypeError`. `subject_hex` is now coerced to `None` at entry when it is not a string (a non-str hex can
+  never legitimately equal a str target hex, so this stays fail-closed).
+- **R7-2 `relation.evaluate_relations_policy` non-dict `edges` element:** a non-dict element in the (already
+  list-coerced) `lineage_result['edges']` (`5` / `'x'` / `None` / `[1]`; mixed `[{...},5]`) raised a raw
+  `AttributeError` from `e.get(...)`. The edges are now filtered to dict elements once, protecting all three
+  sinks (relation/resolution, signer, target loops).
+- **R7-2b (same function, found by the Berkeley NORMAL re-gate of this increment):** two more never-raise
+  siblings one param over. A non-dict `lineage_result` crashed the `reject_superseded` branch
+  (`lineage_result.get('supersededByAttached')`, outside the edges isinstance guard) — now coerced to `{}` at
+  entry. An UNHASHABLE `edge['relation']` / `edge['targetDigest']` (`[1]` / `{1:2}` / `{1,2}` / `bytearray`)
+  crashed the signer/target dict-key lookup and the `set(allowed)` membership with a raw `TypeError` — now
+  guarded (`isinstance(_rel, str)` before the lookup; a non-str targetDigest is a fail-closed decoy mismatch).
+- **R7-3 `policy.evaluate_policy` non-dict `trusted_checkpoints` element:** a non-dict element reached
+  `entry.get('hashAlg')` inside `_authenticate_trusted_checkpoint` before that function's own try/except and
+  escaped as a raw `AttributeError`. A non-dict entry now fails closed to a typed `(False, reason)`, mirroring
+  `load_policy`'s `_require_dict`.
+- **`anchors_chia_add` writer-path per-site guard (lock-idiom-aware):** the chia-datalayer/v1 writer/exporter
+  consumed local-node RPC responses via `.get()` chains that raised a raw `AttributeError` when a
+  foreign/misbehaving node returned a non-object JSON. Each consuming site now fails closed to the module's
+  typed `ChiaRpcError` (and `_rpc` enforces a dict response at the boundary), applied per-site so the
+  `_anchor_in_progress_lock` context-manager idiom is untouched (the crude codebase-wide transform reverted in
+  3.6.2 had broken its lock tests with `AttributeError __enter__`). Not an escape on a public verify surface:
+  reachable only through a live/misbehaving Chia node, never attacker-controlled untrusted verify input.
+
+### Testing / generator-hardening
+- Each residual is pinned in `tests/test_never_raise_surface_family_property.py` (round-5 nested-config
+  subfield regression), verified red-without-fix / green-with-fix.
+- Three mutation operators added to `scripts/mutation_check.py` (R7-1/R7-2/R7-3) so a future rewrite that
+  drops one of the new guards goes red — each verified to kill its mutant.
+
 ## [3.6.2] - 2026-07-19 (security patch, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.2 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. An

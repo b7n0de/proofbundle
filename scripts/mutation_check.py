@@ -367,7 +367,7 @@ MUTATIONS = [
     # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by
     #      test_decoy_parent_fails_closed / decoy-parent conformance vectors.
     ("src/proofbundle/relation.py",
-     "        if e.get(\"targetDigest\") not in set(allowed):",
+     "        if not (isinstance(_td, str) and _td in set(allowed)):",
      "        if False:",
      "require_relation_target: parent equality check disabled (decoy parent passes)", True),
     # (v) targetSubjectDigest gegenpruefung inverted (O2 no longer catches a lying subject): killed by
@@ -395,6 +395,38 @@ MUTATIONS = [
      "        r[\"crypto_ok\"] and r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "        r[\"structure_ok\"] and r[\"predicate_type_ok\"]",
      "relation-statement: cryptoValid dropped from aggregate ok (lattice violation)", True),
+    # 3.6.3 never-raise residual (Berkeley NORMAL re-gate r7) — three new fail-closed guards on
+    # direct-low-level-API sinks. Each disabled guard re-opens a raw type-confusion crash caught by
+    # tests/test_never_raise_surface_family_property.py::test_round5_nested_config_subfield_regression
+    # (R7-1/R7-2/R7-3 pins). Generator-hardening: a future rewrite that drops one goes red HERE.
+    # R7-1 — verify_relationship_edges subject_hex non-str coercion (unhashable {subject_hex} seed).
+    ("src/proofbundle/relation.py",
+     "    subject_hex = subject_hex if isinstance(subject_hex, str) else None",
+     "    subject_hex = subject_hex",
+     "relation: R7-1 subject_hex non-str coercion disabled (unhashable cycle-seed crash)", True),
+    # R7-2 — evaluate_relations_policy non-dict edges-element filter (three sinks: relation/signer/target).
+    ("src/proofbundle/relation.py",
+     "    edges = [e for e in edges if isinstance(e, dict)]",
+     "    edges = list(edges)",
+     "relation: R7-2 non-dict edges-element filter disabled (e.get crash on all three sinks)", True),
+    # R7-3 — _authenticate_trusted_checkpoint non-dict entry guard (entry.get before its own try/except).
+    ("src/proofbundle/policy.py",
+     "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
+     "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
+     "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
+    # R7-2b (Berkeley NORMAL re-gate siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
+    ("src/proofbundle/relation.py",
+     "    lineage_result = lineage_result if isinstance(lineage_result, dict) else {}",
+     "    lineage_result = lineage_result",
+     "relation: R7-2b non-dict lineage_result coercion disabled (reject_superseded .get crash)", True),
+    ("src/proofbundle/relation.py",
+     "        rule = signer.get(_rel) if isinstance(_rel, str) else None",
+     "        rule = signer.get(_rel)",
+     "relation: R7-2b unhashable relation signer-lookup guard disabled (dict-key TypeError)", True),
+    ("src/proofbundle/relation.py",
+     "        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None",
+     "        pinned = target_pin.get(_rel)",
+     "relation: R7-2b unhashable relation target-lookup guard disabled (dict-key TypeError)", True),
 ]
 
 

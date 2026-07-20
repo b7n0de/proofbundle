@@ -1203,6 +1203,12 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     the three fields (origin substitution, size relabel, root swap) invalidates the signature.
     ``hashAlg`` must be the one algorithm of this format version and ``validUntil`` (when present)
     must not be in the past. Fail-closed: any parse/crypto error is (False, reason)."""
+    # R7-3 (3.6.3 never-raise residual): a non-dict entry (the container is _as_list-coerced at the
+    # call site but each element is never dict-guarded) reached ``entry.get('hashAlg')`` BEFORE the
+    # try/except below and escaped as a raw AttributeError. Mirror load_policy's _require_dict —
+    # fail-closed to a typed (False, reason), never a raw crash out of the evaluate layer.
+    if not isinstance(entry, dict):
+        return False, "trusted checkpoint entry not an object"
     from .checkpoint import checkpoint_note, verify_checkpoint  # noqa: PLC0415 — lazy, avoids import cycles
     # The returned reason strings are STATIC (no interpolation of `entry` field values): a
     # trusted_checkpoints entry carries `signature` + `checkpointSigner` key material, so echoing ANY
