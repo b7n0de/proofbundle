@@ -12,7 +12,7 @@ commitments (never plaintext in the payload).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from ..evalclaim import build_eval_claim
 
@@ -80,7 +80,7 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     dataset_id = str(getattr(dataset, "name", None) or suite)
 
     # Provenance parity with the lm-eval adapter: inspect_ai exposes the same run provenance for free.
-    provenance = {"harness": "inspect_ai"}
+    provenance: dict[str, Any] = {"harness": "inspect_ai"}
     revision = getattr(ev, "revision", None)
     commit = getattr(revision, "commit", None)
     if commit:
