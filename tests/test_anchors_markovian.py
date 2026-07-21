@@ -239,6 +239,37 @@ class TestTlogBitcoinAnchorVectorsManifest(unittest.TestCase):
         self.assertEqual(manifest["committed_note_body_sha256"], _TLOG_NOTE_BODY_SHA256)
 
 
+class TestRootcommitVectorsManifest(unittest.TestCase):
+    """G1 mechanism for the vendored rootcommit vectors (v1 + v2-sig): every vendored file is digest-pinned, a
+    single changed byte fails this test. No OTS needed (pure digest + provenance). The independent re-derivation
+    (second implementation) lives in tests/test_anchors_rootcommit.py; NO-OVERCLAIM here locks that the v2-sig
+    SIGNATURE outcomes are honestly gated on an optional backend (no silent pass)."""
+
+    def test_rootcommit_vectors_manifest_digests_pinned(self):
+        fixdir = _TLOG_FIXDIR / "rootcommit"
+        manifest = json.loads((fixdir / "MANIFEST.json").read_text())
+        self.assertEqual(len(manifest["files"]), 11)   # v1: 4 vectors + manifest; v2-sig: 5 vectors + manifest
+        for entry in manifest["files"]:
+            path = fixdir / entry["path"]
+            got = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(got, entry["sha256"],
+                             f"vendored rootcommit {entry['path']} drifted from its MANIFEST digest pin")
+        up = manifest["upstream"]                       # No-Fake provenance / attribution, pinned at 9034202
+        self.assertEqual(up["commit"], "90342026a89cacf83c94771b349080db1208ba94")
+        self.assertEqual(up["commit_short"], "9034202")
+        self.assertEqual(up["license"], "MIT")
+        self.assertEqual(manifest["committed_preimage_sha256"],
+                         "4d1cc236c3872701bb27f9e27fad315e153eeb43a767a2cae958a3bb4014e771")
+
+    def test_rootcommit_manifest_declares_no_overclaim(self):
+        # Lock the honest framing: proofbundle's own second-implementation verifier reproduces v1 + v2-sig
+        # binding, and the v2-sig SIGNATURE outcomes are honestly gated on an optional backend (no silent pass).
+        manifest = json.loads((_TLOG_FIXDIR / "rootcommit" / "MANIFEST.json").read_text())
+        self.assertIn("NO-OVERCLAIM", manifest["purpose"])
+        self.assertIn("anchors_rootcommit", manifest["purpose"])   # the second implementation is named
+        self.assertIn("no_sig_lib", manifest["purpose"])           # sig gate is honest, never a silent pass
+
+
 @unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestTlogBitcoinAnchorVectors(unittest.TestCase):
     def setUp(self):

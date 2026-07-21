@@ -1,0 +1,61 @@
+{
+ "format": "tlog-bitcoin-anchor rootcommit-sig/v1 conformance vectors",
+ "identifier": "markovianprotocol.com/bitcoin-anchor/rootcommit/v2-sig",
+ "commitment_sha256": "4d1cc236c3872701bb27f9e27fad315e153eeb43a767a2cae958a3bb4014e771",
+ "wallet": "0xdaE76a3C848CafD453dB5EBF8cEb0DbBA7610273",
+ "signature_scheme": "EIP-191 personal_sign (secp256k1); message = tag + '\\n' + commitment_hex",
+ "opaque_layout": "version(1)=0x02 || wlen(1) || wallet_ascii || 0x41 || sig(65) || ots_bytes",
+ "vectors": [
+  {
+   "file": "v2sig-01-valid.txt",
+   "desc": "real anchor + valid wallet signature",
+   "expect": {
+    "known_anchors": 1,
+    "binding": true,
+    "sig_ok": true,
+    "reject": false
+   },
+   "sha256": "48abedb83f7937f471ad0ec98e4216f63133027d4e9203dca4291ec326334810"
+  },
+  {
+   "file": "v2sig-02-tampered-root.txt",
+   "desc": "root altered",
+   "expect": {
+    "known_anchors": 1,
+    "binding": false,
+    "reject": true
+   },
+   "sha256": "9f74f144a4647b679c5af7d659ad1f500661eee12c100b35dbd1104ac1f62680"
+  },
+  {
+   "file": "v2sig-03-tampered-wallet.txt",
+   "desc": "wallet altered in opaque",
+   "expect": {
+    "known_anchors": 1,
+    "binding": false,
+    "reject": true
+   },
+   "sha256": "29c48800c6a7916f95653162103e3878a7953c558c14167583b4bb1c66682df3"
+  },
+  {
+   "file": "v2sig-04-tampered-sig.txt",
+   "desc": "signature bytes corrupted",
+   "expect": {
+    "known_anchors": 1,
+    "sig_ok": false,
+    "reject": true
+   },
+   "sha256": "0cc17545389064a291bc2897c52af5a7569e6b37b50729549c55eaed44ee3825"
+  },
+  {
+   "file": "v2sig-05-tampered-proof.txt",
+   "desc": "OTS proof corrupted",
+   "expect": {
+    "known_anchors": 1,
+    "binding": false,
+    "reject": true
+   },
+   "sha256": "bf6106adff8a61f8c7db36941ca62cfa661fb24e2a970a210c9ea114b0b867c2"
+  }
+ ]
+}

@@ -185,6 +185,18 @@
       "crosscheck_refs": [],
       "notes": "Fail-closed verifier for a markovian-provenance/v1 external anchor."
     },
+    "proofbundle.anchors_rootcommit.verify_rootcommit_v1": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed second-implementation verifier for the MarkovianProtocol rootcommit/v1 external anchor (Bitcoin OTS over a domain-separated preimage folding the checkpoint root + operator wallet; corpus pinned at 9034202). Python-only, no Rust parity."
+    },
+    "proofbundle.anchors_rootcommit.verify_rootcommit_v2sig": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed second-implementation verifier for the MarkovianProtocol rootcommit/v2-sig external anchor (v1 binding plus an EIP-191/secp256k1 wallet signature over the commitment, signature enforced only with the optional [rootcommit] backend). Python-only, no Rust parity."
+    },
     "proofbundle.anchors_chia.verify_offline_merkle": {
       "status": "PENDING",
       "rust_subcommands": [],
