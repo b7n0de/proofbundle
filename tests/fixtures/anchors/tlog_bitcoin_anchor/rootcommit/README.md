@@ -53,7 +53,7 @@ are honestly reported as `sig_ok=None` / status `no_sig_lib` and their tests
 **skip**, never a silent pass. Enabling that optional backend completes the v2-sig
 signature check.
 
-### Consumer contract (Berkeley-hardened)
+### Consumer contract (adversarial-hardened)
 
 The top-level `reject` boolean encodes the **binding** outcome only. A relying
 party MUST NOT read `reject is False` as "anchored" or "signature-valid":

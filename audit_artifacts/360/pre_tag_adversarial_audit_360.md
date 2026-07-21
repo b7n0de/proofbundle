@@ -66,7 +66,7 @@ The section above was authored at the branch base, before the v3.6.0 release int
 Several workstreams landed afterwards, so this addendum reconciles the record to what actually ships
 in v3.6.0 (No-Fake: the audit trail must match the released code, not an earlier snapshot).
 
-- **Most important post-audit event — an OTS CRITICAL was found and fixed.** A dedicated Berkeley-grade
+- **Most important post-audit event — an OTS CRITICAL was found and fixed.** A dedicated adversarial-deep-gate-grade
   six-lens re-review of the OTS calendar-risk hardening found a CRITICAL on the standalone
   `anchor verify-pack` / `verify_evidence_pack` surface: a self-fabricated Null-Op pack
   (`file_digest == canonicalRoot`, a `BitcoinBlockHeaderAttestation` planted directly on the root with
@@ -91,7 +91,7 @@ in v3.6.0 (No-Fake: the audit trail must match the released code, not an earlier
 
 ## Addendum 2 — reconciled to the shipped v3.6.1 release tree (2026-07-18, P5 of the release-vorlauf)
 
-The 3.6.1 security-patch cycle (Teil-1..Teil-5 audit findings + an iterative 6-lens Berkeley re-gate)
+The 3.6.1 security-patch cycle (Teil-1..Teil-5 audit findings + an iterative 6-lens adversarial deep-gate re-gate)
 landed on top of the above. This addendum reconciles every number to the 3.6.1 tree; each carries its
 command source (No-Fake, `b7n0de.pb_361_vorlauf.v2` P5). Numbers that changed vs the v3.6.0 addendum are
 called out explicitly so nothing here contradicts the shipped state.
