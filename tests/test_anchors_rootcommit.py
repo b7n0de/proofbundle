@@ -79,7 +79,7 @@ class TestRootcommitV1(unittest.TestCase):
         self.assertIn(res["status"], ("unbound", "malformed"))
 
     def test_multiple_anchors_rejected_fail_closed(self):
-        # Berkeley MEDIUM (wf_391ec78f): the anchor is a 0xff signed-note signature that does NOT sign the
+        # adversarial-deep-gate MEDIUM (wf_391ec78f): the anchor is a 0xff signed-note signature that does NOT sign the
         # note body, so an attacker can PREPEND a forged rootcommit anchor carrying THEIR wallet without
         # invalidating the genuine witness cosignatures. The verifier must count ALL anchors and fail closed,
         # never silently pick opaques[0] and report known_anchors=1. (The 9 vendored vectors carry exactly one
@@ -102,7 +102,7 @@ class TestRootcommitV1(unittest.TestCase):
 
 
 class TestRootcommitNeverRaise(unittest.TestCase):
-    """Berkeley learned class RT-04 (never-raise), caught by the canonical self-learning pre-sweep (the ad-hoc
+    """adversarial-deep-gate learned class RT-04 (never-raise), caught by the canonical self-learning pre-sweep (the ad-hoc
     gate missed it): the public verify surfaces return a stable dict carrying the core verdict keys on ANY
     untrusted input (incl. non-str), never a raw exception. No OTS needed (malformed inputs return early)."""
     _CORE = {"known_anchors", "binding", "reject", "status"}

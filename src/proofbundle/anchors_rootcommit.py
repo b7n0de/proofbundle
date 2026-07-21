@@ -17,7 +17,7 @@ base `ots/v1` layer does not have. (An attacker who controls the WHOLE opaque ca
 matching forged proof for their own (root, wallet); see the consumer contract below on why binding alone is
 not an anchoring claim.)
 
-CONSUMER CONTRACT (Berkeley-hardened) — the top-level `reject` boolean encodes the BINDING outcome ONLY.
+CONSUMER CONTRACT (adversarial-hardened) — the top-level `reject` boolean encodes the BINDING outcome ONLY.
 A relying party MUST NOT read `reject is False` as "Bitcoin-anchored" or "signature-valid":
   - temporal: `reject is False` includes status "pending" (an offline-forgeable PendingAttestation), so a
     genuine Bitcoin anchor needs `ots_ok is True` / status "confirmed" (which requires a relying-party block
@@ -57,7 +57,7 @@ def expected_key_id(identifier: bytes) -> bytes:
 def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
     """(origin, size, root) as the verbatim first three lines of the checkpoint note body, or None. The
     body is everything before the blank-line separator; `root` is the 3rd line copied byte-for-byte (no
-    base64 round-trip, per SPEC §"Preimage"). never-raise (Berkeley class RT-04): non-str untrusted input
+    base64 round-trip, per SPEC §"Preimage"). never-raise (adversarial-deep-gate class RT-04): non-str untrusted input
     returns None (-> the verify surfaces report a stable malformed_checkpoint verdict), never a raw exception."""
     if not isinstance(text, str):
         return None
