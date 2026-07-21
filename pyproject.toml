@@ -72,6 +72,12 @@ experimental = []
 # cryptography build with OpenSSL 3.5+ (default PyPI wheels since 48.0.0). Verify-only by default;
 # the emit helper needs the same. Ed25519 paths never require this.
 pq = ["cryptography>=48"]
+# rootcommit/v2-sig SIGNATURE verification (proofbundle.anchors_rootcommit): EIP-191 personal_sign recovery
+# to the bound operator wallet. Needs a pure-python secp256k1 recovery backend (`ecdsa`); keccak-256 comes
+# from pycryptodome(x), already present via the [anchors] OTS lib. Verify-only, offline, no C build. The v1
+# verify and the v2-sig BINDING check need only [anchors]; without this extra the v2-sig signature outcomes
+# honestly skip (sig_ok None / status no_sig_lib), never a silent pass. `pip install proofbundle[rootcommit]`.
+rootcommit = ["ecdsa>=0.18"]
 # EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
 # z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
 # reach). Without it the model still runs a complete bounded-enumeration proof — the extra only adds the

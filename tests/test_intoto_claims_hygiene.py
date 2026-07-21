@@ -36,13 +36,15 @@ class TestIntotoClaimsHygiene(unittest.TestCase):
 
     def test_codename_markovian_absent_everywhere(self):
         # O4: the internal codename must not LEAK into an unrelated shipped artifact. The public
-        # `markovian-provenance/v1` third-party anchor (external contributor MarkovianProtocol, PR #18)
-        # legitimately carries the name in its OWN files, so those are exempt; the guard still catches the
-        # name appearing anywhere it does not belong.
+        # third-party MarkovianProtocol anchor implementations legitimately carry the external contributor's
+        # name in their OWN files: markovian-provenance/v1 (PR #18, anchors_markovian.py) and the rootcommit
+        # v1+v2-sig verifier (corpus 9034202, anchors_rootcommit.py). Those files are exempt (they credit the
+        # external contributor); the guard still catches the codename appearing anywhere it does not belong.
+        _exempt = ("markovian", "rootcommit")   # MarkovianProtocol third-party anchor implementation files
         for base in ("src", "docs", "examples"):
             for path in (ROOT / base).rglob("*"):
                 if (path.is_file() and path.suffix in (".py", ".md", ".json")
-                        and "markovian" not in path.name.lower()):
+                        and not any(tok in path.name.lower() for tok in _exempt)):
                     self.assertNotIn("Markovian", path.read_text(encoding="utf-8", errors="ignore"),
                                      f"codename 'Markovian' leaked into {path.relative_to(ROOT)}")
 

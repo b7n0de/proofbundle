@@ -1,0 +1,102 @@
+{
+  "namespace": "tlog_bitcoin_anchor/rootcommit",
+  "kind": "vendored-third-party-conformance-vectors",
+  "purpose": "Upstream tlog-bitcoin-anchor rootcommit conformance vectors (v1 = domain-separated preimage folding Merkle root + operator wallet under a Bitcoin OpenTimestamps attestation; v2-sig = the same commitment plus a wallet EIP-191/secp256k1 signature). Vendored as PURE DATA (no executable payload reaches proofbundle's verify path). proofbundle ships its OWN second-implementation verifier for this format in src/proofbundle/anchors_rootcommit.py (tests/test_anchors_rootcommit.py): it independently rebuilds the domain-separated preimage from each checkpoint's own (origin, size, root) plus the wallet in the anchor line, recomputes SHA-256(preimage), and reuses proofbundle's OpenTimestamps binding verifier. It reproduces the upstream expected outcomes for v1 (4/4) and for the v2-sig BINDING (root/wallet/proof tamper) using only proofbundle[anchors]. NO-OVERCLAIM: the v2-sig SIGNATURE outcomes (EIP-191 recovery to the bound wallet) need an additional secp256k1+keccak backend; without it those two signature-specific outcomes are honestly reported as sig_ok=None / status no_sig_lib and their tests skip, never a silent pass. Credit + provenance pinned at 9034202.",
+  "spec": {
+    "v1": "markovianprotocol.com/bitcoin-anchor/rootcommit/v1 (rootcommit/SPEC.md)",
+    "v2_sig": "markovianprotocol.com/bitcoin-anchor/rootcommit/v2-sig (rootcommit/SPEC_SIG.md)"
+  },
+  "upstream": {
+    "project": "MarkovianProtocol/tlog-bitcoin-anchor",
+    "author": "Markovian Protocol / Colin <hello@quantsynth.net>",
+    "repo": "https://github.com/MarkovianProtocol/tlog-bitcoin-anchor",
+    "commit": "90342026a89cacf83c94771b349080db1208ba94",
+    "commit_short": "9034202",
+    "commit_date": "2026-07-20T17:40:46-06:00",
+    "retrieved_at_utc": "2026-07-21T08:43:04Z",
+    "verification": "The 11 per-file SHA-256 digests below were independently recomputed by b7n0de/proofbundle on retrieval at commit 9034202: 11/11 match. proofbundle now re-derives the upstream expected outcomes with its OWN second-implementation verifier (src/proofbundle/anchors_rootcommit.py, tests/test_anchors_rootcommit.py): v1 (4/4, our rebuilt preimage hashes to committed_preimage_sha256) and the v2-sig binding under [anchors], plus the v2-sig EIP-191 signature under the optional [rootcommit] backend (see NO-OVERCLAIM in purpose for the honest degradation when that backend is absent).",
+    "license": "MIT",
+    "license_holder": "Copyright (c) 2026 Markovian Protocol"
+  },
+  "committed_preimage_sha256": "4d1cc236c3872701bb27f9e27fad315e153eeb43a767a2cae958a3bb4014e771",
+  "operator_wallet": "0xdaE76a3C848CafD453dB5EBF8cEb0DbBA7610273",
+  "files": [
+    {
+      "path": "vectors/rootcommit-01-valid.txt",
+      "upstream_path": "rootcommit/vectors/rootcommit-01-valid.txt",
+      "sha256": "9a192e3a5ec2856f5933e97501c92c77151ea801957871f92253ea3418177261",
+      "case": "real anchor; the domain-separated preimage commits (root, wallet)",
+      "expect": "known_anchors=1, binding=true, reject=false (re-derived by proofbundle anchors_rootcommit)"
+    },
+    {
+      "path": "vectors/rootcommit-02-tampered-root.txt",
+      "upstream_path": "rootcommit/vectors/rootcommit-02-tampered-root.txt",
+      "sha256": "ef070846a50decb457e1be988ecd1657f8869d7b062f3ffee656be2c03052973",
+      "case": "root line altered; preimage no longer matches the proof",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors/rootcommit-03-tampered-wallet.txt",
+      "upstream_path": "rootcommit/vectors/rootcommit-03-tampered-wallet.txt",
+      "sha256": "35eb27014b6e22d59adfc6d090d10411338e698ff73256f7e7fc9f8bc3fbe7cb",
+      "case": "wallet altered in the opaque section; preimage no longer matches the proof",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors/rootcommit-04-tampered-proof.txt",
+      "upstream_path": "rootcommit/vectors/rootcommit-04-tampered-proof.txt",
+      "sha256": "444e83fcb936c7d86f67b259cecf883e58398a8801b2c0a557ec6bfc23ad5630",
+      "case": "embedded OpenTimestamps proof corrupted",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors/manifest.json",
+      "upstream_path": "rootcommit/vectors/manifest.json",
+      "sha256": "6a04ec5c51eba7fe4d6fbab2d8b437cc77b3c3f3c9fca1011de1fa9b19e8bc43",
+      "case": "upstream rootcommit/v1 corpus manifest (expected outcomes), vendored verbatim",
+      "expect": "informative only; proofbundle does not execute upstream code"
+    },
+    {
+      "path": "vectors_sig/v2sig-01-valid.txt",
+      "upstream_path": "rootcommit/vectors_sig/v2sig-01-valid.txt",
+      "sha256": "48abedb83f7937f471ad0ec98e4216f63133027d4e9203dca4291ec326334810",
+      "case": "real anchor plus a valid wallet EIP-191 signature over the commitment",
+      "expect": "known_anchors=1, binding=true, sig_ok=true, reject=false"
+    },
+    {
+      "path": "vectors_sig/v2sig-02-tampered-root.txt",
+      "upstream_path": "rootcommit/vectors_sig/v2sig-02-tampered-root.txt",
+      "sha256": "9f74f144a4647b679c5af7d659ad1f500661eee12c100b35dbd1104ac1f62680",
+      "case": "root altered",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors_sig/v2sig-03-tampered-wallet.txt",
+      "upstream_path": "rootcommit/vectors_sig/v2sig-03-tampered-wallet.txt",
+      "sha256": "29c48800c6a7916f95653162103e3878a7953c558c14167583b4bb1c66682df3",
+      "case": "wallet altered in the opaque section",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors_sig/v2sig-04-tampered-sig.txt",
+      "upstream_path": "rootcommit/vectors_sig/v2sig-04-tampered-sig.txt",
+      "sha256": "0cc17545389064a291bc2897c52af5a7569e6b37b50729549c55eaed44ee3825",
+      "case": "signature bytes corrupted",
+      "expect": "known_anchors=1, sig_ok=false, reject=true"
+    },
+    {
+      "path": "vectors_sig/v2sig-05-tampered-proof.txt",
+      "upstream_path": "rootcommit/vectors_sig/v2sig-05-tampered-proof.txt",
+      "sha256": "bf6106adff8a61f8c7db36941ca62cfa661fb24e2a970a210c9ea114b0b867c2",
+      "case": "embedded OpenTimestamps proof corrupted",
+      "expect": "known_anchors=1, binding=false, reject=true"
+    },
+    {
+      "path": "vectors_sig/manifest.json",
+      "upstream_path": "rootcommit/vectors_sig/manifest.json",
+      "sha256": "f1945a62c71667bc149f0b6d7c1d667d192d724514f16c4bd0825ba42ada160a",
+      "case": "upstream rootcommit/v2-sig corpus manifest (expected outcomes), vendored verbatim",
+      "expect": "informative only; proofbundle does not execute upstream code"
+    }
+  ]
+}
