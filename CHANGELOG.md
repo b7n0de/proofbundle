@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [3.6.3] - Unreleased (never-raise residual, BETA, relation EXPERIMENTAL)
+## [3.6.3] - 2026-07-22 (never-raise residual, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.6.3 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. It closes
 precisely the never-raise residual that 3.6.2 shipped deferred under an explicit maintainer decision — the
