@@ -1,20 +1,26 @@
 # Dependabot — keep GitHub Actions and Python deps current (supply-chain hygiene).
 # Actions are SHA-pinned in the workflows; Dependabot bumps the pin + the version
 # comment together, so pinning does not mean going stale.
-version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "ci"
-    labels: ["dependencies", "github-actions"]
 
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps"
-    labels: ["dependencies", "python"]
+version: 2
+
+updates:
+
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  commit-message:
+    prefix: "ci"
+  labels: ["dependencies", "github-actions"]
+  groups:
+    actions:
+      patterns: ["*"]
+
+- package-ecosystem: "pip"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+  commit-message:
+    prefix: "deps"
+  labels: ["dependencies", "python"]
