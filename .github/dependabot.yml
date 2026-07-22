@@ -10,6 +10,13 @@ updates:
     commit-message:
       prefix: "ci"
     labels: ["dependencies", "github-actions"]
+    # github/codeql-action pins are version-coupled (init writes the config that
+    # analyze reads: "Loaded a configuration file for version X, but running Y"),
+    # so single-action bumps go structurally red. Group them into ONE PR.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: "pip"
     directory: "/"
