@@ -41,8 +41,8 @@ prompts must EXTEND these foundations, never rebuild them.**
 
 ## Cross-repo note (acceptance §9.7)
 
-The four release prompts (`proofbundle_331_/_340_/_350_/_360_`) live in the 2bedone staging area, not
+The four release prompts (`proofbundle_331_/_340_/_350_/_360_`) live in the maintainer's private staging area, not
 in this repo. Each must carry a one-line reference — *"uses Front-Load foundations F1–F5, does NOT
 rebuild them; see `docs/roadmap/FRONTLOAD.md`"* — so the front-load effect actually lands. That edit is
-an OPEN cross-repo action (2bedone `globe/staging/incoming/`), tracked here because this repo's build
+an OPEN cross-repo action (in the maintainer's private staging area), tracked here because this repo's build
 scope cannot reach those files.
