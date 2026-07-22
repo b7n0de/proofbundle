@@ -1,5 +1,7 @@
 """Adapters map real exported eval JSON to a valid claim (file-based, no framework import)."""
 from copy import deepcopy
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +23,28 @@ class TestAdapters(unittest.TestCase):
         self.assertIn("git_hash", claim["provenance"])         # provenance captured
         self.assertEqual(claim["provenance"]["n_shot"], "0")
         self.assertIn("stderr", claim["provenance"])           # sibling stderr, not nested
+        self.assertEqual(claim["n"], 2)
+        self.assertEqual(claim["provenance"]["effective_samples"], 2)
+        self.assertEqual(claim["provenance"]["original_samples"], 2376)
+        self.assertEqual(claim["provenance"]["skipped_samples"], 2374)
+
+    def test_lm_eval_sample_drop_count_changes_signed_provenance(self):
+        data = json.loads((FX / "lm_eval_arc_easy_real.json").read_text())
+        changed = deepcopy(data)
+        changed["n-samples"]["arc_easy"]["original"] = 3
+        common = dict(task="arc_easy", metric="acc", comparator=">=", threshold="0.30",
+                      timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        with tempfile.TemporaryDirectory() as raw:
+            base_path = Path(raw) / "base.json"
+            changed_path = Path(raw) / "changed.json"
+            base_path.write_text(json.dumps(data))
+            changed_path.write_text(json.dumps(changed))
+            base_claim, _ = from_lm_eval_results(base_path, **common)
+            changed_claim, _ = from_lm_eval_results(changed_path, **common)
+        self.assertEqual(base_claim["n"], changed_claim["n"])
+        self.assertNotEqual(base_claim["provenance"], changed_claim["provenance"])
+        self.assertEqual(base_claim["provenance"]["skipped_samples"], 2374)
+        self.assertEqual(changed_claim["provenance"]["skipped_samples"], 1)
 
     def test_lm_eval_missing_metric_lists_available(self):
         with self.assertRaises(ValueError):

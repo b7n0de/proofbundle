@@ -56,12 +56,20 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
 
     n_samples = data.get("n-samples", {}).get(task, {})
     n = int(n_samples.get("effective") or n_samples.get("original") or res.get("sample_len") or 0)
+    effective_samples = int(n_samples["effective"]) if n_samples.get("effective") is not None else n
+    original_samples = (int(n_samples["original"])
+                        if n_samples.get("original") is not None else effective_samples)
+    if effective_samples < 0 or original_samples < 0:
+        raise ValueError("n-samples effective and original counts must be non-negative")
+    skipped_samples = max(original_samples - effective_samples, 0)
     cfg = data.get("config", {})
     model_id = str(cfg.get("model_name") or cfg.get("model") or "unknown")
     if cfg.get("model_args"):
         model_id = f"{model_id}::{cfg['model_args']}"   # include args so the commitment pins the exact model
 
-    provenance = {"harness": "lm-evaluation-harness", "matched_metric_key": matched}
+    provenance = {"harness": "lm-evaluation-harness", "matched_metric_key": matched,
+                  "effective_samples": effective_samples, "original_samples": original_samples,
+                  "skipped_samples": skipped_samples}
     if data.get("git_hash"):
         provenance["git_hash"] = str(data["git_hash"])
     if data.get("versions", {}).get(task) is not None:
