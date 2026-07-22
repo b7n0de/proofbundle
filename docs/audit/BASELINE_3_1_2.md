@@ -14,7 +14,7 @@ Konsolidierter Auftrag: `proofbundle_3.1.1_audit_konsolidierte_umsetzungsprompt_
 | test count | 920 Testfunktionen | `grep -rc "def test_" tests/` |
 | open PR count | 0 | `gh pr list --state open` |
 | open issue count | 5 (#55, #27, #26, #24, #7 — Roadmap, keine Blocker) | `gh issue list --state open` |
-| website version | 3.1.2 (Homepage-Sync PR#1856 vom 13.07.) | 2bedone `office/governance/proofbundle_facts.json` |
+| website version | 3.1.2 (Homepage-Sync PR#1856 vom 13.07.) | maintainer's private homepage-sync repo |
 
 ## Befundstatus live reproduziert (gegen installierte 3.1.2)
 
