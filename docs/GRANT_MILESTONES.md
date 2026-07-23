@@ -13,11 +13,13 @@ funding/OSTIF briefing for M3.
 
 ## M2 — External interop fixture — DONE 2026-07-11
 
-Two externally produced decision-receipt vectors vendored digest-pinned and
-credited under `conformance/decision/crossimpl/` (one Bitcoin-confirmed anchor,
-block 957504, verified offline; canonicalization byte-identical). Honest gap
-recorded: external fixture does not yet satisfy the strict v0.1 predicate schema
-(12 findings, expected-fail, regeneration upstream in progress).
+Externally produced decision-receipt vectors vendored digest-pinned and credited
+under `conformance/decision/crossimpl/`. The upstream regeneration recorded here
+as an honest gap has since completed (2026-07-19): the schema-conformant case
+(`decision-crossimpl-schema-conformant`, Bitcoin block 958761) now satisfies the
+strict decision-receipt/v0.1 predicate schema with zero findings, alongside the
+original confirmed-anchor lifecycle case (block 957504, kept as the externally
+confirmed anchor-lifecycle vector); a third historical case is marked superseded.
 
 ## M3 — Independent audit started — pending (OSTIF sourcing)
 

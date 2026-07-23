@@ -94,6 +94,6 @@ Changing one byte of the signed payload breaks the signature. That is the whole 
 ## 6. Attach to a paper or model card
 
 Ship `proofbundle_receipt_<eval_id>.json` alongside the result and publish your `issuer` key. See
-[examples/](../examples/) for adapter snippets, and [../INTEROP.md](../INTEROP.md) for lm-eval and
+[examples/](../examples/) for adapter snippets, and [../INTEGRATIONS.md](../INTEGRATIONS.md) for lm-eval and
 promptfoo. What a receipt proves and does not prove is in [../THREAT_MODEL.md](../THREAT_MODEL.md):
 authorship and integrity, never that the number is true.

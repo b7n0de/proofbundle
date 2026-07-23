@@ -50,8 +50,10 @@ Every AI eval number you read — a safety benchmark, a capability score, a lead
 **unverifiable claim**. You trust the lab. There is no portable way to check, offline, that a result
 was signed by a stated party, has not been altered, and covers the samples it claims.
 
-proofbundle is that check: a small MIT-licensed Python tool (a compact, auditable trusted core that
-depends only on [`cryptography`](https://cryptography.io)) that turns a result into a signed receipt
+proofbundle is that check: a small MIT-licensed Python tool (a compact, auditable trusted verify
+core that depends only on [`cryptography`](https://cryptography.io); the package installs one more
+hard dependency, the RFC 8785 canonicalizer [`rfc8785`](https://pypi.org/project/rfc8785/), used on
+the emit and canonicalization paths) that turns a result into a signed receipt
 anyone can verify from a single file. In plain terms it is the cash-register receipt of an AI test
 result: it shows who claimed the number and that nobody quietly changed it, not that the test was
 good. Without a receipt there is nothing to check at all.
@@ -133,7 +135,7 @@ version history (see also [CHANGELOG.md](https://github.com/b7n0de/proofbundle/b
 ## Install
 
 ```bash
-pip install proofbundle                 # core: offline verify + plain emit (dependency-free)
+pip install proofbundle                 # core: offline verify + plain emit (two deps: cryptography, rfc8785)
 pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (RFC 8785 JCS canonicalizer)
 pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
 pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
@@ -171,6 +173,8 @@ DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642); the Tech
 | The demos, tier by tier | [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md) |
 | The normative format + verification order | [SPEC.md](https://github.com/b7n0de/proofbundle/blob/main/SPEC.md) |
 | Honest comparison to Rekor / in-toto / OMS / ValiChord | [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) |
+| What the conformance corpus does and does not establish | [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md) |
+| The commercial boundary of the project | [docs/COMMERCIAL_BOUNDARY.md](https://github.com/b7n0de/proofbundle/blob/main/docs/COMMERCIAL_BOUNDARY.md) |
 | Regulatory mapping (and what to never claim) | [COMPLIANCE.md](https://github.com/b7n0de/proofbundle/blob/main/COMPLIANCE.md) |
 | Funders / role fit | [docs/PROJECT_BRIEF.md](https://github.com/b7n0de/proofbundle/blob/main/docs/PROJECT_BRIEF.md) |
 | **Preview:** TEE-attestation bridge (RATS/EAT, `[experimental]`) | [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md) |

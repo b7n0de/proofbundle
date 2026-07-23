@@ -83,7 +83,7 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   to CONFIRM a genuine relying-party-supplied anchor, which no corpus case exercises (`--bitcoin-header` is
   not an allowed conformance verifyArg).
 
-**All 14 of the 14 corpus cases are reproduced independently** (`crosscheck.py`, exit 0). Research note:
+**All corpus cases are reproduced independently** (`crosscheck.py`, exit 0 — 14/14 on the recorded 3.2.0-era run this report documents; the corpus has since grown to 57 cases and the named `make conformance-crossimpl` gate re-runs the cross-check on the current corpus, 56/56 as of v3.7.0). Research note:
 a SOTA review (2026) confirms OpenTimestamps-over-Bitcoin as the strongest trust-minimized long-term
 *archival* anchor (permissionless, offline-verifiable, no trusted third party) — correctly used here as
 an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparency logs as lower-latency
