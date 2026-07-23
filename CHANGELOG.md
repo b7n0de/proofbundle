@@ -6,7 +6,42 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.7.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
+MINOR release: the lm-eval adapter now signs its sample-count provenance, the conformance authority policy
+is documented, and the CI dependency automation is consolidated. No crypto verdict (`.ok`) semantics change.
+
+### Added
+- **lm-eval adapter sample-count provenance (#116, contributed by @tuodijihua, closes #115):** the signed
+  provenance now carries `effective_samples`, `original_samples` and `skipped_samples` from the lm-eval
+  `n-samples` block, with fail-closed validation: negative counts raise `ValueError`; when
+  `effective > original` the derived `skipped_samples` clamps to 0 while both raw counts stay visible;
+  `effective = 0` keeps the honest `n` fallback (`n = original`, `effective_samples = 0`). A silently
+  subsetted run can no longer present itself as a full run under the same signed claim.
+- **`make conformance-crossimpl` acceptance target (#55 S2):** a named gate that builds the independent
+  Rust second-verifier (`tools/pb_verify_rs`) and runs the cross-implementation agreement harness
+  (`crosscheck.py`) over the verifier core — content root, DSSE/Ed25519 verify (real + tampered),
+  duplicate-key reject, RFC 6962 Merkle head, trust-pack root-of-trust threshold (met + unmet), and
+  56/56 conformance-corpus cases reproduced independently (Python == Rust). The harness already ran in
+  CI (`rust-parity`); this formalizes it as a runnable, named acceptance gate. CI/test-only, no package
+  change.
+
+### Documentation
+- **Conformance authority policy and commercial boundary (#107):** `CONFORMANCE.md` states what the
+  conformance corpus does and does not establish, and `docs/COMMERCIAL_BOUNDARY.md` records the
+  commercial boundary of the project.
+
+### CI
+- **Dependabot consolidation and action bumps (#119 to #126):** repository labels for dependency PRs,
+  grouped github-actions updates (version-coupled pins such as `github/codeql-action` init and analyze
+  now bump together in one PR), and the current round of pinned action updates (checkout 7.0.1,
+  setup-python 7.0.0, codeql-action 4.37.3, gh-action-pypi-publish 1.14.1).
+
 ## [3.6.3] - 2026-07-22 (never-raise residual, BETA, relation EXPERIMENTAL)
+
+_Editorial 2026-07-23: 3.6.3 also shipped the inspect_ai adapter scorer/sample-count provenance binding
+(#112, contributed by @tuodijihua), merged before the tag but not documented here at release time._
 
 Status boundary (No-Overclaim): 3.6.3 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. It closes
 precisely the never-raise residual that 3.6.2 shipped deferred under an explicit maintainer decision — the
@@ -148,17 +183,6 @@ verify surface, never a correctness change.
     and `bundle`. A broad nested-fuzz (~250 hostile inputs across nested + element levels on the policy /
     relation / decision verify surfaces) is zero escapes; the full suite (1859 tests) is green; pinned as a
     regression in the never-raise property test.
-
-## [Unreleased]
-
-### Added
-- **`make conformance-crossimpl` acceptance target (#55 S2):** a named gate that builds the
-  independent Rust second-verifier (`tools/pb_verify_rs`) and runs the cross-implementation
-  agreement harness (`crosscheck.py`) over the verifier core — content root, DSSE/Ed25519
-  verify (real + tampered), duplicate-key reject, RFC 6962 Merkle head, trust-pack
-  root-of-trust threshold (met + unmet), and 56/56 conformance-corpus cases reproduced
-  independently (Python == Rust). The harness already ran in CI (`rust-parity`); this
-  formalizes it as a runnable, named acceptance gate. CI/test-only, no package change.
 
 ## [3.6.1] - 2026-07-18 (security patch, BETA, relation EXPERIMENTAL)
 

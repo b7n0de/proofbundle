@@ -28,6 +28,20 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(claim["provenance"]["original_samples"], 2376)
         self.assertEqual(claim["provenance"]["skipped_samples"], 2374)
 
+    def test_lm_eval_effective_above_original_clamps_skipped_to_zero(self):
+        data = json.loads((FX / "lm_eval_arc_easy_real.json").read_text())
+        clamped = deepcopy(data)
+        clamped["n-samples"]["arc_easy"]["original"] = 1     # effective (2) > original (1)
+        with tempfile.TemporaryDirectory() as raw:
+            p = Path(raw) / "clamped.json"
+            p.write_text(json.dumps(clamped))
+            claim, _ = from_lm_eval_results(p, task="arc_easy", metric="acc", comparator=">=",
+                                            threshold="0.30", timestamp=TS,
+                                            model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        self.assertEqual(claim["provenance"]["skipped_samples"], 0)   # clamp branch, raw counts visible
+        self.assertEqual(claim["provenance"]["effective_samples"], 2)
+        self.assertEqual(claim["provenance"]["original_samples"], 1)
+
     def test_lm_eval_sample_drop_count_changes_signed_provenance(self):
         data = json.loads((FX / "lm_eval_arc_easy_real.json").read_text())
         changed = deepcopy(data)
