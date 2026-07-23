@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orthogonal mutation suite — proves the tests still KILL broken implementations (v1.3).
+"""Orthogonal mutation suite — proves the tests still KILL broken implementations (v1.4).
 
 Anti-Goodhart guard: a green test suite only means something if it goes red when the code is
 broken. Each operator below mutates ONE independent fault dimension (binding, framing, key
@@ -10,6 +10,13 @@ carry environment-only failures, so the comparison is differential, never absolu
 Documented-equivalent mutants are asserted to SURVIVE — if one starts getting killed, the
 equivalence argument is stale and must be revisited (that is a failure too: honesty both ways).
 
+Isolation contract (v1.4, incident 2026-07-23): mutants are applied in a THROWAWAY COPY of the
+tracked tree under a tempdir; the real working tree is never written to, so even a SIGKILL
+mid-probe cannot leave a live mutant (or a stray backup file) behind. try/finally alone cannot
+give that guarantee: a hard kill skips finally, and exactly that left an `if False:` mutant plus
+a .mutbak file in the working tree. Belt and braces, the run additionally compares
+`git status --porcelain` before/after and fails closed on any left-over working tree change.
+
 Usage:  python3 scripts/mutation_check.py            # exit 0 = all as expected, 1 = gap found
 CI:     runs in the mutation job (see .github/workflows/ci.yml).
 """
@@ -19,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -430,7 +438,7 @@ MUTATIONS = [
 ]
 
 
-def _red_count() -> int:
+def _red_count(work: Path) -> int:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -438,13 +446,13 @@ def _red_count() -> int:
     # recompilation regardless of what caches survive.
     import os  # noqa: PLC0415
     import shutil  # noqa: PLC0415
-    for cache in ROOT.rglob("__pycache__"):
+    for cache in work.rglob("__pycache__"):
         shutil.rmtree(cache, ignore_errors=True)
-    for src_file in ROOT.glob("src/**/*.py"):
+    for src_file in work.glob("src/**/*.py"):
         os.utime(src_file)
     proc = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=work, capture_output=True, text=True,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
     f = re.search(r"failures=(\d+)", proc.stderr)
@@ -452,22 +460,47 @@ def _red_count() -> int:
     return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
 
 
-def main() -> int:
-    baseline = _red_count()
+def _tracked_files(repo: Path) -> list[str]:
+    """Tracked paths (current working-tree bytes are copied, so uncommitted edits ARE tested)."""
+    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit("mutation_check: `git ls-files` failed; the isolated work tree needs "
+                         "a git checkout (CI and dev clones both have one)")
+    return [rel for rel in proc.stdout.split("\0") if rel]
+
+
+def _prepare_workdir(repo: Path, work: Path) -> None:
+    """Copy every tracked file into the throwaway work tree (CI runs on exactly this file set)."""
+    for rel in _tracked_files(repo):
+        src_p = repo / rel
+        if not src_p.is_file():
+            continue  # racy delete / submodule entry, the differential baseline absorbs it
+        dst = work / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_p, dst)
+
+
+def _worktree_status(repo: Path) -> str:
+    proc = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+                          capture_output=True, text=True)
+    return proc.stdout if proc.returncode == 0 else "<git status unavailable>"
+
+
+def _run_operators(work: Path) -> int:
+    baseline = _red_count(work)
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
     for rel, old, new, label, expect_killed in MUTATIONS:
-        path = ROOT / rel
+        path = work / rel
         src = path.read_text(encoding="utf-8")
         if old not in src:
             print(f"  GAP  [{label}] pattern not found — operator is stale")
             gaps += 1
             continue
-        backup = path.with_suffix(path.suffix + ".mutbak")
-        shutil.copy(path, backup)
         try:
             path.write_text(src.replace(old, new, 1), encoding="utf-8")
-            red = _red_count()
+            red = _red_count(work)
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
@@ -476,10 +509,31 @@ def main() -> int:
             if not ok:
                 gaps += 1
         finally:
-            shutil.move(backup, path)
-    final = _red_count()
+            path.write_text(src, encoding="utf-8")  # restore the pristine bytes held in memory
+    final = _red_count(work)
     if final != baseline:
         print(f"GAP: baseline not restored ({final} != {baseline})")
+        gaps += 1
+    return gaps
+
+
+def main() -> int:
+    status_before = _worktree_status(ROOT)
+    with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-") as tmp:
+        work = Path(tmp) / "tree"
+        _prepare_workdir(ROOT, work)
+        print(f"isolated work tree: {work} (the real working tree is never mutated)")
+        gaps = _run_operators(work)
+    # Fail-closed leftover check: the probe run must not have changed the REAL working tree at
+    # all (v1.4 isolation makes this structurally true; this assert catches any regression).
+    status_after = _worktree_status(ROOT)
+    if status_after != status_before:
+        print("GAP: left-over working tree change after probe run:")
+        before, after = set(status_before.splitlines()), set(status_after.splitlines())
+        for line in sorted(after - before):
+            print(f"  + {line}")
+        for line in sorted(before - after):
+            print(f"  - {line}")
         gaps += 1
     print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({len(MUTATIONS)} operators, {gaps} gap(s))")
     return 0 if gaps == 0 else 1

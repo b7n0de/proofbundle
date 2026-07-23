@@ -1,0 +1,9 @@
+#!/bin/sh
+# proofbundle pre-commit hook: block mutation-mutant signatures on staged security paths
+# (incident 2026-07-23: a probe's `if False:` at the SD-JWT key-binding check survived into
+# the working tree). Install with: sh scripts/install_git_hooks.sh
+#
+# A legitimate exception needs a VISIBLE `# mutant-guard: allow` comment on (or directly
+# above) the flagged line. CI runs the same guard on the push/PR range, so skipping this
+# hook locally does not skip the check.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/mutant_signature_guard.py" --staged

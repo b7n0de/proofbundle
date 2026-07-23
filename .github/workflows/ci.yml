@@ -186,6 +186,38 @@ jobs:
         run: python -m pip install -e ".[dev,pq,anchors]"
       - name: Mutation check
         run: python scripts/mutation_check.py
+      - name: Fail closed on left-over working tree changes (mutant leftovers)
+        # Machine version of the manual diff-before-commit that caught the 2026-07-23 live
+        # mutant. v1.4 mutates only a tempdir copy, so ANY working tree change after the run
+        # is a leftover and fails the job, even when the mutation step itself already failed.
+        if: always()
+        run: |
+          leftovers="$(git status --porcelain)"
+          if [ -n "$leftovers" ]; then
+            echo "::error::left-over working tree change after probe run"
+            echo "$leftovers"
+            exit 1
+          fi
+          echo "working tree clean after the mutation run"
+
+  mutant-signature-guard:
+    # Fail-closed guard against mutation-mutant signatures reaching main (incident 2026-07-23:
+    # a probe's `if False:` planted at the SD-JWT key-binding check survived into the working
+    # tree). Diff-scoped and deliberately narrow (scripts/mutant_signature_guard.py); the
+    # self-test step proves each signature class is actually caught BEFORE the clean verdict
+    # of the range scan is trusted. The same guard runs locally as a pre-commit hook
+    # (scripts/install_git_hooks.sh), this job is the non-bypassable half.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Guard self-test (each planted signature class must be caught)
+        run: python3 scripts/mutant_signature_guard.py --self-test
+      - name: Scan the change range for mutant signatures
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/mutant_signature_guard.py --base "$BASE_SHA"
 
   anchors:
     # EXPERIMENTAL [anchors] extra (v2.0 preview): exercises the RFC 3161 TSA verifier against a real
