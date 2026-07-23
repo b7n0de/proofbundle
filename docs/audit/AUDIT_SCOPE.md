@@ -1,5 +1,10 @@
 # Audit Scope — external independent security review (pre-Stable)
 
+> **Historical snapshot (3.2.0 era).** This file is an unmaintained earlier draft kept for
+> provenance; its counts (14 conformance cases, 1121 tests) reflect that era. The maintained
+> successor is [`docs/AUDIT_SCOPE.md`](../AUDIT_SCOPE.md); current counts live in
+> `conformance/manifest.json` and the CI test output.
+
 proofbundle stays classifier `4 - Beta` until an EXTERNAL, independent security audit completes (O9 +
 the Stable gate). This file defines the scope that audit should cover, so the review is bounded and the
 findings map to concrete modules. It is a scope document, not a claim of having been audited.

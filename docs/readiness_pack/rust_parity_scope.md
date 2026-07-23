@@ -24,7 +24,7 @@ python3 tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_diffe
   negative (decoy-parent, subject-mismatch, signer, lineage tiers), Python == Rust on exit-class +
   lineage on every one
 
-The whole conformance corpus (54 cases) is reproduced independently by the Rust binary.
+The whole conformance corpus (57 cases as of v3.7.0; the `make conformance-crossimpl` gate reproduces 56/56 of its corpus cases) is reproduced independently by the Rust binary.
 
 ## Deliberately PENDING (honestly not Rust-covered, never silently accepted)
 

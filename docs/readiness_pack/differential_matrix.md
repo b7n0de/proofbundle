@@ -19,7 +19,9 @@ python3 tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_diffe
 
 The artifact carries an environment freeze (cargo / rustc / python versions) so a re-run on another box
 is comparable. On the recorded run: 40 relation vectors, Python == Rust on all, and the whole 54-case
-conformance corpus reproduced independently by the Rust binary.
+conformance corpus of that era reproduced independently by the Rust binary (the corpus has since
+grown to 57 cases; the named `make conformance-crossimpl` gate re-runs the cross-check on every
+invocation, 56/56 as of v3.7.0).
 
 ## Scope of coverage
 

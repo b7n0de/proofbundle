@@ -30,9 +30,9 @@ it does not, and cannot, close on its own.
 ## Release evidence slots (front-loaded)
 
 - `3.3.1-frontload` — **filled**: the five foundations (F1–F5) + the pre-tag audit discipline (F7).
-- `3.4.0` — reserved: relation_signer receipts, decoy-parent F1 vectors, formal obligation O5.
-- `3.5.0` — reserved: relation_statement Rust parity, formal obligation O6, F4 auto-coverage.
-- `3.6.0` — reserved: fuzz-soak corpora, differential matrix, formal obligation O7, threat-model delta.
+- `3.4.0` — **filled** (shipped under the 3.6.0 tag): relation_signer receipts, decoy-parent F1 vectors; formal obligation O5 remains reserved (see `index.json`).
+- `3.5.0` — **filled** (shipped under the 3.6.0 tag): relation_statement Rust parity, F4 auto-coverage; formal obligation O6 remains reserved (see `index.json`).
+- `3.6.0` — **filled**: fuzz-soak corpora, differential matrix, threat-model delta, 33-check acceptance matrix; formal obligation O7 remains reserved (see `index.json`).
 
 A `reserved` slot is declared honestly; it is not evidence yet, and nothing here counts it as such.
 

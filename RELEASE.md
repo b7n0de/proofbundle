@@ -45,8 +45,9 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 ## Beta / pre-release (any future pre-release line)
 
-Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); since
-then the 2.x line is the stable default and the `[experimental]` extra ships with normal releases.
+Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
+stable default has since moved on to the 3.x line (current: 3.7.0) and the `[experimental]` extra
+ships with normal releases.
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
 
@@ -66,15 +67,21 @@ pulls a PEP 440 pre-release, so the current stable stays the default while a pre
 The version bump, changelog, and doc edits happen **on the branch, inside the PR** — the tag comes
 after the merge (see *Release ordering* above).
 
-- [ ] Bump `version` in `pyproject.toml` **and** `__version__` in `src/proofbundle/__init__.py`
-      (they must match — CI/pitch cite the version).
+- [ ] Bump `version` in `pyproject.toml`, `__version__` in `src/proofbundle/__init__.py` **and**
+      `version:` in `CITATION.cff` (all three must match — `scripts/check_version_and_changelog.py`
+      and the release-integrity CI job enforce the three-file single-sourcing).
 - [ ] Update `CHANGELOG.md` (Keep-a-Changelog + SemVer; note any breaking change explicitly).
-- [ ] Update the test-count and version strings in `README.md` if they changed.
+- [ ] README.md deliberately hard-codes no test-count or version strings (live badges + CI output are the source); only touch README claims that the release genuinely changes.
 - [ ] `make all` green locally (lint + typecheck + tests); `make tamper-demo` exits 0;
       `make mutation` reports all operators killed (documented-equivalent survivor excepted).
 - [ ] Open the PR; confirm the CI matrix is green on all supported Pythons **and** the
       `crypto-floor` job; **the Owner merges** the PR to the target branch (`main`, or `release/*`
       then merge-back).
+- [ ] Pre-tag adversarial audit (docs/PRE_TAG_AUDIT.md): run the six-lens internal audit on the
+      release candidate and land the real record as `audit_artifacts/<XYZ>/*.md` — the
+      `scripts/pre_tag_audit_gate.py --strict` step in `release.yml` **blocks the build without it**,
+      and the version-coupled F7 test requires the record as soon as the version is bumped (so the
+      audit belongs in the release-prep PR, not after the merge).
 - [ ] On the **merged** target-branch HEAD (never the feature branch), confirm CI is green, then
       `git tag vX.Y.Z` there and push the tag.
 - [ ] Watch the `build-and-attest` job: note the printed attested wheel/sdist sha256.

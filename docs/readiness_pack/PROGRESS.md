@@ -1,6 +1,6 @@
 # Honest progress accounting (No-Overclaim)
 
-The denominator is the full distance from today (3.3.0) to "4.0.0-stable, externally audited,
+The denominator is the full distance from the 3.3.0 baseline (current release: 3.7.0) to "4.0.0-stable, externally audited,
 trustworthy". This is a factual progress statement, not a forward promise, and it is deliberately
 placed in the readiness pack so an auditor reads our own honest number before forming theirs.
 
@@ -26,7 +26,7 @@ placed in the readiness pack so an auditor reads our own honest number before fo
 ## Consequence
 
 With the five front-loaded foundations plus the pre-tag audit discipline, the audit-candidate (3.6.0)
-is reachable at ~85% of the total distance with **practically zero avoidable rework**; the remaining
+was reached at ~85% of the total distance (3.6.0 tagged 2026-07-17) with **practically zero avoidable rework**; the remaining
 ~15% is, by definition, not anticipatable — only best-prepared, which is what this pack is.
 
 ## Where this number is enforced against drift

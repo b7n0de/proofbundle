@@ -72,6 +72,29 @@ derives from the canonical `config.tests` JSON (the test suite IS the dataset). 
 v1/v2 files are rejected with a clear message — re-export with a current promptfoo. In CI this
 composes with the GitHub Action: run promptfoo, emit the receipt, attach both to the run.
 
+## lm-evaluation-harness (results_*.json adapter, v0.6; sample-count provenance since v3.7.0)
+
+EleutherAI's lm-evaluation-harness writes a results JSON per run. The adapter is file-based — no
+lm_eval import:
+
+```python
+from proofbundle.adapters import from_lm_eval_results
+from proofbundle.evalclaim import emit_eval_receipt
+from proofbundle import generate_signer
+
+claim, salts = from_lm_eval_results("results.json", "arc_easy", "acc", comparator=">=",
+                                    threshold="0.30", timestamp="2026-07-01T12:00:00Z")
+receipt = emit_eval_receipt(claim, generate_signer())
+```
+
+Metric keys resolve with the harness suffix convention (`acc` matches `acc,none`). The signed
+provenance carries `git_hash`, task version, n-shot, sibling stderr — and, since 3.7.0, the
+sample counts from the harness `n-samples` block: `effective_samples`, `original_samples` and
+`skipped_samples`, validated fail-closed (negative counts raise; `effective > original` clamps
+`skipped_samples` to 0 with both raw counts visible; `effective = 0` keeps the honest `n`
+fallback). A silently subsetted run can no longer present itself as a full run under the same
+signed claim. See `examples/lm_eval_receipt.py` for a complete offline round-trip.
+
 ## Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4)
 
 HF's Community Evals accept per-benchmark result entries with an optional string `verifyToken`
