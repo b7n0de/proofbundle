@@ -96,7 +96,16 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
 inspect = ['inspect_ai>=0.3.112,<0.4']
-dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+# ruff is capped on purpose. A linter is a JUDGE in CI (`ruff check .` is a blocking step),
+# and its rule set changes between minor releases, so an unbounded requirement lets a release
+# published upstream turn a green tree red without a single line of our code changing.
+# Measured on both sides of the boundary, 2026-07-31:
+#   ruff 0.15.22  -> CI green   (run 30025345689, main @2e5807a, 2026-07-23)
+#   ruff 0.16.0   -> CI red     (run 30468200481, PR #130, 1168 findings, no code change
+#                                between the two: RUF100 400, E402 257, UP045 181, F401 72)
+# Raising this cap is a deliberate task (run the new ruff, triage its findings, then move the
+# bound) and not something a dependency resolver should do on our behalf.
+dev = ["pytest>=7", "ruff>=0.5,<0.16", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
