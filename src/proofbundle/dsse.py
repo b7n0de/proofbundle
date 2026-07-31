@@ -20,6 +20,10 @@ Base64 note: the envelope's `payload` and each `signatures[].sig` are base64. We
 MUST accept either — so verification accepts both alphabets. (This is distinct from the C2SP checkpoint,
 which mandates standard base64.) The "classic DSSE trap" is a different thing: the SIGNATURE is over the
 raw PAE body, never over the base64 string.
+
+Decoding is STRICT (deep gate L5-02, RFC 4648 §3.3): characters outside the alphabet are rejected, not
+discarded, so a signed envelope has exactly one verifying wire form per alphabet instead of unboundedly
+many. See proofbundle._b64strict.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ import base64
 import binascii
 from typing import Optional
 
+from ._b64strict import EITHER, b64decode_strict
 from .errors import BundleFormatError
 from .signature import verify_ed25519
 
@@ -34,12 +39,15 @@ __all__ = ["pae", "sign_envelope", "verify_envelope"]
 
 
 def _b64decode_any(s: str) -> bytes:
-    """Decode standard OR url-safe base64 (DSSE verifiers MUST accept either). Tries standard first, then
-    url-safe; raises binascii.Error if neither is valid."""
-    try:
-        return base64.b64decode(s, validate=True)
-    except (ValueError, binascii.Error):
-        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    """Decode standard OR url-safe base64 (DSSE verifiers MUST accept either), STRICTLY.
+
+    Deep gate L5-02: the previous fallback branch used ``base64.urlsafe_b64decode``, which DISCARDS
+    characters outside the alphabet (RFC 4648 §3.3 says a decoder MUST reject them). A signed envelope
+    could therefore be inflated with arbitrary junk and still verify — the decoded bytes are identical,
+    so it is not a signature bypass, but exactly one wire form of a signed artefact may verify. The
+    alphabet translation happens BEFORE ``validate=True`` so a genuine url-safe envelope still decodes;
+    padding stays optional for the legitimate unpadded form. Raises binascii.Error if invalid."""
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def pae(payload_type: str, body: bytes) -> bytes:

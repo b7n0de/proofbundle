@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._anchor_contract import failclosed_anchor_verifier
+
 
 def _classify(timestamp):
     """Return (has_bitcoin, bitcoin_heights, has_pending) over all attestations in the proof."""
@@ -61,6 +63,7 @@ def _bitcoin_confirmations(timestamp):
             stack.append((child, seen_hash or isinstance(op, CryptOp)))
 
 
+@failclosed_anchor_verifier
 def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed OTS verify. Returns {ok, detail, warn, status}. A pending proof is warn (status

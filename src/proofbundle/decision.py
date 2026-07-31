@@ -32,6 +32,16 @@ _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation",
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _OUTCOME_STATUS = {"notAttempted", "blocked", "refused", "attempted", "executed", "failed", "unknown"}
 
+# The trust-policy purpose this verify path is bound to (A-P0-4 §8.1).
+_DECISION_POLICY_PURPOSE = "decision"
+# NOT pinned here (deliberate, documented gap — see tests/test_verdict_semantics.py, which keeps it a
+# PINNED open member rather than a silent one): the decision path does not yet refuse a policy section it
+# cannot honour. Its honoured set would be {decision_receipt, relations, anchors}, but the SHIPPED
+# `decision-receipt-template-v1` profile also carries `signature` + `allowed_schema_versions`, which
+# `evaluate_decision_policy` never reads — refusing them would reject the repo's own instantiated profile,
+# i.e. a breaking change for a legitimate producer. Flagged, not shipped.
+_DECISION_HONOURED_POLICY_SECTIONS = None
+
 # Top-level predicate fields required regardless of mode.
 _REQUIRED_ALWAYS = (
     "schemaVersion", "decisionId", "decisionType", "decidedAt", "decisionMaker", "agent", "principal",
@@ -594,8 +604,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         from . import assurance as _assurance  # noqa: PLC0415
         ao = predicate.get("actionOutcome") if isinstance(predicate.get("actionOutcome"), dict) else None
         _ao_applicable = isinstance(ao, dict) and ao.get("status") == "executed"
+        # L1-SEM-03: classify the DIGEST, not its wrapper. `actionOutcome.outcomeRef` is a
+        # `{uri?, digest}` reference object (see _NESTED_ALLOWED) — the sha256 lives one level down, exactly
+        # where `action_outcome_proven` reads it. Passing the wrapper to classify_digest_evidence made
+        # `_is_digest` false for EVERY receipt, so this level was structurally pinned at CLAIMED (with the
+        # detail "no well-formed sha256 digest object present", which is factually wrong on a receipt that
+        # carries one) and could never reach CONTENT_RESOLVED even with an evidence_resolver.
         _outcome_level = _assurance.classify_digest_evidence(
-            (ao or {}).get("outcomeRef"), applicable=_ao_applicable, evidence_resolver=evidence_resolver)
+            _as_dict((ao or {}).get("outcomeRef")).get("digest"),
+            applicable=_ao_applicable, evidence_resolver=evidence_resolver)
         _evref_levels = None
         if isinstance(ev, list) and ev:
             _evref_levels = _assurance.evidence_ladder_summary(*[
@@ -765,6 +782,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # Trust policy (v0.2 decision_receipt section) over the CRYPTO-VERIFIED statement. WP5. A policy is NEVER
     # evaluated on unverified bytes (fail-open fix, mirrors the eval path): if crypto did not pass, policy_ok
     # and signer_trusted stay None — a policy is never a reason to trust bytes whose signature failed.
+    _policy_standing: list[str] = []
     if policy is not None and not isinstance(policy, dict):
         # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
         # or list) must be a fail-closed policy verdict, not a raw AttributeError out of policy.get(...) —
@@ -776,6 +794,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         if not r["crypto_ok"]:
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
+            # L1-SEM-01 (sibling of the outcome-path fix): the policy-level preconditions (raw template /
+            # expired / not-yet-valid / wrong policyPurpose) run BEFORE any section rule. They used to live
+            # INSIDE evaluate_decision_policy, AFTER its `no decision_receipt section -> return
+            # policy_ok=None` early return — so a policy with only a `relations` section skipped them
+            # entirely and an expired, wrong-purpose policy was still treated as evaluable. Preconditions
+            # gate the section rules on every path: when they fail, no section verdict is claimed.
+            from .automation_verdict import policy_standing_errors  # noqa: PLC0415
+            _policy_standing = policy_standing_errors(
+                policy, purpose=_DECISION_POLICY_PURPOSE,
+                honoured_sections=_DECISION_HONOURED_POLICY_SECTIONS)
+            if _policy_standing:
+                r["policy_ok"] = False
+                r["errors"].extend(_policy_standing)
+        if r["crypto_ok"] and not _policy_standing:
             import base64  # noqa: PLC0415
             from .policy import evaluate_decision_policy  # noqa: PLC0415
             pe = evaluate_decision_policy(statement, r, policy,
@@ -803,7 +835,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
-    if isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if (isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]
+            and not _policy_standing):   # L1-SEM-01: preconditions gate the section rules
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

@@ -50,6 +50,14 @@ INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 # receipts, which carry no field, keep verifying); absence is NEVER silently treated as jcs.
 LEGACY_CONTENT_ROOT_ALG = "legacy-sortkeys-json-v0"
 
+# The ALLOWLIST of content-root algorithm ids. The guard decides on MEMBERSHIP, never on the declaration's
+# Python type: a present-but-unrecognised value — whatever its JSON type — is fail-closed. (PB-L2-03: the
+# earlier `isinstance(alg, str) and alg` test rejected the string "sha256-v0-attacker" but let a non-string
+# declaration — 0, [], {}, true, "", null, ["jcs-sha256-v1"] — fall through and be read as LEGACY, the same
+# algorithm-confusion hole one JSON type away. An allowlist has to be complete to PERMIT, so every form
+# nobody thought of lands on the rejected side by construction.) ABSENT stays legacy, untouched.
+KNOWN_CONTENT_ROOT_ALGS = (CONTENT_ROOT_ALG, LEGACY_CONTENT_ROOT_ALG)
+
 # Subject profiles (what the Statement's `subject` IS). Documented per profile in docs/IN_TOTO_PROFILE.md.
 #   receipt      — the eval receipt itself (a binder digest; reveals nothing about the model). DEFAULT.
 #   public-model — a disclosed public model artifact (caller supplies its real sha256).
@@ -130,11 +138,21 @@ def _canonical_body(statement: dict) -> bytes:
 def _declared_content_root_alg(statement: Any) -> str:
     """The content-root algorithm a Statement DECLARES via its top-level `contentRootAlg`. ABSENT ⇒ legacy
     (`legacy-sortkeys-json-v0`) — this is how released 2.0.0 receipts, which carry no field, keep verifying.
-    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg)."""
-    if isinstance(statement, dict):
-        alg = statement.get("contentRootAlg")
-        if isinstance(alg, str) and alg:
+    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg).
+
+    PRESENT is decided by the `KNOWN_CONTENT_ROOT_ALGS` allowlist, not by the value's type: a declaration
+    that is present but not a known id — including any non-string form — raises `BundleFormatError` instead
+    of degrading to legacy (PB-L2-03). Only the total ABSENCE of the key means legacy; `contentRootAlg: null`
+    is a present declaration and is rejected. No released receipt is affected: `_declare_content_root_alg`
+    either writes the exact jcs id or omits the key entirely, so a legitimate producer never emits a third
+    form."""
+    if isinstance(statement, dict) and "contentRootAlg" in statement:
+        alg = statement["contentRootAlg"]
+        if alg in KNOWN_CONTENT_ROOT_ALGS:
             return alg
+        raise BundleFormatError(
+            f"unknown contentRootAlg {brief(alg)}: no silent default for a present-but-unrecognised "
+            "declaration (algorithm-confusion guard, ADR 0002 §1)")
     return LEGACY_CONTENT_ROOT_ALG
 
 
@@ -169,7 +187,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
         f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
 
 
-def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
+def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
     """Verify the transmitted payload IS canonical for its OWN declared content-root algorithm. Fail-closed.
 
     Returns ``(ok, alg, detail)``. The verifier reads the DECLARED `contentRootAlg` (absent ⇒ legacy) and
@@ -180,7 +198,11 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
     valid JCS — while the same body declared/absent as legacy verifies). Verifying `jcs-sha256-v1` canonicality
     needs the `[eval]` extra; without it this is fail-closed (never a silent pass over possibly non-canonical
     bytes). Legacy verification is stdlib-only, so released 2.0.0 receipts verify on a base install."""
-    alg = _declared_content_root_alg(statement)
+    try:
+        alg = _declared_content_root_alg(statement)
+    except BundleFormatError as exc:
+        # A present-but-unrecognised declaration resolves to NO algorithm, so none is reported (PB-L2-03).
+        return False, None, str(exc)
     if not isinstance(statement, dict):
         return False, alg, "payload is not a JSON in-toto Statement object"
     try:
@@ -290,11 +312,109 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=TEST_RESULT_PAYLOAD_TYPE, keyid=keyid)
 
 
+# ─── in-toto Statement v1 profile enforced on the VERIFY path (PB-L5-03) ─────────────────────────
+#
+# The three DSSE verify surfaces checked the signature, the payloadType, the content-root binding and the
+# predicateType — but never whether the signed payload was a CONFORMANT in-toto Statement. A payload with no
+# `subject` at all (absent / null / empty array / a descriptor carrying no digest) or with a missing or wrong
+# `_type` returned ok=True. That is not cosmetic: the documented release-gate profile ("deploy only if the
+# eval passed") keys on the EXIT CODE of `proofbundle intoto --verify` / `proofbundle svr --verify`, so an
+# attestation that binds to NO artifact printed "[PASS] ... => OK" and exited 0.
+#
+# The check mirrors the shipped oracle `schemas/in_toto_statement_v1.schema.json` (required `_type` /
+# `subject` / `predicateType`; `subject` a non-empty array of ResourceDescriptors) in STDLIB ONLY, on
+# purpose: the schema file is not packaged with the wheel and `jsonschema` is a test-only extra, so
+# validating through it on the verify path would either add a runtime dependency to the trusted core or
+# degrade to a silent skip whenever the extra is absent — and a conformance gate that silently skips is
+# exactly the shape this fix removes. Agreement between the two oracles is pinned by
+# tests/test_intoto_profile_conformance.py, which runs BOTH over the same corpus.
+#
+# ONE deliberate strengthening over the bare schema, on exactly one axis: every subject entry MUST carry a
+# non-empty `digest` map of non-empty string values. The schema's `anyOf` also admits a name-only or
+# uri-only descriptor, but in-toto matching happens on the DIGEST — a name-only subject resolves to no
+# artifact, and a release gate must never see ok=True for an attestation that binds to nothing. Every
+# proofbundle exporter has always emitted a digest for every subject entry (`resolve_subject`,
+# `to_test_result_statement`, `export_svr_dsse`), so no receipt this project has ever produced is affected.
+# The divergence is enumerated and pinned in the test, not silently absorbed.
+_MAX_REPORTED_PROBLEMS = 8
+
+
+def _subject_entry_problems(index: int, entry: Any) -> list:
+    """Problems of ONE subject entry (a ResourceDescriptor). Checked for EVERY entry, never only the first:
+    a conformant first descriptor must not license a digest-less second one."""
+    where = f"subject[{index}]"
+    if not isinstance(entry, dict):
+        return [f"{where} is not a ResourceDescriptor object (got {brief(entry)})"]
+    problems = []
+    for optional in ("name", "uri"):
+        if optional in entry and not isinstance(entry[optional], str):
+            problems.append(f"{where}.{optional} is not a string (got {brief(entry[optional])})")
+    if "digest" not in entry:
+        problems.append(f"{where} has no digest — a subject without a digest binds to no artifact")
+        return problems
+    digest = entry["digest"]
+    if not isinstance(digest, dict):
+        problems.append(f"{where}.digest is not a DigestSet object (got {brief(digest)})")
+        return problems
+    if not digest:
+        problems.append(f"{where}.digest is empty — a subject without a digest binds to no artifact")
+        return problems
+    for key, value in digest.items():
+        if not isinstance(key, str) or not key:
+            problems.append(f"{where}.digest has a non-string algorithm key ({brief(key)})")
+        if not isinstance(value, str) or not value:
+            problems.append(f"{where}.digest[{brief(key)}] is not a non-empty string (got {brief(value)})")
+    return problems
+
+
+def _statement_problems(statement: Any) -> list:
+    if not isinstance(statement, dict):
+        return [f"payload is not a JSON in-toto Statement object (got {brief(statement)})"]
+    problems = []
+    if "_type" not in statement:
+        problems.append("'_type' is a required property of an in-toto Statement v1")
+    elif statement["_type"] != STATEMENT_TYPE:
+        problems.append(f"_type {brief(statement['_type'])} is not {brief(STATEMENT_TYPE)}")
+    if "predicateType" not in statement:
+        problems.append("'predicateType' is a required property of an in-toto Statement v1")
+    elif not isinstance(statement["predicateType"], str) or not statement["predicateType"]:
+        problems.append(f"predicateType is not a non-empty string (got {brief(statement['predicateType'])})")
+    if "predicate" in statement and not isinstance(statement["predicate"], dict):
+        problems.append(f"predicate is not an object (got {brief(statement['predicate'])})")
+    if "subject" not in statement:
+        problems.append("'subject' is a required property of an in-toto Statement v1")
+    elif not isinstance(statement["subject"], list):
+        problems.append(f"subject is not an array (got {brief(statement['subject'])})")
+    elif not statement["subject"]:
+        problems.append("subject is empty — the attestation binds to no artifact")
+    else:
+        for index, entry in enumerate(statement["subject"]):
+            problems.extend(_subject_entry_problems(index, entry))
+            if len(problems) >= _MAX_REPORTED_PROBLEMS:
+                break
+    return problems[:_MAX_REPORTED_PROBLEMS]
+
+
+def statement_conformance_problems(statement: Any) -> list:
+    """Return the list of in-toto Statement v1 profile violations of `statement` (empty list ⇒ conformant).
+
+    Total and fail-closed by contract: this runs on a never-raise verify path, so it never raises for any
+    input — a value it cannot even inspect yields a problem, never an exception. Every echoed caller value
+    goes through the bounded renderer `_brief.brief`."""
+    try:
+        return _statement_problems(statement)
+    except BaseException as exc:  # noqa: BLE001 — a verifier's problem list must be a verdict, never a crash
+        return [f"statement conformance check failed closed: {brief(exc)}"]
+
+
 def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
     """Shared verify-result builder for the three DSSE verify functions (WP-I1). ``ok`` conjuncts the
-    signature, the content-root binding, AND — unless ``expected_predicate_type`` is None — that the
-    statement's ``predicateType`` equals it (predicate-confusion defense). ``predicate_type_ok`` carries
-    the granular verdict; ``predicate_type`` the value found."""
+    signature, the content-root binding, the in-toto Statement v1 profile conformance of the payload
+    (PB-L5-03), AND — unless ``expected_predicate_type`` is None — that the statement's ``predicateType``
+    equals it (predicate-confusion defense). ``predicate_type_ok`` carries the granular type verdict,
+    ``statement_ok`` / ``statement_detail`` the granular conformance verdict; ``predicate_type`` the value
+    found. This is the ONE place all three surfaces build their verdict, so the conformance check is a
+    property of the whole family rather than three edited call sites."""
     got = statement.get("predicateType") if isinstance(statement, dict) else None
     if expected_predicate_type is None:
         type_ok = None
@@ -304,19 +424,24 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
         merged_detail = detail if type_ok else (
             (detail + "; " if detail else "")
             + f"predicateType {brief(got)} != expected {brief(expected_predicate_type)} (confusion attack?)")
-    ok = bool(sig_ok) and binding_ok and (type_ok is not False)
+    problems = statement_conformance_problems(statement)
+    statement_ok = not problems
+    ok = bool(sig_ok) and binding_ok and (type_ok is not False) and statement_ok
     return {"ok": ok, "statement": statement, "predicate_type": got,
             "predicate_type_ok": type_ok, "content_root_alg": alg,
-            "content_root_ok": binding_ok, "content_root_detail": merged_detail}
+            "content_root_ok": binding_ok, "content_root_detail": merged_detail,
+            "statement_ok": statement_ok, "statement_detail": "; ".join(problems)}
 
 
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
     {ok, statement, predicate_type, predicate_type_ok, content_root_alg, content_root_ok,
-    content_root_detail}. ``ok`` is True iff the Ed25519 signature over the DSSE PAE verifies, the
-    payloadType is the pinned test-result media type, the payload is canonical for its DECLARED
-    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's ``predicateType`` equals
+    content_root_detail, statement_ok, statement_detail}. ``ok`` is True iff the Ed25519 signature over the
+    DSSE PAE verifies, the payloadType is the pinned test-result media type, the payload is canonical for its
+    DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the payload is a CONFORMANT in-toto Statement v1
+    (PB-L5-03: `_type` and a subject that resolves to an artifact — see
+    ``statement_conformance_problems``), AND the statement's ``predicateType`` equals
     ``expected_predicate_type`` (WP-I1: the type was previously only RETURNED, so ``ok`` was True for a
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before)."""
@@ -488,9 +613,11 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: str = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
-    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail}. `ok` is True iff the
+    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail, statement_ok,
+    statement_detail}. `ok` is True iff the
     Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement media type,
-    the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), AND the
+    the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the payload is a
+    CONFORMANT in-toto Statement v1 (PB-L5-03, see `statement_conformance_problems`), AND the
     statement's `predicateType` equals `expected_predicate_type` (WP-I1: predicate-confusion defense —
     the type was previously only returned, so a swapped SVR/test-result envelope was accepted as an
     eval-result). Pass `expected_predicate_type=None` to opt out."""
@@ -618,8 +745,10 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,
-    content_root_alg, content_root_ok, content_root_detail}. `ok` requires the signature, the canonical
-    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
+    content_root_alg, content_root_ok, content_root_detail, statement_ok, statement_detail}. `ok` requires
+    the signature, the canonical contentRootAlg (absent ⇒ legacy; ADR 0002), a CONFORMANT in-toto Statement
+    v1 payload (PB-L5-03, see `statement_conformance_problems`),
+    AND the statement's `predicateType` == the SVR type
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
     SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out."""
     from . import dsse  # noqa: PLC0415

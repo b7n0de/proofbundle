@@ -36,6 +36,7 @@ import hashlib
 import json
 from typing import Optional, Tuple
 
+from ._b64strict import EITHER, b64decode_strict
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from .signature import verify_ed25519
@@ -53,8 +54,9 @@ def _b64url_decode(s: str) -> bytes:
     from .errors import BundleFormatError  # noqa: PLC0415
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
-    raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    # deep gate L5-02: strict alphabet (RFC 4648 §3.3) — urlsafe_b64decode DISCARDS characters outside the
+    # alphabet, so a signed artefact had unboundedly many verifying wire forms. See proofbundle._b64strict.
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def _b64url_nopad(b: bytes) -> str:

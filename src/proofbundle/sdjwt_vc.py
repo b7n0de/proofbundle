@@ -25,6 +25,7 @@ import base64
 import hashlib
 from typing import Any
 
+from ._b64strict import EITHER, b64decode_strict
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 
@@ -47,7 +48,9 @@ class SdjwtVcError(ProofBundleError):
 
 
 def _b64url_decode(s: str) -> bytes:
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    # deep gate L5-02: strict alphabet (RFC 4648 §3.3) — urlsafe_b64decode DISCARDS characters outside
+    # the alphabet, so a signed artefact had unboundedly many verifying wire forms. See _b64strict.
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def validate_vc_policy(policy: Any) -> list[str]:

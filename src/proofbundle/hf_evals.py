@@ -27,6 +27,7 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._b64strict import EITHER, STANDARD, b64decode_strict
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
@@ -43,8 +44,9 @@ def _b64url(data: bytes) -> str:
 
 
 def _b64url_decode(s: str) -> bytes:
-    raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    # deep gate L5-02: strict alphabet (RFC 4648 §3.3) — urlsafe_b64decode DISCARDS characters outside
+    # the alphabet, so a signed artefact had unboundedly many verifying wire forms. See _b64strict.
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def receipt_token(bundle: dict) -> str:
@@ -252,7 +254,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                 # (it is NOT in the tuple below) — the schema label of a dup-key payload cannot be
                 # read reliably, so refusing to publish is the only honest outcome. Adding it to
                 # the except would set _is_eval=False and fail OPEN for dup-key eval claims.
-                _raw = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                _raw = loads_strict(b64decode_strict(bundle["payload_b64"], alphabet=STANDARD).decode("utf-8"))
                 _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
                 _is_eval = False

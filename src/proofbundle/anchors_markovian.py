@@ -33,6 +33,8 @@ import binascii
 import hashlib
 from typing import Optional
 
+from ._anchor_contract import failclosed_anchor_verifier
+
 ANCHOR_TYPE = "markovian-provenance/v1"
 
 
@@ -40,6 +42,7 @@ def _fail(status: str, detail: str) -> dict:
     return {"ok": False, "warn": False, "status": status, "detail": detail}
 
 
+@failclosed_anchor_verifier
 def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
                      now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed verifier for a ``markovian-provenance/v1`` anchor. Returns {ok, warn, status, detail}.

@@ -33,9 +33,12 @@ mutants/
 
 # RT-10 findings-register signing key (self-attested ceremony, never committed)
 audit_artifacts/.findings_register_key.ed25519
-dist_pkgtest/
-dist_pkgtest2/
-dist_pkgtest3/
-dist_pkgtest4/
-dist_pkgtest5/
-dist_rc/
+
+# Built distribution artefacts — a DISCOVERY pattern, never an enumeration of known directories.
+# The list that used to stand here (dist_pkgtest/ .. dist_pkgtest5/, dist_rc/) had to grow by one line
+# for every new build-output directory, so the two that nobody remembered to add — dist_final/ and
+# dist_pkgtest6/ — were committed and shipped the repo as a distribution channel. An enumeration must be
+# COMPLETE to work; a discovery pattern makes the next dist_pkgtest7/ ignored without an edit.
+/dist*/
+*.whl
+proofbundle-*.tar.gz

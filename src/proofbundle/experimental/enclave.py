@@ -48,6 +48,7 @@ import hashlib
 import json
 from typing import Optional
 
+from .._b64strict import EITHER, b64decode_strict
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
 from ..signature import verify_ed25519
@@ -64,8 +65,9 @@ def _b64url(data: bytes) -> str:
 
 
 def _b64url_decode(s: str) -> bytes:
-    raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    # deep gate L5-02: strict alphabet (RFC 4648 §3.3) — urlsafe_b64decode DISCARDS characters outside
+    # the alphabet, so a signed artefact had unboundedly many verifying wire forms. See _b64strict.
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def enclave_binding_for(bundle: dict) -> str:

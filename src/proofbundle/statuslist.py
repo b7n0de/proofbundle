@@ -25,8 +25,9 @@ from __future__ import annotations
 import base64
 import json
 import zlib
-from typing import Optional
+from typing import Optional, TypeGuard
 
+from ._b64strict import EITHER, b64decode_strict
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519
@@ -49,14 +50,42 @@ def _b64url_decode(s: str) -> bytes:
     # memory-amplification DoS. Mirrors anchors_markovian's _MAX_PROOF_BYTES.
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     from .errors import BundleFormatError  # noqa: PLC0415
+    if not isinstance(s, str):
+        raise BundleFormatError("base64 segment must be a string")
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
-    raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    # deep gate L5-02: strict alphabet (RFC 4648 §3.3). urlsafe_b64decode DISCARDED junk characters, so a
+    # ~1 MB status token that was 99.99% junk still verified ok=True — one signed artefact, unboundedly
+    # many verifying wire forms. See proofbundle._b64strict.
+    return b64decode_strict(s, alphabet=EITHER)
 
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    """The ONE type floor for every value this module later uses in arithmetic or as an index.
+
+    Deep gate L2-01: ``bits`` was checked with ``bits not in _ALLOWED_BITS`` only, and a JSON float
+    passes that test because ``1.0 in (1, 2, 4, 8)`` is True — the float then reached
+    ``bit_array[byte_i]`` and raised a RAW TypeError out of ``verify_status_snapshot``, which declares
+    that it never crashes. ``bool`` is excluded for the same reason it is excluded everywhere else here:
+    ``True`` would silently index as 1. Every numeric read of a SIGNED payload goes through this
+    predicate, so a field added later has an obvious right way to be floored.
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_plain_real(value: object) -> TypeGuard[float]:
+    """Type floor for a caller-supplied wall-clock value: int or float, never bool/str/other.
+
+    ``now`` is compared with ``<=``/``<`` against the token's integers; a str/list/None-shaped value
+    raised a raw TypeError out of this never-raise surface. float is accepted deliberately — a caller
+    passing ``time.time()`` is legitimate and must keep working (NaN simply compares False, which is
+    fail-closed for freshness).
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def status_claim(uri: str, idx: int) -> dict:
@@ -164,13 +193,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         return result
     iat, exp, ttl = payload.get("iat"), payload.get("exp"), payload.get("ttl")
     result["iat"], result["exp"], result["ttl"] = iat, exp, ttl
-    if isinstance(iat, bool) or not isinstance(iat, int):
+    if not _is_plain_int(iat):
         result["detail"] = "status list token iat missing or not an integer"
         return result
     # v1.6 (external review): exp/ttl must be integers OR absent — a string "exp" that LOOKS
     # like an expiry but silently never enforces is a downgrade vector, not a tolerable input.
     for _name, _val in (("exp", exp), ("ttl", ttl)):
-        if _val is not None and (isinstance(_val, bool) or not isinstance(_val, int)):
+        if _val is not None and not _is_plain_int(_val):
             result["detail"] = f"status list token {_name} must be an integer when present"
             return result
 
@@ -179,7 +208,9 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = "status_list claim missing"
         return result
     bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
+    # L2-01: _is_plain_int FIRST — a JSON float 1.0 satisfies `in _ALLOWED_BITS` and then crashes the
+    # byte indexing below with a raw TypeError. The membership test alone is not a type check.
+    if not _is_plain_int(bits) or bits not in _ALLOWED_BITS:
         result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
         return result
     if not isinstance(sl.get("lst"), str):
@@ -197,8 +228,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     except (ValueError, TypeError, zlib.error):
         result["detail"] = "status_list lst is not valid base64url(zlib(...))"
         return result
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+    if not _is_plain_int(index) or index < 0:
         result["detail"] = "status index must be a non-negative integer"
+        return result
+    if now is not None and not _is_plain_real(now):
+        # same floor for the caller-supplied clock: it is compared against the token integers below and a
+        # str/list value raised a raw TypeError out of this never-raise surface (L2-01 neighbour sweep).
+        result["detail"] = "now must be a POSIX timestamp number when supplied"
         return result
     try:
         status = _status_at(bit_array, bits, index)

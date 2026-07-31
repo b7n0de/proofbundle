@@ -39,6 +39,18 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
+from ._anchor_contract import failclosed_anchor_verifier
+
+# The two verify surfaces below are NOT registered anchor types (they take a checkpoint text, not a
+# (proof, canonical_root) pair, so `anchors.verify_anchor` never dispatches to them and its
+# `except Exception` net does not sit in front of them). They are held to the SAME fail-closed contract
+# anyway — same invariant, different entry point — with their own verdict key set, so a rejected verdict
+# keeps the shape a consumer already reads instead of inventing a second one.
+_ROOTCOMMIT_V1_REJECTION = {"known_anchors": 0, "binding": False, "reject": True,
+                            "status": "verifier_error"}
+_ROOTCOMMIT_V2SIG_REJECTION = {"known_anchors": 0, "binding": False, "sig_ok": None, "reject": True,
+                               "status": "verifier_error"}
+
 # --- spec constants (rootcommit/SPEC.md §"Anchor line", SPEC_SIG.md §"Anchor line opaque") ---
 KEY_NAME = "markovianprotocol.com/bitcoin-anchor"
 SIG_TYPE = 0xFF                                    # rides as an unassigned c2sp signed-note signature type
@@ -126,6 +138,7 @@ def _binding_status(ots: bytes, commitment: bytes, *, frozen: dict, rp_trust: Op
     return verify_opentimestamps(ots, commitment, frozen=frozen, rp_trust=rp_trust)
 
 
+@failclosed_anchor_verifier(rejection=_ROOTCOMMIT_V1_REJECTION)
 def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
                          rp_trust: Optional[dict] = None) -> dict:
     """Second-implementation verify of a rootcommit/v1 anchor on a checkpoint. Returns
@@ -223,6 +236,7 @@ def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
         return None
 
 
+@failclosed_anchor_verifier(rejection=_ROOTCOMMIT_V2SIG_REJECTION)
 def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = None,
                             rp_trust: Optional[dict] = None) -> dict:
     """Second-implementation verify of a rootcommit/v2-sig anchor. Adds the wallet EIP-191 signature over

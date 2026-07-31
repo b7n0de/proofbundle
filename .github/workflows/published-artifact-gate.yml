@@ -82,12 +82,21 @@ jobs:
         # audit_artifacts/findings_register_361.json) is conftest-skipped, never a silent failure; (2) the
         # optional-dep modules degrade to a clean module-level skip on a bare [eval] install rather than a
         # collection error (L6-01). Stops the invariant from drifting false again.
+        #
+        # ORDER IS THE MEASUREMENT (L6-02): the bare-[eval] property must be exercised BEFORE the [test]
+        # extra is installed. Installing [test] first pulls in hypothesis/PyYAML/jsonschema/sd-jwt, after
+        # which a module-level collection error under bare [eval] can no longer occur — the step would then
+        # name a defence it cannot fail on. /tmp/clean carries the [eval] extra only at this point; adding
+        # bare `pytest` is the runner, not a [test]-extra dependency.
         run: |
-          /tmp/clean/bin/pip install --quiet "$(ls dist/*.tar.gz)[test]"
+          SDIST="$(ls "$PWD"/dist/*.tar.gz)"
           mkdir -p /tmp/sdisttree
-          tar -xzf "$(ls dist/*.tar.gz)" -C /tmp/sdisttree --strip-components=1
+          tar -xzf "$SDIST" -C /tmp/sdisttree --strip-components=1
           cd /tmp/sdisttree
           test ! -e audit_artifacts/findings_register_361.json  # confirm it really is pruned from the sdist
+          /tmp/clean/bin/pip install --quiet pytest
+          /tmp/clean/bin/python -m pytest tests/ --co -q -p no:cacheprovider >/dev/null
+          /tmp/clean/bin/pip install --quiet "$SDIST[test]"
           /tmp/clean/bin/python -m pytest tests/ -q -p no:cacheprovider
 
   reusable-attest-dryrun:

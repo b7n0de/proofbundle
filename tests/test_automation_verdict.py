@@ -64,12 +64,19 @@ class TestAutomationSummaryUnit(unittest.TestCase):
         self.assertIn("STRUCTURE_NOT_OK", s["automationBlockers"])
 
     def test_reference_false_blocks_reference_none_does_not(self):
+        # L1-SEM-02: a reference dimension where NOTHING was resolved is NOT applicable (None), never a
+        # vacuous True — but it still never BLOCKS (only an explicit False does), so safeForAutomation is
+        # unchanged in both directions. The blocking half of this test is the pre-existing contract.
         base = {"crypto_ok": True, "structure_ok": True}
         checks = {"crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
                   "references": ["audience_ok", "nonce_ok"]}
         safe = automation_summary({**base, "audience_ok": None, "nonce_ok": None}, required_checks=checks)
         self.assertTrue(safe["safeForAutomation"])
-        self.assertTrue(safe["referencesResolved"])
+        self.assertIsNone(safe["referencesResolved"])
+        # one reference actually resolved (and none failed) IS a genuine True
+        resolved = automation_summary({**base, "audience_ok": True, "nonce_ok": None}, required_checks=checks)
+        self.assertTrue(resolved["safeForAutomation"])
+        self.assertIs(resolved["referencesResolved"], True)
         unsafe = automation_summary({**base, "audience_ok": False, "nonce_ok": None}, required_checks=checks)
         self.assertFalse(unsafe["safeForAutomation"])
         self.assertFalse(unsafe["referencesResolved"])

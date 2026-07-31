@@ -36,12 +36,30 @@ def prereg_hash(protocol_path) -> str:
 
     6-lens gate L2-01: the read is bounded to the same ``input_bytes`` (8MiB) budget the JSON loader uses
     and STREAMED into hashlib, so an oversized/infinite protocol path cannot exhaust memory. Byte-exact
-    hashing is unchanged; an over-cap file raises :class:`BundleFormatError` (fail-closed)."""
+    hashing is unchanged; an over-cap file raises :class:`BundleFormatError` (fail-closed).
+
+    TYPE FLOOR (deep gate L4-2). ``protocol_path`` must BE a filesystem path. ``os.stat`` and ``open``
+    also accept an INTEGER, and they read it as an open file descriptor, which produced two distinct
+    defects from one root: an out-of-range int raised a raw ``OverflowError`` — from ``ArithmeticError``,
+    outside the exception set :func:`verify_prereg` catches, so it escaped an exported never-raise
+    surface — and, worse, an IN-range int silently HASHED THE CALLER'S OPEN FILE and then CLOSED that
+    descriptor underneath them. Widening the caught exception set would have fixed the first and left the
+    second, because fd consumption is a successful return, not an error. Refusing the type at the top is
+    the one edit that closes both, and unknown argument shapes fall on the rejected side by default
+    instead of being enumerated one crash at a time."""
     import os  # noqa: PLC0415
     import stat as _stat  # noqa: PLC0415
 
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     from .errors import BundleFormatError  # noqa: PLC0415
+    if not isinstance(protocol_path, (str, bytes, os.PathLike)):
+        raise BundleFormatError(
+            "protocol path must be a filesystem path (str, bytes or os.PathLike); an open file "
+            "descriptor or any other object is refused (fail-closed)")
+    try:
+        protocol_path = os.fspath(protocol_path)
+    except Exception as exc:   # noqa: BLE001 - a hostile __fspath__ becomes a typed, fail-closed error
+        raise BundleFormatError("protocol path could not be resolved to a filesystem path") from exc
     cap = DEFAULT_BUDGET.input_bytes
     # adversarial re-audit round 4: stat-guard BEFORE open() — a FIFO with no writer blocks open() forever (a DoS
     # hang, not an over-cap read the loop below could catch). os.stat reads metadata only, never blocks on a

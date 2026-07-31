@@ -138,9 +138,14 @@ def verify_inclusion(
     **Trust precondition (RFC 6962; No-Overclaim, 6-lens review):** ``tree_size`` and ``expected_root``
     MUST be obtained ATOMICALLY from ONE authenticated source (a signed checkpoint / STH) — never
     independently. This function verifies the audit path for the given ``(leaf_index, tree_size, root)``
-    triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
-    can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
-    read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
+    triple; it does not independently authenticate ``tree_size``. Per SPEC.md ("Atomic tree context"), an
+    inclusion proof constrains ``(leaf_index, tree_size)`` only up to PATH-SHAPE EQUIVALENCE: one honest
+    proof for a tree of N leaves is accepted for a whole CONTIGUOUS CLASS of claimed sizes. For the worst
+    leaf index that class holds exactly 2**(ceil(log2 N) - 1) sizes — HALF THE ENCLOSING PERFECT TREE,
+    i.e. between N/2 and N-1, all but the honest N of them falsely claimable — and never merely an
+    adjacent N+/-1. Measured: index 4 of a 10-leaf tree verifies under every claimed size in [9, 16].
+    proofbundle's own callers read ``tree_size`` and ``root`` together from a single
+    ``verify_checkpoint`` result, honoring this."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
         # PB-2026-0718-16: enforce the audit-path STEP budget (merkle_path) in the verification core, so it

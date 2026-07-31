@@ -17,14 +17,20 @@ default). It computes a SEPARATE, stricter verdict: ``safeForAutomation`` is tru
 ``True`` (never merely "not False"), mirroring ``bundle.py``'s own ``policy_ok is True`` bar (P0-B, audit
 2026-07-13). Each of the five ``verify_*`` functions stashes this at ``result["automation"]`` — the old
 ``result["ok"]`` field is untouched.
+
+This module is also the home of the OTHER verdict-semantics rules that must read the same on every
+``verify_*`` path, so a verdict field means what its name says regardless of which path produced it:
+:func:`policy_standing_errors` (does a supplied trust policy have the standing to authorise ON THIS PATH
+at all — lifecycle, purpose, and "no section is silently ignored").
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from .errors import BundleFormatError
 
-__all__ = ["automation_summary", "AUTOMATION_BLOCKER_REASONS"]
+__all__ = ["automation_summary", "AUTOMATION_BLOCKER_REASONS", "POLICY_METADATA_KEYS",
+           "policy_standing_errors"]
 
 # The human-legible reason for each automationBlockers enum value (mirrors bundle.py's
 # AUTOMATION_BLOCKER_REASONS — kept here, next to the blocker logic, so the two can never drift apart).
@@ -49,6 +55,82 @@ AUTOMATION_BLOCKER_REASONS = {
                                 "policy's require_relation_target pin (WHICH parent — a valid but "
                                 "wrong/decoy parent, rejected only in the policy verdict)",
 }
+
+
+# Top-level trust-policy keys that carry NO enforceable rule: schema/lifecycle/purpose/provenance
+# METADATA. This is deliberately an ALLOWLIST of the non-rule keys rather than a blocklist of the rule
+# sections a given path cannot honour: a blocklist has to be complete to WORK (every section added to the
+# policy schema later would silently no-op again), an allowlist has to be complete to PERMIT, so an
+# unknown/new top-level key falls automatically onto the "this path cannot honour it" side.
+POLICY_METADATA_KEYS = frozenset({
+    "schema", "policy_id", "policyPurpose", "valid_from", "valid_until",
+    "deploymentReady", "requiresIdentityOverlay", "generatedFromTemplate",
+})
+
+
+def policy_standing_errors(policy: Any, *, purpose: str,
+                           honoured_sections: Optional[Iterable[str]] = None,
+                           now: Any = None) -> list[str]:
+    """Return the fail-closed reasons a supplied trust policy has NO standing to authorise on the verify
+    path identified by ``purpose`` (empty list = the policy may be evaluated). Never raises.
+
+    A ``POLICY: OK`` verdict has to mean "every clause the caller supplied was evaluated and satisfied".
+    Two ways a path can break that promise, both checked here, both BEFORE any section rule runs:
+
+    * **lifecycle / purpose** — a raw, un-instantiated template (``requiresIdentityOverlay: true``), an
+      EXPIRED policy (``valid_until`` in the past), a not-yet-valid policy (``valid_from`` in the future),
+      or a policy bound to a DIFFERENT verifier path (``policyPurpose``; absent/null stays the documented
+      transitional default and is accepted). A time bound that is present but unparseable is fail-closed
+      too — an unreadable window is not an absent one.
+    * **sections this path cannot honour** — when ``honoured_sections`` is given, every top-level key that
+      is neither :data:`POLICY_METADATA_KEYS` nor an honoured section is an error. Silently ignoring a
+      section the caller asked for is the fail-open: the relying party sees ``POLICY: OK`` for a rule that
+      was never even read. Pass ``honoured_sections=None`` to skip this dimension (a path that has not yet
+      pinned its honoured set must say so explicitly rather than pass an over-wide set).
+    """
+    if not isinstance(policy, Mapping):
+        return ["trust policy must be a JSON object — malformed policy argument (fail-closed)"]
+    # Every caller-supplied value echoed below goes through the bounded renderer: `policy` is untrusted
+    # input on a never-raise verify path, and a self-referential/enormous `valid_until` made a bare
+    # `{...!r}` raise RecursionError out of verify_outcome_receipt (measured, not assumed). The rejection
+    # path must never fail harder than the check it explains.
+    from ._brief import brief  # noqa: PLC0415
+    from .policy import policy_expired, policy_not_yet_valid  # noqa: PLC0415 — lazy: avoids an import cycle
+
+    where = brief(purpose, quote=False)
+    errors: list[str] = []
+    if policy.get("requiresIdentityOverlay") is True:
+        errors.append(
+            "policy is a raw template (requiresIdentityOverlay:true) — instantiate it with a pinned "
+            f"signer identity before using it to authorise on the {where} verify path")
+    _expired = policy_expired(policy, now=now)
+    if _expired:
+        errors.append(f"policy valid_until {brief(policy.get('valid_until'))} is in the past — expired, "
+                      f"cannot authorise on the {where} verify path")
+    elif _expired is None and policy.get("valid_until") is not None:
+        errors.append(f"policy valid_until {brief(policy.get('valid_until'))} is not a readable timestamp "
+                      "— an unreadable validity window cannot be honoured (fail-closed)")
+    _early = policy_not_yet_valid(policy, now=now)
+    if _early:
+        errors.append(f"policy valid_from {brief(policy.get('valid_from'))} is in the future — not yet "
+                      f"valid, cannot authorise on the {where} verify path")
+    elif _early is None and policy.get("valid_from") is not None:
+        errors.append(f"policy valid_from {brief(policy.get('valid_from'))} is not a readable timestamp — "
+                      "an unreadable validity window cannot be honoured (fail-closed)")
+    if policy.get("policyPurpose") is not None and policy.get("policyPurpose") != purpose:
+        errors.append(f"policyPurpose {brief(policy.get('policyPurpose'))} — this policy is not for the "
+                      f"{where} verify path (wrong purpose, fail-closed)")
+
+    if honoured_sections is not None:
+        honoured = {s for s in honoured_sections if isinstance(s, str)}
+        for key in sorted(k for k in policy if isinstance(k, str)):
+            if key in POLICY_METADATA_KEYS or key in honoured:
+                continue
+            errors.append(
+                f"trust policy section {brief(key)} cannot be enforced by the {where} verify path "
+                f"(honoured here: {brief(sorted(honoured), quote=False)}) — refusing to report POLICY: OK "
+                "for a section that was never evaluated (fail-closed)")
+    return errors
 
 
 def _tri(result: Mapping[str, Any], key: Optional[str]) -> Optional[bool]:
@@ -102,6 +184,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     crypto_ok = _tri(result, crypto_key)
     structure_ok = _tri(result, structure_key)
     policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # adversarial re-audit r5: unhashable key
+    reference_values = [result.get(name) for name in reference_keys if isinstance(name, str)]
     unresolved = [name for name in reference_keys if isinstance(name, str) and result.get(name) is False]
 
     blockers: list[str] = []
@@ -121,7 +204,14 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
         "cryptoValid": crypto_ok,
         "structureValid": structure_ok,
         "policyAuthorized": None if policy_key is None else (policy_val is True),
-        "referencesResolved": None if not reference_keys else not unresolved,
+        # A reference dimension where NOTHING was resolved is "not applicable" (None), never a vacuous
+        # True: `all([])` is True, but "no reference check ran" is not "the references resolved". The
+        # dimension reads True only when at least one listed field carries a real (non-None) verdict and
+        # none of them is False — the same "never merely `is not False`" bar policyAuthorized already uses.
+        # This is a LABELLING fix: it never adds or removes a blocker (only an explicit False does that),
+        # so safeForAutomation is unchanged in both directions.
+        "referencesResolved": (None if (not unresolved and all(v is None for v in reference_values))
+                               else not unresolved),
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
     }

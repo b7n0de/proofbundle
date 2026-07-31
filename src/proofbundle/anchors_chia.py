@@ -28,6 +28,8 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
+from ._anchor_contract import failclosed_anchor_verifier
+
 ANCHOR_TYPE = "chia-datalayer/v1"
 
 # CLVM tree-hash / node-hash domain-separation prefixes (Chia DataLayer Merkle set).
@@ -164,6 +166,7 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     return {"ok": True, "detail": "chia-datalayer merkle: canonicalRoot (as DataLayer key) included under published_root (level i, offline; chain binding NOT checked here)"}
 
 
+@failclosed_anchor_verifier
 def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Optional[dict] = None,
                           now: Optional[int] = None) -> dict:
     """Registered anchor verifier for ``chia-datalayer/v1`` (see ``register_anchor_type``).

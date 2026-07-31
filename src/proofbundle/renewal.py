@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ._brief import brief
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
@@ -386,7 +387,7 @@ def _require_prior_anchor(prior: ArchiveTimeStamp, *,
     if prior.anchor_status != _CONFIRMED:
         raise RenewalError(
             f"cannot renew: the prior ArchiveTimeStamp is not confirmed (anchor_status="
-            f"{prior.anchor_status!r}) — renew_without_prior_anchor is a fail-closed error")
+            f"{brief(prior.anchor_status)}) — renew_without_prior_anchor is a fail-closed error")
     return "self_asserted_status"
 
 
@@ -412,7 +413,8 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {brief(time, quote=False)} must be strictly after the prior ATS "
+                           f"time {brief(prior.time, quote=False)}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -441,7 +443,8 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {brief(time, quote=False)} must be strictly after the prior ATS "
+                           f"time {brief(prior.time, quote=False)}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -778,25 +781,81 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         return result
     newest = _newest(sequence)
 
-    reasons = []
-    if newest.hash_alg in policy.deprecated_algs:
-        reasons.append(f"newest ATS uses policy-deprecated hash {newest.hash_alg!r}")
+    # deep gate L3-04 — the type floor, read BEFORE any arithmetic touches these values.
+    #
+    # Everything this function computes with is caller-supplied and unvalidated. `ArchiveTimeStamp` is a
+    # plain frozen dataclass: it enforces no field type, so `newest.time` can be a str and `newest.hash_alg`
+    # an unhashable list. `policy` is duck-typed at runtime whatever the annotation says, and `now` is a
+    # bare argument. Eight shapes left this surface as a raw TypeError/AttributeError — `x in frozenset()`
+    # for an unhashable x, `now - "1000"`, `1 > "x"`, a policy object without the attribute at all — out of
+    # a function that documents a VerificationResult.
+    #
+    # The future-date guard below is where this is most visible: it computed exactly the int test that was
+    # needed, under the name `_ints`, and then the age test three lines later subtracted the same two
+    # fields regardless of the answer. The guard was announced, not applied. Everything that is read is now
+    # floored once, here, and an unusable value becomes a REASON rather than a crash — the fail-closed
+    # direction, since a policy that cannot be evaluated must never read as "no renewal due".
+    #
+    # Stated residual, so the guarantee is not read as wider than it is: this floors the VALUES. A `policy`
+    # object whose attribute ACCESS itself raises (a property or `__getattr__` that throws) still escapes,
+    # because there is no way to read the field without running the caller's code. Every value that can be
+    # read is handled; reading is where the boundary is.
+    def _plain_int(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    alg = newest.hash_alg
+    deprecated_algs = getattr(policy, "deprecated_algs", ())
+    max_ats_age = getattr(policy, "max_ats_age", None)
+    strictness = getattr(policy, "strictness", "warn")
+    ages_comparable = _plain_int(newest.time) and _plain_int(now)
+    age = now - newest.time if ages_comparable else None
+
+    reasons: list[str] = []
+    not_evaluable = False
+
+    if not isinstance(alg, str):
+        not_evaluable = True
+        reasons.append(f"newest ATS hash_alg {brief(alg)} is not a string — the policy cannot be evaluated")
+    else:
+        try:
+            alg_is_deprecated = alg in deprecated_algs
+        except Exception:  # noqa: BLE001 - membership runs the container's own __contains__
+            not_evaluable, alg_is_deprecated = True, False
+            reasons.append(f"policy.deprecated_algs {brief(deprecated_algs)} is not a usable container — "
+                           "the policy cannot be evaluated")
+        if alg_is_deprecated:
+            reasons.append(f"newest ATS uses policy-deprecated hash {brief(alg)}")
+
     # Future-dated guard (No-Fake): a newest.time AFTER `now` is anomalous — the freshness/age test below
     # ((now - newest.time) > max_ats_age) goes NEGATIVE for a future time and would report it as perpetually
     # fresh, so a future date could otherwise permanently evade the renewal-due signal. Flag it as overdue.
-    _ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (newest.time, now))
-    if _ints and newest.time > now:
-        reasons.append(f"newest ATS time {newest.time} is in the future (now={now}) — anomalous, not fresh")
-    if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
-        reasons.append(f"newest ATS age {now - newest.time} exceeds max {policy.max_ats_age}")
+    if not ages_comparable:
+        not_evaluable = True
+        reasons.append(f"newest ATS time {brief(newest.time)} and now {brief(now)} are not both integers — "
+                       "the age of the newest ATS is not computable")
+    elif newest.time > now:
+        reasons.append(f"newest ATS time {brief(newest.time, quote=False)} is in the future "
+                       f"(now={brief(now, quote=False)}) — anomalous, not fresh")
+
+    if max_ats_age is not None:
+        if not (_plain_int(max_ats_age) and ages_comparable):
+            not_evaluable = True
+            reasons.append(f"policy.max_ats_age {brief(max_ats_age)} cannot be compared with the newest "
+                           "ATS age — freshness cannot be evaluated")
+        elif age > max_ats_age:
+            reasons.append(f"newest ATS age {brief(age, quote=False)} exceeds max "
+                           f"{brief(max_ats_age, quote=False)}")
 
     if not reasons:
+        # reachable only when `alg` is a str and `age` an int, so both render bounded and unchanged
         result.checks.append(Check("renewal:policy", True,
-                                   f"newest ATS ({newest.hash_alg}, age {now - newest.time}) is within "
-                                   "policy — no renewal due"))
+                                   f"newest ATS ({brief(alg, quote=False)}, age "
+                                   f"{brief(age, quote=False)}) is within policy — no renewal due"))
         return result
 
-    overdue_ok = policy.strictness == "warn"  # WARN → not a hard fail; FAIL → ok=False
+    # A policy that could not be evaluated is never merely a WARN: `strictness` is itself read off the same
+    # unvalidated object, so an unusable policy must not be able to declare its own failure harmless.
+    overdue_ok = strictness == "warn" and not not_evaluable  # WARN → not a hard fail; FAIL → ok=False
     label = "WARN" if overdue_ok else "FAIL"
     detail = f"renewal overdue ({label}): " + "; ".join(reasons)
     result.checks.append(Check("renewal:policy", overdue_ok, detail))

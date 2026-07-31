@@ -38,6 +38,12 @@ _SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches bef
 _OUTCOME_STATUS = {"executed", "refused", "failed", "partial"}
 _OUTCOME_POLICY_PURPOSE = "outcome"
 
+# The trust-policy sections `verify_outcome_receipt` can actually ENFORCE. WP-B (3.4.0) wired the
+# `relations` section; nothing else on this path reads a policy section (the CLI's outcome verify does not
+# consume `anchors` either — unlike `decision verify`, which turns it into rp_trust). Any other section a
+# caller supplies is refused rather than silently ignored, see automation_verdict.policy_standing_errors.
+_OUTCOME_HONOURED_POLICY_SECTIONS = ("relations",)
+
 _REQUIRED_ALWAYS = (
     "schemaVersion", "outcomeId", "decisionRef", "executor", "requestedActionDigest",
     "status", "performedAt",
@@ -796,21 +802,35 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # the old `and` chain). A requested-but-malformed policy is NEVER a silent pass (fail-open).
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
-        import base64 as _b64_rel  # noqa: PLC0415
-        from .relation import evaluate_relations_policy  # noqa: PLC0415
-        _viol = evaluate_relations_policy(
-            policy["relations"], _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(public_key).decode())
-        r["policy_ok"] = not _viol
-        if _viol:
-            r["relations_policy_failed"] = True
-            _codes = {v["code"] for v in _viol}
-            if "LINEAGE_REQUIREMENT_FAILED" in _codes:
-                r["lineage_requirement_failed"] = True
-            for v in _viol:
-                r["errors"].append(f"{v['code']}: {v['message']}")
-            r["relations_policy_codes"] = sorted(_codes)
+    elif isinstance(policy, dict) and r["crypto_ok"]:
+        # L1-SEM-01: the POLICY-LEVEL preconditions run BEFORE any section rule, and a section this path
+        # cannot honour is refused instead of ignored. Before this, `policy_ok` was decided EXCLUSIVELY by
+        # the relations section: an expired, wrong-purpose, un-instantiated template policy that happened to
+        # carry a satisfiable `relations` block reported POLICY: OK here while the DECISION sibling failed
+        # the very same file closed — and a `decision_receipt`/`merkle`/`signature` section handed to this
+        # path was silently dropped, which is the fail-open (the relying party reads OK for a rule that was
+        # never read). Preconditions gate the section rules: when they fail, no section verdict is claimed.
+        from .automation_verdict import policy_standing_errors  # noqa: PLC0415
+        _standing = policy_standing_errors(policy, purpose=_OUTCOME_POLICY_PURPOSE,
+                                           honoured_sections=_OUTCOME_HONOURED_POLICY_SECTIONS)
+        if _standing:
+            r["policy_ok"] = False
+            r["errors"].extend(_standing)
+        elif isinstance(policy.get("relations"), dict):
+            import base64 as _b64_rel  # noqa: PLC0415
+            from .relation import evaluate_relations_policy  # noqa: PLC0415
+            _viol = evaluate_relations_policy(
+                policy["relations"], _as_dict(r.get("lineage")),
+                successor_key_b64=_b64_rel.b64encode(public_key).decode())
+            r["policy_ok"] = not _viol
+            if _viol:
+                r["relations_policy_failed"] = True
+                _codes = {v["code"] for v in _viol}
+                if "LINEAGE_REQUIREMENT_FAILED" in _codes:
+                    r["lineage_requirement_failed"] = True
+                for v in _viol:
+                    r["errors"].append(f"{v['code']}: {v['message']}")
+                r["relations_policy_codes"] = sorted(_codes)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

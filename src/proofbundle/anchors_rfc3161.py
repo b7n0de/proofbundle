@@ -16,12 +16,15 @@ from __future__ import annotations
 import base64
 from typing import Optional
 
+from ._anchor_contract import failclosed_anchor_verifier
+
 
 def _load_der_cert(b64: str):
     from cryptography import x509  # noqa: PLC0415
     return x509.load_der_x509_certificate(base64.b64decode(b64))
 
 
+@failclosed_anchor_verifier
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
                    rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed offline verify of an RFC 3161 token. Returns {ok, detail}.
