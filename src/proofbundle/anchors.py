@@ -43,6 +43,7 @@ import binascii
 import hashlib
 from typing import Callable, Optional
 
+from ._brief import brief
 from .errors import BundleFormatError
 
 ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
@@ -286,13 +287,13 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
-            f"require_target must be one of {ANCHOR_TARGETS}, got {require_target!r}")
+            f"require_target must be one of {ANCHOR_TARGETS}, got {brief(require_target)}")
     if require_target is not None and not require:
         require = "any"   # a target requirement IS an anchor requirement (mirrors --anchor-type)
     if not anchors:
         if require:
             return {"status": "FAIL", "require_met": False,
-                    "detail": f"--require-anchor {require} set but the receipt has no anchors",
+                    "detail": f"--require-anchor {brief(require, quote=False)} set but the receipt has no anchors",
                     "results": []}
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
     if not isinstance(anchors, list):
@@ -315,10 +316,11 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
                        if r["ok"] and not r["warn"] and (want is None or r["type"] == want)
                        and _target_ok(r)]
         if not matched:
-            tgt = f" with target {require_target!r}" if require_target is not None else ""
-            detail = (f"--require-anchor {require}{tgt} (--allow-pending): no verifying or pending anchor of that type/target"
+            tgt = f" with target {brief(require_target)}" if require_target is not None else ""
+            req = brief(require, quote=False)
+            detail = (f"--require-anchor {req}{tgt} (--allow-pending): no verifying or pending anchor of that type/target"
                       if allow_pending else
-                      f"--require-anchor {require}{tgt}: no verifying anchor of that type/target")
+                      f"--require-anchor {req}{tgt}: no verifying anchor of that type/target")
             return {"status": "FAIL", "require_met": False, "detail": detail, "results": results}
     hard_fail = any(not r["ok"] and not r["warn"] for r in results)
     if hard_fail:

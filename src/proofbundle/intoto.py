@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ._brief import brief
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
@@ -302,7 +303,7 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
         type_ok = (got == expected_predicate_type)
         merged_detail = detail if type_ok else (
             (detail + "; " if detail else "")
-            + f"predicateType {got!r} != expected {expected_predicate_type!r} (confusion attack?)")
+            + f"predicateType {brief(got)} != expected {brief(expected_predicate_type)} (confusion attack?)")
     ok = bool(sig_ok) and binding_ok and (type_ok is not False)
     return {"ok": ok, "statement": statement, "predicate_type": got,
             "predicate_type_ok": type_ok, "content_root_alg": alg,

@@ -21,6 +21,7 @@ import hashlib
 import re
 from typing import Any, Callable
 
+from ._brief import brief
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
@@ -144,7 +145,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     if "policyPurpose" in predicate and predicate.get("policyPurpose") != _OUTCOME_POLICY_PURPOSE:
         errors.append(
             f"policyPurpose must be {_OUTCOME_POLICY_PURPOSE!r} for an outcome receipt, "
-            f"got {predicate.get('policyPurpose')!r}")
+            f"got {brief(predicate.get('policyPurpose'))}")
 
     lim = predicate.get("limitations")
     if "limitations" in predicate and not (isinstance(lim, list) and all(isinstance(x, str) for x in lim)):

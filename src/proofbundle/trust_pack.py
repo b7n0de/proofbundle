@@ -27,6 +27,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
+from ._brief import brief
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
@@ -562,8 +563,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                                  and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
-                f"version {predicate.get('version')!r} is not greater than the previous version "
-                f"{prev_version} (rollback/freeze, fail-closed)")
+                f"version {brief(predicate.get('version'))} is not greater than the previous version "
+                f"{brief(prev_version, quote=False)} (rollback/freeze, fail-closed)")
     if prev_version_digest is not None:
         pvd = predicate.get("prevVersionDigest")
         pvd_hex = pvd.get("sha256") if _is_digest(pvd) else None
@@ -616,7 +617,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         if not r["rotation_authorized"]:
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
-                f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+                f"need {brief(prev_root_threshold, quote=False)} (old root must vouch for the new pack, "
+                "fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
         # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
         # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:
