@@ -105,7 +105,7 @@ inspect = ['inspect_ai>=0.3.112,<0.4']
 #                                between the two: RUF100 400, E402 257, UP045 181, F401 72)
 # Raising this cap is a deliberate task (run the new ruff, triage its findings, then move the
 # bound) and not something a dependency resolver should do on our behalf.
-dev = ["pytest>=7", "ruff>=0.5,<0.16", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
