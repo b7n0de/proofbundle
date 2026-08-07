@@ -96,16 +96,23 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
 inspect = ['inspect_ai>=0.3.112,<0.4']
-# ruff is capped on purpose. A linter is a JUDGE in CI (`ruff check .` is a blocking step),
-# and its rule set changes between minor releases, so an unbounded requirement lets a release
-# published upstream turn a green tree red without a single line of our code changing.
-# Measured on both sides of the boundary, 2026-07-31:
-#   ruff 0.15.22  -> CI green   (run 30025345689, main @2e5807a, 2026-07-23)
-#   ruff 0.16.0   -> CI red     (run 30468200481, PR #130, 1168 findings, no code change
-#                                between the two: RUF100 400, E402 257, UP045 181, F401 72)
-# Raising this cap is a deliberate task (run the new ruff, triage its findings, then move the
-# bound) and not something a dependency resolver should do on our behalf.
-dev = ["pytest>=7", "ruff>=0.5,<0.16", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+# ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
+# is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
+# to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
+#
+#   ruff 0.16.0 expanded its DEFAULT rule set from 59 rules to 413 (Astral's v0.16.0 release; the
+#   default had been untouched since v0.1.0). Measured here on the identical tree @2e5807a:
+#     ruff 0.15.0 / 0.15.10 / 0.15.22 -> 59 default rules  -> exit 0 over all 258 tracked .py
+#     ruff 0.16.0 / 0.16.1 / 0.16.2   -> 413 default rules -> exit 1, 1168 findings
+#   Top rules, re-measured on that same tree with 0.16.0: RUF100 400, UP045 181, I001 163,
+#   RUF059 57, EXE001 40, PLW1510 37, BLE001 36, UP006 30. NONE of them was enabled in 0.15.
+#   (The earlier note here cited "E402 257" and "F401 72". Both are wrong: on that tree, with
+#   that ruff, E402 and F401 each find ZERO. The total, 1168, was right. Corrected 2026-08-07.)
+#
+# So the bound stays, but for a NARROWER and honestly smaller reason: `select` fixes WHICH rules
+# judge us, it cannot fix a change in what an individual rule MEANS. That residue is what `<0.17`
+# still covers, and it is a much cheaper thing to re-check than a 7x rule-set swing.
+dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
@@ -132,6 +139,34 @@ proofbundle = ["py.typed", "eee_eval_schema.json", "policies/*.json"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# THE JUDGE'S CRITERIA ARE OURS, NOT THE VENDOR'S DEFAULT-OF-THE-DAY.
+#
+# `ruff check .` is a blocking CI step, so the set of enabled rules is an INPUT to a gate. Until
+# 2026-08-07 this file pinned only ruff's VERSION and left the rule SELECTION implicit, which meant
+# an upstream release could redefine what "green" means here without a line of our code changing.
+# It did: 0.16.0 took the default from 59 rules to 413. Capping the version deferred that; every
+# future cap raise would have replayed the same triage. Naming the rules removes the class.
+#
+# These four prefixes ARE the set that judged this repo through the whole 0.15 line — verified by
+# set comparison, not by eye: `--select E4,E7,E9,F` under 0.16.2 enables exactly the same 59 rules
+# that 0.15.0/0.15.10/0.15.22 enabled by default, and under that selection every one of
+# 0.15.0 / 0.15.10 / 0.15.22 / 0.16.0 / 0.16.1 / 0.16.2 exits 0 over all 258 tracked .py files.
+# This is also Astral's own documented way to keep the pre-0.16 behaviour.
+#
+# THE HALF THAT IS EASY TO MISS: 0.16 did not only ADD rules, it DROPPED 18 from the default —
+# E401 E402 E701 E702 E703 E711 E712 E713 E714 E721 E731 E741 E742 E743 F403 F405 F406 F722.
+# Among them `== None` (E711), `== True` (E712), type comparison by `==` (E721) and star-import
+# leakage (F403/F405). Simply raising the cap would have SILENTLY STOPPED checking all eighteen,
+# and nothing would have shown it: the finding count goes UP, so the regression hides inside an
+# apparent tightening. All eighteen sit inside the E4/E7/E9/F prefixes below, so they keep being
+# checked here. (Upstream has an open issue that this removal never reached BREAKING_CHANGES.md.)
+#
+# EXPANDING this set is a separate, deliberate task with its own diff — several of the 372 newly
+# defaulted rules look worth adopting. The point of naming the set is that adopting them becomes a
+# decision we make, at a time we choose, instead of one a `pip install` makes for us.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 python_version = "3.10"
