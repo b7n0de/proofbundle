@@ -284,5 +284,102 @@ def test_malformed_pypi_response_is_not_measurable(monkeypatch):
     assert zustaende["PyPI"] == chk.NICHT_MESSBAR
 
 
+# --------------------------------------------------------------------------------------------
+# Check 6: places that claim a current version without being declared
+#
+# Check 4 can only watch what somebody declared. This is the must-catch for the README case: the
+# README states no version today, so a test that "the README number is stale" would be testing a
+# sentence that does not exist. What CAN go wrong is that a version claim appears there — and from
+# that moment it is a place that can go stale with nothing watching it.
+# --------------------------------------------------------------------------------------------
+
+def _git_repo(t: Path, version: str, headings: list[str]):
+    def g(*a):
+        return subprocess.run(["git", "-C", str(t), *a], capture_output=True, text=True)
+
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    _write_repo(t, version, headings)
+    return g
+
+
+def test_undeclared_current_version_claim_in_readme_is_caught(tmp_path):
+    g = _git_repo(tmp_path, "3.0.1", ["3.0.1"])
+    (tmp_path / "README.md").write_text(
+        "# proofbundle\n\nInstall it. The current release: 3.0.0 ships the adapter.\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "docs: readme")
+    probs = chk.check_undeclared_places(tmp_path)
+    assert any("README.md" in p and "3.0.0" in p and "not a declared place" in p for p in probs), probs
+
+
+def test_undeclared_claim_is_caught_even_when_it_matches_the_source(tmp_path):
+    # Subtle and the whole point: agreeing TODAY is not the property. An undeclared place that
+    # happens to be right is one release away from being wrong with nobody looking.
+    g = _git_repo(tmp_path, "3.0.1", ["3.0.1"])
+    (tmp_path / "README.md").write_text("current release: 3.0.1\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "docs: readme")
+    assert any("README.md" in p for p in chk.check_undeclared_places(tmp_path))
+
+
+def test_historical_statements_do_not_trip_the_sweep(tmp_path):
+    # "since"/"as of" record when something became true. A sweep that demanded they be bumped would
+    # manufacture false claims — the exact thing check 4 refuses to do.
+    g = _git_repo(tmp_path, "3.0.1", ["3.0.1"])
+    (tmp_path / "INTEGRATIONS.md").write_text(
+        "sample-count provenance since v3.7.0; corpus 56/56 as of v3.2.0.\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "docs: integrations")
+    assert chk.check_undeclared_places(tmp_path) == []
+
+
+def test_declared_places_are_not_reported_twice(tmp_path):
+    # RELEASE.md legitimately states the current version and IS declared — check 4 owns it.
+    g = _git_repo(tmp_path, "3.0.1", ["3.0.1"])
+    g("add", "-A")
+    g("commit", "-qm", "init")
+    probs = chk.check_undeclared_places(tmp_path)
+    assert not any("RELEASE.md" in p or "PROGRESS.md" in p for p in probs), probs
+
+
+def test_untracked_file_is_not_a_repo_claim(tmp_path):
+    # An untracked scratch file is not something the repo says. Reading one as a repo statement is
+    # the same defect as reporting a number about the wrong object.
+    g = _git_repo(tmp_path, "3.0.1", ["3.0.1"])
+    g("add", "-A")
+    g("commit", "-qm", "init")
+    (tmp_path / "scratch.md").write_text("current release: 2.0.0\n", encoding="utf-8")
+    assert chk.check_undeclared_places(tmp_path) == []
+
+
+# --------------------------------------------------------------------------------------------
+# Every number names its object and its source
+# --------------------------------------------------------------------------------------------
+
+def test_source_version_carries_its_origin(tmp_path):
+    _write_repo(tmp_path, "3.0.1", ["3.0.1"])
+    assert chk._source_version(tmp_path) == ("3.0.1", "pyproject.toml")
+
+
+def test_stale_place_finding_names_where_the_source_was_read(tmp_path):
+    _write_repo(tmp_path, "3.0.1", ["3.0.1"])
+    (tmp_path / "RELEASE.md").write_text(
+        "# Release\n\n(current: 3.0.0) and so on.\n", encoding="utf-8")
+    probs = chk.check(tmp_path)
+    assert any("read from pyproject.toml" in p for p in probs), probs
+
+
+def test_external_finding_names_both_objects(monkeypatch):
+    monkeypatch.setattr(chk, "_fetch", _fake_fetch({
+        chk._PYPI_JSON: json.dumps({"info": {"version": "3.6.2"}}),
+        chk._PROJECT_PAGE: _page("3.7.0"),
+    }))
+    detail = dict((n, d) for n, _, d in chk.check_external("3.7.0", herkunft="pyproject.toml"))
+    assert "published sdist/wheel version" in detail["PyPI"]
+    assert "read from pyproject.toml" in detail["PyPI"]
+
+
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))

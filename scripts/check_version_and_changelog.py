@@ -2,7 +2,7 @@
 """check_version_and_changelog.py — release-integrity gate for proofbundle.
 
 Closes the "merged but never released / version drift" class (the M2 security fix and the 811-vs-817
-typo both sat unreleased on main because nothing enforced this). Five checks:
+typo both sat unreleased on main because nothing enforced this). Six checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
   2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md.
@@ -14,6 +14,19 @@ typo both sat unreleased on main because nothing enforced this). Five checks:
      MUST state the source version. A place whose anchor phrase has vanished is a failure too, not a
      silent pass — a gate that stops finding its anchor stops gating.
   5. EXTERNAL SURFACES (opt-in, --external): PyPI and the project page must state the same version.
+  6. UNDECLARED PLACES: a tracked file that states a *current* version while not being a declared
+     place in _TRACKED_PLACES is a finding. Check 4 can only watch what someone remembered to
+     declare; a new sentence that starts claiming the current release is invisible to it, and the
+     place nobody declared is exactly the one that goes stale. Historical forms ("since X.Y.Z",
+     "as of X.Y.Z") do not match — only claim shapes that mean "this is the current release".
+
+EVERY NUMBER NAMES ITS OBJECT AND ITS SOURCE. Not "version 0.49.1" but "markdownlint-cli 0.49.1,
+read from package.json". A bare number is real and still says nothing: on 2026-08-07 a single day
+produced a library version reported as a CLI version, a bundling threshold read from the wrong call,
+and an exit code that belonged to `tail`. Each number was correct about something other than the
+thing it was named for. The output below therefore always carries the object a number describes and
+the file it was read from. (The example deliberately uses a foreign tool's version: an illustration
+that spells out this project's current release would itself become a place that goes stale.)
 
 WHAT THIS DOES NOT TOUCH, deliberately: historical statements. "since v3.7.0", "as of v3.7.0" and old
 CHANGELOG headings record *when* something became true. Bumping them would turn a fact into a lie, so
@@ -54,6 +67,13 @@ _TRACKED_PLACES = [
      re.compile(r"current release:\s*v?" + _SEMVER), "the `(current release: X.Y.Z)` note"),
 ]
 
+# Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and
+# "as of X.Y.Z" record history and must never match, or the sweep would demand that facts be bumped.
+_CURRENT_CLAIM = re.compile(
+    r"(?:current|latest)(?:\s+(?:release|version))?\s*:?\s*v?" + _SEMVER, re.IGNORECASE)
+# Not swept: test fixtures state wrong versions ON PURPOSE, and audit artifacts are frozen history.
+_SWEEP_EXCLUDE_PREFIXES = ("tests/", "audit_artifacts/")
+
 _PYPI_JSON = "https://pypi.org/pypi/proofbundle/json"
 _PROJECT_PAGE = "https://b7n0de.com/proofbundle/"
 # The page states the published version as `PyPI latest <code>X.Y.Z</code>` (and `PyPI-latest` in the
@@ -82,6 +102,22 @@ def _init_version(repo: Path) -> str | None:
 def _citation_version(repo: Path) -> str | None:
     m = re.search(r'(?m)^\s*version\s*:\s*["\']?([0-9]+\.[0-9]+\.[0-9]+[^"\'\s]*)', _read(repo / "CITATION.cff"))
     return m.group(1) if m else None
+
+
+def _source_version(repo: Path) -> tuple[str | None, str]:
+    """The source version AND the file it was read from.
+
+    Returned together on purpose: a version without its origin is the defect class this gate exists
+    to catch. Callers must not re-derive the number separately — that is how two call sites end up
+    reporting different values for "the version".
+    """
+    for datei, leser in (("pyproject.toml", _pyproject_version),
+                         ("src/proofbundle/__init__.py", _init_version),
+                         ("CITATION.cff", _citation_version)):
+        v = leser(repo)
+        if v:
+            return v, datei
+    return None, "no source file carried a version"
 
 
 def _changelog_headings(repo: Path) -> list[str]:
@@ -142,7 +178,7 @@ def check(repo: Path) -> list[str]:
     if len(distinct) > 1:
         problems.append(f"version disagreement across sources: {versions}")
 
-    version = pv or iv or cv
+    version, herkunft = _source_version(repo)
     headings = _changelog_headings(repo)
 
     # 2. CHANGELOG documents the current version
@@ -167,12 +203,50 @@ def check(repo: Path) -> list[str]:
                 f"(e.g. {nontrivial[:3]})")
 
     # 4. Tracked prose places state the current version
+    # 6. Places that state a current version without being declared
     if version:
-        problems.extend(check_tracked_places(repo, version))
+        problems.extend(check_tracked_places(repo, version, herkunft))
+        problems.extend(check_undeclared_places(repo))
     return problems
 
 
-def check_tracked_places(repo: Path, version: str) -> list[str]:
+def _tracked_files(repo: Path) -> list[str]:
+    """Tracked files only. An untracked scratch file is not a claim this repo makes — reading one as
+    a repo statement is the same defect this gate reports about numbers."""
+    rc, out = _git(repo, "ls-files")
+    return out.splitlines() if rc == 0 else []
+
+
+def check_undeclared_places(repo: Path) -> list[str]:
+    """Find "this is the current release" claims outside _TRACKED_PLACES.
+
+    Check 4 watches the places somebody declared. This one watches for places nobody did: a sentence
+    that starts stating the current release is, from that moment, a place that can go stale, and
+    nothing was looking at it. The finding asks for a decision (declare it, or reword it), because a
+    sweep cannot know whether a claim is meant to be current.
+    """
+    declared = {rel for rel, _, _ in _TRACKED_PLACES}
+    problems: list[str] = []
+    for rel in _tracked_files(repo):
+        if rel in declared or rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
+            continue
+        p = repo / rel
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue                      # binary or unreadable: no claim to read, not a failure
+        for nr, zeile in enumerate(text.splitlines(), 1):
+            treffer = _CURRENT_CLAIM.search(zeile)
+            if treffer:
+                problems.append(
+                    f"{rel}:{nr}: states a current version ({treffer.group(1)}, in "
+                    f"\"{treffer.group(0).strip()}\") but is not a declared place. Either add it to "
+                    f"_TRACKED_PLACES so it is kept current, or reword it so it does not claim to be.")
+                break                     # one finding per file is enough to force the decision
+    return problems
+
+
+def check_tracked_places(repo: Path, version: str, herkunft: str = "the source file") -> list[str]:
     """Every declared "this is the current release" statement must name `version`.
 
     A missing file or a vanished anchor phrase is a failure, not a pass: if the sentence was
@@ -192,7 +266,8 @@ def check_tracked_places(repo: Path, version: str) -> list[str]:
             continue
         wrong = sorted({v for v in found if v != version})
         if wrong:
-            problems.append(f"{rel}: {beschreibung} states {wrong} but the source version is {version}")
+            problems.append(f"{rel}: {beschreibung} states {wrong} but the source version is "
+                            f"{version}, read from {herkunft}")
     return problems
 
 
@@ -206,7 +281,8 @@ def _fetch(url: str, timeout: float) -> str | None:
         return None
 
 
-def check_external(version: str, timeout: float = 15.0) -> list[tuple[str, str, str]]:
+def check_external(version: str, timeout: float = 15.0,
+                   herkunft: str = "the source file") -> list[tuple[str, str, str]]:
     """Compare the source version against PyPI and the project page.
 
     Returns (surface, state, detail) with state in {"OK", "ABWEICHUNG", NICHT_MESSBAR}.
@@ -224,7 +300,8 @@ def check_external(version: str, timeout: float = 15.0) -> list[tuple[str, str, 
             ergebnisse.append(("PyPI", NICHT_MESSBAR, "response was not the expected JSON shape"))
         else:
             ergebnisse.append(("PyPI", "OK" if veroeffentlicht == version else "ABWEICHUNG",
-                               f"PyPI states {veroeffentlicht}, source states {version}"))
+                               f"PyPI states {veroeffentlicht} (published sdist/wheel version), "
+                               f"source states {version}, read from {herkunft}"))
 
     seite = _fetch(_PROJECT_PAGE, timeout)
     if seite is None:
@@ -237,10 +314,13 @@ def check_external(version: str, timeout: float = 15.0) -> list[tuple[str, str, 
             ergebnisse.append(("project page", NICHT_MESSBAR,
                                "no `PyPI latest <code>X.Y.Z</code>` statement found on the page"))
         elif genannt == [version]:
-            ergebnisse.append(("project page", "OK", f"page states {version}"))
+            ergebnisse.append(("project page", "OK",
+                               f"page states {version} as `PyPI latest`, matching {version} "
+                               f"read from {herkunft}"))
         else:
             ergebnisse.append(("project page", "ABWEICHUNG",
-                               f"page states {genannt}, source states {version}"))
+                               f"page states {genannt} as `PyPI latest`, source states {version}, "
+                               f"read from {herkunft}"))
     return ergebnisse
 
 
@@ -256,13 +336,14 @@ def main() -> int:
     repo = Path(a.repo).resolve()
     problems = check(repo)
 
+    version, herkunft = _source_version(repo)
+
     aussen: list[tuple[str, str, str]] = []
     if a.external or a.require_external:
-        version = _pyproject_version(repo) or _init_version(repo) or _citation_version(repo)
         if not version:
             problems.append("cannot check external surfaces: no source version found")
         else:
-            aussen = check_external(version, a.timeout)
+            aussen = check_external(version, a.timeout, herkunft)
             print("external surfaces:")
             for name, state, detail in aussen:
                 print(f"  - {name}: {state} ({detail})")
@@ -278,15 +359,21 @@ def main() -> int:
             print(f"  - {p}")
         return 1
 
-    geprueft = "version single-sourced, tracked places current, changelog current, no undelivered drift"
+    # The number names its object and its source, here too: an OK line that does not say WHICH
+    # version was verified leaves the reader to assume one.
+    quelle = f"source version {version}, read from {herkunft}"
+    geprueft = ("single-sourced across pyproject.toml/__init__.py/CITATION.cff, tracked places "
+                "current, changelog carries the section, no undelivered post-tag drift, "
+                "no undeclared place claiming a current version")
     if not aussen:
-        print(f"check_version_and_changelog: OK — {geprueft}. External surfaces NOT checked.")
+        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
+              f"External surfaces NOT checked (neither --external nor --require-external given).")
     elif any(s == NICHT_MESSBAR for _, s, _ in aussen):
         offen = ", ".join(n for n, s, _ in aussen if s == NICHT_MESSBAR)
-        print(f"check_version_and_changelog: OK — {geprueft}. "
+        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
               f"NOT verified ({NICHT_MESSBAR}): {offen}.")
     else:
-        print(f"check_version_and_changelog: OK — {geprueft}, external surfaces agree.")
+        print(f"check_version_and_changelog: OK — {quelle}; {geprueft}; external surfaces agree.")
     return 0
 
 
