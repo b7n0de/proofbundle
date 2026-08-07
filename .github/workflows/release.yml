@@ -63,9 +63,37 @@ jobs:
           sha256sum dist/* | tee dist/SHA256SUMS
 
       - name: Generate SLSA build provenance for the artifacts
+        id: provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
           subject-path: "dist/*.whl,dist/*.tar.gz"
+
+      - name: Also place the provenance next to the release assets
+        run: |
+          # WHY: OpenSSF Scorecard's Signed-Releases check reads the RELEASE ASSETS and looks for
+          # *.minisig / *.asc / *.sig / *.sign / *.sigstore / *.sigstore.json / *.intoto.jsonl
+          # (ossf/scorecard docs/checks.md, read 2026-08-07). Measured the same day: this repo scores
+          # 0/10 there while the assets of v3.7.0 are exactly the wheel, the sdist and SHA256SUMS.
+          # The provenance is NOT missing — it lives in GitHub's attestation store and on PyPI, i.e.
+          # somewhere the check never looks.
+          #
+          # NOTHING IS RE-SIGNED HERE. The bundle produced by the step above is copied unchanged to a
+          # second location. If that file is ever absent, this fails loudly rather than shipping a
+          # release that silently lost its provenance copy.
+          #
+          # ON THE NAME: `.intoto.jsonl` describes the content — in-toto attestations, one JSON per
+          # line. It is not chosen because that pattern scores 10 while `.sigstore.json` scores 8;
+          # the check does not verify signatures at all, so a name could buy points on its own, and
+          # picking one for that reason is exactly the defect this project exists to make visible.
+          set -euo pipefail
+          src="${{ steps.provenance.outputs.bundle-path }}"
+          if [ ! -s "$src" ]; then
+            echo "provenance bundle missing or empty at '$src' — refusing to publish a release"
+            echo "whose provenance copy would be silently absent."
+            exit 1
+          fi
+          cp "$src" "dist/proofbundle-${GITHUB_REF_NAME#v}-provenance.intoto.jsonl"
+          echo "attached: $(ls -l dist/*provenance.intoto.jsonl)"
 
       - name: Upload the attested dist for the publish job (exact bytes, no rebuild)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -94,6 +122,7 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
             dist/SHA256SUMS
+            dist/*-provenance.intoto.jsonl
           generate_release_notes: true
           prerelease: ${{ steps.relmeta.outputs.prerelease }}
           make_latest: ${{ steps.relmeta.outputs.make_latest }}

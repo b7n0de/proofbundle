@@ -19,10 +19,40 @@ Merkle, one file, no server, no network.
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21110642.svg)](https://doi.org/10.5281/zenodo.21110642)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/b7n0de/proofbundle/badge)](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proofbundle)
+
+Scorecard **6.5/10** — [what the four zeros mean, in one sentence each](#what-the-scorecard-badge-says-including-the-parts-that-are-low)
 
 **Reviewing this for adoption?** Start with the 30-minute adversarial audit path: **[docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md)**.
 
 </div>
+
+## What the Scorecard badge says, including the parts that are low
+
+The badge is live, so it will move. Measured 2026-08-07 (Scorecard v5.5.0): **6.5 / 10**. Ten checks
+score 10/10 — Security-Policy, Token-Permissions, SAST, Fuzzing, CI-Tests, Vulnerabilities,
+Dangerous-Workflow, Dependency-Update-Tool, Packaging, License. Four score 0, and rather than let you
+wonder, here is each cause in one sentence:
+
+- **Maintained (0/10)** — the check wants sustained activity on the default branch over 90 days, and
+  this repository is younger than that window. It resolves itself with time and is not worth chasing.
+- **CII-Best-Practices (0/10)** — the OpenSSF Best Practices badge has not been applied for. The
+  criteria were walked through honestly first:
+  [docs/openssf_best_practices_self_assessment.md](https://github.com/b7n0de/proofbundle/blob/main/docs/openssf_best_practices_self_assessment.md).
+- **Contributors (0/10)** — it counts contributors from two or more organisations. This is a
+  one-person project, and the zero is an accurate description of that.
+- **Signed-Releases (0/10)** — the check reads GitHub **release assets** looking for a signature file.
+  Every release is attested (SLSA build provenance over the exact built bytes, PyPI upload gated on a
+  sha256 match), but that attestation lived in GitHub's attestation store and on PyPI — not next to
+  the release, which is where the check looks. The provenance bundle is now attached as a release
+  asset too. Nothing was re-signed; an existing file was placed in a second location.
+
+Two further checks sit in between: **Code-Review 1/10** (most commits are not reviewed by a second
+person — structural for a single maintainer) and **Pinned-Dependencies 3/10** / **Branch-Protection
+3/10**, both measured and not yet addressed.
+
+Publishing a middling number with its causes is the point. A project that sells evidence cannot
+withhold its own.
 
 ## 60-second try (offline)
 
