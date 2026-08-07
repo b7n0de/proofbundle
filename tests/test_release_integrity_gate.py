@@ -102,6 +102,55 @@ def test_post_tag_drift_ok_when_unreleased_present(tmp_path):
     assert chk.check(t) == []
 
 
+def test_review_tag_does_not_disable_the_drift_check(tmp_path):
+    """A non-release tag must not switch check 3 off.
+
+    Measured in the real repo on 2026-08-07: `git describe --tags` returned a corpus review tag,
+    `_semver_tuple` read it as (0, 0, 0), every real version compared as "bumped past it", and a
+    non-trivial commit sat undelivered with no [Unreleased] section while the gate reported OK.
+    """
+    t = tmp_path
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(t), *a], capture_output=True, text=True)
+
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    _write_repo(t, "3.0.0", ["3.0.0"])
+    g("add", "-A")
+    g("commit", "-qm", "release: 3.0.0")
+    g("tag", "v3.0.0")
+    (t / "src" / "proofbundle" / "adapters.py").write_text("# security fix\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "security(M2): strip evaluation_result_id from the EEE digest")
+    g("tag", "corpus-review-2026-07-25-iter10")        # the tag that used to blind the check
+
+    assert chk._last_release_tag(t)[0] == "v3.0.0"
+    probs = chk.check(t)
+    assert any("non-trivial" in p and "v3.0.0" in p for p in probs), probs
+
+
+def test_no_release_tag_at_all_is_reported_separately(tmp_path):
+    # Tags exist, none of them a release: that is its own state, not "no tags".
+    t = tmp_path
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(t), *a], capture_output=True, text=True)
+
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    _write_repo(t, "3.0.0", ["3.0.0"])
+    g("add", "-A")
+    g("commit", "-qm", "release: 3.0.0")
+    g("tag", "corpus-review-2026-07-25-iter10")
+
+    tag, grund = chk._last_release_tag(t)
+    assert tag is None
+    assert "none is a release tag" in grund, grund
+
+
 # --------------------------------------------------------------------------------------------
 # Check 4: the prose places that state the CURRENT version
 # --------------------------------------------------------------------------------------------

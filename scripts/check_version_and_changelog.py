@@ -97,6 +97,33 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
         return 1, ""
 
 
+_RELEASE_TAG_GLOB = "v[0-9]*"
+_RELEASE_TAG_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+")
+
+
+def _last_release_tag(repo: Path) -> tuple[str | None, str]:
+    """The most recent RELEASE tag reachable from HEAD, plus a reason when there is none.
+
+    WHY THIS IS NOT `git describe --tags`: measured in this repo on 2026-08-07, that returned
+    `corpus-review-2026-07-25-iter10` — a review tag. `_semver_tuple` reads it as (0, 0, 0), so any
+    real version compares as "bumped past it", and check 3 passed while a non-trivial commit sat
+    undelivered with no `## [Unreleased]` section. The check did not fail; it stopped applying, and
+    silence looked exactly like agreement. A gate anchored on "the latest tag" is anchored on
+    whatever anyone tagged last.
+
+    Three states, not two: a release tag, no tags at all, or tags that exist but none of them is a
+    release. The third is reported in its own words instead of being folded into the second.
+    """
+    rc, raw = _git(repo, "describe", "--tags", "--abbrev=0", "--match", _RELEASE_TAG_GLOB)
+    if rc == 0 and raw and _RELEASE_TAG_RE.match(raw):
+        return raw, ""
+    rc_any, any_tag = _git(repo, "describe", "--tags", "--abbrev=0")
+    if rc_any != 0 or not any_tag:
+        return None, "no git tags available"
+    return None, (f"tags exist but none is a release tag reachable from HEAD "
+                  f"(latest reachable tag: {any_tag})")
+
+
 def _semver_tuple(v: str) -> tuple:
     core = v.split("-")[0].split("+")[0]
     parts = core.split(".")
@@ -124,9 +151,9 @@ def check(repo: Path) -> list[str]:
                         f"(headings seen: {headings[:5]})")
 
     # 3. Post-tag drift (M2 catcher), git-gated
-    rc, last_tag_raw = _git(repo, "describe", "--tags", "--abbrev=0")
-    if rc != 0 or not last_tag_raw:
-        print("check_version_and_changelog: NOTE post-tag-drift check skipped (no git tags available)")
+    last_tag_raw, tag_note = _last_release_tag(repo)
+    if not last_tag_raw:
+        print(f"check_version_and_changelog: NOTE post-tag-drift check skipped ({tag_note})")
     else:
         last_tag = last_tag_raw.lstrip("v")
         rc2, log = _git(repo, "log", "--format=%s", f"{last_tag_raw}..HEAD")
