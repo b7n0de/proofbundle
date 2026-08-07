@@ -6,6 +6,48 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+**Semantics: unchanged.** Everything below is CI, checks and documentation. Nothing under `src/`
+changes, no public interface gains or loses a field, and no consumer has to do anything differently.
+This is the explicit statement the release gate in [RELEASE.md](RELEASE.md) asks for; the planned
+scope for the next patch is written down in [docs/release_scope/3.7.1.md](docs/release_scope/3.7.1.md).
+
+### Fixed
+
+- The post-tag drift check anchored on `git describe --tags`, which returns *whatever was tagged
+  last*. Measured on 2026-08-07 it returned a corpus review tag; `_semver_tuple` reads that as
+  `(0, 0, 0)`, so any real version compares as "bumped past it" and the check stopped applying. It
+  did not fail — it went silent, and silence looked like agreement. Under that blind spot one
+  non-trivial commit sat undelivered since `v3.7.0` with no `## [Unreleased]` section (this one).
+  The check now anchors on the last **release** tag and distinguishes three states: a release tag,
+  no tags at all, or tags that exist but none of them is a release.
+- `pyproject.toml` pins the ruff **rule set**, not just its version, and raises the cap to `<0.17`
+  (#134). Measured on the identical tree: ruff 0.15.x applies 59 default rules and exits 0 over all
+  258 tracked `.py` files, ruff 0.16.x applies 413 and reports 1168 findings. The cap alone would
+  have silently stopped checking the 18 rules 0.16 removed. `mypy` is bounded at `<3` for the same
+  reason, deliberately and without a measured failure.
+
+### Added
+
+- `scripts/check_version_and_changelog.py` also compares the two prose places that state the current
+  version (`RELEASE.md`, `docs/readiness_pack/PROGRESS.md`), and optionally PyPI and the project page
+  (`--external`). External surfaces have three states: agreement, disagreement, and NICHT MESSBAR —
+  unreachable never counts as green, and `--require-external` turns it into a failure for the release
+  checklist. Historical statements (`since vX`, `as of vX`, old changelog headings) are deliberately
+  out of scope: bumping them would turn a fact into a false claim.
+- A release gate in `RELEASE.md`: a checkable list a release answers *before* the Owner-GO is asked
+  for. No date, no cadence — what is slowed down is vagueness, not speed.
+
+### Changed
+
+- `docs/IN_TOTO_PROFILE.md` and `docs/upstream/eval-result.md` now say what was actually submitted as
+  in-toto/attestation#575. Both still listed `anchors[]` as a predicate field, which that PR never
+  had, and neither carried the absence rule, the optional harness `DigestSet`, the non-claim on
+  harness/grader fitness, `passed` as a **signed threshold verdict**, or `assuranceLevel` as
+  **issuer-declared**. The upstream copy now states that the PR is the source of truth when the two
+  differ.
+
 ## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.7.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
