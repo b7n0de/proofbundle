@@ -178,6 +178,19 @@ line-length = 100
 # 0.15.0 / 0.15.10 / 0.15.22 / 0.16.0 / 0.16.1 / 0.16.2 exits 0 over all 258 tracked .py files.
 # This is also Astral's own documented way to keep the pre-0.16 behaviour.
 #
+# WHAT A PREFIX DOES NOT DO, said plainly because the sentence above reads stronger than it is:
+# a prefix is an OPEN set. `E4` means "every E4xx rule this ruff knows", not "these fifteen". A
+# future release can add a rule under one of these four prefixes and it is selected here without
+# anyone choosing it — the same shape of surprise as the 0.16 default swing, just narrower. So the
+# set equality above is a measurement AT a version, not a property of the config.
+#   Measured across the whole declared range (0.5.0, 0.15.0, 0.15.22, 0.16.0, 0.16.2), membership
+#   under these four prefixes: 0 rules added, 1 removed (E999, deprecated as a selectable rule).
+#   Eleven minor releases, no growth. That is evidence about the past, not a guarantee.
+# THIS is the residue the version bound in [project.optional-dependencies] actually catches, and it
+# is a better reason for that bound than the rule-semantics drift also named there. Enumerating all
+# 59 rule IDs would close it completely, at the cost of a config nobody re-reads; the bound plus a
+# deliberate bump was chosen instead. If that bump ever gets rubber-stamped, this trade is void.
+#
 # THE HALF THAT IS EASY TO MISS: 0.16 did not only ADD rules, it DROPPED 18 from the default —
 # E401 E402 E701 E702 E703 E711 E712 E713 E714 E721 E731 E741 E742 E743 F403 F405 F406 F722.
 # Among them `== None` (E711), `== True` (E712), type comparison by `==` (E721) and star-import
