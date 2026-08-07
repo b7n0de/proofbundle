@@ -112,7 +112,30 @@ inspect = ['inspect_ai>=0.3.112,<0.4']
 # So the bound stays, but for a NARROWER and honestly smaller reason: `select` fixes WHICH rules
 # judge us, it cannot fix a change in what an individual rule MEANS. That residue is what `<0.17`
 # still covers, and it is a much cheaper thing to re-check than a 7x rule-set swing.
-dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+#
+# mypy is `mypy src`, the OTHER blocking judge in ci.yml, and it was unbounded for the same reason
+# ruff was. Two things were measured on 2026-08-07 before this bound went in, and they point in
+# opposite directions, so both are stated:
+#
+#   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
+#   2.2.0 / 2.3.0 exits 0 over `src` (63 files) — across BOTH major versions. So the declared
+#   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
+#   not pretend otherwise: it is prospective, not a fix for something broken.
+#
+#   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
+#   `--local-partial-types` and `--strict-bytes` (PEP 688: `bytearray`/`memoryview` no longer
+#   assignable to `bytes`) and redefined `--allow-redefinition`. This tree happens not to be
+#   sensitive to those three; the next major is a coin flip nobody has flipped yet.
+#
+# `<3` is therefore the granularity that matches where mypy actually moves, and it blocks nothing
+# today (2.3.0 is well under it). A bump is a deliberate act, like ruff's.
+#
+# HONEST CAVEAT ON HOW THE FLOOR WAS MEASURED: the first attempt ran each pinned mypy in a bare
+# venv and "found" that everything below 2.3 fails at pqsig.py:91. That was the measurement, not
+# the code — those venvs had no `cryptography`, so the `type: ignore[attr-defined]` on the
+# optional `slhdsa` import really is unused there. With the project's own dependency present, all
+# eight versions pass. A floor claim is only worth the environment it was measured in.
+dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
