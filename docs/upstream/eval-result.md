@@ -3,7 +3,7 @@
 <!-- MIRROR of the spec file submitted upstream as in-toto/attestation#575
 (spec/predicates/eval-result.md). The PR is OPEN; this copy exists so proofbundle's own docs and the
 submission cannot drift apart. When the two differ, the PR is the source of truth and this file is
-the one that is wrong. Last aligned 2026-08-07 against branch head 6fdf5bf. The protobuf definition
+the one that is wrong. Last aligned 2026-08-07 against branch head 35c83da. The protobuf definition
 follows as a separate PR, as SVR did: spec #470, proto #519, README #537. -->
 
 Type URI: https://in-toto.io/attestation/eval-result/v0.1
@@ -136,6 +136,12 @@ or fair, or that the score generalizes. Those are out of scope for this predicat
 
 This predicate does not establish that the evaluation harness or grader is fit for purpose, or
 that it has any particular detection performance.
+
+The consequences can be asymmetric. When detected positives are evidence of capability, missed
+positives can understate performance. When `passed: true` depends on the absence of detected
+failures, missed failures can instead yield a passing verdict even though the failures occurred.
+This attestation authenticates either verdict without establishing the harness's detection
+capability.
 
 ## Examples
 

@@ -123,6 +123,14 @@ the predicate does **not** establish that the evaluation harness or grader is fi
 that it has any particular detection performance. Binding a harness digest pins *which* artifact ran,
 not *how well* it detects.
 
+The consequences of that non-claim **can be asymmetric**, and the direction depends on which class the
+detector counts as positive. Where detected positives are evidence of capability, missed positives can
+understate the subject. Where `passed: true` depends on the *absence* of detected failures, missed
+failures can instead yield a passing verdict although the failures occurred. The attestation
+authenticates either verdict without establishing the harness's detection capability. The submitted
+spec carries this as its own paragraph in `## Non-claims`; it deliberately says *can be* rather than
+*is*, because the predicate never fixes which class a detector counts.
+
 ## Migration path (vendor namespace → in-toto.io)
 
 Using a vendor `predicateType` for a v0.x predicate is common practice (cf. `cosign.sigstore.dev/…`,
