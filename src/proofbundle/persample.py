@@ -208,23 +208,6 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
         result["detail"] = "index out of range for the committed tree size"
         return result
-    # DIE KAPPE VOR DER ARBEIT, DIE SIE BEGRENZT (deep gate wf_cfe249d0-ee8, Fund L2-02, P2).
-    #
-    # merkle_path (256) wird durchgesetzt — aber in merkle.verify_inclusion, also NACH der Zeile
-    # darunter, die die GANZE proof-Liste base64-dekodiert. Das ist die falsche Reihenfolge: fuer einen
-    # Beweis, der die Kappe reisst und darum niemals gueltig sein kann, wird erst die volle Arbeit
-    # geleistet und danach abgelehnt. Das Budget-Modul nennt "erst die Kappe, dann die Arbeit" in seiner
-    # eigenen Beschreibung als das Muster.
-    #
-    # Die strukturelle Schranke oben (L2-01) hat den unbegrenzten Fall bereits geschlossen — 8 Mio.
-    # Eintraege fallen jetzt bei json_nodes statt nach zehn Sekunden. Dazwischen blieb aber ein Fenster:
-    # bis 200000 Eintraege wurde weiter alles dekodiert. Zwei Schranken, zwei verschiedene Groessen.
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
-    if len(proof_list) > DEFAULT_BUDGET.merkle_path:
-        result["detail"] = (f"audit path has {len(proof_list)} steps (> merkle_path="
-                            f"{DEFAULT_BUDGET.merkle_path}) — refused before decoding")
-        return result
-
     try:
         proof = [base64.b64decode(p, validate=True) for p in proof_list]
         root = base64.b64decode(root_b64, validate=True)
