@@ -29,6 +29,10 @@ _SPEC = importlib.util.spec_from_file_location("_ptag", REPO / "scripts" / "pre_
 g = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(g)
 
+_CSPEC = importlib.util.spec_from_file_location("_cf_ptag", REPO / "tests" / "conftest.py")
+_conftest = importlib.util.module_from_spec(_CSPEC)
+_CSPEC.loader.exec_module(_conftest)
+
 VERSION = "9.9.9"
 TOKEN = "999"
 ATTEST = f"pre-tag-adversarial-audit: RUN | version={VERSION}"
@@ -149,6 +153,9 @@ class ProsaEntscheidetNicht(unittest.TestCase):
         self.assertTrue(r["ok"], f"ein echter Beleg wurde abgelehnt: {r['reason']}")
         self.assertEqual(len(r["attesting_records"]), 1)
 
+    @unittest.skipUnless(_conftest.running_in_repo_checkout(),
+                         "liest das ECHTE Repo indirekt ueber das Gate (kein Pfad-Literal im Modul, also "
+                         "von der conftest-Ableitung nicht erkennbar) — N/A ausserhalb eines Checkouts")
     def test_gegenrichtung_das_echte_repo_besteht_weiterhin(self):
         """Ohne diese Zeile waere jede Verschaerfung 'erfolgreich' — ein Riegel, der alles ablehnt.
 
