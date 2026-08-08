@@ -76,10 +76,19 @@ def _payload_bytes(envelope: dict) -> bytes:
     # The check sits here rather than in verify_envelope so `load_payload` — the other member of the family
     # — is covered by the same statement instead of by a second call site that can drift out of step.
     from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
-    from .budget import BudgetExceeded  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
     try:
         enforce_structural_budget(envelope)
-    except BudgetExceeded as exc:
+    # ProofBundleError, NICHT nur BudgetExceeded — und der Unterschied ist keine Kosmetik.
+    # enforce_structural_budget wirft ZWEI Geschwister: BudgetExceeded bei Ueberbreite, aber
+    # BundleFormatError ("JSON nesting is too deep") bei Uebertiefe. Ein schmaler catch faengt nur den
+    # ersten. Das ist HEUTE folgenlos, weil der Tiefen-Zweig zufaellig genau den Typ wirft, den diese
+    # Funktion ohnehin dokumentiert — aber der Kommentar unten verspricht eine STRUKTURELLE Eigenschaft
+    # ("a direct third-party caller never sees a raw sibling exception"), und die haengt dann am Zufall.
+    # Die schmale Form stammt aus Zeile 134, wo sie richtig ist: DEFAULT_BUDGET.check wirft nur
+    # BudgetExceeded. Sie wurde auf einen Aufruf mit breiterer Fehlerflaeche uebertragen.
+    # Die fuenf Geschwister-Flaechen desselben Fixes fangen alle ProofBundleError.
+    except ProofBundleError as exc:
         # Same mapping this module already applies twice: the docstrings of the public surfaces name only
         # BundleFormatError, so a direct third-party caller never sees a raw sibling exception.
         raise BundleFormatError(f"DSSE envelope exceeds the verification budget (fail-closed): {exc}") from exc

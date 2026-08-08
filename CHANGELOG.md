@@ -8,10 +8,38 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-**Semantics: unchanged.** Everything below is CI, checks and documentation. Nothing under `src/`
-changes, no public interface gains or loses a field, and no consumer has to do anything differently.
-This is the explicit statement the release gate in [RELEASE.md](RELEASE.md) asks for; the planned
-scope for the next patch is written down in [docs/release_scope/3.7.1.md](docs/release_scope/3.7.1.md).
+**Semantics: unchanged. Resource ceilings: one deliberate tightening, disclosed below.**
+
+This banner said "Nothing under `src/` changes" until 2026-08-08. That was **false** by then: eight
+files under `src/proofbundle/` changed, 204 lines. The sentence was written when it was true and was
+not pulled when the tree moved past it — a statement nobody re-measured. It is corrected here rather
+than quietly replaced, because the release gate in [RELEASE.md](RELEASE.md) rests on this paragraph
+being measured, not remembered. Found by the mandatory review lane, not by a check.
+
+What actually changed, and why each is patch-safe:
+
+* **No public interface gains or loses a field**, and no verdict flips from fail to pass. Every change
+  below is fail-**closed**: input that was accepted and is over a generous ceiling is now refused
+  before the work it would cost.
+* **Structural budget on the direct-dict path.** Six public surfaces that accept an already-parsed
+  structure now apply the same `VerificationBudget` ceilings the string/file path has always applied
+  (`string_len` 1 000 000, `json_nodes` 200 000). On that path the `input_bytes` cap is inert — there
+  are no bytes to measure — so those surfaces were unbounded. This is the same deliberate exception
+  the project shipped in 3.2.3 (Finding 15b) and is disclosed here for the same reason:
+  [COMPATIBILITY.md](COMPATIBILITY.md) requires that a tightening of a previously accepted input say
+  so explicitly. Each surface reports it in **its own** documented failure form — a result dict where
+  the surface returns dicts, `BundleFormatError` where it raises — so no new exception type appears
+  anywhere.
+* **One cap moved earlier, same verdict.** `verify_sample_opening` enforced `merkle_path` (256) after
+  base64-decoding the whole proof list. For every input the outcome is unchanged; only the cost and
+  the `detail` text differ.
+* **Typed errors on two path arguments.** `evaluation_card_hash` and `prereg_hash` raise
+  `BundleFormatError` on a non-path argument instead of leaking `OverflowError` / `TypeError` /
+  `FileNotFoundError`. The CLI always passes a `str`, no test or doc pinned the old types, and the
+  surrounding failure form in both functions was already `BundleFormatError`.
+
+The planned scope for the next patch is written down in
+[docs/release_scope/3.7.1.md](docs/release_scope/3.7.1.md).
 
 ### Fixed
 

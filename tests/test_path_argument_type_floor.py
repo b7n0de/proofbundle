@@ -61,9 +61,23 @@ def _familie():
             ps = list(inspect.signature(fn).parameters.values())
         except (TypeError, ValueError):
             continue
-        if ps and ps[0].name.endswith("_path"):
+        if ps and _ist_pfadname(ps[0].name):
             out.append((name, fn, ps[0].name))
     return out
+
+
+# DER DRITTE ZUSTAND, und warum er hier fehlte. Die erste Fassung leitete die Familie ueber
+# `endswith("_path")` ab — und schloss damit ausgerechnet ``load_bundle`` aus, dessen Parameter schlicht
+# ``path`` heisst und den der Docstring dieser Datei als REFERENZ zitiert. Zwei Gegenlese-Linsen fanden
+# das unabhaengig voneinander. Die Schwesterdatei test_structural_budget_reachability.py fuehrt fuer
+# nicht klassifizierbare Signaturen einen eigenen Zustand; hier fehlte er, und eine Namensheuristik ohne
+# Rettungsnetz schliesst still aus, statt zu melden.
+_PFADNAMEN = ("path", "file", "datei")
+
+
+def _ist_pfadname(name: str) -> bool:
+    n = name.lower()
+    return any(n == w or n.endswith("_" + w) or n.startswith(w + "_") for w in _PFADNAMEN)
 
 
 class PfadTypBoden(unittest.TestCase):
@@ -72,6 +86,14 @@ class PfadTypBoden(unittest.TestCase):
         """Ohne das koennte die Ableitung stillschweigend nichts finden und der Test 'bestuende'."""
         familie = _familie()
         self.assertGreaterEqual(len(familie), 2, f"die Familie ist auf {len(familie)} geschrumpft")
+
+    def test_das_eigene_referenzbeispiel_ist_in_der_familie(self):
+        """load_bundle ist der im Docstring zitierte Praezedenzfall — und fiel aus der Ableitung heraus,
+        weil sein Parameter ``path`` heisst und nicht ``xxx_path``. Eine Ableitung, die ihr eigenes
+        Referenzbeispiel nicht erfasst, misst weniger als sie behauptet."""
+        namen = {n for n, _fn, _p in _familie()}
+        self.assertIn("load_bundle", namen,
+                      f"das Referenzbeispiel fehlt in der Familie: {sorted(namen)}")
 
     def test_kein_nicht_pfad_entkommt_ungetypt(self):
         for name, fn, param in _familie():
