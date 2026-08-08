@@ -30,9 +30,18 @@ What actually changed, and why each is patch-safe:
   so explicitly. Each surface reports it in **its own** documented failure form — a result dict where
   the surface returns dicts, `BundleFormatError` where it raises — so no new exception type appears
   anywhere.
-* **One cap moved earlier, same verdict.** `verify_sample_opening` enforced `merkle_path` (256) after
-  base64-decoding the whole proof list. For every input the outcome is unchanged; only the cost and
-  the `detail` text differ.
+* **Withdrawn before release: moving the `merkle_path` cap earlier.** An earlier commit in this
+  cycle moved the `merkle_path` (256) check in `verify_sample_opening` ahead of the base64 decode.
+  It was reverted, and this entry records why rather than dropping it silently. The claim it
+  originally carried here — that the outcome is unchanged for every input — was **measured false**
+  for at least twelve input classes above the cap: the CLI exit code moved from 2 to 1 whenever any
+  proof element, or `root_b64`, would have been rejected by `b64decode(validate=True)`. The verdict
+  itself never flipped (`ok` stays `False`), but [COMPATIBILITY.md](COMPATIBILITY.md) lists the
+  meaning of exit codes as a public surface, and this project already kept `stash@{0}` out of 3.7.1
+  for the same reason. The change also did not achieve what it was for: an `Omega(n)` structural
+  budget walk runs one line above the cap, so the cap cannot precede the work it bounds — measured
+  47.1 ms and 11867 KiB at n=190000 against 0.087 ms and 2.2 KiB at n=257, a constant factor rather
+  than a change of growth class. The underlying finding stays open for a minor release.
 * **Typed errors on two path arguments.** `evaluation_card_hash` and `prereg_hash` raise
   `BundleFormatError` on a non-path argument instead of leaking `OverflowError` / `TypeError` /
   `FileNotFoundError`. The CLI always passes a `str`, no test or doc pinned the old types, and the
