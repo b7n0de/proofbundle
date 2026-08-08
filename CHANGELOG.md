@@ -10,11 +10,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 **Semantics: unchanged. Resource ceilings: one deliberate tightening, disclosed below.**
 
-This banner said "Nothing under `src/` changes" until 2026-08-08. That was **false** by then: eight
-files under `src/proofbundle/` changed, 204 lines. The sentence was written when it was true and was
-not pulled when the tree moved past it — a statement nobody re-measured. It is corrected here rather
-than quietly replaced, because the release gate in [RELEASE.md](RELEASE.md) rests on this paragraph
-being measured, not remembered. Found by the mandatory review lane, not by a check.
+This banner said "Nothing under `src/` changes" until 2026-08-08. That was **false** by then. Measured
+at `bc3ae70` with `git diff --numstat origin/main HEAD -- src/proofbundle/`: **8 files, 196
+insertions, 3 deletions**. The sentence was written when it was true and was not pulled when the tree
+moved past it — a statement nobody re-measured.
+
+The first correction of this banner then repeated the fault it describes. It claimed "204 lines", a
+figure already 9 off when it was written and 17 further off after the revert below landed. A count
+against a moving branch is only true at a named ref, so this one names its ref and its command.
+Found by the mandatory review lane, both times, and not by a check — `scripts/check_version_and_changelog.py`
+reads only headings, and the release-scope checkbox in [RELEASE.md](RELEASE.md) is read by a human,
+not by a gate.
 
 What actually changed, and why each is patch-safe:
 
@@ -33,15 +39,20 @@ What actually changed, and why each is patch-safe:
 * **Withdrawn before release: moving the `merkle_path` cap earlier.** An earlier commit in this
   cycle moved the `merkle_path` (256) check in `verify_sample_opening` ahead of the base64 decode.
   It was reverted, and this entry records why rather than dropping it silently. The claim it
-  originally carried here — that the outcome is unchanged for every input — was **measured false**
-  for at least twelve input classes above the cap: the CLI exit code moved from 2 to 1 whenever any
-  proof element, or `root_b64`, would have been rejected by `b64decode(validate=True)`. The verdict
-  itself never flipped (`ok` stays `False`), but [COMPATIBILITY.md](COMPATIBILITY.md) lists the
-  meaning of exit codes as a public surface, and this project already kept `stash@{0}` out of 3.7.1
-  for the same reason. The change also did not achieve what it was for: an `Omega(n)` structural
-  budget walk runs one line above the cap, so the cap cannot precede the work it bounds — measured
-  47.1 ms and 11867 KiB at n=190000 against 0.087 ms and 2.2 KiB at n=257, a constant factor rather
-  than a change of growth class. The underlying finding stays open for a minor release.
+  originally carried here — that the outcome is unchanged for every input — was **measured false**.
+  Method, since the repo asks every number to name its object and its source: two worktrees at the
+  commit and its parent, the same `verify-opening` invocation against each, exit codes compared per
+  input class. The CLI exit code moved from 2 to 1 whenever any proof element, or `root_b64`, would
+  have been rejected by `b64decode(validate=True)`. Two independent partitions were counted — one
+  gave at least 12 diverging classes, an independent re-count gave 22; "input class" is not a defined
+  unit here, so the lower bound is what the claim rests on. The verdict itself never flipped (`ok`
+  stays `False`), but [COMPATIBILITY.md](COMPATIBILITY.md) lists the meaning of exit codes as a
+  public surface, and this project already kept `stash@{0}` out of 3.7.1 for the same reason. The
+  change also did not achieve what it was for: an `Omega(n)` structural budget walk runs one line
+  above the cap, so the cap cannot precede the work it bounds. Peak memory at n=190000 was 11867 KiB
+  against 2.2 KiB at n=257 — a linear path, not a flat one. Wall-clock figures for the same runs are
+  deliberately not quoted: they were host-dependent and differed by 28% between two measurements of
+  the same code. The underlying finding stays open for a minor release.
 * **Typed errors on two path arguments.** `evaluation_card_hash` and `prereg_hash` raise
   `BundleFormatError` on a non-path argument instead of leaking `OverflowError` / `TypeError` /
   `FileNotFoundError`. The CLI always passes a `str`, no test or doc pinned the old types, and the
