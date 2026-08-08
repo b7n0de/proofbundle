@@ -132,7 +132,29 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     happens only against a relying-party header (``rp_trust``), which may be an offline checkpoint.
 
     Returns the OTS verifier's result dict ({ok, detail, warn, status, …}). Fail-closed on a malformed
-    pack (missing/!b64 proof or root)."""
+    pack (missing/!b64 proof or root) and on an OVER-BUDGET pack (``status: over_budget``).
+
+    Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). This is a DIRECT-DICT surface: the
+    caller hands over an already-parsed ``dict``, so the ``input_bytes`` cap that ``loads_strict`` applies
+    on the str/file path is inert here — there are no bytes to measure. Without the compensating bound a
+    ~13 MB ``proof`` string reached ``base64.b64decode`` below and was expanded uncapped, and the
+    resulting ``MemoryError`` escaped RAW from a surface documented as fail-closed. The bound therefore
+    runs BEFORE the decode, not after.
+
+    The typed budget error is mapped to THIS surface's own failure convention — a result dict — rather
+    than being re-raised. That follows the two covered members: ``anchors.receipt_canonical_root`` maps it
+    to ``BundleFormatError`` and ``policy`` maps it to ``PolicyError``, each to the failure form its own
+    contract documents. The finding's oracle is worded as "raises"; raising here would change the contract
+    of a public surface whose every other failure is a dict, so the invariant kept is the one both
+    precedents actually implement: the bound is applied before any size-proportional allocation, and the
+    outcome is typed and fail-closed instead of a raw exception."""
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        enforce_structural_budget(pack)
+    except ProofBundleError as exc:
+        return {"ok": False, "warn": False, "status": "over_budget",
+                "detail": f"evidence pack exceeds the verification budget (fail-closed): {exc}"}
     try:
         proof = base64.b64decode(pack["proof"], validate=True)
         canonical_root = base64.b64decode(pack["canonicalRoot"], validate=True)

@@ -255,6 +255,27 @@ def verify_relationship_edges(
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": []}
 
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface — the caller
+    # hands over an already-parsed structure, so loads_strict's input_bytes cap never runs here.
+    #
+    # This module looked bounded and is the clearest case of why "a bound" is not "the bounds":
+    # MAX_EDGES_PER_RECEIPT caps the edge COUNT and _SHA256_HEX pins every digest to 64 chars — but the cap
+    # is reported by validate_relationships only AFTER it has walked the entire list, and ``reason`` is an
+    # unbounded free-text string on every edge. A ten-million-element list is therefore fully iterated
+    # before its own cap is reported, and 64 edges each carrying a 100 MB reason pass the count cap
+    # entirely. Size and count are different dimensions.
+    #
+    # The bound runs BEFORE validate_relationships for exactly that reason. It is reported as a fail-closed
+    # RESULT, never raised: this function's contract is "never raises on malformed input — fail-closed
+    # result instead", and a budget refusal is malformed input like any other.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    try:
+        enforce_structural_budget(relationships)
+    except ProofBundleError as exc:
+        return {"lineage": LINEAGE_FAIL, "edges": [],
+                "errors": [f"relation:over_budget: relationships exceed the verification budget "
+                           f"(fail-closed): {exc}"]}
+
     structural = validate_relationships(relationships)
     if structural:
         return {"lineage": LINEAGE_FAIL, "edges": [],

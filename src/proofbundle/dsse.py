@@ -66,6 +66,23 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
 def _payload_bytes(envelope: dict) -> bytes:
     if not isinstance(envelope, dict):
         raise BundleFormatError("DSSE envelope must be a JSON object")
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). This module already bounded TWO
+    # dimensions — the base64 payload against input_bytes below, and the signatures COUNT before the verify
+    # loop — which is exactly why the gap was easy to miss: the surface looked bounded. It was not. The
+    # remaining dimensions were inert on this DIRECT-DICT path, and `signatures[i].sig` in particular is an
+    # unbounded attacker-controlled string that reaches `_b64decode_any` in the loop, once per entry up to
+    # the signatures cap. A COUNT bound and a SIZE bound are different bounds; having one is not having both.
+    #
+    # The check sits here rather than in verify_envelope so `load_payload` — the other member of the family
+    # — is covered by the same statement instead of by a second call site that can drift out of step.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    from .budget import BudgetExceeded  # noqa: PLC0415
+    try:
+        enforce_structural_budget(envelope)
+    except BudgetExceeded as exc:
+        # Same mapping this module already applies twice: the docstrings of the public surfaces name only
+        # BundleFormatError, so a direct third-party caller never sees a raw sibling exception.
+        raise BundleFormatError(f"DSSE envelope exceeds the verification budget (fail-closed): {exc}") from exc
     p = envelope.get("payload")
     if not isinstance(p, str):
         raise BundleFormatError("DSSE envelope.payload must be a base64 string")
