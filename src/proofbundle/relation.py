@@ -347,10 +347,34 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
             return "relation:cycle: attached chain revisits a receipt on its own ancestry path"
         if node_hex in proven_safe:
             return None
-        node = related.get(node_hex)
-        if not isinstance(node, dict):
+        # NOT attached -> the path ends honestly beyond the attached horizon (declared-only).
+        # This must stay distinguishable from "attached but malformed": `related.get()` returns
+        # None for both, so membership is the question, never the value's truthiness.
+        if node_hex not in related:
             proven_safe.add(node_hex)
             return None
+        node = related[node_hex]
+        # ── DISTANCE INVARIANCE OF RELATION GATES (deep-gate finding L4-01, P1) ──────────────
+        #
+        # Every gate the direct-edge arm of verify_relationship_edges applies to the receipt's
+        # OWN edge must also apply to every ancestor edge whose target is ATTACHED. Before this,
+        # the walk adjudicated ancestor SYNTAX (malformed_ancestor below) and skipped ancestor
+        # CRYPTO entirely: a cryptographically forged receipt placed at hop >= 2 yielded
+        # lineage=VERIFIED and safeForAutomation=true. The gate was distance-scoped, and the
+        # distance is attacker-chosen — the presenter simply inserts one self-signed hop.
+        #
+        # Measured by the gate on d3401a7 in Python AND in the Rust verifier. No existing chain
+        # test caught it because every one of them hardcodes "verified": True on every ancestor,
+        # so the property was untested in both languages.
+        #
+        # Three gates, mirroring lines 279-306 one to one:
+        if not isinstance(node, dict):
+            return ("relation:ancestor_attached_target_malformed: an ATTACHED ancestor is not a "
+                    "well-formed target object (present-and-wrong is a hard FAIL at any hop)")
+        if node.get("verified") is not True:
+            return ("relation:ancestor_verification_failed: an ATTACHED ancestor does not verify "
+                    "standalone (present-and-wrong is a hard FAIL at any hop, exactly as for the "
+                    "receipt's own edge)")
         nested = node.get("relationships")
         if nested is None:
             proven_safe.add(node_hex)
@@ -358,10 +382,30 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
         if validate_relationships(nested):
             return "relation:malformed_ancestor: attached target carries a malformed relationships block"
         path = path | {node_hex}
+        # A CYCLE IS ORDER-INDEPENDENT, so it is decided before any descent.
+        #
+        # The loop below returns on the FIRST error it meets while walking the sibling edges in
+        # list order. Once the ancestor gates above exist, an unverified sibling listed BEFORE a
+        # back-edge would mask the cycle — the run would still FAIL, but with a code that depends
+        # on the order the issuer happened to write the edges in. That is the same
+        # "verdict depends on position" shape as the finding this fix answers, one level down.
+        # Detecting the back-edge first makes the cycle code independent of sibling order.
+        for edge in nested:
+            nxt = _edge_target_hex(edge)
+            if nxt is not None and nxt in path:
+                return "relation:cycle: attached chain revisits a receipt on its own ancestry path"
         for edge in nested:
             nxt = _edge_target_hex(edge)
             if nxt is None:
                 continue
+            # The subject pin binds at EVERY hop, not only on the receipt's own edge: a declared
+            # targetSubjectDigest against an absent/ambiguous/malformed/unequal actual subject is
+            # the same false-accept one hop further out. The wire code is preserved verbatim so
+            # Python/Rust parity vectors keep their Sollwert; only the position is named.
+            if nxt in related and isinstance(related[nxt], dict):
+                _pin = _target_subject_pin_error(edge, related[nxt])
+                if _pin is not None:
+                    return f"relation:ancestor_edge: {_pin}"
             # Traverse attached targets; an edge back onto the ancestry path (even to a
             # node that is not itself attached, e.g. the receipt under verification) is
             # a cycle and must be caught, so path members are always followed.
