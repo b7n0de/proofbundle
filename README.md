@@ -29,7 +29,8 @@ Scorecard **6.5/10** — [what the four zeros mean, in one sentence each](#what-
 
 ## What the Scorecard badge says, including the parts that are low
 
-The badge is live, so it will move. Measured 2026-08-07 (Scorecard v5.5.0): **6.5 / 10**. Ten checks
+The badge is live, so it will move. Measured 2026-08-07, re-measured 2026-08-10 with identical
+per-check values (Scorecard v5.5.0 both times): **6.5 / 10**. Ten checks
 score 10/10 — Security-Policy, Token-Permissions, SAST, Fuzzing, CI-Tests, Vulnerabilities,
 Dangerous-Workflow, Dependency-Update-Tool, Packaging, License. Four score 0, and rather than let you
 wonder, here is each cause in one sentence:
@@ -42,14 +43,20 @@ wonder, here is each cause in one sentence:
 - **Contributors (0/10)** — it counts contributors from two or more organisations. This is a
   one-person project, and the zero is an accurate description of that.
 - **Signed-Releases (0/10)** — the check reads GitHub **release assets** looking for a signature file.
-  Every release is attested (SLSA build provenance over the exact built bytes, PyPI upload gated on a
-  sha256 match), but that attestation lived in GitHub's attestation store and on PyPI — not next to
-  the release, which is where the check looks. The provenance bundle is now attached as a release
-  asset too. Nothing was re-signed; an existing file was placed in a second location.
+  Every version release (`v*`) is attested (SLSA build provenance over the exact built bytes, PyPI
+  upload gated on a sha256 match), but that attestation lives in GitHub's attestation store and on
+  PyPI — not next to the release, which is where the check looks. The release workflow now also
+  places the provenance bundle next to the release assets; that takes effect with the next release,
+  and already-published releases were not modified after the fact. Nothing is re-signed — an
+  existing file is placed in a second location. Of the five releases the check reads, three are
+  corpus-review pre-releases that carry no such assets either, so the number will climb only as new
+  releases move through that window.
 
-Two further checks sit in between: **Code-Review 1/10** (most commits are not reviewed by a second
-person — structural for a single maintainer) and **Pinned-Dependencies 3/10** / **Branch-Protection
-3/10**, both measured and not yet addressed.
+Three further checks sit in between: **Code-Review 1/10** (most commits are not reviewed by a second
+person — structural for a single maintainer), **Binary-Artifacts 9/10** (the deducted point is a
+checked-in wheel+sdist pair kept as a reproduction fixture in `dist_final/`, and one point is not
+worth rebuilding that fixture), and **Pinned-Dependencies 3/10** / **Branch-Protection 3/10**, both
+measured and not yet addressed.
 
 Publishing a middling number with its causes is the point. A project that sells evidence cannot
 withhold its own.
