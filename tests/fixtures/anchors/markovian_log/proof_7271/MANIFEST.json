@@ -1,0 +1,115 @@
+{
+  "namespace": "markovian_log/proof_7271",
+  "kind": "vendored-third-party-log-proof",
+  "purpose": "A LIVE third-party transparency-log proof, frozen as pure data (no executable payload reaches proofbundle's verify path). The rootcommit vectors cover the offline anchor layering; this covers the live counterpart, a bundle issued by a log b7n0de does not operate, verified with witness keys sourced from parties other than that log. SECOND IMPLEMENTATION: tests/test_anchors_markovian_log.py carries a standalone RFC 6962 inclusion recomputation written from the spec (plain hashlib, no proofbundle.merkle) which must reproduce the checkpoint root before proofbundle.tlogproof.verify_tlog_proof is consulted at all, so the two derivations cannot silently drift into each other. NO-OVERCLAIM: (1) leaf 7271 is the log's own stream statement, not an entry we submitted, so the public POST /submit path is NOT exercised here; (2) the three ML-DSA-44 lines in the bundle are NOT verified, that needs the optional proofbundle[pq] backend, and their tests skip rather than pass silently; (3) rgdd.se/poc-witness and witness1.smartit.nu/witness1 cosigned but their operators' own pages were unreachable, so their keys are deliberately not carried and they are not counted toward the quorum; (4) one bundle is a snapshot and says nothing about split-view behaviour over time.",
+  "spec": "https://c2sp.org/tlog-proof (development version on main as of 2026-08-14; no tagged v1.0.0, unlike tlog-checkpoint / tlog-witness / tlog-cosignature)",
+  "upstream": {
+    "project": "MarkovianProtocol transparency log",
+    "author": "Markovian Protocol / Colin <hello@quantsynth.net>",
+    "log_origin": "markovianprotocol.com/log",
+    "bundle_url": "https://log.markovianprotocol.com/proof/7271",
+    "leaf_url": "https://log.markovianprotocol.com/leaf/7271",
+    "retrieved_at_utc": "2026-08-14T07:31:09Z",
+    "provenance_note": "A live endpoint, not a git commit: /proof/7271 served tree size 7340 on 2026-08-13 and 7341 on 2026-08-14, because the checkpoint moves with the log. Provenance is therefore pinned by retrieval time plus the per-file digests below, not by an upstream revision.",
+    "verification": "Verified by b7n0de/proofbundle on 2026-08-14 in two independent passes. Pass one, a standalone RFC 6962 recomputation self-tested against 249 synthetic inclusion paths over tree sizes 1 to 7341 before touching the bundle, reproduced the checkpoint root from the leaf bytes. Pass two, proofbundle 3.7.0 verify-proof --threshold 4, returned ok/log_ok/witnesses_ok/inclusion_ok all true. Flipping one payload bit split the verdict exactly at inclusion_ok.",
+    "license": "MIT",
+    "license_holder": "Copyright (c) 2026 Markovian Protocol"
+  },
+  "index": 7271,
+  "tree_size_at_retrieval": 7341,
+  "inclusion_path_nodes": 11,
+  "leaf_hash_b64": "Du6/Bku7hKc7cSeQ/+yA0uFbq8hzafGWQSNHRHJEwDQ=",
+  "checkpoint_root_b64": "uNXWHpdGz73l2cku1fdg/u3Uff0NdKOGOfjHkTiZPjE=",
+  "witness_threshold": 4,
+  "witnesses_verified": [
+    {
+      "name": "witness.stagemole.eu",
+      "key_id": "67f7aea0",
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689302,
+      "key_source": "its own /about page, confirmed against FiloSottile/torchwood"
+    },
+    {
+      "name": "transparency.dev/DEV:witness-little-garden",
+      "key_id": "d8042a87",
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689303,
+      "key_source": "FiloSottile/torchwood, cmd/age-keyserver/witness_policy.txt"
+    },
+    {
+      "name": "staging.witness.transparency.goog/ring-any-bells",
+      "key_id": "2e1a8dc9",
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689303,
+      "key_source": "google/google-tlog-witness, witnesses/transparency-dev.txt"
+    },
+    {
+      "name": "remora.n621.de",
+      "key_id": "da77ade7",
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689304,
+      "key_source": "the operator's own page"
+    },
+    {
+      "name": "witness.navigli.sunlight.geomys.org",
+      "key_id": "a3e00fe2",
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689302,
+      "key_source": "FiloSottile/torchwood only; its own page did not serve the key to a plain fetch"
+    }
+  ],
+  "witnesses_present_but_not_carried": [
+    {
+      "name": "rgdd.se/poc-witness",
+      "reason": "operator page unreachable on 2026-08-14; key not carried rather than taken from an unchecked source"
+    },
+    {
+      "name": "witness1.smartit.nu/witness1",
+      "reason": "operator page unreachable on 2026-08-14; key not carried rather than taken from an unchecked source"
+    }
+  ],
+  "signature_lines": {
+    "total": 11,
+    "ed25519_note_signature": 1,
+    "ed25519_cosignature_v1": 7,
+    "ml_dsa_44": 3,
+    "note": "Two of the three ML-DSA-44 lines are witness cosignatures (navigli, ring-any-bells); the third carries the log's own origin name. None of the three is verified here."
+  },
+  "files": [
+    {
+      "path": "proof_7271.tlog-proof",
+      "sha256": "172c2058239f271c170c127de11ccf664f04ee7e7365d3a030cf01c6b428cc5d",
+      "bytes": 11564,
+      "case": "the frozen c2sp.org/tlog-proof bundle as served by the log: header, index, 11-node inclusion path, signed checkpoint, 11 signature lines",
+      "expect": "parses; its checkpoint root is reproduced from leaf_7271.raw by the standalone RFC 6962 recomputation in the test module and by proofbundle.merkle"
+    },
+    {
+      "path": "leaf_7271.raw",
+      "sha256": "8ccc3b278e597f1419192b35a181f2e5486a1aa4edc5aa2f89a2440ac2b76c4a",
+      "bytes": 731,
+      "case": "the exact raw leaf bytes for index 7271, as served by /leaf/7271",
+      "expect": "SHA-256(0x00 || these bytes) equals the recorded leaf hash; any single-byte change flips inclusion_ok to false while log_ok and witnesses_ok stay true"
+    },
+    {
+      "path": "keys_unabhaengig.txt",
+      "sha256": "c85ca06f09bd3f505ec2e48e41c40432c87114f896e4a8b05f8acfc374678040",
+      "bytes": 1121,
+      "case": "the log vkey plus five witness vkeys, each taken from a party other than the audited log; per-line source comments",
+      "expect": "every key ID recomputes as SHA-256(name || 0x0A || algbyte || pubkey)[:4]; not one line comes from the log's own /policy"
+    },
+    {
+      "path": "ERGEBNIS.json",
+      "sha256": "1a8a5d73bf0f55a86cbf51eeebb97bbb8eb45bc7ed95a88a14741e3252d2e75e",
+      "bytes": 907,
+      "case": "recorded --json output of the positive run, proofbundle 3.7.0 verify-proof --threshold 4",
+      "expect": "ok=true, log_ok=true, witnesses_ok=true, inclusion_ok=true, five ed25519-cosignature/v1 witnesses"
+    },
+    {
+      "path": "ERGEBNIS_negativ.json",
+      "sha256": "7d84a482b9683b7bab3003c71016c3a65422eeb45857bf7c422603bf2bc09c9c",
+      "bytes": 909,
+      "case": "recorded --json output of the counter-test, byte 365 of the payload XOR 0x01",
+      "expect": "ok=false, inclusion_ok=false, while log_ok=true and witnesses_ok=true; the tampered payload itself is generated at test time, never vendored"
+    }
+  ]
+}

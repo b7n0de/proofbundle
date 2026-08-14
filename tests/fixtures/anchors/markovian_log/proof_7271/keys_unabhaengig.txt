@@ -1,0 +1,16 @@
+# Verifier keys for anchors/markovian_log/proof_7271
+# Captured 2026-08-14. NOT ONE of these comes from the audited log's /policy.
+# Digests of the source files are in SOURCES.md.
+#
+# log key -- transparency-dev/witness-network, lists/testing/log-list.1
+markovianprotocol.com/log+0302c6c8+ATkpOWo95UuEiW2EhNZAol4f0CS8hMluJfPcTSzrr03v
+# witness -- witness.stagemole.eu/about, second source FiloSottile/torchwood
+witness.stagemole.eu+67f7aea0+BEqSG3yu9YrmcM3BHvQYTxwFj3uSWakQepafafpUqklv
+# witness -- FiloSottile/torchwood, cmd/age-keyserver/witness_policy.txt
+transparency.dev/DEV:witness-little-garden+d8042a87+BCtusOxINQNUTN5Oj8HObRkh2yHf/MwYaGX4CPdiVEPM
+# witness -- google/google-tlog-witness, witnesses/transparency-dev.txt
+staging.witness.transparency.goog/ring-any-bells+2e1a8dc9+BG5JTpLc3FJtwzgh1Uv+Qelz9qeOH2bfWjS1s0s+y4rL
+# witness -- remora.n621.de, operator's own page
+remora.n621.de+da77ade7+BOvN63jn/bLvkieywe8R6UYAtVtNbZpXh34x7onlmtw2
+# witness -- FiloSottile/torchwood only; the operator's own page did not serve it
+witness.navigli.sunlight.geomys.org+a3e00fe2+BNy/co4C1Hn1p+INwJrfUlgz7W55dSZReusH/GhUhJ/G
