@@ -13,7 +13,8 @@ one test asserts the two derivations agree. If proofbundle's canonicalization ev
 
 NO-OVERCLAIM, mirrored from MANIFEST.json and locked by TestMarkovianLogFixtureManifest:
 leaf 7271 is the log's own stream statement, so `POST /submit` is NOT exercised here; the three
-ML-DSA-44 lines are NOT verified (needs the optional [pq] backend); rgdd.se/poc-witness and
+ML-DSA-44 lines are NOT verified (no ML-DSA-44 verifier key is carried for any of them, so the
+optional [pq] backend is irrelevant); rgdd.se/poc-witness and
 witness1.smartit.nu/witness1 cosigned but their keys are deliberately not carried, so they count
 toward nothing; and one bundle is a snapshot that says nothing about split-view behaviour over time.
 
@@ -158,7 +159,12 @@ class TestMarkovianLogFixtureManifest(unittest.TestCase):
         self.assertIn("NO-OVERCLAIM", purpose)
         self.assertIn("SECOND IMPLEMENTATION", purpose)
         self.assertIn("POST /submit", purpose)           # the untested path is named, not hidden
-        self.assertIn("proofbundle[pq]", purpose)        # ML-DSA gate is honest, never a silent pass
+        # The ML-DSA gate must name the REAL reason. It said "needs the optional [pq] backend"
+        # until 2026-08-15, which was wrong: no ML-DSA-44 verifier key is carried for any of
+        # the three lines, so no backend can help. test_no_mldsa_key_is_carried below measures
+        # that fact instead of trusting this sentence.
+        self.assertIn("no ML-DSA-44 verifier key", purpose)
+        self.assertIn("own origin name", purpose)
         # the two cosigning witnesses we deliberately do not carry are named with a reason
         not_carried = {w["name"] for w in manifest["witnesses_present_but_not_carried"]}
         self.assertEqual(not_carried, {"rgdd.se/poc-witness", "witness1.smartit.nu/witness1"})
@@ -286,6 +292,62 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         self.assertTrue(res["log_ok"])
         self.assertTrue(res["inclusion_ok"])
         self.assertTrue(res["ok"])              # threshold defaults to 0, documented behaviour
+
+
+class TestMarkovianLogMldsaKeysAreAbsent(unittest.TestCase):
+    """Why the three ML-DSA-44 lines are unverified, measured rather than asserted in prose.
+
+    Until 2026-08-15 the fixture said they were unverified because that "needs the optional [pq]
+    backend". That reason was never checked and it was wrong. No ML-DSA-44 verifier key is carried
+    for any of the three, so no backend can verify them. The sentence stayed wrong for a day because
+    a test pinned its wording instead of the fact behind it; these tests pin the fact.
+    """
+
+    @staticmethod
+    def _carried_keyids() -> "dict[str, int]":
+        """keyid -> algorithm byte, taken from the vkey material we actually carry."""
+        out = {}
+        for raw in (_FIXDIR / "keys_unabhaengig.txt").read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if line and not line.startswith("#"):
+                _, keyid, b64 = line.split("+", 2)
+                out[keyid] = base64.b64decode(b64)[0]
+        return out
+
+    @staticmethod
+    def _mldsa_lines() -> "list[tuple[str, str]]":
+        """(name, keyid) of every signature line whose blob has the ML-DSA-44 shape."""
+        found = []
+        for line in (_FIXDIR / "proof_7271.tlog-proof").read_text(encoding="utf-8").splitlines():
+            if not line.startswith("\u2014 "):
+                continue
+            _, name, b64 = line.split(None, 2)
+            blob = base64.b64decode(b64)
+            if len(blob) > 2000:
+                found.append((name, blob[:4].hex()))
+        return found
+
+    def test_no_mldsa_key_is_carried(self):
+        """The stated reason: not one carried key is ML-DSA-44 (algorithm byte 0x06)."""
+        algs = self._carried_keyids()
+        self.assertEqual(len(algs), 6)
+        self.assertEqual([k for k, a in algs.items() if a == 0x06], [],
+                         "a carried key is ML-DSA-44, so the recorded reason no longer holds")
+
+    def test_the_three_mldsa_lines_have_no_matching_key(self):
+        """Each ML-DSA-44 line's key ID is absent from the carried set, so nothing can verify it."""
+        carried = set(self._carried_keyids())
+        lines = self._mldsa_lines()
+        self.assertEqual(len(lines), 3)
+        for name, keyid in lines:
+            self.assertNotIn(keyid, carried,
+                             f"{name} keyid {keyid} is carried after all; verify it or fix the claim")
+
+    def test_one_mldsa_line_is_the_log_speaking_about_itself(self):
+        """The structural half: one of the three can only be keyed by the audited log."""
+        names = [name for name, _ in self._mldsa_lines()]
+        self.assertEqual(names.count(_ORIGIN), 1)
+        self.assertEqual(len(set(names)), 3)      # the other two are distinct witness names
 
 
 class TestMarkovianLogSignatureLines(unittest.TestCase):
