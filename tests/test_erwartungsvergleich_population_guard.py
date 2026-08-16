@@ -37,6 +37,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
+import shutil
 import unittest
 
 _REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -54,11 +55,18 @@ def _parameter(fn: ast.AST) -> dict:
             for x in alle}
 
 
+# `\bstr\b`, nicht `"str" in`. Eine Gegenlesung hat gemessen, dass die Teilzeichenketten-Form auch
+# `abstract`, `struct` und jeden Typnamen mit `str` darin trifft — sie haette einen NICHT-String als
+# String gefuehrt und damit ein Korpus gefordert, das dort keinen Gegenstand hat. Falsch in die
+# fordernde Richtung, aber falsch.
+_STR_TYP = re.compile(r"\bstr\b")
+
+
 def _nimmt_zeichenkette(annotation: str) -> bool:
     """Kann dieser Parameter eine Zeichenkette sein? Ohne Annotation: JA (im Zweifel fordern)."""
     if not annotation:
         return True
-    return "str" in annotation
+    return bool(_STR_TYP.search(annotation))
 
 
 def vergleichsstellen() -> list[tuple[str, int, str, str, str]]:
@@ -92,21 +100,36 @@ def vergleichsstellen() -> list[tuple[str, int, str, str, str]]:
 
 
 def vom_korpus_gedeckt() -> set[str]:
-    """Parameternamen, die irgendwo durch `pruefe_exakt` gefahren werden."""
+    """Parameternamen, die WIRKLICH in einem `pruefe_exakt`-Aufruf stehen — per AST, nicht per Fenster.
+
+    DIE ERSTE FASSUNG NAHM EIN 400-ZEICHEN-TEXTFENSTER ab dem Aufruf. Eine Gegenlesung hat zwei
+    Fehlerrichtungen daran benannt, und beide sind echt: ein zweiter `pruefe_exakt`-Aufruf dicht
+    daneben verschenkt seine Deckung an den ersten (faelschlich GEDECKT), und ein Argument jenseits
+    der 400 Zeichen faellt heraus (faelschlich UNGEDECKT). Eine Fenstergroesse ist eine geratene
+    Konstante ueber einer Groesse, die niemand beschraenkt — Formatierung.
+
+    Der AST kennt die Grenze des Aufrufs exakt. Gesucht werden Schluesselwort-Argumente `expected_*`
+    INNERHALB des Aufrufknotens, Lambdas eingeschlossen — genau dort steht die Bindung in der
+    ueblichen Form `pruefe_exakt(lambda v: f(..., expected_x=v), WERT, self)`.
+
+    Eine Datei, die sich nicht parsen laesst, traegt NICHTS bei (statt per Text zu raten): eine
+    kaputte Testdatei soll Deckung nicht vortaeuschen.
+    """
     aus: set[str] = set()
     for p in sorted(_TESTS.glob("test_*.py")):
         try:
-            txt = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            baum = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, OSError):
             continue
-        for m in re.finditer(r"pruefe_exakt\(", txt):
-            fenster = txt[m.start():m.start() + 400]
-            # ZIFFERN GEHOEREN IN DIE KLASSE. Die erste Fassung schrieb `[a-z_]+` und uebersah
-            # damit `expected_root_b64` — den EINZIGEN Parameter mit Ziffern im Namen. Das
-            # Muster war aus den Beispielen abgeschrieben, die gerade vor mir lagen, und die
-            # waren alle ziffernlos. Wirkung: der Waechter forderte ein Korpus, das es laengst
-            # gab — er meldete also eine Luecke zu viel, nicht zu wenig. Falsch ist beides.
-            aus.update(re.findall(r"\b(expected_[a-z0-9_]+)\s*=", fenster))
+        for k in ast.walk(baum):
+            if not isinstance(k, ast.Call):
+                continue
+            name = k.func.id if isinstance(k.func, ast.Name) else getattr(k.func, "attr", "")
+            if name != "pruefe_exakt":
+                continue
+            for inner in ast.walk(k):
+                if isinstance(inner, ast.keyword) and inner.arg and inner.arg.startswith("expected_"):
+                    aus.add(inner.arg)
     return aus
 
 
@@ -135,6 +158,44 @@ class JederZeichenkettenVergleichHatEinKorpus(unittest.TestCase):
             f"{offen}. Jeder von ihnen laesst sich auf startswith/casefold/strip lockern, ohne dass "
             "ein Test es merkt — genau die Klasse, die diese Runde fuer acht andere Parameter "
             "geschlossen hat. Korpus aus tests/_beinahe_treffer.py anhaengen.")
+
+    def test_die_deckung_erbt_nicht_und_liest_keine_prosa(self) -> None:
+        """Gate-Meta-Test fuer die AST-Deckung — beide Fehlerrichtungen, die eine Gegenlesung nannte.
+
+        Die erste Fassung nahm ein 400-Zeichen-TEXTFENSTER ab dem Aufruf. Gemessen am eigenen Baum
+        fuehrte sie `expected_x` als gedeckt — ein Name, der NUR in einem Docstring-Beispiel dieses
+        Moduls steht. Ein Phantom. Haette je ein echter Parameter so geheissen, waere er still als
+        gedeckt durchgegangen, und die Klasse waere faelschlich geschlossen gewesen.
+
+        Die zweite Richtung, ebenfalls von der Gegenlesung benannt: zwei Aufrufe dicht beieinander,
+        und der erste erbt die Deckung des zweiten. Der AST kennt die Aufrufgrenze; ein Textfenster
+        raet sie.
+        """
+        import tempfile  # noqa: PLC0415
+
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "test_probe.py").write_text(
+            '"""pruefe_exakt(lambda v: f(expected_phantom=v), W, self)"""\n'
+            "def a():\n"
+            "    pruefe_exakt(lambda v: f(expected_echt=v), W, self)\n"
+            "def b():\n"
+            "    pruefe_exakt(lambda v: g(expected_nachbar=v), W, self)\n",
+            encoding="utf-8")
+
+        import test_erwartungsvergleich_population_guard as modul  # noqa: PLC0415
+        vorher = modul._TESTS
+        modul._TESTS = d
+        try:
+            gefunden = modul.vom_korpus_gedeckt()
+        finally:
+            modul._TESTS = vorher
+
+        self.assertIn("expected_echt", gefunden, "ein echter Aufruf wird nicht gesehen — Waechter tot")
+        self.assertIn("expected_nachbar", gefunden, "der zweite Aufruf wird nicht gesehen")
+        self.assertNotIn("expected_phantom", gefunden,
+                         "ein Name aus einem DOCSTRING gilt als gedeckt — genau der Phantom-Treffer, "
+                         "den die Fensterfassung am eigenen Baum produziert hat")
 
     def test_die_ausnahme_ist_abgeleitet_nicht_gepflegt(self) -> None:
         """Die Ausnahme muss aus der Annotation folgen, sonst ist sie eine Liste mit anderem Namen.
