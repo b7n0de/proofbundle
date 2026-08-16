@@ -189,3 +189,68 @@ nachrechenbar (`git diff --name-only <digest>..<head> -- <liste>`); was sie NICH
 Aenderung an einem Pfad, den niemand auf die Liste gesetzt hat. Eine Aufzaehlung bleibt eine
 Aufzaehlung. Die dauerhafte Form waere die Umkehrung — alles bindet, ausser einer kurzen, begruendeten
 Ausschlussliste — und die gehoert in den naechsten Lauf, nicht in eine dritte Anhaengung an diesen.
+
+## 11. Die Umkehrung — angehaengt, obwohl Abschnitt 10 sie in den naechsten Lauf schob
+
+§10 endet mit: *"Die dauerhafte Form waere die Umkehrung … und die gehoert in den naechsten Lauf,
+nicht in eine dritte Anhaengung an diesen."* Das war ein Fehler, und zwar genau der, den §10 an §9
+korrigiert: **eine Instanz erweitern und den Klassen-Fix vertagen.** Eine Gegenlesung hat die
+erweiterte Liste gegen ihre eigene Regel gemessen — *"alles, was den ausgelieferten Inhalt, seine
+Metadaten, sein Pruefkorpus oder das Urteil ueber ihn bestimmt"* — und VIER Verstoesse gefunden, einen
+davon live:
+
+| ausgeschlossen | warum das die eigene Regel verletzt |
+|---|---|
+| `docs/readiness_pack/` | `MANIFEST.in:26` sagt `graft docs/readiness_pack` — es IST ausgelieferter Inhalt. Und es hat sich seit `f64d35e` bewegt (4 Dateien). Der Live-Verstoss. |
+| `README.md` | `pyproject.toml:9` `readme = "README.md"` — das ist die `long_description` auf PyPI, also "seine Metadaten". |
+| `fuzz/`, `.clusterfuzzlite/` | vier Seed-Vektoren und der Fuzz-Treiber — die Regel nennt "sein Pruefkorpus" ausdruecklich. |
+| `action/action.yml` | eine veroeffentlichte GitHub-Action, die bei Konsumenten `pip install proofbundle[…]` fahrt. |
+
+Der letzte Absatz von §10 nennt den Grund selbst: **eine Aufzaehlung bleibt eine Aufzaehlung.** Sie
+faengt nicht, woran niemand gedacht hat, und genau daran hatte ich viermal nicht gedacht.
+
+**Die Regel ab hier.** Ein Verdikt bindet den Baum des genannten Digests ueber **jede verfolgte
+Datei**, ausser diesen Ausschluessen:
+
+| ausgeschlossen | Grund |
+|---|---|
+| `audit_artifacts/` | die Akte UEBER den Digest; ihre Bewegung ist der Fall, den §9 erlauben soll. `MANIFEST.in:32` prunt sie. |
+| `tools/` | eigenstaendig versionierter Cargo-Crate `0.1.0`, `MANIFEST.in:31` prunt ihn, kein Bestandteil des Python-Artefakts. |
+| `assets/` | Bilder, kein Verhalten. |
+| `paper.md`, `paper.bib` | JOSS-Einreichungstext. |
+| `docs/` **ausser** `docs/readiness_pack/` und `docs/adr/renewal_policy.example.json` | Prosa. Die zwei Ausnahmen liefert `MANIFEST.in:26-27` aus. |
+
+**Die Ausschlussliste hat selbst einen Waechter, und das ist der eigentliche Klassen-Fix.** Eine Liste
+kann still etwas ausschliessen, das ausgeliefert wird — genau so ist `docs/readiness_pack`
+durchgerutscht. Deshalb wird sie gegen `MANIFEST.in` geprueft: **kein `graft`- oder `include`-Pfad
+darf von der Ausschlussliste erfasst sein.** Gemessen: `MANIFEST.in` liefert 8 Eintraege aus, davon
+erfasst die Ausschlussliste **null**. Die Pruefung braucht keine zweite Messstelle — `MANIFEST.in`
+ist die eine Quelle dafuer, was im sdist landet, und sie wird gelesen statt nachgebildet.
+
+**Was das fuer diesen Lauf bedeutet, gemessen statt behauptet:**
+
+```
+git diff --name-only f64d35e..HEAD                  -> 21 Dateien
+davon bindend nach dieser Regel                     -> 15
+davon bindend nach der Liste aus Abschnitt 10       ->  5
+zusaetzlich gefangen: docs/readiness_pack/ (4 Dateien, AUSGELIEFERT) · .gitignore ·
+                      RELEASE.md · CHANGELOG.md · die drei entfernten dist_*-Artefakte
+```
+
+Die drei `dist_*`-Dateien sind der zweite lehrreiche Fall: sie waren **verfolgt** und lagen damit in
+jedem Quell-Archiv und in jedem Zenodo-Deposit — 19,3 % des unkomprimierten Archivs von v3.7.0 — und
+standen auf keiner Liste. Eine Regel, die "alles ausser" sagt, haette sie vom ersten Tag an gebunden.
+
+**Damit bindet das Verdikt vom Digest `f64d35e` diesen Kopf nicht.** Das ist keine Formalie: `cli.py`
+hat nach dem benoteten Digest eine sicherheitsrelevante Aenderung (Steuerzeichen) und ein neues
+Ausgabefeld bekommen, gegen die F1-F5 nie gemessen wurden. Ein neuer Digest braucht einen neuen Lauf,
+und das ist die Konsequenz aus meiner eigenen Korrektur, nicht eine Auflage von aussen.
+
+**Ehrliche Grenze, dreifach.** (1) `docs/`-Prosa faellt weiterhin frei, obwohl eine Aussage, die mehr
+verspricht als der Code haelt, ein echter Defekt ist — das faengt hier `claims_hygiene_check` und
+`doc_link_check` in der Batterie, nicht diese Regel. Wer sie fuer lueckenlos haelt, taeuscht sich.
+(2) Der Waechter prueft die Ausschlussliste gegen den **sdist**-Inhalt; ein Pfad, der weder im sdist
+noch auf der Ausschlussliste steht, bindet per Default — das ist die gewollte Richtung, heisst aber
+auch, dass ein neues Verzeichnis ohne Nachdenken bindet und einen Lauf ungueltig macht. Das ist der
+Preis der Umkehrung, und er ist billiger als der umgekehrte Fehler. (3) Die Regel steht heute in
+dieser Datei und wird von Hand angewandt; ein ausfuehrbarer Riegel dafuer existiert nicht.
