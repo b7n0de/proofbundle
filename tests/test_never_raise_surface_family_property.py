@@ -49,14 +49,23 @@ _NAME_PATTERN = re.compile(
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
 # / SdjwtVcError / EvalClaimError-as-PBError; ValueError covers EvalClaimError + the rfc8785 domain family.
-# `OSError` added 2026-08-16, and the reason belongs here rather than in a commit nobody re-reads.
-# The never-raise contract forbids a surface CRASHING INSTEAD OF DECIDING — the type-confusion
-# signatures in `_FORBIDDEN`. A loader that reports "this path does not exist" is the opposite of that:
-# it is fail-closed, it is informative, and it produces no verdict a relying party could mistake for a
-# pass. Measured before adding it, across all 90 discovered surfaces and the full corpus: ZERO
-# forbidden escapes and exactly ONE unclassified case (`emit.load_signer` on `b"bytes-not-str"`).
-# So this widens the accepted set by a single measured case, not by a guess about what might appear.
-_ACCEPTED = (ProofBundleError, ValueError, OSError)
+# `FileNotFoundError` added 2026-08-16 — and the FIRST attempt added `OSError`, which was wrong in a
+# way worth recording, because the mistake and the claim contradicted each other. The commit text said
+# "widens by a single measured case, not by a guess"; the mechanism widened the whole hierarchy.
+# `OSError` is the base class of `PermissionError`, `TimeoutError`, `BrokenPipeError` and more. A
+# `PermissionError` on an anchor file is not a missing file — it can be an indicator that something
+# blocked access, and swallowing it silently is fail-open on exactly the axis this property defends.
+# The counter-read caught it (un, REJECT, 2026-08-16): admit the measured case, not its family.
+#
+# Why this ONE subclass is admissible: the contract forbids a surface CRASHING INSTEAD OF DECIDING —
+# the type-confusion signatures in `_FORBIDDEN`. A loader reporting "this path does not exist" is the
+# opposite: fail-closed, informative, and it produces no verdict a relying party could mistake for a
+# pass. Measured across all 90 discovered surfaces and the full corpus: ZERO forbidden escapes and
+# exactly ONE unclassified case (`emit.load_signer` on `b"bytes-not-str"` → `FileNotFoundError`).
+#
+# Any OTHER `OSError` subclass therefore still lands in the unclassified branch below and is REPORTED,
+# which is the point: the next one gets a decision, not an inherited pass.
+_ACCEPTED = (ProofBundleError, ValueError, FileNotFoundError)
 # FORBIDDEN raw terminations = the type-confusion crash signatures a public verify surface must never emit.
 _FORBIDDEN = (AttributeError, TypeError, RecursionError, KeyError, IndexError, UnicodeDecodeError, MemoryError)
 
