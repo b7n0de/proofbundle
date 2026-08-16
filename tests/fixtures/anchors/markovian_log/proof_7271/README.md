@@ -83,8 +83,12 @@ two: its own page did not serve the key to a plain fetch.
   `staging.witness.transparency.goog/ring-any-bells`, are not listed there at all
   and are dev or staging instances from elsewhere. A quorum of these carries
   integrity, not a production assurance.
-- The three ML-DSA-44 lines in the bundle were **not** verified; that needs the
-  optional `proofbundle[pq]` backend.
+- The three ML-DSA-44 lines in the bundle were **not** verified, because this
+  fixture carries **no ML-DSA-44 verifier key** for any of them. Without a public
+  key there is nothing to recompute, so the optional `proofbundle[pq]` backend does
+  not change this. Two of the three keys would have to come from the witness
+  operators (navigli, ring-any-bells); the third carries the log's own origin name,
+  so an independent key for it cannot be sourced without leaning on the audited log.
 - `c2sp.org/tlog-proof` is, as of 2026-08-14, the development version on `main`;
   there is no tagged `v1.0.0`, unlike tlog-checkpoint, tlog-witness and
   tlog-cosignature.
