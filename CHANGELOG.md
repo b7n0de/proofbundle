@@ -98,10 +98,14 @@ this section asks of the precedent claim above it.
   green, and a guard that the four control-character call sites stay wrapped.
 
   **What the new JSON key does NOT do.** It reports what the caller *asked*, not why the answer is
-  no: with `--expected-origin` set, a foreign origin, a wrong `--log-vkey` and a tampered signature
-  still produce byte-identical JSON. An earlier draft of the test and the commit message read as if
-  this field separated those three causes. It does not, and the open gap is recorded in
-  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md` with an executable guard.
+  no. Pin the origin you trust — the documented use — and a foreign origin **is** machine-readable
+  (`expected_origin` differs from `origin`); what stays indistinguishable is a **wrong `--log-vkey`**
+  against a **tampered signature**, which produce byte-identical JSON. An earlier draft of the test
+  and the commit message read as if the field separated three causes; a first correction then
+  overshot and said it separated none. Both are wrong in the same way — measured on one construction
+  and reported over another — and the measured form is above. The open gap is recorded in
+  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md` with two executable guards,
+  one for each half.
 
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
@@ -198,7 +202,7 @@ this section asks of the precedent claim above it.
   files under `dist_final/` and `dist_pkgtest6/` were tracked — 19.3 % of the uncompressed source
   archive of v3.7.0, and part of every Zenodo deposit through the webhook. They were never in the
   sdist (the `MANIFEST.in` allowlist held, verified by building the sdist at both commits and
-  diffing all 666 members), and nothing references them. Now removed and gitignored.
+  diffing every member: 743 tar members, of which 648 are files — the first draft said "all 666 members", a number that reproduces in no counting of any of the three builds), and nothing references them. Now removed and gitignored.
 
 ## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
 

@@ -13,9 +13,12 @@ optional extra is needed: Ed25519 verification rides on `cryptography`, a hard d
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
+import re
+import unicodedata
 import unittest
 
 _FIXDIR = pathlib.Path(__file__).parent / "fixtures" / "anchors" / "markovian_log" / "proof_7271"
@@ -71,17 +74,40 @@ def _kopie_mit(ersatz: bytes, ziel: str, roh: bytes | None = None) -> "pathlib.P
 
 
 def _mit_verfaelschter_signatur() -> "pathlib.Path | None":
-    """Kippt ein Base64-Zeichen in der Signaturzeile des LOGS selbst (nicht der Zeugen).
+    """Kippt ein Base64-Zeichen in der Signaturzeile des LOGS — und WEIST DIE WIRKUNG NACH.
 
-    Die Notensignaturen stehen als `— <origin> <base64>`; die Zeile des Logs ist die mit
-    `_ORIGIN`. Verfaelscht wird das letzte Zeichen — damit faellt genau `log_ok`, waehrend Merkle
-    und Inklusion unberuehrt bleiben. Das ist die Ursache, die im JSON von einem fremden Origin
-    ununterscheidbar ist.
+    KORRIGIERT 2026-08-16, nachdem zwei unabhaengige Gegenlesungen denselben Defekt massen. Die
+    erste Fassung nahm per `reversed()` die LETZTE Zeile mit dem Praefix `— <origin> ` und
+    behauptete im Docstring, das sei "die Signaturzeile des LOGS selbst (nicht der Zeugen)".
+    Gemessen gibt es ZWEI solche Zeilen: Index 18 (Laenge 120, die Notensignatur des Logs) und
+    Index 28 (Laenge 3272, eine Zeugen-Cosignatur unter demselben Namen). Der Helfer traf die
+    zweite. Ihre Verfaelschung laesst `log_ok` auf True — die Kopie war byte-gleich wirksam wie
+    gar keine, und der Test darueber war gruen, egal ob verfaelscht wurde oder nicht.
+    Entscheidprobe der Gegenlesung: mit einer byte-identischen Kopie lief er ebenfalls gruen.
+
+    Deshalb waehlt der Helfer die Zeile jetzt nicht mehr nach POSITION oder LAENGE, sondern nach
+    GEMESSENER WIRKUNG: er probiert jede Kandidatenzeile und gibt nur eine Kopie zurueck, bei der
+    `log_ok` wirklich auf False faellt. Eine Heuristik ueber die Gestalt hat hier schon einmal die
+    falsche Zeile gewaehlt; die Eigenschaft, um die es geht, ist messbar, also wird sie gemessen.
+    Faellt bei keiner Kandidatenzeile `log_ok`, gibt er `None` zurueck und der Test SKIPpt, statt
+    an einer stillschweigend falschen Annahme gruen zu werden.
     """
-    for zeile in reversed(_PROOF.read_text(encoding="utf-8", errors="replace").split("\n")):
-        if zeile.startswith("— " + _ORIGIN + " ") and len(zeile) > 10:
-            kaputt = zeile[:-1] + ("A" if zeile[-1] != "A" else "B")
-            return _kopie_mit(kaputt.encode(), "badsig.tlog-proof", roh=zeile.encode())
+    import shutil
+    praefix = "— " + _ORIGIN + " "
+    for zeile in _PROOF.read_text(encoding="utf-8", errors="replace").split("\n"):
+        if not (zeile.startswith(praefix) and len(zeile) > 10):
+            continue
+        kaputt = zeile[:-1] + ("A" if zeile[-1] != "A" else "B")
+        kandidat = _kopie_mit(kaputt.encode(), "badsig.tlog-proof", roh=zeile.encode())
+        if kandidat is None:
+            continue
+        try:
+            _, aus = _run_gegen(kandidat)
+            if json.loads(aus).get("log_ok") is False:
+                return kandidat
+        except Exception:      # noqa: BLE001 — eine unbrauchbare Kandidatenzeile ist kein Fehler
+            pass
+        shutil.rmtree(kandidat.parent, ignore_errors=True)   # kein tempdir-Leck je Versuch
     return None
 
 
@@ -183,7 +209,7 @@ class OriginVergleichIstExakt(unittest.TestCase):
         ("doppelter_strich",    _ORIGIN.replace(".com/", ".com//")),       # `//` -> `/`
         ("prozent_kodiert",     _ORIGIN.replace("/", "%2F")),              # Prozent-Dekodierung
         ("prozent_im_pfad",     _ORIGIN.replace("log", "lo%67")),          # dieselbe Klasse, im Pfad
-        ("praefix",            _ORIGIN[:-4]),                    # startswith() in die eine Richtung
+        ("praefix",            _ORIGIN[:-1]),                    # startswith() in die eine Richtung
         ("suffix_angehaengt",  _ORIGIN + "-evil"),               # startswith() in die andere
         ("gross",              _ORIGIN.upper()),                 # casefold
         ("gemischt",           _ORIGIN.capitalize()),            # casefold
@@ -272,6 +298,25 @@ class DerTrefferZweigHatEinenWaechter(unittest.TestCase):
         self.assertNotIn("(expected", self._text(),
                          "ohne Flag erscheint ein Erwartungs-Zusatz — der Default ist unconstrained")
 
+    def test_der_leerstring_bekommt_im_textpfad_seinen_zusatz(self) -> None:
+        """Die dritte Lage des Textpfads, und sie war ungedeckt.
+
+        GEMESSEN von einer Gegenlesung: `cli.py:988` mit `if args.expected_origin:` statt
+        `is not None` — also der Zusammenfall von "nicht gefragt" und "gefragt und leer" — liess
+        ALLE 2086 Tests gruen. Der Mutant aendert weder rc noch JSON; er verschweigt nur im
+        Textpfad, dass eine Erwartung GESETZT und verletzt wurde. Ein Pruefer, der `--expected-origin
+        "$VAR"` mit leerem VAR faehrt, saehe ein nacktes `[FAIL] log-signature: <origin>` und
+        suchte den Fehler beim Artefakt statt bei seiner eigenen Zeile.
+
+        Der Zusatz `(expected )` ist optisch mager — aber er ist der EINZIGE Unterschied zwischen
+        den beiden Lagen auf diesem Pfad, und genau deshalb steht er hier fest.
+        """
+        aus = self._text("--expected-origin", "")
+        self.assertIn("(expected", aus,
+                      "ein leerer Erwartungswert erscheint im Textpfad gar nicht — 'gefragt und "
+                      "leer' ist damit von 'nicht gefragt' nicht zu unterscheiden")
+        self.assertIn("[FAIL]", aus)
+
 
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
 class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
@@ -302,9 +347,22 @@ class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
 
     def test_ohne_flag_ist_das_feld_None_nicht_leerstring(self) -> None:
         """`None` heisst 'nicht gefragt'. Ein leerer String hiesse 'gefragt und leer' — zwei
-        verschiedene Lagen, und der Unterschied ist genau der, den dieses Feld tragen soll."""
+        verschiedene Lagen, und der Unterschied ist genau der, den dieses Feld tragen soll.
+
+        ERGAENZT 2026-08-16. Der Test trug die Eigenschaft im NAMEN und prueft in seiner ersten
+        Fassung nur das JSON-ECHO-Feld. Ein Gate-Meta-Test hat das ausgeloest: mit der Pflanzung
+        `not expected_origin` statt `is not None` — also genau dem Zusammenfall von "nicht gefragt"
+        und "gefragt und leer" — blieb dieser Test GRUEN. Rot wurde nur ein einziger Untertest des
+        Korpus (`("leer", "")`). Die Eigenschaft haengt jetzt dort, wo ihr Name steht.
+        """
         _, out = _run()
         self.assertIsNone(json.loads(out)["expected_origin"])
+        # der Leerstring ist eine GESTELLTE Frage und muss fehlschlagen, nicht uebersprungen werden
+        rc, leer = _run("--expected-origin", "")
+        d = json.loads(leer)
+        self.assertEqual(rc, 1, "ein leerer Origin wurde wie 'nicht gefragt' behandelt")
+        self.assertFalse(d["log_ok"])
+        self.assertEqual(d["expected_origin"], "", "'gefragt und leer' meldet sich nicht als solches")
 
     def test_das_feld_trennt_gefragt_von_nicht_gefragt(self) -> None:
         """Die EINE Eigenschaft, die das Feld wirklich traegt — und ein Waechter, der sie messen kann.
@@ -326,30 +384,82 @@ class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
                          {k: v for k, v in b.items() if k != "expected_origin"},
                          "die beiden Laeufe unterscheiden sich in mehr als dem Erwartungs-Feld")
 
-    def test_die_drei_ursachen_bleiben_ununterscheidbar(self) -> None:
-        """Haelt den GEMESSENEN Stand fest, nicht den erhofften — damit die Luecke nicht verschwindet.
+    def test_falscher_schluessel_und_verfaelschte_signatur_bleiben_ununterscheidbar(self) -> None:
+        """Haelt den GEMESSENEN Stand fest — und zwar das richtige Paar.
 
-        Fremder Origin und verfaelschte Signatur liefern mit gesetzter Erwartung dasselbe JSON. Diese
-        Zusicherung dokumentiert das ausfuehrbar: wird die Luecke spaeter wirklich geschlossen (etwa
-        durch ein Ursachen-Feld), wird DIESER Test rot und zwingt dazu, den Befund zu schliessen
-        statt ihn zu vergessen. Ein bekannter Mangel ohne Waechter wird still zur Legende.
+        KORRIGIERT 2026-08-16 nach zwei Gegenlesungen, die BEIDE Konstruktionsfehler massen.
+
+        (1) Das Paar war falsch gewaehlt. Verglichen wurden "fremder Origin" und "verfaelschte
+        Signatur", beide mit demselben FREMDEN Origin gepinnt — dann ist `log_ok` schon aus dem
+        Origin-Grund False, und die Gleichheit galt aus einem Grund, der mit der benannten
+        Eigenschaft nichts zu tun hat. Bei BESTIMMUNGSGEMAESSER Nutzung (der Pruefer pinnt den
+        Origin, dem er traut) ist der fremde Origin sehr wohl maschinell lesbar: `expected_origin`
+        weicht dann von `origin` ab. Ununterscheidbar sind die ANDEREN beiden — falscher
+        log-vkey und verfaelschte Signatur. Genau die vergleicht dieser Test jetzt, mit dem
+        RICHTIGEN Origin gepinnt.
+
+        (2) Die "verfaelschte Signatur" war keine, siehe `_mit_verfaelschter_signatur`.
+
+        Der Test haelt den offenen Befund ausfuehrbar fest: wird die Luecke je geschlossen, wird er
+        rot und zwingt dazu, den Befund zu schliessen statt ihn zu vergessen. Ein bekannter Mangel
+        ohne Waechter wird still zur Legende.
         """
-        import hashlib
-        _, fremder_origin = _run("--expected-origin", _WRONG_ORIGIN)
+        import shutil
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from proofbundle.checkpoint import vkey as mach_vkey
+
+        # (a) falscher log-vkey: RICHTIGER Name, fremdes Schluesselmaterial. Ein fremder NAME traefe
+        #     einen malformed-Pfad und maesse etwas anderes.
+        fremd = Ed25519PrivateKey.generate().public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        falscher_vkey = mach_vkey(_ORIGIN, fremd)
+
+        from proofbundle.cli import main
+        def lauf(vk: str, proof: pathlib.Path) -> str:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                main(["verify-proof", str(proof), "--payload-file", str(_LEAF),
+                      "--log-vkey", vk, "--json", "--expected-origin", _ORIGIN])
+            return buf.getvalue()
+
+        a_txt = lauf(falscher_vkey, _PROOF)
+
+        # (b) verfaelschte Signatur, mit nachgewiesener Wirkung
         verfaelscht = _mit_verfaelschter_signatur()
         if verfaelscht is None:
-            self.skipTest("Signatur-Zeile in der Fixture nicht auffindbar")
-        _, sig_kaputt = _run_gegen(verfaelscht, "--expected-origin", _WRONG_ORIGIN)
-        a, b = json.loads(fremder_origin), json.loads(sig_kaputt)
-        self.assertFalse(a["ok"])
-        self.assertFalse(b["ok"])
-        gleich = (hashlib.sha256(fremder_origin.encode()).hexdigest()
-                  == hashlib.sha256(sig_kaputt.encode()).hexdigest())
-        self.assertTrue(
-            gleich,
-            "die beiden Ursachen sind maschinell unterscheidbar geworden — gut! Dann ist der Befund "
-            "audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md geschlossen und "
-            "dieser Waechter gehoert durch eine positive Zusicherung ersetzt.")
+            self.skipTest("keine Signaturzeile mit nachweisbarer Wirkung gefunden")
+        self.addCleanup(shutil.rmtree, verfaelscht.parent, True)
+        b_txt = lauf(_log_vkey(), verfaelscht)
+
+        a, b = json.loads(a_txt), json.loads(b_txt)
+        # Gegenprobe des Aufbaus: BEIDE Ursachen muessen wirklich gefallen sein, und zwar an
+        # `log_ok`. Ohne diese zwei Zeilen waere der Vergleich unten auch dann wahr, wenn eine der
+        # beiden Konstruktionen gar nichts bewirkt haette — genau der Fehler, der hier stand.
+        self.assertFalse(a["log_ok"], "der falsche Schluessel hat log_ok nicht gekippt")
+        self.assertFalse(b["log_ok"], "die verfaelschte Signatur hat log_ok nicht gekippt")
+
+        self.assertEqual(
+            hashlib.sha256(a_txt.encode()).hexdigest(),
+            hashlib.sha256(b_txt.encode()).hexdigest(),
+            "falscher Schluessel und verfaelschte Signatur sind maschinell unterscheidbar geworden "
+            "— gut! Dann ist audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md "
+            "geschlossen und dieser Waechter gehoert durch eine positive Zusicherung ersetzt.")
+
+    def test_der_fremde_origin_ist_bei_richtigem_pin_sehr_wohl_lesbar(self) -> None:
+        """Die Gegenrichtung zum Test darueber — und die Korrektur einer zu weiten Behauptung.
+
+        Die erste Fassung des Befunds sagte pauschal, mit gesetztem Flag seien ALLE DREI Ursachen
+        byte-identisch. Gemessen gilt das nur, wenn der Pin selbst schon nicht passt. Pinnt der
+        Pruefer den Origin, dem er traut — der dokumentierte Gebrauch —, dann trennt sich der
+        fremde Origin sehr wohl: `expected_origin` weicht von `origin` ab.
+        """
+        _, fremd = _run("--expected-origin", _WRONG_ORIGIN)
+        d = json.loads(fremd)
+        self.assertNotEqual(d["expected_origin"], d["origin"],
+                            "die Abweichung ist im JSON nicht sichtbar")
+        self.assertFalse(d["log_ok"])
 
 
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
@@ -416,24 +526,145 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         quelle = _pl.Path(_cli.__file__).read_text(encoding="utf-8")
         baum = ast.parse(quelle)
 
+        # VERSCHAERFT 2026-08-16. Die erste Fassung fragte nur, ob IRGENDWO im selben f-String ein
+        # `_safe_line` vorkommt und ob der Beschriftungstext das Wort enthaelt. Eine Gegenlesung hat
+        # drei Umgehungen GEMESSEN, jede mit rohem ESC in stdout und gruenem Test:
+        #   (a) `_safe_line = lambda s: s` lokal davor  — der Name stimmt, die Funktion nicht
+        #   (b) `{str(res['detail'])}{_safe_line('')}`  — ein Alibi-Aufruf auf einer Konstante
+        #   (c) ein UNBETEILIGTER f-String mit `_safe_line` und dem Wort uebernimmt die Deckung
+        # Deshalb bindet der Waechter jetzt an die STELLE statt an das Wort: die Einsetzung, die
+        # direkt hinter der Beschriftung steht, MUSS selbst der `_safe_line`-Aufruf sein, und sein
+        # Argument darf keine Konstante sein.
+        beschriftung = re.compile(r"([a-z-]+):\s*$")
         ERWARTET = {"log-signature", "expected", "sample-opening", "enclave-attestation"}
         gefunden: set[str] = set()
-        # ALLE f-Strings, nicht nur die direkt in `print(...)`. Die erste Fassung dieses Tests sah
-        # nur print-Argumente und fiel deshalb an `expected` — zu Recht: dort steht die Umwicklung
-        # in der Zuweisung an `origin_note`, und der `print` bekommt nur noch die Variable. Ein
-        # Waechter, der die Gestalt statt die Sache misst, findet die Sache dort nicht, wo sie
-        # zufaellig anders geformt ist.
+
+        def _ist_echte_umwicklung(fv: ast.FormattedValue) -> bool:
+            """Der eingesetzte Ausdruck IST ein _safe_line(...) mit nicht-konstantem Argument."""
+            k = fv.value
+            if not (isinstance(k, ast.Call) and isinstance(k.func, ast.Name)
+                    and k.func.id == "_safe_line" and k.args):
+                return False
+            return not isinstance(k.args[0], ast.Constant)     # schliesst (b) aus
+
         for arg in ast.walk(baum):
             if not isinstance(arg, ast.JoinedStr):
                 continue
-            text = "".join(t.value for t in arg.values
-                           if isinstance(t, ast.Constant) and isinstance(t.value, str))
-            umwickelt = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                            and n.func.id == "_safe_line" for n in ast.walk(arg))
-            if not umwickelt:
-                continue
-            for marke in ERWARTET:
-                if marke in text:
-                    gefunden.add(marke)
+            vorher = ""
+            for teil in arg.values:
+                if isinstance(teil, ast.Constant) and isinstance(teil.value, str):
+                    vorher += teil.value
+                    continue
+                if isinstance(teil, ast.FormattedValue):
+                    m = beschriftung.search(vorher)
+                    if m and m.group(1) in ERWARTET and _ist_echte_umwicklung(teil):
+                        gefunden.add(m.group(1))
+                    # `expected` steht als `(expected {…})`, nicht als `expected:`
+                    if "(expected " in vorher and _ist_echte_umwicklung(teil):
+                        gefunden.add("expected")
+                    vorher = ""
         fehlend = ERWARTET - gefunden
         self.assertFalse(fehlend, f"nicht mehr durch _safe_line gefuehrt: {sorted(fehlend)}")
+
+        # (a) schliessen: der NAME `_safe_line` darf nirgends neu gebunden werden. Ohne das kann
+        # eine lokale Zuweisung die Funktion aushebeln, waehrend jede Aufrufstelle formal steht.
+        neubindungen = []
+        for n in ast.walk(baum):
+            ziele = []
+            if isinstance(n, ast.Assign):
+                ziele = n.targets
+            elif isinstance(n, (ast.AnnAssign, ast.AugAssign)):
+                ziele = [n.target]
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "_safe_line":
+                continue          # die eine echte Definition
+            for z in ziele:
+                if isinstance(z, ast.Name) and z.id == "_safe_line":
+                    neubindungen.append(getattr(n, "lineno", "?"))
+        self.assertFalse(neubindungen,
+                         f"_safe_line wird neu gebunden (Zeile {neubindungen}) — eine Umwicklung "
+                         "kann formal dastehen und trotzdem wirkungslos sein")
+
+
+class KanonischeNormalformZaehltAlsUnterschied(unittest.TestCase):
+    """Die Luecke, die `test_vollbreite_form_ist_nicht_derselbe_origin` NICHT deckt.
+
+    GEMESSEN von einem Gate-Meta-Test auf dem Vorgaengerstand: eine eingepflanzte
+    NFC-Normalisierung des Origin-Vergleichs wurde von KEINEM der 2088 Tests gefangen — auch
+    nicht vom Vollbreiten-Kandidaten, denn `NFC(vollbreite) != Origin` (nur `NFKC` bildet ihn
+    ab). Die KOMPATIBILITAETS-Normalisierung ist gedeckt, die KANONISCHE nicht. Das sind zwei
+    verschiedene Lockerungen, und die kanonische ist die naheliegendere: `unicodedata.normalize`
+    wird meist mit NFC aufgerufen.
+
+    Der Fixture-Origin ist reines ASCII und kann das prinzipiell nicht ausdruecken — aus ihm
+    laesst sich kein NFC-empfindlicher Kandidat ableiten. Deshalb wird hier ein EIGENER
+    Checkpoint gebaut, mit der ausgelieferten oeffentlichen API und einem Wegwerf-Schluessel.
+    Die eingefrorene Fixture wird nicht angefasst; sie ist der Bezugspunkt mehrerer Akten.
+
+    Der Angriff, den das abbildet: ein Log fuehrt seinen Namen in ZERLEGTER Form, der Pruefer
+    pinnt die zusammengesetzte (oder umgekehrt). Beide sehen auf dem Bildschirm identisch aus
+    und sind verschiedene Bytes. Normalisiert der Vergleich, akzeptiert der Pruefer einen
+    Checkpoint aus einem Log, das er nicht gemeint hat.
+    """
+
+    ORIGIN_NFC = unicodedata.normalize("NFC", "café.example/log")   # é als EIN Zeichen
+    ORIGIN_NFD = unicodedata.normalize("NFD", "café.example/log")   # e + Combining Acute
+    KEYNAME = "cafe.example"          # ASCII: sign_checkpoint verbietet Leerraum und '+'
+
+    @classmethod
+    def _baue(cls, origin: str) -> "tuple[str, str]":
+        """Ein signierter tlog-proof ueber genau einen Blatt-Eintrag. Rueckgabe (proof, vkey)."""
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives import serialization
+        from proofbundle.checkpoint import sign_checkpoint, vkey as mach_vkey
+        from proofbundle.tlogproof import format_tlog_proof
+
+        sk = Ed25519PrivateKey.generate()
+        pub = sk.public_key().public_bytes(serialization.Encoding.Raw,
+                                           serialization.PublicFormat.Raw)
+        nutzlast = b"leaf-0"
+        blatt = hashlib.sha256(b"\x00" + nutzlast).digest()      # RFC 6962 leaf hash
+        note = sign_checkpoint(origin, 1, blatt, sk, cls.KEYNAME)  # tree_size 1 -> root == leaf
+        return format_tlog_proof(0, [], note), mach_vkey(cls.KEYNAME, pub)
+
+    def _pruefe(self, gebaut_mit: str, erwartet: "str | None") -> dict:
+        import tempfile
+        from proofbundle.tlogproof import verify_tlog_proof
+        proof, vk = self._baue(gebaut_mit)
+        with tempfile.TemporaryDirectory() as t:
+            p = pathlib.Path(t) / "p.tlog-proof"
+            p.write_text(proof, encoding="utf-8")
+            return verify_tlog_proof(p.read_text(encoding="utf-8"), b"leaf-0", vk,
+                                     expected_origin=erwartet)
+
+    def test_die_zwei_formen_sind_wirklich_verschiedene_bytes(self) -> None:
+        """Die Vorbedingung. Ohne sie misst der Rest der Klasse nichts."""
+        self.assertNotEqual(self.ORIGIN_NFC, self.ORIGIN_NFD,
+                            "die Fixture-Zeichenkette ist nicht zerlegbar — kein Kandidat")
+        self.assertEqual(unicodedata.normalize("NFC", self.ORIGIN_NFD), self.ORIGIN_NFC,
+                         "NFC bildet die zerlegte Form nicht auf die zusammengesetzte ab")
+
+    def test_positivkontrolle_der_eigene_aufbau_verifiziert(self) -> None:
+        """Zuerst der Gutfall — sonst waere jedes NEIN unten auch ohne den Vergleich erklaerbar."""
+        res = self._pruefe(self.ORIGIN_NFC, None)
+        self.assertTrue(res["ok"], f"der selbstgebaute Beweis verifiziert nicht: {res}")
+        self.assertTrue(res["log_ok"])
+
+    def test_nfd_erwartung_gegen_nfc_checkpoint_faellt(self) -> None:
+        res = self._pruefe(self.ORIGIN_NFC, self.ORIGIN_NFD)
+        self.assertFalse(res["log_ok"], "die zerlegte Form wurde als derselbe Origin akzeptiert "
+                                        "— der Vergleich normalisiert kanonisch")
+        self.assertFalse(res["ok"])
+
+    def test_nfc_erwartung_gegen_nfd_checkpoint_faellt(self) -> None:
+        """Die Gegenrichtung. Eine einseitige Normalisierung faellt nur in einer der beiden."""
+        res = self._pruefe(self.ORIGIN_NFD, self.ORIGIN_NFC)
+        self.assertFalse(res["log_ok"], "die zusammengesetzte Form wurde als derselbe Origin "
+                                        "akzeptiert — der Vergleich normalisiert kanonisch")
+        self.assertFalse(res["ok"])
+
+    def test_jede_form_passt_zu_sich_selbst(self) -> None:
+        """Ohne diese Zeile waere die Klasse auch bei einem IMMER-FALSCH-Vergleich gruen."""
+        for name, form in (("NFC", self.ORIGIN_NFC), ("NFD", self.ORIGIN_NFD)):
+            with self.subTest(form=name):
+                res = self._pruefe(form, form)
+                self.assertTrue(res["log_ok"], f"{name} passt nicht zu sich selbst")

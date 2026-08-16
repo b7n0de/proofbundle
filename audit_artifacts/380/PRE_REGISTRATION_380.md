@@ -230,12 +230,19 @@ ist die eine Quelle dafuer, was im sdist landet, und sie wird gelesen statt nach
 **Was das fuer diesen Lauf bedeutet, gemessen statt behauptet:**
 
 ```
-git diff --name-only f64d35e..HEAD                  -> 21 Dateien
-davon bindend nach dieser Regel                     -> 15
-davon bindend nach der Liste aus Abschnitt 10       ->  5
+git diff --name-only f64d35e..039ac5d      -> 21 Dateien   §11: 15   §10: 5
+git diff --name-only f64d35e..c9e94b3      -> 22 Dateien   §11: 16   §10: 6
 zusaetzlich gefangen: docs/readiness_pack/ (4 Dateien, AUSGELIEFERT) · .gitignore ·
                       RELEASE.md · CHANGELOG.md · die drei entfernten dist_*-Artefakte
 ```
+
+**Die zwei Zeilen stehen hier, weil die erste Fassung nur EINE hatte — und `HEAD` statt eines
+Pins.** Sie nannte 21/15/5, gemessen an `039ac5d`, und wurde in `c9e94b3` eingefuegt. Genau dieser
+Commit legt eine 22. Datei dazu (`tests/fixtures/.../MANIFEST.json`, der Herkunfts-Vermerk), die
+nach BEIDEN Regeln bindet — ab der Sekunde des Commits waren die eigenen Zahlen also falsch. Eine
+Messung mit `HEAD` im Befehlstext ist selbstwidersprechend, sobald sie aufgeschrieben wird: das
+Aufschreiben bewegt `HEAD`. Der Klammerzusatz darunter bleibt richtig, er zaehlt die Differenz der
+beiden Regeln, nicht den Stand.
 
 Die drei `dist_*`-Dateien sind der zweite lehrreiche Fall: sie waren **verfolgt** und lagen damit in
 jedem Quell-Archiv und in jedem Zenodo-Deposit — 19,3 % des unkomprimierten Archivs von v3.7.0 — und

@@ -89,6 +89,22 @@ MUTATIONS = [
      'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
      'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).casefold() == str(expected_origin).casefold())',
      "tlogproof: origin comparison becomes case-insensitive", True),
+    # DREI OPERATOREN, die eine Gegenlesung als fehlend GEMESSEN hat. Der Befund war nicht "der
+    # Defekt kommt durch" — er kommt nicht durch —, sondern: fuenf Klassen haengen an EINER
+    # Testdatei, und faellt sie je weg, meldet das Mutations-Tor still gruen statt SURVIVED. Ein
+    # Operator ist die Anti-Goodhart-Ebene: er merkt, wenn das Korpus schrumpft.
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or __import__("unicodedata").normalize("NFC", str(log_res["origin"])) == __import__("unicodedata").normalize("NFC", str(expected_origin)))',
+     "tlogproof: origin comparison normalises canonically (NFC) — a decomposed name would pass", True),
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (not expected_origin or log_res["origin"] == expected_origin)',
+     "tlogproof: absent collapses into empty — an empty expectation would skip the check", True),
+    ("src/proofbundle/cli.py",
+     'f"log-signature: {_safe_line(str(res[\'origin\']))}{origin_note}")',
+     'f"log-signature: {str(res[\'origin\'])}{origin_note}")',
+     "cli: control-character neutralisation dropped on the origin line (forged verdict line)", True),
     ("src/proofbundle/checkpoint.py",
      "_MLDSA_LABEL = b\"subtree/v1\\n\\x00\"", "_MLDSA_LABEL = b\"subtree/v2\\n\\x00\"",
      "mldsa: domain separation label changed", True),

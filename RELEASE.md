@@ -96,7 +96,14 @@ after the merge (see *Release ordering* above).
 ```bash
 pip download proofbundle==X.Y.Z --no-deps -d /tmp/pb
 sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
-# or, with SHA256SUMS downloaded next to the artifacts, let the tool do the comparing:
-( cd /tmp/pb && sha256sum -c SHA256SUMS )
+# or, with SHA256SUMS downloaded next to the artifacts, let the tool do the comparing.
+# --ignore-missing is required, not cosmetic: the command above fetches only the WHEEL, while
+# SHA256SUMS lists the wheel AND the sdist, so a plain `-c` reports the sdist line as
+# "No such file or directory / FAILED" on a perfectly good download. Measured, both failure
+# modes still fail: a wrong digest exits 1, and an empty directory exits 1 with
+# "no file was verified" — it does not pass silently when there is nothing to check.
+( cd /tmp/pb && sha256sum --ignore-missing -c SHA256SUMS )
+# to check both artifacts, fetch the sdist as well:
+#   pip download proofbundle==X.Y.Z --no-deps --no-binary :all: -d /tmp/pb
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```

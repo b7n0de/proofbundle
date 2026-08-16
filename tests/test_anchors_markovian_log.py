@@ -281,6 +281,35 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         self.assertFalse(wrong["ok"])
         self.assertTrue(wrong["inclusion_ok"])  # the tree membership itself is untouched
 
+    def test_expected_origin_is_exact_at_the_library_level_too(self):
+        """The near-miss corpus, at the level that third parties actually import.
+
+        Added 2026-08-16 after a gate meta-test measured the gap. The test above checks only a
+        WHOLLY FOREIGN origin (`attacker.example/log`), and against a foreign value a loosened
+        comparison behaves exactly like an exact one: planting `.startswith()`, `.casefold()`,
+        NFC-normalisation or `not expected_origin` left it green. Every one of those was caught —
+        but only by the CLI-level corpus in `tests/test_verify_proof_expected_origin.py`. Anyone
+        calling `verify_tlog_proof` directly, which is the documented public API, was covered
+        against total removal of the check and against nothing else.
+
+        The candidates are deliberately the same shapes as the CLI corpus rather than a new
+        invention; what is being defended is one property on two levels.
+        """
+        for name, kandidat in (
+            ("prefix",          _ORIGIN[:-1]),
+            ("suffix",          _ORIGIN + "-evil"),
+            ("uppercase",       _ORIGIN.upper()),
+            ("trailing slash",  _ORIGIN + "/"),
+            ("leading space",   " " + _ORIGIN),
+            ("empty",           ""),
+            ("domain only",     _ORIGIN.split("/")[0]),
+        ):
+            with self.subTest(near_miss=name):
+                res = self._verify(_leaf_bytes(), expected_origin=kandidat)
+                self.assertFalse(res["log_ok"], f"{name}: {kandidat!r} was accepted")
+                self.assertFalse(res["ok"])
+                self.assertTrue(res["inclusion_ok"], f"{name}: inclusion flipped — wrong cause")
+
     def test_threshold_above_the_carried_witnesses_fails_closed(self):
         res = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey, self.witness_vkeys,
                                 threshold=6)

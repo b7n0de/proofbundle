@@ -10,22 +10,31 @@ gap were closed by that field. It is not. The correction is the substance of thi
 
 ## What was measured
 
-A delta counter-read on 2026-08-16 ran the three causes against the frozen `markovianprotocol.com/log`
-leaf-7271 fixture, **with** `--expected-origin` set, and hashed the JSON:
+**Corrected 2026-08-16 after a second counter-read: the first version of this section claimed too
+much, and the correction narrows the finding rather than widening it.** It said all three causes are
+byte-identical "with `--expected-origin` set". That holds only for one particular way of setting it —
+the way the original measurement happened to use.
 
-| Cause | with `--expected-origin` | without |
-|---|---|---|
-| foreign origin | `sha=d4d6a953ea033c72` | distinct |
-| wrong `--log-vkey` | `sha=d4d6a953ea033c72` | identical to (3) |
-| tampered signature in the proof | `sha=d4d6a953ea033c72` | identical to (2) |
+Both constructions, measured against the frozen `markovianprotocol.com/log` leaf-7271 fixture, with
+the positive control run first so the harness is known to produce a passing verdict:
 
-All three are byte-identical with the flag set. The reason is simple once stated: `expected_origin`
-echoes **the verifier's own input**, which is the same string in all three runs. It adds a fact about
-the question, not about the answer.
+| Construction | foreign origin | wrong `--log-vkey` | tampered signature |
+|---|---|---|---|
+| **A** — all three runs pin the *same foreign* origin | `d4d6a953ea033c72` | `d4d6a953ea033c72` | `d4d6a953ea033c72` |
+| **B** — pin the origin one actually trusts (the documented use) | `cee36aea781d760b` | `a0f6b7c4f659e397` | `a0f6b7c4f659e397` |
 
-Without the flag, cause (1) does separate from (2)/(3) — because `log_ok` flips for a different
-reason — but (2) and (3) remain identical to each other. So the count was never three-to-one; it was
-at best one-to-two, and with the flag set it is one-to-one-to-one collapsed into a single output.
+In construction A all three collapse — but there `log_ok` is already false *because of the pinned
+origin*, in every run. The identity is real and says nothing about the three causes.
+
+**Construction B is the one that matters, and it is the honest form of this finding:** a relying
+party pins the origin it trusts. Then a foreign origin **is** machine-readable — `expected_origin`
+differs from `origin` — and the collapse is between **wrong key** and **tampered signature**, which
+produce byte-identical output. That is a two-into-one collapse, not three-into-one.
+
+The corrected claim is therefore narrower and still real: `expected_origin` echoes the verifier's own
+input, so it adds a fact about the *question*, never about the *answer*. It separates the one cause
+that is visible in the question (a pinned origin that does not match) and cannot separate the two
+that are not.
 
 ## Why the first record got it wrong
 
@@ -61,6 +70,18 @@ relying party that automates on the JSON can tell that verification failed and c
 suspect its own configuration (wrong key, wrong origin pinned) or the artifact (tampered signature).
 
 A guard is in place so this cannot quietly heal into a legend either way:
-`tests/test_verify_proof_expected_origin.py::test_die_drei_ursachen_bleiben_ununterscheidbar` asserts
-the *measured* state. If a later change really does separate the causes, that test goes red and forces
-this file to be closed rather than forgotten.
+`tests/test_verify_proof_expected_origin.py::test_falscher_schluessel_und_verfaelschte_signatur_bleiben_ununterscheidbar`
+asserts the *measured* state. If a later change really does separate the causes, that test goes red
+and forces this file to be closed rather than forgotten. Its sibling
+`test_der_fremde_origin_ist_bei_richtigem_pin_sehr_wohl_lesbar` pins the other half — the part that
+**is** readable — so the finding cannot silently grow back into the over-wide form it started as.
+
+**Both of those guards replaced one that measured nothing, and how it failed is worth recording.**
+The first version compared "foreign origin" against "tampered signature" with the *same foreign*
+origin pinned in both — construction A above, where the identity holds for an unrelated reason. And
+its "tampered signature" was not one: the helper picked the last line matching `— <origin> `, and the
+fixture has **two** such lines (index 18, length 120 — the log's note signature; index 28, length
+3272 — a witness cosignature under the same name). It corrupted the second, which leaves `log_ok`
+true. A counter-read felled it decisively by handing the test a **byte-identical** copy: still green.
+The helper now selects by **measured effect** rather than by position or shape — it returns only a
+copy for which `log_ok` actually flips — and the test asserts that flip before comparing anything.
