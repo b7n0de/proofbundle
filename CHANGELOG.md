@@ -206,6 +206,34 @@ this section asks of the precedent claim above it.
   between, written out rather than silently renumbered.
 
 ### Fixed
+- **`load_signer` no longer reads a file descriptor when handed an integer.** `open()` accepts an
+  int as a **file descriptor**, so `load_signer(123)` did not fail on the wrong type — it read
+  whatever happened to be open on fd 123 and tried to make an Ed25519 private key out of it. A
+  wrong-typed argument silently reaching an unrelated open file is a worse outcome than a crash. The
+  primary argument is now type-checked and a non-path raises `BundleFormatError`.
+
+  The guard is held by a test that proves the descriptor is **not read** — it is still open
+  afterwards — rather than merely that something was raised, and the opposite direction (`str`,
+  `Path` and `bytes` paths still load) is pinned alongside it, because a guard that also blocks the
+  correct call is not hardening.
+
+  **How it was found is the more useful half.** The never-raise family property walked a
+  hand-maintained list of 36 modules while the package ships 62; it was correct over the set it
+  walked, and that set was smaller than the set it was read as covering. It now enumerates its
+  family from the tree (`pkgutil.walk_packages`, subpackages included), which raised the swept
+  surfaces from 79 to 91 — and `emit.load_signer` had never been in it. Verified both ways: a
+  planted raw raise in `anchors_ots` (outside the old list) now turns the property red, the same
+  plant in `anchors` (inside it) still does, and restoring the list makes the first one pass green
+  again.
+
+  Two smaller things came with it, both kept rather than smoothed over. The property crashed with a
+  traceback when a surface terminated with something on neither its accepted nor its forbidden list;
+  a blocklist over an open alphabet means *unclassified*, not *permitted*, so that is now its own
+  reported category. And accepting `OSError` became necessary once a path-taking surface joined the
+  family — *the file is not there* is an honest typed answer for a loader — but that same line would
+  have re-hidden the fd hazard, so the hazard is closed at the surface and pinned by its own test
+  instead of by the list.
+
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
   `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
   said the three ML-DSA-44 lines were unverified because that "needs the optional `proofbundle[pq]`

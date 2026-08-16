@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.serialization import (
 
 from . import merkle
 from .bundle import SCHEMA
+from .errors import BundleFormatError
 
 __all__ = [
     "generate_signer",
@@ -63,7 +64,21 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
 
 
 def load_signer(path: str) -> Ed25519PrivateKey:
-    """Load an Ed25519 signing key from a 32 byte raw seed file."""
+    """Load an Ed25519 signing key from a 32 byte raw seed file.
+
+    The primary argument must be a path. This is guarded rather than left to ``open()``, and the
+    reason is not tidiness: ``open()`` accepts an **integer as a file descriptor**, so
+    ``load_signer(123)`` does not fail — it reads whatever happens to be open on fd 123 and tries to
+    make a private key out of it. A wrong-typed argument silently reaching an unrelated open file is
+    a worse outcome than a crash, and the crash it produces instead (a raw ``TypeError`` for other
+    wrong types) is itself outside the never-raise contract this package states for its public
+    surfaces. Found 2026-08-16 by enumerating the surface family from the tree instead of from a
+    hand-maintained module list — this surface had never been in the swept set.
+    """
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        raise BundleFormatError(
+            f"load_signer expects a path, got {type(path).__name__} — an int would be read as an "
+            "open file descriptor, not as a file name")
     with open(path, "rb") as handle:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 

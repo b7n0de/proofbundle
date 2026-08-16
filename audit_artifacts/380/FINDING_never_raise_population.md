@@ -1,7 +1,8 @@
 # Finding — the never-raise family property is green over an incomplete population
 
-**Pre-existing (`main`), not introduced by 3.8.0.** Per the implementation order this is reported and
-not silently fixed: a finding on `main` is an Altbefund. Recorded here because the deep-gate run on the
+**Pre-existing (`main`). Reported first, then CLOSED IN THIS RELEASE** under the Owner's instruction
+that all gaps be closed inside 3.8.0. Its subject exists at `v3.7.0`, so it stays an Altbefund in the
+index count; only its state changed. Recorded here because the deep-gate run on the
 3.8.0 candidate surfaced it, and because it bears on what a class-closure claim in this repository is
 worth.
 
@@ -72,7 +73,50 @@ but because the population never contained it.
   matches the property's own `_NAME_PATTERN`, discovered at run time.
 - **oracle_predicate:** plant a raw raise in a discovered surface; the property must go red. A surface
   where it stays green is outside the population and the claim does not cover it.
-- **outcome:** `class_open` — 11 members outside, one of them a live violation.
+- **outcome:** `class_closed` on the MODULE axis — the property enumerates its family from the tree.
+  The keyword-argument axis is a different one and stays open, see below.
+
+## How it is closed, and what the closing measured
+
+`_MODULES` is gone as the population. `_module_names()` walks `proofbundle.__path__` with
+`pkgutil.walk_packages`, so subpackages come along and a newly added module is in scope the day it
+lands rather than the day someone remembers the list. Measured: 36 listed modules against 62 in the
+tree; 79 surfaces against 91.
+
+**The decisive probe, which is the finding's own experiment run in both directions:**
+
+```
+tree + planted raise in anchors_ots        -> RED   (caught)
+tree + planted raise in anchors (listed)   -> RED   (no regression)
+LIST + the same raise in anchors_ots       -> GREEN (the finding, reproduced)
+baseline                                   -> GREEN (returns exactly)
+```
+
+**One live defect fell out immediately, and it is not the one this file predicted.**
+`emit.load_signer` had never been swept. `open()` accepts an **integer as a file descriptor**, so
+`load_signer(123)` did not fail on the wrong type — it read whatever was open on fd 123 and tried to
+make a private key of it. A wrong-typed argument silently reaching an unrelated open file is a worse
+outcome than a crash. Guarded at the surface with a typed error, held by
+`tests/test_load_signer_fd_hazard.py`, which proves the descriptor is **not read** (it is still open
+afterwards) rather than merely that something was raised.
+
+**The instrument itself had two states where it needed three.** A surface terminating with anything
+outside both the accepted and the forbidden set crashed the run with a traceback instead of
+producing a finding — measured on exactly that `OSError`. `_FORBIDDEN` is a blocklist over an open
+alphabet; what is not on it is **unclassified**, not permitted. It is now reported as its own
+category.
+
+**A loosening that had to bring its own guard.** Accepting `OSError` was necessary once a
+path-taking surface entered the family — *the file is not there* is an honest typed answer for a
+loader, and counting it as a violation would make the property unbelievable, and an unbelievable
+property gets switched off. But that same line would have re-hidden the fd hazard, which is why the
+hazard is closed at the surface and pinned by its own test rather than by the list.
+
+**STILL OPEN, and it is this file's own prediction:** `anchors_rfc3161.verify_rfc3161` raising
+`AttributeError` on a non-dict `frozen` / `rp_trust` lives on the **keyword-argument** axis. This
+property fuzzes the PRIMARY argument, so closing the module axis does not reach it — the same shape
+as F2 ("the class sweep plays only argument position 0"), one axis over. Not fixed here, and named
+so the closure is not read as wider than it is.
 
 This is the same shape as the finding the 31.07. run recorded as F2 ("the class sweep plays only
 argument position 0"), one level up: there the *argument* axis was truncated, here the *module* axis

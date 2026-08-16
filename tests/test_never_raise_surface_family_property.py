@@ -43,11 +43,56 @@ _NAME_PATTERN = re.compile(
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
 # / SdjwtVcError / EvalClaimError-as-PBError; ValueError covers EvalClaimError + the rfc8785 domain family.
-_ACCEPTED = (ProofBundleError, ValueError)
+_ACCEPTED = (ProofBundleError, ValueError, OSError)
+# ``OSError`` NACHGETRAGEN 2026-08-16, mit Begruendung statt stillschweigend. Sobald die Familie aus
+# dem BAUM aufgezaehlt wird, kommt mit ``emit.load_signer`` erstmals eine Flaeche in die Menge, deren
+# Primaerargument ein DATEIPFAD ist. "Die Datei ist nicht da" (``FileNotFoundError`` auf ``b"..."`` —
+# bytes IST ein gueltiger Pfadtyp) ist fuer einen Lader eine ehrliche, typisierte Beendigung und
+# keine Typverwechslung. Sie deshalb als Verstoss zu zaehlen, wuerde den Waechter unglaubwuerdig
+# machen, und ein unglaubwuerdiger Waechter wird abgeschaltet.
+# WAS DAS NICHT ENTSCHULDIGT, und darum steht hier ein eigener Test: ``open()`` nimmt eine ZAHL als
+# Dateideskriptor. ``load_signer(123)`` warf frueher ``OSError(EBADF)`` — mit dieser Zeile allein
+# waere genau dieser Fall ab jetzt "akzeptiert" gewesen, und im unguenstigen Moment liest er einen
+# fremden offenen Deskriptor statt zu scheitern. Die Gefahr ist deshalb AN DER FLAECHE geschlossen
+# (isinstance-Schranke in ``emit.load_signer``) und wird von
+# ``tests/test_load_signer_fd_hazard.py`` gehalten, nicht von dieser Liste.
 # FORBIDDEN raw terminations = the type-confusion crash signatures a public verify surface must never emit.
 _FORBIDDEN = (AttributeError, TypeError, RecursionError, KeyError, IndexError, UnicodeDecodeError, MemoryError)
 
 _BAD_PRIMARIES = [None, 123, 1.5, True, b"bytes-not-str", ["a", "list"], {"k": "v"}, ("t", "u")]
+
+
+def _module_names():
+    """Die Familie wird AUS DEM BAUM aufgezaehlt, nicht aus einer gepflegten Liste.
+
+    DAS WAR DER BEFUND (``FINDING_never_raise_population.md``, gemessen): ``_MODULES`` listete 36
+    Module, das Paket liefert 62 aus. Ein gepflanzter ``raise`` in einer Flaeche eines gelisteten
+    Moduls wurde gefangen; derselbe Defekt in ``anchors_ots`` lief GRUEN durch — die Eigenschaft war
+    korrekt ueber die Menge, die sie ablief, und diese Menge war kleiner als die, fuer die man sie
+    las. Gemessen fehlten **12 Flaechen in 8 Modulen**, darunter ``experimental.enclave``, das
+    ausgeliefert wird, dokumentierter Importpfad UND CLI-Unterbefehl ist.
+
+    Die Invariante, die daraus folgt: eine Eigenschaft, die eine KLASSE zu schliessen behauptet, muss
+    ihre Familie zur Laufzeit entdecken. Sonst misst "gruen" die Liste, nicht die Klasse — und der
+    Beweis dafuer ist, dass die Liste beim Hinzufuegen des naechsten Moduls niemanden zwingt.
+
+    KEINE AUSNAHMEN: der Befund haelt ausdruecklich fest, dass an den 12 nichts absichtlich ausser
+    Reichweite war. Ein Modul, das sich nicht importieren laesst (optionales Extra), faellt weiter
+    unten durch das bestehende ``except`` — das ist Umgebung, nicht Absicht.
+    """
+    import pkgutil  # noqa: PLC0415
+    import warnings  # noqa: PLC0415
+
+    import proofbundle  # noqa: PLC0415
+
+    namen = []
+    with warnings.catch_warnings():
+        # `walk_packages` IMPORTIERT, um Unterpakete zu finden, und `experimental` warnt beim Import.
+        # Die Warnung ist berechtigt und hier nur Rauschen — sie darf die Entdeckung nicht abbrechen.
+        warnings.simplefilter("ignore")
+        for info in pkgutil.walk_packages(proofbundle.__path__, prefix="proofbundle."):
+            namen.append(info.name.split("proofbundle.", 1)[1])
+    return sorted(set(namen))
 
 
 def _discover_surfaces():
@@ -58,7 +103,7 @@ def _discover_surfaces():
     ``evalclaim.__all__``, so the old ``__all__`` gate silently dropped it from the denominator. A non-underscore
     function whose name matches the never-raise family IS in scope regardless of ``__all__``."""
     out = []
-    for mod_name in _MODULES:
+    for mod_name in _module_names():
         try:
             mod = importlib.import_module(f"proofbundle.{mod_name}")
         except Exception:  # noqa: BLE001 - an optional-extra module that will not import is out of scope here
@@ -129,6 +174,7 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
         warnings.filterwarnings("ignore")
         corpus = _BAD_PRIMARIES + _structural_corpus()
         escapes = []
+        unclassified = []
         for mod_name, name, fn in _discover_surfaces():
             try:
                 params = list(inspect.signature(fn).parameters.values())
@@ -158,8 +204,23 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 except _FORBIDDEN as exc:
                     escapes.append(f"{mod_name}.{name} on {type(bad).__name__}: raw "
                                    f"{type(exc).__name__}: {exc}")
+                except Exception as exc:              # noqa: BLE001
+                    # DREI ZUSTAENDE, NICHT ZWEI. Bis hierher stuerzte das MESSGERAET ab, sobald eine
+                    # Flaeche etwas warf, das auf keiner der beiden Listen steht — und ein Messgeraet,
+                    # das am Unerwarteten zerbricht, misst weniger als es behauptet. Gemessen an genau
+                    # so einem Fall: `emit.load_signer(123)` warf OSError (open() nimmt die Zahl als
+                    # DATEIDESKRIPTOR), was weder akzeptiert noch verboten gelistet war; der Lauf
+                    # endete mit einem Traceback statt mit einem Befund. `_FORBIDDEN` ist eine
+                    # Sperrliste ueber einem offenen Alphabet — was nicht daraufsteht, ist deshalb
+                    # nicht erlaubt, sondern UNKLASSIFIZIERT, und das wird gemeldet statt verschluckt.
+                    unclassified.append(f"{mod_name}.{name} on {type(bad).__name__}: "
+                                        f"{type(exc).__name__}: {exc}")
         self.assertEqual(escapes, [], "raw type-confusion escapes over the AUTO-DISCOVERED surface family:\n"
                          + "\n".join(escapes))
+        self.assertEqual(unclassified, [],
+                         "terminations outside BOTH the accepted and the forbidden set — neither a "
+                         "verdict nor a typed fail-closed error, so the never-raise contract says "
+                         "nothing about them and they must be judged:\n" + "\n".join(unclassified))
 
 
     def test_var_positional_surfaces_fuzzed_with_hostile_args(self):
