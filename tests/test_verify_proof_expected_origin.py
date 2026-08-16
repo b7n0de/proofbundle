@@ -596,7 +596,11 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
                 if not isinstance(teil, ast.FormattedValue):
                     continue
                 q = ast.unparse(teil.value)
-                if not re.search(r"\['(?:detail|origin)'\]", q):
+                # BEIDE Zugriffsformen. Eine Gegenlesung hat gemessen, dass die erste Fassung nur
+                # `x['detail']` sah: `res.get('detail')` liest denselben Wert und ging durch. Heute
+                # kommt die zweite Form in cli.py 0x vor — ein Waechter existiert aber fuer morgen,
+                # und die Umgehung waere eine Zeichenaenderung.
+                if not re.search(r"\['(?:detail|origin)'\]|\.get\(\s*['\"](?:detail|origin)['\"]", q):
                     continue
                 if "_safe_line" in q:
                     continue
@@ -634,6 +638,29 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         self.assertFalse(neubindungen,
                          f"_safe_line wird neu gebunden (Zeile {neubindungen}) — eine Umwicklung "
                          "kann formal dastehen und trotzdem wirkungslos sein")
+
+        # DER WAECHTER SIEHT NUR f-STRINGS, und das ist eine Annahme, keine Eigenschaft. Eine
+        # Gegenlesung hat sie benannt: `print("log-signature: " + res['origin'])` oder
+        # `print("...%s" % res['origin'])` traegt keinen `JoinedStr` und ginge unbemerkt durch.
+        # Gemessen kommt beides in cli.py heute 0x vor — deshalb wird die ANNAHME hier festgehalten
+        # statt der Sonderfall behandelt: solange jede Ausgabe ein f-String ist, deckt die Regel
+        # oben alles ab. Faellt diese Zeile, ist nicht sie das Problem, sondern die neue Ausgabeform,
+        # die dann selbst eine Regel braucht.
+        andere_formen = []
+        for n in ast.walk(baum):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print"):
+                continue
+            for a in n.args:
+                if isinstance(a, ast.BinOp) and isinstance(a.op, (ast.Add, ast.Mod)):
+                    andere_formen.append((getattr(a, "lineno", "?"), ast.unparse(a)[:60]))
+                elif isinstance(a, ast.Call) and isinstance(a.func, ast.Attribute) \
+                        and a.func.attr == "format":
+                    andere_formen.append((getattr(a, "lineno", "?"), ast.unparse(a)[:60]))
+        self.assertFalse(
+            andere_formen,
+            "print() benutzt Konkatenation, %-Formatierung oder .format() statt eines f-Strings: "
+            f"{andere_formen}. Die Regel darueber sieht nur f-Strings — eine solche Zeile waere "
+            "ungedeckt. Entweder auf einen f-String umstellen oder die Regel erweitern.")
 
 
 class KanonischeNormalformZaehltAlsUnterschied(unittest.TestCase):

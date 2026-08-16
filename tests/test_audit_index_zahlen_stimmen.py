@@ -53,36 +53,45 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
         self.assertTrue(_indizes(), "kein einziger 00_INDEX.md gefunden — Suchmuster tot oder Akte leer")
 
     def test_die_gesamtzahl_passt_zur_dateimenge(self) -> None:
-        """`N of the M` — M muss die Zahl der FINDING-Dateien sein, nicht die von gestern."""
+        """`N of the M` — M muss die Zahl der FINDING-Dateien sein, nicht die von gestern.
+
+        ALLE Aussagen, nicht nur die erste. Eine Gegenlesung hat gemessen, dass `.search` bei zwei
+        Saetzen im selben Index nur den ersten prueft und der zweite unbemerkt falsch sein kann.
+        Heute traegt jeder Index genau eine — der Waechter existiert fuer morgen.
+        """
         for idx in _indizes():
             with self.subTest(akte=idx.parent.name):
                 text = idx.read_text(encoding="utf-8")
-                m = _AUSSAGE.search(text)
-                if m is None:
-                    continue        # ein Index ohne Zahlenaussage ist erlaubt
-                behauptet_ganz = _WORTZAHL[m.group(2).lower()]
                 dateien = sorted(p.name for p in idx.parent.glob("FINDING_*.md"))
-                self.assertEqual(
-                    behauptet_ganz, len(dateien),
-                    f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', im Verzeichnis liegen "
-                    f"{len(dateien)} FINDING-Dateien: {dateien}")
+                for m in _AUSSAGE.finditer(text):     # ein Index ohne Aussage ist erlaubt
+                    self.assertEqual(
+                        _WORTZAHL[m.group(2).lower()], len(dateien),
+                        f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', im Verzeichnis liegen "
+                        f"{len(dateien)} FINDING-Dateien: {dateien}")
 
     def test_die_teilzahl_passt_zu_den_markierten_zeilen(self) -> None:
-        """`N of the M` — N muss die Zahl der als Altbefund ausgewiesenen Zeilen sein."""
+        """`N of the M` — N muss die Zahl der als Altbefund ausgewiesenen Zeilen sein.
+
+        KEIN stiller Ausstieg bei null Markierungen. Die erste Fassung sprang dort heraus
+        (`if markiert == 0: continue`), und eine Gegenlesung hat benannt, was das bedeutet: ein
+        Index, der `three of the ten` behauptet und KEINE Zeile markiert, wurde nicht geprueft.
+        Das ist die stille Form von "nichts gefunden = alles gut" — dieselbe, die in dieser Runde
+        schon einen Nachbar-Test wertlos gemacht hat. Drei Zustaende: keine Aussage -> nichts zu
+        pruefen · Aussage nennt 0 und es gibt 0 Markierungen -> stimmt · Aussage nennt >0 und es
+        gibt 0 -> FEHLER, nicht Ueberspringen.
+        """
         for idx in _indizes():
             with self.subTest(akte=idx.parent.name):
                 text = idx.read_text(encoding="utf-8")
-                m = _AUSSAGE.search(text)
-                if m is None:
-                    continue
-                behauptet_teil = _WORTZAHL[m.group(1).lower()]
                 markiert = len(_ALTBEFUND_ZEILE.findall(text))
-                if markiert == 0:
-                    continue        # ein Index, der die Herkunft nicht je Zeile ausweist
-                self.assertEqual(
-                    behauptet_teil, markiert,
-                    f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', im Nachweis-Block stehen "
-                    f"{markiert} als Altbefund markierte Zeilen")
+                for m in _AUSSAGE.finditer(text):
+                    behauptet_teil = _WORTZAHL[m.group(1).lower()]
+                    self.assertEqual(
+                        behauptet_teil, markiert,
+                        f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', im Nachweis-Block stehen "
+                        f"{markiert} als Altbefund markierte Zeilen"
+                        + (" — die Aussage nennt eine Zahl, der Nachweis fehlt ganz"
+                           if markiert == 0 else ""))
 
     def test_jede_befund_datei_steht_in_der_tabelle(self) -> None:
         """Eine Datei, die der Index nicht nennt, ist fuer einen Leser nicht da.
