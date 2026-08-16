@@ -146,6 +146,19 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
 
     ok = False
+    # WAR DER SCHLUESSEL UEBERHAUPT DABEI? Diese Unterscheidung entsteht in der Schleife unten und
+    # wurde bisher zu einem einzigen `ok=False` verdichtet — mit der Folge, dass ein FALSCHER
+    # --log-vkey und eine VERFAELSCHTE Signatur byte-gleiche Verdikte lieferten (gemessen
+    # 2026-08-16, `FINDING_json_trennt_die_drei_ursachen_nicht.md`). Ein Signaturvergleich ist ein
+    # Zwei-Eingaben-Praedikat und weist bei einem Fehlschlag keiner Seite die Schuld zu; die
+    # KEY-ID kann es aber sehr wohl: findet sich keine Signaturzeile mit der ID des uebergebenen
+    # Schluessels, hat dieser Schluessel diese Note nicht signiert. Findet sich eine und die
+    # Pruefung faellt trotzdem, stimmen die Bytes nicht.
+    # EHRLICHE GRENZE, und sie ist keine Schwaeche des Feldes: eine Verfaelschung, die genau die
+    # vier keyID-Bytes trifft, ist von einem falschen Schluessel NICHT unterscheidbar — dann traegt
+    # die Note keinen Beleg mehr, dass dieser Schluessel je signiert hat. Das ist eine wahre
+    # Aussage ueber die Lage, kein Messfehler.
+    signer_present = False
     kid_expected = key_id(name, pubkey)
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
@@ -166,10 +179,12 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         kid, sig = payload[:4], payload[4:]
         if kid != kid_v or kid != kid_expected:   # keyID must match both the vkey and the recomputed id
             continue
+        signer_present = True                     # diese Note traegt eine Zeile FUER diesen Schluessel
         if verify_ed25519(pubkey, sig, note_bytes):
             ok = True
             break
-    return {"ok": ok, "origin": origin, "tree_size": int(size_s), "root": root}
+    return {"ok": ok, "origin": origin, "tree_size": int(size_s), "root": root,
+            "signer_present": signer_present}
 
 
 def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:

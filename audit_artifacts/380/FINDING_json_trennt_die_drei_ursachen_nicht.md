@@ -85,3 +85,41 @@ fixture has **two** such lines (index 18, length 120 — the log's note signatur
 true. A counter-read felled it decisively by handing the test a **byte-identical** copy: still green.
 The helper now selects by **measured effect** rather than by position or shape — it returns only a
 copy for which `log_ok` actually flips — and the test asserts that flip before comparing anything.
+
+## CLOSED 2026-08-16 — `signer_present`
+
+**This was a different kind of gap from the others in this record, and the difference is the whole
+point.** Everywhere else the information existed and was dropped one layer before the output. Here
+it looked as though it did not exist at all: a signature check is a **two-input predicate**, and a
+mismatch does not attribute blame to either input. The verifier cannot know whether the key is
+wrong or the signature is.
+
+**The key ID can.** A C2SP signature line carries the signer's key ID. If no line in the note
+carries the ID of the supplied vkey, that key did not sign this note; if one does and the check
+still fails, the bytes do not match. `verify_checkpoint` made exactly that distinction inside its
+loop — `kid != kid_v` means *this line is not for your key* — and collapsed it into a single
+`ok=False`.
+
+Measured, with the good run as the control:
+
+```
+guter Lauf              ok=True   log_ok=True   signer_present=True
+falscher Schluessel     ok=False  log_ok=False  signer_present=False
+verfaelschte Signatur   ok=False  log_ok=False  signer_present=True
+```
+
+The two outputs are no longer byte-identical. Rollback probes: never setting the flag turns four
+guards red, wiring it to a constant `True` turns three red, and dropping the JSON key turns five
+red; the baseline returns exactly.
+
+**The guard that predicted its own replacement.** `test_falscher_schluessel_und_verfaelschte_signatur_bleiben_ununterscheidbar`
+pinned the collision as a *measured state* and carried the message: "if these become
+distinguishable — good! then the finding is closed and this guard belongs replaced by a positive
+assurance." It went red the moment the flag landed, and it now asserts the separation instead of
+observing the collision. That is the difference between pinning a gap and pinning a property: the
+first **must** go red when the work is done, or it holds an old state after it has stopped being
+true.
+
+**HONEST LIMIT, and it is not a weakness of the field.** A tamper that hits exactly the four keyID
+bytes is indistinguishable from a wrong key — at that point the note carries no evidence that this
+key ever signed. That is a true statement about the situation, not a measurement error.

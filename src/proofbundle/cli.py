@@ -1047,6 +1047,11 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # Artefakt untersuchen, waehrend der Fehler auf seiner eigenen Kommandozeile steht.
             # Immer vorhanden (None auf dem gruenen Weg), damit Abwesenheit nie gedeutet werden muss.
             out["detail"] = res.get("detail")
+            # DER SIGNATURVERGLEICH WEIST KEINE SCHULD ZU — die KEY-ID schon. Ein falscher
+            # --log-vkey und eine verfaelschte Signatur lieferten byte-gleiches JSON (gemessen);
+            # `signer_present` trennt sie: false heisst "dieser Schluessel hat diese Note nicht
+            # signiert", true mit log_ok=false heisst "er hat, aber die Bytes stimmen nicht".
+            out["signer_present"] = bool(res.get("signer_present"))
             out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))

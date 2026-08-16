@@ -99,16 +99,36 @@ this section asks of the precedent claim above it.
 
   **What the new JSON key does NOT do.** It reports what the caller *asked*, not why the answer is
   no. Pin the origin you trust — the documented use — and a foreign origin **is** machine-readable
-  (`expected_origin` differs from `origin`); what stays indistinguishable is a **wrong `--log-vkey`**
-  against a **tampered signature**, which produce byte-identical JSON. An earlier draft of the test
-  and the commit message read as if the field separated three causes; a first correction then
-  overshot and said it separated none. Both are wrong in the same way — measured on one construction
-  and reported over another — and the measured form is above. The open gap is summarised under
-  **Known limitations** below and recorded in full in
-  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md`, which lives in the
-  repository and is **not** part of the sdist (`MANIFEST.in` prunes `audit_artifacts/`). Two
-  executable guards hold the measured state, one for each half, and those *are* shipped
-  (`MANIFEST.in` grafts `tests`).
+  (`expected_origin` differs from `origin`). An earlier draft of the test and the commit message
+  read as if the field separated three causes; a first correction then overshot and said it
+  separated none. Both are wrong in the same way — measured on one construction and reported over
+  another — and the measured form is above.
+
+  What remained indistinguishable was a **wrong `--log-vkey`** against a **tampered signature**, and
+  that half is now closed too, by a different mechanism: see `signer_present` below.
+
+- **`verify-proof --json` now separates a wrong key from a tampered signature (`signer_present`).**
+  This was a different kind of gap from the rest of this release. Everywhere else the information
+  existed and was dropped one layer before the output; here it looked as if it did not exist at all,
+  because a signature check is a **two-input predicate** and a mismatch does not attribute blame to
+  either input. The verifier cannot know whether the key is wrong or the signature is.
+
+  The **key ID** can. A C2SP signature line carries the signer's key ID, and `verify_checkpoint`
+  already made the distinction inside its loop — `kid != kid_v` means *this line is not for your
+  key* — before collapsing it into a single `ok=False`. Measured, with the good run as the control:
+  a valid run reports `signer_present: true`; a foreign key reports **false** ("this key did not
+  sign this note"); a tampered signature reports **true** with `log_ok: false` ("it signed, but the
+  bytes do not match"). The two outputs are no longer byte-identical.
+
+  **Honest limit, and it is not a weakness of the field:** a tamper that hits exactly the four keyID
+  bytes is indistinguishable from a wrong key — at that point the note carries no evidence that this
+  key ever signed. That is a true statement about the situation, not a measurement error.
+
+  The guard that pinned the collision carried its own replacement instruction ("if these become
+  distinguishable — good, then the finding is closed and this guard belongs replaced by a positive
+  assurance"). It went red the moment the flag landed and now asserts the separation. That is the
+  difference between pinning a gap and pinning a property: the first **must** go red when the work
+  is done, or it holds an old state after it has stopped being true.
 
 - **`verify --expected-origin` and `verify_witnessed_checkpoint(expected_origin=…)` — the same
   binding on the checkpoint surface.** `verify-proof` got the origin pin above; its neighbour,
@@ -298,38 +318,36 @@ this section asks of the precedent claim above it.
 
 ### Known limitations
 
-Six findings are open against this release. Five of the six are older than 3.8.0 and are reported
-rather than folded in, because a release should not quietly absorb defects it did not cause; the
-sixth concerns a field this release added and is corrected here. **None of them makes a verdict
-wrong** — every one is about what the output lets a relying party *tell apart*, or about what our
-own evidence would notice if it were removed.
+**Six findings were opened against this release and all six were closed inside it.** Five were older
+than 3.8.0. The rule this project follows is that a `main` finding is *reported*, not quietly folded
+into a release that did not cause it — the Owner overruled that for these, deliberately and at the
+cost of a delayed tag, and the record in `audit_artifacts/380/` keeps each deferral recommendation
+standing next to the decision that overrode it rather than rewriting history to agree.
 
-They are listed here because the full records live in `audit_artifacts/380/`, which `MANIFEST.in`
-prunes from the sdist. Without this section, anyone installing 3.8.0 would see the fixes and not the
-open items.
+Each closure carries a rollback probe: the defence is removed, the guard must go red, and the
+baseline must return exactly. What follows is what is **still** true after all six.
 
-- **A verifier's own typo reads like a broken artifact.** An empty proof file, `--threshold -1` and
-  an unparseable `--log-vkey` produce byte-identical `--json` output. Two of those three are mistakes
-  in the caller's command line, not properties of the artifact. The exit code does separate one more
-  case than the document does. *Workaround: check the exit code, and validate your own arguments.*
-- **`witnesses_ok: true` does not mean a quorum was met.** With the default `--threshold 0` it is
-  true unconditionally, and `threshold` is not reported in the JSON, so "quorum met" and "no quorum
-  required" look the same. *Workaround: pass `--threshold` explicitly and record what you passed.*
-- **`verify --trusted-checkpoint` has no origin binding.** It accepts a validly signed checkpoint
-  from any log as an authenticated source for the root and tree size; the subcommand has no option to
-  pin which log, and `verify_witnessed_checkpoint` has no `expected_origin` parameter. This is the
-  same threat `verify-proof --expected-origin` closes in this release, on the sibling surface.
-  *No workaround inside the tool; pin the checkpoint's provenance outside it.*
-- **The `--json` path cannot separate a wrong `--log-vkey` from a tampered signature** — the one
-  finding that belongs to this release, since it concerns the new `expected_origin` field. Pinning
-  the origin you trust *does* make a foreign origin machine-readable; the other two collapse.
-- **Six comparison surfaces have no near-miss evidence.** `kbjwt` (audience, nonce), `statuslist`,
-  `evalclaim`, `intoto` and `policy` compare an expected identifier against attacker-chosen input,
-  and each was individually loosened without a single test noticing. The comparisons are correct
-  today; what is missing is the evidence that loosening them would be caught.
-- **The never-raise family property walks a hand-maintained module list.** Eleven surfaces across
-  seven modules are outside it, and one of those is a known live violation
-  (`anchors_rfc3161.verify_rfc3161` raises on a non-dict `frozen` / `rp_trust`).
+- **A tamper that hits the four keyID bytes is indistinguishable from a wrong key.** `signer_present`
+  separates "this key did not sign" from "it signed, but the bytes do not match" — unless the tamper
+  destroys the key ID itself, at which point the note carries no evidence that the key ever signed.
+  That is a true statement about the situation, not a gap in the field.
+- **The never-raise family property is closed on the MODULE axis, not the argument axis.** It now
+  enumerates its family from the tree, so a new module is in scope the day it lands. It still fuzzes
+  the **primary** argument only, so `anchors_rfc3161.verify_rfc3161` raising on a non-dict `frozen` /
+  `rp_trust` — a keyword argument — is outside it and remains open. Named rather than folded into the
+  closure, so the claim is not read as wider than it is.
+- **`--json` reports what was asked, not why an answer is no**, beyond the causes now separated
+  (`expected_origin`, `threshold`, `detail`, `signer_present`). A verdict field tells you the outcome;
+  the accompanying expectation fields tell you the question. Neither tells you whether the process
+  that produced the evidence was sound.
+- **The pre-tag audit gate reads prose.** A documentation edit satisfied it during this release's own
+  work, which is recorded rather than quietly repaired. `tests/test_pre_tag_gate_eigenschaften.py`
+  states what a gate must do as five executable properties; three of them are `expectedFailure` today
+  and will report *unexpected success* — loudly — when the gate is rebuilt. ADR 0008 records the
+  decision to make the record a signed attestation, and ships the verifier half.
+
+The full records live in `audit_artifacts/380/`, which `MANIFEST.in` prunes from the sdist. That is
+why this section exists: without it, an installer would see the fixes and not the limits.
 
 ### Tests
 - **Vendored `markovianprotocol.com/log` proof 7271 as a conformance fixture (#136, `331f8cc`):** a live

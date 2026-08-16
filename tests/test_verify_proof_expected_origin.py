@@ -270,6 +270,73 @@ class OriginVergleichIstExakt(unittest.TestCase):
 
 
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
+class FalscherSchluesselUndVerfaelschteSignaturTrennenSich(unittest.TestCase):
+    """Die letzte Kollision dieser Akte — und sie war eine ANDERE Art von Luecke.
+
+    Bei den uebrigen Befunden dieser Runde existierte die Information und wurde eine Schicht vor der
+    Ausgabe fallengelassen. Hier schien sie gar nicht zu existieren: ein Signaturvergleich ist ein
+    Zwei-Eingaben-Praedikat und weist bei einem Fehlschlag keiner Seite die Schuld zu. Der Pruefer
+    kann nicht wissen, ob der Schluessel falsch ist oder die Signatur.
+
+    Die KEY-ID kann es. Findet sich in der Note keine Signaturzeile mit der ID des uebergebenen
+    Schluessels, hat dieser Schluessel diese Note nicht signiert — findet sich eine und die Pruefung
+    faellt trotzdem, stimmen die Bytes nicht. Der Unterschied entstand schon immer in der Schleife
+    von `verify_checkpoint` und wurde zu einem einzigen `ok=False` verdichtet.
+
+    EHRLICHE GRENZE, hier als eigener Untertest: eine Verfaelschung, die genau die vier keyID-Bytes
+    trifft, ist von einem falschen Schluessel NICHT unterscheidbar. Dann traegt die Note keinen Beleg
+    mehr, dass dieser Schluessel je signiert hat — eine wahre Aussage ueber die Lage, kein Messfehler.
+    """
+
+    def _json(self, proof, vkey) -> dict:
+        from proofbundle.cli import main  # noqa: PLC0415
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(["verify-proof", str(proof), "--payload-file", str(_LEAF),
+                      "--log-vkey", vkey, "--json"])
+            except SystemExit:
+                pass
+        return json.loads(buf.getvalue())
+
+    def _fremder_vkey(self) -> str:
+        from proofbundle import checkpoint as cp, generate_signer  # noqa: PLC0415
+        from proofbundle.emit import _raw_pub  # noqa: PLC0415
+        return cp.vkey(_ORIGIN, _raw_pub(generate_signer()))
+
+    def test_der_gute_lauf_nennt_den_unterzeichner_anwesend(self) -> None:
+        """Gegenrichtung zuerst: ein Feld, das immer False ist, traennt auch nichts."""
+        d = self._json(_PROOF, _log_vkey())
+        self.assertTrue(d["ok"])
+        self.assertTrue(d["signer_present"])
+
+    def test_falscher_schluessel_meldet_den_unterzeichner_ABWESEND(self) -> None:
+        d = self._json(_PROOF, self._fremder_vkey())
+        self.assertFalse(d["log_ok"])
+        self.assertFalse(d["signer_present"],
+                         "ein fremder Schluessel wird als anwesender Unterzeichner gemeldet")
+
+    def test_verfaelschte_signatur_meldet_den_unterzeichner_ANWESEND(self) -> None:
+        kopie = _mit_verfaelschter_signatur()
+        if kopie is None:
+            self.skipTest("die Fixture laesst sich nicht wirksam verfaelschen — siehe Helfer")
+        d = self._json(kopie, _log_vkey())
+        self.assertFalse(d["log_ok"])
+        self.assertTrue(d["signer_present"],
+                        "der Schluessel HAT signiert, nur stimmen die Bytes nicht — das muss "
+                        "sichtbar bleiben, sonst sucht der Aufrufer den Fehler bei sich")
+
+    def test_die_beiden_ausgaben_sind_nicht_mehr_byte_gleich(self) -> None:
+        """Die Eigenschaft, um die es geht — an der ganzen Ausgabe gemessen, nicht an einem Feld."""
+        kopie = _mit_verfaelschter_signatur()
+        if kopie is None:
+            self.skipTest("die Fixture laesst sich nicht wirksam verfaelschen")
+        a = json.dumps(self._json(_PROOF, self._fremder_vkey()), sort_keys=True)
+        b = json.dumps(self._json(kopie, _log_vkey()), sort_keys=True)
+        self.assertNotEqual(a, b, "falscher Schluessel und verfaelschte Signatur liefern weiterhin "
+                                  "dasselbe Dokument")
+
+
 class NichtMessbarIstKeinGemessenesNein(unittest.TestCase):
     """Ein Pruefer, der seine EIGENE Eingabe nicht lesen kann, darf das nicht wie ein Urteil ueber
     das Artefakt aussehen lassen.
@@ -577,12 +644,24 @@ class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
         self.assertFalse(a["log_ok"], "der falsche Schluessel hat log_ok nicht gekippt")
         self.assertFalse(b["log_ok"], "die verfaelschte Signatur hat log_ok nicht gekippt")
 
-        self.assertEqual(
+        # ERSETZT 2026-08-16 — und zwar von diesem Waechter selbst vorhergesagt. Bis hierher stand
+        # an dieser Stelle ein assertEqual, das die Kollision als GEMESSENEN ZUSTAND festhielt, mit
+        # der Meldung: "sind unterscheidbar geworden — gut! Dann ist der Befund geschlossen und
+        # dieser Waechter gehoert durch eine positive Zusicherung ersetzt." Genau das ist eingetreten
+        # (`signer_present`), also steht hier jetzt die Zusicherung statt der Beobachtung.
+        #
+        # Das ist der Unterschied zwischen einem Pin auf eine Luecke und einem Pin auf eine
+        # Eigenschaft: der erste MUSS rot werden, wenn die Arbeit getan ist, sonst haelt er den
+        # alten Zustand fest, nachdem er nicht mehr gilt.
+        self.assertNotEqual(
             hashlib.sha256(a_txt.encode()).hexdigest(),
             hashlib.sha256(b_txt.encode()).hexdigest(),
-            "falscher Schluessel und verfaelschte Signatur sind maschinell unterscheidbar geworden "
-            "— gut! Dann ist audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md "
-            "geschlossen und dieser Waechter gehoert durch eine positive Zusicherung ersetzt.")
+            "falscher Schluessel und verfaelschte Signatur liefern wieder dasselbe Dokument — die "
+            "Trennung ueber `signer_present` ist zurueckgefallen")
+        self.assertFalse(a["signer_present"],
+                         "ein fremder Schluessel darf nicht als anwesender Unterzeichner gelten")
+        self.assertTrue(b["signer_present"],
+                        "der echte Schluessel HAT signiert — nur stimmen die Bytes nicht")
 
     def test_der_fremde_origin_ist_bei_richtigem_pin_sehr_wohl_lesbar(self) -> None:
         """Die Gegenrichtung zum Test darueber — und die Korrektur einer zu weiten Behauptung.
