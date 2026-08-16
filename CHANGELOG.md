@@ -9,14 +9,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.8.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
-MINOR release for one reason only: `verify-proof` gains a command-line flag it did not have. No crypto
-verdict (`.ok`) semantics change, and every existing invocation keeps its verdict. The version number is
-deliberately MINOR rather than PATCH — the shipped CLI surface grows, and this repository has never
-shipped a new user-facing CLI flag in a patch release (measured over sixteen patch releases).
+MINOR release whose one behavioural change is that `verify-proof` gains a command-line flag it did not
+have. No crypto verdict (`.ok`) semantics change, and every existing invocation keeps its verdict.
+
+**Why MINOR, and a retraction.** MINOR follows from the rule this project binds itself to: SemVer 2.0.0
+§7 requires MINOR for new backward-compatible functionality in the public API, and `proofbundle` is a
+console entry point (`[project.scripts]`), so a new option on the shipped CLI is exactly that. An earlier
+draft of this paragraph argued from repository precedent instead, claiming a user-facing CLI flag had
+never shipped in a patch release. That claim is retracted here rather than quietly deleted, because it
+was measured false: four patch releases shipped ten such flags between them —
+`--expected-root-file --issuer-key --output --policy-id --valid-until` (3.1.1),
+`--checkpoint-vkey --trusted-checkpoint --verification-time` (3.1.3), `--require-derived-subject` (3.2.2)
+and the `evalcard` subcommand with `show-eval --eat` (3.2.3), each measured by diffing
+`add_argument("--…")` in `src/proofbundle/cli.py` across the release tags. Precedent points the other
+way; the rule does not, and the rule governs.
+
+The choice is reinforced by a cost asymmetry. A consumer pinned to `~=3.7.0` picks up a patch
+automatically, so under 3.7.1 they would silently acquire a verification capability they never asked
+for — in a library whose whole purpose is that nothing arrives unannounced. Under 3.8.0 they stay where
+they are until they choose to move, and the larger number harms nobody.
+
+Two further corrections to earlier drafts of this section, kept visible for the same reason: the delta
+over 3.7.0 is not "one commit touching the shipped package" — `911fd5c` and this release commit both
+touch `src/`, `MANIFEST.in` grafts `tests`, `scripts`, `schemas`, `examples`, `conformance`, `formal`
+and `docs/readiness_pack` into the sdist (27 files over 13 commits changed there), and the `dev` extra
+narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`. None of that is public API,
+which is why the version verdict is unchanged, but "for one reason only" was not accurate.
 
 ### Added
 - **`verify-proof --expected-origin` (#137, `911fd5c`):** `verify_tlog_proof` has accepted
-  `expected_origin` since 3.6 (release-review fix #5), but the argparse parser carried no flag and the
+  `expected_origin` since 1.3.0 (release-review fix #5), but the argparse parser carried no flag and the
   command never passed one. A command-line verifier therefore could not reject a validly signed
   checkpoint issued by a DIFFERENT log than the one it meant to trust: the signature check passes, and
   without the origin constraint nothing else looks wrong. The default stays `None` (origin
