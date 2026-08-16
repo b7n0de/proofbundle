@@ -24,6 +24,20 @@ class TestStatusList(unittest.TestCase):
         self.token = issue_status_list_token([0, 1, 0, 0, 1, 0], uri=URI,
                                              signer=self.signer, iat=IAT)
 
+    def test_expected_uri_wird_EXAKT_verglichen(self):
+        """Beinahe-Treffer fuer die URI-Bindung — sonst ist eine Status-Listen-Substitution moeglich.
+
+        Der Vergleich `payload.get("sub") != expected_uri` war nur gegen einen voellig fremden
+        Wert belegt; gemessen 2026-08-16 blieb die volle Suite gruen, als er auf `.startswith()`
+        gelockert wurde. Korpus aus `tests/_beinahe_treffer.py` — dieselbe Quelle wie die anderen
+        Erwartungsvergleiche.
+        """
+        from _beinahe_treffer import pruefe_exakt
+        pruefe_exakt(
+            lambda v: verify_status_snapshot(self.token, expected_uri=v, index=0,
+                                             issuer_pubkey=self.pub)["ok"],
+            URI, self)
+
     def test_green_valid_and_invalid(self):
         ok = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=self.pub)
         self.assertTrue(ok["ok"])

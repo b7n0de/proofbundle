@@ -501,6 +501,48 @@ class TestExpectedVct(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("POLICY: OK", out)
 
+    def test_expected_vct_wird_EXAKT_verglichen(self):
+        """Beinahe-Treffer fuer die vct-Bindung — sonst ist eine Credential-Typ-Verwechslung moeglich.
+
+        `vct_ok = got_vct == expected_vct` war nur gegen einen voellig fremden Wert belegt; gemessen
+        2026-08-16 blieb die volle Suite gruen, als der Vergleich auf `.startswith()` gelockert
+        wurde — ein Credential mit `…/vct/mine-evil` haette dann gegen die Erwartung `…/vct/mine`
+        gepasst.
+
+        Gefahren wird `evaluate_policy` DIREKT statt ueber die CLI: das Korpus hat 14 Kandidaten,
+        und 14 Unterprozesse waeren eine Minute fuer eine Aussage, die eine Funktion beantwortet.
+        Praezedenz: tests/test_lens_review_fixes_3_1_3.py ruft es ebenso auf.
+        Korpus aus `tests/_beinahe_treffer.py` — dieselbe Quelle wie die anderen Flaechen.
+        """
+        import json as _json
+        import pathlib as _pl
+
+        from proofbundle import verify_bundle as _verify
+        from proofbundle.policy import evaluate_policy as _eval
+
+        from _beinahe_treffer import pruefe_exakt
+
+        VCT = "https://example.test/vct/mine"
+        pfad = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True, vct=VCT)
+        try:
+            bundle = _json.loads(_pl.Path(pfad).read_text(encoding="utf-8"))
+        finally:
+            os.unlink(pfad)
+        ergebnis = _verify(bundle)
+
+        def akzeptiert(v: str) -> bool:
+            pol = _base_policy(sd_jwt={"expected_vct": v})
+            res = _eval(bundle, ergebnis, pol)
+            # NUR die vct-Pruefung, nicht das Gesamturteil: eine unabhaengige Policy-Regel duerfte
+            # sonst das Ergebnis kippen und der Test maesse etwas anderes.
+            treffer = [c for c in res["checks"] if c["name"] == "policy:expected_vct"]
+            self.assertEqual(len(treffer), 1,
+                             f"die vct-Pruefung kommt {len(treffer)}x in den checks vor — "
+                             "dieser Test misst dann nicht mehr, was er behauptet")
+            return bool(treffer[0]["ok"])
+
+        pruefe_exakt(akzeptiert, VCT, self)
+
     def test_expected_vct_mismatch_fails(self):
         path = _sd_jwt_bundle(with_issuer_key=True, with_cnf=True, vct="https://example.test/vct/mine")
         pol = _policy_file(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/other"}))
