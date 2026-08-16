@@ -122,3 +122,43 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BauartefakteZaehlenNicht(unittest.TestCase):
+    """ZWEI ARTEN VON ABWESENHEIT, und die erste Fassung hatte eine Regel fuer beide.
+
+    `tests/test_relation_statement_rust_parity.py` nennt
+    `tools/pb_verify_rs/target/release/pb_verify_rs`. Diese Datei fehlt auch im VOLLSTAENDIGEN
+    Checkout — bis jemand `cargo build` laeuft. Ihre Abwesenheit sagt nichts darueber, ob wir in
+    einem sdist sind, und genau das ist die einzige Frage dieser Ableitung. Gemessen: die Ableitung
+    uebersprang deshalb dieses eine Modul, und `test_im_echten_checkout_ist_die_ableitung_ein_no_op`
+    fiel in allen fuenf Python-Matrix-Laeufen plus coverage, crypto-floor und mutation — acht rote
+    Checks fuer EINEN Test.
+
+    Die trennende Eigenschaft ist die Ignore-Regel des Repos selbst, nicht eine Liste von
+    Verzeichnisnamen: `target/` ist ignoriert, `tools/pb_verify_rs/crosscheck.py` nicht, und
+    `docs/IN_TOTO_PROFILE.md` — der geprunte Blattfall, fuer den diese Ableitung existiert — auch
+    nicht. Verzeichnisnamen aufzuzaehlen waere wieder Formen sammeln, wovor der Kommentar in
+    `modul_ist_repo_kontext` selbst warnt.
+    """
+
+    def test_ein_ungebautes_artefakt_macht_kein_repo_kontext_modul(self):
+        self.assertFalse(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/crosscheck.py"),
+                         "eine echte Quelldatei gilt als Bauartefakt — die Ableitung wuerde blind")
+        self.assertTrue(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/target/release/pb_verify_rs"),
+                        "das Rust-Binary gilt nicht als Bauartefakt — der Fall kehrt zurueck")
+
+    def test_der_geprunte_blattfall_bleibt_ein_signal(self):
+        """Die Gegenrichtung. Ohne sie waere ein Fix, der ALLES entschaerft, ebenfalls gruen —
+        und die Ableitung haette aufgehoert, den sdist zu erkennen."""
+        self.assertFalse(cf._ist_bauartefakt(REPO, "docs/IN_TOTO_PROFILE.md"),
+                         "der geprunte Blattfall gilt als Bauartefakt — dann misst die Ableitung nichts mehr")
+
+    def test_ohne_git_bleibt_das_strengere_alte_verhalten(self):
+        """In einem entpackten sdist gibt es kein git. Dort IST Abwesenheit das richtige Signal,
+        also faellt die Pruefung fail-safe auf 'kein Bauartefakt' zurueck."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(cf._ist_bauartefakt(pathlib.Path(d), "irgendwas/target/x"),
+                             "ohne git wird etwas als Bauartefakt entschuldigt — das entschaerft "
+                             "die Ableitung genau dort, wo sie gebraucht wird")

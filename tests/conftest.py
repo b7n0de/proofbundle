@@ -134,11 +134,44 @@ def _wurzel_relative_pfade(quelle: str) -> set[str]:
     return gefunden
 
 
+def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
+    """Is this absent path a BUILD OUTPUT rather than a source path the sdist pruned?
+
+    TWO KINDS OF ABSENCE, and the first version of the derivation had one rule for both.
+    `tests/test_relation_statement_rust_parity.py` names `tools/pb_verify_rs/target/release/pb_verify_rs`.
+    That file is absent in a COMPLETE checkout too — until someone runs `cargo build`. Its absence
+    says nothing about whether we are in an sdist, which is the only question this derivation asks.
+
+    Measured on the branch head: five of the nine root-relative paths that module names are build
+    outputs under `target/`, and all five are gitignored. The two real source paths it names
+    (`tools/pb_verify_rs/crosscheck.py`, `scripts`) are not — and neither is `docs/IN_TOTO_PROFILE.md`,
+    the pruned-leaf case this derivation exists for. The repository's own ignore rules are therefore
+    exactly the discriminator, and they are the RIGHT one: enumerating build-output directory names
+    (`target`, `build`, `dist`, …) would be listing forms again, which is the mistake the comment
+    below already warns about.
+
+    ONLY MEANINGFUL IN A CHECKOUT. In an unpacked sdist there is no git and no ignore file, and there
+    the old rule is what we want — an absent path there really does mean "not shipped". Any failure
+    (git missing, not a repo, non-zero exit) therefore falls back to "not a build artifact", which
+    keeps the previous, stricter behaviour.
+    """
+    import subprocess  # noqa: PLC0415 - only on this path
+    try:
+        r = subprocess.run(["git", "-C", str(wurzel), "check-ignore", "-q", rel],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
 def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
     """True iff this test module reads a root-relative path that is ABSENT here.
 
     Absence is the whole signal, so an unreadable module is NOT silently treated as fine: it cannot be
     shown to be package-only, and outside a checkout the safe answer is to skip it.
+
+    A path that is absent because it has not been BUILT is not the same signal (see
+    `_ist_bauartefakt`) and does not count.
     """
     try:
         quelle = pfad.read_text(encoding="utf-8", errors="ignore")
@@ -151,7 +184,8 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
     # fault: the path CHAINS were being decomposed (see _kette), so ``src`` / ``proofbundle`` was read as
     # a root-level ``proofbundle``. With the chain joined correctly the full-path rule is precise, and the
     # narrowing would have traded a real defect for a comfortable green.
-    return any(not (wurzel / rel).exists() for rel in _wurzel_relative_pfade(quelle))
+    return any(not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)
+               for rel in _wurzel_relative_pfade(quelle))
 
 
 def pytest_collection_modifyitems(config, items):
