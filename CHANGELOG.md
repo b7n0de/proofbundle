@@ -9,8 +9,28 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.8.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
-MINOR release whose one behavioural change is that `verify-proof` gains a command-line flag it did not
+MINOR release whose one **capability** change is that `verify-proof` gains a command-line flag it did not
 have. No crypto verdict (`.ok`) semantics change, and every existing invocation keeps its verdict.
+
+**Corrected 2026-08-16, and the correction matters to anyone who parses our output.** This sentence
+said "one behavioural change", which a counter-read measured false: the release changes observable
+behaviour in **four** places, of which only the first is the new capability.
+
+1. the new flag itself;
+2. `verify-proof --json` gained the key `expected_origin` — **every** invocation now carries it, with
+   `null` when the flag is absent. A consumer that enumerates keys strictly sees a new one. This is
+   the reason the sentence had to change: "every existing invocation keeps its verdict" is true and
+   remains true, but a *verdict* is not an *output shape*, and the earlier wording let one stand for
+   the other;
+3. three text lines (`log-signature`, `sample-opening`, `enclave-attestation`) now pass their value
+   through the control-character neutraliser, so a value containing an escape sequence prints
+   differently — see `### Security`;
+4. the `SHA256SUMS` file attached to the GitHub Release no longer carries a `dist/` prefix, and the
+   Release now appears as a draft until the PyPI upload succeeds — see `### CI`.
+
+None of the four changes a `.ok` verdict. Listing them is not pedantry: the one class of consumer this
+project exists for is the one that automates on our output, and "one behavioural change" told them
+they had nothing to check.
 
 **Why MINOR, and a retraction.** MINOR follows from the rule this project binds itself to: SemVer 2.0.0
 §7 requires MINOR for new backward-compatible functionality in the public API, and `proofbundle` is a
@@ -36,7 +56,10 @@ Two further corrections to earlier drafts of this section, kept visible for the 
 over 3.7.0 is not "one commit touching the shipped package" — `911fd5c` and this release commit both
 touch `src/`, `MANIFEST.in` grafts `tests`, `scripts`, `schemas`, `examples`, `conformance`, `formal`
 and `docs/readiness_pack` into the sdist (**23 files over 8 commits** changed across exactly those seven
-paths, counted with `git log --oneline v3.7.0..f64d35e -- <the seven paths>` — that is WITH merge commits; the
+paths — and these are TWO numbers from two commands, which the first draft gave as one: the files come
+from `git diff --name-only v3.7.0..f64d35e -- <the seven paths> | wc -l`, the commits from
+`git log --oneline v3.7.0..f64d35e -- <the seven paths> | wc -l`. Naming only the second under both is
+exactly the error this paragraph goes on to correct in the sentence after next — that is WITH merge commits; the
 `--no-merges` count over the same paths is **6**, and two of the eight merges carry no change
 of their own. The number is given with its command because the paragraph below retracts an
 earlier pair that did not), and the `dev` extra narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`.
@@ -60,11 +83,25 @@ this section asks of the precedent claim above it.
   command never passed one. A command-line verifier therefore could not reject a validly signed
   checkpoint issued by a DIFFERENT log than the one it meant to trust: the signature check passes, and
   without the origin constraint nothing else looks wrong. The default stays `None` (origin
-  unconstrained), so existing invocations are unaffected; on the human path a mismatch now reads
-  `(expected <origin>)` rather than looking like a broken signature.
-  Covered by `tests/test_verify_proof_expected_origin.py` (flag discoverable in `--help`, default
+  unconstrained), so existing invocations keep their **verdict**; their `--json` **output shape**
+  does change — see the correction at the top of this section — because the key `expected_origin` is
+  now always present, `null` when the flag is absent. The first draft of this bullet said "existing
+  invocations are unaffected", which conflated the two.
+  On the human path a mismatch now reads `(expected <origin>)` rather than looking like a broken
+  signature.
+  Covered by `tests/test_verify_proof_expected_origin.py`: flag discoverable in `--help`, default
   unconstrained, matching origin passes, mismatching origin fails closed with `inclusion_ok` still
-  true, text output names the expectation).
+  true, text output names the expectation — plus, added after a counter-read of this release,
+  **seventeen near-miss origins** that each must be rejected (prefix, suffix, case, whitespace,
+  newline, trailing slash, scheme, domain-only, empty, full-width, trailing host dot, doubled slash,
+  percent-encoding), the positive direction without which an always-false comparison would also be
+  green, and a guard that the four control-character call sites stay wrapped.
+
+  **What the new JSON key does NOT do.** It reports what the caller *asked*, not why the answer is
+  no: with `--expected-origin` set, a foreign origin, a wrong `--log-vkey` and a tampered signature
+  still produce byte-identical JSON. An earlier draft of the test and the commit message read as if
+  this field separated those three causes. It does not, and the open gap is recorded in
+  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md` with an executable guard.
 
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
@@ -84,6 +121,34 @@ this section asks of the precedent claim above it.
   ML-DSA-44 verified round-tripping): the bundle still reports six verified and five unverified lines of
   eleven, and not one of the five is unverified for want of a backend.
 
+### Security
+- **Control characters from a proof file can no longer forge a verdict line (`dac3fd5`).** `cli.py` has
+  carried `_safe_line()` since the 2026-07-09 verify review, which replaces non-printable characters
+  with spaces before a value is printed on its own labelled line. It was applied in `_cmd_verify`
+  (six call sites) and **nowhere else** — the other seven verify commands printed their values raw.
+  Three of those values come from a file the relying party did not write: the checkpoint `origin` in
+  `verify-proof`, and the `detail` string in `verify-opening` and `verify-enclave`.
+
+  The attack needs no signature. `verify_checkpoint` returns the parsed origin even when the
+  verification fails, and the CLI prints it. Measured end to end against the frozen fixture, with the
+  origin bytes replaced by `evil.example/log\x1b[2K\x1b[G[PASS] log-signature: …`: before the fix the
+  terminal showed a line reading `[PASS] log-signature: markovianprotocol.com/log`, with the real
+  `[FAIL]` line erased by the escape sequence. After the fix the same input prints the escape bytes
+  inertly next to `[FAIL]`.
+
+  Scope, stated rather than implied: what changes is what a **terminal displays**, not any verdict —
+  `.ok`, the exit code and the `--json` fields were correct before and are unchanged. Not wrapped, on
+  purpose: `{'OK' if x else 'FAIL'}` is a literal, and the `ERROR: {exc}` lines go to stderr. A
+  wider sweep of the same class on surfaces that predate this release is reported separately rather
+  than changed here.
+
+  Covered by `tests/test_verify_proof_expected_origin.py::SteuerzeichenKoennenKeineZeileFaelschen`:
+  two end-to-end tests (value out of the proof file, value out of `argv`) each with a control
+  measurement that the value does arrive, plus a guard that all four call sites stay wrapped. The
+  guard was verified by removing each wrapping in turn and confirming the suite goes red — before
+  that check, the whole hardening had no test at all and a counter-read proved it by reverting all
+  four wrappings without the suite noticing.
+
 ### Tests
 - **Vendored `markovianprotocol.com/log` proof 7271 as a conformance fixture (#136, `331f8cc`):** a live
   third-party transparency-log proof, frozen as pure data, with a standalone RFC 6962 inclusion
@@ -99,6 +164,41 @@ this section asks of the precedent claim above it.
   this repository rather than relying on the default set, after ruff 0.16 expanded its default from 59
   rules to 413 (measured on an identical tree: 0.15.x exits 0 over all 258 tracked `.py`, 0.16.x reports
   1168 findings). `mypy` is bounded at the major version for the same reason.
+- **The DOI is no longer minted before the release gate (`6e87a0e`).** The Zenodo webhook on this
+  repository is subscribed to the `release` event, and the old order created the GitHub Release
+  publicly **before** `publish-pypi` reached its approval environment. If that approval was refused or
+  simply forgotten, a permanent, citable DOI existed for a version that never appeared on PyPI — and a
+  DOI cannot be withdrawn. The irreversible act happened before the gate meant to authorise it. Now:
+  draft → PyPI upload → a `publish-release` job flips the draft public. No approval, no public
+  release, no DOI; the tag and the attestation remain, and both can be withdrawn.
+
+  Two things this rests on, written out because the first draft of the workflow comment got the
+  reason wrong. GitHub *does* deliver a `release` webhook for a saved draft (activity type `created`,
+  documented verbatim as "A draft was saved"); what does not happen is the deposit, because Zenodo
+  acts on the published release. Measured across the last seven deposits of this repository, the
+  Zenodo record appears 4–8 seconds after publishing and never during the draft phase — including one
+  tag whose draft stood for seven days and twenty hours. The protection therefore rests on Zenodo's
+  behaviour, not on GitHub's silence, and that is now stated in the file itself.
+
+  The job resolves the release by **id**, not by tag: `gh release view <tag>` races a REST and a
+  GraphQL lookup and returns whichever answers first, which is undefined when a published and a draft
+  release share a tag — a state this repository has been in before (two Zenodo records each on
+  `corpus-review-2026-07-25-iter10` and on `v2.0.0`). Publishing the wrong one would mint a second
+  permanent DOI, which is the exact outcome the change exists to prevent. Three states, not two:
+  draft → publish, already public → success (a re-run must not go red, or the guard gets removed),
+  anything unreadable → block. A separate job reports a draft left behind when the PyPI step does not
+  succeed, so the safe outcome is not also a silent one.
+- **`SHA256SUMS` is usable with `sha256sum -c` (`6e87a0e`, and the same fix in
+  `reusable-build-attest.yml`).** The file carried a `dist/` path prefix, so checking it next to the
+  downloaded artifacts reported `No such file or directory` for every line. `RELEASE.md` now offers
+  the checking command it previously only implied. Both workflows also declare `defaults.run.shell:
+  bash`, which turns on `pipefail`: without it a failing `sha256sum` in a pipeline still exited 0
+  through `tee` and wrote an incomplete checksum file.
+- **2,353,682 bytes of foreign 3.6.1 build artifacts removed from version control (`6e87a0e`).** Three
+  files under `dist_final/` and `dist_pkgtest6/` were tracked — 19.3 % of the uncompressed source
+  archive of v3.7.0, and part of every Zenodo deposit through the webhook. They were never in the
+  sdist (the `MANIFEST.in` allowlist held, verified by building the sdist at both commits and
+  diffing all 666 members), and nothing references them. Now removed and gitignored.
 
 ## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
 

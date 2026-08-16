@@ -18,6 +18,22 @@ on:
 permissions:
   contents: read
 
+# KLASSEN-FIX statt Punktreparatur. Ohne diesen Block laeuft jeder `run:`-Schritt unter
+# `bash -e {0}` -- also OHNE `pipefail`. Der Rueckgabewert einer Pipeline ist dann der ihres
+# LETZTEN Gliedes, und ein Fehler davor verschwindet. Gemessen an genau dieser Datei: fehlte das
+# Wheel, lieferte `sha256sum dist/*.whl | cut -d' ' -f1` einen leeren Digest, `sha256sum ./*.whl
+# ./*.tar.gz | sed … | tee SHA256SUMS` schrieb eine unvollstaendige Pruefsummendatei -- und der
+# Schritt endete mit rc=0, weil `cut` und `tee` gelungen sind. Mit `shell: bash` setzt GitHub
+# `bash --noprofile --norc -eo pipefail {0}`, derselbe Fall bricht mit rc=1 ab.
+#
+# Hier auf Workflow-Ebene und nicht an der einen auffaelligen Stelle, weil die verletzte Annahme
+# ("ein fehlgeschlagenes Pipeline-Glied faellt den Schritt") fuer JEDEN Schritt gilt, auch fuer
+# jeden, der spaeter dazukommt. Eine Aufzaehlung der heute betroffenen Zeilen waere am naechsten
+# hinzugefuegten Schritt schon wieder unvollstaendig.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-and-attest:
     runs-on: ubuntu-latest
@@ -28,6 +44,12 @@ jobs:
     outputs:
       digest-wheel: ${{ steps.digests.outputs.wheel }}
       digest-sdist: ${{ steps.digests.outputs.sdist }}
+      # Die IDENTITAET des Entwurfs, den DIESER Lauf angelegt hat -- nicht sein Tag. Warum die
+      # Unterscheidung zaehlt, steht bei `publish-release`.
+      release-id: ${{ steps.draft.outputs.id }}
+      # `make_latest` war ein Step-Output und damit ausserhalb des Jobs unsichtbar; seit die
+      # Veroeffentlichung ein eigener Job ist, muss er ueber die Jobgrenze.
+      make-latest: ${{ steps.relmeta.outputs.make_latest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -61,11 +83,16 @@ jobs:
           echo "wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           # OHNE `dist/`-Praefix, damit `sha256sum -c SHA256SUMS` im Download-Verzeichnis
-          # WIRKLICH laeuft. Gemessen: die alte Form schrieb `…  dist/proofbundle-3.8.0-…whl`,
-          # und RELEASE.md schickt Nutzer genau mit diesem Kommando pruefen -- es meldete fuer
-          # beide Zeilen `No such file or directory / FAILED open or read`. Ein dokumentiertes
-          # Pruefwerkzeug, das nicht laeuft, ist schlechter als keins: wer es einmal probiert
-          # und scheitern sieht, prueft danach gar nicht mehr.
+          # WIRKLICH laeuft. Gemessen: die alte Form schrieb `…  dist/proofbundle-3.8.0-…whl`
+          # und meldete beim Pruefen fuer beide Zeilen `No such file or directory / FAILED`.
+          #
+          # KORRIGIERT 2026-08-16: die erste Fassung dieser Begruendung sagte, RELEASE.md schicke
+          # Nutzer "genau mit diesem Kommando" pruefen. Das war FALSCH -- gemessen kam
+          # `sha256sum -c` im ganzen Repo genau einmal vor, naemlich in diesem Kommentar selbst;
+          # RELEASE.md nannte einen Sichtvergleich (`sha256sum /tmp/pb/*`). Die Aenderung war
+          # richtig, ihre Begruendung war eine Falschaussage ueber ein Dokument. Statt sie zu
+          # streichen ist sie jetzt WAHR gemacht: RELEASE.md bietet den Pruefbefehl an. Ein
+          # Format-Fix ohne ein Kommando, das ihn nutzt, verbessert niemandes Lage.
           ( cd dist && sha256sum ./*.whl ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS )
 
       - name: Generate SLSA build provenance for the artifacts
@@ -98,14 +125,27 @@ jobs:
       # `gh api repos/b7n0de/proofbundle/hooks` (events=['release']), belegt am Zenodo-Record
       # 21721509, der exakt den letzten Release-Tag traegt.
       #
-      # Ein Entwurf feuert ihn NICHT. Vorher lief die Reihenfolge andersherum: Release sofort
+      # KORRIGIERT 2026-08-16, die erste Fassung dieser Zeile war falsch. Sie sagte "ein Entwurf
+      # feuert ihn NICHT". Das Webhook feuert sehr wohl: GitHub dokumentiert die Aktion `created`
+      # woertlich als "A draft was saved, or a release or pre-release was published without
+      # previously being saved as a draft", und dieser Hook ist auf das EREIGNIS `release`
+      # abonniert, nicht auf eine Aktion. Was NICHT passiert, ist der DOI -- Zenodos Empfaenger
+      # handelt auf dem veroeffentlichten Release, nicht auf `created`.
+      #
+      # Der Unterschied ist nicht akademisch: der Schutz haengt damit an ZENODOS Verhalten, nicht
+      # an GitHubs Schweigen. Wuerde Zenodo eines Tages `created` behandeln, waere diese Reihenfolge
+      # wirkungslos, ohne dass hier etwas kaputtginge -- und niemand haette es gemerkt. Deshalb
+      # steht die Abhaengigkeit ausgeschrieben statt als "feuert nicht" verkuerzt.
+      #
+      # Vorher lief die Reihenfolge andersherum: Release sofort
       # oeffentlich -> DOI gepraegt -> DANN erst `publish-pypi` in die Freigabe-Warteschlange.
       # Wurde die Freigabe verweigert oder vergessen, existierte ein permanenter, zitierbarer DOI
       # fuer eine Version, die auf PyPI nie erschien. Ein DOI ist nicht zuruecknehmbar.
       #
       # Die irreversible Aussenwirkung passierte damit VOR dem Tor, das sie pruefen soll. Das ist
       # keine Prozess-Meinung, sondern die Reihenfolge in dieser Datei — und sie ist jetzt gedreht.
-      - name: Create the GitHub Release as a DRAFT (no webhook, no DOI yet)
+      - name: Create the GitHub Release as a DRAFT (no DOI yet)
+        id: draft
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           files: |
@@ -120,8 +160,15 @@ jobs:
   publish-pypi:
     # Publishes with PyPI Trusted Publishing (OIDC) — no API token. Requires a one-time human
     # step: configure b7n0de/proofbundle + this workflow as a trusted publisher on pypi.org
-    # (Settings → Publishing) BEFORE the first tag. Until then this job fails cleanly and the
-    # Release above still succeeds. The `pypi` environment SHOULD require reviewer approval.
+    # (Settings → Publishing) BEFORE the first tag. The `pypi` environment SHOULD require
+    # reviewer approval.
+    #
+    # KORRIGIERT 2026-08-16: hier stand "Until then this job fails cleanly and the Release above
+    # still succeeds". Das war vor der Umstellung wahr und ist es seitdem NICHT mehr -- mit
+    # `publish-release needs: publish-pypi` gibt es ohne diese Freigabe gar kein oeffentliches
+    # Release, sondern nur einen dauerhaften Entwurf (den `orphan-draft-notice` meldet). Zwei
+    # Kommentare in einer Datei lehrten damit Gegenteiliges, und der veraltete stand im
+    # beruhigenden von beiden.
     needs: build-and-attest
     runs-on: ubuntu-latest
     environment:
@@ -157,6 +204,25 @@ jobs:
           packages-dir: dist/
           skip-existing: true
 
+  orphan-draft-notice:
+    # WAS SONST STILL PASSIERT WAERE. Faellt `publish-pypi` -- Trusted Publishing noch nicht
+    # eingerichtet, Netzfehler, Digest-Tor, oder die Umgebungs-Freigabe laeuft nach 30 Tagen aus --
+    # dann wird `publish-release` per Default uebersprungen und der fertige Entwurf mit allen
+    # Assets bleibt unbegrenzt liegen, fuer die Oeffentlichkeit unsichtbar und ohne jedes Signal.
+    # Das ist der richtige Endzustand (kein DOI fuer etwas, das nicht auf PyPI liegt), aber er darf
+    # nicht LAUTLOS sein: ein Entwurf, von dem niemand weiss, sieht aus wie ein vergessenes Release.
+    needs: [build-and-attest, publish-pypi]
+    if: always() && needs.build-and-attest.result == 'success' && needs.publish-pypi.result != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sag klar, dass ein Entwurf liegenbleibt
+        env:
+          TAG: ${{ github.ref_name }}
+          REL_ID: ${{ needs.build-and-attest.outputs.release-id }}
+          PYPI: ${{ needs.publish-pypi.result }}
+        run: |
+          echo "::warning title=Entwurf bleibt liegen::publish-pypi=$PYPI — der Release-Entwurf $TAG (id ${REL_ID:-unbekannt}) wurde NICHT veroeffentlicht. Kein DOI, kein oeffentliches Release. Entweder die PyPI-Freigabe nachholen und den Lauf wiederholen, oder den Entwurf verwerfen: gh release delete $TAG --repo $GITHUB_REPOSITORY --yes"
+
   publish-release:
     # DER SCHRITT, DER DEN DOI PRAEGT — und er laeuft jetzt ZULETZT.
     #
@@ -181,11 +247,44 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          REL_ID: ${{ needs.build-and-attest.outputs.release-id }}
+          MAKE_LATEST: ${{ needs.build-and-attest.outputs.make-latest }}
         run: |
           set -euo pipefail
-          # Fail-closed: gibt es den Entwurf nicht, ist etwas anderes schiefgegangen und wir
-          # veroeffentlichen NICHTS blind.
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft \
-            --jq '.isDraft' | grep -qx true
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
-          echo "Release $TAG veroeffentlicht — nach dem PyPI-Upload, nicht davor."
+          # AUFGELOEST WIRD UEBER DIE ID, NICHT UEBER DEN TAG. Die erste Fassung fuhr
+          # `gh release view "$TAG"`. Dessen Aufloesung (cli/cli, release/shared/fetch.go) startet
+          # zwei Suchen parallel -- veroeffentlichte per REST, Entwuerfe per GraphQL -- und nimmt,
+          # WER ZUERST FEHLERFREI ANTWORTET. Existieren zu einem Tag ein veroeffentlichtes UND ein
+          # Entwurfs-Release, ist nicht bestimmt, welches gemeldet wird. Das ist auf diesem Repo
+          # kein Gedankenspiel: die verwendete Action traegt eigens Code gegen Doppel-Entwuerfe
+          # (`cleanupCreatedDuplicateDraftRelease`), und in den Zenodo-Daten stehen zwei Records
+          # auf `corpus-review-2026-07-25-iter10` und zwei auf `v2.0.0`. Traefe dieser Schritt in
+          # so einem Zustand den ZWEITEN Entwurf, veroeffentlichte er ein zweites Release-Objekt
+          # zum selben Tag -- also einen zweiten, permanenten DOI. Genau das, was die neue
+          # Reihenfolge verhindern soll. Die ID ist die eines Objekts; ein Tag ist es nicht.
+          if [ -z "${REL_ID:-}" ]; then
+            echo "::error::build-and-attest hat keine Release-ID geliefert — es wird NICHTS veroeffentlicht."
+            exit 1
+          fi
+
+          # DREI ZUSTAENDE, nicht zwei. `true` -> veroeffentlichen. `false` -> dieser Tag ist
+          # bereits oeffentlich, das ist ein Wiederholungslauf und ein ERFOLG, kein Fehler: die
+          # erste Fassung brach hier mit `grep -qx true` rot ab, obwohl der Endzustand stimmte.
+          # Ein Riegel, der bei korrektem Ergebnis rot meldet, wird beim naechsten Mal entfernt --
+          # und dann ist das Tor weg. Alles andere (leer, `null`, Netzfehler) -> BLOCK, denn ein
+          # unlesbarer Zustand ist keine Freigabe.
+          state="$(gh api "repos/$GITHUB_REPOSITORY/releases/$REL_ID" --jq '.draft')"
+          case "$state" in
+            true)  ;;
+            false) echo "Release $REL_ID ist bereits oeffentlich — nichts zu tun."; exit 0 ;;
+            *)     echo "::error::Entwurfs-Zustand nicht lesbar ('$state') — es wird NICHTS veroeffentlicht."; exit 1 ;;
+          esac
+
+          # `make_latest` wird HIER gesetzt und nicht beim Anlegen: die REST-Doku sagt woertlich
+          # "Drafts and prereleases cannot be set as latest", und der Zweig der Action, der es beim
+          # Veroeffentlichen nachgezogen haette, wird bei `draft: true` uebersprungen. Seit der
+          # Umstellung war die 2026-07-05 erkaempfte Absicht (v2.0.0b2 wurde faelschlich "Latest")
+          # damit tote Konfiguration. Der PATCH belebt sie.
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$REL_ID" \
+            -F draft=false -f make_latest="${MAKE_LATEST:-true}" >/dev/null
+          echo "Release $TAG (id $REL_ID) veroeffentlicht — nach dem PyPI-Upload, nicht davor."

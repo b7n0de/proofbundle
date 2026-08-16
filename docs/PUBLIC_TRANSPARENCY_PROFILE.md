@@ -86,12 +86,11 @@ proofbundle verify-proof receipt.tlog-proof \
   --expected-origin <the log's origin line, e.g. example.com/log> \
   --witness-vkey <witness 1 vkey> --witness-vkey <witness 2 vkey> \
   --threshold 2
-
-`--expected-origin` (seit 3.8.0) ist die Schranke gegen einen validly-signed Checkpoint aus
-einem ANDEREN Log: ohne sie prueft die Signatur, dass *irgendein* Log unterschrieben hat, nicht
-*welches*. Der Vergleich ist exakt — ein Praefix, eine andere Gross-/Kleinschreibung oder ein
-angehaengter Schraegstrich zaehlen als Fehlschlag.
 ```
+
+`--expected-origin` (since 3.8.0) is the barrier against a validly-signed checkpoint from a
+*different* log: without it the signature proves that *some* log signed, not *which one*. The
+comparison is exact — a prefix, a different case or a trailing slash is a mismatch.
 
 The verdict is the **conjunction** of four independently-reported
 sub-checks: the recomputed leaf hash, the log signature, the witness

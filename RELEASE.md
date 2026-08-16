@@ -96,5 +96,7 @@ after the merge (see *Release ordering* above).
 ```bash
 pip download proofbundle==X.Y.Z --no-deps -d /tmp/pb
 sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
+# or, with SHA256SUMS downloaded next to the artifacts, let the tool do the comparing:
+( cd /tmp/pb && sha256sum -c SHA256SUMS )
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```
