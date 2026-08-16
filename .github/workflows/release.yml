@@ -20,16 +20,22 @@ permissions:
 
 # KLASSEN-FIX statt Punktreparatur. Ohne diesen Block laeuft jeder `run:`-Schritt unter
 # `bash -e {0}` -- also OHNE `pipefail`. Der Rueckgabewert einer Pipeline ist dann der ihres
-# LETZTEN Gliedes, und ein Fehler davor verschwindet. Gemessen an genau dieser Datei: fehlte das
-# Wheel, lieferte `sha256sum dist/*.whl | cut -d' ' -f1` einen leeren Digest, `sha256sum ./*.whl
-# ./*.tar.gz | sed … | tee SHA256SUMS` schrieb eine unvollstaendige Pruefsummendatei -- und der
-# Schritt endete mit rc=0, weil `cut` und `tee` gelungen sind. Mit `shell: bash` setzt GitHub
-# `bash --noprofile --norc -eo pipefail {0}`, derselbe Fall bricht mit rc=1 ab.
+# LETZTEN Gliedes, und ein Fehler davor verschwindet. Mit `shell: bash` setzt GitHub
+# `bash --noprofile --norc -eo pipefail {0}` (github/docs, workflow-syntax).
 #
 # Hier auf Workflow-Ebene und nicht an der einen auffaelligen Stelle, weil die verletzte Annahme
 # ("ein fehlgeschlagenes Pipeline-Glied faellt den Schritt") fuer JEDEN Schritt gilt, auch fuer
 # jeden, der spaeter dazukommt. Eine Aufzaehlung der heute betroffenen Zeilen waere am naechsten
 # hinzugefuegten Schritt schon wieder unvollstaendig.
+#
+# WAS ER NICHT DECKT -- korrigiert 2026-08-16, die erste Fassung dieses Kommentars behauptete
+# mehr, als eine Messung hergab. `pipefail` rettet NICHT die Form `echo "x=$(a | b)"`: der
+# Rueckgabewert ist dort der von `echo`, die Pipeline steckt in einer Kommandosubstitution als
+# ARGUMENT. Nachgemessen an genau diesen beiden Digest-Zeilen: unter `-eo pipefail` endeten sie
+# weiter mit rc=0 und schrieben einen LEEREN Wert. Der Schritt fiel nur, weil die tee-Zeile
+# danach steht -- Reihenfolge, nicht Absicherung. Wer den alten Kommentar las, hielt jede
+# Zuweisung fuer gedeckt. Die betroffenen Zeilen sind darum ZUSAETZLICH umgebaut (Zuweisung +
+# Leerpruefung, siehe unten); der defaults-Block ist der Boden, nicht die ganze Wand.
 defaults:
   run:
     shell: bash
@@ -80,8 +86,25 @@ jobs:
       - name: Record artifact digests (the attested subjects)
         id: digests
         run: |
-          echo "wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # ZUWEISUNG UND PRUEFUNG statt Pipeline im echo-Argument. Eine Gegenlesung hat gemessen,
+          # dass `pipefail` die alte Form NICHT rettet: `echo "wheel=$(a | b)"` gibt den Status von
+          # `echo` zurueck, nie den der Substitution. Der Schritt endete mit rc=0 und schrieb
+          # `wheel=` LEER in GITHUB_OUTPUT, wenn kein Wheel da war. Gefangen wurde das nur durch
+          # die tee-Zeile darunter, also durch Reihenfolge, nicht durch Absicherung.
+          #
+          # Die Leerpruefung ist der eigentliche Riegel: ein leerer Digest wuerde als "attestierte
+          # Subjekt-Pruefsumme" durch `publish-pypi` laufen, wo `test "$got" = ""` gegen einen
+          # ebenfalls leeren Erwartungswert TRIVIAL WAHR waere. Die Zaehlpruefung schliesst die
+          # Nachbarklasse: bei zwei Wheels lieferte `sha256sum` zwei Zeilen und der Output waere
+          # ein mehrzeiliger Wert ohne Delimiter.
+          test "$(ls -1 dist/*.whl    2>/dev/null | wc -l)" -eq 1
+          test "$(ls -1 dist/*.tar.gz 2>/dev/null | wc -l)" -eq 1
+          wheel="$(sha256sum dist/*.whl    | cut -d' ' -f1)"
+          sdist="$(sha256sum dist/*.tar.gz | cut -d' ' -f1)"
+          test -n "$wheel"
+          test -n "$sdist"
+          echo "wheel=$wheel" >> "$GITHUB_OUTPUT"
+          echo "sdist=$sdist" >> "$GITHUB_OUTPUT"
           # OHNE `dist/`-Praefix, damit `sha256sum -c SHA256SUMS` im Download-Verzeichnis
           # WIRKLICH laeuft. Gemessen: die alte Form schrieb `…  dist/proofbundle-3.8.0-…whl`
           # und meldete beim Pruefen fuer beide Zeilen `No such file or directory / FAILED`.
@@ -211,8 +234,17 @@ jobs:
     # Assets bleibt unbegrenzt liegen, fuer die Oeffentlichkeit unsichtbar und ohne jedes Signal.
     # Das ist der richtige Endzustand (kein DOI fuer etwas, das nicht auf PyPI liegt), aber er darf
     # nicht LAUTLOS sein: ein Entwurf, von dem niemand weiss, sieht aus wie ein vergessenes Release.
-    needs: [build-and-attest, publish-pypi]
-    if: always() && needs.build-and-attest.result == 'success' && needs.publish-pypi.result != 'success'
+    # KORRIGIERT 2026-08-16 nach einer Gegenlesung. Die erste Fassung hing NUR an `publish-pypi`
+    # und war damit blind fuer genau die Zweige, die der neue fail-closed-Riegel in
+    # `publish-release` SELBST erzeugt: fehlende Release-ID, leere oder unlesbare Antwort,
+    # gh-Fehler, oder ein gescheiterter PATCH. Gemessen ueber die 16 Kombinationen der beiden
+    # Job-Ergebnisse: bei `pypi=success` und `publish-release=failure` feuerte nichts — der
+    # Zustand, gegen den dieser Job ausdruecklich gebaut wurde. Der Riegel wurde strenger, sein
+    # Melder nicht mitgezogen.
+    needs: [build-and-attest, publish-pypi, publish-release]
+    if: >-
+      always() && needs.build-and-attest.result == 'success'
+      && (needs.publish-pypi.result != 'success' || needs.publish-release.result != 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Sag klar, dass ein Entwurf liegenbleibt
@@ -220,8 +252,15 @@ jobs:
           TAG: ${{ github.ref_name }}
           REL_ID: ${{ needs.build-and-attest.outputs.release-id }}
           PYPI: ${{ needs.publish-pypi.result }}
+          PUB: ${{ needs.publish-release.result }}
         run: |
-          echo "::warning title=Entwurf bleibt liegen::publish-pypi=$PYPI — der Release-Entwurf $TAG (id ${REL_ID:-unbekannt}) wurde NICHT veroeffentlicht. Kein DOI, kein oeffentliches Release. Entweder die PyPI-Freigabe nachholen und den Lauf wiederholen, oder den Entwurf verwerfen: gh release delete $TAG --repo $GITHUB_REPOSITORY --yes"
+          # DIE ABHILFE NENNT DIE ID, NICHT DEN TAG. Die erste Fassung empfahl
+          # `gh release delete $TAG --yes` — also ausgerechnet den Aufloesungsweg, den
+          # `publish-release` elf Zeilen weiter oben als unbestimmt verwirft (dieselbe
+          # `FetchRelease`-Wettlauf-Funktion). Im Doppel-Release-Fall, den diese Datei selbst als
+          # real bezeichnet, haette `--yes` das VEROEFFENTLICHTE Release treffen koennen. Eine
+          # Loeschempfehlung darf nicht unbestimmter sein als der Riegel daneben.
+          echo "::warning title=Entwurf bleibt liegen::publish-pypi=$PYPI publish-release=$PUB — der Release-Entwurf $TAG (id ${REL_ID:-unbekannt}) wurde NICHT veroeffentlicht. Kein DOI, kein oeffentliches Release. Entweder die Ursache beheben und den Lauf wiederholen, oder den Entwurf gezielt ueber seine ID verwerfen: gh api -X DELETE repos/$GITHUB_REPOSITORY/releases/${REL_ID:-<id>}"
 
   publish-release:
     # DER SCHRITT, DER DEN DOI PRAEGT — und er laeuft jetzt ZULETZT.
@@ -285,6 +324,15 @@ jobs:
           # Veroeffentlichen nachgezogen haette, wird bei `draft: true` uebersprungen. Seit der
           # Umstellung war die 2026-07-05 erkaempfte Absicht (v2.0.0b2 wurde faelschlich "Latest")
           # damit tote Konfiguration. Der PATCH belebt sie.
+          # KEIN Rueckfall auf "true". Die erste Fassung schrieb `${MAKE_LATEST:-true}` — bei einem
+          # leeren Wert also "als Latest setzen", und fuer ein Prerelease waere das genau der
+          # Fehler vom 2026-07-05, gegen den `relmeta` ueberhaupt gebaut wurde. Der Nachbar
+          # (`REL_ID`) bricht bei leer ab; zwei leere Werte duerfen nicht gegenlaeufig behandelt
+          # werden, und schon gar nicht faellt der eine in die riskante Richtung.
+          if [ -z "${MAKE_LATEST:-}" ]; then
+            echo "::error::make-latest ist leer — build-and-attest hat es nicht geliefert. Es wird NICHTS veroeffentlicht."
+            exit 1
+          fi
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$REL_ID" \
-            -F draft=false -f make_latest="${MAKE_LATEST:-true}" >/dev/null
+            -F draft=false -f make_latest="$MAKE_LATEST" >/dev/null
           echo "Release $TAG (id $REL_ID) veroeffentlicht — nach dem PyPI-Upload, nicht davor."
