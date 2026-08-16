@@ -17,12 +17,15 @@ have. No crypto verdict (`.ok`) semantics change, and every existing invocation 
 console entry point (`[project.scripts]`), so a new option on the shipped CLI is exactly that. An earlier
 draft of this paragraph argued from repository precedent instead, claiming a user-facing CLI flag had
 never shipped in a patch release. That claim is retracted here rather than quietly deleted, because it
-was measured false: four patch releases shipped ten such flags between them —
+was measured false: **four** patch releases grew the shipped CLI. The count of *flags* depends on what
+is being counted, so both numbers and their rule are given rather than one number without its object —
+which is the mistake an earlier draft of this very retraction made. Counting **distinct long-option
+names that did not previously occur anywhere in `src/proofbundle/cli.py`**: ten —
 `--expected-root-file --issuer-key --output --policy-id --valid-until` (3.1.1),
-`--checkpoint-vkey --trusted-checkpoint --verification-time` (3.1.3), `--require-derived-subject` (3.2.2)
-and the `evalcard` subcommand with `show-eval --eat` (3.2.3), each measured by diffing
-`add_argument("--…")` in `src/proofbundle/cli.py` across the release tags. Precedent points the other
-way; the rule does not, and the rule governs.
+`--checkpoint-vkey --trusted-checkpoint --verification-time` (3.1.3), `--require-derived-subject`
+(3.2.2), `--eat` (3.2.3). Counting **added `add_argument("--…")` lines** in the same diffs, which is a
+different thing because one name can appear on several subcommands: sixteen (6 / 3 / 2 / 5). Either way
+the precedent points the other way; the rule does not, and the rule governs.
 
 The choice is reinforced by a cost asymmetry. A consumer pinned to `~=3.7.0` picks up a patch
 automatically, so under 3.7.1 they would silently acquire a verification capability they never asked
@@ -32,9 +35,18 @@ they are until they choose to move, and the larger number harms nobody.
 Two further corrections to earlier drafts of this section, kept visible for the same reason: the delta
 over 3.7.0 is not "one commit touching the shipped package" — `911fd5c` and this release commit both
 touch `src/`, `MANIFEST.in` grafts `tests`, `scripts`, `schemas`, `examples`, `conformance`, `formal`
-and `docs/readiness_pack` into the sdist (27 files over 13 commits changed there), and the `dev` extra
-narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`. None of that is public API,
-which is why the version verdict is unchanged, but "for one reason only" was not accurate.
+and `docs/readiness_pack` into the sdist (**23 files over 8 commits** changed across exactly those seven
+paths), and the `dev` extra narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`.
+None of that is public API, which is why the version verdict is unchanged, but "for one reason only"
+was not accurate.
+
+An earlier draft of this same paragraph said "27 files over 13 commits", and both numbers were wrong in
+the same way the sentence above warns about: 27 counts the whole of `docs/` rather than
+`docs/readiness_pack`, so it includes four files `MANIFEST.in` deliberately does not graft, inside a
+sentence about the sdist; 13 is the repository-wide `--no-merges` count, six of which are `ci:` commits
+that touch neither `src/` nor any grafted path. Two numbers from two populations, neither of them the
+one named. They are corrected here rather than quietly replaced, because that is the same discipline
+this section asks of the precedent claim above it.
 
 ### Added
 - **`verify-proof --expected-origin` (#137, `911fd5c`):** `verify_tlog_proof` has accepted

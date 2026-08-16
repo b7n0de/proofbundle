@@ -80,8 +80,22 @@ is. Both make a green print mean less than it reads.
 
 ## Honest boundary
 
-The candidate's own delta (`src/proofbundle/cli.py`, +14 lines) is unaffected: targets F1 through F7
-were measured against it separately and each held. This finding concerns code that shipped in 3.7.0
+The candidate's own delta is unaffected by THIS finding: targets F1 through F7 were measured against it
+separately.
+
+**RETRACTED 2026-08-16, two errors in the two lines above.** They said "`src/proofbundle/cli.py`,
++14 lines" and "each held". Neither survived measurement. The shipped delta over 3.7.0 is **two** files
+under `src/` — `cli.py` (+14/−2) and `__init__.py` (+1/−1, the version line) — and both go into the
+wheel; the same "one file" slip was corrected in the CHANGELOG and left standing here. And F5, F6 and F7
+**fell** once the falsification pass was pointed at its own record; see `FALSIFICATION_F1_F7.md`. All
+three were grading errors of mine rather than defects in the release, which does not make the sentence
+any less wrong.
+
+It is corrected here rather than left to a reader because a counter-read found the two files in this
+same directory saying "each held" and "THREE FELL" about the same seven targets. A record that
+contradicts its neighbour is worse than one that is merely incomplete: both halves look measured.
+
+This finding concerns code that shipped in 3.7.0
 and the instrument that measures it. Whether it should block a 3.8.0 verdict is not decided here —
 it is put in front of the decision rather than into a footnote, which is what the methodology requires
 of a confirmed finding.
