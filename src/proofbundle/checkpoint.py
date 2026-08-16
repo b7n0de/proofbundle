@@ -115,6 +115,18 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
         kid = bytes.fromhex(kid_hex)
     except ValueError as exc:
         raise BundleFormatError("vkey keyID is not valid hex") from exc
+    # EIN VKEY, DER SICH SELBST WIDERSPRICHT, IST MALFORMED — nicht "hat halt nichts signiert".
+    # Gefunden in der un-Gegenlesung dieser Scheibe (2026-08-16): deklarierte ID und aus Name +
+    # Schluesselmaterial NEU BERECHNETE ID konnten auseinanderfallen, und `verify_checkpoint` lehnte
+    # dann still jede Signaturzeile ab. Der Aufrufer sah `ok=False, signer_present=False` und konnte
+    # "niemand hat signiert" nicht von "dein Schluessel ist kaputt" unterscheiden — genau die Klasse,
+    # die dieses Release an drei anderen Stellen schliesst (nicht messbar liest sich wie gemessenes
+    # Nein), hier gefunden von einem Gegenleser in Code, den diese Scheibe nicht angefasst hat.
+    # Dies ist der richtige Ort: jede andere Missform des vkey faellt schon hier typisiert durch.
+    if kid != key_id(name, pubkey):
+        raise BundleFormatError(
+            "vkey is self-inconsistent: its declared keyID does not match the ID recomputed from "
+            "its own name and key material — this is a malformed key, not a failed verification")
     return name, kid, pubkey
 
 
@@ -375,9 +387,21 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
         kid = bytes.fromhex(kid_hex)
     except ValueError as exc:
         raise BundleFormatError("vkey keyID is not valid hex") from exc
+    # DERSELBE SELBSTWIDERSPRUCH, ZWEITES MITGLIED. `verify_cosignature` traegt Zeile fuer Zeile
+    # dieselbe Form wie `verify_checkpoint` (`kid != kid_v or kid != kid_expected`) und hatte
+    # dieselbe Luecke. Im selben Durchgang gefixt statt beim naechsten Mal wiedergefunden — die
+    # Neuberechnung haengt hier am Algorithmus, deshalb je Zweig die passende Funktion.
     if len(keymat) == 33 and keymat[0] == _COSIG_V1_SIG_TYPE:
+        if kid != cosign_key_id(name, keymat[1:]):
+            raise BundleFormatError(
+                "witness vkey is self-inconsistent: its declared keyID does not match the ID "
+                "recomputed from its own name and key material")
         return name, kid, keymat[1:], _COSIG_V1_SIG_TYPE
     if len(keymat) == _MLDSA44_PUB_LEN + 1 and keymat[0] == _COSIG_MLDSA_SIG_TYPE:
+        if kid != cosign_key_id_mldsa(name, keymat[1:]):
+            raise BundleFormatError(
+                "witness vkey is self-inconsistent: its declared keyID does not match the ID "
+                "recomputed from its own name and key material")
         return name, kid, keymat[1:], _COSIG_MLDSA_SIG_TYPE
     raise BundleFormatError(
         "witness vkey must be 0x04+32-byte Ed25519 or 0x06+1312-byte ML-DSA-44 key material")
@@ -543,4 +567,11 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     return {"ok": log_ok and witnesses_ok, "log_ok": log_ok,
             "witnesses_ok": witnesses_ok, "witnesses": witnesses,
             "origin": log_res["origin"], "expected_origin": expected_origin,
+            # NACHBAR IM SELBEN DURCHGANG: `verify_checkpoint` liefert `signer_present`, und der
+            # tlogproof-Pfad reicht es durch — diese Schwesterflaeche baut ihr Ergebnis selbst und
+            # liess es fallen. Ein Aufrufer saehe hier `log_ok=False`, ohne zu wissen, ob der
+            # uebergebene Schluessel diese Note ueberhaupt signiert hat. Beim Lesen des eigenen
+            # Diffs gefunden, nicht von einem Test — die Klasse "ein Verbraucher gefixt, den
+            # Nachbarn in derselben Funktion vergessen" ist genau die, die hier wiederkehrt.
+            "signer_present": bool(log_res.get("signer_present")),
             "tree_size": log_res["tree_size"], "root": log_res["root"]}

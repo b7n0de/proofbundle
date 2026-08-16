@@ -168,6 +168,11 @@ class TestCosignAdversarial(unittest.TestCase):
                                              expected_origin=ORIGIN)
         self.assertFalse(mit["log_ok"], "eine Note fuer einen FREMDEN Baum darf unter dem "
                                         "vertrauten Schluessel nicht als unsere durchgehen")
+        # UND DIE URSACHE BLEIBT LESBAR: der Schluessel HAT signiert — es ist die Herkunft, die
+        # nicht passt. Ohne dieses Feld saehe dieser Fall aus wie ein falscher Schluessel.
+        self.assertTrue(mit["signer_present"],
+                        "der vertraute Schluessel hat diese Note sehr wohl signiert; nur der Baum "
+                        "ist ein anderer — wer das zusammenwirft, sucht den Fehler am falschen Ort")
         self.assertFalse(mit["ok"])
         # Die Zeugen sind davon unberuehrt: der Fehlschlag ist dem LOG zuzurechnen, nicht ihnen.
         self.assertTrue(mit["witnesses_ok"])
