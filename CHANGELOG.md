@@ -103,9 +103,12 @@ this section asks of the precedent claim above it.
   against a **tampered signature**, which produce byte-identical JSON. An earlier draft of the test
   and the commit message read as if the field separated three causes; a first correction then
   overshot and said it separated none. Both are wrong in the same way — measured on one construction
-  and reported over another — and the measured form is above. The open gap is recorded in
-  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md` with two executable guards,
-  one for each half.
+  and reported over another — and the measured form is above. The open gap is summarised under
+  **Known limitations** below and recorded in full in
+  `audit_artifacts/380/FINDING_json_trennt_die_drei_ursachen_nicht.md`, which lives in the
+  repository and is **not** part of the sdist (`MANIFEST.in` prunes `audit_artifacts/`). Two
+  executable guards hold the measured state, one for each half, and those *are* shipped
+  (`MANIFEST.in` grafts `tests`).
 
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
