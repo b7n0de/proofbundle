@@ -87,7 +87,19 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "make_latest=true"  >> "$GITHUB_OUTPUT"
           fi
-      - name: Create GitHub Release with the attested artifacts + SHA256SUMS
+      # ALS ENTWURF, und das ist der Kern der Reihenfolge. Ein GitHub-Release feuert den
+      # `release`-Webhook, und auf diesem Repo haengt daran Zenodo — gemessen 2026-08-16 ueber
+      # `gh api repos/b7n0de/proofbundle/hooks` (events=['release']), belegt am Zenodo-Record
+      # 21721509, der exakt den letzten Release-Tag traegt.
+      #
+      # Ein Entwurf feuert ihn NICHT. Vorher lief die Reihenfolge andersherum: Release sofort
+      # oeffentlich -> DOI gepraegt -> DANN erst `publish-pypi` in die Freigabe-Warteschlange.
+      # Wurde die Freigabe verweigert oder vergessen, existierte ein permanenter, zitierbarer DOI
+      # fuer eine Version, die auf PyPI nie erschien. Ein DOI ist nicht zuruecknehmbar.
+      #
+      # Die irreversible Aussenwirkung passierte damit VOR dem Tor, das sie pruefen soll. Das ist
+      # keine Prozess-Meinung, sondern die Reihenfolge in dieser Datei — und sie ist jetzt gedreht.
+      - name: Create the GitHub Release as a DRAFT (no webhook, no DOI yet)
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           files: |
@@ -95,6 +107,7 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           generate_release_notes: true
+          draft: true
           prerelease: ${{ steps.relmeta.outputs.prerelease }}
           make_latest: ${{ steps.relmeta.outputs.make_latest }}
 
@@ -137,3 +150,36 @@ jobs:
           # provenance describe the same bytes. skip-existing keeps a re-tag idempotent.
           packages-dir: dist/
           skip-existing: true
+
+  publish-release:
+    # DER SCHRITT, DER DEN DOI PRAEGT — und er laeuft jetzt ZULETZT.
+    #
+    # `needs: publish-pypi` ist die ganze Aenderung: der Entwurf wird erst oeffentlich, wenn die
+    # Bytes wirklich auf PyPI liegen. Damit faellt der Zenodo-Webhook hinter das Owner-Tor
+    # (environment: pypi, required reviewer) statt davor.
+    #
+    # WAS PASSIERT, WENN DIE FREIGABE AUSBLEIBT: `publish-pypi` wartet, dieser Job laeuft nie, der
+    # Entwurf bleibt ein Entwurf. Kein DOI, kein oeffentliches Release, kein "Latest", das auf eine
+    # Version zeigt, die es auf PyPI nicht gibt. Tag und Attestierung bleiben — die sind
+    # zurueckziehbar, ein DOI nicht. Genau deshalb steht die Grenze hier und nicht frueher.
+    #
+    # EHRLICHE GRENZE: das schuetzt gegen die REIHENFOLGE, nicht gegen ein Versehen beim Freigeben.
+    # Wer die PyPI-Freigabe erteilt, veroeffentlicht damit auch das Release und den DOI. Das ist
+    # gewollt — es ist EINE Entscheidung an EINER Stelle statt zwei an verschiedenen.
+    needs: [build-and-attest, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the draft release (this is what mints the DOI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Fail-closed: gibt es den Entwurf nicht, ist etwas anderes schiefgegangen und wir
+          # veroeffentlichen NICHTS blind.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft \
+            --jq '.isDraft' | grep -qx true
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "Release $TAG veroeffentlicht — nach dem PyPI-Upload, nicht davor."
