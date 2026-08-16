@@ -959,11 +959,22 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
         else:
+            # KONTROLLZEICHEN NEUTRALISIEREN, wie es `_cmd_verify` seit dem 2026-07-09 tut
+            # (verify-lens L3). Der `origin` kommt aus der GEPARSTEN Beweisdatei, ist also vom
+            # Aussteller kontrolliert. Gemessen mit einem Proof, dessen Origin-Zeile
+            # `\x1b[2K\x1b[G` traegt: das Terminal loescht die FAIL-Zeile und zeigt eine
+            # gefaelschte PASS-Zeile.
+            #
+            # NEU IN 3.8.0 IST DIE VERSCHAERFUNG, nicht der Spoof: der Zusatz `(expected …)` kommt
+            # aus der Erwartung des PRUEFERS, die der Angreifer nicht schreiben kann — und haengt
+            # damit hinter dessen gefaelschten Text. Die erfundene Zeile las sich als ausdruecklich
+            # bestaetigter Origin-Treffer. `--json` war und ist sicher (json.dumps escapt).
             origin_note = ""
             if args.expected_origin is not None:
                 origin_note = (" (expected)" if res["origin"] == args.expected_origin
-                               else f" (expected {args.expected_origin})")
-            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}{origin_note}")
+                               else f" (expected {_safe_line(str(args.expected_origin))})")
+            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] "
+                  f"log-signature: {_safe_line(str(res['origin']))}{origin_note}")
             n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
             print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
@@ -1057,7 +1068,10 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(res))
     else:
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] sample-opening: {res['detail']}")
+        # dieselbe Klasse: eine beschriftete Zeile mit einem Verifizierer-Wert geht durch
+        # `_safe_line`. Wo der Wert ohnehin fest ist, kostet das nichts — und es nimmt jedem
+        # kuenftigen Leser die Frage ab, ob GENAU DIESER Wert fremdkontrolliert sein kann.
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] sample-opening: {_safe_line(str(res['detail']))}")
         if res["ok"]:
             print(json.dumps(res["record"], indent=2))
         print("=> OK" if res["ok"] else "=> FAILED")
@@ -1420,7 +1434,10 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
                                               "fresh", "detail")}))
     else:
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] enclave-attestation: {res['detail']}")
+        # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
+        # Token-Bytes tragen. Gleiche Behandlung wie oben.
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] "
+              f"enclave-attestation: {_safe_line(str(res['detail']))}")
         if res["ok"]:
             print(f"    tier    {res['tier']}")
             print(f"    profile {res['profile']}")
