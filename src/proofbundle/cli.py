@@ -1028,6 +1028,15 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # nicht als leerer String erscheinen, sonst ist "nicht gefragt" von "gefragt und
             # leer" nicht zu unterscheiden.
             out["expected_origin"] = args.expected_origin
+            # DIE SCHRANKE GEHOERT ZUM BOOLEAN, sonst ist er kein Verdikt. `witness_quorum` gibt
+            # `len(confirmed) >= threshold` zurueck, und die Voreinstellung ist 0 — `witnesses_ok`
+            # ist damit BEDINGUNGSLOS true, wenn niemand ein Quorum verlangt hat. Ein Programm sah
+            # dasselbe `true` fuer "ein Quorum wurde verlangt und erreicht" und "es wurde nie eines
+            # verlangt", und kein Feld trennte die beiden: Zeugen zaehlen half nicht, weil null
+            # bestaetigende Zeugen unter threshold=0 ein legitimer Zustand sind. Der TEXTPFAD nennt
+            # die Schranke seit jeher ("threshold {T}") — wer `--json` automatisierte, bekam weniger
+            # als wer ins Terminal sah. Immer vorhanden, weil sie immer einen Wert hat.
+            out["threshold"] = args.threshold
             out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))

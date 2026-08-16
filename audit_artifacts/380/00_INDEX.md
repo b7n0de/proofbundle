@@ -25,8 +25,10 @@ counts, which is the difference between a claim a test can hold and one only a c
 
 ## Findings — each is a decision, not a note
 
-Two of the six were closed inside this release by Owner order (`OA-714ae03760`, `OA-a41a514b63`,
-both answered "noch in 3.8.0"), against this record's own recommendation to defer them. The
+Three of the six were closed inside this release: two by Owner order (`OA-714ae03760`,
+`OA-a41a514b63`, both answered "noch in 3.8.0") and one under the Owner's standing
+instruction that all gaps be closed inside 3.8.0 — each against this record's own
+recommendation to defer them. The
 recommendation is kept in each file rather than overwritten: the Owner overruled a judgement call,
 not an error of fact, and a record that silently adopts the decision it argued against is less
 useful to the next reader than one that shows both.
@@ -36,7 +38,7 @@ useful to the next reader than one that shows both.
 | `FINDING_erwartungsvergleich_klasse.md` | **closed** by `OA-714ae03760`, 7 of 7 members | was: six neighbouring comparison surfaces with no near-miss evidence. All six now run the shared corpus `tests/_beinahe_treffer.py`; each was verified by a rollback probe, and the pre-existing tests were measured to stay green under the same loosening — which is why the class was open |
 | `FINDING_nachbarflaeche_ohne_origin_bindung.md` | **closed** by `OA-a41a514b63` | was: `verify --trusted-checkpoint` accepts a checkpoint from any log with no option to bind the origin. Now `--expected-origin` on the CLI and `expected_origin=` on `verify_witnessed_checkpoint`, six rollback probes. Closing it measured something the finding had not: a pinned *key* does not bind the origin either |
 | `FINDING_json_trennt_die_drei_ursachen_nicht.md` | open, narrowed twice — **and this one is THIS release's**, see below | the `--json` path cannot separate a wrong key from a tampered signature. Two executable guards hold the measured state, one per half |
-| `FINDING_quorum_erreicht_ununterscheidbar_von_keins_verlangt.md` | `class_open` | `witnesses_ok: true` with zero confirming witnesses, and `threshold` is not in the output |
+| `FINDING_quorum_erreicht_ununterscheidbar_von_keins_verlangt.md` | **closed** | was: `witnesses_ok: true` with zero confirming witnesses and no `threshold` in the output. The bound now ships with its boolean; the family was measured over every value-taking flag and this was its one member. Its deferral reason was overtaken, not wrong |
 | `FINDING_never_raise_population.md` | `class_open`, pre-existing | the never-raise family property walks a hand-maintained module list; 11 surfaces across 7 modules are outside it |
 | `FINDING_pruefer_fehler_liest_sich_wie_artefakt_fehler.md` | `class_open` | a typo in the verifier's own command line produces output byte-identical to "this file is not a proof" — *not measurable* collides with *measured no* |
 
@@ -89,5 +91,5 @@ the wrapped-call-site count (an enumeration read as complete).
 1. `PRE_REGISTRATION_380.md` §1–§7 — what was promised before anything ran.
 2. `FALSIFICATION_F1_F7.md` — what was tried and what fell.
 3. `PRE_REGISTRATION_380.md` §8–§11 — what the run had to correct about its own rules, in order.
-4. The six findings, in the table above — four open, two closed by Owner order.
+4. The six findings, in the table above — three open, three closed.
 5. `MESSUNG_das_tor_von_pr139.md` — why the gate is red for the right reason only after #139.

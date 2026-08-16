@@ -270,6 +270,55 @@ class OriginVergleichIstExakt(unittest.TestCase):
 
 
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
+class DieSchrankeStehtNebenIhremBoolean(unittest.TestCase):
+    """`witnesses_ok` allein ist kein Verdikt — ohne die Schranke ist es nicht lesbar.
+
+    GEMESSEN (Befund `FINDING_quorum_erreicht_ununterscheidbar_von_keins_verlangt.md`):
+    `witness_quorum` gibt `len(confirmed) >= threshold` zurueck, und die Voreinstellung ist 0.
+    `witnesses_ok` war damit BEDINGUNGSLOS true, wenn niemand ein Quorum verlangt hat — dasselbe
+    `true` fuer "verlangt und erreicht" wie fuer "nie verlangt", und kein Feld trennte die beiden.
+    Zeugen zaehlen half nicht: null bestaetigende Zeugen sind unter threshold=0 ein legitimer
+    Zustand, und derselbe Nullwert unter einer verlangten Schranke haette `witnesses_ok` auf false
+    gesetzt — nur weiss man das ohne die Schranke eben nicht.
+
+    Der TEXTPFAD nannte sie immer ("threshold {T}"). Wer `--json` automatisierte, bekam weniger als
+    wer ins Terminal sah; das ist die eigentliche Schieflage.
+
+    KLASSE, nicht Instanz: die Familie ist "jedes `*_ok` in einem JSON-Verdikt, dessen Berechnung
+    eine einstellbare Schranke enthaelt". Gemessen wurde sie ueber alle wertnehmenden CLI-Flaggen:
+    `--expected-tree-size` steht bereits in der reichen Form (`treeSizeExpectation`),
+    `--verification-time` erscheint im JSON sobald gesetzt (und seine Abwesenheit heisst "jetzt",
+    nicht "keine Anforderung"), `--n`/`--k` sind Pflichtargumente ohne Abwesenheitsfall. Ein
+    Mitglied, und das ist dieses.
+    """
+
+    def test_die_schranke_steht_im_json(self) -> None:
+        _, out = _run()
+        d = json.loads(out)
+        self.assertIn("threshold", d, "der Boolean kommt ohne seine Schranke — nicht lesbar")
+        self.assertEqual(d["threshold"], 0, "die dokumentierte Voreinstellung")
+
+    def test_verlangt_und_erreicht_ist_von_nie_verlangt_unterscheidbar(self) -> None:
+        """Die EINE Eigenschaft, um die es geht — beide Laeufe sind gruen und trotzdem verschieden."""
+        _, ohne = _run()
+        _, mit = _run("--threshold", "0")
+        # Gegenprobe des Messaufbaus: ohne Zeugenschluessel bestaetigt niemand, beide sind true.
+        self.assertTrue(json.loads(ohne)["witnesses_ok"])
+        self.assertTrue(json.loads(mit)["witnesses_ok"])
+        bestaetigt = sum(1 for w in json.loads(ohne)["witnesses"].values() if w["ok"])
+        self.assertEqual(bestaetigt, 0, "Vorbedingung: es bestaetigt wirklich niemand")
+        # ... und genau deshalb muss die Schranke danebenstehen, sonst ist das true nicht deutbar.
+        self.assertEqual(json.loads(ohne)["threshold"], 0)
+
+    def test_eine_unerfuellbare_schranke_meldet_sich_mit_ihrem_wert(self) -> None:
+        rc, out = _run("--threshold", "9")
+        d = json.loads(out)
+        self.assertEqual(rc, 1)
+        self.assertFalse(d["witnesses_ok"])
+        self.assertEqual(d["threshold"], 9,
+                         "der Fehlschlag nennt die Schranke nicht, an der er scheiterte")
+
+
 class DerTrefferZweigHatEinenWaechter(unittest.TestCase):
     """Der `" (expected)"`-Zweig war von keiner Zusicherung gedeckt.
 

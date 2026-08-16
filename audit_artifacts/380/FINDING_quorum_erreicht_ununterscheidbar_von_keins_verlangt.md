@@ -1,7 +1,13 @@
 # Finding — `witnesses_ok: true` with zero confirming witnesses, and no way to tell why
 
-**Pre-existing (`main`), reported and not changed here.** `verify-proof` and its `--threshold`
-default predate 3.8.0; nothing in this release touches them. Recorded because a lens on the 3.8.0
+**Pre-existing (`main`). Reported first, then CLOSED IN THIS RELEASE** under the Owner's
+instruction that all gaps be closed inside 3.8.0. The classification does not change — its subject
+exists at `v3.7.0`, so it stays an Altbefund in the index count — but its state does. The section
+"Why it is not fixed in this release" is kept below, because its stated reason ("a third change to
+the output shape in one release") was overtaken by events rather than being wrong: the third change
+had already been made and announced by the time this was closed, so the argument no longer applied.
+
+`verify-proof` and its `--threshold` default predate 3.8.0. Recorded because a lens on the 3.8.0
 candidate surfaced it and because it is the same *shape* as the gap this release closed.
 
 **Nothing in this file asserts that a pre-tag audit ran.**
@@ -54,9 +60,30 @@ party automating on `--json` gets less than one reading the terminal.
 - **oracle_predicate:** set the bound to its permissive extreme and produce the weakest possible
   evidence. If the field is still `true` and no other field records the bound, the two cases are
   indistinguishable.
-- **outcome:** `class_open`.
+- **outcome:** `class_closed` — the bound now ships with its boolean.
 
-## Why it is not fixed in this release
+## How it is closed, and the family sweep that came with it
+
+`verify-proof --json` carries `threshold`, always present because it always has a value. That is
+enough: with the bound alongside, counting `witnesses` settles the question the boolean alone could
+not. The human path already named it (`threshold {T}`), so this removes an asymmetry rather than
+inventing a field — a relying party automating on `--json` no longer gets less than one reading the
+terminal.
+
+**The family was measured, not guessed.** The class is "every `*_ok` in a `--json` verdict whose
+computation includes a configurable bound", and the population is every value-taking CLI flag:
+
+| Flag | Feeds | State |
+|---|---|---|
+| `--threshold` | `witnesses_ok` | **the member** — bound was entirely absent from the output |
+| `--expected-tree-size` | `treeSizeExpectation` | already in the rich `status`/`expected`/`actual` form |
+| `--verification-time` | `policy_ok` | appears in the JSON once set; its absence means "now", which is a different requirement, not an absent one |
+| `--n` / `--k` (`verify-opening`) | opening verdict | required arguments — there is no absent-requirement case to confuse |
+
+One member, and it is this one. Rollback probes: removing the key turns three guards red; wiring it
+to a constant `0` — which *looks* filled — turns one red. The baseline returns to exactly 27 passed.
+
+## Why it was not fixed in this release — the reasoning at the time, overtaken
 
 Adding `threshold` to the JSON is a third change to the output shape in one release, and this
 release already had to correct its own CHANGELOG twice for understating how many there were. The

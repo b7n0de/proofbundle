@@ -54,6 +54,33 @@ than cosmetic: without #139, satisfying the gate means writing a sentence that c
 and avoids a list of others, which is an incentive to write around a check instead of attesting to a
 fact.
 
+## Re-measured 2026-08-16, and a correction about how this table was used
+
+The table above was quoted in a recommendation as if class A meant "twelve plain sentences get
+through". It does not. Class A is twelve sentences **in markup and language variants** — comment,
+fence, front matter, strikethrough, question, URL — chosen to defeat an enumerated negation list.
+A fresh run with twelve **unadorned** English negations against the same current gate gives a
+different picture, because the line-scoped negation catches most of them: **two of the twelve still
+grant a pass.** Their shapes, deliberately not written out: one denies by *outstanding-ness* (the
+work is still ahead), the other denies by *agency* (nobody performed it). Neither uses a word the
+negation list carries.
+
+Neither number refutes the other; they are different corpora, and the earlier one was cited as
+though it were this one. What the re-measurement establishes **independently of any corpus** is that
+sentences which say in plain words that nothing ran still attest the release.
+
+**The first draft of this section wrote those two sentences out verbatim, and the gate went green.**
+The opening paragraph of this file warns against exactly that, and the warning was not enough: the
+whole suite reported 2120 passed with the release gate satisfied, for a release with no audit
+record. Caught because a suite that had carried one expected red for the whole round suddenly
+carried none — the green was the anomaly, not the progress. It is left standing here rather than
+quietly repaired, because a measurement record that can trigger its own finding is a stronger
+statement of that finding than any prose about it.
+
+Class D was re-run live with a control, and it holds unchanged: a record whose text attests
+**3.7.0**, placed in the folder for 3.8.0, exits 0; an empty folder exits 1, so the setup measures
+something.
+
 It establishes nothing about whether an audit has been run. #139's own comment states its honest
 limit plainly — the canonical line is provenance-*shaped*, not provenance. The end state is a
 runner-signed record whose subject digest equals the artifact being tagged, and this repository does

@@ -163,6 +163,24 @@ this section asks of the precedent claim above it.
   **verdict**, and their `--json` **output shape** gains one key — the same distinction this
   section had to correct once already for the sibling surface.
 
+- **`verify-proof --json` now carries `threshold`.** `witness_quorum` returns
+  `len(confirmed) >= threshold` and the default is `0`, so `witnesses_ok` was **unconditionally
+  true** when nobody demanded a quorum. A program saw the same `true` for "a quorum was demanded and
+  met" and "no quorum was ever demanded", and no field separated them — counting `witnesses` did not
+  settle it either, because zero confirming witnesses is a legitimate state under `threshold=0`,
+  while the same zero under a demanded bound would have made `witnesses_ok` false. The text path has
+  always named it (`threshold {T}`), so this removes an asymmetry rather than inventing a field: a
+  relying party automating on `--json` was getting less than one reading the terminal. The verdict
+  itself was never wrong; what was missing was the legibility of the answer.
+
+  The key is always present, because it always has a value. The family was measured over every
+  value-taking flag rather than assumed: `--expected-tree-size` was already in the rich
+  `status`/`expected`/`actual` form, `--verification-time` appears once set (and its absence means
+  "now", a different requirement rather than an absent one), and `verify-opening`'s `--n`/`--k` are
+  required arguments with no absent-requirement case. One member, and this was it. Rollback probes:
+  removing the key turns three guards red, and wiring it to a constant `0` — which *looks* filled —
+  turns one red.
+
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
   `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
