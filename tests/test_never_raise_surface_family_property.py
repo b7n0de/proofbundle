@@ -30,6 +30,12 @@ _MODULES = [
     # the sweep, hiding the decision/outcome/subject_binding RecursionError class):
     "subject_binding", "relation", "assurance", "automation_verdict", "beacon", "public_transparency",
     "signature", "policy_profiles", "canonical",
+    # 2026-08-16: the population was hand-maintained and had drifted 14 modules behind the package.
+    # A coverage guard (tests/test_never_raise_population_guard.py) now derives the expected set from
+    # the tree, so a module added to the package can no longer sit outside this property unnoticed.
+    # These seven carried 11 matching surfaces the property had never entered.
+    "anchors_chia", "anchors_markovian", "anchors_ots", "anchors_rfc3161", "anchors_rootcommit",
+    "emit", "pqsig",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -43,7 +49,23 @@ _NAME_PATTERN = re.compile(
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
 # / SdjwtVcError / EvalClaimError-as-PBError; ValueError covers EvalClaimError + the rfc8785 domain family.
-_ACCEPTED = (ProofBundleError, ValueError)
+# `FileNotFoundError` added 2026-08-16 — and the FIRST attempt added `OSError`, which was wrong in a
+# way worth recording, because the mistake and the claim contradicted each other. The commit text said
+# "widens by a single measured case, not by a guess"; the mechanism widened the whole hierarchy.
+# `OSError` is the base class of `PermissionError`, `TimeoutError`, `BrokenPipeError` and more. A
+# `PermissionError` on an anchor file is not a missing file — it can be an indicator that something
+# blocked access, and swallowing it silently is fail-open on exactly the axis this property defends.
+# The counter-read caught it (un, REJECT, 2026-08-16): admit the measured case, not its family.
+#
+# Why this ONE subclass is admissible: the contract forbids a surface CRASHING INSTEAD OF DECIDING —
+# the type-confusion signatures in `_FORBIDDEN`. A loader reporting "this path does not exist" is the
+# opposite: fail-closed, informative, and it produces no verdict a relying party could mistake for a
+# pass. Measured across all 90 discovered surfaces and the full corpus: ZERO forbidden escapes and
+# exactly ONE unclassified case (`emit.load_signer` on `b"bytes-not-str"` → `FileNotFoundError`).
+#
+# Any OTHER `OSError` subclass therefore still lands in the unclassified branch below and is REPORTED,
+# which is the point: the next one gets a decision, not an inherited pass.
+_ACCEPTED = (ProofBundleError, ValueError, FileNotFoundError)
 # FORBIDDEN raw terminations = the type-confusion crash signatures a public verify surface must never emit.
 _FORBIDDEN = (AttributeError, TypeError, RecursionError, KeyError, IndexError, UnicodeDecodeError, MemoryError)
 
@@ -158,6 +180,20 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 except _FORBIDDEN as exc:
                     escapes.append(f"{mod_name}.{name} on {type(bad).__name__}: raw "
                                    f"{type(exc).__name__}: {exc}")
+                except Exception as exc:              # noqa: BLE001 — see below, this is the point
+                    # UNCLASSIFIED IS REPORTED, NOT SWALLOWED (2026-08-16). Until this branch existed, an
+                    # exception that was neither _ACCEPTED nor _FORBIDDEN propagated straight out of this
+                    # loop: the test ended as ERROR and every surface AFTER the offending one was never
+                    # reached. The taxonomy's gap did not under-report, it STOPPED MEASURING — and the
+                    # damage scaled with iteration position, not with severity. Measured when found:
+                    # `emit.load_signer` sat at position 87 of 90, so three surfaces went untested; the
+                    # same gap at position 1 would have cost 89.
+                    #
+                    # A third axis of the same instrument. The module axis (population) and the argument
+                    # axis (only position 0) were already known; this is the exception-taxonomy axis.
+                    escapes.append(f"{mod_name}.{name} on {type(bad).__name__}: UNCLASSIFIED "
+                                   f"{type(exc).__name__}: {exc} — neither accepted nor forbidden; "
+                                   f"decide which it is instead of letting it abort the sweep")
         self.assertEqual(escapes, [], "raw type-confusion escapes over the AUTO-DISCOVERED surface family:\n"
                          + "\n".join(escapes))
 
