@@ -148,6 +148,22 @@ class TestOutcomeVerify(unittest.TestCase):
         self.assertFalse(r["predicate_type_ok"])
         self.assertFalse(r["ok"])
 
+    def test_decision_ref_wird_EXAKT_verglichen(self):
+        """Ein Beinahe-Treffer darf nicht als dieselbe Entscheidung gelten.
+
+        NACHGETRAGEN im DEEP-Lauf 2026-08-17. Der bestehende Test prueft einen VOELLIG FREMDEN Wert
+        (`_OTHER_ROOT`) — das faengt keine Lockerung auf `startswith`, `casefold` oder `strip`, weil
+        ein fremder Wert auch unter jeder dieser Lockerungen nicht passt. Korpus aus
+        `tests/_beinahe_treffer.py`, dieselbe Quelle wie die acht anderen gedeckten Parameter.
+        """
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        pruefe_exakt(
+            lambda v: verify_outcome_receipt(env, pub, expected_decision_ref=v)["decision_bound"],
+            _DEC_ROOT, self)
+
     def test_wrong_decision_ref_fails(self):
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(), s)

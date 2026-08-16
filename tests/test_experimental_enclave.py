@@ -133,6 +133,25 @@ class TestAdversarial(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("profile", res["detail"])
 
+    def test_profile_wird_EXAKT_verglichen(self):
+        """Ein Beinahe-Treffer darf nicht als dasselbe Profil gelten.
+
+        NACHGETRAGEN im DEEP-Lauf 2026-08-17. `test_red_profile_mismatch` daneben prueft
+        `https://evil.example/profile` — einen VOELLIG FREMDEN Wert. Der faellt auch unter
+        `startswith`, `casefold` oder `strip` durch, kann also nicht zeigen, dass der Vergleich
+        exakt IST. Diese Flaeche kam ausserdem erst an diesem Tag ueberhaupt in die gesweepte
+        Population (`experimental.enclave` lag als Unterpaket ausserhalb des Deckungs-Waechters),
+        was sie zur juengsten und deshalb am wenigsten befragten der Familie macht.
+        """
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        bundle, binding, verifier, eat = _setup()
+        pruefe_exakt(
+            lambda v: verify_enclave_attestation(eat, verifier_pubkey=_raw(verifier),
+                                                 expected_binding=binding,
+                                                 expected_profile=v)["ok"],
+            PROFILE, self)
+
     def test_red_claim_tamper_breaks_signature(self):
         # Flip the tier in the payload without re-signing → signature fails.
         bundle, binding, verifier, eat = _setup()
