@@ -15,10 +15,38 @@ that turns out to be unreachable is recorded as unreachable, not removed.
 
 ## 1. Threat model for this candidate
 
-The shipped delta over 3.7.0 is **one file**: `src/proofbundle/cli.py`, +14 lines, adding
-`verify-proof --expected-origin`. Everything else that landed since 3.7.0 is fixture, test, CI or
-documentation. The threat model is therefore narrow and stated narrowly — a wide model here would be
-theatre.
+**CORRECTED 2026-08-16 — this paragraph was the narrowest of three places carrying the same wrong
+number, and it was the last one standing.** It said the shipped delta over 3.7.0 is "one file:
+`src/proofbundle/cli.py`, +14 lines". Both halves are wrong, and the correction matters because this
+paragraph is what *justifies* the width of the threat model. The CHANGELOG's version of the same slip
+was corrected earlier; `FINDING_never_raise_population.md` retracted its own and noted that the
+CHANGELOG had been fixed — and neither correction reached here. Fix-the-instance, three times, in a
+set of documents whose whole subject is fixing the class.
+
+Measured at the current head:
+
+```
+git diff --name-only  v3.7.0..HEAD -- src/   -> src/proofbundle/__init__.py
+                                                src/proofbundle/cli.py
+git diff --shortstat  v3.7.0..HEAD -- src/   -> 2 files changed, 49 insertions(+), 5 deletions(-)
+git diff --shortstat  f64d35e..HEAD -- src/proofbundle/cli.py
+                                             -> 1 file changed, 37 insertions(+), 5 deletions(-)
+```
+
+`cli.py` alone has moved more lines **since the graded digest** than this paragraph attributed to the
+whole release, and `__init__.py` is a second file (the version line). The correct statement: the
+shipped delta over 3.7.0 is **two files under `src/`**, `cli.py` (the flag, the JSON field, four
+control-character wrappings on three labelled lines) and `__init__.py` (the version string).
+Everything else that landed since 3.7.0 is fixture, test, CI or documentation.
+
+**What this does to the threat model, stated rather than glossed:** the model below is still narrow,
+and narrow is still right — the added surface is one flag, one output key and a display filter. But
+the reason given for its narrowness was a number, and the number was wrong. Targets F1–F7 were cut
+for the smaller delta; the control-character wrappings in particular arrived *after* they were
+frozen, and no registered target names them. That gap is closed elsewhere (`### Security` in the
+CHANGELOG, and the behavioural guards with their rollback probe), not by pretending the model
+anticipated it. A wide model here would still be theatre; a model justified by a false measurement is
+worse than theatre, because it reads as diligence.
 
 **The capability under test:** a relying party at the command line can now demand that a validly
 signed checkpoint carries the origin it expects. Before this, it could not. The interesting failure is

@@ -428,8 +428,16 @@ class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
 
         # (b) verfaelschte Signatur, mit nachgewiesener Wirkung
         verfaelscht = _mit_verfaelschter_signatur()
-        if verfaelscht is None:
-            self.skipTest("keine Signaturzeile mit nachweisbarer Wirkung gefunden")
+        # KEIN skipTest hier — eine Gegenlesung hat das zu Recht als Defekt benannt. Die Klasse ist
+        # bereits `skipUnless(_PROOF.is_file())`; wenn die Fixture DA ist und trotzdem keine Zeile
+        # wirkt, hat sich ihr Format geaendert und dieser Test misst nichts mehr. Ein SKIP waere
+        # dann die stille Variante von "nichts gefunden = alles gut" und ginge in einer Suite mit
+        # 2000 Tests unter. Drei Zustaende: Fixture fehlt -> SKIP (die Klasse) · Fixture da, keine
+        # Zeile wirkt -> FAIL (etwas hat sich geaendert) · Zeile wirkt -> messen.
+        self.assertIsNotNone(
+            verfaelscht,
+            "keine Signaturzeile der Fixture kippt log_ok — das Format hat sich geaendert und "
+            "dieser Waechter misst nichts mehr. Er darf hier nicht schweigen.")
         self.addCleanup(shutil.rmtree, verfaelscht.parent, True)
         b_txt = lauf(_log_vkey(), verfaelscht)
 
