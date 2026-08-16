@@ -44,6 +44,30 @@ def _indizes() -> list[pathlib.Path]:
     return sorted(p for p in _AKTEN.glob("*/00_INDEX.md") if p.is_file())
 
 
+def _im_checkout() -> bool:
+    """Repo-Checkout oder ausgeliefertes sdist? Gelesen aus conftest, der EINEN Quelle dafuer.
+
+    Nicht nachgebaut: `_REPO_ONLY_MARKERS` hier ein zweites Mal zu pruefen waere eine zweite
+    Messstelle fuer dieselbe Groesse und damit die naechste Drift. `tests/test_sdist_packaging_361`
+    importiert conftest aus demselben Grund direkt.
+    """
+    try:
+        from conftest import running_in_repo_checkout
+    except Exception:                                     # noqa: BLE001
+        return _AKTEN.is_dir()      # ohne conftest: die beobachtbare Tatsache statt eine Annahme
+    return running_in_repo_checkout()
+
+
+# DIESER TEST WIRD AUSGELIEFERT (`MANIFEST.in: graft tests`), UND SEIN GEGENSTAND NICHT
+# (`prune audit_artifacts`). Gemessen an einem echt gebauten und entpackten sdist: ohne diese Zeile
+# faellt `test_es_gibt_ueberhaupt_etwas_zu_pruefen` bei jedem Nutzer, der die mitgelieferte Suite
+# faehrt — eine legitime Abwesenheit als Fehler ausgegeben. Die drei anderen Tests waeren dort
+# still gruen durchgelaufen (leere Schleife), was die schlechtere Haelfte desselben Fehlers ist.
+# Deshalb SKIPpt die ganze Klasse ausserhalb eines Checkouts, statt teils zu fallen und teils
+# leer zu bestehen.
+@unittest.skipUnless(_im_checkout(),
+                     "audit_artifacts/ ist aus dem sdist geprunt — dieser Waechter gilt im "
+                     "Repo-Checkout (PKG-2026-0718-01)")
 class AktenIndexZahlenStimmen(unittest.TestCase):
 
     def test_es_gibt_ueberhaupt_etwas_zu_pruefen(self) -> None:
