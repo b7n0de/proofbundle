@@ -511,13 +511,53 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         self.assertIn("evil.example/log", aus, "der manipulierte Origin wird gar nicht ausgegeben — "
                                                "dieser Test misst dann nicht mehr, was er behauptet")
 
+    # ZWOELF ZEICHENKLASSEN, nicht eine. Eine Gegenlesung hat benannt, dass die zwei
+    # Verhaltenstests je GENAU EIN Zeichen fuettern (ESC bzw. LF): eine Haertung, die etwa CR
+    # durchliesse, waere hier gruen geblieben und nur vom isolierten `_safe_line`-Test gefangen
+    # worden. Die Funktion ist per Konstruktion eine Whitelist (`isprintable()`) und deckt alle
+    # zwoelf ab — gedeckt war bisher die FUNKTION, nicht die AUFRUFSTELLE.
+    STEUERZEICHEN = [
+        ("ESC",  "\x1b"),   # der eigentliche Angriff: Loeschsequenz + gefaelschte Zeile
+        ("LF",   "\n"),     # eine zweite Zeile erfinden
+        ("CR",   "\r"),     # Cursor an den Zeilenanfang, ueberschreibt ohne Loeschsequenz
+        ("NUL",  "\x00"),
+        ("TAB",  "\t"),
+        ("BS",   "\x08"),   # rueckwaerts loeschen
+        ("VT",   "\x0b"),
+        ("FF",   "\x0c"),
+        ("DEL",  "\x7f"),
+        ("CSI",  "\x9b"),   # die 8-Bit-Form von ESC[
+        ("ZWSP", "​"), # unsichtbar, kann Namen optisch verschmelzen
+        ("NBSP", " "),
+    ]
+
     def test_erwartungs_zusatz_aus_der_kommandozeile_kann_keine_zeile_faelschen(self) -> None:
-        """Aufrufstelle 2: `(expected {…})` — der Wert kommt aus argv."""
-        boese = "evil.example/log\nCRYPTO: OK"
-        aus = self._text_gegen(_PROOF, "--expected-origin", boese)
-        self.assertNotIn("\n" + "CRYPTO: OK", aus, "der Erwartungswert hat eine eigene Zeile erzeugt")
-        self.assertIn("evil.example/log", aus, "der Erwartungswert erscheint gar nicht — "
-                                               "dieser Test misst dann etwas anderes")
+        """Aufrufstelle 2: `(expected {…})` — der Wert kommt aus argv, ueber alle zwoelf Klassen.
+
+        GEPRUEFT WIRD DIE EIGENSCHAFT, NICHT DAS ZEICHEN. Die erste Fassung dieser Schleife verbot
+        das Zeichen im GANZEN stdout — und fiel prompt am Zeilenumbruch, den die Ausgabe zwischen
+        ihren eigenen Zeilen voellig legitim traegt. Das war mein Denkfehler, kein Defekt am Code:
+        die Eigenschaft heisst "der Wert kann seine Zeile nicht verlassen", nicht "das Zeichen kommt
+        nirgends vor". Gemessen wird deshalb an der ZEILE, die den Wert traegt.
+        """
+        for name, ch in self.STEUERZEICHEN:
+            with self.subTest(zeichen=name):
+                boese = f"evil.example/log{ch}CRYPTO: OK"
+                aus = self._text_gegen(_PROOF, "--expected-origin", boese)
+                traeger = [z for z in aus.split("\n") if "evil.example/log" in z]
+                # Gegenprobe je Fall: der Wert kommt SEHR WOHL an, nur entschaerft. Ohne sie waere
+                # alles darunter auch dann wahr, wenn gar nichts gedruckt wuerde.
+                self.assertEqual(len(traeger), 1,
+                                 f"{name}: der Erwartungswert steht auf {len(traeger)} Zeilen statt "
+                                 "auf genau einer — dieser Untertest misst dann etwas anderes")
+                zeile = traeger[0]
+                self.assertIn("CRYPTO: OK", zeile,
+                              f"{name} (U+{ord(ch):04X}): die Nutzlast hat die Zeile VERLASSEN — "
+                              "genau der Ausbruch, den die Umwicklung verhindern soll")
+                self.assertNotIn(ch, zeile,
+                                 f"{name} (U+{ord(ch):04X}) erreicht das Terminal roh")
+                self.assertFalse(any(z.lstrip().startswith("CRYPTO:") for z in aus.split("\n")),
+                                 f"{name}: eine erfundene CRYPTO-Zeile steht am Zeilenanfang")
 
     def test_die_vier_neuen_aufrufstellen_bleiben_umwickelt(self) -> None:
         """Ein Verhaltenstest deckt zwei der vier Stellen; diese Zusicherung haelt alle vier fest.
