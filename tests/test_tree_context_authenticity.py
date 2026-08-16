@@ -217,10 +217,14 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
             rc = main(argv)
         return rc, out.getvalue(), err.getvalue()
 
-    def _files(self, bundle, root, tree_size, signer=None):
+    def _files(self, bundle, root, tree_size, signer=None, origin=ORIGIN, key_name=None):
+        # `origin` ist die ORIGIN-ZEILE der Note, `key_name` der Name IM Signaturblock. C2SP
+        # laesst sie auseinanderfallen (ein Betreiber, mehrere Baeume) — genau darum ist ein
+        # gepinnter Schluessel keine Aussage darueber, WELCHER Baum spricht.
         signer = signer or generate_signer()
-        note = cp.sign_checkpoint(ORIGIN, tree_size, root, signer, ORIGIN)
-        vk = cp.vkey(ORIGIN, _raw_pub(signer))
+        key_name = key_name or origin
+        note = cp.sign_checkpoint(origin, tree_size, root, signer, key_name)
+        vk = cp.vkey(key_name, _raw_pub(signer))
         bfd, bpath = tempfile.mkstemp(suffix=".json")
         with os.fdopen(bfd, "w") as f:
             json.dump(bundle, f)
@@ -300,6 +304,59 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
         self.assertEqual(ra["treeContextAuthenticity"], "PASS")
         self.assertEqual(ra["rootTrustLevel"], "ROOT_AND_TREE_SIZE_PINNED")
         self.assertEqual(ra["checkpointAuthenticity"], "NOT_EVALUATED")
+
+    def test_fremde_origin_geht_ohne_bindung_durch_und_faellt_mit(self):
+        """Die Luecke, die `--expected-origin` schliesst — beide Richtungen an EINEM Aufbau.
+
+        Die Note nennt in ihrer origin-Zeile einen FREMDEN Baum, ist aber unter dem Schluessel
+        gueltig, den der Pruefer haelt (C2SP: Signaturname und origin duerfen auseinanderfallen).
+        Root und tree_size stimmen mit dem Bundle ueberein. Ohne Bindung ist dieses Verdikt
+        BYTE-GLEICH mit dem ehrlichen — es gab bis 3.8.0 keinen Parameter, der die beiden trennt.
+        """
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2, origin="evil.example/other-tree",
+                                       key_name=ORIGIN)
+
+        rc, out, _ = self._run(["verify", "--json", bpath,
+                                "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(out)["root_authenticity"]["checkpointAuthenticity"], "PASS",
+                         "Vorbedingung: ohne Bindung geht die fremde Note DURCH — faellt das "
+                         "hier, misst der Test die Bedrohung nicht mehr")
+
+        rc, out, _ = self._run(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                                "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])
+        self.assertEqual(rc, 1, out)
+        ra = json.loads(out)["root_authenticity"]
+        self.assertEqual(ra["checkpointAuthenticity"], "FAIL")
+        self.assertNotEqual(ra["treeContextAuthenticity"], "PASS")
+        self.assertFalse(ra["safeForAutomation"])
+
+    def test_erwartete_origin_erzeugt_keinen_fehlalarm(self):
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+        rc, out, _ = self._run(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                                "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(out)["root_authenticity"]["checkpointAuthenticity"], "PASS")
+
+    def test_cli_expected_origin_wird_EXAKT_verglichen(self):
+        """Die CLI hat einen EIGENEN Vergleich — der Korpus auf Bibliotheksebene deckt ihn nicht.
+
+        Zwei Vergleichsstellen sind zwei Stellen, die sich lockern lassen; deshalb laeuft das
+        Korpus aus `tests/_beinahe_treffer.py` hier ein zweites Mal, gegen `main()` in-process.
+        """
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+
+        def akzeptiert(v):
+            rc, _out, _err = self._run(["verify", bpath, "--trusted-checkpoint", npath,
+                                        "--checkpoint-vkey", vk, "--expected-origin", v])
+            return rc == 0
+
+        pruefe_exakt(akzeptiert, ORIGIN, self)
 
     def test_disagreeing_policy_checkpoint_dominates_a_passing_pair(self):
         # Lens-1 review F1 (fail-closed / No-Fake): a pinned policy checkpoint that DISAGREES with the

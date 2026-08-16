@@ -483,14 +483,31 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
 
 
 def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, *,
-                                threshold: int = 1) -> dict:
+                                threshold: int = 1,
+                                expected_origin: "str | None" = None) -> dict:
     """Verify a checkpoint is BOTH log-signed and witnessed by ``threshold`` distinct witnesses.
 
     The log signature (0x01) is always required — witnesses attest consistency, they do not
     replace the log's own signature. Returns ``{ok, log_ok, witnesses_ok, witnesses, origin,
-    tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature result.
+    expected_origin, tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature
+    result.
     Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
     this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (adversarial re-audit round 5).
+
+    ``expected_origin`` (3.8.0) is the origin binding this surface was missing. A checkpoint carries
+    the identity of the log that issued it, and a signature proves that SOME log signed — not WHICH
+    one. Without the binding a relying party that pins a trusted checkpoint accepts a validly signed
+    checkpoint from a DIFFERENT log as an authenticated source for the root and the tree size.
+    Measured 2026-08-16 by triggering it: the same root and the same key under two different origins
+    produced byte-identical verdicts, and no parameter could separate them. The sibling surface
+    ``tlogproof.verify_tlog_proof`` closed this earlier in the same release; this is its neighbour.
+
+    Default ``None`` = origin unconstrained, so every existing call keeps its verdict. The comparison
+    is EXACT (codepoint equality, no normalisation, no case folding) — near-miss corpora in
+    ``tests/_beinahe_treffer.py`` hold that, because a comparison tested only against a wholly foreign
+    value cannot tell an exact one from a loosened one. ``""`` is a REQUEST that always fails, not the
+    absence of one: ``is None`` is deliberate where ``not expected_origin`` would silently collapse
+    "asked and empty" into "not asked".
     """
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
@@ -501,8 +518,14 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
         raise BundleFormatError("witness_vkeys must be an iterable of witness vkey strings")
     log_res = verify_checkpoint(signed_note, log_vkey)
+    # Exakt wie in tlogproof.verify_tlog_proof, absichtlich Zeichen fuer Zeichen dieselbe Form: die
+    # zwei Flaechen tragen DIESELBE Eigenschaft, und zwei verschiedene Schreibweisen davon waeren
+    # die naechste Drift. `is None` und nicht `not expected_origin` — ein leerer String ist eine
+    # GESTELLTE Frage, die immer fehlschlaegt, keine abwesende.
+    log_ok = bool(log_res["ok"]) and (expected_origin is None
+                                      or log_res["origin"] == expected_origin)
     witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold)
-    return {"ok": bool(log_res["ok"]) and witnesses_ok, "log_ok": log_res["ok"],
+    return {"ok": log_ok and witnesses_ok, "log_ok": log_ok,
             "witnesses_ok": witnesses_ok, "witnesses": witnesses,
-            "origin": log_res["origin"], "tree_size": log_res["tree_size"],
-            "root": log_res["root"]}
+            "origin": log_res["origin"], "expected_origin": expected_origin,
+            "tree_size": log_res["tree_size"], "root": log_res["root"]}

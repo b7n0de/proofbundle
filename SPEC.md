@@ -262,6 +262,16 @@ A conforming verifier MUST perform, in this order, and report each result:
    expected root AND expected tree size ATOMICALLY (feeding check 8). A checkpoint
    that does not verify FAILS the verdict — the expectations it would have carried
    are never used unauthenticated.
+   **The signature authenticates THAT a log signed, not WHICH log** (since 3.8.0): a
+   checkpoint's C2SP origin line and the name in its signature block are separate
+   fields, and a signer MAY legitimately serve several origins under one key.
+   A relying party that pins only the verifier key therefore has NOT pinned the tree
+   it trusts. `--expected-origin` (CLI) / `expected_origin=` (`verify_witnessed_checkpoint`)
+   binds it; the comparison MUST be EXACT (no prefix, case-folding, trimming or
+   substring match). It is OPT-IN and defaults to unconstrained, matching
+   `verify-proof --expected-origin`: a verifier MUST NOT invent a default origin, and
+   a conforming implementation MUST report the origin it observed so an unpinned run
+   stays auditable.
 
 The bundle **verifies** iff every performed check passes. Trust anchors (the
 expected signer key, the expected Merkle root) are inputs the relying party

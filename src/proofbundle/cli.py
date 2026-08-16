@@ -565,7 +565,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             with _open_input(args.trusted_checkpoint) as handle:
                 note = _read_capped(handle)
             cp_res = verify_checkpoint(note, cp_vkey)   # malformed note/vkey → BundleFormatError → exit 2
-            cp_ok = bool(cp_res["ok"])
+            # ORIGIN-BINDUNG (3.8.0). Bis hierher pruefte diese Flaeche, dass IRGENDEIN Log den
+            # Checkpoint signiert hat — nicht WELCHES. Gemessen 2026-08-16 durch Ausloesen: dieselbe
+            # root, derselbe Schluessel, zwei verschiedene Origins -> byte-gleiches Verdikt, beide
+            # ROOT-AUTHENTICITY PASS, und kein Parameter konnte sie trennen. Das ist exakt die
+            # Bedrohung, die `verify-proof --expected-origin` in derselben Version schliesst; hier
+            # war die Schwesterflaeche offen. `is None` und nicht falsy: ein leerer String ist eine
+            # gestellte Frage, die immer fehlschlaegt, keine abwesende.
+            cp_expected_origin = getattr(args, "expected_origin", None)
+            cp_origin_ok = (cp_expected_origin is None
+                            or cp_res["origin"] == cp_expected_origin)
+            cp_ok = bool(cp_res["ok"]) and cp_origin_ok
             if cp_ok:
                 cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
                 if expected_root is not None:
@@ -583,6 +593,15 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 expected_tree_size = cp_res["tree_size"]
                 cp_detail = (f"checkpoint origin {cp_res['origin']!r} authenticates "
                              f"(root, tree_size={cp_res['tree_size']}) atomically")
+            elif not cp_origin_ok:
+                # Die Ursache NENNEN. Ohne diesen Zweig laese sich ein Origin-Fehlschlag wie eine
+                # kaputte Signatur — derselbe Fehlermodus, den `verify-proof` mit `(expected …)`
+                # schliesst. Der Wert kommt aus einer Datei, die der Pruefer nicht geschrieben hat,
+                # geht also durch `_safe_line`.
+                cp_detail = (f"checkpoint is validly signed but its origin "
+                             f"{_safe_line(str(cp_res['origin']))!r} is not the expected "
+                             f"{_safe_line(str(cp_expected_origin))!r} — a checkpoint from a "
+                             "DIFFERENT log cannot authenticate this tree context (fail-closed)")
             else:
                 cp_detail = ("checkpoint signature does not verify under the supplied vkey — the "
                              "expected root/tree size could not be authenticated (fail-closed)")
@@ -2350,6 +2369,15 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--checkpoint-vkey", dest="checkpoint_vkey", default=None, metavar="VKEY",
                         help="the checkpoint log's C2SP verifier key (name+hexKeyID+base64KeyMaterial) "
                              "for --trusted-checkpoint")
+    verify.add_argument("--expected-origin", dest="expected_origin", default=None, metavar="ORIGIN",
+                        help="pin WHICH log the --trusted-checkpoint must come from (its C2SP origin "
+                             "line, e.g. example.com/log). A signature proves that SOME log signed, "
+                             "not which one: without this, a validly signed checkpoint from a "
+                             "DIFFERENT log is accepted as the authenticated source of the root and "
+                             "tree size. The comparison is EXACT — a prefix, a different case or a "
+                             "trailing slash is a mismatch. Default: origin unconstrained (the "
+                             "documented pre-3.8.0 behaviour); same flag name and semantics as "
+                             "verify-proof --expected-origin")
     verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                         help="A-P0-2 §6.3: verify the supplied --policy AS OF this explicit PAST "
                              "instant (e.g. 2026-01-01T00:00:00Z; a future instant is a usage error). "

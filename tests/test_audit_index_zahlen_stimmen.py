@@ -29,13 +29,45 @@ import unittest
 _REPO = pathlib.Path(__file__).resolve().parents[1]
 _AKTEN = _REPO / "audit_artifacts"
 
-# "FIVE of the six are on `main`" — Wort-Zahlen, weil der Index Prosa ist und bleiben soll.
+# "FIVE of the six findings are on `main`" — Wort-Zahlen, weil der Index Prosa ist und bleiben soll.
 _WORTZAHL = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
              "seven": 7, "eight": 8, "nine": 9, "ten": 10}
-_AUSSAGE = re.compile(r"\b(" + "|".join(_WORTZAHL) + r")\s+of\s+the\s+(" + "|".join(_WORTZAHL) + r")\b",
-                      re.IGNORECASE)
+# DAS HAUPTWORT IST PFLICHT, und das ist der eigentliche Fix. Die erste Fassung matchte jedes
+# `N of the M` und behandelte es als die Altbefund-Aussage. Sobald der Index einen zweiten,
+# voellig wahren Satz derselben Grammatik ueber eine ANDERE Groesse bekam ("Two of the six were
+# closed"), meldete der Waechter ihn als Fehler. Genau die Verwechslung, gegen die er gebaut
+# wurde — eine Zahl ueber eine Population gemessen und ueber eine andere geprueft. Wer zaehlt,
+# nennt WAS er zaehlt; ohne Hauptwort ist die Aussage fuer eine Maschine nicht bestimmbar und
+# wird deshalb NICHT geprueft statt falsch geprueft.
+_AUSSAGE = re.compile(r"\b(" + "|".join(_WORTZAHL) + r")\s+of\s+the\s+(" + "|".join(_WORTZAHL)
+                      + r")\s+findings\b", re.IGNORECASE)
 _ALTBEFUND_ZEILE = re.compile(r"->\s*Altbefund\s*$", re.MULTILINE)
 _TABELLENZEILE = re.compile(r"^\|\s*`(FINDING_[A-Za-z0-9_]+\.md)`", re.MULTILINE)
+
+# Dieselbe Invariante in einer ANDEREN Grammatik: nicht `N of the M`, sondern eine Zahl direkt am
+# gezaehlten Hauptwort. Nachgetragen, nachdem beide Formen im 3.8.0-Index gemessen FALSCH standen
+# ("the five findings" bei sechs, "this one is eight" bei zehn) und die erste Fassung dieses
+# Waechters an ihnen vorbeilas — sie band die Zahl an EINE Formulierung statt an die Aussage.
+_AM_HAUPTWORT = re.compile(r"\b(" + "|".join(_WORTZAHL) + r"|\d+)\s+(findings|files)\b",
+                           re.IGNORECASE)
+
+# EIN ZITAT IST KEINE BEHAUPTUNG. Diese Akte korrigiert ihre eigenen Zahlen und muss dafuer die
+# FALSCHE nennen duerfen ("the five findings" (there were six)). Ohne diese Ausnahme bestraft der
+# Waechter genau die Offenlegung, die er erzwingen soll — und der billige Ausweg waere, die
+# Korrektur nicht aufzuschreiben. Gerade Anfuehrungszeichen, eine Zeile, keine Schachtelung.
+# EHRLICHE GRENZE: wer eine LEBENDE Behauptung in Anfuehrungszeichen setzt, entgeht der Pruefung.
+# Das ist in Kauf genommen — der Test unten weist nach, dass die Ausnahme genau so wirkt und nicht
+# weiter, damit die Grenze gemessen dasteht statt vermutet.
+_ZITAT = re.compile(r'"[^"\n]*"')
+
+
+def _ungezitiert(text: str, muster: "re.Pattern[str]"):
+    """Treffer von ``muster``, die NICHT innerhalb eines Zitats liegen."""
+    zitate = [(m.start(), m.end()) for m in _ZITAT.finditer(text)]
+    for treffer in muster.finditer(text):
+        if any(a <= treffer.start() < b for a, b in zitate):
+            continue
+        yield treffer
 
 
 def _indizes() -> list[pathlib.Path]:
@@ -87,7 +119,7 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
             with self.subTest(akte=idx.parent.name):
                 text = idx.read_text(encoding="utf-8")
                 dateien = sorted(p.name for p in idx.parent.glob("FINDING_*.md"))
-                for m in _AUSSAGE.finditer(text):     # ein Index ohne Aussage ist erlaubt
+                for m in _ungezitiert(text, _AUSSAGE):   # ein Index ohne Aussage ist erlaubt
                     self.assertEqual(
                         _WORTZAHL[m.group(2).lower()], len(dateien),
                         f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', im Verzeichnis liegen "
@@ -108,7 +140,7 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
             with self.subTest(akte=idx.parent.name):
                 text = idx.read_text(encoding="utf-8")
                 markiert = len(_ALTBEFUND_ZEILE.findall(text))
-                for m in _AUSSAGE.finditer(text):
+                for m in _ungezitiert(text, _AUSSAGE):
                     behauptet_teil = _WORTZAHL[m.group(1).lower()]
                     self.assertEqual(
                         behauptet_teil, markiert,
@@ -116,6 +148,68 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
                         f"{markiert} als Altbefund markierte Zeilen"
                         + (" — die Aussage nennt eine Zahl, der Nachweis fehlt ganz"
                            if markiert == 0 else ""))
+
+    def test_zahlen_am_hauptwort_passen_zur_aktenlage(self) -> None:
+        """`N findings` / `N files` — dieselbe Invariante, andere Grammatik.
+
+        WARUM NACHGETRAGEN: die erste Fassung dieses Waechters prueft nur `N of the M`. Im selben
+        Dokument standen zwei Zaehlungen in anderer Form, und BEIDE waren falsch — "the five
+        findings" bei sechs Dateien, "this one is eight" bei zehn. Der Waechter war an eine
+        FORMULIERUNG gebunden, nicht an die Aussage; das ist die Instanz-statt-Klasse-Falle, die
+        diese Runde an anderer Stelle protokolliert. Gefangen hat sie am Ende ein Mensch beim
+        Lesen, nicht der Test — deshalb steht hier jetzt die Regel.
+
+        Die Gegenrichtung ist mitgemessen: ein Index, der KEINE solche Zahl nennt, ist erlaubt
+        (`finditer` laeuft leer). Der Test kann also nur durch eine falsche Zahl fallen, nie durch
+        eine fehlende — und `test_es_gibt_ueberhaupt_etwas_zu_pruefen` haelt fest, dass ueberhaupt
+        ein Index existiert, damit "leer" nicht wie "makellos" aussieht.
+        """
+        for idx in _indizes():
+            with self.subTest(akte=idx.parent.name):
+                text = idx.read_text(encoding="utf-8")
+                ist = {"findings": len(list(idx.parent.glob("FINDING_*.md"))),
+                       "files": len(list(idx.parent.glob("*.md")))}
+                gefunden = 0
+                for m in _ungezitiert(text, _AM_HAUPTWORT):
+                    roh, hauptwort = m.group(1).lower(), m.group(2).lower()
+                    gefunden += 1
+                    behauptet = _WORTZAHL.get(roh, None)
+                    if behauptet is None:
+                        behauptet = int(roh)
+                    self.assertEqual(
+                        behauptet, ist[hauptwort],
+                        f"{idx.relative_to(_REPO)} sagt '{m.group(0)}', gezaehlt sind "
+                        f"{ist[hauptwort]} {hauptwort}")
+                # Gegenprobe des Messaufbaus an der EINEN Akte, die solche Saetze fuehrt: findet
+                # das Muster dort nichts, ist es tot und der gruene Lauf bedeutungslos.
+                if idx.parent.name == "380":
+                    self.assertTrue(gefunden, "das Muster findet in 380/ keine einzige Zahl am "
+                                              "Hauptwort — tot statt sauber")
+
+    def test_die_zitat_ausnahme_wirkt_genau_so_weit_wie_behauptet(self) -> None:
+        """Gate-Meta-Test: die Ausnahme darf den Waechter nicht abschalten.
+
+        Ein Waechter mit einer Ausnahme ist zwei Behauptungen — er faengt X, und er faengt es
+        TROTZ der Ausnahme. Die zweite steht sonst nur im Kommentar. Gemessen werden beide
+        Richtungen plus die ehrliche Grenze, damit sie belegt dasteht statt vermutet.
+        """
+        offen = 'The six findings are listed above.'
+        zitiert = 'An earlier draft said "the five findings" and that was wrong.'
+        beides = offen + " " + zitiert
+
+        self.assertEqual([m.group(0) for m in _ungezitiert(offen, _AM_HAUPTWORT)],
+                         ["six findings"], "die offene Zahl wird NICHT mehr gesehen — Waechter tot")
+        self.assertEqual(list(_ungezitiert(zitiert, _AM_HAUPTWORT)), [],
+                         "eine zitierte Zahl wird geprueft — dann bestraft der Waechter die "
+                         "Offenlegung der eigenen Korrektur")
+        self.assertEqual([m.group(0) for m in _ungezitiert(beides, _AM_HAUPTWORT)],
+                         ["six findings"],
+                         "ein Zitat im selben Text darf die offene Zahl daneben nicht mitdecken")
+        # Die EHRLICHE GRENZE, ausgeschrieben: eine LEBENDE Behauptung in Anfuehrungszeichen
+        # entgeht der Pruefung. Das ist bewusst so und hier gemessen, nicht beschoenigt.
+        self.assertEqual(list(_ungezitiert('The record has "ten findings" today.', _AM_HAUPTWORT)),
+                         [], "die dokumentierte Grenze der Ausnahme gilt nicht mehr — dann ist der "
+                             "Kommentar an _ZITAT falsch und muss nachgezogen werden")
 
     def test_jede_befund_datei_steht_in_der_tabelle(self) -> None:
         """Eine Datei, die der Index nicht nennt, ist fuer einen Leser nicht da.

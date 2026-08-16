@@ -143,6 +143,52 @@ class TestCosignAdversarial(unittest.TestCase):
         lines[-1] = f"{cp.EM_DASH} {wname} " + base64.b64encode(payload).decode()
         self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"])
 
+    def test_fremde_origin_unter_vertrautem_schluessel_wird_nur_mit_bindung_gefangen(self):
+        """Der Schluessel bindet die ORIGIN-ZEILE NICHT — gemessen, nicht angenommen.
+
+        `sign_checkpoint` nimmt origin und Signaturnamen GETRENNT (C2SP laesst das zu: ein
+        Betreiber darf einen Schluessel fuer mehrere Baeume fuehren). Eine Note, deren
+        origin-Zeile einen FREMDEN Baum nennt, verifiziert deshalb unter dem VERTRAUTEN vkey
+        und liefert dessen root und tree_size aus. Wer nur den Schluessel pinnt, hat also
+        NICHT gepinnt, WELCHER Baum spricht. Genau das schliesst expected_origin.
+        """
+        log_key = generate_signer()
+        fremd = cp.sign_checkpoint("evil.example/other-tree", 7, ROOT, log_key, ORIGIN)
+        log_vkey = cp.vkey(ORIGIN, _raw_pub(log_key))
+        wk = generate_signer()
+        fremd = cp.cosign_checkpoint(fremd, wk, "witness0.example.com/w", TS)
+        wvkeys = [cp.cosign_vkey("witness0.example.com/w", _raw_pub(wk))]
+
+        ohne = cp.verify_witnessed_checkpoint(fremd, log_vkey, wvkeys, threshold=1)
+        self.assertTrue(ohne["log_ok"], "Vorbedingung: ohne Bindung geht die fremde Note DURCH — "
+                                        "faellt das hier, misst der Test die Bedrohung nicht mehr")
+        self.assertEqual(ohne["expected_origin"], None)
+
+        mit = cp.verify_witnessed_checkpoint(fremd, log_vkey, wvkeys, threshold=1,
+                                             expected_origin=ORIGIN)
+        self.assertFalse(mit["log_ok"], "eine Note fuer einen FREMDEN Baum darf unter dem "
+                                        "vertrauten Schluessel nicht als unsere durchgehen")
+        self.assertFalse(mit["ok"])
+        # Die Zeugen sind davon unberuehrt: der Fehlschlag ist dem LOG zuzurechnen, nicht ihnen.
+        self.assertTrue(mit["witnesses_ok"])
+        self.assertEqual(mit["origin"], "evil.example/other-tree")
+        self.assertEqual(mit["expected_origin"], ORIGIN)
+
+    def test_expected_origin_wird_EXAKT_verglichen(self):
+        """Kein Beinahe-Treffer wird als die erwartete origin akzeptiert.
+
+        Korpus aus `tests/_beinahe_treffer.py` — dieselbe Quelle wie kbjwt, statuslist, intoto,
+        evalclaim und policy. Faengt jede Lockerung des Vergleichs (startswith, casefold,
+        strip, `in`) an EINER Stelle statt in sechs Kopien.
+        """
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        note, log_vkey, [(_, _, wvkey)] = _witnessed(1)
+        pruefe_exakt(
+            lambda v: cp.verify_witnessed_checkpoint(note, log_vkey, [wvkey], threshold=1,
+                                                     expected_origin=v)["log_ok"],
+            ORIGIN, self)
+
     def test_red_bad_inputs(self):
         note, _, [(_, wk, _)] = _witnessed(1)
         with self.assertRaises(BundleFormatError):

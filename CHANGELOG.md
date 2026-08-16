@@ -110,6 +110,36 @@ this section asks of the precedent claim above it.
   executable guards hold the measured state, one for each half, and those *are* shipped
   (`MANIFEST.in` grafts `tests`).
 
+- **`verify --expected-origin` and `verify_witnessed_checkpoint(expected_origin=…)` — the same
+  binding on the checkpoint surface.** `verify-proof` got the origin pin above; its neighbour,
+  the `--trusted-checkpoint` path, still had none. Both flags are new; the library parameter is new.
+
+  **Measured, not assumed.** A C2SP checkpoint's origin line and the name in its signature block
+  are separate arguments to `sign_checkpoint`, and C2SP permits one signer to serve several
+  origins. Signing a note whose origin line reads `evil.example/other-tree` under a key named
+  `example.com/log` therefore produced `ok=True` under the *trusted* verifier key, and its root
+  and tree size were adopted as the authenticated tree context. A relying party who pinned only
+  the key had not pinned **which tree** was speaking. On the CLI the two verdicts — the honest
+  checkpoint and the foreign one — were byte-identical, both `checkpointAuthenticity: PASS`, and
+  no parameter separated them.
+
+  The default stays unconstrained (`None`), matching `verify-proof --expected-origin`: there is no
+  origin a verifier could honestly default *to*. So this closes the gap **for callers who pin**,
+  and an unpinned run is unchanged — which is why the unpinned run keeps naming the origin it
+  observed in the `checkpoint-authenticity` detail, and why SPEC.md §9 now states the property
+  normatively instead of leaving it to be inferred. A mismatch reads as a mismatch rather than as
+  a broken signature, and rides the existing rails: `cp_ok` is bound once, so
+  `treeContextAuthenticity`, `treeSizeExpectation` and `safeForAutomation` all follow without a
+  parallel code path.
+
+  The comparison is EXACT on both surfaces, and they are **two** comparison sites, so the shared
+  near-miss corpus (`tests/_beinahe_treffer.py`, also used by kbjwt, statuslist, intoto, evalclaim
+  and policy) runs against both — the library directly, the CLI through `main()`. Six rollback
+  probes were run: loosening either comparison to `startswith`, removing either binding entirely,
+  and weakening either `is None` to a falsy test (which would silently turn an empty
+  `--expected-origin ""` from a question that always fails into no question at all). All six turn
+  the guards red, and the baseline returns to exactly 41 passed / 28 subtests.
+
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
   `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
