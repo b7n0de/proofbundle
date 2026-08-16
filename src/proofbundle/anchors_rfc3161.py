@@ -67,10 +67,17 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     # `verify_anchor` wraps every verifier in `except Exception`, so nothing leaked over the public path.
     # The contradiction is what mattered — the project's own implementation not keeping the rule it
     # prescribes to others.
-    if frozen is not None and not isinstance(frozen, dict):
+    # The check is `Mapping`, not `dict`, and the difference is not pedantry. The counter-read rejected
+    # the first attempt for testing the IMPLEMENTATION instead of the INTERFACE, and measuring settled it:
+    # every use of these two arguments in this function is `.get(...)` — six call sites, no subscript, no
+    # dict-only method, no mutation. `.get` is part of the `Mapping` protocol, so `MappingProxyType`,
+    # `OrderedDict` and any dict-like object work here and were being rejected for no reason. A floor that
+    # refuses valid input is a defect of its own, just a quieter one than the crash it replaced.
+    from collections.abc import Mapping as _Mapping  # noqa: PLC0415
+    if frozen is not None and not isinstance(frozen, _Mapping):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)")
-    if rp_trust is not None and not isinstance(rp_trust, dict):
+    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)")
     try:

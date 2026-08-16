@@ -98,6 +98,27 @@ class TestRfc3161TrustConfigTypeFloor(unittest.TestCase):
         self.assertIsInstance(res, dict)
         self.assertIs(res.get("ok"), False)
 
+    def test_a_mapping_that_is_not_a_dict_is_accepted(self):
+        """The floor tests the INTERFACE, not the implementation — and that distinction was earned.
+
+        The first version of this floor checked `isinstance(x, dict)`. The counter-read rejected it for
+        programming to an implementation, and measuring settled it: every use of these two arguments in
+        `verify_rfc3161` is `.get(...)` — six call sites, no subscript, no dict-only method, no mutation.
+        `.get` belongs to the `Mapping` protocol, so a `MappingProxyType` or an `OrderedDict` works fine
+        and was being refused for no reason. A floor that rejects valid input is a defect of its own,
+        just a quieter one than the crash it replaced.
+        """
+        from collections import OrderedDict
+        from types import MappingProxyType
+        for name, mapping in (("MappingProxyType", MappingProxyType({"rootCertsDerB64": []})),
+                              ("OrderedDict", OrderedDict(rootCertsDerB64=[]))):
+            with self.subTest(mapping=name):
+                res = verify_rfc3161(b"", b"", frozen=mapping, rp_trust=None)
+                self.assertIsInstance(res, dict)
+                self.assertIs(res.get("ok"), False)
+                self.assertEqual(res.get("status"), "needs_rp_trust",
+                                 f"a {name} was rejected by the floor instead of reaching the verdict")
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
