@@ -64,6 +64,18 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
 
 def load_signer(path: str) -> Ed25519PrivateKey:
     """Load an Ed25519 signing key from a 32 byte raw seed file."""
+    # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
+    # until then this surface sat OUTSIDE the never-raise family property: `emit` was not in `_MODULES`,
+    # so nothing ever asked the question. The moment the population was derived from the tree instead of
+    # a hand-maintained list, the property caught this on its first run.
+    #
+    # Measured before the fix: `load_signer(9)` raised `OSError: [Errno 9] Bad file descriptor`. That is
+    # the worse half of the int case — `open(9)` does not fail on a wrong type, it reads FILE
+    # DESCRIPTOR 9. A wider except-tuple would hide the escape while leaving the fd read in place; the
+    # floor is the fix, and it belongs before the os boundary, not after it.
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
     with open(path, "rb") as handle:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 
