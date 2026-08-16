@@ -215,6 +215,22 @@ this section asks of the precedent claim above it.
   the checking command it previously only implied. Both workflows also declare `defaults.run.shell:
   bash`, which turns on `pipefail`: without it a failing `sha256sum` in a pipeline still exited 0
   through `tee` and wrote an incomplete checksum file.
+- **Two shipped changes this section did not mention, added after a counter-read pointed out that
+  the delta list stops at `src/`.** `MANIFEST.in` grafts `scripts` and `docs/readiness_pack` into the
+  sdist, so both of the following reach anyone who installs from source:
+  - **the readiness pack's self-receipt was re-signed** (`9b8a998`): `readiness_pack.pub.b64` goes
+    from `aQDV4Vkc…` to `GB+LMY2k…`, with a new signature and root. In a release diff this looks
+    like a key rotation and is not one — the receipt is advisory and signed with an ephemeral key
+    generated at each regeneration, which is stated in `scripts/readiness_pack_manifest.py` and
+    nowhere in the pack a reader would open. Recorded here so the next diff does not raise a false
+    alarm.
+  - **`scripts/mutation_check.py` now requires a git work tree.** It calls `git ls-files` and exits
+    with a message when that fails (`:497-500`, added in `e34e05e`), which the 3.7.0 version did not.
+    From an unpacked sdist there is no git checkout, so the shipped copy of this script is not
+    runnable there. HONEST BOUNDARY: this is read from the source and from `MANIFEST.in`, not
+    reproduced end to end — running it would start the real multi-hour mutation job. Three further
+    shipped files are new alongside it: `scripts/mutant_signature_guard.py`,
+    `scripts/install_git_hooks.sh` and `scripts/git-hooks/pre-commit`.
 - **2,353,682 bytes of foreign 3.6.1 build artifacts removed from version control (`6e87a0e`).** Three
   files under `dist_final/` and `dist_pkgtest6/` were tracked — 19.3 % of the uncompressed source
   archive of v3.7.0, and part of every Zenodo deposit through the webhook. They were never in the

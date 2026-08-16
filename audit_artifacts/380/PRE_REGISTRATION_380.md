@@ -248,6 +248,15 @@ Datei**, ausser diesen Ausschluessen:
 | `paper.md`, `paper.bib` | JOSS-Einreichungstext. |
 | `docs/` **ausser** `docs/readiness_pack/` und `docs/adr/renewal_policy.example.json` | Prosa. Die zwei Ausnahmen liefert `MANIFEST.in:26-27` aus. |
 
+**NACHTRAG zur Zahl "VIER Verstoesse" darueber: es sind FUENF.** `docs/adr/renewal_policy.example.json`
+wird von `MANIFEST.in:27` per `include` ausgeliefert und faellt unter §10s pauschales `docs/`-
+Ausschliessen, nach genau demselben Argument wie `docs/readiness_pack/`. Die Ausschlussliste dieses
+Abschnitts nimmt den Pfad bereits aus — der Fehler steckte nur in der ZAEHLUNG darueber, die ihn
+nicht mitzaehlte. Das ist dieselbe Klasse, die dieser Abschnitt behandelt, eine Ebene kleiner: eine
+Aufzaehlung, die ihre eigene Regel schon richtig anwendet und beim Nachzaehlen einen Fall auslaesst.
+Der Waechter gegen `MANIFEST.in` bleibt davon unberuehrt und misst weiter korrekt (8 Eintraege,
+davon null erfasst) — er zaehlt nicht die Verstoesse der ALTEN Liste, sondern prueft die NEUE.
+
 **Die Ausschlussliste hat selbst einen Waechter, und das ist der eigentliche Klassen-Fix.** Eine Liste
 kann still etwas ausschliessen, das ausgeliefert wird — genau so ist `docs/readiness_pack`
 durchgerutscht. Deshalb wird sie gegen `MANIFEST.in` geprueft: **kein `graft`- oder `include`-Pfad
