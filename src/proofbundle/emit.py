@@ -25,7 +25,6 @@ from cryptography.hazmat.primitives.serialization import (
 
 from . import merkle
 from .bundle import SCHEMA
-from .errors import BundleFormatError
 
 __all__ = [
     "generate_signer",
@@ -64,21 +63,19 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
 
 
 def load_signer(path: str) -> Ed25519PrivateKey:
-    """Load an Ed25519 signing key from a 32 byte raw seed file.
-
-    The primary argument must be a path. This is guarded rather than left to ``open()``, and the
-    reason is not tidiness: ``open()`` accepts an **integer as a file descriptor**, so
-    ``load_signer(123)`` does not fail — it reads whatever happens to be open on fd 123 and tries to
-    make a private key out of it. A wrong-typed argument silently reaching an unrelated open file is
-    a worse outcome than a crash, and the crash it produces instead (a raw ``TypeError`` for other
-    wrong types) is itself outside the never-raise contract this package states for its public
-    surfaces. Found 2026-08-16 by enumerating the surface family from the tree instead of from a
-    hand-maintained module list — this surface had never been in the swept set.
-    """
+    """Load an Ed25519 signing key from a 32 byte raw seed file."""
+    # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
+    # until then this surface sat OUTSIDE the never-raise family property: `emit` was not in `_MODULES`,
+    # so nothing ever asked the question. The moment the population was derived from the tree instead of
+    # a hand-maintained list, the property caught this on its first run.
+    #
+    # Measured before the fix: `load_signer(9)` raised `OSError: [Errno 9] Bad file descriptor`. That is
+    # the worse half of the int case — `open(9)` does not fail on a wrong type, it reads FILE
+    # DESCRIPTOR 9. A wider except-tuple would hide the escape while leaving the fd read in place; the
+    # floor is the fix, and it belongs before the os boundary, not after it.
     if not isinstance(path, (str, bytes, os.PathLike)):
-        raise BundleFormatError(
-            f"load_signer expects a path, got {type(path).__name__} — an int would be read as an "
-            "open file descriptor, not as a file name")
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
     with open(path, "rb") as handle:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 

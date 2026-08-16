@@ -46,6 +46,40 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     stricter-only pin via ``frozen.policyOid``; either way the token's ``TSTInfo.policy`` MUST match or it
     fails closed.
     """
+    # TYPE FLOOR on the trust-config arguments (self-gate finding F3, 2026-07-31; still reproducing on
+    # main sixteen days later, re-measured 2026-08-16). `register_anchor_type` prescribes to THIRD-PARTY
+    # authors that a verifier "MUST be fail-closed … never raise for an ordinary bad proof". This
+    # first-party implementation did not hold its own rule: `frozen` and `rp_trust` are consumed with
+    # `.get(...)` below, so a non-dict raised a raw `AttributeError` out of a verdict-returning surface.
+    #
+    # Measured before the fix, with `[anchors]` installed so the code actually reaches these lines (without
+    # it the function returns at the import guard above and the probe is green for a reason that has
+    # nothing to do with the defence it names):
+    #   rp_trust=123 -> AttributeError: 'int' object has no attribute 'get'
+    #   frozen=123   -> AttributeError: 'int' object has no attribute 'get'
+    #
+    # Why the floor and not a wider except: the same reason the evalcard/prereg floors (L1-01) exist. An
+    # `except AttributeError` would close this one shape and let the next type-confusion sibling through,
+    # and it would swallow a genuine internal AttributeError too. `BundleFormatError` is in the family's
+    # accepted, fail-closed set, so the surface still DECIDES instead of crashing.
+    #
+    # Honest severity, unchanged from the finding: this surface is not exported at package level and
+    # `verify_anchor` wraps every verifier in `except Exception`, so nothing leaked over the public path.
+    # The contradiction is what mattered — the project's own implementation not keeping the rule it
+    # prescribes to others.
+    # The check is `Mapping`, not `dict`, and the difference is not pedantry. The counter-read rejected
+    # the first attempt for testing the IMPLEMENTATION instead of the INTERFACE, and measuring settled it:
+    # every use of these two arguments in this function is `.get(...)` — six call sites, no subscript, no
+    # dict-only method, no mutation. `.get` is part of the `Mapping` protocol, so `MappingProxyType`,
+    # `OrderedDict` and any dict-like object work here and were being rejected for no reason. A floor that
+    # refuses valid input is a defect of its own, just a quieter one than the crash it replaced.
+    from collections.abc import Mapping as _Mapping  # noqa: PLC0415
+    if frozen is not None and not isinstance(frozen, _Mapping):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)")
+    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)")
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:
