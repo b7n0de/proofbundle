@@ -60,7 +60,13 @@ jobs:
         run: |
           echo "wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          sha256sum dist/* | tee dist/SHA256SUMS
+          # OHNE `dist/`-Praefix, damit `sha256sum -c SHA256SUMS` im Download-Verzeichnis
+          # WIRKLICH laeuft. Gemessen: die alte Form schrieb `…  dist/proofbundle-3.8.0-…whl`,
+          # und RELEASE.md schickt Nutzer genau mit diesem Kommando pruefen -- es meldete fuer
+          # beide Zeilen `No such file or directory / FAILED open or read`. Ein dokumentiertes
+          # Pruefwerkzeug, das nicht laeuft, ist schlechter als keins: wer es einmal probiert
+          # und scheitern sieht, prueft danach gar nicht mehr.
+          ( cd dist && sha256sum ./*.whl ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS )
 
       - name: Generate SLSA build provenance for the artifacts
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2

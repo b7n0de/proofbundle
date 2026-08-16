@@ -73,6 +73,22 @@ MUTATIONS = [
      'return {"ok": log_ok and witnesses_ok and inclusion_ok,',
      'return {"ok": log_ok or witnesses_ok or inclusion_ok,',
      "tlogproof: verdict conjunction -> disjunction", True),
+    # ORIGIN-SCHRANKE, zwei Lockerungen. Der Gate-Meta-Test der DEEP-Runde hat beide eingepflanzt
+    # und gemessen, dass KEINER von 2030 Tests sie faengt: die zwei Origin-Tests prueften nur einen
+    # voellig FREMDEN Wert, und gegen einen fremden Wert verhaelt sich ein gelockerter Vergleich
+    # genau wie ein exakter. Der Beinahe-Treffer war der fehlende Fall -- und im Feld der
+    # gefaehrliche, denn wer einen eigenen Log betreibt, waehlt dessen Namen selbst.
+    # Gefangen werden sie jetzt von OriginVergleichIstExakt in
+    # tests/test_verify_proof_expected_origin.py; diese zwei Operatoren halten fest, DASS sie es
+    # tun -- ein Korpus ohne Mutant ist eine Behauptung ueber sich selbst.
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).startswith(str(expected_origin)))',
+     "tlogproof: origin equality -> startswith (a prefix would pass)", True),
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).casefold() == str(expected_origin).casefold())',
+     "tlogproof: origin comparison becomes case-insensitive", True),
     ("src/proofbundle/checkpoint.py",
      "_MLDSA_LABEL = b\"subtree/v1\\n\\x00\"", "_MLDSA_LABEL = b\"subtree/v2\\n\\x00\"",
      "mldsa: domain separation label changed", True),

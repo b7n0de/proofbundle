@@ -83,8 +83,14 @@ quorum of witnesses" from **one file, fully offline**:
 proofbundle verify-proof receipt.tlog-proof \
   --payload-file receipt-payload.bin \
   --log-vkey <log's C2SP vkey> \
+  --expected-origin <the log's origin line, e.g. example.com/log> \
   --witness-vkey <witness 1 vkey> --witness-vkey <witness 2 vkey> \
   --threshold 2
+
+`--expected-origin` (seit 3.8.0) ist die Schranke gegen einen validly-signed Checkpoint aus
+einem ANDEREN Log: ohne sie prueft die Signatur, dass *irgendein* Log unterschrieben hat, nicht
+*welches*. Der Vergleich ist exakt — ein Praefix, eine andere Gross-/Kleinschreibung oder ein
+angehaengter Schraegstrich zaehlen als Fehlschlag.
 ```
 
 The verdict is the **conjunction** of four independently-reported

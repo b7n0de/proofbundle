@@ -946,7 +946,10 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
         with _open_input(args.payload_file, binary=True) as handle:
             leaf = _read_capped_bytes(handle)
         # release-review fix #5 reached the library but not the command line: verify_tlog_proof has taken
-        # expected_origin since 3.6, and without this pass-through a relying party at the CLI could not
+        # expected_origin seit 1.3.0 (gemessen: `git log -S expected_origin -- tlogproof.py` nennt
+        # genau einen einfuehrenden Commit, 457b6b8 = v1.3.0; hier stand faelschlich 'since 3.6',
+        # und der CHANGELOG dieses Release hatte recht), und ohne diese Durchreichung konnte ein
+        # Pruefer an der CLI nicht
         # demand that a validly-signed checkpoint came from the log it actually expects. Default stays None
         # (origin unconstrained), so every existing invocation keeps its verdict.
         res = verify_tlog_proof(text, leaf, args.log_vkey,
@@ -955,6 +958,18 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
         if args.json:
             out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
                                        "origin", "tree_size", "index")}
+            # DIE ERWARTUNG GEHOERT INS VERDIKT, sonst sind drei verschiedene Ursachen auf dem
+            # Maschinenpfad ununterscheidbar. Gemessen: fremder Origin, falscher log-vkey und
+            # eine im Beweis verfaelschte Signatur lieferten BYTE-IDENTISCHES JSON --
+            # `sha256(j_origin.json) == sha256(j_badsig.json)`. `inclusion_ok` bleibt in allen
+            # drei Faellen True (es rechnet gegen `root`/`tree_size` aus der Note, unabhaengig
+            # von `ok`), taugt also nicht zur Unterscheidung. Der Textpfad trennt sie ueber
+            # `(expected …)`; der JSON-Pfad hatte dafuer kein Feld.
+            #
+            # `None` wenn kein Flag gesetzt war -- das ist der dokumentierte Default und darf
+            # nicht als leerer String erscheinen, sonst ist "nicht gefragt" von "gefragt und
+            # leer" nicht zu unterscheiden.
+            out["expected_origin"] = args.expected_origin
             out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))

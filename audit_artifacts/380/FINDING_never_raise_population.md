@@ -99,3 +99,27 @@ This finding concerns code that shipped in 3.7.0
 and the instrument that measures it. Whether it should block a 3.8.0 verdict is not decided here —
 it is put in front of the decision rather than into a footnote, which is what the methodology requires
 of a confirmed finding.
+
+## Nachtrag nach der Gegenlesung — zwei Korrekturen an diesem Dokument selbst
+
+**Der benotete Digest, den dieses Dokument nie genannt hat.** Abschnitt 9 der Praeregistrierung
+verlangt, dass ein Record den Digest NENNT, den er benotet. Dieses Dokument tat es nicht — es
+referenziert `git archive HEAD | tar -x` ohne Pin. Der benotete Stand ist **`f64d35e`**; die
+Messungen an `main` beziehen sich auf **`ac0688c`**.
+
+**"11 never-raise surfaces across 7 modules" ist top-level-only.** Der eigene `surface_family_query`
+sagt "every module under `src/proofbundle/`". Gemessen ueber den ganzen Baum:
+
+```
+Top-Level-.py ohne __init__ : 53      alle .py inkl. Unterpaketen : 63
+Sweep ueber Top-Level       : 11 Flaechen / 7 Module   (die Tabelle oben)
+Sweep inkl. Unterpaketen    : + proofbundle.experimental.enclave.verify_enclave_attestation
+=> real                      : 12 Flaechen / 8 Module
+```
+
+`experimental.enclave` wird ausgeliefert, ist dokumentierter Importpfad UND CLI-Unterbefehl
+`verify-enclave`. Gemessen hat es heute **0 Verstoesse** — eine Populationsluecke ohne lebenden
+Defekt. Aber es ist dieselbe Klasse, die dieses Dokument berichtet, eine Ebene tiefer: der Sweep,
+der eine handgepflegte Liste als zu eng entlarvt, ist selbst zu eng. Und `:47` sagt ausdruecklich
+"Nothing about them is out of scope by intent" — das Unterpaket ist also nicht bewusst
+ausgeschlossen, sondern uebersehen.

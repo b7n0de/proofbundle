@@ -82,7 +82,12 @@ precondition 1 of seven, not a substitute for the other six.
 
 ## 8. Declared boundaries of this run
 
-- The 27 commits on `ci/version-consistency-gate` (PR #139) are **not** in this candidate and are not
+- The commits on `ci/version-consistency-gate` (PR #139) are **not** in this candidate
+  (KORRIGIERT nach Gegenlesung: hier stand "the 27 commits". Die 27 reproduziert AUSSCHLIESSLICH
+  gegen eine veraltete lokale Ref `a83f01e` vom 12.08. Zum Einfrierzeitpunkt trug der echte PR
+  28 Commits, heute 29 mit bzw. 27 ohne Merges — und dass 27 heute zufaellig auch der
+  no-merges-Wert ist, machte die Verwechslung unsichtbar. Weder Ref noch Merge-Politik waren
+  genannt.) and are not
   graded here. That branch is red for a separate reason and is a separate decision.
 - The candidate is graded on its digest `f64d35e`. If the branch moves, the verdict does not follow
   it — a new digest needs a new run, per the standing GO's own wording.
@@ -130,3 +135,57 @@ measurable, so it cannot be argued open.
 suspicion it invites. Two things bound it: the loosening is defined by a command whose output anyone
 can reproduce, and it is narrower than the 3.7.0 precedent it aligns with. It does not touch the seven
 preconditions of the standing GO, and it does not make a verdict out of anything.
+
+## 10. Angehaengt nach der Gegenlesung — meine Lockerung in §9 war weiter, als sie behauptete
+
+§9 bleibt unveraendert stehen; dieser Abschnitt korrigiert sie, statt sie umzuschreiben.
+
+**Der Befund, ausfuehrbar gezeigt.** §9 band das Verdikt an `src/ + tests/ + scripts/` und nannte das
+"der Code". Zwei der DREI Orte, die `check_version_and_changelog.py` als Versions-Wahrheit erzwingt,
+liegen ausserhalb dieser Blende — `pyproject.toml` und `CITATION.cff`. F7 ist der Zielpunkt, der genau
+diese drei Orte prueft; sein eigener Gegenstand konnte sich also bewegen, ohne dass §9 es bemerkt.
+
+Und es ist nicht theoretisch. `ed8c3b5` liegt IN diesem Release-Delta:
+
+```
+git diff --name-only ed8c3b5^..ed8c3b5                        -> pyproject.toml
+git diff --name-only ed8c3b5^..ed8c3b5 -- src/ tests/ scripts/ -> (leer)   <- §9: bindet weiter
+git diff ed8c3b5^..ed8c3b5 -- pyproject.toml | grep '^[+-]dev'
+  -dev = [... "ruff>=0.5" ...]
+  +dev = [... "ruff>=0.5,<0.16" ...]
+```
+
+Der Linter, der in CI blockierend urteilt, wird gewechselt — und die §9-Messung meldet sauber.
+
+**Der Satz, der dabei am meisten schmerzt**, steht in §9 selbst: *"the escape hatch is measurable, so
+it cannot be argued open."* Das ist als Formulierung falsch. Die Luke muss nicht aufargumentiert
+werden — sie ist konstruktiv offen. Ein `pyproject.toml`-Commit ist nicht "ONLY the record" und
+loest die Pflicht-Klausel trotzdem nicht aus. Und *"The code that was graded is byte-identical"* misst
+drei Pfade und berichtet ueber "den Code": dieselbe Klasse, fuer die sich der CHANGELOG zwei Dateien
+weiter entschuldigt. Ich habe sie im selben Atemzug begangen.
+
+**Die korrigierte Bindemenge.** Ein Verdikt bindet den Baum des genannten Digests ueber:
+
+```
+src/  tests/  scripts/  conformance/  schemas/  formal/  examples/
+pyproject.toml  CITATION.cff  MANIFEST.in  .github/workflows/
+```
+
+Begruendung je Zugang, damit die Liste nicht selbst zur Aufzaehlung ohne Regel wird — die REGEL ist:
+alles, was den ausgelieferten Inhalt, seine Metadaten, sein Pruefkorpus oder das Urteil ueber ihn
+bestimmt. `pyproject.toml` traegt Version, Abhaengigkeiten und den Entry-Point, den F1-F5 fahren ·
+`CITATION.cff` ist die dritte erzwungene Versionsstelle · `MANIFEST.in` entscheidet den sdist-Inhalt
+(der CHANGELOG nennt ihn selbst als Delta-Bestandteil) · `conformance/` und `schemas/` sind das
+Vektorkorpus, gegen das geurteilt wird · `formal/` traegt die Beweisverpflichtungen ·
+`.github/workflows/` ist die Quelle jeder CI-Aussage in dieser Akte.
+
+Ausserhalb bleiben bewusst: `docs/` und `audit_artifacts/` (das ist die Akte selbst, und ihre
+Bewegung ist genau der Fall, den §9 erlauben sollte), `README`/`CHANGELOG` (Prosa ueber den Stand),
+`tools/` (unabhaengig versioniert, Cargo-Crate `0.1.0`).
+
+**Ehrliche Grenze, und sie ist dieselbe wie beim ersten Mal:** ich erweitere hier eine Regel, die ich
+geschrieben und dann zu eng gemessen habe, wieder im laufenden Verfahren. Was sie bindet, ist
+nachrechenbar (`git diff --name-only <digest>..<head> -- <liste>`); was sie NICHT faengt, ist eine
+Aenderung an einem Pfad, den niemand auf die Liste gesetzt hat. Eine Aufzaehlung bleibt eine
+Aufzaehlung. Die dauerhafte Form waere die Umkehrung — alles bindet, ausser einer kurzen, begruendeten
+Ausschlussliste — und die gehoert in den naechsten Lauf, nicht in eine dritte Anhaengung an diesen.

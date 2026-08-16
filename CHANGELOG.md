@@ -36,15 +36,21 @@ Two further corrections to earlier drafts of this section, kept visible for the 
 over 3.7.0 is not "one commit touching the shipped package" — `911fd5c` and this release commit both
 touch `src/`, `MANIFEST.in` grafts `tests`, `scripts`, `schemas`, `examples`, `conformance`, `formal`
 and `docs/readiness_pack` into the sdist (**23 files over 8 commits** changed across exactly those seven
-paths), and the `dev` extra narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`.
+paths, counted with `git log --oneline v3.7.0..f64d35e -- <the seven paths>` — that is WITH merge commits; the
+`--no-merges` count over the same paths is **6**, and two of the eight merges carry no change
+of their own. The number is given with its command because the paragraph below retracts an
+earlier pair that did not), and the `dev` extra narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`.
 None of that is public API, which is why the version verdict is unchanged, but "for one reason only"
 was not accurate.
 
 An earlier draft of this same paragraph said "27 files over 13 commits", and both numbers were wrong in
 the same way the sentence above warns about: 27 counts the whole of `docs/` rather than
 `docs/readiness_pack`, so it includes four files `MANIFEST.in` deliberately does not graft, inside a
-sentence about the sdist; 13 is the repository-wide `--no-merges` count, six of which are `ci:` commits
-that touch neither `src/` nor any grafted path. Two numbers from two populations, neither of them the
+sentence about the sdist; 13 is the repository-wide `--no-merges` count over a DIFFERENT endpoint
+(`v3.7.0..ac0688c`), six of which are `ci:` commits that touch neither `src/` nor any
+grafted path. So the two numbers differed in THREE ways at once — population, merge policy
+and endpoint — and named none of them. A counter-read measured `v3.7.0..f64d35e --no-merges`
+= 14, which is what a reader would have had to guess. Two numbers from two populations, neither of them the
 one named. They are corrected here rather than quietly replaced, because that is the same discipline
 this section asks of the precedent claim above it.
 
