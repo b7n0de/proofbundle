@@ -270,6 +270,86 @@ class OriginVergleichIstExakt(unittest.TestCase):
 
 
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
+class NichtMessbarIstKeinGemessenesNein(unittest.TestCase):
+    """Ein Pruefer, der seine EIGENE Eingabe nicht lesen kann, darf das nicht wie ein Urteil ueber
+    das Artefakt aussehen lassen.
+
+    GEMESSEN (Befund `FINDING_pruefer_fehler_liest_sich_wie_artefakt_fehler.md`): eine leere
+    Beweisdatei — das Artefakt IST kein Beweis — und ein kaputter `--log-vkey` — der Tippfehler des
+    PRUEFERS — lieferten byte-gleiches JSON. Der Aufrufer liest ein Urteil ueber das Artefakt und
+    geht das Artefakt untersuchen, waehrend der Fehler auf seiner eigenen Kommandozeile steht. Die
+    Bibliothek unterscheidet die Ursachen praezise; `cli.py` liess `detail` beim Kopieren der
+    Schluessel weg, die Information wurde EINE Schicht vor der Ausgabe fallengelassen.
+
+    Der Befund nannte drei kollidierende Faelle. Heute nachgemessen sind es zwei: `--threshold -1`
+    trennt sich inzwischen, weil dieses Release `threshold` ins JSON aufgenommen hat. Das ist keine
+    Korrektur des Befunds, sondern eine Wirkung — und sie wird hier festgehalten, damit die Zahl
+    nicht spaeter als Widerspruch gelesen wird.
+    """
+
+    def _hash(self, *extra: str, proof=None, vkey=None) -> tuple:
+        import hashlib  # noqa: PLC0415
+        from proofbundle.cli import main  # noqa: PLC0415
+        argv = ["verify-proof", str(proof or _PROOF), "--payload-file", str(_LEAF),
+                "--log-vkey", vkey or _log_vkey(), "--json", *extra]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                rc = main(argv)
+            except SystemExit as exc:
+                rc = exc.code
+        out = buf.getvalue()
+        return rc, hashlib.sha256(out.encode()).hexdigest(), out
+
+    def _leere_datei(self):
+        import shutil  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        p = d / "leer.txt"
+        p.write_text("", encoding="utf-8")
+        return p
+
+    def test_vier_ursachen_vier_verschiedene_ausgaben(self) -> None:
+        """Die Kern-Eigenschaft. Kontrolle zuerst, damit eine immer-gleiche Ausgabe auffiele."""
+        gut = self._hash()
+        self.assertEqual(gut[0], 0, "Vorbedingung: der gute Lauf muss gruen sein")
+        faelle = {
+            "leere Datei (Artefakt)": self._hash(proof=self._leere_datei()),
+            "kaputter log-vkey (Pruefer)": self._hash(vkey="nicht-ein-vkey"),
+            "negative Schranke (Pruefer)": self._hash("--threshold", "-1"),
+        }
+        hashes = {n: h for n, (_rc, h, _o) in faelle.items()}
+        self.assertEqual(len(set(hashes.values())), len(hashes),
+                         f"zwei Ursachen liefern dieselbe Ausgabe: {hashes}")
+        self.assertNotIn(gut[1], set(hashes.values()))
+
+    def test_der_grund_steht_im_json_und_ist_auf_dem_gruenen_weg_None(self) -> None:
+        _rc, _h, out = self._hash()
+        self.assertIn("detail", json.loads(out), "der Schluessel fehlt — dann muss seine Abwesenheit "
+                                                 "gedeutet werden, und genau das soll er ersparen")
+        self.assertIsNone(json.loads(out)["detail"])
+        _rc, _h, out = self._hash(vkey="nicht-ein-vkey")
+        self.assertIn("vkey", str(json.loads(out)["detail"]),
+                      "der Grund nennt nicht, was der Pruefer falsch gemacht hat")
+
+    def test_der_textpfad_nennt_den_grund_auf_EINER_zeile(self) -> None:
+        """Der Mensch liest den Textpfad. Der Grund muss dort stehen — und er darf seine Zeile
+        nicht verlassen koennen, sonst waere die Verbesserung eine neue Faelschungsflaeche."""
+        from proofbundle.cli import main  # noqa: PLC0415
+        argv = ["verify-proof", str(_PROOF), "--payload-file", str(_LEAF),
+                "--log-vkey", "nicht-ein-vkey"]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(argv)
+            except SystemExit:
+                pass
+        zeilen = [z for z in buf.getvalue().splitlines() if z.strip().startswith("reason:")]
+        self.assertEqual(len(zeilen), 1, "der Grund steht nicht genau einmal auf einer eigenen Zeile")
+        self.assertIn("vkey", zeilen[0])
+
+
 class DieSchrankeStehtNebenIhremBoolean(unittest.TestCase):
     """`witnesses_ok` allein ist kein Verdikt — ohne die Schranke ist es nicht lesbar.
 

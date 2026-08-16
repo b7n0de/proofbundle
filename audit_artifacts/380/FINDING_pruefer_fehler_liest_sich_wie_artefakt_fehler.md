@@ -1,8 +1,15 @@
 # Finding — a typo in the verifier's own command line reads exactly like a broken artifact
 
-**Pre-existing (`main`), reported and not changed here.** `verify-proof`, `--threshold` and
+**Pre-existing (`main`). Reported first, then CLOSED IN THIS RELEASE** under the Owner's
+instruction that all gaps be closed inside 3.8.0. Its subject exists at `v3.7.0`, so it stays an
+Altbefund in the index count; only its state changed. `verify-proof`, `--threshold` and
 `--log-vkey` all predate 3.8.0. Recorded because a lens on the candidate surfaced it and because it
-is the same legibility family as the other open findings.
+is the same legibility family as the other findings.
+
+**RE-MEASURED WHILE CLOSING, and the number moved:** this file reported three colliding causes.
+Today it is two — `--threshold -1` now separates, because this release put `threshold` into the
+JSON for a different finding. That is not a correction of the count as it stood; it is an effect of
+work done in between, and it is written out so the difference is not later read as a contradiction.
 
 **Nothing in this file asserts that a pre-tag audit ran.**
 
@@ -49,13 +56,32 @@ error: one of the two states is not a verdict at all.
   reaching its evaluation (argument validation, file parsing, key parsing).
 - **oracle_predicate:** produce one input error and one genuine negative; if the outputs are
   byte-identical, the surface reports its own inability as the artifact's fault.
-- **outcome:** `class_open`.
+- **outcome:** `class_closed` — the surface now says WHICH question failed.
+
+## How it is closed
+
+`detail` is copied into the `--json` output (always present, `null` on the green path, so its
+absence never has to be interpreted) and printed as a `reason:` line on the text path. Nothing was
+invented: the library already carried a precise cause for each case — *no empty-line separator
+before the checkpoint* for the empty file, *vkey must have 3 '+'-separated parts* for the malformed
+key — and the information was dropped one layer before the output. All four causes now produce
+pairwise distinct stdout, with the good run as the control.
+
+The text line goes through `_safe_line`, and the honest wording for that is **precautionary**:
+two of the four causes interpolate `{exc}`, whose text this file does not determine and whose forms
+cannot be enumerated. Three probes — ESC, newline injection, NUL — produced **no** control character
+in the detail, because the parse errors are library-authored. So this is not a measured leak; the
+wrapping costs nothing and covers the forms nobody has enumerated. The JSON path is safe through
+`json.dumps` either way.
+
+Rollback probes: removing the JSON key turns two guards red, removing the text line turns one red,
+and wiring the key to a constant string — which *looks* filled — turns two red.
 
 `_tlog_failclosed` builds the collapsed shape, and the library does carry a precise `detail` for each
 of these causes — `cli.py` lists the keys to copy into the JSON and `detail` is not among them. The
 information exists and is dropped one layer before the output.
 
-## Why it is not fixed here
+## Why it was not fixed here — the reasoning at the time, overtaken
 
 Adding `detail` to the JSON output is a change to the output shape, which this release has already
 had to correct its CHANGELOG about twice. `verify-proof`'s error path is outside the shipped delta

@@ -181,6 +181,30 @@ this section asks of the precedent claim above it.
   removing the key turns three guards red, and wiring it to a constant `0` — which *looks* filled —
   turns one red.
 
+- **`verify-proof` now says WHICH question failed — `detail` reaches both output paths.** A
+  verifier that cannot read its own input must not report that in the shape it uses for a completed
+  evaluation that came out negative: *not measurable* is not *measured no*. Measured: an empty proof
+  file — the artifact really is not a proof — and a malformed `--log-vkey` — the **verifier's own
+  typo** — produced byte-identical JSON. The relying party reads a verdict about the artifact and
+  goes to investigate the artifact, while the fault is on their own command line. On the text path
+  it was worse: a bad key printed `[FAIL] log-signature: None`, naming the one thing the operator
+  will now go and look at, when nothing had been checked at all.
+
+  Nothing was invented. The library already carried a precise cause for each case — *no empty-line
+  separator before the checkpoint*, *vkey must have 3 '+'-separated parts* — and `cli.py` simply did
+  not copy `detail` when it listed the keys. The information existed and was dropped one layer
+  before the output. It is now in the JSON (always present, `null` on the green path) and on the
+  text path as a `reason:` line. All four causes produce pairwise distinct stdout, with the good run
+  as the control.
+
+  Two notes kept honest rather than tidy. The `_safe_line` on the text line is **precautionary**:
+  two of the four causes interpolate an exception message whose forms cannot be enumerated, but
+  three probes (ESC, newline injection, NUL) produced no control character, because the parse errors
+  are library-authored — so this is not a measured leak. And the finding behind this reported
+  **three** colliding causes; re-measuring while closing it gives **two**, because `--threshold -1`
+  now separates thanks to the `threshold` key added above. That is an effect of work done in
+  between, written out rather than silently renumbered.
+
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
   `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README

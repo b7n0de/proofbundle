@@ -25,8 +25,8 @@ counts, which is the difference between a claim a test can hold and one only a c
 
 ## Findings — each is a decision, not a note
 
-Three of the six were closed inside this release: two by Owner order (`OA-714ae03760`,
-`OA-a41a514b63`, both answered "noch in 3.8.0") and one under the Owner's standing
+Four of the six were closed inside this release: two by Owner order (`OA-714ae03760`,
+`OA-a41a514b63`, both answered "noch in 3.8.0") and two under the Owner's standing
 instruction that all gaps be closed inside 3.8.0 — each against this record's own
 recommendation to defer them. The
 recommendation is kept in each file rather than overwritten: the Owner overruled a judgement call,
@@ -40,7 +40,7 @@ useful to the next reader than one that shows both.
 | `FINDING_json_trennt_die_drei_ursachen_nicht.md` | open, narrowed twice — **and this one is THIS release's**, see below | the `--json` path cannot separate a wrong key from a tampered signature. Two executable guards hold the measured state, one per half |
 | `FINDING_quorum_erreicht_ununterscheidbar_von_keins_verlangt.md` | **closed** | was: `witnesses_ok: true` with zero confirming witnesses and no `threshold` in the output. The bound now ships with its boolean; the family was measured over every value-taking flag and this was its one member. Its deferral reason was overtaken, not wrong |
 | `FINDING_never_raise_population.md` | `class_open`, pre-existing | the never-raise family property walks a hand-maintained module list; 11 surfaces across 7 modules are outside it |
-| `FINDING_pruefer_fehler_liest_sich_wie_artefakt_fehler.md` | `class_open` | a typo in the verifier's own command line produces output byte-identical to "this file is not a proof" — *not measurable* collides with *measured no* |
+| `FINDING_pruefer_fehler_liest_sich_wie_artefakt_fehler.md` | **closed** | was: a typo in the verifier's own command line produced output byte-identical to "this file is not a proof". `detail` now reaches both output paths; all four causes separate. Re-measuring while closing moved the count from three colliding causes to two — an effect of this release's `threshold` field, written out rather than silently renumbered |
 
 **FIVE of the six findings are on `main` and predate this release — exactly one is ours.** Two drafts of this
 paragraph were wrong before this one: the first said "all five" (it was four of five), the second was
@@ -91,5 +91,5 @@ the wrapped-call-site count (an enumeration read as complete).
 1. `PRE_REGISTRATION_380.md` §1–§7 — what was promised before anything ran.
 2. `FALSIFICATION_F1_F7.md` — what was tried and what fell.
 3. `PRE_REGISTRATION_380.md` §8–§11 — what the run had to correct about its own rules, in order.
-4. The six findings, in the table above — three open, three closed.
+4. The six findings, in the table above — two open, four closed.
 5. `MESSUNG_das_tor_von_pr139.md` — why the gate is red for the right reason only after #139.

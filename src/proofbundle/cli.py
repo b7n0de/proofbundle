@@ -1037,6 +1037,16 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # die Schranke seit jeher ("threshold {T}") — wer `--json` automatisierte, bekam weniger
             # als wer ins Terminal sah. Immer vorhanden, weil sie immer einen Wert hat.
             out["threshold"] = args.threshold
+            # NICHT MESSBAR ist kein GEMESSENES NEIN. Die Bibliothek unterscheidet die Ursachen
+            # praezise ("no empty-line separator before the checkpoint" vs "vkey must have 3
+            # '+'-separated parts"), und `cli.py` liess `detail` beim Kopieren der Schluessel
+            # einfach weg — die Information entstand und wurde EINE Schicht vor der Ausgabe
+            # fallengelassen. Folge, gemessen: eine leere Beweisdatei (das Artefakt IST kein
+            # Beweis) und ein kaputter --log-vkey (der Tippfehler des PRUEFERS) lieferten
+            # byte-gleiches JSON. Der Aufrufer liest ein Urteil ueber das Artefakt und geht das
+            # Artefakt untersuchen, waehrend der Fehler auf seiner eigenen Kommandozeile steht.
+            # Immer vorhanden (None auf dem gruenen Weg), damit Abwesenheit nie gedeutet werden muss.
+            out["detail"] = res.get("detail")
             out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
@@ -1062,6 +1072,16 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
             print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
                   f"index {res['index']} of {res['tree_size']}")
+            # Der Textpfad ist der, den ein Mensch liest — und er las bisher `[FAIL] log-signature:
+            # None` fuer einen Fehler in der EIGENEN Kommandozeile. Der Grund gehoert daneben.
+            # `_safe_line` ist hier VORSORGLICH, und das ist der ehrliche Wortlaut: zwei der vier
+            # Gruende interpolieren `{exc}`, dessen Text diese Datei nicht bestimmt und dessen
+            # Formen sich nicht aufzaehlen lassen. Drei Sonden mit ESC, Zeilenumbruch-Injektion und
+            # NUL erzeugten KEIN Steuerzeichen im detail — die Parse-Fehler sind bibliothekseigen.
+            # Ein gemessenes Leck ist das also nicht; die Umwicklung kostet nichts und deckt die
+            # Formen, die ich nicht kenne. Der JSON-Pfad ist ueber json.dumps ohnehin sicher.
+            if res.get("detail"):
+                print(f"  reason: {_safe_line(str(res['detail']))}")
             print("=> OK" if res["ok"] else "=> FAILED")
         return 0 if res["ok"] else 1
     except (ProofBundleError, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
