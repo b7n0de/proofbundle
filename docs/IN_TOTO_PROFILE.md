@@ -1,8 +1,13 @@
 # in-toto profile: the `eval-result` predicate and the SVR export
 
-Status: **PROPOSED**, under discussion at [in-toto/attestation#565](https://github.com/in-toto/attestation/issues/565).
+Status: **PROPOSED**. Discussed at [in-toto/attestation#565](https://github.com/in-toto/attestation/issues/565)
+and submitted as [PR #575](https://github.com/in-toto/attestation/pull/575), which is **open, not merged**.
 Not standardized. The `predicateType` lives in a vendor namespace until (and unless) it is registered
 upstream. Nothing here changes the native receipt or what it proves — see [NON_CLAIMS.md](NON_CLAIMS.md).
+
+The field table below mirrors the submitted spec. When the two differ, the PR is the source of truth
+and this page is the one that is wrong; a byte-for-byte copy of the submitted file lives in
+[docs/upstream/eval-result.md](upstream/eval-result.md).
 
 This page answers, for a first-time reader, three questions in a few minutes:
 
@@ -60,19 +65,24 @@ never a bare `timestamp`):
 | `verifier.id` | the emitter/verifier TypeURI |
 | `evaluatedAt` | when the eval ran (from the signed receipt) |
 | `suite` | `{name, version}` |
-| `claims[]` | `{metric, comparator, threshold, passed}` — the threshold-based pass |
+| `claims[]` | `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
 | `sampleSize` | `n` |
 | `commitments` | `{model, dataset}`, each `{alg, value, salted:true}` — a **salted commitment**, NOT an artifact hash |
-| `assuranceLevel` | `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested` |
+| `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in separately referenced evidence |
 | `subjectProfile` | which subject profile produced the `subject` (below) |
 | `preRegistration` | optional `{alg, value}` — present only if the receipt carries a prereg hash |
 | `receipt` | optional `{schema, merkleRootB64}` — binds to the external signed receipt |
-| `harness` | optional `{name, version}` |
-| `anchors` | optional external time anchors (RFC 3161 TSA / OpenTimestamps); experimental, a separate `[anchors]` extra that is proposed and not yet shipped |
+| `harness` | optional `{name, version}` plus an optional `digest` ([DigestSet](https://github.com/in-toto/attestation/blob/main/spec/v1/digest_set.md)) for consumers that need to bind the exact artifact that produced the result. A `harness` carrying only `name` and `version` stays conforming. The digest binds **identity only** and asserts nothing about the harness's detection performance |
+
+`anchors` is **not** a field of this predicate. External time anchors were drafted in #565 and
+deliberately scoped out of #575: they are not eval-specific and belong as a shared optional field in
+their own discussion. Earlier revisions of this page listed them; that was wrong and is corrected here.
 
 **Parsing rules** follow in-toto Statement v1: matching is on the subject `digest` alone; unknown
 predicate fields are ignored by consumers; and the [Monotonic Principle](https://github.com/in-toto/attestation/blob/main/docs/validation.md)
-applies — a verifier denies unless a valid attestation exists.
+applies — a verifier denies unless a valid attestation exists. **Absence rule:** unless a field says
+otherwise, the absence of an optional field means only that no claim is made for it — a consumer MUST
+NOT infer or synthesize a default from absence.
 
 ## Subject profiles — what the `subject` IS
 
@@ -107,6 +117,19 @@ Before you trust an `eval-result` attestation for a decision, answer:
 
 Everything in [NON_CLAIMS.md](NON_CLAIMS.md) applies unchanged. In short: authenticity and integrity
 of a claim, never its semantic truth, fairness, safety, or generalization.
+
+Added to the submitted spec on 2026-08-07 and repeated here because it is easy to assume otherwise:
+the predicate does **not** establish that the evaluation harness or grader is fit for purpose, or
+that it has any particular detection performance. Binding a harness digest pins *which* artifact ran,
+not *how well* it detects.
+
+The consequences of that non-claim **can be asymmetric**, and the direction depends on which class the
+detector counts as positive. Where detected positives are evidence of capability, missed positives can
+understate the subject. Where `passed: true` depends on the *absence* of detected failures, missed
+failures can instead yield a passing verdict although the failures occurred. The attestation
+authenticates either verdict without establishing the harness's detection capability. The submitted
+spec carries this as its own paragraph in `## Non-claims`; it deliberately says *can be* rather than
+*is*, because the predicate never fixes which class a detector counts.
 
 ## Migration path (vendor namespace → in-toto.io)
 

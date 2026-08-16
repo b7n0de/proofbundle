@@ -1,5 +1,8 @@
 # Pre-tag adversarial audit — proofbundle 3.7.0 audit-candidate
 
+pre-tag-adversarial-audit: RUN | version=3.7.0
+
+
 Internal six-lens / master-prompt adversarial audit run on the 3.7.0 release candidate
 (commit 02509ca3, version bump + changelog PR head) before any tag. **This internal audit is
 explicitly NOT a substitute for the external human crypto / protocol audit** — it is the

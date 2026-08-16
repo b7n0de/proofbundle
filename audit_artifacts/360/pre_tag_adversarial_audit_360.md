@@ -1,5 +1,8 @@
 # Pre-tag adversarial audit — proofbundle 3.6.0 audit-candidate
 
+pre-tag-adversarial-audit: RUN | version=3.6.0
+
+
 Internal six-lens / master-prompt-v2 adversarial audit run before the 3.6.0 tag (Front-Load §7
 discipline). **This internal audit is explicitly NOT a substitute for the external human crypto /
 protocol audit** — it is the precondition the external reviewer starts from, not a replacement for

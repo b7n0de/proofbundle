@@ -181,6 +181,24 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     result = {"ok": False, "record": None, "salt_b64": None, "detail": ""}
     if not isinstance(opening, dict):
         raise BundleFormatError("opening must be a JSON object")
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface: the caller
+    # hands over a parsed ``opening``, so loads_strict's input_bytes cap never runs and every other bound
+    # below is inert against sheer size. Concretely, the proof list is base64-decoded IN FULL further down
+    # before any per-element cap fires — an ``proof_b64`` of a million long strings is decoded first and
+    # bounded afterwards, which is the wrong order.
+    #
+    # _b64url_decode already guards the DISCLOSURE segment (round 7), and that is exactly why this looked
+    # covered: one segment was bounded, the container around it was not. The bound therefore goes on the
+    # whole ``opening`` and it goes FIRST.
+    #
+    # Raising matches this function's own convention: a malformed STRUCTURE raises BundleFormatError here
+    # (see the two guards around this one), while a failed VERIFICATION returns ok=False with a detail.
+    # Over-budget is a structural refusal, not a verification outcome.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    try:
+        enforce_structural_budget(opening)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"opening exceeds the verification budget (fail-closed): {exc}") from exc
     index = opening.get("index")
     disclosure = opening.get("disclosure")
     proof_list = opening.get("proof_b64")

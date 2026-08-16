@@ -126,6 +126,24 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     # the function's own {ok, detail} contract — never a raw AttributeError on `.get`.
     if not isinstance(proof_obj, dict):
         return {"ok": False, "detail": "malformed chia-datalayer proof: expected a JSON object"}
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). Reached through
+    # ``verify_chia_datalayer`` this is already bounded twice — _MAX_PROOF_BYTES on the raw bytes and
+    # loads_strict on the parse. But this function is a PUBLIC export and takes an already-parsed dict, so a
+    # direct caller gets neither: ``_hexatom`` below runs ``bytes.fromhex`` over an arbitrarily long ``key``
+    # or ``value`` string, and _MAX_LAYERS bounds only the ascent, never the atoms.
+    #
+    # "It is covered on the path I had in mind" is precisely the shape this finding is about — the bound has
+    # to sit on the surface that accepts the structure, not on one of its callers.
+    #
+    # Reported in this module's own contract (docstring: fail-closed, "Never raises for an ordinary bad
+    # proof"), so the budget verdict is a result dict, not an exception.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        enforce_structural_budget(proof_obj)
+    except ProofBundleError as exc:
+        return {"ok": False,
+                "detail": f"chia-datalayer proof exceeds the verification budget (fail-closed): {exc}"}
     try:
         key_clvm = _hexbytes(proof_obj.get("key_clvm_hash"), "key_clvm_hash")
         value_clvm = _hexbytes(proof_obj.get("value_clvm_hash"), "value_clvm_hash")

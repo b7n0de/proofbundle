@@ -63,9 +63,48 @@ jobs:
           sha256sum dist/* | tee dist/SHA256SUMS
 
       - name: Generate SLSA build provenance for the artifacts
+        id: provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-path: "dist/*.whl,dist/*.tar.gz"
+
+      - name: Also place the provenance next to the release assets
+        run: |
+          # WHY: OpenSSF Scorecard's Signed-Releases check reads the RELEASE ASSETS and looks for
+          # *.minisig / *.asc / *.sig / *.sign / *.sigstore / *.sigstore.json / *.intoto.jsonl
+          # (ossf/scorecard docs/checks.md, read 2026-08-07). Measured the same day: this repo scores
+          # 0/10 there while the assets of v3.7.0 are exactly the wheel, the sdist and SHA256SUMS.
+          # The provenance is NOT missing — it lives in GitHub's attestation store and on PyPI, i.e.
+          # somewhere the check never looks.
+          #
+          # NOT INTO dist/ — and that is the whole point of this directory existing. The first version
+          # of this step (d3401a7) copied the bundle into dist/, which is ALSO what feeds the PyPI
+          # upload via packages-dir. A deep gate on that very commit measured the consequence with
+          # twine 7.0.0: InvalidDistribution, before any network I/O — the GitHub Release would have
+          # been published and the PyPI leg would have failed, splitting the release in half.
+          # A directory that serves two consumers with different admissible contents is the coupling;
+          # a second directory removes it, whereas extending the removal list downstream would only
+          # have patched this one file.
+          #
+          # NOTHING IS RE-SIGNED HERE. The bundle produced by the step above is copied unchanged. If
+          # it is ever absent, this fails loudly rather than shipping a release whose provenance copy
+          # silently went missing.
+          #
+          # ON THE NAME: `.intoto.jsonl` describes the content — in-toto attestations, one JSON per
+          # line. It is not chosen because that pattern scores 10 while `.sigstore.json` scores 8;
+          # the check does not verify signatures at all, so a name could buy points on its own, and
+          # picking one for that reason is exactly the defect this project exists to make visible.
+          set -euo pipefail
+          src="${{ steps.provenance.outputs.bundle-path }}"
+          if [ ! -s "$src" ]; then
+            echo "provenance bundle missing or empty at '$src' — refusing to publish a release"
+            echo "whose provenance copy would be silently absent."
+            exit 1
+          fi
+          mkdir -p release-assets
+          cp "$src" "release-assets/proofbundle-${GITHUB_REF_NAME#v}-provenance.intoto.jsonl"
+          cp dist/SHA256SUMS release-assets/SHA256SUMS
+          echo "release-only assets:"; ls -l release-assets/
 
       - name: Upload the attested dist for the publish job (exact bytes, no rebuild)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -93,7 +132,8 @@ jobs:
           files: |
             dist/*.whl
             dist/*.tar.gz
-            dist/SHA256SUMS
+            release-assets/SHA256SUMS
+            release-assets/*-provenance.intoto.jsonl
           generate_release_notes: true
           prerelease: ${{ steps.relmeta.outputs.prerelease }}
           make_latest: ${{ steps.relmeta.outputs.make_latest }}
@@ -121,6 +161,31 @@ jobs:
         run: |
           set -euo pipefail
           rm -f dist/SHA256SUMS   # not a distributable; keep only the wheel + sdist for upload
+
+          # ALLOWLIST, NOT A REMOVAL LIST — and this is a class fix, not a tidy-up.
+          #
+          # The line above is a hand-maintained blocklist of "things that are not distributables".
+          # A deep gate measured what that costs (finding L6-01 on d3401a7): a new file was added to
+          # dist/, the removal list did not know about it, and twine 7.0.0 rejects the upload with
+          # InvalidDistribution — after the GitHub Release has already been published. The list did
+          # not fail; it simply did not mention the new file, and silence read as approval.
+          #
+          # A blocklist can only ever name what someone already thought of. This asserts the property
+          # instead: after the removals, dist/ contains EXACTLY the wheel and the sdist. Anything
+          # else — a new artefact, a stray log, a future non-distributable — stops the publish here,
+          # loudly, on the leg where it is still cheap.
+          unerwartet=$(find dist -maxdepth 1 -type f ! -name '*.whl' ! -name '*.tar.gz' -printf '%f\n')
+          if [ -n "$unerwartet" ]; then
+            echo "dist/ carries files that are not distributables:"
+            echo "$unerwartet" | sed 's/^/  - /'
+            echo "Publishing would hand these to twine via packages-dir and fail AFTER the GitHub"
+            echo "Release is out. Put release-only assets in release-assets/, or extend this gate"
+            echo "deliberately if they really belong in the upload."
+            exit 1
+          fi
+          test "$(find dist -maxdepth 1 -name '*.whl' | wc -l)" = 1
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" = 1
+
           got_wheel=$(sha256sum dist/*.whl | cut -d' ' -f1)
           got_sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)
           echo "attested wheel:   ${{ needs.build-and-attest.outputs.digest-wheel }}"

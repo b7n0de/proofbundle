@@ -6,6 +6,96 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+**Semantics: unchanged. Resource ceilings: one deliberate tightening, disclosed below.**
+
+This banner said "Nothing under `src/` changes" until 2026-08-08. That was **false** by then. Measured
+at `bc3ae70` with `git diff --numstat origin/main HEAD -- src/proofbundle/`: **8 files, 196
+insertions, 3 deletions**. The sentence was written when it was true and was not pulled when the tree
+moved past it — a statement nobody re-measured.
+
+The first correction of this banner then repeated the fault it describes. It claimed "204 lines", a
+figure already 9 off when it was written and 17 further off after the revert below landed. A count
+against a moving branch is only true at a named ref, so this one names its ref and its command.
+Found by the mandatory review lane, both times, and not by a check — `scripts/check_version_and_changelog.py`
+reads only headings, and the release-scope checkbox in [RELEASE.md](RELEASE.md) is read by a human,
+not by a gate.
+
+What actually changed, and why each is patch-safe:
+
+* **No public interface gains or loses a field**, and no verdict flips from fail to pass. Every change
+  below is fail-**closed**: input that was accepted and is over a generous ceiling is now refused
+  before the work it would cost.
+* **Structural budget on the direct-dict path.** Six public surfaces that accept an already-parsed
+  structure now apply the same `VerificationBudget` ceilings the string/file path has always applied
+  (`string_len` 1 000 000, `json_nodes` 200 000). On that path the `input_bytes` cap is inert — there
+  are no bytes to measure — so those surfaces were unbounded. This is the same deliberate exception
+  the project shipped in 3.2.3 (Finding 15b) and is disclosed here for the same reason:
+  [COMPATIBILITY.md](COMPATIBILITY.md) requires that a tightening of a previously accepted input say
+  so explicitly. Each surface reports it in **its own** documented failure form — a result dict where
+  the surface returns dicts, `BundleFormatError` where it raises — so no new exception type appears
+  anywhere.
+* **Withdrawn before release: moving the `merkle_path` cap earlier.** An earlier commit in this
+  cycle moved the `merkle_path` (256) check in `verify_sample_opening` ahead of the base64 decode.
+  It was reverted, and this entry records why rather than dropping it silently. The claim it
+  originally carried here — that the outcome is unchanged for every input — was **measured false**.
+  Method, since the repo asks every number to name its object and its source: two worktrees at the
+  commit and its parent, the same `verify-opening` invocation against each, exit codes compared per
+  input class. The CLI exit code moved from 2 to 1 whenever any proof element, or `root_b64`, would
+  have been rejected by `b64decode(validate=True)`. Two independent partitions were counted — one
+  gave at least 12 diverging classes, an independent re-count gave 22; "input class" is not a defined
+  unit here, so the lower bound is what the claim rests on. The verdict itself never flipped (`ok`
+  stays `False`), but [COMPATIBILITY.md](COMPATIBILITY.md) lists the meaning of exit codes as a
+  public surface, and this project already kept `stash@{0}` out of 3.7.1 for the same reason. The
+  change also did not achieve what it was for: an `Omega(n)` structural budget walk runs one line
+  above the cap, so the cap cannot precede the work it bounds. Peak memory at n=190000 was 11867 KiB
+  against 2.2 KiB at n=257 — a linear path, not a flat one. Wall-clock figures for the same runs are
+  deliberately not quoted: they were host-dependent and differed by 28% between two measurements of
+  the same code. The underlying finding stays open for a minor release.
+* **Typed errors on two path arguments.** `evaluation_card_hash` and `prereg_hash` raise
+  `BundleFormatError` on a non-path argument instead of leaking `OverflowError` / `TypeError` /
+  `FileNotFoundError`. The CLI always passes a `str`, no test or doc pinned the old types, and the
+  surrounding failure form in both functions was already `BundleFormatError`.
+
+The planned scope for the next patch is written down in
+[docs/release_scope/3.7.1.md](docs/release_scope/3.7.1.md).
+
+### Fixed
+
+- The post-tag drift check anchored on `git describe --tags`, which returns *whatever was tagged
+  last*. Measured on 2026-08-07 it returned a corpus review tag; `_semver_tuple` reads that as
+  `(0, 0, 0)`, so any real version compares as "bumped past it" and the check stopped applying. It
+  did not fail — it went silent, and silence looked like agreement. Under that blind spot one
+  non-trivial commit sat undelivered since `v3.7.0` with no `## [Unreleased]` section (this one).
+  The check now anchors on the last **release** tag and distinguishes three states: a release tag,
+  no tags at all, or tags that exist but none of them is a release.
+- `pyproject.toml` pins the ruff **rule set**, not just its version, and raises the cap to `<0.17`
+  (#134). Measured on the identical tree: ruff 0.15.x applies 59 default rules and exits 0 over all
+  258 tracked `.py` files, ruff 0.16.x applies 413 and reports 1168 findings. The cap alone would
+  have silently stopped checking the 18 rules 0.16 removed. `mypy` is bounded at `<3` for the same
+  reason, deliberately and without a measured failure.
+
+### Added
+
+- `scripts/check_version_and_changelog.py` also compares the two prose places that state the current
+  version (`RELEASE.md`, `docs/readiness_pack/PROGRESS.md`), and optionally PyPI and the project page
+  (`--external`). External surfaces have three states: agreement, disagreement, and NICHT MESSBAR —
+  unreachable never counts as green, and `--require-external` turns it into a failure for the release
+  checklist. Historical statements (`since vX`, `as of vX`, old changelog headings) are deliberately
+  out of scope: bumping them would turn a fact into a false claim.
+- A release gate in `RELEASE.md`: a checkable list a release answers *before* the Owner-GO is asked
+  for. No date, no cadence — what is slowed down is vagueness, not speed.
+
+### Changed
+
+- `docs/IN_TOTO_PROFILE.md` and `docs/upstream/eval-result.md` now say what was actually submitted as
+  in-toto/attestation#575. Both still listed `anchors[]` as a predicate field, which that PR never
+  had, and neither carried the absence rule, the optional harness `DigestSet`, the non-claim on
+  harness/grader fitness, `passed` as a **signed threshold verdict**, or `assuranceLevel` as
+  **issuer-declared**. The upstream copy now states that the PR is the source of truth when the two
+  differ.
+
 ## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.7.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
