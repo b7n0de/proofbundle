@@ -141,9 +141,26 @@ this section asks of the precedent claim above it.
   inertly next to `[FAIL]`.
 
   Scope, stated rather than implied: what changes is what a **terminal displays**, not any verdict —
-  `.ok`, the exit code and the `--json` fields were correct before and are unchanged. Not wrapped, on
-  purpose: `{'OK' if x else 'FAIL'}` is a literal, and the `ERROR: {exc}` lines go to stderr. A
-  wider sweep of the same class on surfaces that predate this release is reported separately rather
+  `.ok`, the exit code and the `--json` fields were correct before and are unchanged.
+
+  **Corrected: the count was three, and three was an enumeration.** A counter-read pointed out that
+  "three values" reads as complete. A sweep over every f-string interpolation reading a `detail` or
+  `origin` field then found **three more** labelled stdout lines of the same shape, each fed by a
+  value a proof's issuer chooses: `anchor verify-pack` and `anchor upgrade` (their `detail` is built
+  from an exception text in `anchors_ots.py`, `anchors_chia.py` and `anchors_rfc3161.py`) and the
+  `recomputed root` line (`bundle.py` returns `str(exc)` there). All three are wrapped now.
+
+  Not wrapped, each with its reason rather than by omission: `{'OK' if x else 'FAIL'}` is a literal ·
+  the `ERROR:` lines go to stderr · `prereg` and `evalcard` carry literal details · the
+  `checkpoint origin` line uses `!r`, and `repr()` was measured to neutralise ESC, newlines and
+  zero-width characters — a different defence, not a missing one.
+
+  The guard that holds this is the reason the three extra sites were found at all: it no longer
+  checks a list of labels but the **rule** — every interpolation reading a `detail`/`origin` field
+  goes through `_safe_line` or `!r`, unless it is named with a reason. Verified by planting: it
+  catches a site that is on no list, and a freshly invented line nobody anticipated.
+
+  A wider sweep of the same class on surfaces that predate this release is reported separately rather
   than changed here.
 
   Covered by `tests/test_verify_proof_expected_origin.py::SteuerzeichenKoennenKeineZeileFaelschen`:

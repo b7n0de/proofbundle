@@ -841,7 +841,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if roots is not None:
             print(f"    stated root      {roots['stated_b64']}")
             recomputed = roots["recomputed_b64"]
-            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + roots['detail'] + ')'}")
+            # `roots['detail']` ist bei bundle.py:748 `str(exc)` — also exception-abgeleitet und
+            # damit potenziell fremdbestimmt. Gleiche Klasse wie die Anker-Zeilen; ein Sweep
+            # dieser Runde hat sie gefunden, nachdem die Label-Suche sie uebersehen hatte.
+            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + _safe_line(str(roots['detail'])) + ')'}")
         if getattr(args, "matrix", False):
             print("  ── check matrix ──")
             for row in _check_matrix(result):
@@ -1248,7 +1251,10 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
             if getattr(args, "json", False):
                 print(json.dumps(msg, indent=2, ensure_ascii=False))
             else:
-                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — {msg['detail']}")
+                # dieselbe Klasse wie `anchor verify-pack` darunter: `msg['detail']` stammt aus
+                # der OTS-Pruefung, die es aus einem Ausnahmetext bauen kann.
+                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — "
+                      f"{_safe_line(str(msg['detail']))}")
                 if info["provenCalendars"]:
                     print(f"  calendars carrying it: {', '.join(info['provenCalendars'])} "
                           f"(operators: {', '.join(info['provenCalendarOperators'])})")
@@ -1348,7 +1354,13 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             print(json.dumps(out, indent=2, ensure_ascii=False))
         else:
             verdict = "CONFIRMED" if out["ok"] else out["status"].upper()
-            print(f"[anchor verify-pack] {verdict} — {out['detail']}")
+            # Gleiche Klasse wie `log-signature` / `sample-opening` / `enclave-attestation`: eine
+            # beschriftete stdout-Zeile mit einem Wert, den der Aussteller des Beweises frei
+            # waehlt. `anchors_ots.py:87`, `anchors_chia.py:163` und `anchors_rfc3161.py:81`
+            # bauen dieses `detail` aus einem Ausnahmetext, der Beweis-Bytes tragen kann. Ein
+            # Sweep dieser Runde hat die Stelle gefunden, nachdem eine Gegenlesung meldete, dass
+            # die Zahl "drei" sich als vollstaendig liest und es nicht ist.
+            print(f"[anchor verify-pack] {verdict} — {_safe_line(str(out['detail']))}")
         if out["ok"]:
             return 0
         # pending / needs-RP-header: not corruption, but the relying-party gate is unmet (mirrors

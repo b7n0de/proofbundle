@@ -574,6 +574,49 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         fehlend = ERWARTET - gefunden
         self.assertFalse(fehlend, f"nicht mehr durch _safe_line gefuehrt: {sorted(fehlend)}")
 
+        # DIE UMKEHRUNG, und sie ist der eigentliche Klassen-Fix. Die vier Marken oben sind eine
+        # AUFZAEHLUNG — sie faengt nicht, woran niemand gedacht hat, und genau das ist passiert:
+        # ein Sweep dieser Runde fand `anchor verify-pack` und `anchor upgrade`, zwei beschriftete
+        # stdout-Zeilen derselben Form, deren `detail` drei Anker-Module aus einem Ausnahmetext
+        # bauen. Deshalb gilt ab hier die Regel statt der Liste: JEDE Einsetzung, die ein
+        # `detail`- oder `origin`-Feld liest, geht durch `_safe_line` — ausser den hier NAMENTLICH
+        # und mit Grund ausgenommenen. Eine neue Zeile bindet damit automatisch.
+        AUSGENOMMEN = {
+            # (Zeile ist nicht stabil — Schluessel ist der Ausdruck, wie ast.unparse ihn schreibt)
+            "res['detail']":     "prereg/evalcard: die detail-Werte sind Literale (prereg.py:78-94, "
+                                 "evalcard.py:78-96), kein fremdkontrollierter Text",
+            "binding['detail']": "geht nach stderr, nicht auf eine beschriftete stdout-Zeile",
+            "ev['detail']":      "eval_evidence_class berechnet den Wert, er stammt nicht aus einer Datei",
+        }
+        offen = []
+        for arg in ast.walk(baum):
+            if not isinstance(arg, ast.JoinedStr):
+                continue
+            for teil in arg.values:
+                if not isinstance(teil, ast.FormattedValue):
+                    continue
+                q = ast.unparse(teil.value)
+                if not re.search(r"\['(?:detail|origin)'\]", q):
+                    continue
+                if "_safe_line" in q:
+                    continue
+                # `!r` ist eine GLEICHWERTIGE Verteidigung, keine Ausnahme. Die Eigenschaft, um
+                # die es geht, ist "der Wert kann keine Zeile faelschen" — und `repr()` leistet
+                # das: gemessen wird ESC zu `\x1b`, ein Zeilenumbruch zu `\n`, ZWSP zu `​`,
+                # kein rohes Steuerzeichen bleibt uebrig. Wer hier nur `_safe_line` zaehlte,
+                # wuerde die Sache am Mechanismus messen statt an der Eigenschaft — genau der
+                # Fehler, den dieser Waechter schon einmal gemacht hat.
+                if teil.conversion == ord("r"):
+                    continue
+                if any(a in q for a in AUSGENOMMEN):
+                    continue
+                offen.append((getattr(teil.value, "lineno", "?"), q[:70]))
+        self.assertFalse(
+            offen,
+            "beschriftete Zeile(n) mit einem detail/origin-Wert ohne _safe_line, und ohne "
+            f"dokumentierte Ausnahme: {offen}. Entweder umwickeln oder mit Grund in AUSGENOMMEN "
+            "aufnehmen — stillschweigend offen lassen ist die Variante, die diese Klasse erzeugt hat.")
+
         # (a) schliessen: der NAME `_safe_line` darf nirgends neu gebunden werden. Ohne das kann
         # eine lokale Zuweisung die Funktion aushebeln, waehrend jede Aufrufstelle formal steht.
         neubindungen = []
