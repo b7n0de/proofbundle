@@ -170,6 +170,41 @@ this section asks of the precedent claim above it.
   that check, the whole hardening had no test at all and a counter-read proved it by reverting all
   four wrappings without the suite noticing.
 
+### Known limitations
+
+Six findings are open against this release. Five of the six are older than 3.8.0 and are reported
+rather than folded in, because a release should not quietly absorb defects it did not cause; the
+sixth concerns a field this release added and is corrected here. **None of them makes a verdict
+wrong** — every one is about what the output lets a relying party *tell apart*, or about what our
+own evidence would notice if it were removed.
+
+They are listed here because the full records live in `audit_artifacts/380/`, which `MANIFEST.in`
+prunes from the sdist. Without this section, anyone installing 3.8.0 would see the fixes and not the
+open items.
+
+- **A verifier's own typo reads like a broken artifact.** An empty proof file, `--threshold -1` and
+  an unparseable `--log-vkey` produce byte-identical `--json` output. Two of those three are mistakes
+  in the caller's command line, not properties of the artifact. The exit code does separate one more
+  case than the document does. *Workaround: check the exit code, and validate your own arguments.*
+- **`witnesses_ok: true` does not mean a quorum was met.** With the default `--threshold 0` it is
+  true unconditionally, and `threshold` is not reported in the JSON, so "quorum met" and "no quorum
+  required" look the same. *Workaround: pass `--threshold` explicitly and record what you passed.*
+- **`verify --trusted-checkpoint` has no origin binding.** It accepts a validly signed checkpoint
+  from any log as an authenticated source for the root and tree size; the subcommand has no option to
+  pin which log, and `verify_witnessed_checkpoint` has no `expected_origin` parameter. This is the
+  same threat `verify-proof --expected-origin` closes in this release, on the sibling surface.
+  *No workaround inside the tool; pin the checkpoint's provenance outside it.*
+- **The `--json` path cannot separate a wrong `--log-vkey` from a tampered signature** — the one
+  finding that belongs to this release, since it concerns the new `expected_origin` field. Pinning
+  the origin you trust *does* make a foreign origin machine-readable; the other two collapse.
+- **Six comparison surfaces have no near-miss evidence.** `kbjwt` (audience, nonce), `statuslist`,
+  `evalclaim`, `intoto` and `policy` compare an expected identifier against attacker-chosen input,
+  and each was individually loosened without a single test noticing. The comparisons are correct
+  today; what is missing is the evidence that loosening them would be caught.
+- **The never-raise family property walks a hand-maintained module list.** Eleven surfaces across
+  seven modules are outside it, and one of those is a known live violation
+  (`anchors_rfc3161.verify_rfc3161` raises on a non-dict `frozen` / `rp_trust`).
+
 ### Tests
 - **Vendored `markovianprotocol.com/log` proof 7271 as a conformance fixture (#136, `331f8cc`):** a live
   third-party transparency-log proof, frozen as pure data, with a standalone RFC 6962 inclusion
