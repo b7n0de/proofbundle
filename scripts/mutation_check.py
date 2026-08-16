@@ -328,6 +328,15 @@ MUTATIONS = [
      "        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))\n        return True",
      "        return True",
      "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
+    # SPIEGELBILD FUER Ed25519, und es fehlte — obwohl das der HAUPTPFAD ist. Ein Gate-Meta-Test hat
+    # die Asymmetrie gemessen: derselbe Fail-open in `verify_ed25519` liess 70 Tests quer durch
+    # dsse/checkpoint/decision/conformance rot werden, waehrend die Anti-Goodhart-Ebene fuer genau
+    # diesen Pfad keinen Operator hatte. Die Testebene war also stark und der Waechter DARUEBER
+    # blind: schruempfte das Korpus je, meldete das Tor still gruen statt SURVIVED.
+    ("src/proofbundle/signature.py",
+     "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
+     "        return True",
+     "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
     # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
     # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's
