@@ -945,8 +945,13 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             text = _read_capped(handle)
         with _open_input(args.payload_file, binary=True) as handle:
             leaf = _read_capped_bytes(handle)
+        # release-review fix #5 reached the library but not the command line: verify_tlog_proof has taken
+        # expected_origin since 3.6, and without this pass-through a relying party at the CLI could not
+        # demand that a validly-signed checkpoint came from the log it actually expects. Default stays None
+        # (origin unconstrained), so every existing invocation keeps its verdict.
         res = verify_tlog_proof(text, leaf, args.log_vkey,
-                                args.witness_vkey or (), threshold=args.threshold)
+                                args.witness_vkey or (), threshold=args.threshold,
+                                expected_origin=args.expected_origin)
         if args.json:
             out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
                                        "origin", "tree_size", "index")}
@@ -954,7 +959,11 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
         else:
-            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}")
+            origin_note = ""
+            if args.expected_origin is not None:
+                origin_note = (" (expected)" if res["origin"] == args.expected_origin
+                               else f" (expected {args.expected_origin})")
+            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}{origin_note}")
             n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
             print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
@@ -2379,6 +2388,9 @@ def build_parser() -> argparse.ArgumentParser:
                               help="file with the exact logged leaf bytes (the bundle payload)")
     verify_proof.add_argument("--log-vkey", required=True,
                               help="the log's verifier key (0x01 vkey)")
+    verify_proof.add_argument("--expected-origin", default=None,
+                              help="require the checkpoint's origin line to equal this exact string; "
+                                   "omitted means the origin is not constrained")
     verify_proof.add_argument("--witness-vkey", action="append",
                               help="a witness verifier key (0x04 Ed25519 or 0x06 ML-DSA-44); repeatable")
     verify_proof.add_argument("--threshold", type=int, default=0,
