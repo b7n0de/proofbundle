@@ -86,3 +86,47 @@ precondition 1 of seven, not a substitute for the other six.
   graded here. That branch is red for a separate reason and is a separate decision.
 - The candidate is graded on its digest `f64d35e`. If the branch moves, the verdict does not follow
   it — a new digest needs a new run, per the standing GO's own wording.
+
+## 9. Appended after the run started — a rule of mine that, read literally, forbids its own use
+
+The freeze in the preamble says nothing below may be EDITED once the jury starts. This section is
+therefore APPENDED, and section 8 above stands unchanged. What follows is a clarification of it, with
+the measurement that makes the clarification necessary.
+
+**The problem.** Section 8 says: *"If the branch moves, the verdict does not follow it — a new digest
+needs a new run."* Writing the pre-tag audit record IS a branch move. Under the literal rule, recording
+a verdict invalidates the verdict being recorded, and no release can ever be graded. That is not a
+subtlety I reasoned my way to; it is what the sentence says.
+
+**Why I wrote it that way.** The rule does not distinguish a move of the CODE from a move of the
+RECORD. When it was written the two had not yet come apart, and the stricter reading looked free.
+
+**The measurement that settles it.** Between the graded digest `f64d35e` and the current branch head:
+
+```
+git diff --name-only f64d35e..<head> -- src/      ->  0
+git diff --name-only f64d35e..<head> -- tests/    ->  0
+git diff --name-only f64d35e..<head> -- scripts/  ->  0
+changed:  CHANGELOG.md  +  the three audit_artifacts/380/ files
+```
+
+The code that was graded is byte-identical. What moved is the record and the claims about it — and
+those moves are the corrections the falsification pass itself produced (F5, F6 and F7 fell, plus the
+arithmetic errors a counter-read found in the first correction).
+
+**The house form, for comparison.** `audit_artifacts/370/pre_tag_adversarial_audit_370.md` opens by
+naming the digest it graded — *"run on the 3.7.0 release candidate (commit 02509ca3, version bump +
+changelog PR head)"* — and is itself a later commit. The record names its subject rather than
+pretending to be contemporaneous with it.
+
+**The clarified rule, narrower than the loose reading and stricter than none:** a verdict binds the
+`src/` + `tests/` + `scripts/` tree of the digest it names. A commit that changes ONLY the record
+(CHANGELOG prose, `audit_artifacts/`) does not require a new run, and the record must NAME the digest
+it graded. A commit that touches any of those three paths does require a new run, without exception.
+Whether the code moved is a `git diff`, not a judgement call — which is the point: the escape hatch is
+measurable, so it cannot be argued open.
+
+**Honest limit.** This is me loosening a rule I wrote, in the run it governs, and that deserves the
+suspicion it invites. Two things bound it: the loosening is defined by a command whose output anyone
+can reproduce, and it is narrower than the 3.7.0 precedent it aligns with. It does not touch the seven
+preconditions of the standing GO, and it does not make a verdict out of anything.
