@@ -554,8 +554,24 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if cp_supplied != (cp_vkey is not None):
             raise ValueError("--trusted-checkpoint and --checkpoint-vkey belong together (the "
                              "signed note and the key that authenticates it)")
+        # EIN PIN OHNE GEGENSTAND IST KEIN PIN. Gemessen 2026-08-16 in der Falsifikations-Linse zu
+        # diesem Increment: `verify BUNDLE --expected-origin voellig.fremd/log` endete mit rc=0 und
+        # ohne ein Wort — der Aufrufer haelt die Herkunft fuer gebunden, geprueft wurde nichts. Das
+        # ist dieselbe Klasse, die dieses Release schliesst (eine Erwartung, die nur SCHEINBAR
+        # geprueft wird), nur eine Ebene hoeher: nicht der Vergleich war zu locker, sondern er fand
+        # gar nicht statt. Dieselbe Regel wie eine Zeile darueber fuer das Flaggenpaar — ein Flag,
+        # dessen Gegenstand fehlt, ist ein Eingabefehler (exit 2), niemals ein stilles Nichts.
+        if getattr(args, "expected_origin", None) is not None and not cp_supplied:
+            raise ValueError("--expected-origin pins WHICH log a --trusted-checkpoint must come "
+                             "from; without --trusted-checkpoint there is no checkpoint to pin, so "
+                             "the expectation would be silently ignored — supply both, or drop it")
         cp_ok = None
         cp_detail = ""
+        # Vorbelegt, weil der Bericht sie AUCH ohne Checkpoint liest. Ein Name, der nur in einem
+        # Zweig entsteht, ist im anderen ein NameError — und der andere Zweig ist hier der haeufige.
+        cp_expected_origin = getattr(args, "expected_origin", None)
+        cp_origin_ok = True
+        cp_observed_origin = None
         expected_root = getattr(args, "expected_root", None)
         expected_tree_size = getattr(args, "expected_tree_size", None)
         if cp_supplied:
@@ -572,9 +588,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             # Bedrohung, die `verify-proof --expected-origin` in derselben Version schliesst; hier
             # war die Schwesterflaeche offen. `is None` und nicht falsy: ein leerer String ist eine
             # gestellte Frage, die immer fehlschlaegt, keine abwesende.
-            cp_expected_origin = getattr(args, "expected_origin", None)
+            cp_observed_origin = cp_res["origin"]
             cp_origin_ok = (cp_expected_origin is None
-                            or cp_res["origin"] == cp_expected_origin)
+                            or cp_observed_origin == cp_expected_origin)
             cp_ok = bool(cp_res["ok"]) and cp_origin_ok
             if cp_ok:
                 cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
@@ -826,6 +842,26 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         "status": _ts_status,
         "expected": _ets,
         "actual": (bundle.get("merkle") or {}).get("tree_size") if isinstance(bundle, dict) else None,
+    }
+    # ORIGIN-ERWARTUNG, maschinenlesbar (3.8.0). Ohne dieses Feld traegt `verify --json` die Frage
+    # nur in der Prosa des checkpoint-Details, und ein automatischer Verbraucher kann "gepinnt und
+    # gepasst" nicht von "gar nicht gepinnt" unterscheiden — beide liefern checkpointAuthenticity
+    # PASS. Gemessen in der Vertrags-Linse zu diesem Increment: die Schwesterflaeche `verify-proof`
+    # fuehrt `expected_origin` seit derselben Version auf oberster Ebene, `verify` fuehrte nichts.
+    # Die Form ist bewusst die des Nachbarn zwei Zeilen darueber (status/expected/actual) statt
+    # eines nackten Schluessels: sie beantwortet alle drei Fragen — wurde gefragt, hat es gepasst,
+    # was stand wirklich da. Der Schluessel ist IMMER da (null wenn nicht gefragt), damit seine
+    # Abwesenheit nie als "nicht gefragt" gelesen werden muss.
+    if not cp_supplied:
+        _co_status = "NOT_REQUESTED"
+    elif cp_expected_origin is None:
+        _co_status = "NOT_REQUESTED"
+    else:
+        _co_status = "PASS" if cp_origin_ok else "FAIL"
+    fields["checkpointOriginExpectation"] = {
+        "status": _co_status,
+        "expected": cp_expected_origin if cp_supplied else None,
+        "actual": cp_observed_origin,
     }
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")

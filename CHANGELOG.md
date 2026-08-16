@@ -140,6 +140,29 @@ this section asks of the precedent claim above it.
   `--expected-origin ""` from a question that always fails into no question at all). All six turn
   the guards red, and the baseline returns to exactly 41 passed / 28 subtests.
 
+  **Two more defects, found by reviewing this very change and fixed in it.** The first: a pin
+  whose object is absent is not a pin. `verify BUNDLE --expected-origin some.log` **without**
+  `--trusted-checkpoint` exited 0 in silence — the caller believes the origin is bound, nothing was
+  checked, and nothing says so. That is the same class this release closes, one level up: the
+  comparison was not too loose, it did not happen. It is now a usage error (exit 2), the rule the
+  neighbouring line already applied to `--trusted-checkpoint`/`--checkpoint-vkey`. A sweep over
+  every other value-taking `verify` flag found no second member: `--expected-root`,
+  `--expected-tree-size`, `--aud` and `--nonce` are each honoured without a companion flag —
+  measured with a WRONG value, because a correct one cannot tell "checked" from "ignored", and the
+  first version of that sweep nearly reported the opposite for exactly that reason.
+
+  The second: `--json` reported the answer but not the question. `verify-proof` carries
+  `expected_origin` at the top level; `verify` carried nothing, so an automated consumer could not
+  tell "pinned and matched" from "not pinned at all" — both yield `checkpointAuthenticity: PASS`.
+  New key `checkpointOriginExpectation`, deliberately shaped like its immediate neighbour
+  `treeSizeExpectation` (`status`/`expected`/`actual`) rather than as a bare value, because that
+  shape answers all three questions. Four states, all distinguishable; the load-bearing one is that
+  a checkpoint supplied WITHOUT a pin still reports the origin it observed, which is what keeps an
+  unpinned run auditable and what SPEC.md §9 now requires. The key is always present (`null` when
+  not asked), so its absence never has to be read as "not asked": existing invocations keep their
+  **verdict**, and their `--json` **output shape** gains one key — the same distinction this
+  section had to correct once already for the sibling surface.
+
 ### Fixed
 - **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
   `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
