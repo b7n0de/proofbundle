@@ -47,11 +47,45 @@ _AUDIT_NEGATION = re.compile(
 
 
 def _positive_audit_marker(text: str) -> bool:
-    """True iff some line ASSERTS an adversarial/N-lens audit was run — a discipline marker on a line that
-    is NOT negated. Line-scoped so a real positive note survives an unrelated negation elsewhere in the file,
-    while a marker whose own sentence concedes the audit did not run does not grant a false PASS."""
-    for line in text.splitlines():
-        if _AUDIT_MARKERS.search(line) and not _AUDIT_NEGATION.search(line):
+    """True iff some PARAGRAPH asserts an adversarial/N-lens audit was run — a discipline marker in a
+    paragraph that carries no negation.
+
+    RT10-PRETAG-03 (2026-08-16, found by triggering it): the scope used to be the physical LINE, and a
+    wrapped sentence walked straight through the RT10-PRETAG-02 negation guard. Measured live on a real
+    release candidate, where an honest retraction being written INTO the CHANGELOG flipped the gate to
+    ``ok: true, changelog_records_audit: true`` for roughly two minutes:
+
+        …never shipped a user-facing CLI flag in a patch release. That claim was falsified during the pre-tag
+        adversarial audit and is retracted here rather than quietly deleted: four patch releases have shipped
+
+    The second line opens with ``adversarial`` and carries no negation token of its own — the words that
+    take it back (``never``, and the fact that the audit was still running) sit on the line above. Nothing
+    was crafted to defeat the guard; ordinary prose wrapping at 110 columns did it, and it will do it again
+    to anyone who writes a careful sentence about an audit that has not finished. The guard was therefore
+    most easily defeated by exactly the kind of honest text this project requires of itself.
+
+    Paragraph scope is strictly STRICTER than line scope — a paragraph contains its lines, so it can only
+    ever bring MORE negation tokens into view, never fewer. No text that the old rule rejected can be
+    accepted by the new one.
+
+    Sentence scope was measured first and REJECTED: it still returns True on the block above, because
+    "falsified" is not a negation token and the sentence carrying ``adversarial`` genuinely contains none.
+    A finer scope does not help when the negation lives in the surrounding argument rather than in a word.
+
+    The counter-direction is measured too, because a stricter gate that rejects genuine records would just
+    be a different defect: the real ``audit_artifacts/370/pre_tag_adversarial_audit_370.md`` still returns
+    True. Its opening paragraph pairs the claim with a "NOT a substitute for the external audit"
+    disclaimer, so that paragraph is correctly not counted — and the later "Six diverse falsification-first
+    lenses …" paragraph carries the marker with no negation, which is the attestation. House style survives.
+
+    HONEST LIMIT, unchanged by this fix: this infers a fact from free prose, and prose inference stays
+    defeatable in principle. The durable answer is an explicit attestation token that means one thing
+    ("pre-tag-adversarial-audit: RUN | version=X.Y.Z"), which is what the version-consistency-gate branch
+    moves to. This narrows a live hole in the mechanism that guards releases today; it does not claim to
+    have made prose inference sound.
+    """
+    for absatz in re.split(r"\n\s*\n", text):
+        if _AUDIT_MARKERS.search(absatz) and not _AUDIT_NEGATION.search(absatz):
             return True
     return False
 
