@@ -6,6 +6,60 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
+
+Status boundary (No-Overclaim): 3.8.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
+MINOR release for one reason only: `verify-proof` gains a command-line flag it did not have. No crypto
+verdict (`.ok`) semantics change, and every existing invocation keeps its verdict. The version number is
+deliberately MINOR rather than PATCH — the shipped CLI surface grows, and this repository has never
+shipped a new user-facing CLI flag in a patch release (measured over sixteen patch releases).
+
+### Added
+- **`verify-proof --expected-origin` (#137, `911fd5c`):** `verify_tlog_proof` has accepted
+  `expected_origin` since 3.6 (release-review fix #5), but the argparse parser carried no flag and the
+  command never passed one. A command-line verifier therefore could not reject a validly signed
+  checkpoint issued by a DIFFERENT log than the one it meant to trust: the signature check passes, and
+  without the origin constraint nothing else looks wrong. The default stays `None` (origin
+  unconstrained), so existing invocations are unaffected; on the human path a mismatch now reads
+  `(expected <origin>)` rather than looking like a broken signature.
+  Covered by `tests/test_verify_proof_expected_origin.py` (flag discoverable in `--help`, default
+  unconstrained, matching origin passes, mismatching origin fails closed with `inclusion_ok` still
+  true, text output names the expectation).
+
+### Fixed
+- **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
+  `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
+  said the three ML-DSA-44 lines were unverified because that "needs the optional `proofbundle[pq]`
+  backend". That reason was never checked and it is wrong: the fixture carries six verifier keys and
+  none of them is ML-DSA-44, so there is no public key to recompute against and no backend can change
+  it. Two of the three missing keys would come from the witness operators (navigli, ring-any-bells);
+  the third carries the log's own origin name, so an independent key for it cannot be sourced without
+  leaning on the audited log — the one dependency this fixture avoids everywhere else.
+  The wrong sentence survived because a test pinned its wording rather than the fact behind it
+  (`test_manifest_declares_no_overclaim` asserted the string `proofbundle[pq]` appeared in the purpose
+  field). That assertion now pins the measured reason, and `TestMarkovianLogMldsaKeysAreAbsent` measures
+  the underlying fact in three tests: no carried key has the ML-DSA-44 algorithm byte, each ML-DSA line's
+  key ID is absent from the carried set, and exactly one of the three carries the log's own origin name.
+  Independently re-measured on a machine with the post-quantum backend installed (`cryptography 50.0.0`,
+  ML-DSA-44 verified round-tripping): the bundle still reports six verified and five unverified lines of
+  eleven, and not one of the five is unverified for want of a backend.
+
+### Tests
+- **Vendored `markovianprotocol.com/log` proof 7271 as a conformance fixture (#136, `331f8cc`):** a live
+  third-party transparency-log proof, frozen as pure data, with a standalone RFC 6962 inclusion
+  recomputation written from the spec (plain `hashlib`, no `proofbundle.merkle`) that must reproduce the
+  checkpoint root before `proofbundle.tlogproof.verify_tlog_proof` is consulted at all, so the two
+  derivations cannot silently drift into each other. Witness keys are sourced from parties other than the
+  audited log. Test-only; no package change.
+
+### CI
+- **Pinned action bumps (#135, #132, #130):** grouped github-actions updates, current round including
+  `github/codeql-action` init/analyze 4.37.6 and `actions/attest-build-provenance` 4.2.2.
+- **ruff rule set pinned, mypy bounded (#134, #131):** `[tool.ruff.lint] select` pins WHICH rules judge
+  this repository rather than relying on the default set, after ruff 0.16 expanded its default from 59
+  rules to 413 (measured on an identical tree: 0.15.x exits 0 over all 258 tracked `.py`, 0.16.x reports
+  1168 findings). `mypy` is bounded at the major version for the same reason.
+
 ## [3.7.0] - 2026-07-23 (adapter sample-count provenance, BETA, relation EXPERIMENTAL)
 
 Status boundary (No-Overclaim): 3.7.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
