@@ -43,6 +43,20 @@ def evaluation_card_hash(card_path) -> str:
     import os  # noqa: PLC0415
     import stat as _stat  # noqa: PLC0415
 
+    # TYPE FLOOR (deep gate wf_cfe249d0-ee8, finding L1-01, P2). A public never-raise surface that takes a
+    # filesystem path must reject a non-path argument with a TYPED error BEFORE the os boundary. Measured:
+    # seven raw exception types escaped here (OverflowError, TypeError, FileNotFoundError) — and the int case
+    # is worse than a wrong type, because os.stat(1) reads a FILE DESCRIPTOR, not a path.
+    #
+    # Widening the except-tuple to catch OverflowError would close only half: the next ArithmeticError
+    # sibling walks straight through, and the fd side effect happens either way. The floor is the fix.
+    #
+    # The invariant already existed in this repo — load_bundle does exactly this ("bundle path must be a
+    # path string, got int (fail-closed)"). It was simply never applied here.
+    if not isinstance(card_path, (str, bytes, os.PathLike)):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"eval card path must be a path string, got {type(card_path).__name__} (fail-closed)")
+
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     from .errors import BundleFormatError  # noqa: PLC0415
     cap = DEFAULT_BUDGET.input_bytes

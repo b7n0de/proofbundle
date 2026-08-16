@@ -105,6 +105,33 @@ _JSON_PRIMARY_NAMES = {
 }
 
 
+def _deferral_targets(module: str, fname: str) -> list[str]:
+    """Tests under ``tests/`` that actually REFERENCE this surface — the only valid basis for a deferral.
+
+    Resolved against the tree instead of asserted, because the asserted form was wrong: the note cited
+    tests/test_fuzz_parsers.py for every non-JSON primary, and that file mentions neither evalcard nor
+    prereg. A citation nobody resolves is indistinguishable from real coverage.
+    """
+    import pathlib as _pl  # noqa: PLC0415
+
+    tests = _pl.Path(__file__).resolve().parents[1] / "tests"
+    if not tests.is_dir():
+        return []
+    treffer = []
+    for f in sorted(tests.glob("test_*.py")):
+        try:
+            quelle = f.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # BEIDES muss vorkommen: der Funktionsname UND das Modul. Die erste Fassung liess
+        # `"proofbundle" in quelle` als Ersatz zu — das trifft fast jede Testdatei, und damit meldete
+        # die Pruefung fuer alle 26 Flaechen eine belegte Deckung. Eine Aufloesung, die immer faendig
+        # wird, ist keine Aufloesung; sie ist die Behauptung in Prueferform.
+        if fname in quelle and module in quelle:
+            treffer.append(f"tests/{f.name}")
+    return treffer
+
+
 def _is_json_primary(param: inspect.Parameter) -> bool:
     """Is the primary (attacker-controlled parsed) argument a JSON OBJECT/array, i.e. in scope for
     the JSON type-confusion matrix?  bytes / compact-str / path / int primaries are a different
@@ -137,9 +164,21 @@ def _classify(qname: str) -> dict:
         return {"python_ref": qname, "status": "NON_JSON", "notes": "no positional input"}
     first = params[0]
     if not _is_json_primary(first):
+        # A DEFERRAL IS ONLY WORTH THE TEST IT NAMES (deep gate wf_cfe249d0-ee8, finding L1-03, P2).
+        #
+        # This note said "covered by tests/test_fuzz_parsers.py" for every non-JSON primary. Measured:
+        # that file mentions neither evalcard nor prereg — it names a coverage that does not exist, and a
+        # named coverage reads exactly like a real one. So the deferral is now RESOLVED against the tree:
+        # only a test that actually references the surface may be cited; otherwise the entry says so.
+        gedeckt = _deferral_targets(module, fname)
+        if gedeckt:
+            hinweis = f"byte/string/path parser class — covered by {', '.join(gedeckt)}"
+        else:
+            hinweis = ("byte/string/path parser class — NO test in tests/ references this surface; "
+                       "the deferral is unbacked and this surface is UNCOVERED here")
         return {"python_ref": qname, "status": "NON_JSON",
-                "notes": f"primary {first.name!r} is not a JSON object (byte/string/path parser "
-                         "class — covered by tests/test_fuzz_parsers.py)"}
+                "notes": f"primary {first.name!r} is not a JSON object ({hinweis})",
+                "deferral_backed": bool(gedeckt)}
     fixtures = _benign_fixtures()
     extra_kwargs: dict[str, object] = {}
     unsatisfiable: list[str] = []

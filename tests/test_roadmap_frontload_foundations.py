@@ -189,15 +189,34 @@ class TestF7PreTagAudit(unittest.TestCase):
                 (rec / "note.md").write_text(f"# 7.7.0\n\n{concession}\n")
                 self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"], concession)
 
-    def test_positive_marker_still_passes(self):
-        # counterpart: a genuine positive audit note IS accepted (discriminates the negation guard from a
-        # blanket reject).
+    def test_eine_echte_attestierung_erteilt_den_pass(self):
+        # counterpart: a genuine record IS accepted (discriminates the gate from a blanket reject).
+        #
+        # Bis 2026-08-08 hiess dieser Test test_positive_marker_still_passes und legte eine PROSA-Notiz an
+        # ("Ran a 6-lens adversarial audit"). Genau das ist der Defekt, den deep-gate-Fund L5-02 beschreibt:
+        # ein Marker-Substring ist kein Beleg, und die Gegenprobe darauf zementierte ihn. Die ABSICHT des
+        # Tests — der Riegel darf nicht alles ablehnen — bleibt; die Eingabe ist jetzt die kanonische
+        # Attestierung, die der Beleg selbst fuehren muss.
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            rec = Path(td) / "audit_artifacts" / "770"
+            rec.mkdir(parents=True)
+            (rec / "note.md").write_text(
+                "# 7.7.0\n\npre-tag-adversarial-audit: RUN | version=7.7.0\n\n"
+                "Ran a 6-lens adversarial audit; all findings fixed.\n")
+            self.assertTrue(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+
+    def test_prosa_allein_erteilt_keinen_pass_mehr(self):
+        # Die Kehrseite, neu: dieselbe Prosa OHNE Attestierung darf nichts mehr erteilen. Ohne diese Zeile
+        # bliebe unbelegt, dass die Polaritaets-Umkehr wirklich stattgefunden hat.
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             rec = Path(td) / "audit_artifacts" / "770"
             rec.mkdir(parents=True)
             (rec / "note.md").write_text("# 7.7.0\n\nRan a 6-lens adversarial audit; all findings fixed.\n")
-            self.assertTrue(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+            r = self.gate.evaluate(Path(td), version="7.7.0")
+            self.assertFalse(r["ok"], "eine Prosa-Notiz erteilt weiterhin einen PASS")
+            self.assertTrue(r["marker_only_records"], "der Marker-Beleg wurde nicht benannt")
 
 
 if __name__ == "__main__":

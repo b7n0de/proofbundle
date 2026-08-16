@@ -2,8 +2,12 @@ name: Scorecard
 
 # OpenSSF Scorecard — supply-chain posture (pinned deps, token permissions, branch protection,
 # dangerous workflows, SAST, fuzzing, signed releases). Publishes results so the badge works.
-# The high-leverage checks this repo already maxes: Pinned-Dependencies (all actions SHA-pinned),
-# Token-Permissions (read-all top-level, per-job escalation), SAST (CodeQL), Fuzzing (Hypothesis).
+# Measured 2026-08-07 (v5.5.0, overall 6.5/10), not assumed: Token-Permissions, SAST and Fuzzing do
+# score 10/10. Pinned-Dependencies does NOT — it scores 3/10, while an earlier version of this
+# comment claimed the check was maxed because all actions are SHA-pinned. Actions are only one input;
+# the check also weighs pip/Dockerfile pinning. A comment that states a score nobody re-measured is
+# the same defect class this project reports about version numbers, so it now carries its date.
+# Current state per check: docs/openssf_best_practices_self_assessment.md.
 
 on:
   branch_protection_rule:

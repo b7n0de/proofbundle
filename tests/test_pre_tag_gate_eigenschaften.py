@@ -16,15 +16,19 @@ DER STAND IST GEMESSEN, NICHT VERMUTET (2026-08-16, gegen das Tor auf release/v3
 
     P5 KONTROLLE  leere Akte erteilt nicht          haelt
     P4 wahrhaftiger Eintrag erteilt                 haelt
-    P1 Datei UEBER den Audit erteilt nicht          VERLETZT
-    P2 Eintrag fuer eine ANDERE Version             VERLETZT
-    P3 "nichts gelaufen" erteilt nicht              VERLETZT
+    P1 Datei UEBER den Audit erteilt nicht          VERLETZT -> haelt seit #139
+    P2 Eintrag fuer eine ANDERE Version             VERLETZT -> haelt seit #139
+    P3 "nichts gelaufen" erteilt nicht              VERLETZT -> haelt seit #139
 
-Die drei verletzten tragen `expectedFailure`. Das ist hier kein Wegschauen, sondern die einzige
-Form, die sich SELBST korrigiert: solange die Luecke besteht, meldet unittest "expected failure"
-und die Suite bleibt gruen; sobald das Tor sie schliesst, meldet es **unexpected success** und
-zwingt dazu, die Markierung zu entfernen. Ein `skip` koennte das nicht — es bliebe still, wenn die
-Arbeit getan ist, und aus "bekannt offen" wuerde unbemerkt "unbekannt".
+Die drei verletzten trugen `expectedFailure` — und der Mechanismus hat GENAU SO gefeuert, wie er
+sollte. Mit dem Merge von PR #139 (2026-08-17) halten P1, P2 und P3, und unittest meldete drei
+**Unexpected success**, also einen FEHLSCHLAG. Das zwang zum Entfernen der Markierungen; sie sind
+entfernt, die drei Eigenschaften sind ab hier normale Zusicherungen.
+
+Warum das hier stehen bleibt statt weggeraeumt zu werden: es ist der Beleg, dass die Bauform
+funktioniert. Ein `skip` haette geschwiegen, als die Arbeit getan war, und aus "bekannt offen" waere
+unbemerkt "unbekannt" geworden. Ein Pin auf eine LUECKE muss rot werden, wenn die Luecke sich
+schliesst — sonst haelt er einen Zustand fest, nachdem er aufgehoert hat zu gelten.
 
 KEINE ZWEITE MESSSTELLE: geprueft wird gegen den ECHTEN `evaluate()` des Tors, nie gegen eine
 nachgebaute Kopie seiner Logik. Zwei Kopien derselben Regel sind die naechste Drift.
@@ -84,7 +88,6 @@ class WasEinVorTagTorKoennenMuss(unittest.TestCase):
 
     # ---- die drei gemessenen Luecken. Werden sie gruen, meldet unittest UNEXPECTED SUCCESS. ----
 
-    @unittest.expectedFailure
     def test_P1_eine_datei_ueber_den_audit_erteilt_nicht(self) -> None:
         """Ein Bericht UEBER einen Audit ist kein Bericht VON einem Audit.
 
@@ -96,7 +99,6 @@ class WasEinVorTagTorKoennenMuss(unittest.TestCase):
         self.assertFalse(self._erteilt(self._baum(MESSUNG__md=bericht)),
                          "ein Bericht ueber die Methodik attestiert das Release")
 
-    @unittest.expectedFailure
     def test_P2_ein_eintrag_fuer_eine_andere_version_erteilt_nicht(self) -> None:
         """Ein Eintrag, der ausdruecklich eine ANDERE Version attestiert, attestiert diese nicht.
 
@@ -108,7 +110,6 @@ class WasEinVorTagTorKoennenMuss(unittest.TestCase):
         self.assertFalse(self._erteilt(self._baum(RECORD__md=fremd)),
                          "ein Eintrag fuer 3.7.0 attestiert 3.8.0")
 
-    @unittest.expectedFailure
     def test_P3_ein_satz_der_das_gegenteil_sagt_erteilt_nicht(self) -> None:
         """Ein Satz, der in klaren Worten sagt, es sei nichts gelaufen, darf nichts attestieren.
 

@@ -27,55 +27,36 @@ _REPO_ONLY_MARKERS = (".github", "tools", "SPEC.md")
 # NOTE: test_renewal_policy::test_shipped_example_policy_loads_and_evaluates is NOT here — its example
 # (docs/adr/renewal_policy.example.json) is a genuinely shipped artifact, fixed by `graft docs/adr`.
 _REPO_CONTEXT_TESTS = frozenset({
-    "test_anchors_chia_claims::test_markovian_absent_on_chia_surface",
-    "test_anchors_chia_claims::test_no_uncaveated_overclaim_on_the_chia_surface",
+    # DER RUECKFALL, GEMESSEN statt angenommen. Diese Tests erreichen das Repo NICHT ueber ein
+    # Pfad-Literal im eigenen Modul (Import aus scripts/, dynamisches Laden, glob auf .github), also kann
+    # die Ableitung sie nicht sehen. Ermittelt, indem die Liste im entpackten sdist GELEERT und die Suite
+    # gefahren wurde: was dann faellt, gehoert hierher — und nur das.
+    #
+    # Eine erste Fassung dieses Fixes strich auf drei Module zusammen, weil ich die uebrigen fuer
+    # redundant HIELT. Sieben Tests fielen daraufhin. Die Menge ist messbar; sie zu schaetzen war der
+    # Fehler.
+    #
+    # test_audit_candidate_360 / test_roadmap_frontload_foundations: importieren scripts/*.py und laufen
+    #   ueber DEREN Repo-Zugriffe.
     "test_audit_candidate_360::test_matrix_is_ready_and_has_33_checks",
     "test_audit_candidate_360::test_c12_2_green_on_real_repo",
     "test_audit_candidate_360::test_c1_1_green_on_real_repo",
-    # L6-02: the c1_1 CI-gate discrimination tests build temp workflow YAML and parse it via
-    # audit_candidate_matrix._ci_workflow_facts -> `import yaml`. PyYAML is a [test]-extra dep, so from a bare
-    # `[eval]` sdist install c1_1 honestly returns DATA_BLOCKED and these asserts fail -> skip them outside a
-    # git checkout (they run in the normal `test` CI job which has the dev deps).
-    "test_audit_candidate_360::test_c1_1_fails_when_second_gate_missing",
-    "test_audit_candidate_360::test_c1_1_fails_when_second_gate_is_not_a_test_gate",
-    "test_audit_candidate_360::test_c1_1_which_pytest_is_not_a_test_run",
-    "test_audit_candidate_360::test_c1_1_collect_only_is_not_a_test_run",
-    "test_audit_candidate_360::test_c1_1_real_unittest_discover_passes",
-    "test_audit_candidate_360::test_variant3_pytest_only_in_comment_echo_or_disabled_job_fails_c1_1",
-    "test_audit_candidate_360::test_variant3b_real_executing_run_step_passes_c1_1",
-    # PKG-01: these read REPO/audit_artifacts/findings_register_361.json, which `prune audit_artifacts` in
-    # MANIFEST.in deliberately drops from the sdist — skip them outside a git checkout (never in CI).
     "test_audit_candidate_360::test_c12_2_fails_on_tampered_register",
     "test_audit_candidate_360::test_c12_2_fails_on_foreign_key_register",
-    "test_findings_register_rt10::test_control_real_register_verifies",
-    "test_findings_register_rt10::test_tampered_status_fails",
-    "test_findings_register_rt10::test_foreign_key_fails",
-    "test_findings_register_rt10::test_emptied_findings_fails",
-    # 6-lens gate L6-01: reads REPO/audit_artifacts/findings_register_361.json (pruned from the sdist) to reuse
-    # the real body before overwriting findings — skip outside a git checkout like its 4 siblings above. The
-    # security property (a hidden open-P0 cannot report 0-open) is ALSO covered from-sdist by the inline
-    # TestResolveCurrent tests, which build findings in-memory and read no pruned file.
-    "test_findings_register_rt10::test_invisible_or_confusable_severity_cannot_hide_open_p0",
+    "test_roadmap_frontload_foundations::test_pack_is_grounded_in_real_artifacts",
+    "test_roadmap_frontload_foundations::test_released_version_has_audit_record",
+    # test_claims_hygiene: scannt die Doku ueber scripts/claims_hygiene_check, das seine Pfadmenge selbst
+    #   fuehrt.
     "test_claims_hygiene::test_real_docs_are_clean",
     "test_claims_hygiene::test_every_default_doc_exists_and_scan_covers_all",
     "test_claims_hygiene::test_injected_overclaim_in_every_listed_doc_fails",
     "test_claims_hygiene::test_main_default_run_includes_cli_surface",
     "test_claims_hygiene::test_new_priority_docs_are_in_scan_set_and_clean",
-    "test_docs_truth::test_citation_version_matches_pyproject",
-    "test_docs_truth::test_docs_references_are_current",
-    "test_docs_truth::test_non_claims_covers_decision_authorization_boundary",
-    "test_docs_truth::test_readme_carries_no_hardcoded_test_count",
-    "test_docs_truth::test_spec_revision_matches_spec_md",
-    "test_fork_pr_secret_isolation::test_repo_workflows_are_isolation_safe",
-    "test_intoto_claims_hygiene::test_intoto_status_is_labelled_proposed",
-    "test_intoto_claims_hygiene::test_no_overclaim_phrase_on_the_intoto_surface",
-    "test_intoto_spec_diff::test_implementation_doc_matches_code",
-    "test_intoto_spec_diff::test_upstream_draft_uses_the_intoto_namespace_and_notes_the_vendor_alias",
-    "test_relation_statement_rust_parity::test_relation_surface_is_covered_and_integrity_ok",
-    "test_roadmap_frontload_foundations::test_pack_is_grounded_in_real_artifacts",
-    "test_roadmap_frontload_foundations::test_released_version_has_audit_record",
+    # test_rust_parity_gate: prueft den Rust-Baum ueber scripts/rust_parity_gate.
     "test_rust_parity_gate::test_real_repo_main_rs_has_the_expected_subcommands",
     "test_rust_parity_gate::test_real_repo_registry_is_honest_strict_mode_exits_0",
+    # test_fork_pr_secret_isolation: glob ueber .github/workflows, kein benanntes Literal.
+    "test_fork_pr_secret_isolation::test_repo_workflows_are_isolation_safe",
 })
 
 
@@ -84,13 +65,142 @@ def running_in_repo_checkout() -> bool:
     return any((_REPO_ROOT / m).exists() for m in _REPO_ONLY_MARKERS)
 
 
+# ── The skip set is DERIVED, not enumerated (deep gate finding L6-01, P1) ────────────────────────────
+#
+# The frozenset above IS the defect. Commit 2c5e7a5 already appended ids to it once, and the gate found six
+# MORE tests failing from an extracted sdist at HEAD — because a list of ids cannot know about the method
+# somebody adds tomorrow to a module that is already on it. The finding is explicit: appending the six is
+# the instance fix and it re-opens.
+#
+# So the question is answered by MEASUREMENT instead: does this test module read a ROOT-relative path that
+# does not exist here? If it does, we are outside a checkout and the module's assertions are about material
+# the sdist deliberately prunes — an honest SKIP, never a FAIL. A method added to such a module tomorrow is
+# covered the moment it is written, because nothing has to be remembered.
+#
+# GRANULARITY, deliberately the module. A single item's file reads cannot be attributed statically without
+# guessing, and guessing here means either a false FAIL (loud, and the pressure is then to loosen the guard)
+# or a false PASS. Skipping the module is the honest, conservative direction: from the sdist it announces
+# N/A instead of running less than it claims. In a checkout every path exists and this whole path is a no-op.
+_ROOT_NAMEN = {"REPO", "ROOT", "REPO_ROOT", "_REPO_ROOT", "PROJECT_ROOT"}
+
+
+def _wurzel_relative_pfade(quelle: str) -> set[str]:
+    """String literals used as ``<repo-root-ish> / "literal"`` in this module's source."""
+    import ast  # noqa: PLC0415 - only needed on the from-sdist path
+
+    try:
+        baum = ast.parse(quelle)
+    except SyntaxError:
+        return set()
+
+    def _ist_wurzel(knoten) -> bool:
+        # REPO / "x"  ·  _REPO_ROOT / "x"  ·  (Path(__file__).resolve().parents[1]) / "x"  ·  REPO / "a" / "b"
+        if isinstance(knoten, ast.Name):
+            return knoten.id in _ROOT_NAMEN
+        if isinstance(knoten, ast.Subscript):
+            return _ist_wurzel(knoten.value)
+        if isinstance(knoten, ast.Attribute):
+            return knoten.attr == "parents" or _ist_wurzel(knoten.value)
+        if isinstance(knoten, ast.Call):
+            return _ist_wurzel(knoten.func)
+        if isinstance(knoten, ast.BinOp) and isinstance(knoten.op, ast.Div):
+            return _ist_wurzel(knoten.left)
+        return False
+
+    def _kette(knoten):
+        """(ist_wurzelrelativ, segmente) — die GANZE Kette, nicht ihre Teile.
+
+        Die erste Fassung sammelte jedes Segment einzeln, sodass aus
+        ``parents[1] / "src" / "proofbundle"`` auch ``proofbundle`` als wurzelrelativ galt. Das liegt
+        aber unter ``src/``, existiert an der Wurzel nicht, und so meldete die Ableitung 23 Module
+        selbst in einem vollstaendigen Checkout. Ein zerlegter Pfad ist ein anderer Pfad.
+        """
+        if isinstance(knoten, ast.BinOp) and isinstance(knoten.op, ast.Div):
+            links_ok, teile = _kette(knoten.left)
+            if not links_ok:
+                return (False, [])
+            if isinstance(knoten.right, ast.Constant) and isinstance(knoten.right.value, str):
+                return (True, teile + [knoten.right.value])
+            return (False, [])          # ein variables Segment macht den Rest unbestimmbar
+        return (_ist_wurzel(knoten), [])
+
+    gefunden: set[str] = set()
+    for x in ast.walk(baum):
+        if not (isinstance(x, ast.BinOp) and isinstance(x.op, ast.Div)):
+            continue
+        ok, teile = _kette(x)
+        if ok and teile:
+            gefunden.add("/".join(teile))
+    return gefunden
+
+
+def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
+    """Is this absent path a BUILD OUTPUT rather than a source path the sdist pruned?
+
+    TWO KINDS OF ABSENCE, and the first version of the derivation had one rule for both.
+    `tests/test_relation_statement_rust_parity.py` names `tools/pb_verify_rs/target/release/pb_verify_rs`.
+    That file is absent in a COMPLETE checkout too — until someone runs `cargo build`. Its absence
+    says nothing about whether we are in an sdist, which is the only question this derivation asks.
+
+    Measured on the branch head: five of the nine root-relative paths that module names are build
+    outputs under `target/`, and all five are gitignored. The two real source paths it names
+    (`tools/pb_verify_rs/crosscheck.py`, `scripts`) are not — and neither is `docs/IN_TOTO_PROFILE.md`,
+    the pruned-leaf case this derivation exists for. The repository's own ignore rules are therefore
+    exactly the discriminator, and they are the RIGHT one: enumerating build-output directory names
+    (`target`, `build`, `dist`, …) would be listing forms again, which is the mistake the comment
+    below already warns about.
+
+    ONLY MEANINGFUL IN A CHECKOUT. In an unpacked sdist there is no git and no ignore file, and there
+    the old rule is what we want — an absent path there really does mean "not shipped". Any failure
+    (git missing, not a repo, non-zero exit) therefore falls back to "not a build artifact", which
+    keeps the previous, stricter behaviour.
+    """
+    import subprocess  # noqa: PLC0415 - only on this path
+    try:
+        r = subprocess.run(["git", "-C", str(wurzel), "check-ignore", "-q", rel],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """True iff this test module reads a root-relative path that is ABSENT here.
+
+    Absence is the whole signal, so an unreadable module is NOT silently treated as fine: it cannot be
+    shown to be package-only, and outside a checkout the safe answer is to skip it.
+
+    A path that is absent because it has not been BUILT is not the same signal (see
+    `_ist_bauartefakt`) and does not count.
+    """
+    try:
+        quelle = pfad.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return True
+    # THE FULL PATH, and it has to be the full path: the sdist prunes LEAVES under shipped directories
+    # too (``docs/`` is grafted but ``docs/IN_TOTO_PROFILE.md`` is pruned), so a first-segment rule misses
+    # exactly the six tests this finding is about. An intermediate attempt used the first segment because
+    # the full-path form flagged 23 modules even in a complete checkout — but that was never the rule's
+    # fault: the path CHAINS were being decomposed (see _kette), so ``src`` / ``proofbundle`` was read as
+    # a root-level ``proofbundle``. With the chain joined correctly the full-path rule is precise, and the
+    # narrowing would have traded a real defect for a comfortable green.
+    return any(not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)
+               for rel in _wurzel_relative_pfade(quelle))
+
+
 def pytest_collection_modifyitems(config, items):
     if running_in_repo_checkout():
         return  # a real checkout: run everything (the CI path — coverage unchanged, pure no-op)
     skip = pytest.mark.skip(reason="repo-context test: asserts repo/CI/Rust/docs layout not shipped in the "
                                    "sdist — N/A outside a git checkout (PKG-2026-0718-01)")
+    entschieden: dict[str, bool] = {}
     for item in items:
-        stem = pathlib.Path(str(getattr(item, "fspath", ""))).stem
+        datei = pathlib.Path(str(getattr(item, "fspath", "")))
+        stem = datei.stem
         method = getattr(item, "originalname", None) or item.name
-        if f"{stem}::{method}" in _REPO_CONTEXT_TESTS:
+        if stem not in entschieden:
+            entschieden[stem] = modul_ist_repo_kontext(datei)
+        # DERIVED first; the explicit list stays as a documented fallback for modules whose repo
+        # dependency is not visible as a path literal (an env probe, a subprocess into the tree).
+        if entschieden[stem] or f"{stem}::{method}" in _REPO_CONTEXT_TESTS:
             item.add_marker(skip)

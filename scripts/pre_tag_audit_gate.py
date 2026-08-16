@@ -46,6 +46,53 @@ _AUDIT_NEGATION = re.compile(
     re.IGNORECASE)
 
 
+# ── The verdict source: an ALLOWLIST of one exact attesting line (deep gate finding L5-02, P1) ──────
+#
+# The gate used to grant PASS from a discipline MARKER minus a NEGATION blocklist. That shape cannot
+# terminate against natural language (Ranum; CWE-183 "permissive list of allowed inputs" inverted), and
+# the gate proved it: a CHANGELOG line stating the audit had been DROPPED passed ``--strict``, because
+# "dropped" was not among the ~30 enumerated negations. Every fix of that shape is one more word.
+#
+# So the polarity is inverted, exactly as the finding requires. There is ONE canonical attesting form,
+# it is matched as a WHOLE line, and it carries the version it attests:
+#
+#     pre-tag-adversarial-audit: RUN | version=3.7.0
+#
+# A negation cannot live inside a closed full-line form, so no vocabulary has to be enumerated. And the
+# embedded version closes a second hole the blocklist never touched: until now ANY marker-carrying file
+# under ``audit_artifacts/<token>/`` granted the pass, so a record copied over from an earlier release
+# attested the new one by sitting in the right folder. The record must now SAY which version it attests.
+#
+# HONEST LIMIT: this is provenance-SHAPED, not provenance. The finding's end state is a runner-signed
+# record whose subject digest equals the artifact being tagged; that needs a signing path this repo does
+# not have yet. What is closed here is that PROSE can no longer move the verdict — in either direction.
+_ATTESTATION = re.compile(
+    r"(?mi)^[ \t]*pre-tag-adversarial-audit:[ \t]*RUN[ \t]*\|[ \t]*version=(?P<v>[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*)[ \t]*$")
+
+
+def attests_version(text: str, version: str) -> bool:
+    """True iff ``text`` carries the canonical attesting line for EXACTLY ``version``."""
+    return any(m.group("v") == version for m in _ATTESTATION.finditer(text))
+
+
+def attesting_records_for(repo: Path, version: str) -> list[str]:
+    """Records under ``audit_artifacts/<token>/`` that ATTEST this exact version, deterministically ordered.
+
+    Distinct from :func:`audit_records_for`, which stays marker-based for its existing consumers (the
+    audit-candidate matrix and C12.2 scan the full candidate list). Only THIS function feeds the verdict.
+    """
+    scoped = repo / "audit_artifacts" / _version_token(version)
+    if not scoped.is_dir():
+        return []
+    out: list[str] = []
+    for f in sorted(scoped.rglob("*.md")):
+        if not f.is_file():
+            continue
+        if attests_version(f.read_text(encoding="utf-8", errors="ignore"), version):
+            out.append(str(f.relative_to(repo)))
+    return out
+
+
 def _positive_audit_marker(text: str) -> bool:
     """True iff some PARAGRAPH asserts an adversarial/N-lens audit was run — a discipline marker in a
     paragraph that carries no negation.
@@ -168,19 +215,33 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
         return {"ok": False, "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
     section = changelog_section(repo, version)
-    changelog_ok = bool(section and _positive_audit_marker(section))  # RT10-PRETAG-02 negation guard
-    artifact = audit_artifact_for(repo, version)
-    ok = changelog_ok or bool(artifact)
+    # PRESENTATIONAL ONLY (L5-02). Reported so a reader sees the state, but it can no longer move the
+    # verdict in EITHER direction — neither granting a PASS from a marker nor withholding one. That is
+    # the whole point: the attestation is the record's job, the CHANGELOG renders it.
+    changelog_ok = bool(section and _positive_audit_marker(section))
+    attesting = attesting_records_for(repo, version)
+    artifact = attesting[0] if attesting else None
+    ok = bool(attesting)
+    # Kept for the operator: a record that carries the old discipline marker but NOT the canonical
+    # attestation is the likeliest reason for a surprising MISSING, so name it instead of staying mute.
+    marker_only = [r for r in audit_records_for(repo, version) if r not in attesting]
     return {
         "ok": ok,
         "version": version,
         "changelog_section_found": section is not None,
         "changelog_records_audit": changelog_ok,
+        "changelog_is_presentational": True,
         "audit_artifact": artifact,
+        "attesting_records": attesting,
+        "marker_only_records": marker_only,
         "reason": None if ok else (
-            f"no adversarial/N-lens audit recorded for {version}: the CHANGELOG [{version}] section "
-            "carries no lens/adversarial note and no audit_artifacts file names it — run the pre-tag "
-            "adversarial audit (master-prompt-v2) and record it before tagging (Front-Load §7)"),
+            f"no attesting pre-tag audit record for {version}: no file under audit_artifacts/"
+            f"{_version_token(version)}/ carries the canonical line "
+            f"'pre-tag-adversarial-audit: RUN | version={version}'"
+            + (f" (found {len(marker_only)} record(s) with a discipline marker but no attestation: "
+               f"{marker_only})" if marker_only else "")
+            + ". The CHANGELOG text is presentational and cannot grant this — run the pre-tag "
+              "adversarial audit and record it before tagging (Front-Load §7)"),
     }
 
 
