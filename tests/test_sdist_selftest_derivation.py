@@ -124,6 +124,22 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def _in_git_checkout() -> bool:
+    """Laeuft das hier in einem git-Arbeitsbaum? Gemessen, nicht aus der Verzeichnisform geraten.
+
+    Im entpackten sdist gibt es weder `.git` noch das Kommando — und genau dort ist die Ignore-Regel
+    nicht befragbar. Der Aufruf hier ist derselbe, den `_ist_bauartefakt` intern macht, damit die
+    Bedingung des Tests und die des Codes nicht auseinanderlaufen koennen.
+    """
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--is-inside-work-tree"],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
 class BauartefakteZaehlenNicht(unittest.TestCase):
     """ZWEI ARTEN VON ABWESENHEIT, und die erste Fassung hatte eine Regel fuer beide.
 
@@ -143,6 +159,21 @@ class BauartefakteZaehlenNicht(unittest.TestCase):
     """
 
     def test_ein_ungebautes_artefakt_macht_kein_repo_kontext_modul(self):
+        """NUR IM CHECKOUT AUSSAGEKRAEFTIG, und die erste Fassung hat das vergessen.
+
+        Sie behauptete `True` unbedingt — und fiel im hermetic-cleanroom-Job, der die Suite aus dem
+        ENTPACKTEN sdist faehrt. Dort gibt es kein git, also gibt `_ist_bauartefakt` fail-safe `False`
+        zurueck. Das ist genau das Verhalten, das der dritte Test dieser Klasse VORHERSAGT; ich hatte
+        die Bedingung nur im ersten nicht gesetzt. Der Test mass damit die UMGEBUNG statt der
+        Eigenschaft — dieselbe Klasse, gegen die diese ganze Datei steht, eine Ebene hoeher.
+
+        Ausgelassen wird hier NICHT stillschweigend: ohne git ist die Frage nicht messbar, und der
+        Skip sagt das. Die Eigenschaft selbst haelt der Cleanroom-Job ueber
+        `test_ohne_git_bleibt_das_strengere_alte_verhalten` weiter, nur von der anderen Seite.
+        """
+        if not _in_git_checkout():
+            self.skipTest("kein git-Checkout (entpacktes sdist) — die Ignore-Regel ist hier nicht "
+                          "messbar, und nicht messbar ist keine Freigabe")
         self.assertFalse(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/crosscheck.py"),
                          "eine echte Quelldatei gilt als Bauartefakt — die Ableitung wuerde blind")
         self.assertTrue(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/target/release/pb_verify_rs"),
