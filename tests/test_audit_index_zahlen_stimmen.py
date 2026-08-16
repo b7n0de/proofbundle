@@ -30,8 +30,14 @@ _REPO = pathlib.Path(__file__).resolve().parents[1]
 _AKTEN = _REPO / "audit_artifacts"
 
 # "FIVE of the six findings are on `main`" — Wort-Zahlen, weil der Index Prosa ist und bleiben soll.
+# BIS ZWANZIG, nicht bis zehn. Die erste Fassung endete bei "ten" — und genau in dem Moment, in dem
+# die Akte auf ELF Dateien wuchs und ich den Satz brav auf "eleven files" korrigierte, hoerte der
+# Waechter auf, ihn zu pruefen. Eine Wortliste, die den vorkommenden Wert nicht enthaelt, macht aus
+# einer gepruefen Zahl still eine ungepruefte; gefunden vom eigenen Meta-Test am 2026-08-17.
 _WORTZAHL = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-             "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+             "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+             "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+             "eighteen": 18, "nineteen": 19, "twenty": 20}
 # DAS HAUPTWORT IST PFLICHT, und das ist der eigentliche Fix. Die erste Fassung matchte jedes
 # `N of the M` und behandelte es als die Altbefund-Aussage. Sobald der Index einen zweiten,
 # voellig wahren Satz derselben Grammatik ueber eine ANDERE Groesse bekam ("Two of the six were
@@ -48,8 +54,20 @@ _TABELLENZEILE = re.compile(r"^\|\s*`(FINDING_[A-Za-z0-9_]+\.md)`", re.MULTILINE
 # gezaehlten Hauptwort. Nachgetragen, nachdem beide Formen im 3.8.0-Index gemessen FALSCH standen
 # ("the five findings" bei sechs, "this one is eight" bei zehn) und die erste Fassung dieses
 # Waechters an ihnen vorbeilas — sie band die Zahl an EINE Formulierung statt an die Aussage.
-_AM_HAUPTWORT = re.compile(r"\b(" + "|".join(_WORTZAHL) + r"|\d+)\s+(findings|files)\b",
-                           re.IGNORECASE)
+# `findings` ist eindeutig: in einer Befund-Akte zaehlt "N findings" die Befunde.
+# `files` ist es NICHT — und das ist am 2026-08-17 gemessen worden, als eine Sonde derselben Bauart
+# vier Falschtreffer meldete: "2 files changed" (der src/-Delta), "two files under `src/`" und
+# "two files in this same directory" (eine Redewendung) zaehlen NICHT die Akte. Der Waechter ging
+# bis dahin nur deshalb gut, weil im Index zufaellig kein src/-Delta stand — Glueck, kein Entwurf.
+# Deshalb wird eine Datei-Zahl nur geprueft, wenn der Satz SICH SELBST als Gegenstand nennt.
+# EHRLICHE GRENZE: eine falsche Datei-Zahl in anderer Formulierung entgeht damit. Das ist die
+# bewusste Wahl gegen einen Waechter, der wahre Saetze als Fehler meldet — ein Waechter, der
+# Fehlalarme streut, wird abgeschaltet, und dann faengt er auch die echten nicht mehr.
+_SELBSTBEZUG = r"(?:this one is|this record is|the record is|dieser Record ist)\s+"
+_AM_HAUPTWORT = re.compile(
+    r"\b(" + "|".join(_WORTZAHL) + r"|\d+)\s+findings\b"
+    r"|" + _SELBSTBEZUG + r"(" + "|".join(_WORTZAHL) + r"|\d+)\s+files\b",
+    re.IGNORECASE)
 
 # EIN ZITAT IST KEINE BEHAUPTUNG. Diese Akte korrigiert ihre eigenen Zahlen und muss dafuer die
 # FALSCHE nennen duerfen ("the five findings" (there were six)). Ohne diese Ausnahme bestraft der
@@ -171,7 +189,11 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
                        "files": len(list(idx.parent.glob("*.md")))}
                 gefunden = 0
                 for m in _ungezitiert(text, _AM_HAUPTWORT):
-                    roh, hauptwort = m.group(1).lower(), m.group(2).lower()
+                    # Gruppe 1 = "<N> findings", Gruppe 2 = "<Selbstbezug> <N> files".
+                    if m.group(1) is not None:
+                        roh, hauptwort = m.group(1).lower(), "findings"
+                    else:
+                        roh, hauptwort = m.group(2).lower(), "files"
                     gefunden += 1
                     behauptet = _WORTZAHL.get(roh, None)
                     if behauptet is None:
@@ -205,6 +227,23 @@ class AktenIndexZahlenStimmen(unittest.TestCase):
         self.assertEqual([m.group(0) for m in _ungezitiert(beides, _AM_HAUPTWORT)],
                          ["six findings"],
                          "ein Zitat im selben Text darf die offene Zahl daneben nicht mitdecken")
+        # EINE DATEI-ZAHL UEBER EINE ANDERE MENGE DARF NICHT FEUERN. Am 2026-08-17 meldete eine
+        # Sonde derselben Bauart vier Falschtreffer, alle aus derselben Annahme: "N files" muesse
+        # die Akte meinen. Gemessen meinten sie den src/-Delta ("2 files changed") oder waren eine
+        # Redewendung ("two files in this same directory"). Der Waechter ging bis dahin nur gut,
+        # weil im Index zufaellig kein src/-Delta stand.
+        for harmlos in ("2 files changed, 49 insertions(+)",
+                        "the shipped delta is two files under `src/`",
+                        "a counter-read found the two files in this same directory"):
+            with self.subTest(harmlos=harmlos):
+                self.assertEqual(list(_ungezitiert(harmlos, _AM_HAUPTWORT)), [],
+                                 "eine Datei-Zahl ueber eine ANDERE Menge wird geprueft — der "
+                                 "Waechter meldet wahre Saetze als Fehler")
+        # ... und die Selbstbezugs-Form muss weiterhin greifen, sonst ist die Verengung ein Ausfall.
+        self.assertEqual([m.group(0) for m in _ungezitiert("This one is eleven files.", _AM_HAUPTWORT)],
+                         ["This one is eleven files"],
+                         "die Selbstbezugs-Form wird nicht mehr gesehen — Waechter tot")
+
         # Die EHRLICHE GRENZE, ausgeschrieben: eine LEBENDE Behauptung in Anfuehrungszeichen
         # entgeht der Pruefung. Das ist bewusst so und hier gemessen, nicht beschoenigt.
         self.assertEqual(list(_ungezitiert('The record has "ten findings" today.', _AM_HAUPTWORT)),

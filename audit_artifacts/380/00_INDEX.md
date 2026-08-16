@@ -8,9 +8,10 @@ omission.
 any non-negated marker line in any `.md` here, so an index that named the vocabulary would attest the
 release by describing it. That property is itself one of the records below.
 
-The 3.7.0 record was a single file. This one is eleven files, because the run kept finding things
-about its own instruments — the eleventh is `PRE_REGISTRATION_DEEP_380.md`, the frozen targets of
-the DEEP run, and the guard below caught this very sentence going stale the moment it landed. The order below is the order a reader needs, not the order they were written.
+The 3.7.0 record was a single file. This one is twelve files, because the run kept finding things
+about its own instruments — the last two are `PRE_REGISTRATION_DEEP_380.md`, the
+frozen targets of the DEEP run, and `DEEP_RUN_RECORD_380.md`, its result. The guard below
+caught this very sentence going stale twice, once for each of them. The order below is the order a reader needs, not the order they were written.
 
 The count in that sentence read "eight" until it was measured. It is stated as "ten **files**" rather
 than as a bare number so that the guard can check it: the number is now attached to the noun it
@@ -22,6 +23,8 @@ counts, which is the difference between a claim a test can hold and one only a c
 |---|---|
 | `PRE_REGISTRATION_380.md` | the targets, frozen before anything ran — plus four appended sections (§8–§11) correcting the run's own rules while it ran. §11 carries the current binding set and the rule that replaced an enumeration |
 | `FALSIFICATION_F1_F7.md` | one lens: falsification-first with executable exploits. Seven targets stated, four hold, **three fell** — all three grading errors of mine, not defects in the release |
+| `DEEP_RUN_RECORD_380.md` | the DEEP run's result and the attestation it carries. One target REFUTED (D1, the expectation-comparison population), five held. Read this before the findings |
+| `PRE_REGISTRATION_DEEP_380.md` | the DEEP run's targets, frozen before it ran |
 | `MESSUNG_das_tor_von_pr139.md` | why the release cannot be cut honestly on this branch's gate, and what PR #139 changes. Both gate versions measured side by side |
 
 ## Findings — each is a decision, not a note
