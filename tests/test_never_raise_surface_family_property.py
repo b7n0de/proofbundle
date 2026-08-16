@@ -36,6 +36,12 @@ _MODULES = [
     # These seven carried 11 matching surfaces the property had never entered.
     "anchors_chia", "anchors_markovian", "anchors_ots", "anchors_rfc3161", "anchors_rootcommit",
     "emit", "pqsig",
+    # 2026-08-17: the coverage guard itself globbed the top level only, so a module inside a
+    # SUBPACKAGE was outside the ground truth — and therefore outside the guard that exists to prove
+    # nothing is outside. Measured after widening it to `rglob`: 50 modules -> 56, and of the six new
+    # ones exactly this one carries a matching surface. It ships, it has a documented import path,
+    # and it is its own CLI subcommand (`verify-enclave`).
+    "experimental.enclave",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
