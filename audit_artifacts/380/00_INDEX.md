@@ -28,11 +28,16 @@ own instruments. The order below is the order a reader needs, not the order they
 | `FINDING_json_trennt_die_drei_ursachen_nicht.md` | open, narrowed twice — **and this one is THIS release's**, see below | the `--json` path cannot separate a wrong key from a tampered signature. Two executable guards hold the measured state, one per half |
 | `FINDING_quorum_erreicht_ununterscheidbar_von_keins_verlangt.md` | `class_open` | `witnesses_ok: true` with zero confirming witnesses, and `threshold` is not in the output |
 | `FINDING_never_raise_population.md` | `class_open`, pre-existing | the never-raise family property walks a hand-maintained module list; 11 surfaces across 7 modules are outside it |
+| `FINDING_pruefer_fehler_liest_sich_wie_artefakt_fehler.md` | `class_open` | a typo in the verifier's own command line produces output byte-identical to "this file is not a proof" — *not measurable* collides with *measured no* |
 
-**FOUR of the five are on `main` and predate this release — not all five.** The first draft of this
-paragraph said "all five", which is the same error this record spends most of its pages correcting: a
-summary label that does not hold for every member. Measured, per finding, by asking whether its
-subject exists at `v3.7.0`:
+**FIVE of the six are on `main` and predate this release — exactly one is ours.** Two drafts of this
+paragraph were wrong before this one: the first said "all five" (it was four of five), the second was
+correct at the time and went stale the moment a sixth finding was added. That is the same error this
+record spends most of its pages correcting — a summary label checked once and then carried — and it
+is written out here rather than quietly renumbered. The second time it was caught by a counter-count
+before the paragraph was published; the first time it was not.
+
+Measured, per finding, by asking whether its subject exists at `v3.7.0`:
 
 ```
 erwartungsvergleich (kbjwt: expected_aud != aud)      v3.7.0 ja   -> Altbefund
@@ -40,9 +45,10 @@ nachbarflaeche (verify --trusted-checkpoint)          v3.7.0 ja   -> Altbefund
 json trennt drei ursachen (out["expected_origin"])    v3.7.0 NEIN -> THIS RELEASE
 quorum (witnesses_ok)                                 v3.7.0 ja   -> Altbefund
 never-raise population (_MODULES)                     v3.7.0 ja   -> Altbefund
+pruefer-fehler (--threshold, _tlog_failclosed)        v3.7.0 ja   -> Altbefund
 ```
 
-The difference is not bookkeeping. For the four, the rule this run follows is that a `main` finding is
+The difference is not bookkeeping. For the five, the rule this run follows is that a `main` finding is
 **reported**, not folded into a release that did not cause it. The third is different: `expected_origin`
 in the JSON output is new **here**, the over-wide claim about what it separates was made **here**, and
 its correction therefore belongs to this release rather than to a later one. It is corrected in place,
