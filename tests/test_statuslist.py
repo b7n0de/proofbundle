@@ -24,6 +24,23 @@ class TestStatusList(unittest.TestCase):
         self.token = issue_status_list_token([0, 1, 0, 0, 1, 0], uri=URI,
                                              signer=self.signer, iat=IAT)
 
+    def test_float_bits_is_fail_closed_not_raise(self):
+        """L2-01 (never-raise): a SIGNED token declaring float bits (2.0) must verify to a fail-closed
+        verdict, not a raw TypeError. 2.0 satisfies `2.0 in (1,2,4,8)` and slipped past the bits guard,
+        then `_status_at` indexed a byte array with a float and crashed."""
+        import json
+        import zlib
+        from proofbundle.statuslist import TYP, _b64url
+        arr = bytes([0b00000100])  # 2-bit width, index 1 set
+        payload = {"sub": URI, "iat": IAT,
+                   "status_list": {"bits": 2.0, "lst": _b64url(zlib.compress(arr, 9))}}
+        header = {"alg": "EdDSA", "typ": TYP}
+        si = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+        token = si + "." + _b64url(self.signer.sign(si.encode("ascii")))
+        res = verify_status_snapshot(token, expected_uri=URI, index=1, issuer_pubkey=self.pub)
+        self.assertFalse(res["ok"])
+        self.assertIn("bits", res["detail"])
+
     def test_green_valid_and_invalid(self):
         ok = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=self.pub)
         self.assertTrue(ok["ok"])

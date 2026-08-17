@@ -179,7 +179,10 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = "status_list claim missing"
         return result
     bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
+    # L2-01 (never-raise): a float bits (e.g. 2.0) satisfies `2.0 in (1,2,4,8)` and slips through, then
+    # `_status_at` does `8 // bits` / byte-indexing on a float -> raw TypeError instead of a fail-closed
+    # verdict. Reject non-int (and bool, an int subclass) explicitly, same guard as idx/iat/index.
+    if isinstance(bits, bool) or not isinstance(bits, int) or bits not in _ALLOWED_BITS:
         result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
         return result
     if not isinstance(sl.get("lst"), str):
