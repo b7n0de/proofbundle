@@ -60,18 +60,23 @@ def _origin_wellformed(origin: str) -> bool:
     return not any(c.isspace() or unicodedata.category(c) == "Cf" for c in origin)
 
 
+def _name_has_invisible(name: str) -> bool:
+    """True if a NAME (witness or origin) carries a zero-width/format (Cf) character or any whitespace
+    other than the plain ASCII space U+0020. Both classes can make one name LOOK identical to another
+    while being byte-different, defeating the exact origin-quorum compare (Deep-Gate F-1 zero-width,
+    re-gate NBSP). The plain space is the one exception, allowed so a spaced ORIGIN like Go sumdb's
+    `go.sum database tree` still verifies — a witness NAME carries no space at all (enforced), so a
+    spaced origin can never equal a witness name anyway. Control chars that are not whitespace (ESC)
+    are left to the terminal-output neutralisation; the key-material exclusion is the robust defence
+    regardless of any of this."""
+    return any(unicodedata.category(c) == "Cf" or (c.isspace() and c != " ") for c in name)
+
+
 def _origin_has_invisible(origin: str) -> bool:
-    """VERIFY-side rule: True if the origin carries a zero-width / format (Cf) character. These are
-    INVISIBLE, so an origin line can be made to LOOK identical to a witness name while being
-    byte-different — and the origin-quorum exclusion, which compares the origin against witness names,
-    then runs into the void (the log votes in its own quorum under a zero-width-cloaked name; Deep-Gate
-    F-1, 2026-08-17). Deliberately NARROW: visible spaces (Zs — e.g. Go sumdb's `go.sum database tree`)
-    are NOT flagged, because they are visible AND a witness name carries no whitespace, so a spaced
-    origin cannot cloak a witness name; control characters (Cc) are left to the existing terminal-output
-    neutralisation (a checkpoint may legitimately be probed with them, tested), and the key-material
-    exclusion is the robust defence regardless. Rejecting only the invisible class keeps every legitimate
-    external vector (Go sumdb, Rekor) verifying while closing the cloak."""
-    return any(unicodedata.category(c) == "Cf" for c in origin)
+    """VERIFY-side origin rule — see :func:`_name_has_invisible`. An origin carrying a zero-width or a
+    non-plain-space whitespace is refused as malformed, so it cannot cloak a witness name it would then
+    escape the origin-quorum exclusion under. Plain spaces stay legal (Go sumdb / Rekor vectors)."""
+    return _name_has_invisible(origin)
 
 
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
@@ -310,7 +315,8 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
             or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
-    if not witness_name or "+" in witness_name or any(c.isspace() for c in witness_name):
+    if (not witness_name or "+" in witness_name
+            or any(c.isspace() or unicodedata.category(c) == "Cf" for c in witness_name)):
         raise BundleFormatError("witness name must be non-empty without spaces or '+'")
     note_text = _note_text_of(signed_note)
     if not signed_note.endswith("\n"):
@@ -386,7 +392,8 @@ def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
     if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
             or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
-    if not witness_name or "+" in witness_name or any(c.isspace() for c in witness_name):
+    if (not witness_name or "+" in witness_name
+            or any(c.isspace() or unicodedata.category(c) == "Cf" for c in witness_name)):
         raise BundleFormatError("witness name must be non-empty without spaces or '+'")
     note_text = _note_text_of(signed_note)
     if not signed_note.endswith("\n"):
@@ -414,6 +421,14 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     if len(parts) != 3:
         raise BundleFormatError("vkey must have 3 '+'-separated parts (name+hexKeyID+base64KeyMaterial)")
     name, kid_hex, keymat_b64 = parts
+    # DEEP-GATE re-gate (2026-08-17): a witness NAME must carry no whitespace and no zero-width/format
+    # character — the same rule the emit path (cosign_checkpoint) enforces, now enforced on the VERIFY
+    # path too. Without it a cosignature line under a name like "origin " (NBSP) or "origin​"
+    # (ZWSP) parses and verifies, looks identical to the origin, yet is byte-different from it, so the
+    # origin-quorum name compare misses it and the log votes in its own quorum under a cloaked name.
+    if any(c.isspace() or unicodedata.category(c) == "Cf" for c in name):
+        raise BundleFormatError(
+            "witness vkey name must not contain whitespace or zero-width/format characters")
     try:
         keymat = base64.b64decode(keymat_b64, validate=True)
     except (ValueError, TypeError) as exc:

@@ -154,10 +154,12 @@ class TestOriginQuorumRegression(unittest.TestCase):
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
     def test_the_comparison_is_exact(self):
-        # A near-miss name is a DIFFERENT witness, not a loosened origin match: it must not be
-        # excluded (and, unkeyed, it verifies nothing either). Polarity: pruefer(name) is True
-        # iff a vkey under `name` gets origin_excluded — True for the origin itself, False for
-        # every named loosening in the shared corpus.
+        # A near-miss name is NOT the origin: it is either a DIFFERENT witness (visible near-misses:
+        # prefix, suffix, uppercase, …) or a MALFORMED vkey (whitespace/zero-width near-misses, now
+        # rejected at parse — the re-gate hardening). Neither is "excluded as the origin". Polarity:
+        # pruefer(name) is True iff a vkey under `name` gets origin_excluded — True for the exact
+        # origin only. A malformed near-miss raises rather than counting or excluding, so it maps to
+        # False here (it is never accepted AS the origin), which is what the exactness property means.
         from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
         log_key = generate_signer()
         note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log_key, ORIGIN)
@@ -165,7 +167,10 @@ class TestOriginQuorumRegression(unittest.TestCase):
 
         def wird_ausgeschlossen(name: str) -> bool:
             wv = cp.cosign_vkey(name, _raw(probe_key))
-            _, witnesses = cp.witness_quorum(note, [wv], 1)
+            try:
+                _, witnesses = cp.witness_quorum(note, [wv], 1)
+            except BundleFormatError:
+                return False    # malformed near-miss (whitespace/zero-width) — never the origin
             return next(iter(witnesses.values())).get("origin_excluded", False) is True
 
         pruefe_exakt(wird_ausgeschlossen, ORIGIN, self)
@@ -430,6 +435,33 @@ class TestOriginQuorumHardening(unittest.TestCase):
         self.assertTrue(cp._origin_wellformed("a.b.c/d-e_f"))
         for bad in ("", "a+b", "a b", "a\tb", "a\u200bb", "a\ufeffb"):      # strict: no space/Cf/'+'
             self.assertFalse(cp._origin_wellformed(bad), bad)
+
+    def test_f1_nbsp_and_zero_width_in_a_witness_name_are_rejected(self):
+        # Re-gate neighbour of F-1: the cloak can sit in the WITNESS NAME, not only the origin line.
+        # A name carrying NBSP (Zs, isspace) or ZWSP (Cf) looks identical to the origin yet is
+        # byte-different, so the name compare would miss it. _parse_witness_vkey now rejects such a
+        # name (the emit path always did) — the vkey is malformed, so the line cannot count.
+        log = generate_signer()
+        for label, cloaked in (("NBSP", ORIGIN + " "), ("ZWSP", ORIGIN + "​"),
+                               ("ideographic-space", ORIGIN + "　"), ("tab", ORIGIN + "\t")):
+            with self.subTest(name=label):
+                w = generate_signer()
+                with self.assertRaises(BundleFormatError):
+                    cp._parse_witness_vkey(cp.cosign_vkey(cloaked, _raw(w)))
+                # end-to-end: a hand-forged line under such a name does not survive the quorum
+                note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+                with self.assertRaises(BundleFormatError):
+                    cp.witness_quorum(note, [cp.cosign_vkey(cloaked, _raw(w))], 1,
+                                      log_key_material=_raw(log))
+
+    def test_plain_space_origin_still_verifies_but_never_equals_a_witness(self):
+        # The one allowed whitespace (U+0020) keeps Go sumdb-style origins verifying, and such an
+        # origin can never equal a witness name (names carry no space at all), so it is never excluded
+        # by the name test — measured, not assumed.
+        self.assertFalse(cp._origin_has_invisible("go.sum database tree"))
+        self.assertTrue(cp._origin_has_invisible("go.sum database"))     # NBSP flagged
+        with self.assertRaises(BundleFormatError):                           # a spaced witness name is malformed
+            cp._parse_witness_vkey(cp.cosign_vkey("go.sum database tree", _raw(generate_signer())))
 
     def test_key_material_exclusion_needs_the_log_context(self):
         # Honest scope: the material test only fires when the caller supplies log_key_material. A bare
