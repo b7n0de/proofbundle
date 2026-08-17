@@ -1,0 +1,36 @@
+{
+  "namespace": "markovian_log/checkpoint_7397",
+  "kind": "vendored-third-party-signed-checkpoint",
+  "purpose": "The origin-quorum-rule test vector: a LIVE, current checkpoint of a third-party log that carries the log's own name in signature position twice — once as its Ed25519 note signature (algorithm byte 0x01) and once as an ML-DSA-44 line in cosignature shape (keyid bda842cb). The rule under test: a signature under the checked log's own origin name never counts toward the witness quorum, whatever its algorithm. The Ed25519 half is already excluded structurally (a 0x01 log key is never accepted as a witness key — domain separation); the ML-DSA half is excluded by the origin-quorum rule in checkpoint.witness_quorum. The log operator offered exactly this checkpoint as the test vector in b7n0de/proofbundle issue #7 (2026-08-16): 'Make it fail closed and our checkpoint is a test vector — self-signature under the origin name in both Ed25519 and ML-DSA-44, on a live log.' NO-OVERCLAIM: the two origin-name self-signatures themselves are NOT cryptographically verified here — no independent source publishes the log's own keys for them (the ML-DSA key arrives only with the operator's offline-signed trust-root manifest at the next rotation); what this vector holds is that they never COUNT, which is the rule's whole point and needs no key. The seven witness cosignatures verify with the keys carried in ../proof_7271/keys_unabhaengig.txt (the two ML-DSA ones with the [pq] extra).",
+  "upstream": {
+    "project": "MarkovianProtocol transparency log",
+    "author": "Markovian Protocol / Colin <hello@quantsynth.net>",
+    "log_origin": "markovianprotocol.com/log",
+    "checkpoint_url": "https://log.markovianprotocol.com/checkpoint",
+    "retrieved_at_utc": "2026-08-17T09:34:19Z",
+    "provenance_note": "A live endpoint whose checkpoint moves with the log; pinned by retrieval time plus the digest below, not by an upstream revision.",
+    "license": "MIT",
+    "license_holder": "Copyright (c) 2026 Markovian Protocol"
+  },
+  "tree_size_at_retrieval": 7397,
+  "checkpoint_root_b64": "damuYs9UhGvJoU7Mg1Vc3nxegV4qXvPsS3CPKtwGGco=",
+  "signature_lines": {
+    "total": 11,
+    "ed25519_note_signature": 1,
+    "ed25519_cosignature_v1": 7,
+    "ml_dsa_44": 3,
+    "origin_name_lines": {
+      "ed25519_note_signature_keyid": "0302c6c8",
+      "ml_dsa_44_cosignature_shape_keyid": "bda842cb"
+    }
+  },
+  "files": [
+    {
+      "path": "checkpoint_7397.txt",
+      "sha256": "b32adeda6d89241fb88cef722c0156bd115b1745a166bdc90fabe9646a651d7c",
+      "bytes": 11034,
+      "case": "the signed checkpoint exactly as served by /checkpoint on 2026-08-17T09:34:19Z",
+      "expect": "the log signature verifies under the carried log vkey; the witness quorum (threshold 4) is met by the carried witness keys while both origin-name lines count for nothing; a fabricated witness vkey under the origin name is excluded with origin_excluded=true, never counted"
+    }
+  ]
+}

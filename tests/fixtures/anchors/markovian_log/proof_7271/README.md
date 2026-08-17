@@ -28,6 +28,7 @@ keys we did not receive from that log.
 | `proofbundle verify-proof`, threshold 4 | `ok=true`, `log_ok=true`, `witnesses_ok=true`, `inclusion_ok=true`, exit 0 |
 | Counter-test, one bit flipped in the payload | `ok=false`, `inclusion_ok=false`, `log_ok` and `witnesses_ok` still true, exit 1 |
 | Cosignatures | 5 independent witnesses, `ed25519-cosignature/v1`, 2026-08-14T06:35:02Z to 06:35:04Z |
+| ML-DSA-44 witness keys (added 2026-08-17) | navigli `6bc44249` and ring-any-bells `5774b075`, operator-published, each keyid recomputed and each signature verified over the `subtree/v1` message against this frozen checkpoint, bit-flip counter-probes in signature and root both failing — with them, 8 of the 11 lines verify (6 of 11 without the `[pq]` extra) |
 
 The inclusion half was recomputed with a standalone RFC 6962 implementation
 before `proofbundle` was involved at all, and that recomputation is carried into
@@ -46,11 +47,16 @@ Eleven lines in total. Decoded length distinguishes them, because
 | 2432 | ML-DSA-44 in cosignature shape | navigli, ring-any-bells, `markovianprotocol.com/log` | 3 |
 
 Five of the seven Ed25519 witness cosignatures were verified, which meets the
-log's published 4-of-7 quorum. The third ML-DSA-44 line carries the log's own
-origin name rather than a witness name, so the log appears once as an Ed25519
-note signature and once more in cosignature shape under a second algorithm. That
-is recorded as an observation, not a finding; it has not been verified and how a
-strict verifier should count it is an open question put to the log operator.
+log's published 4-of-7 quorum; since 2026-08-17 the two ML-DSA-44 **witness**
+lines verify as well (with the `[pq]` extra). The third ML-DSA-44 line carries
+the log's own origin name rather than a witness name, so the log appears once as
+an Ed25519 note signature and once more in cosignature shape under a second
+algorithm. The question this raised — how a strict verifier should count that
+line — was put to the log operator and answered in issue #7: it must never
+count. His `/policy` declares the quorum as `group independent-witnesses 4` with
+the log not a member, and `checkpoint.witness_quorum` now enforces exactly that
+as the origin-quorum rule, fail-closed and algorithm-agnostic: a log never votes
+in its own quorum.
 
 ## Key provenance, the point of this fixture
 
@@ -61,10 +67,14 @@ line in `keys_unabhaengig.txt` and were captured with their own digests in
 Two witnesses named in the log's policy, `rgdd.se/poc-witness` and
 `witness1.smartit.nu/witness1`, are **deliberately absent**. We could not reach
 their operators' own pages, so we do not carry their keys. Five independently
-sourced witnesses is already above the log's published 4-of-7 quorum.
+sourced Ed25519 witnesses is already above the log's published 4-of-7 quorum;
+the two ML-DSA-44 witness keys (added 2026-08-17, from `transparency.dev/witnesses`
+and the navigli operator page) raise the covered lines without changing that.
 
-`witness.navigli.sunlight.geomys.org` rests on **one** source (torchwood), not
-two: its own page did not serve the key to a plain fetch.
+The 2026-08-14 note that navigli's own page "did not serve the key" was our
+extraction's fault, not the page's — it serves vkeys HTML-entity-encoded
+(`&#43;` for `+`) and the pattern missed that form. Corrected in `SOURCES.md`;
+the navigli Ed25519 key rests on two sources after all.
 
 ## Honest limits
 
@@ -83,12 +93,16 @@ two: its own page did not serve the key to a plain fetch.
   `staging.witness.transparency.goog/ring-any-bells`, are not listed there at all
   and are dev or staging instances from elsewhere. A quorum of these carries
   integrity, not a production assurance.
-- The three ML-DSA-44 lines in the bundle were **not** verified, because this
-  fixture carries **no ML-DSA-44 verifier key** for any of them. Without a public
-  key there is nothing to recompute, so the optional `proofbundle[pq]` backend does
-  not change this. Two of the three keys would have to come from the witness
-  operators (navigli, ring-any-bells); the third carries the log's own origin name,
-  so an independent key for it cannot be sourced without leaning on the audited log.
+- Two of the three ML-DSA-44 lines (the witness cosignatures by navigli and
+  ring-any-bells) **are** verified since 2026-08-17, with operator-published keys
+  sourced outside the audited log — on builds with the `[pq]` extra. Without it
+  they count as non-verifying, fail-closed, and the fixture verifies 6 of 11
+  lines instead of 8. The third ML-DSA-44 line carries the log's own origin
+  name: an independent key for it cannot be sourced without leaning on the
+  audited log (the operator publishes it only via an offline-signed trust-root
+  manifest at the next rotation), and the origin-quorum rule would refuse to
+  count it toward the witness quorum even keyed — a log never votes in its own
+  quorum.
 - `c2sp.org/tlog-proof` is, as of 2026-08-14, the development version on `main`;
   there is no tagged `v1.0.0`, unlike tlog-checkpoint, tlog-witness and
   tlog-cosignature.

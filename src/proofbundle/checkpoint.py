@@ -495,7 +495,18 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     (witnesses_ok, witnesses_dict); the dict is keyed by name+keyID so a same-name-different-key entry does not
     overwrite. Fail-closed: an unparseable witness vkey raises (verify_cosignature); a non-verifying one is
     False; and a witness whose algorithm this build cannot verify (an ML-DSA vkey without the [pq] extra) also
-    counts as non-verifying (False), never a raw UnsupportedError out of the batch (adversarial re-audit round 5)."""
+    counts as non-verifying (False), never a raw UnsupportedError out of the batch (adversarial re-audit round 5).
+
+    ORIGIN-QUORUM RULE: a log never votes in its own quorum. A witness vkey whose NAME equals the
+    checked note's own origin line is excluded from the count — fail-closed, regardless of algorithm,
+    and BEFORE any signature math (its entry reports ``ok=False`` with ``origin_excluded=True``).
+    A witness quorum is the statement that parties OTHER than the log saw the same tree; a signature
+    under the log's own origin name is the log speaking about itself, so counting it would let a log
+    manufacture part of its own quorum (issue #7, decided with the log operator 2026-08-17; the C2SP
+    tlog-cosignature/tlog-witness specs are silent on this, so the verifier must hold the line).
+    The name comparison is EXACT (codepoint equality, no normalisation) — the excluded identity is
+    the one string the audited log itself declares, and a near-miss name is simply a different
+    (non-verifying) witness, not a loosened match."""
     keys_ok = set()
     witnesses = {}
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
@@ -503,18 +514,38 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
     if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
         return False, {}
+    # The origin is parsed LAZILY and defensively: a malformed note must keep its existing contract
+    # (an empty roster returns without raising; a non-empty one raises in verify_cosignature below),
+    # so a parse failure here downgrades to origin=None instead of introducing a new raise path.
+    # origin=None never equals a str vkey name, and on such a note nothing verifies anyway.
+    try:
+        origin = _note_text_of(signed_note).split("\n", 1)[0]
+    except BundleFormatError:
+        origin = None
     for wv in witness_vkeys:
-        try:
-            res = verify_cosignature(signed_note, wv)
-        except UnsupportedError as exc:
-            # adversarial re-audit round 5: a BATCH quorum must not crash because ONE witness in the list is an
-            # ML-DSA (0x06) vkey the current build cannot verify (no FIPS-204). verify_cosignature keeps its
-            # documented loud raise for a SINGLE explicitly-named witness (a caller config choice, tested), but
-            # here — iterating an attacker-influenceable list — an un-verifiable witness counts as non-verifying
-            # (fail-closed False), never a raw UnsupportedError out of witness_quorum / verify_witnessed_checkpoint.
-            res = {"ok": False, "alg": "ml-dsa-44", "origin": None, "tree_size": None,
-                   "root": None, "timestamp": None,
-                   "detail": f"witness needs the [pq] extra (FIPS 204) — cannot verify, fail-closed ({exc})"}
+        if origin is not None and isinstance(wv, str) and wv.split("+", 2)[0] == origin:
+            # ORIGIN-QUORUM RULE (see docstring): excluded from the quorum before any verification.
+            # _parse_witness_vkey keeps the documented contract that an unparseable vkey raises —
+            # and it rejects a 0x01 log key here exactly as everywhere else (domain separation).
+            _name, _kid, _pk, sig_type = _parse_witness_vkey(wv)
+            res = {"ok": False,
+                   "alg": "ed25519-cosignature/v1" if sig_type == _COSIG_V1_SIG_TYPE else "ml-dsa-44",
+                   "origin": origin, "tree_size": None, "root": None, "timestamp": None,
+                   "origin_excluded": True,
+                   "detail": "witness name equals the checked log's own origin — a log never counts "
+                             "toward its own witness quorum (origin-quorum rule, fail-closed)"}
+        else:
+            try:
+                res = verify_cosignature(signed_note, wv)
+            except UnsupportedError as exc:
+                # adversarial re-audit round 5: a BATCH quorum must not crash because ONE witness in the list is an
+                # ML-DSA (0x06) vkey the current build cannot verify (no FIPS-204). verify_cosignature keeps its
+                # documented loud raise for a SINGLE explicitly-named witness (a caller config choice, tested), but
+                # here — iterating an attacker-influenceable list — an un-verifiable witness counts as non-verifying
+                # (fail-closed False), never a raw UnsupportedError out of witness_quorum / verify_witnessed_checkpoint.
+                res = {"ok": False, "alg": "ml-dsa-44", "origin": None, "tree_size": None,
+                       "root": None, "timestamp": None,
+                       "detail": f"witness needs the [pq] extra (FIPS 204) — cannot verify, fail-closed ({exc})"}
         witnesses["+".join(wv.split("+")[:2])] = res
         if res["ok"]:
             keys_ok.add(_witness_key_material(wv))
@@ -532,6 +563,8 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     result.
     Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
     this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (adversarial re-audit round 5).
+    A witness vkey named like the note's own origin line never counts toward the quorum — a log never
+    votes in its own quorum (origin-quorum rule, see :func:`witness_quorum`).
 
     ``expected_origin`` (3.8.0) is the origin binding this surface was missing. A checkpoint carries
     the identity of the log that issued it, and a signature proves that SOME log signed — not WHICH

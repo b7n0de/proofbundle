@@ -6,6 +6,49 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+**Semantics: changed, in one deliberate, fail-closed direction — the origin-quorum rule.**
+
+### Changed
+
+* **Origin-quorum rule: a log never votes in its own quorum.** `checkpoint.witness_quorum` (and with
+  it `verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof` and the experimental
+  `public_transparency` profile, which all share it) now **excludes any witness vkey whose name
+  equals the checked note's own origin line** — fail-closed, algorithm-agnostic (Ed25519 0x04 and
+  ML-DSA-44 0x06 alike), before any signature math. The excluded entry stays visible in the
+  `witnesses` dict as `ok=False` with `origin_excluded=True` and a `detail` sentence, so a relying
+  party can tell "excluded by rule" from "signature invalid". Verdict change, named precisely:
+  a roster that lists a witness key under the audited log's own origin name could previously
+  satisfy part (or, with `threshold=1`, all) of the quorum with the log's own signature; measured
+  2026-08-16 with a live probe (`witness_quorum(threshold=1) -> True` for a self-cosigned mini-log)
+  and decided with the affected log operator in issue #7 — a signature under the origin name is the
+  log speaking about itself, which is exactly what a witness quorum exists to be independent of.
+  The C2SP tlog-cosignature/tlog-witness specs are silent on this (checked 2026-08-17), so the
+  verifier holds the line. The name comparison is exact (codepoint equality, no normalisation),
+  held by the shared near-miss corpus. Rosters without an origin-named vkey — including every
+  vector previously shipped in this repository — keep their verdict bit for bit.
+
+### Added
+
+* **The `markovian_log/proof_7271` fixture now verifies 8 of its 11 signature lines** (up from 6):
+  the two ML-DSA-44 **witness** cosignatures (navigli `6bc44249`, ring-any-bells `5774b075`) are
+  covered by operator-published verifier keys fetched from outside the audited log
+  (`witness.navigli.sunlight.geomys.org` and `transparency.dev/witnesses`, digest-frozen in
+  `SOURCES.md`), each verified independently against the frozen checkpoint with positive and
+  bit-flip counter-probes before being carried. Without the `[pq]` extra those two lines count as
+  non-verifying (fail-closed) and the fixture still verifies 6 of 11 — now a measured statement in
+  `MANIFEST.json` instead of a wrong guess (the pre-3.8.0 wording blamed the missing backend; the
+  backend was never the reason). The three remaining unverified lines carry their measured reasons:
+  two Ed25519 witnesses deliberately not carried, and the log's own origin-name ML-DSA line, which
+  no independent source can key today and which the origin-quorum rule would refuse to count anyway.
+* **A live self-signed checkpoint as the origin-quorum test vector**:
+  `markovian_log/checkpoint_7397/` freezes the log's checkpoint at tree size 7397 (fetched
+  2026-08-17, digest-pinned), which carries the log's own name twice — as its Ed25519 note
+  signature (excluded from witness quorums by the existing 0x01/0x04 domain separation) and as an
+  ML-DSA-44 line in cosignature shape (excluded by the new rule). `tests/test_origin_quorum_rule.py`
+  holds both halves plus the self-cosigned mini-log regression probe from the 2026-08-16 report.
+
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 
 > **Aus der `[Unreleased]`-Rubrik auf `main` uebernommen (Merge 2026-08-17).** Diese Rubrik trug

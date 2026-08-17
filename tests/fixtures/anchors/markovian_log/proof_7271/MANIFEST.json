@@ -1,7 +1,7 @@
 {
   "namespace": "markovian_log/proof_7271",
   "kind": "vendored-third-party-log-proof",
-  "purpose": "A LIVE third-party transparency-log proof, frozen as pure data (no executable payload reaches proofbundle's verify path). The rootcommit vectors cover the offline anchor layering; this covers the live counterpart, a bundle issued by a log b7n0de does not operate, verified with witness keys sourced from parties other than that log. SECOND IMPLEMENTATION: tests/test_anchors_markovian_log.py carries a standalone RFC 6962 inclusion recomputation written from the spec (plain hashlib, no proofbundle.merkle) which must reproduce the checkpoint root before proofbundle.tlogproof.verify_tlog_proof is consulted at all, so the two derivations cannot silently drift into each other. NO-OVERCLAIM: (1) leaf 7271 is the log's own stream statement, not an entry we submitted, so the public POST /submit path is NOT exercised here; (2) the three ML-DSA-44 lines in the bundle are NOT verified, because this fixture carries no ML-DSA-44 verifier key for any of them, so there is nothing to recompute against and the optional proofbundle[pq] backend does not change that; two of the three keys would have to come from the witness operators (navigli, ring-any-bells), and the third carries the log's own origin name, so an INDEPENDENT key for it cannot be obtained at all without leaning on the audited log; (3) rgdd.se/poc-witness and witness1.smartit.nu/witness1 cosigned but their operators' own pages were unreachable, so their keys are deliberately not carried and they are not counted toward the quorum; (4) one bundle is a snapshot and says nothing about split-view behaviour over time.",
+  "purpose": "A LIVE third-party transparency-log proof, frozen as pure data (no executable payload reaches proofbundle's verify path). The rootcommit vectors cover the offline anchor layering; this covers the live counterpart, a bundle issued by a log b7n0de does not operate, verified with witness keys sourced from parties OTHER than that log. SECOND IMPLEMENTATION: tests/test_anchors_markovian_log.py carries a standalone RFC 6962 inclusion recomputation written from the spec (plain hashlib, no proofbundle.merkle) which must reproduce the checkpoint root before proofbundle.tlogproof.verify_tlog_proof is consulted at all, so the two derivations cannot silently drift into each other. NO-OVERCLAIM: (1) leaf 7271 is the log's own stream statement, not an entry we submitted, so the public POST /submit path is NOT exercised here; (2) with the [pq] extra, 8 of the 11 signature lines verify — the two ML-DSA-44 WITNESS cosignatures (navigli, ring-any-bells) are covered since 2026-08-17 by operator-published keys fetched from outside the audited log; WITHOUT the [pq] extra those two count as non-verifying (fail-closed) and 6 of 11 verify, which is now a measured statement about the backend, not a guess; (3) the third ML-DSA-44 line carries the log's own origin name: no independent source can key it today (the operator will publish that key only via an offline-signed trust-root manifest at the next rotation), and the origin-quorum rule refuses to count a signature under the audited log's own origin name toward the witness quorum in any case; (4) rgdd.se/poc-witness and witness1.smartit.nu/witness1 cosigned but their operators' own pages were unreachable on 2026-08-14, so their keys are deliberately not carried and they are not counted toward the quorum; (5) one bundle is a snapshot and says nothing about split-view behaviour over time.",
   "spec": "https://c2sp.org/tlog-proof (development version on main as of 2026-08-14; no tagged v1.0.0, unlike tlog-checkpoint / tlog-witness / tlog-cosignature)",
   "upstream": {
     "project": "MarkovianProtocol transparency log",
@@ -11,7 +11,7 @@
     "leaf_url": "https://log.markovianprotocol.com/leaf/7271",
     "retrieved_at_utc": "2026-08-14T07:31:09Z",
     "provenance_note": "A live endpoint, not a git commit: /proof/7271 served tree size 7340 on 2026-08-13 and 7341 on 2026-08-14, because the checkpoint moves with the log. Provenance is therefore pinned by retrieval time plus the per-file digests below, not by an upstream revision.",
-    "verification": "Verified by b7n0de/proofbundle on 2026-08-14 in two independent passes. Pass one, a standalone RFC 6962 recomputation self-tested against 249 synthetic inclusion paths over tree sizes 1 to 7341 before touching the bundle, reproduced the checkpoint root from the leaf bytes. Pass two, proofbundle 3.7.0 verify-proof --threshold 4, returned ok/log_ok/witnesses_ok/inclusion_ok all true. Flipping one payload bit split the verdict exactly at inclusion_ok.",
+    "verification": "Verified by b7n0de/proofbundle on 2026-08-14 in two independent passes. Pass one, a standalone RFC 6962 recomputation self-tested against 249 synthetic inclusion paths over tree sizes 1 to 7341 before touching the bundle, reproduced the checkpoint root from the leaf bytes. Pass two, proofbundle 3.7.0 verify-proof --threshold 4, returned ok/log_ok/witnesses_ok/inclusion_ok all true. Flipping one payload bit split the verdict exactly at inclusion_ok. On 2026-08-17 the two ML-DSA-44 witness keys were added after an independent measurement: each keyid recomputed as SHA-256(name || 0x0A || 0x06 || pk)[:4] against the bundle line, each signature verified over the C2SP subtree/v1 cosigned_message against this frozen checkpoint (tree 7341), and a flipped bit in either the signature or the root failed, before either key was carried.",
     "license": "MIT",
     "license_holder": "Copyright (c) 2026 Markovian Protocol"
   },
@@ -21,6 +21,12 @@
   "leaf_hash_b64": "Du6/Bku7hKc7cSeQ/+yA0uFbq8hzafGWQSNHRHJEwDQ=",
   "checkpoint_root_b64": "uNXWHpdGz73l2cku1fdg/u3Uff0NdKOGOfjHkTiZPjE=",
   "witness_threshold": 4,
+  "verified_lines": {
+    "with_pq_extra": 8,
+    "without_pq_extra": 6,
+    "of_total": 11,
+    "note": "1 Ed25519 log note signature + 5 Ed25519 witness cosignatures always; + 2 ML-DSA-44 witness cosignatures when the [pq] extra provides FIPS 204. Without it the two ML-DSA witnesses count as non-verifying, fail-closed — never a crash, never a silent pass."
+  },
   "witnesses_verified": [
     {
       "name": "witness.stagemole.eu",
@@ -55,7 +61,23 @@
       "key_id": "a3e00fe2",
       "alg": "ed25519-cosignature/v1",
       "timestamp": 1786689302,
-      "key_source": "FiloSottile/torchwood only; its own page did not serve the key to a plain fetch"
+      "key_source": "FiloSottile/torchwood only; on 2026-08-14 its own page appeared not to serve the key — corrected 2026-08-17: the page serves vkeys HTML-entity-encoded ('&#43;' for '+'), the 08-14 extraction pattern missed that form, the page content itself is digest-identical on both dates"
+    },
+    {
+      "name": "staging.witness.transparency.goog/ring-any-bells",
+      "key_id": "5774b075",
+      "alg": "ml-dsa-44",
+      "timestamp": 1786689303,
+      "requires": "proofbundle[pq] (FIPS 204); counted as non-verifying without it, fail-closed",
+      "key_source": "https://transparency.dev/witnesses, captured 2026-08-17 (operator-published, outside the audited log); keyid recomputed and signature verified with bit-flip counter-probes before carrying"
+    },
+    {
+      "name": "witness.navigli.sunlight.geomys.org",
+      "key_id": "6bc44249",
+      "alg": "ml-dsa-44",
+      "timestamp": 1786689302,
+      "requires": "proofbundle[pq] (FIPS 204); counted as non-verifying without it, fail-closed",
+      "key_source": "https://witness.navigli.sunlight.geomys.org, 'Verifier keys' second entry, captured 2026-08-17 (the witness operator's own page, outside the audited log); keyid recomputed and signature verified with bit-flip counter-probes before carrying"
     }
   ],
   "witnesses_present_but_not_carried": [
@@ -68,12 +90,18 @@
       "reason": "operator page unreachable on 2026-08-14; key not carried rather than taken from an unchecked source"
     }
   ],
+  "origin_name_line_not_carried": {
+    "name": "markovianprotocol.com/log",
+    "key_id": "bda842cb",
+    "alg": "ml-dsa-44",
+    "reason": "the line carries the audited log's own origin name: an INDEPENDENT key for it cannot be sourced without leaning on the audited log (the operator will publish it only via an offline-signed trust-root manifest at the next rotation), and the origin-quorum rule in checkpoint.witness_quorum refuses to count any signature under the checked log's own origin name toward the witness quorum — a log never votes in its own quorum. Decided with the log operator in issue #7 (2026-08-16/17); his /policy declares the quorum as 'group independent-witnesses 4' with the log not a member."
+  },
   "signature_lines": {
     "total": 11,
     "ed25519_note_signature": 1,
     "ed25519_cosignature_v1": 7,
     "ml_dsa_44": 3,
-    "note": "Two of the three ML-DSA-44 lines are witness cosignatures (navigli, ring-any-bells); the third carries the log's own origin name. None of the three is verified here."
+    "note": "Two of the three ML-DSA-44 lines are witness cosignatures (navigli, ring-any-bells) and verify here with the [pq] extra; the third carries the log's own origin name and is excluded from the witness quorum by rule (and has no independently sourceable key today)."
   },
   "files": [
     {
@@ -92,25 +120,24 @@
     },
     {
       "path": "keys_unabhaengig.txt",
-      "sha256": "c85ca06f09bd3f505ec2e48e41c40432c87114f896e4a8b05f8acfc374678040",
-      "bytes": 1121,
-      "case": "the log vkey plus five witness vkeys, each taken from a party other than the audited log; per-line source comments",
+      "sha256": "2ff6c71baa2a1a1fcf3bbd597cb445760b182f0055354c9e1881b54b1830a9d9",
+      "bytes": 4951,
+      "case": "the log vkey plus seven witness vkeys (five Ed25519, two ML-DSA-44), each taken from a party other than the audited log; per-line source comments. Extended 2026-08-17 from the six-key set (sha256 c85ca06f09bd3f505ec2e48e41c40432c87114f896e4a8b05f8acfc374678040, 1121 bytes) by the two operator-published ML-DSA-44 witness keys",
       "expect": "every key ID recomputes as SHA-256(name || 0x0A || algbyte || pubkey)[:4]; not one line comes from the log's own /policy"
     },
     {
       "path": "ERGEBNIS.json",
-      "sha256": "1a8a5d73bf0f55a86cbf51eeebb97bbb8eb45bc7ed95a88a14741e3252d2e75e",
-      "bytes": 907,
-      "case": "recorded --json output of the positive run, proofbundle 3.7.0 verify-proof --threshold 4",
-      "note": "The byte identity is bound to the version named in `case`. Measured at 3.8.0 with the same invocation: every key of this file is reproduced with the same value, and the live output carries one ADDITIONAL key, `expected_origin` (null when --expected-origin is not passed). So this file remains a correct record of what 3.7.0 emitted and is no longer a byte-for-byte prediction of what the current version emits. Recorded here rather than regenerating the file, because the fixture is frozen on purpose: it is the reference point of several audit records, and a fixture that moves with the code cannot contradict the code.",
-      "expect": "ok=true, log_ok=true, witnesses_ok=true, inclusion_ok=true, five ed25519-cosignature/v1 witnesses"
+      "sha256": "5bc31016fece7c596b87a88d5f965e45873acb4ac81937bb69a7f8b035418e28",
+      "bytes": 1279,
+      "case": "recorded --json output of the positive run, verify-proof --threshold 4 with the eight-key file, recorded 2026-08-17 on the origin-quorum work branch (version string 3.8.0, [pq] present). Supersedes the proofbundle 3.7.0 five-witness recording (sha256 1a8a5d73bf0f55a86cbf51eeebb97bbb8eb45bc7ed95a88a14741e3252d2e75e, 907 bytes), which remains in git history as the reference point of the 2026-08-14 audit records",
+      "expect": "ok=true, log_ok=true, witnesses_ok=true, inclusion_ok=true; seven witnesses ok — five ed25519-cosignature/v1 plus two ml-dsa-44. Reproducing the ML-DSA half needs the [pq] extra; without it the two ML-DSA entries report ok=false with a detail naming the missing backend, and the fixture tests assert exactly that instead of skipping silently"
     },
     {
       "path": "ERGEBNIS_negativ.json",
-      "sha256": "7d84a482b9683b7bab3003c71016c3a65422eeb45857bf7c422603bf2bc09c9c",
-      "bytes": 909,
-      "case": "recorded --json output of the counter-test, byte 365 of the payload XOR 0x01",
-      "expect": "ok=false, inclusion_ok=false, while log_ok=true and witnesses_ok=true; the tampered payload itself is generated at test time, never vendored"
+      "sha256": "ff709a864aca1154843c78e108d50a7c3299bd7445245a34d88508d9a1e85847",
+      "bytes": 1281,
+      "case": "recorded --json output of the counter-test, byte 365 of the payload XOR 0x01, recorded 2026-08-17 with the same invocation as ERGEBNIS.json (supersedes the 3.7.0 recording, sha256 7d84a482b9683b7bab3003c71016c3a65422eeb45857bf7c422603bf2bc09c9c, 909 bytes)",
+      "expect": "ok=false, inclusion_ok=false, while log_ok=true and witnesses_ok=true with all seven witnesses still valid; the tampered payload itself is generated at test time, never vendored"
     }
   ]
 }

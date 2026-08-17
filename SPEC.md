@@ -424,9 +424,12 @@ witness. The signed message is `"cosignature/v1\n" ‖ "time <timestamp>\n" ‖ 
 the final U+000A, excluding signature lines>`. The timestamp is a POSIX timestamp ≤ 2^63−1; freshness
 policy is the relying party's (offline verifier, no trusted clock). Witness verifier keys use the §7c
 vkey encoding with algorithm byte 0x04. A **witnessed** checkpoint verifies iff the log signature (§7c)
-verifies AND at least `threshold` cosignatures from **distinct witness names** verify — witnesses attest
-consistency, they never replace the log's own signature. Real split-view resistance additionally requires
-the witnesses to be operationally independent, which is a deployment property outside this format.
+verifies AND at least `threshold` cosignatures from **distinct witness key material** verify — witnesses
+attest consistency, they never replace the log's own signature. A cosignature under the checkpoint's
+**own origin name never counts toward the witness quorum, whatever its algorithm — a log never votes in
+its own quorum** (fail-closed; the C2SP specs are silent here, so the verifier holds the line). Real
+split-view resistance additionally requires the witnesses to be operationally independent, which is a
+deployment property outside this format.
 
 Since v1.3 the **ML-DSA-44 cosignature type** (algorithm byte **0x06**, FIPS 204) is also
 verified: witness `keyID` = `SHA-256(witness_name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]`, blob =
@@ -450,7 +453,8 @@ per line, leaf-sibling upward (RFC 6962 §2.1.1); one empty line; then a signed 
 (§7c/§7d) **verbatim**. The proof/checkpoint split is the FIRST empty line. Verification order:
 (1) recompute the leaf hash from the exact payload bytes (RFC 6962 `leaf_hash`, never taken from
 the file), (2) log signature over an acceptable origin, (3) witness cosignatures against a k-of-n
-policy over DISTINCT witness names, (4) inclusion proof binds the leaf at `index` to the
+policy over DISTINCT witness key material — never counting a cosignature under the log's own
+origin name (§7d), (4) inclusion proof binds the leaf at `index` to the
 checkpoint root at its size. The overall verdict is the CONJUNCTION of all four — each sub-verdict
 is reported. Cosignature timestamps are verified-then-ignored; freshness is relying-party policy.
 Note: the C2SP spec file is on `main` and not yet version-tagged; the format string is pinned.

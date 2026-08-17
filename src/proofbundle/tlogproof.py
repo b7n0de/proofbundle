@@ -24,8 +24,9 @@ Verification (spec steps, all offline):
   1. compute the leaf hash — application-specific; for proofbundle the leaf is the exact payload
      bytes, hashed with RFC 6962 ``leaf_hash`` (0x00 prefix), same as ``verify_bundle``;
   2. the checkpoint origin is acceptable and the log signature verifies (tlog-checkpoint);
-  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness names; Ed25519
-     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`);
+  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness KEY MATERIAL; Ed25519
+     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`; a cosignature
+     under the log's OWN origin name never counts — a log never votes in its own quorum);
   4. the inclusion proof binds the leaf hash at ``index`` to the checkpoint's root at its size.
   Cosignature timestamps are verified-then-ignored (spec: application policy may add constraints;
   an offline verifier has no trusted clock, so freshness stays the relying party's call).
@@ -166,8 +167,10 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
 
     ``leaf_data`` is the exact logged entry (for proofbundle receipts: the payload bytes); its
     RFC 6962 leaf hash is recomputed here, never taken from the file. ``threshold`` witnesses
-    (distinct names, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0`` means
-    no witness requirement (log signature only). Returns ``{ok, log_ok, witnesses_ok,
+    (distinct key material, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0``
+    means no witness requirement (log signature only). A witness vkey named like the checkpoint's
+    own origin line never counts (origin-quorum rule — a log never votes in its own quorum; see
+    :func:`proofbundle.checkpoint.witness_quorum`). Returns ``{ok, log_ok, witnesses_ok,
     inclusion_ok, origin, tree_size, root, index, witnesses}`` — every sub-verdict reported,
     ``ok`` is their conjunction (fail-closed).
     """
