@@ -45,7 +45,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   shipped external vector (Go sumdb, Rekor, rootcommit, Colin's fixtures) — all pass. **Deliberate,
   documented restriction:** a non-ASCII (IDN/Unicode) origin is now refused for the verifier's identity
   compare; no real tlog origin is non-ASCII. This also closes the NFC/NFD normalisation question at the
-  root — a decomposed non-ASCII identity cannot be built or verified at all.
+  root — a decomposed non-ASCII identity cannot be built or verified at all. **The rule covers all THREE
+  identity slots** (re-gate: the first cut hardened origin and witness name but not the log key name —
+  the third): `key_id`, `cosign_key_id`, `cosign_key_id_mldsa`, `sign_checkpoint` and `_parse_vkey` all
+  require a printable-ASCII name now, so a surrogate name can no longer raise a raw `UnicodeEncodeError`
+  out of the public verify API, and a zero-width log key name can no longer substitute for a real one.
+  **Honest limit named precisely:** the name compare is exact bytes, so byte-different forms of the SAME
+  identity — an ASCII case variant (DNS is case-insensitive), an FQDN trailing dot, a path-normalisation
+  form — are not caught by the name prong (they are the same owner, not a look-alike); the robust
+  defences for them are the key-material prong and `expected_origin`. Exactness is kept deliberately
+  (normalising would loosen `expected_origin` acceptance, whose safe direction is the reverse).
+* **`public_transparency` witness-quorum fails closed on an unusable log_vkey (re-gate F-9).** A
+  `log_vkey` that is supplied but malformed is now "not measurable", a THIRD state distinct from "no log
+  context" — treating it as no-context silently switched the key-material exclusion off and let the log
+  vote in its own quorum under an alias with `errors=[]`. A relying party that SUPPLIED log context and
+  had it dropped is exactly the hidden fail-open; it now fails closed with a named error. (`_log_key_material_of`
+  itself still never raises — re-gate F-7 — but its `None` is no longer read as a pass.)
 * **`verify-proof` carries the exclusion reason on BOTH output paths.** `--json` projects
   `origin_excluded` + `detail` per witness; the human text path prints an indented reason line per
   non-verifying witness that has a detail (re-gate F-6 — the reason previously existed only in the

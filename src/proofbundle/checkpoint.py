@@ -94,6 +94,12 @@ def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
     if len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
+    # DEEP-GATE re-gate F-8/F-10: the log key name is the third identity slot (with origin and witness
+    # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
+    # out of this public helper, and a zero-width/invisible name would substitute for a real one.
+    # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
+    if not _witness_name_wellformed(keyname):
+        raise BundleFormatError("key name must be a printable-ASCII identity without spaces or invisible characters")
     h = hashlib.sha256(keyname.encode("utf-8") + b"\n" + bytes([_ED25519_SIG_TYPE]) + pubkey).digest()
     return h[:4]
 
@@ -110,8 +116,9 @@ def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: s
     """Produce a signed C2SP checkpoint note. ``signer`` is an Ed25519 private key whose public key must
     correspond to ``keyname``. The signature is over the RAW note-text bytes (including the trailing
     newline), never over base64 and never PAE-wrapped."""
-    if not keyname or "+" in keyname or any(c.isspace() for c in keyname):
-        raise BundleFormatError("checkpoint keyname must be non-empty without whitespace or '+'")
+    if not _witness_name_wellformed(keyname):
+        raise BundleFormatError("checkpoint keyname must be a printable-ASCII identity "
+                                "without spaces, invisible characters, or '+'")
     note = checkpoint_note(origin, tree_size, root)
     pubkey = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     sig = signer.sign(note.encode("utf-8"))
@@ -134,6 +141,10 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
     if len(parts) != 3:
         raise BundleFormatError("vkey must have 3 '+'-separated parts (name+hexKeyID+base64KeyMaterial)")
     name, kid_hex, keymat_b64 = parts
+    # DEEP-GATE re-gate F-8: the log vkey NAME is encoded into key_id below; a surrogate name would
+    # raise UnicodeEncodeError and an invisible one would substitute — same rule as the witness vkey.
+    if not _witness_name_wellformed(name):
+        raise BundleFormatError("vkey name must be a printable-ASCII identity without spaces or invisible characters")
     try:
         keymat = base64.b64decode(keymat_b64, validate=True)
     except (ValueError, TypeError) as exc:
@@ -268,6 +279,12 @@ def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
     if len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
+    # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
+    # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
+    # out of this public helper, and a zero-width/invisible name would substitute for a real one.
+    # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
+    if not _witness_name_wellformed(witness_name):
+        raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
     h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
                        + bytes([_COSIG_V1_SIG_TYPE]) + pubkey).digest()
     return h[:4]
@@ -335,6 +352,12 @@ def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
     if len(pubkey) != _MLDSA44_PUB_LEN:
         raise BundleFormatError("ML-DSA-44 public key must be 1312 raw bytes")
+    # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
+    # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
+    # out of this public helper, and a zero-width/invisible name would substitute for a real one.
+    # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
+    if not _witness_name_wellformed(witness_name):
+        raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
     h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
                        + bytes([_COSIG_MLDSA_SIG_TYPE]) + pubkey).digest()
     return h[:4]
@@ -581,13 +604,21 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     which does), so a line CAN be relabelled under any name without the private key — a name-only rule
     is bypassable for Ed25519, and a zero-width character in the origin line defeats the exact name
     compare outright (closed separately by :func:`_origin_wellformed`). Keying the exclusion on the
-    LOG's public bytes uses an operand the log/attacker does not get to choose. HONEST LIMIT that
-    remains and is documented at the call sites: if a log cosigns with a SEPARATE key (not its
-    signing key) under a non-origin alias that a relying party wrongly lists as an independent
-    witness, no local rule can catch it — that is roster provenance, a deployment property. The name
-    comparison stays EXACT (no normalisation) so a near-miss name is a different witness, not a
-    loosened match. ``log_key_material=None`` (a direct call with no log context) applies only the
-    name test; the public surfaces always pass it."""
+    LOG's public bytes uses an operand the log/attacker does not get to choose. HONEST LIMITS that
+    remain and are documented at the call sites:
+      * a log cosigning with a SEPARATE key (not its signing key) under a non-origin alias that a
+        relying party wrongly lists as an independent witness — roster provenance, a deployment
+        property no local rule can catch;
+      * the name compare is EXACT bytes (no normalisation), so BYTE-DIFFERENT FORMS OF THE SAME
+        IDENTITY are not caught by the name prong: an ASCII case variant (`LOG.example.com`, DNS is
+        case-insensitive), an FQDN trailing dot (`log.example.com.`), or a path-normalisation form
+        (`log.example.com//x`). These are the same owner, not a look-alike; the robust defences for
+        them are the key-material prong (when the log reuses its signing key) and `expected_origin`
+        (the relying-party pin). Exactness is kept deliberately — the opposite (normalising the
+        compare) would loosen `expected_origin` acceptance, whose safe direction is the reverse.
+    ``log_key_material=None`` (a direct call with no log context) applies only the name test; the
+    public surfaces always pass it (and `public_transparency` fails closed if a supplied log_vkey is
+    unusable, rather than silently dropping the key-material prong)."""
     keys_ok = set()
     witnesses = {}
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND

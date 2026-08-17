@@ -288,6 +288,15 @@ def evaluate_public_transparency(
         elif not witness_vkeys:
             statuses["WITNESS_QUORUM"] = "FAIL"
             errors.append("witnessQuorum required but no witness vkeys supplied (fail-closed)")
+        elif log_vkey is not None and cp._log_key_material_of(log_vkey) is None:
+            # DEEP-GATE re-gate F-9: THREE states, not two. A log_vkey was supplied but is unusable
+            # (malformed / surrogate name) — that is "not measurable", NOT "no log context". Treating it
+            # as no-context (log_key_material=None) silently switches the key-material exclusion off and
+            # lets the log vote in its own quorum under an alias with errors=[]. A relying party that
+            # SUPPLIED log context and had it silently dropped is exactly the hidden fail-open; fail-closed.
+            statuses["WITNESS_QUORUM"] = "FAIL"
+            errors.append("witnessQuorum: a log_vkey was supplied but is unusable (malformed) — the "
+                          "self-witness key-material exclusion cannot be applied, fail-closed")
         else:
             try:
                 # DEEP-GATE F-2: when a log_vkey is known, pass its key material so the audited log's own

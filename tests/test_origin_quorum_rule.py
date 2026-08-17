@@ -166,11 +166,11 @@ class TestOriginQuorumRegression(unittest.TestCase):
         probe_key = generate_signer()
 
         def wird_ausgeschlossen(name: str) -> bool:
-            wv = cp.cosign_vkey(name, _raw(probe_key))
             try:
+                wv = cp.cosign_vkey(name, _raw(probe_key))   # malformed name now raises at BUILD too
                 _, witnesses = cp.witness_quorum(note, [wv], 1)
             except BundleFormatError:
-                return False    # malformed near-miss (whitespace/zero-width) — never the origin
+                return False    # malformed near-miss (whitespace/zero-width/empty) — never the origin
             return next(iter(witnesses.values())).get("origin_excluded", False) is True
 
         pruefe_exakt(wird_ausgeschlossen, ORIGIN, self)
@@ -293,6 +293,81 @@ class TestLiveCheckpointVector(unittest.TestCase):
         # witness key (domain separation), pinned here on the live vector.
         with self.assertRaises(BundleFormatError):
             cp.witness_quorum(self.note, [self.log_vkey], 1)
+
+
+class TestAllThreeIdentitySlotsAreHardened(unittest.TestCase):
+    """Re-gate 2026-08-17: the first cut hardened origin and witness name but not the LOG KEY NAME —
+    the third identity slot, encoded into the keyID. F-8 (raw UnicodeEncodeError out of the public
+    verify API), F-10 (a zero-width log key name substitutes for a real one)."""
+
+    def test_f10_zero_width_log_key_name_is_rejected(self):
+        log = generate_signer()
+        with self.assertRaises(BundleFormatError):
+            cp.sign_checkpoint("log.example.com", 7, ROOT, log, "log​.example.com")   # ZWSP in keyname
+
+    def test_f8_surrogate_name_never_raises_unicodeerror_from_key_helpers(self):
+        log = generate_signer()
+        sur = "log\ud800.example.com"          # lone surrogate — reaches name.encode("utf-8")
+        for fn in (lambda: cp.key_id(sur, _raw(log)),
+                   lambda: cp.vkey(sur, _raw(log)),
+                   lambda: cp.cosign_key_id(sur, _raw(log)),
+                   lambda: cp.cosign_vkey(sur, _raw(log)),
+                   lambda: cp._parse_vkey(sur + "+deadbeef+"
+                                          + base64.b64encode(bytes([1]) + _raw(log)).decode())):
+            with self.subTest(fn=fn):
+                with self.assertRaises(BundleFormatError):    # typed, never a raw UnicodeEncodeError
+                    fn()
+
+    def test_f8_verify_checkpoint_never_raises_unicodeerror_on_surrogate_log_vkey(self):
+        log = generate_signer()
+        note = cp.sign_checkpoint("log.example.com", 7, ROOT, log, "log.example.com")
+        poison = "log\ud800+deadbeef+" + base64.b64encode(bytes([1]) + _raw(log)).decode()
+        with self.assertRaises(BundleFormatError):            # not UnicodeEncodeError
+            cp.verify_checkpoint(note, poison)
+
+    def test_f10_invisible_log_key_name_cannot_substitute_for_a_real_one(self):
+        # the trust-substitution shape: a poison vkey under a cloaked name must not verify a note the
+        # real key signed, and must not let the poison identity pass as the honest one.
+        log = generate_signer()
+        note = cp.sign_checkpoint("log.example.com", 7, ROOT, log, "log.example.com")
+        for cloaked in ("log​.example.com", "log .example.com", "log️.example.com"):
+            with self.subTest(name=cloaked):
+                with self.assertRaises(BundleFormatError):
+                    cp.verify_checkpoint(note, cp.vkey(cloaked, _raw(log)))
+
+
+class TestPublicTransparencyFailsClosedOnUnusableLogVkey(unittest.TestCase):
+    """Re-gate F-9: a supplied-but-malformed log_vkey is 'not measurable', a third state — not 'no log
+    context'. Reading its None as a pass silently switched off the key-material exclusion and let the
+    log vote in its own quorum under an alias with errors=[]."""
+
+    def _self_under_alias(self):
+        log = generate_signer()
+        origin = "log.example.com"
+        note = cp.sign_checkpoint(origin, 7, ROOT, log, origin)
+        note = cp.cosign_checkpoint(note, log, "independent-witness-1", TS)   # log key, alias name
+        return note, log, cp.cosign_vkey("independent-witness-1", _raw(log))
+
+    def test_malformed_log_vkey_fails_closed(self):
+        from proofbundle.public_transparency import evaluate_public_transparency  # noqa: PLC0415
+        note, log, alias = self._self_under_alias()
+        for label, lv in (("truncated", "log.example.com+dead"),
+                          ("surrogate", "log\ud800+deadbeef+"
+                           + base64.b64encode(bytes([1]) + _raw(log)).decode())):
+            with self.subTest(log_vkey=label):
+                r = evaluate_public_transparency(note, {"witnessQuorum": {"threshold": 1}},
+                                                 log_vkey=lv, witness_vkeys=[alias])
+                self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "FAIL")
+                self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")
+                self.assertTrue(r["errors"])
+
+    def test_well_formed_log_vkey_excludes_the_self_witness(self):
+        from proofbundle.public_transparency import evaluate_public_transparency  # noqa: PLC0415
+        note, log, alias = self._self_under_alias()
+        r = evaluate_public_transparency(note, {"witnessQuorum": {"threshold": 1}},
+                                         log_vkey=cp.vkey("log.example.com", _raw(log)),
+                                         witness_vkeys=[alias])
+        self.assertEqual(r["statuses"]["WITNESS_QUORUM"], "FAIL")   # key-material prong excludes it
 
 
 class TestCliCarriesTheExclusionReason(unittest.TestCase):
