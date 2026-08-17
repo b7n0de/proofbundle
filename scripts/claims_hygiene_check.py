@@ -45,9 +45,10 @@ _DEFAULT_DOCS = [
     "docs/predicates/README.md", "docs/predicates/action-outcome.md", "docs/predicates/decision-receipt.md",
     "docs/predicates/run-ledger.md", "docs/predicates/trust-pack.md", "docs/predicates/verification-summary.md",
     "docs/SDJWT_VC_PROFILE.md", "docs/SUBJECT_BINDING.md",
-    # 3.6.0 audit-candidate readiness-pack reviewer docs (capability-claim genre, same discipline).
-    # PROGRESS.md is deliberately NOT here: it QUOTES the future goal "4.0.0-stable, externally audited"
-    # as an honest denominator, which the audit-candidate forbidden list would false-positive on.
+    # Audit-candidate readiness-pack reviewer docs (capability-claim genre, same discipline).
+    # PROGRESS.md is deliberately NOT here: it QUOTES the future goal "the externally audited, trustworthy
+    # state" as an honest denominator (version-free — the audit is decoupled from the version line, Owner
+    # 2026-08-17), which the audit-candidate forbidden list would false-positive on.
     "docs/readiness_pack/AUDITOR_OPEN_POINTS.md", "docs/readiness_pack/threat_model_delta_360.md",
     "docs/readiness_pack/rust_parity_scope.md", "docs/readiness_pack/differential_matrix.md",
     "docs/readiness_pack/REPRODUCTION_RUNBOOK.md",
