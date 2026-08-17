@@ -34,15 +34,28 @@ ROOT = Path(__file__).resolve().parent.parent
 # (relative file, exact old text, new text, label, expect_killed)
 MUTATIONS = [
     # relation/v0.1 (3.3.0) — lineage profile: the three load-bearing guards.
+    # BOTH cycle checks, because since #139 there are two and either one alone still catches.
+    # The look-ahead was added on purpose ("detecting the back-edge first makes the cycle code
+    # independent of sibling order"); it is not redundancy to remove, it is redundancy the
+    # operator has to account for. Measured: one site alone -> suite green; both -> 4 tests red,
+    # among them tests/test_relation_property.py::…test_injected_back_edge_onto_path_is_caught…
     ("src/proofbundle/relation.py",
-     "if node_hex in path:", "if False and node_hex in path:",
-     "relation: cycle detection disabled", True),
+     ("        if node_hex in path:",
+      "            if nxt is not None and nxt in path:"),
+     ("        if False and node_hex in path:",
+      "            if False and nxt is not None and nxt in path:"),
+     "relation: cycle detection disabled (both sites)", True),
     ("src/proofbundle/relation.py",
      'if not (isinstance(digest, str) and _SHA256_HEX.match(digest)):', "if False:",
      "relation: malformed-digest guard disabled (never-raise vector must catch)", True),
+    # Same shape: the direct-edge arm and the ancestor walker both apply this gate since #139.
+    # Laxening one lets the other catch the vector one level down.
     ("src/proofbundle/relation.py",
-     'elif target.get("verified") is not True:', 'elif target.get("verified") is False:',
-     "relation: verified-flag laxened (truthy sneaks past strict is-True)", True),
+     ('elif target.get("verified") is not True:',
+      '        if node.get("verified") is not True:'),
+     ('elif target.get("verified") is False:',
+      '        if node.get("verified") is False:'),
+     "relation: verified-flag laxened at both arms (truthy sneaks past strict is-True)", True),
     # v1.2 — KB-JWT / bundle / cosignature / CLI
     ("src/proofbundle/kbjwt.py",
      "if _b64url_nopad(h.digest()) != sd_hash:", "if False:",
@@ -535,12 +548,30 @@ def _run_operators(work: Path) -> int:
     for rel, old, new, label, expect_killed in MUTATIONS:
         path = work / rel
         src = path.read_text(encoding="utf-8")
-        if old not in src:
+        # AN OPERATOR MAY NAME SEVERAL SITES, and since 2026-08-17 two of them must.
+        #
+        # The L4-01 fix (#139) gave the ancestor walker the same gates the direct-edge arm
+        # already had — deliberately, because the gate had been distance-scoped and the
+        # distance is attacker-chosen. The side effect: two operators that disable ONE line
+        # no longer disable the PROPERTY. The other guard still catches the defect, the mutant
+        # survives, and the gate reports a gap that is not one.
+        #
+        # Measured on 518d1ee7: `verified` laxened at the direct arm alone -> suite green;
+        # laxened at BOTH -> tests/test_relation_profile.py::…test_verified_flag_must_be_exactly_true
+        # goes red. Same shape for the two cycle checks. An operator whose label says
+        # "disabled" must actually disable, or the gate measures the wrong thing in the safe
+        # direction: it cries gap where the defence holds, and that is how a gate gets ignored.
+        pairs = list(zip(old, new)) if isinstance(old, tuple) else [(old, new)]
+        missing = [o for o, _ in pairs if o not in src]
+        if missing:
             print(f"  GAP  [{label}] pattern not found — operator is stale")
             gaps += 1
             continue
+        mutated = src
+        for o, n in pairs:
+            mutated = mutated.replace(o, n, 1)
         try:
-            path.write_text(src.replace(old, new, 1), encoding="utf-8")
+            path.write_text(mutated, encoding="utf-8")
             red = _red_count(work)
             killed = red > baseline
             ok = killed == expect_killed
