@@ -102,6 +102,7 @@
       "sha256": "1a8a5d73bf0f55a86cbf51eeebb97bbb8eb45bc7ed95a88a14741e3252d2e75e",
       "bytes": 907,
       "case": "recorded --json output of the positive run, proofbundle 3.7.0 verify-proof --threshold 4",
+      "note": "The byte identity is bound to the version named in `case`. Measured at 3.8.0 with the same invocation: every key of this file is reproduced with the same value, and the live output carries one ADDITIONAL key, `expected_origin` (null when --expected-origin is not passed). So this file remains a correct record of what 3.7.0 emitted and is no longer a byte-for-byte prediction of what the current version emits. Recorded here rather than regenerating the file, because the fixture is frozen on purpose: it is the reference point of several audit records, and a fixture that moves with the code cannot contradict the code.",
       "expect": "ok=true, log_ok=true, witnesses_ok=true, inclusion_ok=true, five ed25519-cosignature/v1 witnesses"
     },
     {

@@ -45,8 +45,39 @@ _NAME_PATTERN = _prop._NAME_PATTERN
 
 
 def _package_modules() -> set[str]:
-    """Every shipped module name, from the tree — the ground truth the population is measured against."""
-    return {p.stem for p in _SRC.glob("*.py") if not p.stem.startswith("_")}
+    """Every shipped module name, from the tree — the ground truth the population is measured against.
+
+    SUBPACKAGES INCLUDED (2026-08-17). The first version globbed `*.py` at the top level only, so a
+    module inside a subpackage was outside the ground truth — and therefore outside the guard that
+    exists to prove nothing is outside. The guard against an incomplete population was itself
+    incomplete by construction, one level down. Measured on the merged tree: `glob` finds 50 modules,
+    `rglob` finds 56; the six are the five `adapters.*` and `experimental.enclave`. Of those six,
+    exactly ONE carries a matching surface (`experimental.enclave.verify_enclave_attestation`) — so
+    the gap's honest size is one member, not six, and it is a shipped module with a documented import
+    path and its own CLI subcommand (`verify-enclave`).
+
+    THE FILESYSTEM, NOT `pkgutil.walk_packages`, and the reason is measured rather than cited.
+    `walk_packages` must IMPORT each package to read its `__path__`, which pulls side effects (the
+    experimental preview warning) into a discovery step that should have none. It also carries a
+    documented mutable-default memo (CPython #127318) — that one did NOT reproduce here (three calls,
+    62 modules each), so it is named as a reason to prefer the simpler route, not as a bug we hit.
+    `rglob` reads names off disk: no imports, no memo, no side effects, and it stays in the idiom this
+    file already used.
+
+    A private subpackage (`_foo/`) stays out, and a subpackage's own `__init__.py` enters under the
+    package name, because a package can carry surfaces just like a module can.
+    """
+    aus: set[str] = set()
+    for p in _SRC.rglob("*.py"):
+        rel = p.relative_to(_SRC)
+        if any(teil.startswith("_") for teil in rel.parts[:-1]):
+            continue                                        # privates Unterpaket
+        if rel.stem.startswith("_"):
+            if rel.stem == "__init__" and len(rel.parts) > 1:
+                aus.add(".".join(rel.parts[:-1]))           # das Unterpaket SELBST
+            continue
+        aus.add(".".join(rel.with_suffix("").parts))
+    return aus
 
 
 def _never_raise_surfaces_in(mod_name: str) -> list[str]:

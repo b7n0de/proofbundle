@@ -23,6 +23,36 @@ def _receipt(score="0.99", threshold="0.80", prereg=None, assurance="self_attest
     return emit_eval_receipt(claim, signer), salts
 
 
+class TestKontextbindungIstExakt(unittest.TestCase):
+    """Beinahe-Treffer fuer `expected_context` — der Cross-Context-Replay-Waechter.
+
+    `decode_eval_claim(..., expected_context=…)` vergleicht die signierte `context_binding` des
+    Belegs gegen die Erwartung des Pruefers. Der Vergleich war NUR gegen einen voellig fremden Wert
+    belegt; gemessen 2026-08-16 blieb die volle Suite gruen, als er auf `.startswith()` gelockert
+    wurde — ein Beleg aus dem Kontext `prod-eu-evil` haette dann gegen die Erwartung `prod-eu`
+    gepasst, also genau der Replay ueber Kontextgrenzen, den das Feld verhindern soll.
+
+    Korpus aus `tests/_beinahe_treffer.py` — dieselbe Quelle wie kbjwt, statuslist und intoto.
+    """
+
+    KONTEXT = "prod-eu/lauf-7"
+
+    def test_expected_context_wird_EXAKT_verglichen(self):
+        from _beinahe_treffer import pruefe_exakt
+
+        signer = generate_signer()
+        claim, _ = build_eval_claim(
+            suite="mmlu", suite_version="1", metric="accuracy", comparator=">=",
+            threshold="0.80", score="0.99", n=1000, model_id="m", dataset_id="d",
+            issuer="", timestamp="2020-01-01T00:00:00Z", context_binding=self.KONTEXT)
+        bundle = emit_eval_receipt(claim, signer)
+        # Gegenprobe des Aufbaus: ohne Erwartung dekodiert der Beleg ueberhaupt.
+        self.assertIsNotNone(decode_eval_claim(bundle),
+                             "der selbstgebaute Beleg dekodiert nicht — die Pruefung unten misst dann nichts")
+        pruefe_exakt(lambda v: decode_eval_claim(bundle, expected_context=v) is not None,
+                     self.KONTEXT, self)
+
+
 class TestAdversarial(unittest.TestCase):
     def test_a_invented_numbers_with_valid_signature_pass_is_expected(self):
         # A receipt binds AUTHORSHIP + INTEGRITY, not TRUTH. A signed but invented score verifies — this is

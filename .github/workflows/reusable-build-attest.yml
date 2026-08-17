@@ -32,6 +32,14 @@ on:
 permissions:
   contents: read
 
+# Wie in release.yml und aus demselben Grund: ohne diesen Block laeuft jeder `run:`-Schritt unter
+# `bash -e {0}`, also OHNE `pipefail` -- eine Pipeline meldet dann den Erfolg ihres LETZTEN Gliedes.
+# Der Schritt darunter haengt zwei Pipelines an `sha256sum`; scheitert das erste Glied, schrieb er
+# bisher eine leere bzw. unvollstaendige Pruefsummendatei und endete mit rc=0.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-attest:
     runs-on: ubuntu-latest
@@ -63,7 +71,17 @@ jobs:
         id: digests
         run: |
           echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          sha256sum dist/* | tee dist/SHA256SUMS
+          # DERSELBE Fix wie in release.yml, im selben Durchgang. Diese Zeile schrieb
+          # `…  dist/proofbundle-…tar.gz`; wer die Datei neben die Artefakte legt und
+          # `sha256sum -c SHA256SUMS` fahrt, bekam `No such file or directory`. Hier gefegt, weil
+          # dieser Workflow LIVE ist (published-artifact-gate.yml ruft ihn) und in
+          # docs/roadmap/FRONTLOAD.md als der Workflow steht, den release.yml uebernehmen soll --
+          # ohne diesen Durchgang holte die Uebernahme den Defekt still zurueck.
+          # Die Glob-Liste ist ABSICHTLICH aufgezaehlt und nicht `./*`: bei einem Wiederholungslauf
+          # im selben Arbeitsverzeichnis liegt SHA256SUMS bereits da und wuerde sich selbst mit
+          # hashen. Gleiche Form wie in release.yml, damit die dokumentierte Uebernahme nichts
+          # veraendert ausser dem Ort.
+          ( cd dist && sha256sum ./*.whl ./*.tar.gz | sed 's| \./| |' | tee SHA256SUMS )
 
       - name: Generate SLSA build provenance for the artifacts
         if: ${{ !inputs.dry_run }}

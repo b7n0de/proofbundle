@@ -152,6 +152,10 @@ def _tlog_failclosed(detail: str) -> dict:
     # closed verdict crashed with a raw AttributeError. Empty dict = same shape, still fail-closed (no witnesses).
     return {"ok": False, "log_ok": False, "witnesses_ok": False, "inclusion_ok": False,
             "origin": None, "tree_size": None, "root": None, "index": None, "witnesses": {},
+            # False, nicht fehlend: auf dem fail-closed-Pfad wurde die Note nie so weit
+            # geparst, dass eine Signaturzeile gefunden werden konnte. Gleiche Form wie der
+            # gruene Pfad, damit ein Aufrufer den Schluessel nie vermissen muss.
+            "signer_present": False,
             "detail": detail}
 
 
@@ -213,4 +217,8 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
     return {"ok": log_ok and witnesses_ok and inclusion_ok,
             "log_ok": log_ok, "witnesses_ok": witnesses_ok, "inclusion_ok": inclusion_ok,
             "origin": log_res["origin"], "tree_size": log_res["tree_size"],
-            "root": log_res["root"], "index": parsed["index"], "witnesses": witnesses}
+            "root": log_res["root"], "index": parsed["index"], "witnesses": witnesses,
+            # Durchgereicht, damit ein falscher --log-vkey von einer verfaelschten Signatur
+            # unterscheidbar wird: beide liefern log_ok=False, aber nur im zweiten Fall traegt
+            # die Note ueberhaupt eine Signaturzeile fuer den uebergebenen Schluessel.
+            "signer_present": bool(log_res.get("signer_present"))}

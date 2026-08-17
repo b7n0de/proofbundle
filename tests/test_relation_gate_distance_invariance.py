@@ -29,6 +29,16 @@ from proofbundle.relation import (
 MAX_HOP = 5
 SUBJECT = f"{0xABC:064x}"
 
+# Wahrheitswertig, aber nicht `True`. Der Gate prueft `is not True`, also strikte Identitaet —
+# eine Lockerung auf `is False` liesse jeden dieser Werte durch. Bis zum 2026-08-17 erzeugte kein
+# einziger Vektor einen davon, und die Strenge war damit ungetestet (gemeldet vom Mutations-Riegel
+# als ueberlebender Operator `relation: verified-flag laxened`).
+_TRUTHY = {
+    "verified_truthy_int": 1,
+    "verified_truthy_str": "true",
+    "verified_truthy_list": ["ja"],
+}
+
 
 def _hex(i: int) -> str:
     return f"{i:064x}"
@@ -58,6 +68,19 @@ def _kette(tiefe: int, defekt_bei: int | None, defekt: str | None) -> dict:
         if i == defekt_bei:
             if defekt == "forged_sig":
                 node["verified"] = False                      # type: ignore[index]
+            elif defekt in _TRUTHY:
+                # WAHRHEITSWERTIG, ABER NICHT `True` — die Luecke, die der Mutations-Riegel am
+                # 2026-08-17 als `verified-flag laxened` meldete und die kein Vektor erzeugte.
+                #
+                # Der Code prueft `is not True`, also strikte Identitaet. Wird daraus ein
+                # `is False`, faellt jeder truthy Wert durch: `1`, `"true"`, eine nicht-leere
+                # Liste. Der Kopf dieser Datei sagt es selbst — *jeder* Ketten-Test setzte
+                # `"verified": True`, und damit war die Strenge der Pruefung ungetestet. Der
+                # Defekt ist der Klasse nach derselbe wie L4-01: die Eigenschaft galt, aber
+                # nichts erzeugte den Fall.
+                #
+                # Drei Werte statt einem, weil die Klasse "truthy" heisst und nicht "die Eins".
+                node["verified"] = _TRUTHY[defekt]             # type: ignore[index]
             elif defekt == "attached_malformed":
                 node = "kein Zielobjekt"
             elif defekt == "subject_absent":
@@ -86,7 +109,8 @@ def _wurzelkante(defekt: str | None, defekt_bei: int | None) -> dict:
 
 
 DEFEKTE = ("forged_sig", "attached_malformed", "subject_absent",
-           "subject_ambiguous", "subject_malformed")
+           "subject_ambiguous", "subject_malformed",
+           *sorted(_TRUTHY))
 
 
 class DistanzInvarianz(unittest.TestCase):

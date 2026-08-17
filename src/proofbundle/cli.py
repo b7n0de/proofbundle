@@ -554,8 +554,24 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if cp_supplied != (cp_vkey is not None):
             raise ValueError("--trusted-checkpoint and --checkpoint-vkey belong together (the "
                              "signed note and the key that authenticates it)")
+        # EIN PIN OHNE GEGENSTAND IST KEIN PIN. Gemessen 2026-08-16 in der Falsifikations-Linse zu
+        # diesem Increment: `verify BUNDLE --expected-origin voellig.fremd/log` endete mit rc=0 und
+        # ohne ein Wort — der Aufrufer haelt die Herkunft fuer gebunden, geprueft wurde nichts. Das
+        # ist dieselbe Klasse, die dieses Release schliesst (eine Erwartung, die nur SCHEINBAR
+        # geprueft wird), nur eine Ebene hoeher: nicht der Vergleich war zu locker, sondern er fand
+        # gar nicht statt. Dieselbe Regel wie eine Zeile darueber fuer das Flaggenpaar — ein Flag,
+        # dessen Gegenstand fehlt, ist ein Eingabefehler (exit 2), niemals ein stilles Nichts.
+        if getattr(args, "expected_origin", None) is not None and not cp_supplied:
+            raise ValueError("--expected-origin pins WHICH log a --trusted-checkpoint must come "
+                             "from; without --trusted-checkpoint there is no checkpoint to pin, so "
+                             "the expectation would be silently ignored — supply both, or drop it")
         cp_ok = None
         cp_detail = ""
+        # Vorbelegt, weil der Bericht sie AUCH ohne Checkpoint liest. Ein Name, der nur in einem
+        # Zweig entsteht, ist im anderen ein NameError — und der andere Zweig ist hier der haeufige.
+        cp_expected_origin = getattr(args, "expected_origin", None)
+        cp_origin_ok = True
+        cp_observed_origin = None
         expected_root = getattr(args, "expected_root", None)
         expected_tree_size = getattr(args, "expected_tree_size", None)
         if cp_supplied:
@@ -565,7 +581,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             with _open_input(args.trusted_checkpoint) as handle:
                 note = _read_capped(handle)
             cp_res = verify_checkpoint(note, cp_vkey)   # malformed note/vkey → BundleFormatError → exit 2
-            cp_ok = bool(cp_res["ok"])
+            # ORIGIN-BINDUNG (3.8.0). Bis hierher pruefte diese Flaeche, dass IRGENDEIN Log den
+            # Checkpoint signiert hat — nicht WELCHES. Gemessen 2026-08-16 durch Ausloesen: dieselbe
+            # root, derselbe Schluessel, zwei verschiedene Origins -> byte-gleiches Verdikt, beide
+            # ROOT-AUTHENTICITY PASS, und kein Parameter konnte sie trennen. Das ist exakt die
+            # Bedrohung, die `verify-proof --expected-origin` in derselben Version schliesst; hier
+            # war die Schwesterflaeche offen. `is None` und nicht falsy: ein leerer String ist eine
+            # gestellte Frage, die immer fehlschlaegt, keine abwesende.
+            cp_observed_origin = cp_res["origin"]
+            cp_origin_ok = (cp_expected_origin is None
+                            or cp_observed_origin == cp_expected_origin)
+            cp_ok = bool(cp_res["ok"]) and cp_origin_ok
             if cp_ok:
                 cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
                 if expected_root is not None:
@@ -583,6 +609,15 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 expected_tree_size = cp_res["tree_size"]
                 cp_detail = (f"checkpoint origin {cp_res['origin']!r} authenticates "
                              f"(root, tree_size={cp_res['tree_size']}) atomically")
+            elif not cp_origin_ok:
+                # Die Ursache NENNEN. Ohne diesen Zweig laese sich ein Origin-Fehlschlag wie eine
+                # kaputte Signatur — derselbe Fehlermodus, den `verify-proof` mit `(expected …)`
+                # schliesst. Der Wert kommt aus einer Datei, die der Pruefer nicht geschrieben hat,
+                # geht also durch `_safe_line`.
+                cp_detail = (f"checkpoint is validly signed but its origin "
+                             f"{_safe_line(str(cp_res['origin']))!r} is not the expected "
+                             f"{_safe_line(str(cp_expected_origin))!r} — a checkpoint from a "
+                             "DIFFERENT log cannot authenticate this tree context (fail-closed)")
             else:
                 cp_detail = ("checkpoint signature does not verify under the supplied vkey — the "
                              "expected root/tree size could not be authenticated (fail-closed)")
@@ -808,6 +843,26 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         "expected": _ets,
         "actual": (bundle.get("merkle") or {}).get("tree_size") if isinstance(bundle, dict) else None,
     }
+    # ORIGIN-ERWARTUNG, maschinenlesbar (3.8.0). Ohne dieses Feld traegt `verify --json` die Frage
+    # nur in der Prosa des checkpoint-Details, und ein automatischer Verbraucher kann "gepinnt und
+    # gepasst" nicht von "gar nicht gepinnt" unterscheiden — beide liefern checkpointAuthenticity
+    # PASS. Gemessen in der Vertrags-Linse zu diesem Increment: die Schwesterflaeche `verify-proof`
+    # fuehrt `expected_origin` seit derselben Version auf oberster Ebene, `verify` fuehrte nichts.
+    # Die Form ist bewusst die des Nachbarn zwei Zeilen darueber (status/expected/actual) statt
+    # eines nackten Schluessels: sie beantwortet alle drei Fragen — wurde gefragt, hat es gepasst,
+    # was stand wirklich da. Der Schluessel ist IMMER da (null wenn nicht gefragt), damit seine
+    # Abwesenheit nie als "nicht gefragt" gelesen werden muss.
+    if not cp_supplied:
+        _co_status = "NOT_REQUESTED"
+    elif cp_expected_origin is None:
+        _co_status = "NOT_REQUESTED"
+    else:
+        _co_status = "PASS" if cp_origin_ok else "FAIL"
+    fields["checkpointOriginExpectation"] = {
+        "status": _co_status,
+        "expected": cp_expected_origin if cp_supplied else None,
+        "actual": cp_observed_origin,
+    }
     if policy is not None:
         fields["policy_id"] = policy.get("policy_id")
         # WP-TP1: non-fatal honesty warnings (e.g. "attributes to nobody") — exit code unchanged.
@@ -841,7 +896,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if roots is not None:
             print(f"    stated root      {roots['stated_b64']}")
             recomputed = roots["recomputed_b64"]
-            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + roots['detail'] + ')'}")
+            # `roots['detail']` ist bei bundle.py:748 `str(exc)` — also exception-abgeleitet und
+            # damit potenziell fremdbestimmt. Gleiche Klasse wie die Anker-Zeilen; ein Sweep
+            # dieser Runde hat sie gefunden, nachdem die Label-Suche sie uebersehen hatte.
+            print(f"    recomputed root  {recomputed if recomputed is not None else '(not computable: ' + _safe_line(str(roots['detail'])) + ')'}")
         if getattr(args, "matrix", False):
             print("  ── check matrix ──")
             for row in _check_matrix(result):
@@ -946,7 +1004,10 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
         with _open_input(args.payload_file, binary=True) as handle:
             leaf = _read_capped_bytes(handle)
         # release-review fix #5 reached the library but not the command line: verify_tlog_proof has taken
-        # expected_origin since 3.6, and without this pass-through a relying party at the CLI could not
+        # expected_origin seit 1.3.0 (gemessen: `git log -S expected_origin -- tlogproof.py` nennt
+        # genau einen einfuehrenden Commit, 457b6b8 = v1.3.0; hier stand faelschlich 'since 3.6',
+        # und der CHANGELOG dieses Release hatte recht), und ohne diese Durchreichung konnte ein
+        # Pruefer an der CLI nicht
         # demand that a validly-signed checkpoint came from the log it actually expects. Default stays None
         # (origin unconstrained), so every existing invocation keeps its verdict.
         res = verify_tlog_proof(text, leaf, args.log_vkey,
@@ -955,20 +1016,77 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
         if args.json:
             out = {k: res[k] for k in ("ok", "log_ok", "witnesses_ok", "inclusion_ok",
                                        "origin", "tree_size", "index")}
+            # DIE ERWARTUNG GEHOERT INS VERDIKT, sonst sind drei verschiedene Ursachen auf dem
+            # Maschinenpfad ununterscheidbar. Gemessen: fremder Origin, falscher log-vkey und
+            # eine im Beweis verfaelschte Signatur lieferten BYTE-IDENTISCHES JSON --
+            # `sha256(j_origin.json) == sha256(j_badsig.json)`. `inclusion_ok` bleibt in allen
+            # drei Faellen True (es rechnet gegen `root`/`tree_size` aus der Note, unabhaengig
+            # von `ok`), taugt also nicht zur Unterscheidung. Der Textpfad trennt sie ueber
+            # `(expected …)`; der JSON-Pfad hatte dafuer kein Feld.
+            #
+            # `None` wenn kein Flag gesetzt war -- das ist der dokumentierte Default und darf
+            # nicht als leerer String erscheinen, sonst ist "nicht gefragt" von "gefragt und
+            # leer" nicht zu unterscheiden.
+            out["expected_origin"] = args.expected_origin
+            # DIE SCHRANKE GEHOERT ZUM BOOLEAN, sonst ist er kein Verdikt. `witness_quorum` gibt
+            # `len(confirmed) >= threshold` zurueck, und die Voreinstellung ist 0 — `witnesses_ok`
+            # ist damit BEDINGUNGSLOS true, wenn niemand ein Quorum verlangt hat. Ein Programm sah
+            # dasselbe `true` fuer "ein Quorum wurde verlangt und erreicht" und "es wurde nie eines
+            # verlangt", und kein Feld trennte die beiden: Zeugen zaehlen half nicht, weil null
+            # bestaetigende Zeugen unter threshold=0 ein legitimer Zustand sind. Der TEXTPFAD nennt
+            # die Schranke seit jeher ("threshold {T}") — wer `--json` automatisierte, bekam weniger
+            # als wer ins Terminal sah. Immer vorhanden, weil sie immer einen Wert hat.
+            out["threshold"] = args.threshold
+            # NICHT MESSBAR ist kein GEMESSENES NEIN. Die Bibliothek unterscheidet die Ursachen
+            # praezise ("no empty-line separator before the checkpoint" vs "vkey must have 3
+            # '+'-separated parts"), und `cli.py` liess `detail` beim Kopieren der Schluessel
+            # einfach weg — die Information entstand und wurde EINE Schicht vor der Ausgabe
+            # fallengelassen. Folge, gemessen: eine leere Beweisdatei (das Artefakt IST kein
+            # Beweis) und ein kaputter --log-vkey (der Tippfehler des PRUEFERS) lieferten
+            # byte-gleiches JSON. Der Aufrufer liest ein Urteil ueber das Artefakt und geht das
+            # Artefakt untersuchen, waehrend der Fehler auf seiner eigenen Kommandozeile steht.
+            # Immer vorhanden (None auf dem gruenen Weg), damit Abwesenheit nie gedeutet werden muss.
+            out["detail"] = res.get("detail")
+            # DER SIGNATURVERGLEICH WEIST KEINE SCHULD ZU — die KEY-ID schon. Ein falscher
+            # --log-vkey und eine verfaelschte Signatur lieferten byte-gleiches JSON (gemessen);
+            # `signer_present` trennt sie: false heisst "dieser Schluessel hat diese Note nicht
+            # signiert", true mit log_ok=false heisst "er hat, aber die Bytes stimmen nicht".
+            out["signer_present"] = bool(res.get("signer_present"))
             out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
                                 for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
         else:
+            # KONTROLLZEICHEN NEUTRALISIEREN, wie es `_cmd_verify` seit dem 2026-07-09 tut
+            # (verify-lens L3). Der `origin` kommt aus der GEPARSTEN Beweisdatei, ist also vom
+            # Aussteller kontrolliert. Gemessen mit einem Proof, dessen Origin-Zeile
+            # `\x1b[2K\x1b[G` traegt: das Terminal loescht die FAIL-Zeile und zeigt eine
+            # gefaelschte PASS-Zeile.
+            #
+            # NEU IN 3.8.0 IST DIE VERSCHAERFUNG, nicht der Spoof: der Zusatz `(expected …)` kommt
+            # aus der Erwartung des PRUEFERS, die der Angreifer nicht schreiben kann — und haengt
+            # damit hinter dessen gefaelschten Text. Die erfundene Zeile las sich als ausdruecklich
+            # bestaetigter Origin-Treffer. `--json` war und ist sicher (json.dumps escapt).
             origin_note = ""
             if args.expected_origin is not None:
                 origin_note = (" (expected)" if res["origin"] == args.expected_origin
-                               else f" (expected {args.expected_origin})")
-            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] log-signature: {res['origin']}{origin_note}")
+                               else f" (expected {_safe_line(str(args.expected_origin))})")
+            print(f"[{'PASS' if res['log_ok'] else 'FAIL'}] "
+                  f"log-signature: {_safe_line(str(res['origin']))}{origin_note}")
             n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
             print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
             print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
                   f"index {res['index']} of {res['tree_size']}")
+            # Der Textpfad ist der, den ein Mensch liest — und er las bisher `[FAIL] log-signature:
+            # None` fuer einen Fehler in der EIGENEN Kommandozeile. Der Grund gehoert daneben.
+            # `_safe_line` ist hier VORSORGLICH, und das ist der ehrliche Wortlaut: zwei der vier
+            # Gruende interpolieren `{exc}`, dessen Text diese Datei nicht bestimmt und dessen
+            # Formen sich nicht aufzaehlen lassen. Drei Sonden mit ESC, Zeilenumbruch-Injektion und
+            # NUL erzeugten KEIN Steuerzeichen im detail — die Parse-Fehler sind bibliothekseigen.
+            # Ein gemessenes Leck ist das also nicht; die Umwicklung kostet nichts und deckt die
+            # Formen, die ich nicht kenne. Der JSON-Pfad ist ueber json.dumps ohnehin sicher.
+            if res.get("detail"):
+                print(f"  reason: {_safe_line(str(res['detail']))}")
             print("=> OK" if res["ok"] else "=> FAILED")
         return 0 if res["ok"] else 1
     except (ProofBundleError, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
@@ -1057,7 +1175,10 @@ def _cmd_verify_opening(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(res))
     else:
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] sample-opening: {res['detail']}")
+        # dieselbe Klasse: eine beschriftete Zeile mit einem Verifizierer-Wert geht durch
+        # `_safe_line`. Wo der Wert ohnehin fest ist, kostet das nichts — und es nimmt jedem
+        # kuenftigen Leser die Frage ab, ob GENAU DIESER Wert fremdkontrolliert sein kann.
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] sample-opening: {_safe_line(str(res['detail']))}")
         if res["ok"]:
             print(json.dumps(res["record"], indent=2))
         print("=> OK" if res["ok"] else "=> FAILED")
@@ -1219,7 +1340,10 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
             if getattr(args, "json", False):
                 print(json.dumps(msg, indent=2, ensure_ascii=False))
             else:
-                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — {msg['detail']}")
+                # dieselbe Klasse wie `anchor verify-pack` darunter: `msg['detail']` stammt aus
+                # der OTS-Pruefung, die es aus einem Ausnahmetext bauen kann.
+                print(f"[anchor upgrade] NOT UPGRADED ({info['state']}) — "
+                      f"{_safe_line(str(msg['detail']))}")
                 if info["provenCalendars"]:
                     print(f"  calendars carrying it: {', '.join(info['provenCalendars'])} "
                           f"(operators: {', '.join(info['provenCalendarOperators'])})")
@@ -1319,7 +1443,13 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             print(json.dumps(out, indent=2, ensure_ascii=False))
         else:
             verdict = "CONFIRMED" if out["ok"] else out["status"].upper()
-            print(f"[anchor verify-pack] {verdict} — {out['detail']}")
+            # Gleiche Klasse wie `log-signature` / `sample-opening` / `enclave-attestation`: eine
+            # beschriftete stdout-Zeile mit einem Wert, den der Aussteller des Beweises frei
+            # waehlt. `anchors_ots.py:87`, `anchors_chia.py:163` und `anchors_rfc3161.py:81`
+            # bauen dieses `detail` aus einem Ausnahmetext, der Beweis-Bytes tragen kann. Ein
+            # Sweep dieser Runde hat die Stelle gefunden, nachdem eine Gegenlesung meldete, dass
+            # die Zahl "drei" sich als vollstaendig liest und es nicht ist.
+            print(f"[anchor verify-pack] {verdict} — {_safe_line(str(out['detail']))}")
         if out["ok"]:
             return 0
         # pending / needs-RP-header: not corruption, but the relying-party gate is unmet (mirrors
@@ -1420,7 +1550,10 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
                                               "fresh", "detail")}))
     else:
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] enclave-attestation: {res['detail']}")
+        # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
+        # Token-Bytes tragen. Gleiche Behandlung wie oben.
+        print(f"[{'PASS' if res['ok'] else 'FAIL'}] "
+              f"enclave-attestation: {_safe_line(str(res['detail']))}")
         if res["ok"]:
             print(f"    tier    {res['tier']}")
             print(f"    profile {res['profile']}")
@@ -2306,6 +2439,15 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--checkpoint-vkey", dest="checkpoint_vkey", default=None, metavar="VKEY",
                         help="the checkpoint log's C2SP verifier key (name+hexKeyID+base64KeyMaterial) "
                              "for --trusted-checkpoint")
+    verify.add_argument("--expected-origin", dest="expected_origin", default=None, metavar="ORIGIN",
+                        help="pin WHICH log the --trusted-checkpoint must come from (its C2SP origin "
+                             "line, e.g. example.com/log). A signature proves that SOME log signed, "
+                             "not which one: without this, a validly signed checkpoint from a "
+                             "DIFFERENT log is accepted as the authenticated source of the root and "
+                             "tree size. The comparison is EXACT — a prefix, a different case or a "
+                             "trailing slash is a mismatch. Default: origin unconstrained (the "
+                             "documented pre-3.8.0 behaviour); same flag name and semantics as "
+                             "verify-proof --expected-origin")
     verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                         help="A-P0-2 §6.3: verify the supplied --policy AS OF this explicit PAST "
                              "instant (e.g. 2026-01-01T00:00:00Z; a future instant is a usage error). "

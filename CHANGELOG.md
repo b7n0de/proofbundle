@@ -6,7 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
+
+> **Aus der `[Unreleased]`-Rubrik auf `main` uebernommen (Merge 2026-08-17).** Diese Rubrik trug
+> Aenderungen, die auf `main` lagen und damit in 3.8.0 ausgeliefert werden — gemessen im Baum
+> dieses Zweigs (typisierte Fehler in `evalcard`/`prereg` vorhanden, `json_nodes` im Budget).
+> Sie als "unveroeffentlicht" stehen zu lassen waere falsch geworden, sobald dieser Tag faellt;
+> der Wortlaut ist unveraendert uebernommen, nur die Rubrik-Ueberschrift entfaellt. Die
+> `###`-Rubriken darunter stehen am ENDE dieses Abschnitts, damit sie nicht mit den
+> gleichnamigen Rubriken dieses Release verwechselt werden.
 
 **Semantics: unchanged. Resource ceilings: one deliberate tightening, disclosed below.**
 
@@ -60,6 +68,417 @@ What actually changed, and why each is patch-safe:
 
 The planned scope for the next patch is written down in
 [docs/release_scope/3.7.1.md](docs/release_scope/3.7.1.md).
+
+
+Status boundary (No-Overclaim): 3.8.0 remains audit-candidate BETA, relation/v0.1 EXPERIMENTAL. This is a
+MINOR release whose one **capability** change is that `verify-proof` gains a command-line flag it did not
+have. No crypto verdict (`.ok`) semantics change, and every existing invocation keeps its verdict.
+
+**Corrected 2026-08-16, and the correction matters to anyone who parses our output.** This sentence
+said "one behavioural change", which a counter-read measured false: the release changes observable
+behaviour in **four** places, of which only the first is the new capability.
+
+1. the new flag itself;
+2. `verify-proof --json` gained the key `expected_origin` — **every** invocation now carries it, with
+   `null` when the flag is absent. A consumer that enumerates keys strictly sees a new one. This is
+   the reason the sentence had to change: "every existing invocation keeps its verdict" is true and
+   remains true, but a *verdict* is not an *output shape*, and the earlier wording let one stand for
+   the other;
+3. three text lines (`log-signature`, `sample-opening`, `enclave-attestation`) now pass their value
+   through the control-character neutraliser, so a value containing an escape sequence prints
+   differently — see `### Security`;
+4. the `SHA256SUMS` file attached to the GitHub Release no longer carries a `dist/` prefix, and the
+   Release now appears as a draft until the PyPI upload succeeds — see `### CI`.
+
+None of the four changes a `.ok` verdict. Listing them is not pedantry: the one class of consumer this
+project exists for is the one that automates on our output, and "one behavioural change" told them
+they had nothing to check.
+
+**Why MINOR, and a retraction.** MINOR follows from the rule this project binds itself to: SemVer 2.0.0
+§7 requires MINOR for new backward-compatible functionality in the public API, and `proofbundle` is a
+console entry point (`[project.scripts]`), so a new option on the shipped CLI is exactly that. An earlier
+draft of this paragraph argued from repository precedent instead, claiming a user-facing CLI flag had
+never shipped in a patch release. That claim is retracted here rather than quietly deleted, because it
+was measured false: **four** patch releases grew the shipped CLI. The count of *flags* depends on what
+is being counted, so both numbers and their rule are given rather than one number without its object —
+which is the mistake an earlier draft of this very retraction made. Counting **distinct long-option
+names that did not previously occur anywhere in `src/proofbundle/cli.py`**: ten —
+`--expected-root-file --issuer-key --output --policy-id --valid-until` (3.1.1),
+`--checkpoint-vkey --trusted-checkpoint --verification-time` (3.1.3), `--require-derived-subject`
+(3.2.2), `--eat` (3.2.3). Counting **added `add_argument("--…")` lines** in the same diffs, which is a
+different thing because one name can appear on several subcommands: sixteen (6 / 3 / 2 / 5). Either way
+the precedent points the other way; the rule does not, and the rule governs.
+
+The choice is reinforced by a cost asymmetry. A consumer pinned to `~=3.7.0` picks up a patch
+automatically, so under 3.7.1 they would silently acquire a verification capability they never asked
+for — in a library whose whole purpose is that nothing arrives unannounced. Under 3.8.0 they stay where
+they are until they choose to move, and the larger number harms nobody.
+
+Two further corrections to earlier drafts of this section, kept visible for the same reason: the delta
+over 3.7.0 is not "one commit touching the shipped package" — `911fd5c` and this release commit both
+touch `src/`, `MANIFEST.in` grafts `tests`, `scripts`, `schemas`, `examples`, `conformance`, `formal`
+and `docs/readiness_pack` into the sdist (**23 files over 8 commits** changed across exactly those seven
+paths — and these are TWO numbers from two commands, which the first draft gave as one: the files come
+from `git diff --name-only v3.7.0..f64d35e -- <the seven paths> | wc -l`, the commits from
+`git log --oneline v3.7.0..f64d35e -- <the seven paths> | wc -l`. Naming only the second under both is
+exactly the error this paragraph goes on to correct in the sentence after next — that is WITH merge commits; the
+`--no-merges` count over the same paths is **6**, and two of the eight merges carry no change
+of their own. The number is given with its command because the paragraph below retracts an
+earlier pair that did not), and the `dev` extra narrows `ruff>=0.5` to `ruff>=0.5,<0.17` and `mypy>=1.8` to `mypy>=1.8,<3`.
+None of that is public API, which is why the version verdict is unchanged, but "for one reason only"
+was not accurate.
+
+An earlier draft of this same paragraph said "27 files over 13 commits", and both numbers were wrong in
+the same way the sentence above warns about: 27 counts the whole of `docs/` rather than
+`docs/readiness_pack`, so it includes four files `MANIFEST.in` deliberately does not graft, inside a
+sentence about the sdist; 13 is the repository-wide `--no-merges` count over a DIFFERENT endpoint
+(`v3.7.0..ac0688c`), six of which are `ci:` commits that touch neither `src/` nor any
+grafted path. So the two numbers differed in THREE ways at once — population, merge policy
+and endpoint — and named none of them. A counter-read measured `v3.7.0..f64d35e --no-merges`
+= 14, which is what a reader would have had to guess. Two numbers from two populations, neither of them the
+one named. They are corrected here rather than quietly replaced, because that is the same discipline
+this section asks of the precedent claim above it.
+
+### Added
+- **`verify-proof --expected-origin` (#137, `911fd5c`):** `verify_tlog_proof` has accepted
+  `expected_origin` since 1.3.0 (release-review fix #5), but the argparse parser carried no flag and the
+  command never passed one. A command-line verifier therefore could not reject a validly signed
+  checkpoint issued by a DIFFERENT log than the one it meant to trust: the signature check passes, and
+  without the origin constraint nothing else looks wrong. The default stays `None` (origin
+  unconstrained), so existing invocations keep their **verdict**; their `--json` **output shape**
+  does change — see the correction at the top of this section — because the key `expected_origin` is
+  now always present, `null` when the flag is absent. The first draft of this bullet said "existing
+  invocations are unaffected", which conflated the two.
+  On the human path a mismatch now reads `(expected <origin>)` rather than looking like a broken
+  signature.
+  Covered by `tests/test_verify_proof_expected_origin.py`: flag discoverable in `--help`, default
+  unconstrained, matching origin passes, mismatching origin fails closed with `inclusion_ok` still
+  true, text output names the expectation — plus, added after a counter-read of this release,
+  **seventeen near-miss origins** that each must be rejected (prefix, suffix, case, whitespace,
+  newline, trailing slash, scheme, domain-only, empty, full-width, trailing host dot, doubled slash,
+  percent-encoding), the positive direction without which an always-false comparison would also be
+  green, and a guard that the four control-character call sites stay wrapped.
+
+  **What the new JSON key does NOT do.** It reports what the caller *asked*, not why the answer is
+  no. Pin the origin you trust — the documented use — and a foreign origin **is** machine-readable
+  (`expected_origin` differs from `origin`). An earlier draft of the test and the commit message
+  read as if the field separated three causes; a first correction then overshot and said it
+  separated none. Both are wrong in the same way — measured on one construction and reported over
+  another — and the measured form is above.
+
+  What remained indistinguishable was a **wrong `--log-vkey`** against a **tampered signature**, and
+  that half is now closed too, by a different mechanism: see `signer_present` below.
+
+- **`verify-proof --json` now separates a wrong key from a tampered signature (`signer_present`).**
+  This was a different kind of gap from the rest of this release. Everywhere else the information
+  existed and was dropped one layer before the output; here it looked as if it did not exist at all,
+  because a signature check is a **two-input predicate** and a mismatch does not attribute blame to
+  either input. The verifier cannot know whether the key is wrong or the signature is.
+
+  The **key ID** can. A C2SP signature line carries the signer's key ID, and `verify_checkpoint`
+  already made the distinction inside its loop — `kid != kid_v` means *this line is not for your
+  key* — before collapsing it into a single `ok=False`. Measured, with the good run as the control:
+  a valid run reports `signer_present: true`; a foreign key reports **false** ("this key did not
+  sign this note"); a tampered signature reports **true** with `log_ok: false` ("it signed, but the
+  bytes do not match"). The two outputs are no longer byte-identical.
+
+  **Honest limit, and it is not a weakness of the field:** a tamper that hits exactly the four keyID
+  bytes is indistinguishable from a wrong key — at that point the note carries no evidence that this
+  key ever signed. That is a true statement about the situation, not a measurement error.
+
+  The guard that pinned the collision carried its own replacement instruction ("if these become
+  distinguishable — good, then the finding is closed and this guard belongs replaced by a positive
+  assurance"). It went red the moment the flag landed and now asserts the separation. That is the
+  difference between pinning a gap and pinning a property: the first **must** go red when the work
+  is done, or it holds an old state after it has stopped being true.
+
+- **`verify --expected-origin` and `verify_witnessed_checkpoint(expected_origin=…)` — the same
+  binding on the checkpoint surface.** `verify-proof` got the origin pin above; its neighbour,
+  the `--trusted-checkpoint` path, still had none. Both flags are new; the library parameter is new.
+
+  **Measured, not assumed.** A C2SP checkpoint's origin line and the name in its signature block
+  are separate arguments to `sign_checkpoint`, and C2SP permits one signer to serve several
+  origins. Signing a note whose origin line reads `evil.example/other-tree` under a key named
+  `example.com/log` therefore produced `ok=True` under the *trusted* verifier key, and its root
+  and tree size were adopted as the authenticated tree context. A relying party who pinned only
+  the key had not pinned **which tree** was speaking. On the CLI the two verdicts — the honest
+  checkpoint and the foreign one — were byte-identical, both `checkpointAuthenticity: PASS`, and
+  no parameter separated them.
+
+  The default stays unconstrained (`None`), matching `verify-proof --expected-origin`: there is no
+  origin a verifier could honestly default *to*. So this closes the gap **for callers who pin**,
+  and an unpinned run is unchanged — which is why the unpinned run keeps naming the origin it
+  observed in the `checkpoint-authenticity` detail, and why SPEC.md §9 now states the property
+  normatively instead of leaving it to be inferred. A mismatch reads as a mismatch rather than as
+  a broken signature, and rides the existing rails: `cp_ok` is bound once, so
+  `treeContextAuthenticity`, `treeSizeExpectation` and `safeForAutomation` all follow without a
+  parallel code path.
+
+  The comparison is EXACT on both surfaces, and they are **two** comparison sites, so the shared
+  near-miss corpus (`tests/_beinahe_treffer.py`, also used by kbjwt, statuslist, intoto, evalclaim
+  and policy) runs against both — the library directly, the CLI through `main()`. Six rollback
+  probes were run: loosening either comparison to `startswith`, removing either binding entirely,
+  and weakening either `is None` to a falsy test (which would silently turn an empty
+  `--expected-origin ""` from a question that always fails into no question at all). All six turn
+  the guards red, and the baseline returns to exactly 41 passed / 28 subtests.
+
+  **Two more defects, found by reviewing this very change and fixed in it.** The first: a pin
+  whose object is absent is not a pin. `verify BUNDLE --expected-origin some.log` **without**
+  `--trusted-checkpoint` exited 0 in silence — the caller believes the origin is bound, nothing was
+  checked, and nothing says so. That is the same class this release closes, one level up: the
+  comparison was not too loose, it did not happen. It is now a usage error (exit 2), the rule the
+  neighbouring line already applied to `--trusted-checkpoint`/`--checkpoint-vkey`. A sweep over
+  every other value-taking `verify` flag found no second member: `--expected-root`,
+  `--expected-tree-size`, `--aud` and `--nonce` are each honoured without a companion flag —
+  measured with a WRONG value, because a correct one cannot tell "checked" from "ignored", and the
+  first version of that sweep nearly reported the opposite for exactly that reason.
+
+  The second: `--json` reported the answer but not the question. `verify-proof` carries
+  `expected_origin` at the top level; `verify` carried nothing, so an automated consumer could not
+  tell "pinned and matched" from "not pinned at all" — both yield `checkpointAuthenticity: PASS`.
+  New key `checkpointOriginExpectation`, deliberately shaped like its immediate neighbour
+  `treeSizeExpectation` (`status`/`expected`/`actual`) rather than as a bare value, because that
+  shape answers all three questions. Four states, all distinguishable; the load-bearing one is that
+  a checkpoint supplied WITHOUT a pin still reports the origin it observed, which is what keeps an
+  unpinned run auditable and what SPEC.md §9 now requires. The key is always present (`null` when
+  not asked), so its absence never has to be read as "not asked": existing invocations keep their
+  **verdict**, and their `--json` **output shape** gains one key — the same distinction this
+  section had to correct once already for the sibling surface.
+
+- **`verify-proof --json` now carries `threshold`.** `witness_quorum` returns
+  `len(confirmed) >= threshold` and the default is `0`, so `witnesses_ok` was **unconditionally
+  true** when nobody demanded a quorum. A program saw the same `true` for "a quorum was demanded and
+  met" and "no quorum was ever demanded", and no field separated them — counting `witnesses` did not
+  settle it either, because zero confirming witnesses is a legitimate state under `threshold=0`,
+  while the same zero under a demanded bound would have made `witnesses_ok` false. The text path has
+  always named it (`threshold {T}`), so this removes an asymmetry rather than inventing a field: a
+  relying party automating on `--json` was getting less than one reading the terminal. The verdict
+  itself was never wrong; what was missing was the legibility of the answer.
+
+  The key is always present, because it always has a value. The family was measured over every
+  value-taking flag rather than assumed: `--expected-tree-size` was already in the rich
+  `status`/`expected`/`actual` form, `--verification-time` appears once set (and its absence means
+  "now", a different requirement rather than an absent one), and `verify-opening`'s `--n`/`--k` are
+  required arguments with no absent-requirement case. One member, and this was it. Rollback probes:
+  removing the key turns three guards red, and wiring it to a constant `0` — which *looks* filled —
+  turns one red.
+
+- **`verify-proof` now says WHICH question failed — `detail` reaches both output paths.** A
+  verifier that cannot read its own input must not report that in the shape it uses for a completed
+  evaluation that came out negative: *not measurable* is not *measured no*. Measured: an empty proof
+  file — the artifact really is not a proof — and a malformed `--log-vkey` — the **verifier's own
+  typo** — produced byte-identical JSON. The relying party reads a verdict about the artifact and
+  goes to investigate the artifact, while the fault is on their own command line. On the text path
+  it was worse: a bad key printed `[FAIL] log-signature: None`, naming the one thing the operator
+  will now go and look at, when nothing had been checked at all.
+
+  Nothing was invented. The library already carried a precise cause for each case — *no empty-line
+  separator before the checkpoint*, *vkey must have 3 '+'-separated parts* — and `cli.py` simply did
+  not copy `detail` when it listed the keys. The information existed and was dropped one layer
+  before the output. It is now in the JSON (always present, `null` on the green path) and on the
+  text path as a `reason:` line. All four causes produce pairwise distinct stdout, with the good run
+  as the control.
+
+  Two notes kept honest rather than tidy. The `_safe_line` on the text line is **precautionary**:
+  two of the four causes interpolate an exception message whose forms cannot be enumerated, but
+  three probes (ESC, newline injection, NUL) produced no control character, because the parse errors
+  are library-authored — so this is not a measured leak. And the finding behind this reported
+  **three** colliding causes; re-measuring while closing it gives **two**, because `--threshold -1`
+  now separates thanks to the `threshold` key added above. That is an effect of work done in
+  between, written out rather than silently renumbered.
+
+### Fixed
+- **`load_signer` no longer reads a file descriptor when handed an integer.** `open()` accepts an
+  int as a **file descriptor**, so `load_signer(123)` did not fail on the wrong type — it read
+  whatever happened to be open on fd 123 and tried to make an Ed25519 private key out of it. A
+  wrong-typed argument silently reaching an unrelated open file is a worse outcome than a crash. The
+  primary argument is now type-checked and a non-path raises `BundleFormatError`.
+
+  The guard is held by a test that proves the descriptor is **not read** — it is still open
+  afterwards — rather than merely that something was raised, and the opposite direction (`str`,
+  `Path` and `bytes` paths still load) is pinned alongside it, because a guard that also blocks the
+  correct call is not hardening.
+
+  **How it was found is the more useful half.** The never-raise family property walked a
+  hand-maintained list of 36 modules while the package ships 62; it was correct over the set it
+  walked, and that set was smaller than the set it was read as covering. It now enumerates its
+  family from the tree (`pkgutil.walk_packages`, subpackages included), which raised the swept
+  surfaces from 79 to 91 — and `emit.load_signer` had never been in it. Verified both ways: a
+  planted raw raise in `anchors_ots` (outside the old list) now turns the property red, the same
+  plant in `anchors` (inside it) still does, and restoring the list makes the first one pass green
+  again.
+
+  Two smaller things came with it, both kept rather than smoothed over. The property crashed with a
+  traceback when a surface terminated with something on neither its accepted nor its forbidden list;
+  a blocklist over an open alphabet means *unclassified*, not *permitted*, so that is now its own
+  reported category. And accepting `OSError` became necessary once a path-taking surface joined the
+  family — *the file is not there* is an honest typed answer for a loader — but that same line would
+  have re-hidden the fd hazard, so the hazard is closed at the surface and pinned by its own test
+  instead of by the list.
+
+- **The markovian_log fixture recorded the wrong reason for its unverified ML-DSA-44 lines (#138,
+  `03bf127`).** This is a correction of a claim, not a feature. `MANIFEST.json` and the fixture README
+  said the three ML-DSA-44 lines were unverified because that "needs the optional `proofbundle[pq]`
+  backend". That reason was never checked and it is wrong: the fixture carries six verifier keys and
+  none of them is ML-DSA-44, so there is no public key to recompute against and no backend can change
+  it. Two of the three missing keys would come from the witness operators (navigli, ring-any-bells);
+  the third carries the log's own origin name, so an independent key for it cannot be sourced without
+  leaning on the audited log — the one dependency this fixture avoids everywhere else.
+  The wrong sentence survived because a test pinned its wording rather than the fact behind it
+  (`test_manifest_declares_no_overclaim` asserted the string `proofbundle[pq]` appeared in the purpose
+  field). That assertion now pins the measured reason, and `TestMarkovianLogMldsaKeysAreAbsent` measures
+  the underlying fact in three tests: no carried key has the ML-DSA-44 algorithm byte, each ML-DSA line's
+  key ID is absent from the carried set, and exactly one of the three carries the log's own origin name.
+  Independently re-measured on a machine with the post-quantum backend installed (`cryptography 50.0.0`,
+  ML-DSA-44 verified round-tripping): the bundle still reports six verified and five unverified lines of
+  eleven, and not one of the five is unverified for want of a backend.
+
+### Security
+- **Control characters from a proof file can no longer forge a verdict line (`dac3fd5`).** `cli.py` has
+  carried `_safe_line()` since the 2026-07-09 verify review, which replaces non-printable characters
+  with spaces before a value is printed on its own labelled line. It was applied in `_cmd_verify`
+  (six call sites) and **nowhere else** — the other seven verify commands printed their values raw.
+  Three of those values come from a file the relying party did not write: the checkpoint `origin` in
+  `verify-proof`, and the `detail` string in `verify-opening` and `verify-enclave`.
+
+  The attack needs no signature. `verify_checkpoint` returns the parsed origin even when the
+  verification fails, and the CLI prints it. Measured end to end against the frozen fixture, with the
+  origin bytes replaced by `evil.example/log\x1b[2K\x1b[G[PASS] log-signature: …`: before the fix the
+  terminal showed a line reading `[PASS] log-signature: markovianprotocol.com/log`, with the real
+  `[FAIL]` line erased by the escape sequence. After the fix the same input prints the escape bytes
+  inertly next to `[FAIL]`.
+
+  Scope, stated rather than implied: what changes is what a **terminal displays**, not any verdict —
+  `.ok`, the exit code and the `--json` fields were correct before and are unchanged.
+
+  **Corrected: the count was three, and three was an enumeration.** A counter-read pointed out that
+  "three values" reads as complete. A sweep over every f-string interpolation reading a `detail` or
+  `origin` field then found **three more** labelled stdout lines of the same shape, each fed by a
+  value a proof's issuer chooses: `anchor verify-pack` and `anchor upgrade` (their `detail` is built
+  from an exception text in `anchors_ots.py`, `anchors_chia.py` and `anchors_rfc3161.py`) and the
+  `recomputed root` line (`bundle.py` returns `str(exc)` there). All three are wrapped now.
+
+  Not wrapped, each with its reason rather than by omission: `{'OK' if x else 'FAIL'}` is a literal ·
+  the `ERROR:` lines go to stderr · `prereg` and `evalcard` carry literal details · the
+  `checkpoint origin` line uses `!r`, and `repr()` was measured to neutralise ESC, newlines and
+  zero-width characters — a different defence, not a missing one.
+
+  The guard that holds this is the reason the three extra sites were found at all: it no longer
+  checks a list of labels but the **rule** — every interpolation reading a `detail`/`origin` field
+  goes through `_safe_line` or `!r`, unless it is named with a reason. Verified by planting: it
+  catches a site that is on no list, and a freshly invented line nobody anticipated.
+
+  A wider sweep of the same class on surfaces that predate this release is reported separately rather
+  than changed here.
+
+  Covered by `tests/test_verify_proof_expected_origin.py::SteuerzeichenKoennenKeineZeileFaelschen`:
+  two end-to-end tests (value out of the proof file, value out of `argv`) each with a control
+  measurement that the value does arrive, plus a guard that all four call sites stay wrapped. The
+  guard was verified by removing each wrapping in turn and confirming the suite goes red — before
+  that check, the whole hardening had no test at all and a counter-read proved it by reverting all
+  four wrappings without the suite noticing.
+
+### Known limitations
+
+**Six findings were opened against this release and all six were closed inside it.** Five were older
+than 3.8.0. The rule this project follows is that a `main` finding is *reported*, not quietly folded
+into a release that did not cause it — the Owner overruled that for these, deliberately and at the
+cost of a delayed tag, and the record in `audit_artifacts/380/` keeps each deferral recommendation
+standing next to the decision that overrode it rather than rewriting history to agree.
+
+Each closure carries a rollback probe: the defence is removed, the guard must go red, and the
+baseline must return exactly. What follows is what is **still** true after all six.
+
+- **A tamper that hits the four keyID bytes is indistinguishable from a wrong key.** `signer_present`
+  separates "this key did not sign" from "it signed, but the bytes do not match" — unless the tamper
+  destroys the key ID itself, at which point the note carries no evidence that the key ever signed.
+  That is a true statement about the situation, not a gap in the field.
+- **The never-raise family property is closed on the MODULE axis, not the argument axis.** It now
+  enumerates its family from the tree, so a new module is in scope the day it lands. It still fuzzes
+  the **primary** argument only, so `anchors_rfc3161.verify_rfc3161` raising on a non-dict `frozen` /
+  `rp_trust` — a keyword argument — is outside it and remains open. Named rather than folded into the
+  closure, so the claim is not read as wider than it is.
+- **`--json` reports what was asked, not why an answer is no**, beyond the causes now separated
+  (`expected_origin`, `threshold`, `detail`, `signer_present`). A verdict field tells you the outcome;
+  the accompanying expectation fields tell you the question. Neither tells you whether the process
+  that produced the evidence was sound.
+- **The pre-tag audit gate reads prose.** A documentation edit satisfied it during this release's own
+  work, which is recorded rather than quietly repaired. `tests/test_pre_tag_gate_eigenschaften.py`
+  states what a gate must do as five executable properties; three of them are `expectedFailure` today
+  and will report *unexpected success* — loudly — when the gate is rebuilt. ADR 0008 records the
+  decision to make the record a signed attestation, and ships the verifier half.
+
+The full records live in `audit_artifacts/380/`, which `MANIFEST.in` prunes from the sdist. That is
+why this section exists: without it, an installer would see the fixes and not the limits.
+
+### Tests
+- **Vendored `markovianprotocol.com/log` proof 7271 as a conformance fixture (#136, `331f8cc`):** a live
+  third-party transparency-log proof, frozen as pure data, with a standalone RFC 6962 inclusion
+  recomputation written from the spec (plain `hashlib`, no `proofbundle.merkle`) that must reproduce the
+  checkpoint root before `proofbundle.tlogproof.verify_tlog_proof` is consulted at all, so the two
+  derivations cannot silently drift into each other. Witness keys are sourced from parties other than the
+  audited log. Test-only; no package change.
+
+### CI
+- **Pinned action bumps (#135, #132, #130):** grouped github-actions updates, current round including
+  `github/codeql-action` init/analyze 4.37.6 and `actions/attest-build-provenance` 4.2.2.
+- **ruff rule set pinned, mypy bounded (#134, #131):** `[tool.ruff.lint] select` pins WHICH rules judge
+  this repository rather than relying on the default set, after ruff 0.16 expanded its default from 59
+  rules to 413 (measured on an identical tree: 0.15.x exits 0 over all 258 tracked `.py`, 0.16.x reports
+  1168 findings). `mypy` is bounded at the major version for the same reason.
+- **The DOI is no longer minted before the release gate (`6e87a0e`).** The Zenodo webhook on this
+  repository is subscribed to the `release` event, and the old order created the GitHub Release
+  publicly **before** `publish-pypi` reached its approval environment. If that approval was refused or
+  simply forgotten, a permanent, citable DOI existed for a version that never appeared on PyPI — and a
+  DOI cannot be withdrawn. The irreversible act happened before the gate meant to authorise it. Now:
+  draft → PyPI upload → a `publish-release` job flips the draft public. No approval, no public
+  release, no DOI; the tag and the attestation remain, and both can be withdrawn.
+
+  Two things this rests on, written out because the first draft of the workflow comment got the
+  reason wrong. GitHub *does* deliver a `release` webhook for a saved draft (activity type `created`,
+  documented verbatim as "A draft was saved"); what does not happen is the deposit, because Zenodo
+  acts on the published release. Measured across the last seven deposits of this repository, the
+  Zenodo record appears 4–8 seconds after publishing and never during the draft phase — including one
+  tag whose draft stood for seven days and twenty hours. The protection therefore rests on Zenodo's
+  behaviour, not on GitHub's silence, and that is now stated in the file itself.
+
+  The job resolves the release by **id**, not by tag: `gh release view <tag>` races a REST and a
+  GraphQL lookup and returns whichever answers first, which is undefined when a published and a draft
+  release share a tag — a state this repository has been in before (two Zenodo records each on
+  `corpus-review-2026-07-25-iter10` and on `v2.0.0`). Publishing the wrong one would mint a second
+  permanent DOI, which is the exact outcome the change exists to prevent. Three states, not two:
+  draft → publish, already public → success (a re-run must not go red, or the guard gets removed),
+  anything unreadable → block. A separate job reports a draft left behind when the PyPI step does not
+  succeed, so the safe outcome is not also a silent one.
+- **`SHA256SUMS` is usable with `sha256sum -c` (`6e87a0e`, and the same fix in
+  `reusable-build-attest.yml`).** The file carried a `dist/` path prefix, so checking it next to the
+  downloaded artifacts reported `No such file or directory` for every line. `RELEASE.md` now offers
+  the checking command it previously only implied. Both workflows also declare `defaults.run.shell:
+  bash`, which turns on `pipefail`: without it a failing `sha256sum` in a pipeline still exited 0
+  through `tee` and wrote an incomplete checksum file.
+- **Two shipped changes this section did not mention, added after a counter-read pointed out that
+  the delta list stops at `src/`.** `MANIFEST.in` grafts `scripts` and `docs/readiness_pack` into the
+  sdist, so both of the following reach anyone who installs from source:
+  - **the readiness pack's self-receipt was re-signed** (`9b8a998`): `readiness_pack.pub.b64` goes
+    from `aQDV4Vkc…` to `GB+LMY2k…`, with a new signature and root. In a release diff this looks
+    like a key rotation and is not one — the receipt is advisory and signed with an ephemeral key
+    generated at each regeneration, which is stated in `scripts/readiness_pack_manifest.py` and
+    nowhere in the pack a reader would open. Recorded here so the next diff does not raise a false
+    alarm.
+  - **`scripts/mutation_check.py` now requires a git work tree.** It calls `git ls-files` and exits
+    with a message when that fails (`:497-500`, added in `e34e05e`), which the 3.7.0 version did not.
+    From an unpacked sdist there is no git checkout, so the shipped copy of this script is not
+    runnable there. HONEST BOUNDARY: this is read from the source and from `MANIFEST.in`, not
+    reproduced end to end — running it would start the real multi-hour mutation job. Three further
+    shipped files are new alongside it: `scripts/mutant_signature_guard.py`,
+    `scripts/install_git_hooks.sh` and `scripts/git-hooks/pre-commit`.
+- **2,353,682 bytes of foreign 3.6.1 build artifacts removed from version control (`6e87a0e`).** Three
+  files under `dist_final/` and `dist_pkgtest6/` were tracked — 19.3 % of the uncompressed source
+  archive of v3.7.0, and part of every Zenodo deposit through the webhook. They were never in the
+  sdist (the `MANIFEST.in` allowlist held, verified by building the sdist at both commits and
+  diffing every member: 743 tar members, of which 648 are files — the first draft said "all 666 members", a number that reproduces in no counting of any of the three builds), and nothing references them. Now removed and gitignored.
+
+### Uebernommen aus `[Unreleased]` (Herkunft: `main`, siehe Hinweis oben)
 
 ### Fixed
 

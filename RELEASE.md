@@ -78,7 +78,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 ## Beta / pre-release (any future pre-release line)
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
-stable default has since moved on to the 3.x line (current: 3.7.0) and the `[experimental]` extra
+stable default has since moved on to the 3.x line (current: 3.8.0) and the `[experimental]` extra
 ships with normal releases.
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
@@ -128,5 +128,14 @@ after the merge (see *Release ordering* above).
 ```bash
 pip download proofbundle==X.Y.Z --no-deps -d /tmp/pb
 sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
+# or, with SHA256SUMS downloaded next to the artifacts, let the tool do the comparing.
+# --ignore-missing is required, not cosmetic: the command above fetches only the WHEEL, while
+# SHA256SUMS lists the wheel AND the sdist, so a plain `-c` reports the sdist line as
+# "No such file or directory / FAILED" on a perfectly good download. Measured, both failure
+# modes still fail: a wrong digest exits 1, and an empty directory exits 1 with
+# "no file was verified" — it does not pass silently when there is nothing to check.
+( cd /tmp/pb && sha256sum --ignore-missing -c SHA256SUMS )
+# to check both artifacts, fetch the sdist as well:
+#   pip download proofbundle==X.Y.Z --no-deps --no-binary :all: -d /tmp/pb
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```

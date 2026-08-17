@@ -115,6 +115,18 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
         kid = bytes.fromhex(kid_hex)
     except ValueError as exc:
         raise BundleFormatError("vkey keyID is not valid hex") from exc
+    # EIN VKEY, DER SICH SELBST WIDERSPRICHT, IST MALFORMED — nicht "hat halt nichts signiert".
+    # Gefunden in der un-Gegenlesung dieser Scheibe (2026-08-16): deklarierte ID und aus Name +
+    # Schluesselmaterial NEU BERECHNETE ID konnten auseinanderfallen, und `verify_checkpoint` lehnte
+    # dann still jede Signaturzeile ab. Der Aufrufer sah `ok=False, signer_present=False` und konnte
+    # "niemand hat signiert" nicht von "dein Schluessel ist kaputt" unterscheiden — genau die Klasse,
+    # die dieses Release an drei anderen Stellen schliesst (nicht messbar liest sich wie gemessenes
+    # Nein), hier gefunden von einem Gegenleser in Code, den diese Scheibe nicht angefasst hat.
+    # Dies ist der richtige Ort: jede andere Missform des vkey faellt schon hier typisiert durch.
+    if kid != key_id(name, pubkey):
+        raise BundleFormatError(
+            "vkey is self-inconsistent: its declared keyID does not match the ID recomputed from "
+            "its own name and key material — this is a malformed key, not a failed verification")
     return name, kid, pubkey
 
 
@@ -146,6 +158,19 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
 
     ok = False
+    # WAR DER SCHLUESSEL UEBERHAUPT DABEI? Diese Unterscheidung entsteht in der Schleife unten und
+    # wurde bisher zu einem einzigen `ok=False` verdichtet — mit der Folge, dass ein FALSCHER
+    # --log-vkey und eine VERFAELSCHTE Signatur byte-gleiche Verdikte lieferten (gemessen
+    # 2026-08-16, `FINDING_json_trennt_die_drei_ursachen_nicht.md`). Ein Signaturvergleich ist ein
+    # Zwei-Eingaben-Praedikat und weist bei einem Fehlschlag keiner Seite die Schuld zu; die
+    # KEY-ID kann es aber sehr wohl: findet sich keine Signaturzeile mit der ID des uebergebenen
+    # Schluessels, hat dieser Schluessel diese Note nicht signiert. Findet sich eine und die
+    # Pruefung faellt trotzdem, stimmen die Bytes nicht.
+    # EHRLICHE GRENZE, und sie ist keine Schwaeche des Feldes: eine Verfaelschung, die genau die
+    # vier keyID-Bytes trifft, ist von einem falschen Schluessel NICHT unterscheidbar — dann traegt
+    # die Note keinen Beleg mehr, dass dieser Schluessel je signiert hat. Das ist eine wahre
+    # Aussage ueber die Lage, kein Messfehler.
+    signer_present = False
     kid_expected = key_id(name, pubkey)
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
@@ -166,10 +191,12 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         kid, sig = payload[:4], payload[4:]
         if kid != kid_v or kid != kid_expected:   # keyID must match both the vkey and the recomputed id
             continue
+        signer_present = True                     # diese Note traegt eine Zeile FUER diesen Schluessel
         if verify_ed25519(pubkey, sig, note_bytes):
             ok = True
             break
-    return {"ok": ok, "origin": origin, "tree_size": int(size_s), "root": root}
+    return {"ok": ok, "origin": origin, "tree_size": int(size_s), "root": root,
+            "signer_present": signer_present}
 
 
 def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
@@ -360,9 +387,21 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
         kid = bytes.fromhex(kid_hex)
     except ValueError as exc:
         raise BundleFormatError("vkey keyID is not valid hex") from exc
+    # DERSELBE SELBSTWIDERSPRUCH, ZWEITES MITGLIED. `verify_cosignature` traegt Zeile fuer Zeile
+    # dieselbe Form wie `verify_checkpoint` (`kid != kid_v or kid != kid_expected`) und hatte
+    # dieselbe Luecke. Im selben Durchgang gefixt statt beim naechsten Mal wiedergefunden — die
+    # Neuberechnung haengt hier am Algorithmus, deshalb je Zweig die passende Funktion.
     if len(keymat) == 33 and keymat[0] == _COSIG_V1_SIG_TYPE:
+        if kid != cosign_key_id(name, keymat[1:]):
+            raise BundleFormatError(
+                "witness vkey is self-inconsistent: its declared keyID does not match the ID "
+                "recomputed from its own name and key material")
         return name, kid, keymat[1:], _COSIG_V1_SIG_TYPE
     if len(keymat) == _MLDSA44_PUB_LEN + 1 and keymat[0] == _COSIG_MLDSA_SIG_TYPE:
+        if kid != cosign_key_id_mldsa(name, keymat[1:]):
+            raise BundleFormatError(
+                "witness vkey is self-inconsistent: its declared keyID does not match the ID "
+                "recomputed from its own name and key material")
         return name, kid, keymat[1:], _COSIG_MLDSA_SIG_TYPE
     raise BundleFormatError(
         "witness vkey must be 0x04+32-byte Ed25519 or 0x06+1312-byte ML-DSA-44 key material")
@@ -483,14 +522,31 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
 
 
 def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, *,
-                                threshold: int = 1) -> dict:
+                                threshold: int = 1,
+                                expected_origin: "str | None" = None) -> dict:
     """Verify a checkpoint is BOTH log-signed and witnessed by ``threshold`` distinct witnesses.
 
     The log signature (0x01) is always required — witnesses attest consistency, they do not
     replace the log's own signature. Returns ``{ok, log_ok, witnesses_ok, witnesses, origin,
-    tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature result.
+    expected_origin, tree_size, root}`` where ``witnesses`` maps each vkey's name to its cosignature
+    result.
     Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
     this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (adversarial re-audit round 5).
+
+    ``expected_origin`` (3.8.0) is the origin binding this surface was missing. A checkpoint carries
+    the identity of the log that issued it, and a signature proves that SOME log signed — not WHICH
+    one. Without the binding a relying party that pins a trusted checkpoint accepts a validly signed
+    checkpoint from a DIFFERENT log as an authenticated source for the root and the tree size.
+    Measured 2026-08-16 by triggering it: the same root and the same key under two different origins
+    produced byte-identical verdicts, and no parameter could separate them. The sibling surface
+    ``tlogproof.verify_tlog_proof`` closed this earlier in the same release; this is its neighbour.
+
+    Default ``None`` = origin unconstrained, so every existing call keeps its verdict. The comparison
+    is EXACT (codepoint equality, no normalisation, no case folding) — near-miss corpora in
+    ``tests/_beinahe_treffer.py`` hold that, because a comparison tested only against a wholly foreign
+    value cannot tell an exact one from a loosened one. ``""`` is a REQUEST that always fails, not the
+    absence of one: ``is None`` is deliberate where ``not expected_origin`` would silently collapse
+    "asked and empty" into "not asked".
     """
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
@@ -501,8 +557,21 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
         raise BundleFormatError("witness_vkeys must be an iterable of witness vkey strings")
     log_res = verify_checkpoint(signed_note, log_vkey)
+    # Exakt wie in tlogproof.verify_tlog_proof, absichtlich Zeichen fuer Zeichen dieselbe Form: die
+    # zwei Flaechen tragen DIESELBE Eigenschaft, und zwei verschiedene Schreibweisen davon waeren
+    # die naechste Drift. `is None` und nicht `not expected_origin` — ein leerer String ist eine
+    # GESTELLTE Frage, die immer fehlschlaegt, keine abwesende.
+    log_ok = bool(log_res["ok"]) and (expected_origin is None
+                                      or log_res["origin"] == expected_origin)
     witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold)
-    return {"ok": bool(log_res["ok"]) and witnesses_ok, "log_ok": log_res["ok"],
+    return {"ok": log_ok and witnesses_ok, "log_ok": log_ok,
             "witnesses_ok": witnesses_ok, "witnesses": witnesses,
-            "origin": log_res["origin"], "tree_size": log_res["tree_size"],
-            "root": log_res["root"]}
+            "origin": log_res["origin"], "expected_origin": expected_origin,
+            # NACHBAR IM SELBEN DURCHGANG: `verify_checkpoint` liefert `signer_present`, und der
+            # tlogproof-Pfad reicht es durch — diese Schwesterflaeche baut ihr Ergebnis selbst und
+            # liess es fallen. Ein Aufrufer saehe hier `log_ok=False`, ohne zu wissen, ob der
+            # uebergebene Schluessel diese Note ueberhaupt signiert hat. Beim Lesen des eigenen
+            # Diffs gefunden, nicht von einem Test — die Klasse "ein Verbraucher gefixt, den
+            # Nachbarn in derselben Funktion vergessen" ist genau die, die hier wiederkehrt.
+            "signer_present": bool(log_res.get("signer_present")),
+            "tree_size": log_res["tree_size"], "root": log_res["root"]}

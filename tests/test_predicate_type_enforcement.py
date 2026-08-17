@@ -78,6 +78,23 @@ class TestExplicitExpectedType(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertFalse(res["predicate_type_ok"])
 
+    def test_expected_predicate_type_wird_EXAKT_verglichen(self):
+        """Beinahe-Treffer fuer die predicateType-Bindung — sonst ist eine Typ-Verwechslung moeglich.
+
+        `type_ok = (got == expected_predicate_type)` war nur gegen einen voellig FREMDEN Typ belegt
+        (SVR gegen eval-result). Gemessen 2026-08-16 blieb die volle Suite gruen, als der Vergleich
+        auf `.startswith()` gelockert wurde — ein Umschlag mit
+        `…/eval-result/v0.1-evil` haette dann gegen die Erwartung `…/eval-result/v0.1` gepasst.
+        Korpus aus `tests/_beinahe_treffer.py`, dieselbe Quelle wie die anderen Flaechen.
+        """
+        from _beinahe_treffer import pruefe_exakt
+        signer = generate_signer()
+        pub = signer.public_key().public_bytes_raw()
+        env = export_eval_result_dsse(_claim(), signer)
+        pruefe_exakt(
+            lambda v: bool(verify_eval_result_dsse(env, pub, expected_predicate_type=v)["ok"]),
+            EVAL_RESULT_PREDICATE_TYPE, self)
+
     def test_opt_out_restores_legacy_return_only_behavior(self):
         # expected_predicate_type=None → the type is REPORTED, not enforced (ok ignores it).
         signer = generate_signer()

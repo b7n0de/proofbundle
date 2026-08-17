@@ -343,8 +343,12 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
     def test_witness_quorum_mldsa_witness_returns_verdict_never_raises(self):
         import base64
         from proofbundle import checkpoint as cp
-        keymat = bytes([0x06]) + b"\x00" * 1312
-        vkey = "w+00000000+" + base64.b64encode(keymat).decode()
+        # keyID korrekt berechnet statt "+00000000+": ein selbstwidersprueglicher vkey ist seit
+        # 2026-08-16 malformed und faellt vorher durch. Dieser Test misst die never-raise-Eigenschaft
+        # von witness_quorum, nicht die Formpruefung — der Zweck bleibt so erhalten.
+        _pub = b"\x00" * 1312
+        keymat = bytes([0x06]) + _pub
+        vkey = "w+" + cp.cosign_key_id_mldsa("w", _pub).hex() + "+" + base64.b64encode(keymat).decode()
         note = ("o\n1\n" + base64.b64encode(b"\x00" * 32).decode() + "\nx\n\n— w "
                 + base64.b64encode(b"\x00" * 2432).decode())
         ok, witnesses = cp.witness_quorum(note, [vkey], 1)  # must not raise UnsupportedError out of the batch

@@ -38,4 +38,15 @@ dist_pkgtest2/
 dist_pkgtest3/
 dist_pkgtest4/
 dist_pkgtest5/
+# GEMESSEN 2026-08-16: `dist_final/` und `dist_pkgtest6/` fehlten hier, und darin lagen drei
+# VERFOLGTE 3.6.1-Artefakte mit zusammen 2 353 682 Bytes. Sie sind damit in JEDEM
+# Quell-Archiv jedes Tags gelandet -- am echten GitHub-Archiv von v3.7.0 nachgemessen 19,3 %
+# des unkomprimierten Inhalts -- und ueber den Zenodo-Webhook in den zitierbaren Datensatz.
+# Im sdist waren sie NICHT: die MANIFEST.in-Allowlist hat gehalten. Der Befund betraf allein
+# das Quell-Archiv, und genau das ist die Datei, die ein Aussenstehender herunterlaedt.
+# Die Muster stehen einzeln statt als `dist*`, weil `dist_final` und `dist_pkgtest6` die
+# einzigen zwei waren, die fehlten -- ein Sammelmuster wuerde auch kuenftige Verzeichnisse
+# verschlucken, die jemand bewusst verfolgen will.
+dist_final/
+dist_pkgtest6/
 dist_rc/
