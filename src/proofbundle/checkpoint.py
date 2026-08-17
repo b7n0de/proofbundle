@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import unicodedata
 from typing import Optional
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -49,11 +50,36 @@ def _root_std_b64(root: bytes) -> str:
     return base64.b64encode(root).decode("ascii")
 
 
+def _origin_wellformed(origin: str) -> bool:
+    """BUILD-time guard for a proofbundle-emitted origin: a schemeless log identity with no whitespace,
+    no zero-width/format character, and no '+'. proofbundle never emits an origin with a space, so the
+    builder stays strict (a spaced origin like Go sumdb's is verified, not emitted here — see
+    :func:`_origin_has_invisible` for the verify-side rule)."""
+    if not origin or "+" in origin:
+        return False
+    return not any(c.isspace() or unicodedata.category(c) == "Cf" for c in origin)
+
+
+def _origin_has_invisible(origin: str) -> bool:
+    """VERIFY-side rule: True if the origin carries a zero-width / format (Cf) character. These are
+    INVISIBLE, so an origin line can be made to LOOK identical to a witness name while being
+    byte-different — and the origin-quorum exclusion, which compares the origin against witness names,
+    then runs into the void (the log votes in its own quorum under a zero-width-cloaked name; Deep-Gate
+    F-1, 2026-08-17). Deliberately NARROW: visible spaces (Zs — e.g. Go sumdb's `go.sum database tree`)
+    are NOT flagged, because they are visible AND a witness name carries no whitespace, so a spaced
+    origin cannot cloak a witness name; control characters (Cc) are left to the existing terminal-output
+    neutralisation (a checkpoint may legitimately be probed with them, tested), and the key-material
+    exclusion is the robust defence regardless. Rejecting only the invisible class keeps every legitimate
+    external vector (Go sumdb, Rekor) verifying while closing the cloak."""
+    return any(unicodedata.category(c) == "Cf" for c in origin)
+
+
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     """Build the C2SP checkpoint note text (3 lines + trailing newline). ``root`` is the raw RFC 6962
     Merkle root bytes at ``tree_size``. ``origin`` must be non-empty with no spaces/'+' (a schemeless URL)."""
-    if not origin or "+" in origin or any(c.isspace() for c in origin):
-        raise BundleFormatError("checkpoint origin must be a non-empty schemeless id without whitespace or '+'")
+    if not _origin_wellformed(origin):
+        raise BundleFormatError("checkpoint origin must be a non-empty schemeless id without whitespace, "
+                                "zero-width/control characters, or '+'")
     if isinstance(tree_size, bool) or not isinstance(tree_size, int) or tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
@@ -150,6 +176,11 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
+    # DEEP-GATE F-1 (2026-08-17): reject an origin carrying an INVISIBLE (zero-width/format) character —
+    # it otherwise lets the log clone a witness name it can then vote under. Narrow on purpose: visible
+    # spaces (Go sumdb) and control chars (terminal-neutralisation is tested separately) still verify.
+    if _origin_has_invisible(origin):
+        raise BundleFormatError("checkpoint origin carries a zero-width/format character (malformed)")
     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
@@ -255,6 +286,10 @@ def _note_text_of(signed_note: str) -> str:
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
+    # DEEP-GATE F-1: reject a zero-width-cloaked origin here too, so every consumer of the note body
+    # (verify_cosignature, witness_quorum's origin extraction) sees an exact-comparable origin.
+    if _origin_has_invisible(lines[0]):
+        raise BundleFormatError("checkpoint origin carries a zero-width/format character (malformed)")
     return note_text
 
 
@@ -487,7 +522,21 @@ def _witness_key_material(vkey: str) -> bytes:
     return base64.b64decode(vkey.split("+", 2)[2])
 
 
-def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
+def _log_key_material_of(log_vkey: str) -> "bytes | None":
+    """The raw public-key bytes of a LOG vkey (0x01), for the origin-quorum key-material exclusion
+    (DEEP-GATE F-2). Compared against a witness vkey's pubkey bytes WITHOUT the alg-type prefix, so a
+    log that reuses its 0x01 signing key as a 0x04 cosignature key is caught despite the differing
+    prefix. Defensive: a malformed log vkey yields None (the exclusion then falls back to the name
+    test), never a raise — on the real path verify_checkpoint already raised on a malformed log vkey."""
+    try:
+        _name, _kid, pubkey = _parse_vkey(log_vkey)
+        return pubkey
+    except BundleFormatError:
+        return None
+
+
+def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
+                   log_key_material: "bytes | None" = None):
     """Shared k-of-n witness quorum (release-review fix): counts DISTINCT witness KEY MATERIAL, not names —
     C2SP requires operators to use distinct keys per cosigner, so one physical key under N names is ONE witness.
     Alg-agnostic (Ed25519 0x04 + ML-DSA 0x06). Used by BOTH verify_witnessed_checkpoint AND tlogproof.
@@ -497,16 +546,26 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     False; and a witness whose algorithm this build cannot verify (an ML-DSA vkey without the [pq] extra) also
     counts as non-verifying (False), never a raw UnsupportedError out of the batch (adversarial re-audit round 5).
 
-    ORIGIN-QUORUM RULE: a log never votes in its own quorum. A witness vkey whose NAME equals the
-    checked note's own origin line is excluded from the count — fail-closed, regardless of algorithm,
-    and BEFORE any signature math (its entry reports ``ok=False`` with ``origin_excluded=True``).
-    A witness quorum is the statement that parties OTHER than the log saw the same tree; a signature
-    under the log's own origin name is the log speaking about itself, so counting it would let a log
-    manufacture part of its own quorum (issue #7, decided with the log operator 2026-08-17; the C2SP
-    tlog-cosignature/tlog-witness specs are silent on this, so the verifier must hold the line).
-    The name comparison is EXACT (codepoint equality, no normalisation) — the excluded identity is
-    the one string the audited log itself declares, and a near-miss name is simply a different
-    (non-verifying) witness, not a loosened match."""
+    ORIGIN-QUORUM RULE — a log never votes in its own quorum. A witness cosignature is EXCLUDED from
+    the count (``ok=False``, ``origin_excluded=True``, before any signature math) when EITHER holds:
+
+      * its **key material** equals ``log_key_material`` (the audited log's own signing-key public
+        bytes, passed by the caller that knows which log it verifies) — the ROBUST test, algorithm-
+        agnostic and independent of the name the line claims; or
+      * its **name** equals the note's own origin line — the exact-codepoint name test.
+
+    Why BOTH, and why the name test alone is not enough (Deep-Gate re-gate 2026-08-17, F-1/F-2):
+    the Ed25519 cosignature/v1 signed message does NOT commit to the cosigner name (unlike ML-DSA-44,
+    which does), so a line CAN be relabelled under any name without the private key — a name-only rule
+    is bypassable for Ed25519, and a zero-width character in the origin line defeats the exact name
+    compare outright (closed separately by :func:`_origin_wellformed`). Keying the exclusion on the
+    LOG's public bytes uses an operand the log/attacker does not get to choose. HONEST LIMIT that
+    remains and is documented at the call sites: if a log cosigns with a SEPARATE key (not its
+    signing key) under a non-origin alias that a relying party wrongly lists as an independent
+    witness, no local rule can catch it — that is roster provenance, a deployment property. The name
+    comparison stays EXACT (no normalisation) so a near-miss name is a different witness, not a
+    loosened match. ``log_key_material=None`` (a direct call with no log context) applies only the
+    name test; the public surfaces always pass it."""
     keys_ok = set()
     witnesses = {}
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
@@ -523,18 +582,26 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int):
     except BundleFormatError:
         origin = None
     for wv in witness_vkeys:
-        if origin is not None and isinstance(wv, str) and wv.split("+", 2)[0] == origin:
-            # ORIGIN-QUORUM RULE (see docstring): excluded from the quorum before any verification.
-            # _parse_witness_vkey keeps the documented contract that an unparseable vkey raises —
-            # and it rejects a 0x01 log key here exactly as everywhere else (domain separation).
-            _name, _kid, _pk, sig_type = _parse_witness_vkey(wv)
-            res = {"ok": False,
-                   "alg": "ed25519-cosignature/v1" if sig_type == _COSIG_V1_SIG_TYPE else "ml-dsa-44",
-                   "origin": origin, "tree_size": None, "root": None, "timestamp": None,
-                   "origin_excluded": True,
-                   "detail": "witness name equals the checked log's own origin — a log never counts "
-                             "toward its own witness quorum (origin-quorum rule, fail-closed)"}
-        else:
+        res = None
+        if isinstance(wv, str):
+            name_hit = origin is not None and wv.split("+", 2)[0] == origin
+            if name_hit or log_key_material is not None:
+                # Parse to compare key material AND to learn the alg for the report entry. This keeps the
+                # documented raise contract: an unparseable vkey raises here (same typed BundleFormatError
+                # verify_cosignature would raise one line down), and a 0x01 log key is rejected AS a witness
+                # (domain separation) exactly as everywhere else.
+                _name, _kid, wv_pk, sig_type = _parse_witness_vkey(wv)
+                material_hit = log_key_material is not None and wv_pk == log_key_material
+                if name_hit or material_hit:
+                    reason = ("its name equals the checked log's own origin" if name_hit
+                              else "its key material equals the audited log's own signing key")
+                    res = {"ok": False,
+                           "alg": "ed25519-cosignature/v1" if sig_type == _COSIG_V1_SIG_TYPE else "ml-dsa-44",
+                           "origin": origin, "tree_size": None, "root": None, "timestamp": None,
+                           "origin_excluded": True,
+                           "detail": f"witness excluded — {reason}; a log never counts toward its own "
+                                     "witness quorum (origin-quorum rule, fail-closed)"}
+        if res is None:
             try:
                 res = verify_cosignature(signed_note, wv)
             except UnsupportedError as exc:
@@ -563,8 +630,9 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     result.
     Fail-closed: an unparseable witness vkey raises; a non-verifying one counts as False; an ML-DSA witness
     this build cannot verify (no [pq] extra) counts as non-verifying, not a raise (adversarial re-audit round 5).
-    A witness vkey named like the note's own origin line never counts toward the quorum — a log never
-    votes in its own quorum (origin-quorum rule, see :func:`witness_quorum`).
+    Origin-quorum rule (see :func:`witness_quorum`): a cosignature made with the LOG's own signing key,
+    or one whose name equals the origin line, never counts — this surface passes ``log_key_material`` so
+    the robust key-material test applies, not the name test alone.
 
     ``expected_origin`` (3.8.0) is the origin binding this surface was missing. A checkpoint carries
     the identity of the log that issued it, and a signature proves that SOME log signed — not WHICH
@@ -596,7 +664,10 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     # GESTELLTE Frage, die immer fehlschlaegt, keine abwesende.
     log_ok = bool(log_res["ok"]) and (expected_origin is None
                                       or log_res["origin"] == expected_origin)
-    witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold)
+    # DEEP-GATE F-2: the log's own signing-key public bytes are the operand the log does not choose —
+    # pass them so a cosignature made with the log key never counts as a witness, whatever name it wears.
+    witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold,
+                                             log_key_material=_log_key_material_of(log_vkey))
     return {"ok": log_ok and witnesses_ok, "log_ok": log_ok,
             "witnesses_ok": witnesses_ok, "witnesses": witnesses,
             "origin": log_res["origin"], "expected_origin": expected_origin,

@@ -1,4 +1,4 @@
-"""ORIGIN-QUORUM RULE — a log never votes in its own quorum.
+"""ORIGIN-QUORUM RULE — a log does not vote in its own witness quorum.
 
 Where this comes from: on 2026-08-16 a behaviour probe (report `20260816T0851Z`, section 8)
 measured that `witness_quorum` counted a cosignature under the checked log's OWN origin name —
@@ -6,16 +6,22 @@ a self-cosigned mini-log satisfied `threshold=1` with nothing but its own signat
 tlog-cosignature and tlog-witness specs are silent on the case (checked 2026-08-17), and the
 affected log operator confirmed the intended reading in issue #7: his `/policy` declares the
 quorum as `group independent-witnesses 4` with the log not a member, structural but never stated.
-The rule now lives where it binds, in `checkpoint.witness_quorum`: a witness vkey whose name
-equals the note's own origin line is excluded from the count — fail-closed, algorithm-agnostic,
-before any signature math. His live checkpoint, self-signed under the origin name in both
-Ed25519 (note signature, 0x01) and ML-DSA-44 (cosignature shape), is the vendored test vector
-(`tests/fixtures/anchors/markovian_log/checkpoint_7397/`), offered by the operator for exactly
-this purpose.
 
-The probe below is the 2026-08-16 finding turned into a regression test: it MUST exclude now,
-and it measures the exclusion on all three public surfaces that share `witness_quorum`
-(`verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof`, `public_transparency`).
+The rule lives where it binds, in `checkpoint.witness_quorum`, and after the 2026-08-17 Deep-Gate
+re-gate it excludes a cosignature on EITHER of two operands the log does not choose: its key
+material equals the audited log's own signing key (the robust, algorithm-agnostic test — the caller
+passes it), or its name equals the origin line (exact codepoint; robust for ML-DSA-44, whose message
+binds the name, defence-in-depth for Ed25519, whose cosignature/v1 message does not). A zero-width
+character in the origin line is refused so the name compare cannot be cloaked (`_origin_has_invisible`).
+Honest limit: a separate cosign key under a non-origin alias is roster provenance, not a local check.
+The operator's live checkpoint, self-signed under the origin name in both Ed25519 (note signature,
+0x01) and ML-DSA-44 (cosignature shape), is the vendored test vector
+(`tests/fixtures/anchors/markovian_log/checkpoint_7397/`), offered for exactly this purpose.
+
+TestOriginQuorumRegression turns the 2026-08-16 finding into a property; TestOriginQuorumHardening
+pins the 2026-08-17 re-gate findings (F-1 zero-width, F-2 key-material/relabel) on the surfaces that
+share `witness_quorum` (`verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof`,
+`public_transparency`).
 """
 from __future__ import annotations
 
@@ -282,6 +288,162 @@ class TestLiveCheckpointVector(unittest.TestCase):
         # witness key (domain separation), pinned here on the live vector.
         with self.assertRaises(BundleFormatError):
             cp.witness_quorum(self.note, [self.log_vkey], 1)
+
+
+class TestCliCarriesTheExclusionReason(unittest.TestCase):
+    """F-4: the CHANGELOG promises a relying party can tell 'excluded by rule' from 'signature
+    invalid'. That only held in the library; verify-proof --json projected {ok, alg, timestamp} and
+    dropped origin_excluded/detail — an origin-excluded witness and a bad-signature one printed
+    byte-identically. This pins the reason into the machine-readable surface."""
+
+    def test_json_witness_entry_carries_origin_excluded_and_detail(self):
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import os  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        from proofbundle import emit_bundle  # noqa: PLC0415
+        from proofbundle.cli import main  # noqa: PLC0415
+        from proofbundle.tlogproof import tlog_proof_for_bundle  # noqa: PLC0415
+
+        log = generate_signer()
+        payload = b'{"result": 1}'
+        bundle = emit_bundle(payload, log, prior_leaves=[b"a", b"b", b"c"])
+        root = base64.b64decode(bundle["merkle"]["root_b64"])
+        note = cp.sign_checkpoint(ORIGIN, bundle["merkle"]["tree_size"], root, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, "independent.example/w", TS)   # log key under an alias
+        proof = tlog_proof_for_bundle(bundle, note)
+        dd = tempfile.mkdtemp()
+        pf, lf = os.path.join(dd, "p.tlog-proof"), os.path.join(dd, "leaf.bin")
+        pathlib.Path(pf).write_text(proof, encoding="utf-8")
+        pathlib.Path(lf).write_bytes(payload)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                main(["verify-proof", pf, "--payload-file", lf,
+                      "--log-vkey", cp.vkey(ORIGIN, _raw(log)),
+                      "--witness-vkey", cp.cosign_vkey("independent.example/w", _raw(log)),
+                      "--threshold", "1", "--json"])
+            except SystemExit:
+                pass
+        out = json.loads(buf.getvalue())
+        (w,) = out["witnesses"].values()
+        self.assertFalse(w["ok"])
+        self.assertIs(w.get("origin_excluded"), True)
+        self.assertIn("key material", w["detail"])
+        self.assertFalse(out["witnesses_ok"])
+
+
+class TestOriginQuorumHardening(unittest.TestCase):
+    """DEEP-GATE re-gate 2026-08-17: the name-only rule was bypassable. These pin the two operands the
+    log does NOT choose — the log's key material, and a well-formed origin line — on the surfaces that
+    have the log_vkey in hand (verify_witnessed_checkpoint / verify_tlog_proof). Each test names the
+    finding it closes so a future weakening is caught by a failure that says why."""
+
+    def _note_with_log_cosign(self, cosign_name, *, alg="ed25519"):
+        """A note the log cosigns UNDER ``cosign_name`` with its OWN signing key (Ed25519) — the shape
+        of a log trying to vote in its own quorum without an origin-named line."""
+        log = generate_signer()
+        note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, cosign_name, TS)      # SAME key as the log signature
+        return note, cp.vkey(ORIGIN, _raw(log)), cp.cosign_vkey(cosign_name, _raw(log)), log
+
+    def test_f2_log_key_under_a_witness_alias_is_excluded(self):
+        # F-2/F-2b: the log cosigns under a NON-origin alias with its own signing key. The name test
+        # cannot see it (the name is not the origin); the key-material test must.
+        note, log_vkey, alias_vkey, _ = self._note_with_log_cosign("independent.example/w")
+        res = cp.verify_witnessed_checkpoint(note, log_vkey, [alias_vkey], threshold=1)
+        self.assertFalse(res["witnesses_ok"], "the log voted in its own quorum under an alias")
+        self.assertFalse(res["ok"])
+        entry = next(iter(res["witnesses"].values()))
+        self.assertIs(entry.get("origin_excluded"), True)
+        self.assertIn("key material", entry["detail"])
+
+    def test_f2_relabelled_ed25519_line_is_excluded(self):
+        # F-2 exact: the Ed25519 cosignature/v1 message does not bind the cosigner name, so an
+        # origin-named line can be relabelled under an alias WITHOUT the private key (keyID is public
+        # SHA-256). The relabelled line still carries the log's key material and must not count.
+        log = generate_signer()
+        note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, ORIGIN, TS)           # cosign under the origin name
+        log_vkey = cp.vkey(ORIGIN, _raw(log))
+        sig_block = note.split("\n\n", 1)[1]
+        cosig = [ln for ln in sig_block.split("\n")
+                 if ln.startswith("— ") and ln.split(" ", 2)[1] == ORIGIN][-1]
+        blob = base64.b64decode(cosig.split(" ", 2)[2])
+        alias = "independent.example/w"
+        forged = cp.cosign_key_id(alias, _raw(log)) + blob[4:]       # no private key used
+        logsig = [ln for ln in sig_block.split("\n")
+                  if ln.startswith("— ") and ln.split(" ", 2)[1] == ORIGIN][0]
+        forged_note = (note.split("\n\n", 1)[0] + "\n\n" + logsig
+                       + "\n— " + alias + " " + base64.b64encode(forged).decode() + "\n")
+        # precondition: the relabelled Ed25519 line really does verify (that is the whole danger)
+        self.assertTrue(cp.verify_cosignature(forged_note, cp.cosign_vkey(alias, _raw(log)))["ok"])
+        res = cp.verify_witnessed_checkpoint(forged_note, log_vkey,
+                                             [cp.cosign_vkey(alias, _raw(log))], threshold=1)
+        self.assertFalse(res["witnesses_ok"], "a relabelled log cosignature counted as a witness")
+        self.assertFalse(res["ok"])
+
+    def test_f2_inherited_by_tlogproof_surface(self):
+        from proofbundle import emit_bundle  # noqa: PLC0415
+        from proofbundle.tlogproof import tlog_proof_for_bundle, verify_tlog_proof  # noqa: PLC0415
+        log = generate_signer()
+        payload = b'{"result": 42}'
+        bundle = emit_bundle(payload, log, prior_leaves=[b"a", b"b", b"c"])
+        root = base64.b64decode(bundle["merkle"]["root_b64"])
+        note = cp.sign_checkpoint(ORIGIN, bundle["merkle"]["tree_size"], root, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, "independent.example/w", TS)   # log key, alias name
+        proof = tlog_proof_for_bundle(bundle, note)
+        res = verify_tlog_proof(proof, payload, cp.vkey(ORIGIN, _raw(log)),
+                                [cp.cosign_vkey("independent.example/w", _raw(log))], threshold=1)
+        self.assertFalse(res["witnesses_ok"])
+        self.assertFalse(res["ok"])
+        self.assertTrue(res["log_ok"] and res["inclusion_ok"])       # precise verdicts
+
+    def test_f1_zero_width_origin_is_malformed_at_verify(self):
+        # F-1: an INVISIBLE (zero-width / format) character in the origin line let the log clone a
+        # witness name it could then vote under. Such a note must not verify — the invisible-origin
+        # guard now fires at verify time, not only at build time. Covers the four Cf classes the old
+        # isspace() guard missed. Visible spaces and control chars are deliberately left to verify
+        # (Go sumdb origins carry spaces; terminal neutralisation covers control chars; the
+        # key-material exclusion is the robust defence for both — test_f1_visible_space below).
+        log = generate_signer()
+        clean = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        for label, cloak in (("ZWSP", "\u200b"), ("ZWNJ", "\u200c"),
+                             ("BOM", "\ufeff"), ("word-joiner", "\u2060")):
+            cloaked = ORIGIN + cloak
+            with self.subTest(cloak=label):
+                with self.assertRaises(BundleFormatError):          # builder refuses to make one
+                    cp.sign_checkpoint(cloaked, 7, ROOT, log, cloaked)
+                forged = clean.replace(ORIGIN + "\n", cloaked + "\n", 1)   # hand-forged note
+                with self.assertRaises(BundleFormatError):
+                    cp.verify_checkpoint(forged, cp.vkey(cloaked, _raw(log)))
+
+    def test_f1_visible_space_origin_still_verifies(self):
+        # The narrowness is load-bearing: a real external vector (Go sumdb) carries an origin with
+        # VISIBLE spaces and must keep verifying — the guard rejects only the invisible class.
+        self.assertTrue(cp._origin_has_invisible("x\u200by"))                 # ZWSP -> flagged
+        self.assertFalse(cp._origin_has_invisible("go.sum database tree"))    # spaces -> not flagged
+        self.assertFalse(cp._origin_has_invisible("markovianprotocol.com/log"))
+
+    def test_f1_origin_wellformed_builder_helper(self):
+        self.assertTrue(cp._origin_wellformed("markovianprotocol.com/log"))
+        self.assertTrue(cp._origin_wellformed("a.b.c/d-e_f"))
+        for bad in ("", "a+b", "a b", "a\tb", "a\u200bb", "a\ufeffb"):      # strict: no space/Cf/'+'
+            self.assertFalse(cp._origin_wellformed(bad), bad)
+
+    def test_key_material_exclusion_needs_the_log_context(self):
+        # Honest scope: the material test only fires when the caller supplies log_key_material. A bare
+        # witness_quorum() call (no log context) applies the NAME test only — documented, and the public
+        # surfaces always pass the material. This pins that a genuinely independent witness with a
+        # DIFFERENT key is never excluded by the rule.
+        log = generate_signer()
+        note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        w = generate_signer()
+        note = cp.cosign_checkpoint(note, w, "real.example/w", TS)
+        ok, witnesses = cp.witness_quorum(note, [cp.cosign_vkey("real.example/w", _raw(w))], 1,
+                                          log_key_material=_raw(log))
+        self.assertTrue(ok, "an independent witness was wrongly excluded by key material")
+        self.assertNotIn("origin_excluded", next(iter(witnesses.values())))
 
 
 if __name__ == "__main__":

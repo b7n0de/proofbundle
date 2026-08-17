@@ -12,22 +12,38 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Changed
 
-* **Origin-quorum rule: a log never votes in its own quorum.** `checkpoint.witness_quorum` (and with
-  it `verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof` and the experimental
-  `public_transparency` profile, which all share it) now **excludes any witness vkey whose name
-  equals the checked note's own origin line** — fail-closed, algorithm-agnostic (Ed25519 0x04 and
-  ML-DSA-44 0x06 alike), before any signature math. The excluded entry stays visible in the
-  `witnesses` dict as `ok=False` with `origin_excluded=True` and a `detail` sentence, so a relying
-  party can tell "excluded by rule" from "signature invalid". Verdict change, named precisely:
-  a roster that lists a witness key under the audited log's own origin name could previously
-  satisfy part (or, with `threshold=1`, all) of the quorum with the log's own signature; measured
-  2026-08-16 with a live probe (`witness_quorum(threshold=1) -> True` for a self-cosigned mini-log)
-  and decided with the affected log operator in issue #7 — a signature under the origin name is the
-  log speaking about itself, which is exactly what a witness quorum exists to be independent of.
-  The C2SP tlog-cosignature/tlog-witness specs are silent on this (checked 2026-08-17), so the
-  verifier holds the line. The name comparison is exact (codepoint equality, no normalisation),
-  held by the shared near-miss corpus. Rosters without an origin-named vkey — including every
-  vector previously shipped in this repository — keep their verdict bit for bit.
+* **Origin-quorum rule: a log does not vote in its own witness quorum.** `checkpoint.witness_quorum`
+  (and with it `verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof` and the experimental
+  `public_transparency` profile, which all share it) now **excludes a cosignature when its key
+  material equals the audited log's own signing key, OR when its name equals the origin line** —
+  fail-closed, before any signature math. The excluded entry stays visible in the `witnesses` dict as
+  `ok=False` with `origin_excluded=True` and a `detail` sentence naming which test fired. Two
+  operands, chosen because neither is the log's to pick: the caller (which knows the log) passes its
+  key material; the origin line is the note's own first line. The key-material test is the robust,
+  algorithm-agnostic one; the name test is exact-codepoint (robust for ML-DSA-44, whose signed
+  message binds the cosigner name — Colin's live vector — and defence-in-depth for Ed25519, whose
+  cosignature/v1 message does NOT bind the name and so can be relabelled). Verdict change, named
+  precisely: a roster listing a cosignature made with the log's key (under the origin name or any
+  alias) could previously satisfy part — or, at `threshold=1`, all — of the quorum with the log's own
+  signature; measured 2026-08-16 with a live probe (`witness_quorum(threshold=1) -> True` for a
+  self-cosigned mini-log), decided with the operator in issue #7, and re-gated 2026-08-17 after an
+  adversarial pass showed a name-only rule was bypassable (an alias, or a zero-width character in the
+  origin line). Honest limit, documented at the call sites: a log cosigning with a SEPARATE key under
+  a non-origin alias that a relying party wrongly trusts as an independent witness is roster
+  provenance, not a local check. The C2SP specs are silent on self-cosignature (checked 2026-08-17),
+  so the verifier holds the line. Rosters without a log-key or origin-named cosignature — including
+  every vector previously shipped in this repository — keep their verdict bit for bit.
+* **Origin lines are refused if they carry whitespace, zero-width or control characters.**
+  `checkpoint_note` (build) and `verify_checkpoint` / the shared note parser (verify) reject an origin
+  containing a unicode space, a Cc control, or a Cf format/zero-width character (`'​'.isspace()`
+  is False, so the old `any(c.isspace())` guard missed them). This makes the origin-name comparison
+  robust: a look-alike origin that is byte-different from a witness name is refused as malformed rather
+  than slipping past the exact compare. Fail-closed; legitimate schemeless origins are unaffected.
+* **`verify-proof --json` now carries `origin_excluded` and `detail` per witness.** The verdict a
+  relying party automates previously projected only `{ok, alg, timestamp}`, so an origin-excluded
+  witness and a bad-signature one printed byte-identically — the reason existed in the library and was
+  dropped one layer before output. Both are carried now (the pre-existing `[pq]`-missing `detail` rides
+  along too, the neighbour of the same omission).
 
 ### Added
 

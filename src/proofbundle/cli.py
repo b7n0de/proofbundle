@@ -1052,8 +1052,16 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # `signer_present` trennt sie: false heisst "dieser Schluessel hat diese Note nicht
             # signiert", true mit log_ok=false heisst "er hat, aber die Bytes stimmen nicht".
             out["signer_present"] = bool(res.get("signer_present"))
-            out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
-                                for n, w in res["witnesses"].items()}
+            # DEEP-GATE F-4: carry the REASON a witness did not count, not just ok/alg/timestamp. The
+            # CHANGELOG promises a relying party can tell "excluded by rule" from "signature invalid" —
+            # that only held at the library level; the JSON projection dropped origin_excluded and detail
+            # one layer before output, so an origin-excluded witness and a bad-signature one printed
+            # byte-identically. Both are carried now (origin_excluded only when set; detail may be None).
+            out["witnesses"] = {
+                n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"],
+                    **({"origin_excluded": True} if w.get("origin_excluded") else {}),
+                    "detail": w.get("detail")}
+                for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
         else:
             # KONTROLLZEICHEN NEUTRALISIEREN, wie es `_cmd_verify` seit dem 2026-07-09 tut

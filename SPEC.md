@@ -425,9 +425,15 @@ the final U+000A, excluding signature lines>`. The timestamp is a POSIX timestam
 policy is the relying party's (offline verifier, no trusted clock). Witness verifier keys use the §7c
 vkey encoding with algorithm byte 0x04. A **witnessed** checkpoint verifies iff the log signature (§7c)
 verifies AND at least `threshold` cosignatures from **distinct witness key material** verify — witnesses
-attest consistency, they never replace the log's own signature. A cosignature under the checkpoint's
-**own origin name never counts toward the witness quorum, whatever its algorithm — a log never votes in
-its own quorum** (fail-closed; the C2SP specs are silent here, so the verifier holds the line). Real
+attest consistency, they never replace the log's own signature. **A log does not vote in its own witness
+quorum:** a cosignature is excluded when its key material equals the log's own signing key (the robust,
+algorithm-agnostic test — the relying party supplies the log key), OR when its name equals the origin
+line (an exact-codepoint name test; robust for ML-DSA-44, whose signed message binds the cosigner name,
+and a defence-in-depth catch for Ed25519, whose cosignature/v1 message does NOT bind the name). The
+origin line itself is refused if it carries whitespace, zero-width or control characters, so a look-alike
+name cannot cloak the compare (fail-closed; the C2SP specs are silent on self-cosignature, so the
+verifier holds the line). Honest limit: a log cosigning with a SEPARATE key under a non-origin alias that
+a relying party wrongly trusts as an independent witness is roster provenance, not a local check. Real
 split-view resistance additionally requires the witnesses to be operationally independent, which is a
 deployment property outside this format.
 
@@ -453,8 +459,8 @@ per line, leaf-sibling upward (RFC 6962 §2.1.1); one empty line; then a signed 
 (§7c/§7d) **verbatim**. The proof/checkpoint split is the FIRST empty line. Verification order:
 (1) recompute the leaf hash from the exact payload bytes (RFC 6962 `leaf_hash`, never taken from
 the file), (2) log signature over an acceptable origin, (3) witness cosignatures against a k-of-n
-policy over DISTINCT witness key material — never counting a cosignature under the log's own
-origin name (§7d), (4) inclusion proof binds the leaf at `index` to the
+policy over DISTINCT witness key material — never counting a cosignature made with the log's own
+signing key or under its own origin name (§7d), (4) inclusion proof binds the leaf at `index` to the
 checkpoint root at its size. The overall verdict is the CONJUNCTION of all four — each sub-verdict
 is reported. Cosignature timestamps are verified-then-ignored; freshness is relying-party policy.
 Note: the C2SP spec file is on `main` and not yet version-tagged; the format string is pinned.

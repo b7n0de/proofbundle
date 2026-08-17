@@ -290,7 +290,12 @@ def evaluate_public_transparency(
             errors.append("witnessQuorum required but no witness vkeys supplied (fail-closed)")
         else:
             try:
-                ok, _ = cp.witness_quorum(signed_note, witness_vkeys, th)
+                # DEEP-GATE F-2: when a log_vkey is known, pass its key material so the audited log's own
+                # signing key never counts toward the quorum, whatever name a cosignature line claims
+                # (origin-quorum rule). log_vkey may be absent here (optional param) — then the name test
+                # still applies, and this surface is EXPERIMENTAL/unwired anyway.
+                log_km = cp._log_key_material_of(log_vkey) if log_vkey else None
+                ok, _ = cp.witness_quorum(signed_note, witness_vkeys, th, log_key_material=log_km)
                 statuses["WITNESS_QUORUM"] = "PASS" if ok else "FAIL"
                 if not ok:
                     errors.append(f"witness quorum not met (need {th} distinct witnesses)")
