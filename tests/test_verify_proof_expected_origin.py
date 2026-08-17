@@ -269,6 +269,61 @@ class OriginVergleichIstExakt(unittest.TestCase):
         self.assertFalse(json.loads(out)["log_ok"])
 
 
+class NfcNormalisierungBrauchtEinenEIGENENOrigin(unittest.TestCase):
+    """Der NFC-Beinahe-Treffer, den der ASCII-Fixture-Origin prinzipiell nicht liefern kann.
+
+    GEMESSEN (Mutations-Tor 2026-08-17, PR #144): der Operator `tlogproof: origin comparison
+    normalises canonically (NFC)` UEBERLEBTE — UNEXPECTED. Ursache, falsifikations-geprueft: der
+    Fixture-Origin `markovianprotocol.com/log` ist reines ASCII, und NFC ist auf ASCII die
+    Identitaet. Der Korpus `OriginVergleichIstExakt` oben faengt den NFKC-Geschwister-Mutanten
+    (Vollbreite->ASCII ist eine KOMPATIBILITAETS-Abbildung), aber NFC bildet Vollbreite NICHT auf
+    ASCII ab — und die einzigen drei Unicode->ASCII-NFC-Singletons sind ';' (U+037E), '`' (U+1FEF)
+    und 'K' (U+212A KELVIN), keiner davon im Fixture-Origin. Gegen diesen Origin kann KEIN
+    `--expected-origin` einen NFC-normalisierenden Vergleich von einem exakten unterscheiden; der
+    Mutant war dort echt aequivalent. Er ist es NICHT allgemein: ein Origin mit 'K' trennt ihn.
+
+    Dieser Test baut deshalb einen SELBST-signierten Checkpoint mit 'K' im Origin (printable-ASCII,
+    von der checkpoint-Regel akzeptiert) und pinnt als Beinahe-Treffer das KELVIN-Zeichen: NFC('K'
+    KELVIN) == 'K'. Ein exakter Vergleich lehnt ab, ein NFC-normalisierender akzeptiert. Lokal gegen
+    die GEPFLANZTE Operator-Zeile verifiziert (2026-08-17): unter ihr kippt log_ok von False auf
+    True — der Test unten wird unter dem Mutanten ROT.
+    """
+    K_ORIGIN = "Klog.example/x"                # ASCII, printable, enthaelt 'K' -> von der Regel akzeptiert
+    KELVIN = "Klog.example/x"             # KELVIN SIGN + Rest; NFC(KELVIN) == K_ORIGIN, Bytes verschieden
+
+    def _bau_proof(self):
+        import hashlib as _h  # noqa: PLC0415
+        from proofbundle import checkpoint as _cp, generate_signer  # noqa: PLC0415
+        from proofbundle.emit import _raw_pub  # noqa: PLC0415
+        from proofbundle.tlogproof import format_tlog_proof  # noqa: PLC0415
+        root = _h.sha256(b"nfc-kill-root").digest()
+        signer = generate_signer()
+        note = _cp.sign_checkpoint(self.K_ORIGIN, 1, root, signer, self.K_ORIGIN)
+        proof = format_tlog_proof(0, [root], note)
+        return proof, _cp.vkey(self.K_ORIGIN, _raw_pub(signer))
+
+    def test_kelvin_beinahe_treffer_wird_abgelehnt(self) -> None:
+        from proofbundle.tlogproof import verify_tlog_proof  # noqa: PLC0415
+        # Die drei Vorbedingungen, ohne die der Fall kein Beinahe-Treffer ist (sonst misst der Test
+        # unten etwas anderes als er behauptet).
+        self.assertNotEqual(self.KELVIN, self.K_ORIGIN, "die Bytes muessen verschieden sein")
+        self.assertEqual(unicodedata.normalize("NFC", self.KELVIN), self.K_ORIGIN,
+                         "NFC bildet den Kandidaten nicht auf den Origin ab — kein Beinahe-Treffer")
+        self.assertTrue(self.K_ORIGIN.isascii() and self.K_ORIGIN.isprintable(),
+                        "der Origin selbst muss die printable-ASCII-Regel erfuellen")
+        proof, vkey = self._bau_proof()
+        # Gegenrichtung zuerst: der EXAKTE Origin geht durch. Ohne sie waere der Test auch bei der
+        # schaerfsten Lockerung -- gar nichts akzeptieren -- gruen.
+        treffer = verify_tlog_proof(proof, b"leaf", vkey, expected_origin=self.K_ORIGIN)
+        self.assertTrue(treffer["log_ok"], "der exakte Origin wurde abgelehnt — Messaufbau kaputt")
+        self.assertEqual(treffer["origin"], self.K_ORIGIN)
+        # DER KILL: der KELVIN-Beinahe-Treffer MUSS abgelehnt werden. Unter dem NFC-Mutanten ist
+        # log_ok hier True -> dieser assert ist rot.
+        kelvin = verify_tlog_proof(proof, b"leaf", vkey, expected_origin=self.KELVIN)
+        self.assertFalse(kelvin["log_ok"],
+                         "die KELVIN-Form wurde akzeptiert — der Origin-Vergleich normalisiert NFC")
+
+
 @unittest.skipUnless(_PROOF.is_file(), "markovian_log fixture not vendored")
 class FalscherSchluesselUndVerfaelschteSignaturTrennenSich(unittest.TestCase):
     """Die letzte Kollision dieser Akte — und sie war eine ANDERE Art von Luecke.
