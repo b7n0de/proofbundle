@@ -33,17 +33,31 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   provenance, not a local check. The C2SP specs are silent on self-cosignature (checked 2026-08-17),
   so the verifier holds the line. Rosters without a log-key or origin-named cosignature — including
   every vector previously shipped in this repository — keep their verdict bit for bit.
-* **Origin lines are refused if they carry whitespace, zero-width or control characters.**
-  `checkpoint_note` (build) and `verify_checkpoint` / the shared note parser (verify) reject an origin
-  containing a unicode space, a Cc control, or a Cf format/zero-width character (`'​'.isspace()`
-  is False, so the old `any(c.isspace())` guard missed them). This makes the origin-name comparison
-  robust: a look-alike origin that is byte-different from a witness name is refused as malformed rather
-  than slipping past the exact compare. Fail-closed; legitimate schemeless origins are unaffected.
-* **`verify-proof --json` now carries `origin_excluded` and `detail` per witness.** The verdict a
-  relying party automates previously projected only `{ok, alg, timestamp}`, so an origin-excluded
-  witness and a bad-signature one printed byte-identically — the reason existed in the library and was
-  dropped one layer before output. Both are carried now (the pre-existing `[pq]`-missing `detail` rides
-  along too, the neighbour of the same omission).
+* **Origins and witness names must be printable ASCII (re-gate 2026-08-17).** An adversarial re-gate
+  showed the name test was bypassable one character class at a time — a zero-width (Cf), then a NBSP
+  (Zs), then a variation selector or Default-Ignorable letter (Mn / Lo), then an appended plain space —
+  because the compare used an operand the log writes (its own origin line). The durable fix is a
+  POSITIVE, non-enumerated rule: `checkpoint_note`, `verify_checkpoint` and the shared note parser
+  require the origin to be printable ASCII with no leading/trailing or double space (a single internal
+  space stays legal for Go sumdb's `go.sum database tree`); `_parse_witness_vkey` and the emit path
+  require a witness name to be printable ASCII with no space at all. None of the cloaking characters is
+  printable ASCII, so the whole look-alike class is closed at once. Fail-closed; measured against every
+  shipped external vector (Go sumdb, Rekor, rootcommit, Colin's fixtures) — all pass. **Deliberate,
+  documented restriction:** a non-ASCII (IDN/Unicode) origin is now refused for the verifier's identity
+  compare; no real tlog origin is non-ASCII. This also closes the NFC/NFD normalisation question at the
+  root — a decomposed non-ASCII identity cannot be built or verified at all.
+* **`verify-proof` carries the exclusion reason on BOTH output paths.** `--json` projects
+  `origin_excluded` + `detail` per witness; the human text path prints an indented reason line per
+  non-verifying witness that has a detail (re-gate F-6 — the reason previously existed only in the
+  library and, on the text path, in `--json`; the reader most likely to act saw nothing). The
+  pre-existing `[pq]`-missing detail rides along on both.
+* **`_log_key_material_of` never raises (re-gate F-7).** It now catches the `ValueError`/`TypeError`
+  base families, not just `BundleFormatError`, so a lone-surrogate log-vkey name (which reaches
+  `name.encode("utf-8")` → `UnicodeEncodeError`) can no longer escape as a raw traceback out of the
+  `public_transparency` fail-closed surface. Honest limit kept: the `public_transparency` witness-quorum
+  path applies the key-material exclusion only when a `log_vkey` is supplied (it is optional there, and
+  the profile is EXPERIMENTAL); the always-wired surfaces (`verify_witnessed_checkpoint`,
+  `verify_tlog_proof`) always pass it.
 
 ### Added
 

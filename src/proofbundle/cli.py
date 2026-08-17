@@ -1083,6 +1083,14 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
             print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
+            # DEEP-GATE re-gate F-6: the reason a witness did not count belongs on the HUMAN path too,
+            # not only in --json. Without it an origin-excluded witness and a bad-signature one printed
+            # the same "N valid of M known" line — the reader most likely to act is the one who sees
+            # nothing. One indented line per non-verifying witness that carries a detail (name+keyID is
+            # attacker-influenced, so neutralise both).
+            for wname, w in res["witnesses"].items():
+                if not w["ok"] and w.get("detail"):
+                    print(f"        - {_safe_line(str(wname))}: {_safe_line(str(w['detail']))}")
             print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
                   f"index {res['index']} of {res['tree_size']}")
             # Der Textpfad ist der, den ein Mensch liest — und er las bisher `[FAIL] log-signature:

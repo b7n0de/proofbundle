@@ -11,8 +11,8 @@ The rule lives where it binds, in `checkpoint.witness_quorum`, and after the 202
 re-gate it excludes a cosignature on EITHER of two operands the log does not choose: its key
 material equals the audited log's own signing key (the robust, algorithm-agnostic test — the caller
 passes it), or its name equals the origin line (exact codepoint; robust for ML-DSA-44, whose message
-binds the name, defence-in-depth for Ed25519, whose cosignature/v1 message does not). A zero-width
-character in the origin line is refused so the name compare cannot be cloaked (`_origin_has_invisible`).
+binds the name, defence-in-depth for Ed25519, whose cosignature/v1 message does not). The origin and every witness name must be printable-ASCII identities (`_origin_wellformed` /
+`_witness_name_wellformed`), so no invisible or look-alike character can cloak the compare.
 Honest limit: a separate cosign key under a non-origin alias is roster provenance, not a local check.
 The operator's live checkpoint, self-signed under the origin name in both Ed25519 (note signature,
 0x01) and ML-DSA-44 (cosignature shape), is the vendored test vector
@@ -423,18 +423,34 @@ class TestOriginQuorumHardening(unittest.TestCase):
                 with self.assertRaises(BundleFormatError):
                     cp.verify_checkpoint(forged, cp.vkey(cloaked, _raw(log)))
 
-    def test_f1_visible_space_origin_still_verifies(self):
-        # The narrowness is load-bearing: a real external vector (Go sumdb) carries an origin with
-        # VISIBLE spaces and must keep verifying — the guard rejects only the invisible class.
-        self.assertTrue(cp._origin_has_invisible("x\u200by"))                 # ZWSP -> flagged
-        self.assertFalse(cp._origin_has_invisible("go.sum database tree"))    # spaces -> not flagged
-        self.assertFalse(cp._origin_has_invisible("markovianprotocol.com/log"))
+    def test_f5_origin_self_cloaking_is_the_whole_class(self):
+        # Re-gate F-5, the decisive one: the cloak sits in the LOG'S OWN origin line (not the
+        # witness name) — the log appends a character so origin != the (clean) witness name the
+        # roster lists, and the exclusion is escaped. Each round patched one Unicode category;
+        # the printable-ASCII rule closes the class. Each of these is refused as a malformed
+        # origin, including a PLAIN ASCII SPACE (the earlier carve-out F-5 exploited) and a
+        # Default-Ignorable letter.
+        log = generate_signer()
+        clean = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        for label, suffix in (("appended-space", " "), ("hangul-filler", "\u3164"),
+                              ("variation-selector", "\ufe0f"), ("combining-mark", "\u0301"),
+                              ("zero-width", "\u200b"), ("nbsp", "\u00a0"),
+                              ("non-ascii-letter", "\u0430")):
+            with self.subTest(cloak=label):
+                cloaked = ORIGIN + suffix
+                with self.assertRaises(BundleFormatError):        # builder refuses it
+                    cp.sign_checkpoint(cloaked, 7, ROOT, log, cloaked)
+                forged = clean.replace(ORIGIN + "\n", cloaked + "\n", 1)
+                with self.assertRaises(BundleFormatError):        # and verify refuses it
+                    cp.verify_checkpoint(forged, cp.vkey(cloaked, _raw(log)))
 
     def test_f1_origin_wellformed_builder_helper(self):
         self.assertTrue(cp._origin_wellformed("markovianprotocol.com/log"))
         self.assertTrue(cp._origin_wellformed("a.b.c/d-e_f"))
-        for bad in ("", "a+b", "a b", "a\tb", "a\u200bb", "a\ufeffb"):      # strict: no space/Cf/'+'
-            self.assertFalse(cp._origin_wellformed(bad), bad)
+        self.assertTrue(cp._origin_wellformed("go.sum database tree"))   # internal single spaces OK
+        for bad in ("", "a+b", "a  b", "a\tb", "a\u200bb", "a\ufeffb",   # '+' / double / zw
+                    " a", "a ", "a\u00a0b", "a\u3164b", "a\ufe0fb", "caf\u00e9/x"):  # nbsp/DI/VS/non-ascii
+            self.assertFalse(cp._origin_wellformed(bad), repr(bad))
 
     def test_f1_nbsp_and_zero_width_in_a_witness_name_are_rejected(self):
         # Re-gate neighbour of F-1: the cloak can sit in the WITNESS NAME, not only the origin line.
@@ -458,8 +474,8 @@ class TestOriginQuorumHardening(unittest.TestCase):
         # The one allowed whitespace (U+0020) keeps Go sumdb-style origins verifying, and such an
         # origin can never equal a witness name (names carry no space at all), so it is never excluded
         # by the name test — measured, not assumed.
-        self.assertFalse(cp._origin_has_invisible("go.sum database tree"))
-        self.assertTrue(cp._origin_has_invisible("go.sum database"))     # NBSP flagged
+        self.assertTrue(cp._origin_wellformed("go.sum database tree"))
+        self.assertTrue(cp._origin_wellformed("go.sum database"))          # no trailing/DI here -> OK
         with self.assertRaises(BundleFormatError):                           # a spaced witness name is malformed
             cp._parse_witness_vkey(cp.cosign_vkey("go.sum database tree", _raw(generate_signer())))
 

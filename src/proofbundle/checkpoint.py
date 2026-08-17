@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import unicodedata
 from typing import Optional
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -51,40 +50,41 @@ def _root_std_b64(root: bytes) -> str:
 
 
 def _origin_wellformed(origin: str) -> bool:
-    """BUILD-time guard for a proofbundle-emitted origin: a schemeless log identity with no whitespace,
-    no zero-width/format character, and no '+'. proofbundle never emits an origin with a space, so the
-    builder stays strict (a spaced origin like Go sumdb's is verified, not emitted here — see
-    :func:`_origin_has_invisible` for the verify-side rule)."""
+    """An origin / note identity safe for the EXACT origin-quorum compare: printable ASCII only, no '+'
+    (the vkey separator), no leading/trailing space and no double space. A single internal ASCII space
+    is allowed so Go sumdb's `go.sum database tree` verifies; a witness NAME carries no space at all
+    (enforced), so a spaced origin still cannot equal one.
+
+    Printable-ASCII is the POSITIVE, non-enumerated rule that closes the whole invisible/look-alike
+    CLASS at once, instead of chasing one Unicode category per round (Deep-Gate F-1 zero-width → re-gate
+    NBSP → re-gate variation-selectors/Default-Ignorable/appended-space). None of those can cloak an
+    origin into looking like a witness name it then escapes the exclusion under, because none is
+    printable ASCII: a zero-width (Cf), a Default_Ignorable letter (Hangul filler, category Lo), a
+    variation selector or combining mark (Mn), a NBSP or other non-plain whitespace (Zs), a control char
+    (Cc) — all rejected. Measured against every shipped external vector (Go sumdb, Rekor, rootcommit,
+    Colin's fixtures): all pass. Honest scope: this also refuses a non-ASCII (IDN/Unicode) origin, a
+    deliberate restriction for the verifier's identity compare; no real tlog origin is non-ASCII."""
     if not origin or "+" in origin:
         return False
-    return not any(c.isspace() or unicodedata.category(c) == "Cf" for c in origin)
+    if not (origin.isascii() and origin.isprintable()):
+        return False
+    return origin == origin.strip() and "  " not in origin
 
 
-def _name_has_invisible(name: str) -> bool:
-    """True if a NAME (witness or origin) carries a zero-width/format (Cf) character or any whitespace
-    other than the plain ASCII space U+0020. Both classes can make one name LOOK identical to another
-    while being byte-different, defeating the exact origin-quorum compare (Deep-Gate F-1 zero-width,
-    re-gate NBSP). The plain space is the one exception, allowed so a spaced ORIGIN like Go sumdb's
-    `go.sum database tree` still verifies — a witness NAME carries no space at all (enforced), so a
-    spaced origin can never equal a witness name anyway. Control chars that are not whitespace (ESC)
-    are left to the terminal-output neutralisation; the key-material exclusion is the robust defence
-    regardless of any of this."""
-    return any(unicodedata.category(c) == "Cf" or (c.isspace() and c != " ") for c in name)
-
-
-def _origin_has_invisible(origin: str) -> bool:
-    """VERIFY-side origin rule — see :func:`_name_has_invisible`. An origin carrying a zero-width or a
-    non-plain-space whitespace is refused as malformed, so it cannot cloak a witness name it would then
-    escape the origin-quorum exclusion under. Plain spaces stay legal (Go sumdb / Rekor vectors)."""
-    return _name_has_invisible(origin)
+def _witness_name_wellformed(name: str) -> bool:
+    """A witness NAME safe for the exact compare: non-empty printable ASCII, no '+', no space at all
+    (a schemeless identity). Stricter than an origin, which allows internal spaces — the emit path
+    (cosign_checkpoint / _mldsa) always required this; :func:`_parse_witness_vkey` now enforces it on
+    the verify path too, so a name cloaked with any whitespace or invisible character cannot parse."""
+    return bool(name) and "+" not in name and " " not in name and name.isascii() and name.isprintable()
 
 
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     """Build the C2SP checkpoint note text (3 lines + trailing newline). ``root`` is the raw RFC 6962
     Merkle root bytes at ``tree_size``. ``origin`` must be non-empty with no spaces/'+' (a schemeless URL)."""
     if not _origin_wellformed(origin):
-        raise BundleFormatError("checkpoint origin must be a non-empty schemeless id without whitespace, "
-                                "zero-width/control characters, or '+'")
+        raise BundleFormatError("checkpoint origin must be a printable-ASCII schemeless id without "
+                                "edge/double spaces, invisible characters, or '+'")
     if isinstance(tree_size, bool) or not isinstance(tree_size, int) or tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
@@ -181,11 +181,13 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
-    # DEEP-GATE F-1 (2026-08-17): reject an origin carrying an INVISIBLE (zero-width/format) character —
-    # it otherwise lets the log clone a witness name it can then vote under. Narrow on purpose: visible
-    # spaces (Go sumdb) and control chars (terminal-neutralisation is tested separately) still verify.
-    if _origin_has_invisible(origin):
-        raise BundleFormatError("checkpoint origin carries a zero-width/format character (malformed)")
+    # DEEP-GATE F-1 + re-gate (2026-08-17): the origin must be a printable-ASCII identity with no
+    # edge/double space, so it cannot cloak a witness name it would then escape the origin-quorum
+    # exclusion under (via zero-width, Default-Ignorable, variation selector, NBSP or an appended
+    # space). Positive rule = the whole class, not one category per round. Go sumdb / Rekor stay valid.
+    if not _origin_wellformed(origin):
+        raise BundleFormatError("checkpoint origin must be a printable-ASCII identity without "
+                                "edge/double spaces, invisible characters, or '+' (malformed)")
     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
@@ -291,10 +293,11 @@ def _note_text_of(signed_note: str) -> str:
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
-    # DEEP-GATE F-1: reject a zero-width-cloaked origin here too, so every consumer of the note body
-    # (verify_cosignature, witness_quorum's origin extraction) sees an exact-comparable origin.
-    if _origin_has_invisible(lines[0]):
-        raise BundleFormatError("checkpoint origin carries a zero-width/format character (malformed)")
+    # DEEP-GATE F-1 + re-gate: reject a cloaked origin here too, so every consumer of the note body
+    # (verify_cosignature, witness_quorum's origin extraction) sees an exact-comparable identity.
+    if not _origin_wellformed(lines[0]):
+        raise BundleFormatError("checkpoint origin must be a printable-ASCII identity without "
+                                "edge/double spaces, invisible characters, or '+' (malformed)")
     return note_text
 
 
@@ -315,9 +318,9 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
             or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
-    if (not witness_name or "+" in witness_name
-            or any(c.isspace() or unicodedata.category(c) == "Cf" for c in witness_name)):
-        raise BundleFormatError("witness name must be non-empty without spaces or '+'")
+    if not _witness_name_wellformed(witness_name):
+        raise BundleFormatError("witness name must be a printable-ASCII identity "
+                                "without spaces, invisible characters, or '+'")
     note_text = _note_text_of(signed_note)
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
@@ -392,9 +395,9 @@ def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
     if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
             or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
-    if (not witness_name or "+" in witness_name
-            or any(c.isspace() or unicodedata.category(c) == "Cf" for c in witness_name)):
-        raise BundleFormatError("witness name must be non-empty without spaces or '+'")
+    if not _witness_name_wellformed(witness_name):
+        raise BundleFormatError("witness name must be a printable-ASCII identity "
+                                "without spaces, invisible characters, or '+'")
     note_text = _note_text_of(signed_note)
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
@@ -421,14 +424,14 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     if len(parts) != 3:
         raise BundleFormatError("vkey must have 3 '+'-separated parts (name+hexKeyID+base64KeyMaterial)")
     name, kid_hex, keymat_b64 = parts
-    # DEEP-GATE re-gate (2026-08-17): a witness NAME must carry no whitespace and no zero-width/format
-    # character — the same rule the emit path (cosign_checkpoint) enforces, now enforced on the VERIFY
-    # path too. Without it a cosignature line under a name like "origin " (NBSP) or "origin​"
-    # (ZWSP) parses and verifies, looks identical to the origin, yet is byte-different from it, so the
-    # origin-quorum name compare misses it and the log votes in its own quorum under a cloaked name.
-    if any(c.isspace() or unicodedata.category(c) == "Cf" for c in name):
+    # DEEP-GATE re-gate (2026-08-17): a witness NAME must be a printable-ASCII identity with no
+    # space (the emit path always required this; enforced on the VERIFY path here too). A name
+    # cloaked with whitespace, a zero-width, a variation selector or a Default-Ignorable character
+    # would parse and verify, look identical to the origin, yet be byte-different, so the
+    # origin-quorum name compare would miss it and the log would vote under a cloaked name.
+    if not _witness_name_wellformed(name):
         raise BundleFormatError(
-            "witness vkey name must not contain whitespace or zero-width/format characters")
+            "witness vkey name must be a printable-ASCII identity without spaces or invisible characters")
     try:
         keymat = base64.b64decode(keymat_b64, validate=True)
     except (ValueError, TypeError) as exc:
@@ -546,7 +549,11 @@ def _log_key_material_of(log_vkey: str) -> "bytes | None":
     try:
         _name, _kid, pubkey = _parse_vkey(log_vkey)
         return pubkey
-    except BundleFormatError:
+    except (BundleFormatError, ValueError, TypeError):
+        # DEEP-GATE re-gate F-7: catch the BASE families, not just BundleFormatError — a lone-surrogate
+        # log-vkey name reaches key_id -> name.encode("utf-8") and raises UnicodeEncodeError (a
+        # ValueError), which would otherwise escape this "never a raise" helper and, through the new
+        # public_transparency call site, become a raw traceback out of a documented fail-closed surface.
         return None
 
 

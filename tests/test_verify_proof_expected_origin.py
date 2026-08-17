@@ -705,7 +705,15 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         return buf.getvalue()
 
     def test_origin_aus_der_beweisdatei_kann_die_ausgabe_nicht_ueberschreiben(self) -> None:
-        """Aufrufstelle 1: `log-signature: {origin}` — der Wert kommt aus der Datei des Angreifers."""
+        """Aufrufstelle 1: `log-signature: {origin}` — der Wert kommt aus der Datei des Angreifers.
+
+        VERSCHAERFT im Deep-Gate-Re-Gate 2026-08-17: eine origin-Zeile mit Steuerzeichen ist jetzt
+        MALFORMED (die origin muss druckbares ASCII ohne Rand-/Doppel-Leerzeichen sein — dieselbe
+        Regel, die die origin-Quorum-Umgehung schliesst). Der Angriff kommt damit gar nicht erst bis
+        zur Ausgabe: die Note wird fail-closed abgelehnt, statt den Wert entschaerft zu drucken. Die
+        Eigenschaft haelt staerker — kein ESC erreicht das Terminal, keine gefaelschte Zeile —, und
+        die `_safe_line`-Entschaerfung bleibt am zweiten Aufrufer (expected_origin) unten gemessen,
+        wo der Wert aus argv kommt und NICHT validiert wird."""
         import shutil
         boese = ("evil.example/log\x1b[2K\x1b[G[PASS] log-signature: " + _ORIGIN).encode()
         kopie = _kopie_mit(boese, "ctl_origin.tlog-proof")
@@ -714,10 +722,12 @@ class SteuerzeichenKoennenKeineZeileFaelschen(unittest.TestCase):
         self.addCleanup(shutil.rmtree, kopie.parent, True)
         aus = self._text_gegen(kopie)
         self.assertNotIn("\x1b", aus, "eine ANSI-Sequenz aus der Beweisdatei erreicht das Terminal")
-        # Gegenprobe des Messaufbaus: der boesartige Wert kommt sehr wohl AN, nur entschaerft. Ohne
-        # diese Zeile waere der Test auch dann gruen, wenn der Origin gar nicht gedruckt wuerde.
-        self.assertIn("evil.example/log", aus, "der manipulierte Origin wird gar nicht ausgegeben — "
-                                               "dieser Test misst dann nicht mehr, was er behauptet")
+        # die gefaelschte PASS-Zeile darf an KEINEM Zeilenanfang stehen
+        self.assertFalse(any(z.startswith("[PASS] log-signature") and "evil" not in z
+                             for z in aus.split("\n")),
+                         "eine gefaelschte log-signature-Zeile erscheint")
+        # die Note wird als malformed abgelehnt (fail-closed), nicht mit entschaerftem Origin gedruckt
+        self.assertIn("=> FAILED", aus, "der Steuerzeichen-Origin fuehrt nicht zu einem fail-closed Verdikt")
 
     # ZWOELF ZEICHENKLASSEN, nicht eine. Eine Gegenlesung hat benannt, dass die zwei
     # Verhaltenstests je GENAU EIN Zeichen fuettern (ESC bzw. LF): eine Haertung, die etwa CR
@@ -936,32 +946,6 @@ class KanonischeNormalformZaehltAlsUnterschied(unittest.TestCase):
     ORIGIN_NFD = unicodedata.normalize("NFD", "café.example/log")   # e + Combining Acute
     KEYNAME = "cafe.example"          # ASCII: sign_checkpoint verbietet Leerraum und '+'
 
-    @classmethod
-    def _baue(cls, origin: str) -> "tuple[str, str]":
-        """Ein signierter tlog-proof ueber genau einen Blatt-Eintrag. Rueckgabe (proof, vkey)."""
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        from cryptography.hazmat.primitives import serialization
-        from proofbundle.checkpoint import sign_checkpoint, vkey as mach_vkey
-        from proofbundle.tlogproof import format_tlog_proof
-
-        sk = Ed25519PrivateKey.generate()
-        pub = sk.public_key().public_bytes(serialization.Encoding.Raw,
-                                           serialization.PublicFormat.Raw)
-        nutzlast = b"leaf-0"
-        blatt = hashlib.sha256(b"\x00" + nutzlast).digest()      # RFC 6962 leaf hash
-        note = sign_checkpoint(origin, 1, blatt, sk, cls.KEYNAME)  # tree_size 1 -> root == leaf
-        return format_tlog_proof(0, [], note), mach_vkey(cls.KEYNAME, pub)
-
-    def _pruefe(self, gebaut_mit: str, erwartet: "str | None") -> dict:
-        import tempfile
-        from proofbundle.tlogproof import verify_tlog_proof
-        proof, vk = self._baue(gebaut_mit)
-        with tempfile.TemporaryDirectory() as t:
-            p = pathlib.Path(t) / "p.tlog-proof"
-            p.write_text(proof, encoding="utf-8")
-            return verify_tlog_proof(p.read_text(encoding="utf-8"), b"leaf-0", vk,
-                                     expected_origin=erwartet)
-
     def test_die_zwei_formen_sind_wirklich_verschiedene_bytes(self) -> None:
         """Die Vorbedingung. Ohne sie misst der Rest der Klasse nichts."""
         self.assertNotEqual(self.ORIGIN_NFC, self.ORIGIN_NFD,
@@ -969,28 +953,28 @@ class KanonischeNormalformZaehltAlsUnterschied(unittest.TestCase):
         self.assertEqual(unicodedata.normalize("NFC", self.ORIGIN_NFD), self.ORIGIN_NFC,
                          "NFC bildet die zerlegte Form nicht auf die zusammengesetzte ab")
 
-    def test_positivkontrolle_der_eigene_aufbau_verifiziert(self) -> None:
-        """Zuerst der Gutfall — sonst waere jedes NEIN unten auch ohne den Vergleich erklaerbar."""
-        res = self._pruefe(self.ORIGIN_NFC, None)
-        self.assertTrue(res["ok"], f"der selbstgebaute Beweis verifiziert nicht: {res}")
-        self.assertTrue(res["log_ok"])
-
-    def test_nfd_erwartung_gegen_nfc_checkpoint_faellt(self) -> None:
-        res = self._pruefe(self.ORIGIN_NFC, self.ORIGIN_NFD)
-        self.assertFalse(res["log_ok"], "die zerlegte Form wurde als derselbe Origin akzeptiert "
-                                        "— der Vergleich normalisiert kanonisch")
-        self.assertFalse(res["ok"])
-
-    def test_nfc_erwartung_gegen_nfd_checkpoint_faellt(self) -> None:
-        """Die Gegenrichtung. Eine einseitige Normalisierung faellt nur in einer der beiden."""
-        res = self._pruefe(self.ORIGIN_NFD, self.ORIGIN_NFC)
-        self.assertFalse(res["log_ok"], "die zusammengesetzte Form wurde als derselbe Origin "
-                                        "akzeptiert — der Vergleich normalisiert kanonisch")
-        self.assertFalse(res["ok"])
-
-    def test_jede_form_passt_zu_sich_selbst(self) -> None:
-        """Ohne diese Zeile waere die Klasse auch bei einem IMMER-FALSCH-Vergleich gruen."""
+    def test_die_normalisierungs_falle_ist_an_der_wurzel_geschlossen(self) -> None:
+        """VERSCHAERFT im Deep-Gate-Re-Gate 2026-08-17. Die urspruengliche Klasse baute einen
+        NON-ASCII-Origin (café, NFC/NFD) und mass, dass der EXPECTED-ORIGIN-Vergleich nicht
+        kanonisch normalisiert. Dieselbe Runde hat die Origin-Regel auf DRUCKBARES ASCII verengt —
+        die positive, nicht-aufzaehlende Antwort auf die origin-Quorum-Umgehungsklasse (ein
+        unsichtbares oder mehrdeutiges Zeichen im Origin taeuscht den Namensvergleich). Eine Folge
+        davon: ein non-ASCII-Origin ist jetzt MALFORMED, und damit existiert die NFC/NFD-Falle gar
+        nicht mehr — weder eine zerlegte noch eine zusammengesetzte non-ASCII-Kennung laesst sich
+        bauen oder verifizieren. Das ist staerker als der alte Vergleichs-Test und die bewusste,
+        dokumentierte Einschraenkung (kein reales tlog-Origin ist non-ASCII). Die
+        Vergleichs-Exaktheit fuer ASCII-Kennungen haelt weiter der `_beinahe_treffer`-Korpus.
+        """
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+        from proofbundle.checkpoint import sign_checkpoint  # noqa: PLC0415
+        from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+        sk = Ed25519PrivateKey.generate()
+        blatt = hashlib.sha256(b"\x00leaf-0").digest()
         for name, form in (("NFC", self.ORIGIN_NFC), ("NFD", self.ORIGIN_NFD)):
             with self.subTest(form=name):
-                res = self._pruefe(form, form)
-                self.assertTrue(res["log_ok"], f"{name} passt nicht zu sich selbst")
+                # der BAU einer non-ASCII-Origin-Note faellt fail-closed
+                with self.assertRaises(BundleFormatError):
+                    sign_checkpoint(form, 1, blatt, sk, self.KEYNAME)
+                # und eine handgebaute non-ASCII-Origin-Note verifiziert nicht (verdikt, kein Crash)
+                from proofbundle.checkpoint import _origin_wellformed  # noqa: PLC0415
+                self.assertFalse(_origin_wellformed(form), f"{name}: non-ASCII origin gilt als wohlgeformt")
