@@ -130,11 +130,16 @@ def _declared_content_root_alg(statement: Any) -> str:
     """The content-root algorithm a Statement DECLARES via its top-level `contentRootAlg`. ABSENT ⇒ legacy
     (`legacy-sortkeys-json-v0`) — this is how released 2.0.0 receipts, which carry no field, keep verifying.
     Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg)."""
-    if isinstance(statement, dict):
-        alg = statement.get("contentRootAlg")
-        if isinstance(alg, str) and alg:
-            return alg
-    return LEGACY_CONTENT_ROOT_ALG
+    if not isinstance(statement, dict) or "contentRootAlg" not in statement:
+        return LEGACY_CONTENT_ROOT_ALG          # non-dict OR truly ABSENT ⇒ legacy (released 2.0.0 receipts)
+    alg = statement.get("contentRootAlg")
+    if isinstance(alg, str) and alg:
+        return alg
+    # L2-03: a PRESENT but non-string/empty `contentRootAlg` is a MALFORMED declaration, NOT 'absent'. Silently
+    # downgrading it to legacy is exactly the algorithm-confusion this guard exists to stop (ADR 0002 §1). Return
+    # an unknown id so `_serialize_statement` rejects it fail-closed inside the caller's try (no raw raise here,
+    # this call sits outside it), never silent legacy. Legit paths only ever emit a valid str or omit the field.
+    return f"invalid-contentRootAlg:{type(alg).__name__}"
 
 
 def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:

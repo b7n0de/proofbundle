@@ -307,5 +307,20 @@ class TestBuilderDeclaration(unittest.TestCase):
         self.assertNotIn("contentRootAlg", s)
 
 
+class TestL2_03_PresentMalformedAlg(unittest.TestCase):
+    """L2-03: a PRESENT but non-string/empty ``contentRootAlg`` is a MALFORMED declaration, not 'absent' — it
+    must NOT silently downgrade to legacy (algorithm-confusion, ADR 0002 §1). Only a truly absent field ⇒ legacy
+    (so released 2.0.0 receipts, which carry no field, keep verifying)."""
+
+    def test_present_non_string_is_not_silently_legacy(self):
+        from proofbundle.intoto import _declared_content_root_alg
+        self.assertEqual(_declared_content_root_alg({"x": 1}), LEGACY_CONTENT_ROOT_ALG)          # absent ⇒ legacy
+        self.assertEqual(_declared_content_root_alg({"contentRootAlg": CONTENT_ROOT_ALG}), CONTENT_ROOT_ALG)
+        for bad in (123, 2.0, None, [], {}, True, ""):
+            got = _declared_content_root_alg({"contentRootAlg": bad})
+            self.assertNotEqual(got, LEGACY_CONTENT_ROOT_ALG, f"{bad!r} silently downgraded to legacy")
+            self.assertTrue(got.startswith("invalid-contentRootAlg:"), f"{bad!r} -> {got!r} not a rejected id")
+
+
 if __name__ == "__main__":
     unittest.main()
