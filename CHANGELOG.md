@@ -8,6 +8,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-18 (origin-quorum rule · printable-ASCII identities · MAJOR)
+
+> **MAJOR (SemVer):** the printable-ASCII identity rule now refuses a non-ASCII (IDN/Unicode) origin
+> or witness name for the verifier's exact identity compare — a deliberate behaviour change at the
+> public verify interface (detailed under Changed). A pre-tag adversarial deep-gate (DEEP 6L/7I) was
+> run on this digest; its record and attestation are in
+> [audit_artifacts/400/DEEP_RUN_RECORD_400.md](audit_artifacts/400/DEEP_RUN_RECORD_400.md).
+
 **Semantics: changed, in one deliberate, fail-closed direction — the origin-quorum rule.**
 
 ### Changed
@@ -33,6 +41,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   provenance, not a local check. The C2SP specs are silent on self-cosignature (checked 2026-08-17),
   so the verifier holds the line. Rosters without a log-key or origin-named cosignature — including
   every vector previously shipped in this repository — keep their verdict bit for bit.
+* **`witness_quorum`'s `log_key_material` is now a required keyword-only argument (pre-tag deep-gate D1,
+  BREAKING for a direct caller of the primitive).** It defaulted to `None`, so a bare
+  `witness_quorum(note, roster, threshold)` silently ran the name-test-only mode — under which a log
+  cosigning under an ALIAS with its own key (name ≠ origin) was counted toward the quorum, because the
+  robust key-material prong had nothing to test against. The three shipped verification surfaces
+  (`verify_witnessed_checkpoint`, `verify_tlog_proof`, `public_transparency`) always passed the material
+  and are unaffected; the change forces a direct caller to STATE the choice — the log's key material for
+  the full rule, or an explicit `None` to opt into the documented name-only mode. No silent weak default.
 * **Origins and witness names must be printable ASCII (re-gate 2026-08-17).** An adversarial re-gate
   showed the name test was bypassable one character class at a time — a zero-width (Cf), then a NBSP
   (Zs), then a variation selector or Default-Ignorable letter (Mn / Lo), then an appended plain space —
@@ -73,6 +89,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   path applies the key-material exclusion only when a `log_vkey` is supplied (it is optional there, and
   the profile is EXPERIMENTAL); the always-wired surfaces (`verify_witnessed_checkpoint`,
   `verify_tlog_proof`) always pass it.
+* **`verify_checkpoint` validates the origin before it encodes the note text (pre-tag deep-gate D2/D3).**
+  The note-text `encode("utf-8")` ran ABOVE the printable-ASCII origin guard, so a lone/unpaired UTF-16
+  surrogate anywhere in the note (a `str` survives splitting but is not valid UTF-8) raised a raw
+  `UnicodeEncodeError` out of `verify_witnessed_checkpoint` and the `public_transparency` profile — the
+  one `verify_checkpoint` instance the F-8/F-10 validate-before-encode re-gate had missed (the sibling
+  `_note_text_of` already validated first; `verify_tlog_proof` already wrapped its call). The origin,
+  size and root are now validated first, and the encode is fail-closed on any residual non-UTF-8 note
+  text (e.g. a surrogate in an extension line): a typed `BundleFormatError`, never a raw traceback.
 
 ### Added
 
@@ -93,6 +117,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   signature (excluded from witness quorums by the existing 0x01/0x04 domain separation) and as an
   ML-DSA-44 line in cosignature shape (excluded by the new rule). `tests/test_origin_quorum_rule.py`
   holds both halves plus the self-cosigned mini-log regression probe from the 2026-08-16 report.
+
+* **A killing test for the NFC-origin mutation operator.** The gate's frozen fixture origin is pure
+  ASCII, on which NFC is the identity, so no `--expected-origin` against it could distinguish an
+  NFC-normalising origin compare from the exact one — the operator survived as an UNEXPECTED gap.
+  Closed with a self-signed checkpoint whose origin carries a `K` and a KELVIN-SIGN (U+212A) near-hit
+  (`NFC(kelvin)=='K'`): exact rejects, NFC accepts. Verified against the planted operator line
+  (`log_ok` flips False→True under it) — red on the mutant, green on real code; the operator stays
+  should-kill.
 
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 
