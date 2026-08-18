@@ -124,6 +124,23 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
     if not isinstance(root, bytes):    # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
         raise BundleFormatError("checkpoint root must be raw bytes")
+    # DER EMITTER DARF NICHTS BAUEN, WAS SEIN EIGENER VERIFIZIERER MALFORMED NENNT (2026-08-18, beim
+    # Nachmessen des Befunds PB-CHECKPOINT-CONSTRUCTOR-TYPEERROR-01 gefunden — dessen eigener Kern war
+    # laengst geschlossen, DIESER Nachbar nicht). `b""` ist bytes und lief durch, `base64.b64encode(b"")`
+    # ist der leere String, und die dritte Notenzeile wurde damit LEER. Gemessen: `sign_checkpoint`
+    # signierte diese Note anstandslos, und `verify_checkpoint` wie `_note_text_of` lehnten sie danach
+    # als "at least 3 non-empty lines" ab — der Aufrufer haelt eine signierte Note in der Hand, die
+    # KEIN Verifizierer akzeptiert, auch keiner ausserhalb dieser Bibliothek.
+    # DER REALISTISCHE WEG dorthin ist kein Tippfehler: `root_bytes_from_b64("")` gibt `b""` zurueck
+    # (leer ist gueltiges base64), nicht `None` — ein leeres Root-Feld im Bundle wird also stumm zu
+    # einem leeren Root und faengt sich nicht am isinstance-Riegel darueber.
+    # EHRLICHE GRENZE, absichtlich nicht weiter zugezogen: ein NICHT-leerer Root falscher Laenge
+    # (z.B. 5 Bytes) laeuft weiterhin durch, weil er den Rundlauf besteht — das ist ein Aufrufer-Fehler
+    # an den EIGENEN Wurzel-Bytes, kein angreifer-gelieferter Wert. Wo das Format eine Laenge wirklich
+    # verlangt, steht sie schon (`_mldsa_cosigned_message`: 32 Bytes).
+    if not root:
+        raise BundleFormatError("checkpoint root must not be empty — an empty root encodes to an "
+                                "empty third note line, which no verifier accepts")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
