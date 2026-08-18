@@ -1028,6 +1028,14 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # nicht als leerer String erscheinen, sonst ist "nicht gefragt" von "gefragt und
             # leer" nicht zu unterscheiden.
             out["expected_origin"] = args.expected_origin
+            # EINE URSACHE WEITER (Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01): das Feld
+            # darueber trennt „fremder Origin" von „falscher Schluessel" — es trennt aber NICHT
+            # den vierten Fall, in dem der PIN SELBST unsauber ist (ein kopiertes Zero-Width, ein
+            # NBSP, ein KELVIN-Homoglyph statt 'K'). Der sieht am JSON exakt wie ein fremder Log
+            # aus, und der Leser sucht den Fehler folgerichtig an der falschen Stelle. `None` =
+            # kein Pin gesetzt, `False` = der Pin erfuellt die Regel nicht, die die Log-Seite
+            # laengst erzwingt (und kann deshalb per Konstruktion nie treffen).
+            out["expected_origin_wellformed"] = res["expected_origin_wellformed"]
             # DIE SCHRANKE GEHOERT ZUM BOOLEAN, sonst ist er kein Verdikt. `witness_quorum` gibt
             # `len(confirmed) >= threshold` zurueck, und die Voreinstellung ist 0 — `witnesses_ok`
             # ist damit BEDINGUNGSLOS true, wenn niemand ein Quorum verlangt hat. Ein Programm sah

@@ -49,7 +49,16 @@ _MODULES = [
 # round-4 re-gate proved (evaluate_policy/evaluate_public_transparency/automation_summary/evidence_ladder_*).
 _NAME_PATTERN = re.compile(
     r"^(verify_|check_|load_|decode_|count_|recompute_|receipt_canonical|sd_jwt_hidden"
-    r"|validate_|require_valid_|require_derived_|classify_|derive_"
+    # Explizit wie `receipt_canonical`/`sd_jwt_hidden`: ein Praedikat ueber einen vom AUFRUFER
+    # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
+    # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
+    r"|expected_origin_wellformed"
+    # `require_` statt `require_valid_|require_derived_` (2026-08-18): der neue Pruefer
+    # `require_wellformed_expected_origin` gehoert in dieselbe Familie — er nimmt einen vom
+    # AUFRUFER gepinnten Wert entgegen und muss ihn typisiert ablehnen statt roh zu crashen.
+    # Der Riegel unten hat ihn beim ersten Lauf gemeldet; die Familie zu oeffnen ist die
+    # richtige Antwort, nicht ein dritter Einzelname.
+    r"|validate_|require_|classify_|derive_"
     r"|evaluate_|audit_|automation_|evidence_ladder_"
     # Round 5 (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-NEVER-RAISE-COVERAGE-01): die cosign_*-Seite
     # war NIE im Nenner. Sie ist keine reine Erzeuger-Seite: `cosign_checkpoint` und
