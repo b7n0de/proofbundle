@@ -108,6 +108,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   non-decimal / negative / ≥2^64 / over-long size (the CVE-2020-10735 integer-string DoS class). `_note_text_of`
   now validates the size (uint64 decimal, no leading zeros) and root (standard base64) too, so every consumer
   of the shared parser is closed.
+* **Every public constructor/producer surface validates its argument TYPES, not only their content (pre-tag
+  deep-gate iter5).** The identity helpers (`_origin_wellformed`, `_witness_name_wellformed`) and the tlog-proof
+  producers checked a string's content but never that it WAS a string, and the key/root/proof/extra byte
+  arguments were unguarded — so a non-str / non-bytes / non-dict CALLER argument (a JSON field that came back
+  `null` or numeric from an upstream contract violation) raised a raw `AttributeError`/`TypeError` out of
+  `checkpoint_note`, `key_id`, `vkey`, `sign_checkpoint`, the `cosign_*` family, `witness_quorum`,
+  `format_tlog_proof` and `tlog_proof_for_bundle`, instead of the documented typed `BundleFormatError`. Found by
+  a fifth, completeness-critic adversarial pass; the verify surfaces were already safe (they derive identity
+  from a prior split). `isinstance` guards — the same the parse helpers already carried — now close the whole
+  caller-contract class, confirmed by that pass's own ~1,830-probe battery reporting 0 raw-exception escapes
+  across every producer and verify surface.
 
 ### Added
 

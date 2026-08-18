@@ -650,5 +650,67 @@ class TestNoteBodyExtensionLineNeverRaises(unittest.TestCase):
         self.assertIsInstance(cp.cosign_checkpoint_mldsa(good, signer, "witness1", TS), str)
 
 
+class TestCallerContractTypeGuards(unittest.TestCase):
+    """iter5 (a 5th completeness-critic pass): the identity/framing helpers validated a string's CONTENT but
+    never that it IS a string, so a non-str/non-bytes/non-dict CALLER argument (a JSON field that came back
+    null/numeric) raised a raw AttributeError/TypeError out of the public constructor/producer surfaces instead
+    of the documented typed BundleFormatError. The isinstance guards (the same the parse helpers already carry)
+    close the whole caller-contract class. Verify surfaces were already safe (they derive identity from a prior
+    split); this pins the producer side."""
+
+    def test_non_str_identity_is_typed(self):
+        sk = generate_signer()
+        pub = _raw(sk)
+        r32 = bytes(32)
+        for label, fn in (("key_id name", lambda: cp.key_id([1, 2], pub)),
+                          ("checkpoint_note origin", lambda: cp.checkpoint_note([1, 2], 7, r32)),
+                          ("vkey name", lambda: cp.vkey(None, pub)),
+                          ("sign_checkpoint keyname", lambda: cp.sign_checkpoint("o", 7, r32, sk, 123)),
+                          ("cosign_vkey name", lambda: cp.cosign_vkey({"x": 1}, pub))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_non_bytes_key_or_root_is_typed(self):
+        for label, fn in (("key_id pubkey", lambda: cp.key_id("name", None)),
+                          ("checkpoint_note root", lambda: cp.checkpoint_note("o", 7, "notbytes")),
+                          ("cosign_key_id pubkey", lambda: cp.cosign_key_id("name", 123))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_tlogproof_producers_non_str_non_dict_is_typed(self):
+        from proofbundle import tlogproof as tp  # noqa: PLC0415
+        with self.assertRaises(BundleFormatError):
+            tp.format_tlog_proof(0, [], None)
+        with self.assertRaises(BundleFormatError):
+            tp.tlog_proof_for_bundle(None, "x\n\ny\n")
+        with self.assertRaises(BundleFormatError):
+            tp.tlog_proof_for_bundle({"merkle": {}}, None)
+
+    def test_witness_quorum_non_int_threshold_is_typed(self):
+        note = "o\n1\n" + base64.b64encode(bytes(32)).decode() + "\n\n" + cp.EM_DASH + " w AAAA\n"
+        with self.assertRaises(BundleFormatError):
+            cp.witness_quorum(note, [], "abc", log_key_material=None)
+
+    def test_format_tlog_proof_bad_proof_or_extra_is_typed(self):
+        from proofbundle import tlogproof as tp  # noqa: PLC0415
+        note = "o\n1\n" + base64.b64encode(bytes(32)).decode() + "\n\n" + cp.EM_DASH + " w AAAA\n"
+        for label, fn in (("non-iterable proof", lambda: tp.format_tlog_proof(0, None, note)),
+                          ("int proof", lambda: tp.format_tlog_proof(0, 5, note)),
+                          ("proof of ints", lambda: tp.format_tlog_proof(0, [1, 2, 3], note)),
+                          ("bytes proof iterates to ints", lambda: tp.format_tlog_proof(0, bytes(32), note)),
+                          ("non-bytes extra", lambda: tp.format_tlog_proof(0, [], note, extra="notbytes"))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_valid_inputs_still_build(self):
+        sk = generate_signer()
+        pub = _raw(sk)
+        self.assertIsInstance(cp.sign_checkpoint("origin/log", 5, bytes(32), sk, "origin/log"), str)
+        self.assertEqual(len(cp.key_id("name/x", pub)), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,12 @@ def _origin_wellformed(origin: str) -> bool:
     (Cc) — all rejected. Measured against every shipped external vector (Go sumdb, Rekor, rootcommit,
     Colin's fixtures): all pass. Honest scope: this also refuses a non-ASCII (IDN/Unicode) origin, a
     deliberate restriction for the verifier's identity compare; no real tlog origin is non-ASCII."""
+    # DEEP-GATE 4.0.0 re-gate iter5 (never-raise, caller-contract): a non-str origin (None/int/list from a
+    # caller that built it from an upstream JSON field) reached `.isascii()` and raised a raw AttributeError
+    # out of every public constructor/cosign surface that routes identity through this helper. Same
+    # isinstance(str) guard the parse helpers already carry — validate the TYPE before the content.
+    if not isinstance(origin, str):
+        return False
     if not origin or "+" in origin:
         return False
     if not (origin.isascii() and origin.isprintable()):
@@ -76,7 +82,8 @@ def _witness_name_wellformed(name: str) -> bool:
     (a schemeless identity). Stricter than an origin, which allows internal spaces — the emit path
     (cosign_checkpoint / _mldsa) always required this; :func:`_parse_witness_vkey` now enforces it on
     the verify path too, so a name cloaked with any whitespace or invisible character cannot parse."""
-    return bool(name) and "+" not in name and " " not in name and name.isascii() and name.isprintable()
+    return (isinstance(name, str) and bool(name) and "+" not in name and " " not in name
+            and name.isascii() and name.isprintable())
 
 
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
@@ -87,12 +94,14 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
                                 "edge/double spaces, invisible characters, or '+'")
     if isinstance(tree_size, bool) or not isinstance(tree_size, int) or tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
+    if not isinstance(root, bytes):    # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
+        raise BundleFormatError("checkpoint root must be raw bytes")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
 def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
-    if len(pubkey) != 32:
+    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the log key name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -286,7 +295,7 @@ def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
 
 def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
-    if len(pubkey) != 32:
+    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -385,7 +394,7 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
 
 def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
-    if len(pubkey) != _MLDSA44_PUB_LEN:
+    if not isinstance(pubkey, bytes) or len(pubkey) != _MLDSA44_PUB_LEN:
         raise BundleFormatError("ML-DSA-44 public key must be 1312 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -656,6 +665,8 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     unusable, rather than silently dropping the key-material prong)."""
     keys_ok = set()
     witnesses = {}
+    if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:    # iter5 never-raise (defensive)
+        raise BundleFormatError("witness quorum threshold must be a non-negative integer")
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
     # public_transparency.evaluate_public_transparency both funnel witness_vkeys into this loop; a non-iterable
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
