@@ -8,6 +8,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-18 (origin-quorum rule · printable-ASCII identities · MAJOR)
+
+> **MAJOR (SemVer):** the printable-ASCII identity rule now refuses a non-ASCII (IDN/Unicode) origin
+> or witness name for the verifier's exact identity compare — a deliberate behaviour change at the
+> public verify interface (detailed under Changed). A pre-tag adversarial deep-gate (DEEP 6L/7I) was
+> run on this digest; its record and attestation are in
+> [audit_artifacts/400/DEEP_RUN_RECORD_400.md](audit_artifacts/400/DEEP_RUN_RECORD_400.md).
+
 **Semantics: changed, in one deliberate, fail-closed direction — the origin-quorum rule.**
 
 ### Changed
@@ -33,6 +41,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   provenance, not a local check. The C2SP specs are silent on self-cosignature (checked 2026-08-17),
   so the verifier holds the line. Rosters without a log-key or origin-named cosignature — including
   every vector previously shipped in this repository — keep their verdict bit for bit.
+* **`witness_quorum`'s `log_key_material` is now a required keyword-only argument (pre-tag deep-gate D1,
+  BREAKING for a direct caller of the primitive).** It defaulted to `None`, so a bare
+  `witness_quorum(note, roster, threshold)` silently ran the name-test-only mode — under which a log
+  cosigning under an ALIAS with its own key (name ≠ origin) was counted toward the quorum, because the
+  robust key-material prong had nothing to test against. The three shipped verification surfaces
+  (`verify_witnessed_checkpoint`, `verify_tlog_proof`, `public_transparency`) always passed the material
+  and are unaffected; the change forces a direct caller to STATE the choice — the log's key material for
+  the full rule, or an explicit `None` to opt into the documented name-only mode. No silent weak default.
 * **Origins and witness names must be printable ASCII (re-gate 2026-08-17).** An adversarial re-gate
   showed the name test was bypassable one character class at a time — a zero-width (Cf), then a NBSP
   (Zs), then a variation selector or Default-Ignorable letter (Mn / Lo), then an appended plain space —
@@ -73,6 +89,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   path applies the key-material exclusion only when a `log_vkey` is supplied (it is optional there, and
   the profile is EXPERIMENTAL); the always-wired surfaces (`verify_witnessed_checkpoint`,
   `verify_tlog_proof`) always pass it.
+* **The whole checkpoint note body is validated UTF-8-safe before it is encoded (pre-tag deep-gate D2/D3,
+  class fix).** Two parsers encode the note body — origin, size, root AND the optional C2SP extension lines
+  — to sign or verify over it: `verify_checkpoint`'s own, and the shared cosignature-path parser
+  `_note_text_of`. Both encoded BEFORE checking the body was UTF-8-safe, so a lone/unpaired UTF-16 surrogate
+  anywhere in the note (a `str` survives splitting but is not valid UTF-8) raised a raw `UnicodeEncodeError`
+  out of a public verify surface. An independent pre-merge fix-review caught that a first cut had fixed only
+  `verify_checkpoint`, leaving the shared parser — so a surrogate in an EXTENSION line still crashed the
+  top-level `verify_cosignature`, `evaluate_public_transparency`'s witness-quorum branch, and
+  `cosign_checkpoint`. Both parsers now validate the whole body first (`_note_text_of` once, for every
+  consumer); the encode fails closed with a typed `BundleFormatError`, never a raw traceback.
+  `verify_witnessed_checkpoint` and `verify_tlog_proof` were already shielded (call-ordering / a broad
+  `except` that already caught the `ValueError` subclass). A fourth adversarial pass then found the note-body
+  FIELDS still returned unvalidated: the ML-DSA cosigned *message* excludes extension lines by spec, but the
+  ML-DSA cosign *function* (`cosign_checkpoint_mldsa`, a public witness-signing surface) — unlike the verify
+  surfaces, which re-validate them — fed the raw size/root lines into `int(size_s).to_bytes(8)` and
+  `base64.b64decode`, raising a raw `binascii.Error`/`ValueError`/`OverflowError` on a non-base64 root or a
+  non-decimal / negative / ≥2^64 / over-long size (the CVE-2020-10735 integer-string DoS class). `_note_text_of`
+  now validates the size (uint64 decimal, no leading zeros) and root (standard base64) too, so every consumer
+  of the shared parser is closed.
+* **Every public constructor/producer surface validates its argument TYPES, not only their content (pre-tag
+  deep-gate iter5).** The identity helpers (`_origin_wellformed`, `_witness_name_wellformed`) and the tlog-proof
+  producers checked a string's content but never that it WAS a string, and the key/root/proof/extra byte
+  arguments were unguarded — so a non-str / non-bytes / non-dict CALLER argument (a JSON field that came back
+  `null` or numeric from an upstream contract violation) raised a raw `AttributeError`/`TypeError` out of
+  `checkpoint_note`, `key_id`, `vkey`, `sign_checkpoint`, the `cosign_*` family, `witness_quorum`,
+  `format_tlog_proof` and `tlog_proof_for_bundle`, instead of the documented typed `BundleFormatError`. Found by
+  a fifth, completeness-critic adversarial pass; the verify surfaces were already safe (they derive identity
+  from a prior split). `isinstance` guards — the same the parse helpers already carried — now close the whole
+  caller-contract class, confirmed by that pass's own ~1,830-probe battery reporting 0 raw-exception escapes
+  across every producer and verify surface.
 
 ### Added
 
@@ -93,6 +139,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   signature (excluded from witness quorums by the existing 0x01/0x04 domain separation) and as an
   ML-DSA-44 line in cosignature shape (excluded by the new rule). `tests/test_origin_quorum_rule.py`
   holds both halves plus the self-cosigned mini-log regression probe from the 2026-08-16 report.
+
+* **A killing test for the NFC-origin mutation operator.** The gate's frozen fixture origin is pure
+  ASCII, on which NFC is the identity, so no `--expected-origin` against it could distinguish an
+  NFC-normalising origin compare from the exact one — the operator survived as an UNEXPECTED gap.
+  Closed with a self-signed checkpoint whose origin carries a `K` and a KELVIN-SIGN (U+212A) near-hit
+  (`NFC(kelvin)=='K'`): exact rejects, NFC accepts. Verified against the planted operator line
+  (`log_ok` flips False→True under it) — red on the mutant, green on real code; the operator stays
+  should-kill.
 
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 

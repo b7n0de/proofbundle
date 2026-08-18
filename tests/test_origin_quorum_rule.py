@@ -77,7 +77,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         # Before the rule this returned (True, {...ok=True...}) — measured, not assumed.
         note, _, self_witness = _self_cosigned_note()
         wvkey = cp.cosign_vkey(ORIGIN, _raw(self_witness))
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok, "a log satisfied its own witness quorum with its own signature")
         (entry,) = witnesses.values()
         self.assertFalse(entry["ok"])
@@ -93,7 +93,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         self.assertTrue(cp.verify_cosignature(note, wvkey)["ok"],
                         "precondition lost: the probe's self-cosignature no longer verifies, "
                         "so this test would pass for the wrong reason")
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
@@ -105,7 +105,8 @@ class TestOriginQuorumRegression(unittest.TestCase):
         note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log_key, ORIGIN)
         w = generate_signer()
         note = cp.cosign_checkpoint(note, w, "witness.example/w", TS)
-        ok, witnesses = cp.witness_quorum(note, [cp.cosign_vkey("witness.example/w", _raw(w))], 1)
+        ok, witnesses = cp.witness_quorum(note, [cp.cosign_vkey("witness.example/w", _raw(w))], 1,
+                                          log_key_material=None)
         self.assertTrue(ok)
         self.assertNotIn("origin_excluded", next(iter(witnesses.values())))
 
@@ -133,7 +134,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         pq = mldsa.MLDSA44PrivateKey.generate()
         note = cp.cosign_checkpoint_mldsa(note, pq, ORIGIN, TS)
         wvkey = cp.cosign_vkey_mldsa(ORIGIN, pq.public_key().public_bytes_raw())
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         (entry,) = witnesses.values()
         self.assertIs(entry.get("origin_excluded"), True)
@@ -149,7 +150,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
                  + base64.b64encode(bytes([0x06]) + fake_pub).decode())
         with mock.patch.object(cp, "_mldsa_module",
                                side_effect=AssertionError("backend must not be touched")):
-            ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+            ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
@@ -168,7 +169,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         def wird_ausgeschlossen(name: str) -> bool:
             try:
                 wv = cp.cosign_vkey(name, _raw(probe_key))   # malformed name now raises at BUILD too
-                _, witnesses = cp.witness_quorum(note, [wv], 1)
+                _, witnesses = cp.witness_quorum(note, [wv], 1, log_key_material=None)
             except BundleFormatError:
                 return False    # malformed near-miss (whitespace/zero-width/empty) — never the origin
             return next(iter(witnesses.values())).get("origin_excluded", False) is True
@@ -180,12 +181,12 @@ class TestOriginQuorumRegression(unittest.TestCase):
         # not swallow malformed input into a quiet non-count.
         note, _, _ = _self_cosigned_note()
         with self.assertRaises(BundleFormatError):
-            cp.witness_quorum(note, [ORIGIN], 1)                  # a bare name is not a vkey
+            cp.witness_quorum(note, [ORIGIN], 1, log_key_material=None)  # a bare name is not a vkey
         with self.assertRaises(BundleFormatError):
             # a 0x01 LOG key under the origin name stays rejected as malformed for a witness
             # role (domain separation), same as everywhere else
             log_key = generate_signer()
-            cp.witness_quorum(note, [cp.vkey(ORIGIN, _raw(log_key))], 1)
+            cp.witness_quorum(note, [cp.vkey(ORIGIN, _raw(log_key))], 1, log_key_material=None)
 
     def test_tlogproof_surface_inherits_the_rule(self):
         # Second public surface, through the shared helper: a tlog-proof whose roster lists an
@@ -280,7 +281,7 @@ class TestLiveCheckpointVector(unittest.TestCase):
         fake_pub = b"\x00" * 1312
         pq_vkey = (_LIVE_ORIGIN + "+" + cp.cosign_key_id_mldsa(_LIVE_ORIGIN, fake_pub).hex() + "+"
                    + base64.b64encode(bytes([0x06]) + fake_pub).decode())
-        ok, witnesses = cp.witness_quorum(self.note, [ed_vkey, pq_vkey], 1)
+        ok, witnesses = cp.witness_quorum(self.note, [ed_vkey, pq_vkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertEqual(len(witnesses), 2)
         for entry in witnesses.values():
@@ -292,7 +293,7 @@ class TestLiveCheckpointVector(unittest.TestCase):
         # it is excluded from witness quorums by construction — a log vkey is malformed AS a
         # witness key (domain separation), pinned here on the live vector.
         with self.assertRaises(BundleFormatError):
-            cp.witness_quorum(self.note, [self.log_vkey], 1)
+            cp.witness_quorum(self.note, [self.log_vkey], 1, log_key_material=None)
 
 
 class TestAllThreeIdentitySlotsAreHardened(unittest.TestCase):
@@ -555,8 +556,8 @@ class TestOriginQuorumHardening(unittest.TestCase):
             cp._parse_witness_vkey(cp.cosign_vkey("go.sum database tree", _raw(generate_signer())))
 
     def test_key_material_exclusion_needs_the_log_context(self):
-        # Honest scope: the material test only fires when the caller supplies log_key_material. A bare
-        # witness_quorum() call (no log context) applies the NAME test only — documented, and the public
+        # Honest scope: the material test only fires when the caller supplies log_key_material. An explicit
+        # log_key_material=None (no log context) applies the NAME test only — documented, and the public
         # surfaces always pass the material. This pins that a genuinely independent witness with a
         # DIFFERENT key is never excluded by the rule.
         log = generate_signer()
@@ -567,6 +568,148 @@ class TestOriginQuorumHardening(unittest.TestCase):
                                           log_key_material=_raw(log))
         self.assertTrue(ok, "an independent witness was wrongly excluded by key material")
         self.assertNotIn("origin_excluded", next(iter(witnesses.values())))
+
+    def test_d1_log_key_material_is_a_required_keyword(self):
+        # DEEP-GATE 4.0.0 D1: witness_quorum used to DEFAULT log_key_material=None, so a BARE call ran the
+        # NAME test only — a log voting under an ALIAS with its own key (name != origin) was counted. The
+        # material prong is the robust half; the caller must now make the choice VISIBLE (pass the log key
+        # material for the full rule, or an explicit None to opt into the documented name-only mode). No
+        # silent weak default. The three shipped surfaces already pass it; this pins the primitive's API.
+        log = generate_signer()
+        note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, "independent.example/w", TS)   # log key, alias name
+        wv = cp.cosign_vkey("independent.example/w", _raw(log))
+        with self.assertRaises(TypeError):
+            cp.witness_quorum(note, [wv], 1)                          # no log_key_material -> required
+        ok, witnesses = cp.witness_quorum(note, [wv], 1, log_key_material=_raw(log))
+        self.assertFalse(ok, "the alias self-vote counted once the material was supplied")
+        self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
+
+
+class TestNoteBodyExtensionLineNeverRaises(unittest.TestCase):
+    """DEEP-GATE 4.0.0 D2/D3 CLASS fix (found by an independent pre-merge fix-review): verify_checkpoint
+    validated its OWN copy of the note text before encoding, but the SHARED cosignature-path parser
+    _note_text_of checked only lines[0] (origin). A lone UTF-16 surrogate in a C2SP checkpoint EXTENSION
+    line (line 4+) therefore raised a raw UnicodeEncodeError out of the top-level public verify_cosignature,
+    out of evaluate_public_transparency's WITNESS_QUORUM branch, and out of cosign_checkpoint. The fix
+    validates the whole note body once in _note_text_of; these pin all three surfaces + the valid case."""
+
+    def _hostile_ext_note(self):
+        # valid origin/size/root, a lone surrogate in an EXTENSION line, a syntactically valid cosig line
+        w = generate_signer()
+        name = "witness.example/w"
+        body = "myorigin/log\n7\n" + base64.b64encode(b"\x22" * 32).decode() + "\next\ud800line\n"
+        blob = cp.cosign_key_id(name, _raw(w)) + (TS).to_bytes(8, "big") + b"\x00" * 64
+        signed = body + "\n" + f"{cp.EM_DASH} {name} " + base64.b64encode(blob).decode() + "\n"
+        return signed, cp.cosign_vkey(name, _raw(w)), w
+
+    def test_verify_cosignature_typed_not_raw(self):
+        signed, wvkey, _ = self._hostile_ext_note()
+        with self.assertRaises(BundleFormatError):        # was a raw UnicodeEncodeError out of a public API
+            cp.verify_cosignature(signed, wvkey)
+
+    def test_public_transparency_witness_quorum_fails_closed(self):
+        from proofbundle.public_transparency import evaluate_public_transparency  # noqa: PLC0415
+        signed, wvkey, _ = self._hostile_ext_note()
+        r = evaluate_public_transparency(signed, {"witnessQuorum": {"threshold": 1}}, witness_vkeys=[wvkey])
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")   # a dict verdict, never a raw crash
+
+    def test_cosign_checkpoint_signing_side_typed_not_raw(self):
+        signed, _, w = self._hostile_ext_note()
+        with self.assertRaises(BundleFormatError):        # signing an attacker-supplied note fails closed
+            cp.cosign_checkpoint(signed, w, "another.witness/w", TS + 1)
+
+    def test_a_valid_ascii_extension_line_note_still_verifies(self):
+        # anti-parity: a note with a legitimate (ASCII) extension line must still cosign + verify — the
+        # rule rejects non-UTF-8 note bodies, not extension lines as such.
+        w = generate_signer()
+        body = "myorigin/log\n7\n" + base64.b64encode(b"\x22" * 32).decode() + "\nextension ok\n"
+        real = cp.cosign_checkpoint(body + "\n", w, "witness.example/w", TS)
+        res = cp.verify_cosignature(real, cp.cosign_vkey("witness.example/w", _raw(w)))
+        self.assertTrue(res["ok"], "a valid ASCII extension-line note was wrongly rejected")
+
+    @unittest.skipUnless(HAVE_MLDSA, "cryptography build without ML-DSA (install proofbundle[pq])")
+    def test_cosign_checkpoint_mldsa_malformed_size_root_is_typed_not_raw(self):
+        # iter4 (a 4th adversarial pass, third neighbour of the class): cosign_checkpoint_mldsa routes the
+        # note body through _note_text_of but then did raw base64.b64decode(root) + int(size).to_bytes(8) —
+        # a non-base64 root, or a non-decimal / negative / >=2**64 / 5000-digit size, raised a raw
+        # binascii.Error / ValueError / OverflowError (incl. the CVE-2020-10735 integer-string DoS) out of
+        # this public witness-signing surface. _note_text_of now validates size + root once, for every consumer.
+        signer = mldsa.MLDSA44PrivateKey.generate()
+        r32 = base64.b64encode(b"\x22" * 32).decode()
+        for label, size, root in (("non-base64 root", "5", "NOTBASE64!!!"),
+                                   ("non-decimal size", "NOTANUMBER", r32),
+                                   ("negative size", "-1", r32),
+                                   ("size>=2**64", str(2 ** 64 + 1), r32),
+                                   ("5000-digit size", "9" * 5000, r32)):
+            with self.subTest(case=label):
+                note = f"origin-a\n{size}\n{root}\n\n{cp.EM_DASH} log1 AAAAAAAA\n"
+                with self.assertRaises(BundleFormatError):   # was a raw binascii/ValueError/OverflowError
+                    cp.cosign_checkpoint_mldsa(note, signer, "witness1", TS)
+        good = f"origin-a\n5\n{r32}\n\n{cp.EM_DASH} log1 AAAAAAAA\n"     # a valid note still cosigns
+        self.assertIsInstance(cp.cosign_checkpoint_mldsa(good, signer, "witness1", TS), str)
+
+
+class TestCallerContractTypeGuards(unittest.TestCase):
+    """iter5 (a 5th completeness-critic pass): the identity/framing helpers validated a string's CONTENT but
+    never that it IS a string, so a non-str/non-bytes/non-dict CALLER argument (a JSON field that came back
+    null/numeric) raised a raw AttributeError/TypeError out of the public constructor/producer surfaces instead
+    of the documented typed BundleFormatError. The isinstance guards (the same the parse helpers already carry)
+    close the whole caller-contract class. Verify surfaces were already safe (they derive identity from a prior
+    split); this pins the producer side."""
+
+    def test_non_str_identity_is_typed(self):
+        sk = generate_signer()
+        pub = _raw(sk)
+        r32 = bytes(32)
+        for label, fn in (("key_id name", lambda: cp.key_id([1, 2], pub)),
+                          ("checkpoint_note origin", lambda: cp.checkpoint_note([1, 2], 7, r32)),
+                          ("vkey name", lambda: cp.vkey(None, pub)),
+                          ("sign_checkpoint keyname", lambda: cp.sign_checkpoint("o", 7, r32, sk, 123)),
+                          ("cosign_vkey name", lambda: cp.cosign_vkey({"x": 1}, pub))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_non_bytes_key_or_root_is_typed(self):
+        for label, fn in (("key_id pubkey", lambda: cp.key_id("name", None)),
+                          ("checkpoint_note root", lambda: cp.checkpoint_note("o", 7, "notbytes")),
+                          ("cosign_key_id pubkey", lambda: cp.cosign_key_id("name", 123))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_tlogproof_producers_non_str_non_dict_is_typed(self):
+        from proofbundle import tlogproof as tp  # noqa: PLC0415
+        with self.assertRaises(BundleFormatError):
+            tp.format_tlog_proof(0, [], None)
+        with self.assertRaises(BundleFormatError):
+            tp.tlog_proof_for_bundle(None, "x\n\ny\n")
+        with self.assertRaises(BundleFormatError):
+            tp.tlog_proof_for_bundle({"merkle": {}}, None)
+
+    def test_witness_quorum_non_int_threshold_is_typed(self):
+        note = "o\n1\n" + base64.b64encode(bytes(32)).decode() + "\n\n" + cp.EM_DASH + " w AAAA\n"
+        with self.assertRaises(BundleFormatError):
+            cp.witness_quorum(note, [], "abc", log_key_material=None)
+
+    def test_format_tlog_proof_bad_proof_or_extra_is_typed(self):
+        from proofbundle import tlogproof as tp  # noqa: PLC0415
+        note = "o\n1\n" + base64.b64encode(bytes(32)).decode() + "\n\n" + cp.EM_DASH + " w AAAA\n"
+        for label, fn in (("non-iterable proof", lambda: tp.format_tlog_proof(0, None, note)),
+                          ("int proof", lambda: tp.format_tlog_proof(0, 5, note)),
+                          ("proof of ints", lambda: tp.format_tlog_proof(0, [1, 2, 3], note)),
+                          ("bytes proof iterates to ints", lambda: tp.format_tlog_proof(0, bytes(32), note)),
+                          ("non-bytes extra", lambda: tp.format_tlog_proof(0, [], note, extra="notbytes"))):
+            with self.subTest(case=label):
+                with self.assertRaises(BundleFormatError):
+                    fn()
+
+    def test_valid_inputs_still_build(self):
+        sk = generate_signer()
+        pub = _raw(sk)
+        self.assertIsInstance(cp.sign_checkpoint("origin/log", 5, bytes(32), sk, "origin/log"), str)
+        self.assertEqual(len(cp.key_id("name/x", pub)), 4)
 
 
 if __name__ == "__main__":

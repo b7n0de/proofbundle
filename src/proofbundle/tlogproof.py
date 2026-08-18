@@ -67,16 +67,24 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     optionally cosignatures) included verbatim; it must end with a newline."""
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:
         raise BundleFormatError("tlog-proof index must be a non-negative integer")
+    if not isinstance(signed_checkpoint, str):    # iter5 never-raise: non-str raised raw AttributeError from .endswith
+        raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     if not signed_checkpoint.endswith("\n"):
         raise BundleFormatError("signed checkpoint must end with a newline")
     if "\n\n" not in signed_checkpoint:
         raise BundleFormatError("signed checkpoint is missing its note/signature separator")
+    if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
+        raise BundleFormatError("tlog-proof extra must be bytes or None")
+    # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
+    # TypeError from the loop below; guard the container type, then each hash's type, before len().
+    if isinstance(inclusion_proof, (str, bytes, bytearray)) or not hasattr(inclusion_proof, "__iter__"):
+        raise BundleFormatError("inclusion proof must be a sequence of 32-byte hashes")
     lines = [MAGIC]
     if extra is not None:
         lines.append(f"extra {_b64(extra)}")
     lines.append(f"index {index}")
     for h in inclusion_proof:
-        if len(h) != 32:
+        if not isinstance(h, bytes) or len(h) != 32:
             raise BundleFormatError("inclusion proof hashes must be 32-byte SHA-256 values")
         lines.append(_b64(h))
     return "\n".join(lines) + "\n\n" + signed_checkpoint
@@ -133,6 +141,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     over the SAME root/size. No-Fake guard: the checkpoint's tree size and root MUST match the
     bundle's merkle fields — a proof whose checkpoint disagrees with its bundle is refused at
     build time rather than left to fail at verify time."""
+    if not isinstance(bundle, dict):    # iter5 never-raise: non-dict raised raw AttributeError from .get
+        raise BundleFormatError("bundle must be a dict")
+    if not isinstance(signed_checkpoint, str):    # iter5 never-raise: non-str raised raw AttributeError from .split
+        raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     mk = bundle.get("merkle")
     if not isinstance(mk, dict):
         raise BundleFormatError("bundle has no merkle object")

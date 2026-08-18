@@ -351,7 +351,7 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
         vkey = "w+" + cp.cosign_key_id_mldsa("w", _pub).hex() + "+" + base64.b64encode(keymat).decode()
         note = ("o\n1\n" + base64.b64encode(b"\x00" * 32).decode() + "\nx\n\n— w "
                 + base64.b64encode(b"\x00" * 2432).decode())
-        ok, witnesses = cp.witness_quorum(note, [vkey], 1)  # must not raise UnsupportedError out of the batch
+        ok, witnesses = cp.witness_quorum(note, [vkey], 1, log_key_material=None)  # must not raise out of the batch
         self.assertIsInstance(witnesses, dict)
 
     def test_cli_verify_trusted_tsa_root_fifo_does_not_hang(self):

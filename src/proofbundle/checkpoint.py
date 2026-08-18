@@ -64,6 +64,12 @@ def _origin_wellformed(origin: str) -> bool:
     (Cc) — all rejected. Measured against every shipped external vector (Go sumdb, Rekor, rootcommit,
     Colin's fixtures): all pass. Honest scope: this also refuses a non-ASCII (IDN/Unicode) origin, a
     deliberate restriction for the verifier's identity compare; no real tlog origin is non-ASCII."""
+    # DEEP-GATE 4.0.0 re-gate iter5 (never-raise, caller-contract): a non-str origin (None/int/list from a
+    # caller that built it from an upstream JSON field) reached `.isascii()` and raised a raw AttributeError
+    # out of every public constructor/cosign surface that routes identity through this helper. Same
+    # isinstance(str) guard the parse helpers already carry — validate the TYPE before the content.
+    if not isinstance(origin, str):
+        return False
     if not origin or "+" in origin:
         return False
     if not (origin.isascii() and origin.isprintable()):
@@ -76,7 +82,8 @@ def _witness_name_wellformed(name: str) -> bool:
     (a schemeless identity). Stricter than an origin, which allows internal spaces — the emit path
     (cosign_checkpoint / _mldsa) always required this; :func:`_parse_witness_vkey` now enforces it on
     the verify path too, so a name cloaked with any whitespace or invisible character cannot parse."""
-    return bool(name) and "+" not in name and " " not in name and name.isascii() and name.isprintable()
+    return (isinstance(name, str) and bool(name) and "+" not in name and " " not in name
+            and name.isascii() and name.isprintable())
 
 
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
@@ -87,12 +94,14 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
                                 "edge/double spaces, invisible characters, or '+'")
     if isinstance(tree_size, bool) or not isinstance(tree_size, int) or tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
+    if not isinstance(root, bytes):    # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
+        raise BundleFormatError("checkpoint root must be raw bytes")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
 def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
-    if len(pubkey) != 32:
+    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the log key name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -187,7 +196,6 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
     note_text, sig_block = signed_note.split("\n\n", 1)
     note_text += "\n"                       # restore the trailing newline that belongs to the note text
-    note_bytes = note_text.encode("utf-8")
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
@@ -205,6 +213,16 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         root = base64.b64decode(root_b64, validate=True)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
+    # DEEP-GATE 4.0.0 re-gate (D2/D3): the note-text encode was ABOVE this block, so a lone/unpaired
+    # UTF-16 surrogate anywhere in the note (a str survives splitting but is not valid UTF-8) raised a
+    # raw UnicodeEncodeError out of verify_witnessed_checkpoint / evaluate_public_transparency — the one
+    # verify_checkpoint instance the F-8/F-10 validate-before-encode re-gates missed (verify_tlog_proof
+    # already wraps its call; the sibling _note_text_of already validates first). Encode AFTER the string
+    # validation, and fail-closed on any residual non-UTF-8 note text (e.g. a surrogate in an extension line).
+    try:
+        note_bytes = note_text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
 
     ok = False
     # WAR DER SCHLUESSEL UEBERHAUPT DABEI? Diese Unterscheidung entsteht in der Schleife unten und
@@ -277,7 +295,7 @@ def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
 
 def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
-    if len(pubkey) != 32:
+    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -315,6 +333,32 @@ def _note_text_of(signed_note: str) -> str:
     if not _origin_wellformed(lines[0]):
         raise BundleFormatError("checkpoint origin must be a printable-ASCII identity without "
                                 "edge/double spaces, invisible characters, or '+' (malformed)")
+    # DEEP-GATE 4.0.0 re-gate (D2/D3 CLASS fix): _origin_wellformed only checks lines[0]. The note body
+    # ALSO carries size, root and OPTIONAL C2SP extension lines (lines[3:]) that _cosigned_message encodes
+    # WHOLE — a lone/unpaired UTF-16 surrogate anywhere in it raised a raw UnicodeEncodeError out of the
+    # public verify_cosignature / evaluate_public_transparency / cosign_checkpoint surfaces. verify_checkpoint
+    # fixed the ordering for its OWN copy of the text; this shared cosignature-path parser is the neighbour
+    # instance the first cut missed. Validate the whole note body is UTF-8-safe here, once, for every consumer.
+    try:
+        note_text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
+    # DEEP-GATE 4.0.0 re-gate iter4 (D2/D3 CLASS, third neighbour, found by a 4th adversarial pass):
+    # _note_text_of guaranteed only origin + UTF-8, NOT that line 1 is a uint64 decimal or line 2 valid
+    # base64. cosign_checkpoint_mldsa is the one consumer that does not RE-validate them (verify_checkpoint
+    # and verify_cosignature each do their own) — it fed the raw lines into int(size_s).to_bytes(8,"big") and
+    # base64.b64decode(validate=True), raising a raw ValueError / binascii.Error / OverflowError (incl. the
+    # CVE-2020-10735 integer-string DoS on a 5000-digit size) out of a public witness-signing surface.
+    # Validate the note-body fields here, once, for every consumer of the shared parser. The len<=20 test
+    # short-circuits before int(size_s), so an over-long digit string never reaches the (bounded) int parse.
+    size_s, root_b64 = lines[1], lines[2]
+    if len(size_s) > 20 or not (size_s.isascii() and size_s.isdigit()) \
+            or (size_s != "0" and size_s.startswith("0")) or int(size_s) >= 2 ** 64:
+        raise BundleFormatError("checkpoint tree size must be a uint64 ASCII decimal with no leading zeros")
+    try:
+        base64.b64decode(root_b64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise BundleFormatError("checkpoint root is not valid standard base64") from exc
     return note_text
 
 
@@ -350,7 +394,7 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
 
 def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
-    if len(pubkey) != _MLDSA44_PUB_LEN:
+    if not isinstance(pubkey, bytes) or len(pubkey) != _MLDSA44_PUB_LEN:
         raise BundleFormatError("ML-DSA-44 public key must be 1312 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -581,7 +625,7 @@ def _log_key_material_of(log_vkey: str) -> "bytes | None":
 
 
 def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
-                   log_key_material: "bytes | None" = None):
+                   log_key_material: "bytes | None"):  # DEEP-GATE 4.0.0 D1: REQUIRED keyword (was `= None`)
     """Shared k-of-n witness quorum (release-review fix): counts DISTINCT witness KEY MATERIAL, not names —
     C2SP requires operators to use distinct keys per cosigner, so one physical key under N names is ONE witness.
     Alg-agnostic (Ed25519 0x04 + ML-DSA 0x06). Used by BOTH verify_witnessed_checkpoint AND tlogproof.
@@ -621,6 +665,8 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     unusable, rather than silently dropping the key-material prong)."""
     keys_ok = set()
     witnesses = {}
+    if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:    # iter5 never-raise (defensive)
+        raise BundleFormatError("witness quorum threshold must be a non-negative integer")
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
     # public_transparency.evaluate_public_transparency both funnel witness_vkeys into this loop; a non-iterable
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
