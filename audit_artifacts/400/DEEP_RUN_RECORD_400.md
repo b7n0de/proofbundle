@@ -22,16 +22,34 @@ iteration 2 (after the first D1 + D2/D3 fixes, re-gated by the author)
   graded commit   2f6adadb793a8ef5ffd32553b20e263ea6147c18
   graded src tree 071d9836898301c891bebe130fe2d629900b2ada
 
-iteration 3 (after an INDEPENDENT pre-merge fix-review found the D2/D3 fix was an INSTANCE fix, not a
-             class fix; the class was then closed — the digest this verdict binds to)
+iteration 3 (an INDEPENDENT pre-merge fix-review found the D2/D3 fix was an INSTANCE fix; the UTF-8 class
+             was then closed in the shared parser _note_text_of)
   graded commit   dbf1a38430c900aec5ef543d2c371167936cb3c3
   graded src tree 000dcf09b7bf15a46cab38a71807ca80ace29076
-  code delta      v3.8.0..HEAD under src/: 6 files, 263 insertions, 36 deletions
+
+iteration 4 (a FOURTH adversarial pass found a THIRD neighbour: the shared parser returned the size/root
+             FIELDS unvalidated, so cosign_checkpoint_mldsa still raised raw — field validation added)
+  graded commit   3b8ceb0b2c5e1cbb2ec323a351277c11e89ec081
+  graded src tree abea83543c2b7452693441b3946a9df84f7efb3e
+
+iteration 5 (a FIFTH completeness-critic pass ran the exhaustive ~1,830-probe battery and found the last
+             cluster — the identity/producer surfaces validated their args' CONTENT but not their TYPE, so a
+             non-str/non-bytes/non-dict caller argument raised raw on the producer side; caller-contract
+             isinstance guards added. The digest this verdict binds to.)
+  graded commit   b47a80679c8a9fea7b34c4a73aa70339c2f8105d
+  graded src tree 8c124b527ede58fa6333a09d38704588095b976d
+  code delta      v3.8.0..HEAD under src/: 6 files, 306 insertions, 40 deletions
 ```
 
-The verdict below binds to the iteration-3 digest `000dcf09` / `dbf1a38`. A verdict for an earlier digest
-does not carry to it; D1 and the D2/D3 instance were closed at iteration 2, and the D2/D3 CLASS — a
-neighbour the first fix missed (the shared cosignature-path parser) — at iteration 3.
+The verdict below binds to the iteration-5 digest `8c124b52` / `b47a8067`. A verdict for an earlier digest
+does not carry to it. D1 and the first D2/D3 instance closed at iteration 2; the note-text UTF-8 class at
+iteration 3; the note-body size/root-field class at iteration 4; the producer-side argument-TYPE
+caller-contract class at iteration 5 — each found by an INDEPENDENT adversarial pass on the prior fix. THE
+CONVERGENCE PROOF: the fifth pass's OWN exhaustive battery — the same one that surfaced every prior neighbour
+— re-run against the iteration-5 fix reports **0 raw-exception escapes across all 1,832 probes**
+(probe4_tlogproof went 63 → 23 → 0 as the producer args were closed). This is the honest record of a
+never-raise class that took five passes to converge; the fifth pass's own 0-finding re-run is why the fifth
+is the last, not a sixth-declared-clean-on-my-own-word.
 
 ## Targets — result
 
@@ -104,15 +122,36 @@ closed with a typed `BundleFormatError` / FAIL verdict; a valid ASCII extension-
 verifies (no false-negative). Pinned by `tests/test_origin_quorum_rule.py::TestNoteBodyExtensionLineNeverRaises`.
 This is the honest record of the gate catching its own author's incomplete fix before it reached the merge.
 
+**Iteration 5 — the last neighbour, a lower class (fifth completeness-critic pass).** The fifth pass ran the
+exhaustive ~1,830-probe battery across every `__all__` public name and confirmed the pre-registered D3 target
+holds — 0 findings on every VERIFY surface (`verify_checkpoint`, `verify_cosignature`,
+`verify_witnessed_checkpoint`, `verify_tlog_proof`, `evaluate_public_transparency`), which derive identity
+from an already-split string. It found a lower, out-of-D3-scope class on the PRODUCER side: the identity
+helpers (`_origin_wellformed`, `_witness_name_wellformed`) and the tlog-proof producers validated a string's
+CONTENT but never that it WAS a string, and the key/root/proof/extra byte-arguments were unguarded — so a
+non-str/non-bytes/non-dict CALLER argument raised a raw `AttributeError`/`TypeError` out of `checkpoint_note`,
+`key_id`, `vkey`, `sign_checkpoint`, the `cosign_*` family, `witness_quorum`, `format_tlog_proof` and
+`tlog_proof_for_bundle`. This is a caller-contract type-confusion class (a JSON field that came back
+null/numeric from an upstream re-packaging), NOT a relying-party hostile-input crash — LOW severity, no crypto
+bypass. Fix: `isinstance` guards at the shared helpers + the remaining producer args (the same guards the
+parse helpers already carried). THE CONVERGENCE PROOF: the fifth pass's own full battery, re-run against the
+iteration-5 fix, reports 0 raw-exception escapes across all 1,832 probes (probe4_tlogproof 63 → 23 → 0 as
+`signed_checkpoint`, then `inclusion_proof`+`extra`, were closed). Pinned by
+`tests/test_origin_quorum_rule.py::TestCallerContractTypeGuards`. Two residuals are queued post-release (both
+non-raise, not release-blocking): the never-raise property test does not cover the cosign/producer surfaces
+(the coverage blind spot that let iterations 1–5 slip), and `public_transparency` keeps an inline note parse
+that diverges from the shared strict parser (accepts a `1_000` underscore-grouped size) with no security
+bypass, since the aggregate still requires a strict cryptographic check to PASS.
+
 ## D4 — regression (HOLDS)
 
 Every shipped external vector (Go sumdb, Rekor, rootcommit, Colin's fixtures) keeps its verdict on the
-iteration-3 digest: the full suite is green — 2280 passed, 8 skipped (measured: 4 Rust-parity /
+iteration-5 digest: the full suite is green — 2287 passed, 8 skipped (measured: 4 Rust-parity /
 cargo-not-built, 4 ripemd160 / legacy-OpenSSL — none security-relevant to this release; ML-DSA is present
-in this venv and its tests pass). The
-`verify_checkpoint` reorder and the `_note_text_of` note-body validation do not change the verdict for a
-well-formed note (same validation, one added UTF-8 round-trip check), and no shipped vector carries a
-non-UTF-8 note.
+in this venv and its tests pass). None of the fixes (the verify_checkpoint reorder, the `_note_text_of`
+note-body validation, or the iteration-5 caller-contract isinstance guards) changes the verdict for a
+well-formed input — they only add type/format checks a valid producer or verify call already satisfies —
+and no shipped vector is malformed.
 
 ## D5 — mutation killed · gate not fakeable · expected_origin (HOLDS)
 
@@ -136,11 +175,12 @@ non-UTF-8 note.
 
 ## D6 — fidelity (HOLDS)
 
-The digests, the code-delta counts (6 files / 263 / 36) and the suite result (2280 passed) in this record
-were measured on the iteration-3 tree, not carried from an earlier draft (the iteration-2 figures — 253
-insertions, 2273 passed — were corrected here, not left stale). The CHANGELOG [4.0.0] claims map to the
-shipped code: the origin-quorum Changed bullet, the printable-ASCII Changed bullet, the D1 required-keyword
-bullet, and the D2/D3 whole-note-body-validation bullet each name a surface that exists.
+The digests, the code-delta counts (6 files / 306 / 40) and the suite result (2287 passed) in this record
+were measured on the iteration-5 tree, not carried from an earlier draft (the intermediate figures — e.g.
+iteration-3's 263 insertions / 2280 passed — were each corrected as the iterations advanced, never left
+stale). The CHANGELOG [4.0.0] claims map to the shipped code: the origin-quorum Changed bullet, the
+printable-ASCII Changed bullet, the D1 required-keyword bullet, the D2/D3 whole-note-body-validation bullet,
+and the iteration-5 argument-type caller-contract bullet each name a surface that exists.
 
 ## Method compliance
 
@@ -155,11 +195,17 @@ whole non-UTF-8 note class, not just the origin instance).
 
 ## No-Fake boundary
 
-`WITHSTANDS_DEEPGATE` on `000dcf09` / `dbf1a38` means "ready for the Owner's tag", NOT "released" or
+`WITHSTANDS_DEEPGATE` on `8c124b52` / `b47a8067` means "ready for the Owner's tag", NOT "released" or
 "proven secure". The tag and the PyPI publish remain the Owner's GO-3 touch-points. This record grades
 the code that ships; the Owner's merge of the release-prep PR and the tag are separate, human acts.
 
 ## Verdict
 
-**WITHSTANDS_DEEPGATE** — release 4.0.0, digest `000dcf09b7bf15a46cab38a71807ca80ace29076`
-(commit `dbf1a38430c900aec5ef543d2c371167936cb3c3`).
+**WITHSTANDS_DEEPGATE** — release 4.0.0, iteration-5 digest `8c124b527ede58fa6333a09d38704588095b976d`
+(commit `b47a80679c8a9fea7b34c4a73aa70339c2f8105d`). All six pre-registered targets hold: D1 (origin-quorum),
+D2 (printable-ASCII), D3 (verify surfaces never-raise on hostile identity strings — the fifth pass confirmed
+0 findings on every verify surface), D4 (regression), D5 (mutation + gate + expected_origin), D6 (fidelity).
+The never-raise class discovered along the way — five neighbours across the note-text, note-body-field, and
+producer-argument-type surfaces — is closed, proven by the fifth pass's own exhaustive battery reporting 0
+raw-exception escapes across all 1,832 probes on the iteration-5 code. WITHSTANDS means "ready for the
+Owner's tag", NOT "released": the tag and PyPI publish remain the Owner's GO-3 touch-points.
