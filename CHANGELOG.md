@@ -89,14 +89,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   path applies the key-material exclusion only when a `log_vkey` is supplied (it is optional there, and
   the profile is EXPERIMENTAL); the always-wired surfaces (`verify_witnessed_checkpoint`,
   `verify_tlog_proof`) always pass it.
-* **`verify_checkpoint` validates the origin before it encodes the note text (pre-tag deep-gate D2/D3).**
-  The note-text `encode("utf-8")` ran ABOVE the printable-ASCII origin guard, so a lone/unpaired UTF-16
-  surrogate anywhere in the note (a `str` survives splitting but is not valid UTF-8) raised a raw
-  `UnicodeEncodeError` out of `verify_witnessed_checkpoint` and the `public_transparency` profile — the
-  one `verify_checkpoint` instance the F-8/F-10 validate-before-encode re-gate had missed (the sibling
-  `_note_text_of` already validated first; `verify_tlog_proof` already wrapped its call). The origin,
-  size and root are now validated first, and the encode is fail-closed on any residual non-UTF-8 note
-  text (e.g. a surrogate in an extension line): a typed `BundleFormatError`, never a raw traceback.
+* **The whole checkpoint note body is validated UTF-8-safe before it is encoded (pre-tag deep-gate D2/D3,
+  class fix).** Two parsers encode the note body — origin, size, root AND the optional C2SP extension lines
+  — to sign or verify over it: `verify_checkpoint`'s own, and the shared cosignature-path parser
+  `_note_text_of`. Both encoded BEFORE checking the body was UTF-8-safe, so a lone/unpaired UTF-16 surrogate
+  anywhere in the note (a `str` survives splitting but is not valid UTF-8) raised a raw `UnicodeEncodeError`
+  out of a public verify surface. An independent pre-merge fix-review caught that a first cut had fixed only
+  `verify_checkpoint`, leaving the shared parser — so a surrogate in an EXTENSION line still crashed the
+  top-level `verify_cosignature`, `evaluate_public_transparency`'s witness-quorum branch, and
+  `cosign_checkpoint`. Both parsers now validate the whole body first (`_note_text_of` once, for every
+  consumer); the encode fails closed with a typed `BundleFormatError`, never a raw traceback.
+  `verify_witnessed_checkpoint` and `verify_tlog_proof` were already shielded (call-ordering / a broad
+  `except` that already caught the `ValueError` subclass); the ML-DSA cosigned message excludes extension
+  lines by spec and is unaffected.
 
 ### Added
 

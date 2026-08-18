@@ -324,6 +324,16 @@ def _note_text_of(signed_note: str) -> str:
     if not _origin_wellformed(lines[0]):
         raise BundleFormatError("checkpoint origin must be a printable-ASCII identity without "
                                 "edge/double spaces, invisible characters, or '+' (malformed)")
+    # DEEP-GATE 4.0.0 re-gate (D2/D3 CLASS fix): _origin_wellformed only checks lines[0]. The note body
+    # ALSO carries size, root and OPTIONAL C2SP extension lines (lines[3:]) that _cosigned_message encodes
+    # WHOLE — a lone/unpaired UTF-16 surrogate anywhere in it raised a raw UnicodeEncodeError out of the
+    # public verify_cosignature / evaluate_public_transparency / cosign_checkpoint surfaces. verify_checkpoint
+    # fixed the ordering for its OWN copy of the text; this shared cosignature-path parser is the neighbour
+    # instance the first cut missed. Validate the whole note body is UTF-8-safe here, once, for every consumer.
+    try:
+        note_text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
     return note_text
 
 

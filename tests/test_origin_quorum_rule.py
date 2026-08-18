@@ -586,5 +586,48 @@ class TestOriginQuorumHardening(unittest.TestCase):
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
 
+class TestNoteBodyExtensionLineNeverRaises(unittest.TestCase):
+    """DEEP-GATE 4.0.0 D2/D3 CLASS fix (found by an independent pre-merge fix-review): verify_checkpoint
+    validated its OWN copy of the note text before encoding, but the SHARED cosignature-path parser
+    _note_text_of checked only lines[0] (origin). A lone UTF-16 surrogate in a C2SP checkpoint EXTENSION
+    line (line 4+) therefore raised a raw UnicodeEncodeError out of the top-level public verify_cosignature,
+    out of evaluate_public_transparency's WITNESS_QUORUM branch, and out of cosign_checkpoint. The fix
+    validates the whole note body once in _note_text_of; these pin all three surfaces + the valid case."""
+
+    def _hostile_ext_note(self):
+        # valid origin/size/root, a lone surrogate in an EXTENSION line, a syntactically valid cosig line
+        w = generate_signer()
+        name = "witness.example/w"
+        body = "myorigin/log\n7\n" + base64.b64encode(b"\x22" * 32).decode() + "\next\ud800line\n"
+        blob = cp.cosign_key_id(name, _raw(w)) + (TS).to_bytes(8, "big") + b"\x00" * 64
+        signed = body + "\n" + f"{cp.EM_DASH} {name} " + base64.b64encode(blob).decode() + "\n"
+        return signed, cp.cosign_vkey(name, _raw(w)), w
+
+    def test_verify_cosignature_typed_not_raw(self):
+        signed, wvkey, _ = self._hostile_ext_note()
+        with self.assertRaises(BundleFormatError):        # was a raw UnicodeEncodeError out of a public API
+            cp.verify_cosignature(signed, wvkey)
+
+    def test_public_transparency_witness_quorum_fails_closed(self):
+        from proofbundle.public_transparency import evaluate_public_transparency  # noqa: PLC0415
+        signed, wvkey, _ = self._hostile_ext_note()
+        r = evaluate_public_transparency(signed, {"witnessQuorum": {"threshold": 1}}, witness_vkeys=[wvkey])
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL")   # a dict verdict, never a raw crash
+
+    def test_cosign_checkpoint_signing_side_typed_not_raw(self):
+        signed, _, w = self._hostile_ext_note()
+        with self.assertRaises(BundleFormatError):        # signing an attacker-supplied note fails closed
+            cp.cosign_checkpoint(signed, w, "another.witness/w", TS + 1)
+
+    def test_a_valid_ascii_extension_line_note_still_verifies(self):
+        # anti-parity: a note with a legitimate (ASCII) extension line must still cosign + verify — the
+        # rule rejects non-UTF-8 note bodies, not extension lines as such.
+        w = generate_signer()
+        body = "myorigin/log\n7\n" + base64.b64encode(b"\x22" * 32).decode() + "\nextension ok\n"
+        real = cp.cosign_checkpoint(body + "\n", w, "witness.example/w", TS)
+        res = cp.verify_cosignature(real, cp.cosign_vkey("witness.example/w", _raw(w)))
+        self.assertTrue(res["ok"], "a valid ASCII extension-line note was wrongly rejected")
+
+
 if __name__ == "__main__":
     unittest.main()
