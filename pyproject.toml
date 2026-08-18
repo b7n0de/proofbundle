@@ -209,3 +209,30 @@ python_version = "3.10"
 files = ["src"]
 ignore_missing_imports = true
 warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+# WARUM DIESER BLOCK EXISTIERT (2026-08-18, Befund PB-PYTEST-WURZEL-LAEUFT-NICHT-01):
+# `pytest` aus der Repo-Wurzel brach bei der Sammlung mit 740 Fehlern ab — gemessen:
+#   import file mismatch: imported module 'test_signature' has this __file__ attribute:
+#     dist_pkgtest/tree/tests/test_signature.py
+#   which is not the same as the test file we want to collect: tests/test_signature.py
+# Ursache ist kein Testfehler, sondern die Sammelmenge: die entpackten sdist-Baeume unter
+# `dist_pkgtest*/` tragen dieselben Modulnamen wie `tests/`, und ohne `__init__.py` entscheidet
+# pytest den Namen nach Basename. Wer zuerst gesammelt wird, gewinnt; der zweite kollidiert.
+#
+# WARUM `norecursedirs` UND NICHT `testpaths` — und was die Messung dazu WIDERLEGT hat:
+# `testpaths = ["tests"]` waere die kuerzere Zeile. Die naheliegende Begruendung dagegen waere
+# `scripts/test_manifest_gate.py` (der einzige getrackte `test_*.py` ausserhalb `tests/`), aber
+# gemessen sammelt diese Datei NULL Tests: sie ist ein Gate-SKRIPT mit test-artigem Namen, kein
+# pytest-Modul. In der Abdeckung waeren beide Wege also gleich. `norecursedirs` bleibt trotzdem,
+# weil es der SCHMALERE Eingriff ist: es schliesst aus, was Bauartefakt ist, statt die Sammlung
+# auf ein Verzeichnis zu verengen — ein spaeter hinzugefuegter Test ausserhalb `tests/` liefe
+# damit weiterhin mit, statt lautlos zu verschwinden.
+#
+# DIE LISTE IST GEMESSEN: `find` ueber ungetrackte `test_*.py` zaehlte 522 in `.venv*` und je 148
+# in `dist_pkgtest`…`dist_pkgtest5`. `build/` und `dist/` sind bereits pytest-Default; die
+# `dist_*`-Varianten sind es NICHT (der Default matcht `dist` exakt) — genau daran hing es.
+norecursedirs = [
+    "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+    "dist_*", ".venv*", "*.egg-info",
+]
