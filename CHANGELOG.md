@@ -8,6 +8,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+- **The `merkle_path` cap now runs BEFORE the decoding it bounds**, on all three surfaces that
+  carry an inclusion proof: `verify_bundle`, `recompute_merkle_root_b64`, and
+  `verify_sample_opening`. Owner decision 2026-08-18 unifying the class on the budget module's
+  documented house pattern ("the cap, then the work"). Measured on a 195000-step proof: the base64
+  decoder was called 195002 / 195004 times **before** the refusal, and the time scaled with the
+  size of each proof element (365 ms -> 5714 ms at 32 -> 3200 bytes per step). It is now called
+  2 / 4 times, and the time no longer scales with element size at all.
+  **Verdicts do not change**: an over-cap proof could never verify, so this removes work, not
+  acceptance. One error CLASS changes: an input that is simultaneously over the cap *and* carries
+  invalid base64 previously surfaced as a format error (CLI exit 2) and now returns a verdict
+  (exit 1). That consequence is what caused the first attempt (`2c52596`) to be reverted before the
+  4.0.0 release; the Owner has now decided it deliberately.
+- **`checkpoint_note` refuses an empty Merkle root.** An empty `root` encoded to an empty third
+  note line, which `verify_checkpoint` and `_note_text_of` both reject as malformed — the emitter
+  could sign a note that no verifier accepts. The realistic path was `root_bytes_from_b64("")`,
+  which returns `b""` rather than `None`. A non-empty root of the wrong length still round-trips
+  and is unchanged.
+- **`save_signer` validates its path argument** the way its sibling `load_signer` has since
+  2026-08-16: a non-path raises a typed `BundleFormatError` instead of a raw `TypeError` from
+  `os.open`, and the private seed is no longer materialised before the check.
+
+### Added
+- `verify_witnessed_checkpoint` and `verify_tlog_proof` results carry
+  **`expected_origin_wellformed`** (`True` / `False` / `None` when no pin was supplied), and
+  `verify-proof --json` carries it on **every** invocation, including the fail-closed paths. It
+  reports whether the caller's own `--expected-origin` satisfies the printable-ASCII rule the log
+  side already enforces. The comparison itself is unchanged — a malformed pin still produces a
+  verdict, not an exception, because a near-miss must stay distinguishable from a signature failure.
+
 ## [4.0.0] - 2026-08-18 (origin-quorum rule · printable-ASCII identities · MAJOR)
 
 > **MAJOR (SemVer):** the printable-ASCII identity rule now refuses a non-ASCII (IDN/Unicode) origin

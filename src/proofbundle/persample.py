@@ -208,6 +208,28 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
         result["detail"] = "index out of range for the committed tree size"
         return result
+    # DIE KAPPE VOR DER ARBEIT, DIE SIE BEGRENZT — Hausstandard des Budget-Moduls, Owner-Entscheid
+    # 2026-08-18 zu PB-GLEICHE-KLASSE-BLEIBT-UMGEKEHRT-ENTSCHIEDEN-01 ("vereinheitlichen auf
+    # Kappe-vor-Arbeit wie 2c52596").
+    #
+    # `merkle_path` (256) wird durchgesetzt, aber in `merkle.verify_inclusion` — also NACH der Zeile
+    # darunter, die die GANZE proof-Liste dekodiert. Fuer einen Beweis, der die Kappe reisst und
+    # darum niemals gueltig sein kann, wurde erst die volle Arbeit geleistet und danach abgelehnt.
+    # Die strukturelle Schranke oben schliesst nur den UNBEGRENZTEN Fall; dazwischen blieb ein
+    # Fenster bis 200000 Eintraege. Zwei Schranken, zwei verschiedene Groessen.
+    #
+    # DIE AUSNAHME DES OWNERS GREIFT HIER NICHT: die Kappe zaehlt Elemente, `len(proof_list)` ist
+    # ohne das Dekodieren berechenbar und exakt gleich `len(proof)`.
+    #
+    # BEWUSSTE FOLGE, die diesen Commit beim ersten Mal (2c52596) zurueckgenommen hat: eine Eingabe,
+    # die GLEICHZEITIG ueber der Kappe liegt UND kaputtes base64 traegt, bekam vorher einen
+    # Format-Fehler (CLI-Exit 2) und bekommt jetzt ein Verdikt (Exit 1). Das Verdikt selbst aendert
+    # sich nicht — ungueltig bleibt ungueltig —, nur die Fehlerklasse. Der Owner hat das entschieden.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    if len(proof_list) > DEFAULT_BUDGET.merkle_path:
+        result["detail"] = (f"audit path has {len(proof_list)} steps (> merkle_path="
+                            f"{DEFAULT_BUDGET.merkle_path}) — refused before decoding")
+        return result
     try:
         proof = [base64.b64decode(p, validate=True) for p in proof_list]
         root = base64.b64decode(root_b64, validate=True)
