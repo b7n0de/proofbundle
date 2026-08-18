@@ -53,11 +53,25 @@ _NAME_PATTERN = re.compile(
     # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
     # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
     r"|expected_origin_wellformed"
-    # `require_` statt `require_valid_|require_derived_` (2026-08-18): der neue Pruefer
-    # `require_wellformed_expected_origin` gehoert in dieselbe Familie — er nimmt einen vom
-    # AUFRUFER gepinnten Wert entgegen und muss ihn typisiert ablehnen statt roh zu crashen.
-    # Der Riegel unten hat ihn beim ersten Lauf gemeldet; die Familie zu oeffnen ist die
-    # richtige Antwort, nicht ein dritter Einzelname.
+    # 2026-08-18, Deep-Gate-Linse 2 Befund 1: `split_key_binding` und `holder_key_from_cnf`
+    # standen in der Ausschlussmenge unter ERZEUGER ("baut aus eigenen, bereits geprueften
+    # Werten"). Das traf auf sie nie zu — beide nehmen ihr PRIMAERargument aus einer
+    # halter-gelieferten Praesentation und sind damit Parser untrusted Eingabe. Gemessen
+    # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
+    # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
+    r"|split_key_binding|holder_key_from_cnf"
+    # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
+    # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
+    # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —
+    # er war der erste Entwurf und wurde durch das BERICHTENDE `expected_origin_wellformed`
+    # ersetzt, weil der repo-eigene Test `OriginVergleichIstExakt` das harte Ablehnen widerlegte.
+    # Die Begruendung blieb stehen und lehrte damit einen Gegenstand, den es nicht gibt.
+    # GEMESSEN, was die Oeffnung wirklich bewirkt: Nenner 91 -> 98, und alle sieben Zugaenge sind
+    # `cosign_*`/`expected_origin_wellformed` — kein einziges `require_*` kommt hinzu. Die
+    # Verallgemeinerung ist heute WIRKUNGSLOS und bleibt trotzdem stehen: sie ist die richtige
+    # Form fuer die Familie (ein `require_`-Pruefer gehoert hier hin, sobald es einen gibt), und
+    # sie einzuengen waere eine Aenderung ohne Anlass. Was nicht bleiben durfte, ist eine
+    # Begruendung, die auf etwas Nichtexistierendes zeigt.
     r"|validate_|require_|classify_|derive_"
     r"|evaluate_|audit_|automation_|evidence_ladder_"
     # Round 5 (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-NEVER-RAISE-COVERAGE-01): die cosign_*-Seite
@@ -159,7 +173,7 @@ _OUT_OF_SCOPE = frozenset({
     "eval_evidence_class",  "eval_results_yaml",  "evaluation_card_hash",
     "executor_trusted_by_role",  "expected_key_id",  "explain_policy",  "export_eval_result_dsse",
     "export_intoto_dsse",  "export_svr_dsse",  "format_tlog_proof",  "generate_mldsa",
-    "generate_signer",  "holder_key_from_cnf",  "inclusion_proof",  "instantiate_template",
+    "generate_signer",  "inclusion_proof",  "instantiate_template",
     "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
     "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
@@ -172,7 +186,7 @@ _OUT_OF_SCOPE = frozenset({
     "resolve_evidence_ref",  "resolve_hash_alg",  "resolve_policy_source",  "resolve_receiver_ref",
     "resolve_subject",  "root_authenticity_summary",  "root_bytes_from_b64",  "root_from_inclusion",
     "salted_commit",  "sample_opening",  "save_signer",  "sign_checkpoint",  "sign_envelope",
-    "sign_mldsa",  "sign_trust_pack",  "split_key_binding",  "statement_content_root",
+    "sign_mldsa",  "sign_trust_pack",  "statement_content_root",
     "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
     "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
     "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",

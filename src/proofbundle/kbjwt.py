@@ -68,6 +68,22 @@ def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     exactly the bytes the KB-JWT's ``sd_hash`` commits to. A compact form that
     ends with ``~`` carries no key binding (RFC 9901 §4.1).
     """
+    # TYPBODEN AN DER QUELLE (2026-08-18, Deep-Gate-Linse 2 Befund 1). `compact` ist eine vom
+    # HALTER gelieferte Praesentation — untrusted Eingabe. Gemessen: sieben von sieben
+    # Nicht-String-Formen (None/int/list/dict/bool/float/bytes) verliessen diese oeffentliche
+    # Flaeche als ROHER AttributeError aus `.endswith`.
+    #
+    # DER DEFEKT WAR BEKANNT UND AN DER FALSCHEN STELLE GESCHLOSSEN: `verify_key_binding` traegt
+    # seit einem frueheren Durchgang einen aufrufer-seitigen Boden mit genau diesem Kommentar
+    # ("never a raw AttributeError from split_key_binding's string operations"). Der Aufrufer war
+    # gedeckt, die QUELLE nicht — und danach stand sie in der Ausschlussmenge der
+    # never-raise-Eigenschaft, sodass nichts mehr danach fragte. Das ist dieselbe Form, die die
+    # Eigenschaft selbst als Wurzel des cosign_*-Vorfalls dokumentiert: ein Verbraucher liegt
+    # ausserhalb des Nenners, und nichts sagt es.
+    if not isinstance(compact, str):
+        from .errors import BundleFormatError  # noqa: PLC0415 - lokal wie die Geschwister oben
+        raise BundleFormatError(
+            "compact presentation must be a string (non-str is malformed, fail-closed)")
     if compact.endswith("~"):
         return compact, None
     head, _, tail = compact.rpartition("~")
@@ -82,6 +98,18 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
 
     Returns None if there is no usable OKP/Ed25519 confirmation key.
     """
+    # TYPBODEN AN DER QUELLE (2026-08-18, Deep-Gate-Linse 2 Befund 1). `issuer_payload` stammt aus
+    # einer halter-gelieferten Praesentation. Gemessen: sechs von sechs Nicht-dict-Formen
+    # verliessen diese oeffentliche Flaeche als ROHER AttributeError aus `.get`.
+    #
+    # HIER WIRD NICHT GEWORFEN, sondern `None` zurueckgegeben — und das ist keine Nachlaessigkeit,
+    # sondern der dokumentierte Vertrag genau darueber: "Returns None if there is no usable
+    # OKP/Ed25519 confirmation key". Eine Eingabe, die gar kein Objekt ist, ist der klarste Fall
+    # von "keine brauchbare Bestaetigungs-Schluessel-Angabe"; die Funktion gibt schon fuer ein
+    # fehlendes `cnf`, ein Nicht-dict-`jwk` und ein falsches `kty` `None` zurueck. Ein Wurf waere
+    # hier die INKONSISTENTE Antwort.
+    if not isinstance(issuer_payload, dict):
+        return None
     cnf = issuer_payload.get("cnf")
     if not isinstance(cnf, dict):
         return None
