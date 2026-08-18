@@ -1,8 +1,10 @@
 # Honest progress accounting (No-Overclaim)
 
-The denominator is the full distance from the 3.3.0 baseline (current release: 3.8.0) to "4.0.0-stable, externally audited,
-trustworthy". This is a factual progress statement, not a forward promise, and it is deliberately
-placed in the readiness pack so an auditor reads our own honest number before forming theirs.
+The denominator is the full distance from the 3.3.0 baseline (current release: 3.8.0) to the externally
+audited, trustworthy state. That state is defined by audit completion and closed findings, not by any
+version number — the audit is decoupled from the version line and happens when maturity is reached,
+whatever version is current then. This is a factual progress statement, not a forward promise, and it is
+deliberately placed in the readiness pack so an auditor reads our own honest number before forming theirs.
 
 ## Achievable in advance (internal, machine-checkable, no external party): ~85%
 
@@ -21,7 +23,7 @@ placed in the readiness pack so an auditor reads our own honest number before fo
   reviewer such as Loek; in-toto maintainer guidance; first outside users). Our side is preparable;
   the other side is not.
 - **~2% irreducible ceiling** (a full TEE-attestation path, whole-program verification, side-channel
-  freedom) — deliberately outside 4.0.0, a permanent external/research remainder.
+  freedom) — deliberately outside the audit scope, a permanent external/research remainder.
 
 ## Consequence
 

@@ -46,9 +46,10 @@ internal gate (see `REPRODUCTION_RUNBOOK.md`) is a precondition for this review,
 
 ## F. The one remaining gate to stable
 
-The single deliberately-open acceptance criterion is "external audit completed". 4.0.0-stable = this
-pack + the external audit ABSCHLUSS + findings closed/accepted + relation wire-freeze. Nothing in this
-repository can flip that bit; only the external reviewer can.
+The single deliberately-open acceptance criterion is "external audit completed". That trustworthy stable
+state = this pack + the external audit ABSCHLUSS + findings closed/accepted + relation wire-freeze. It is
+defined by those facts, not by a version number — the audit is decoupled from the version line and
+carries no version label. Nothing in this repository can flip that bit; only the external reviewer can.
 
 ## G. Known limitations of the audit-candidate matrix instrument itself (No-Fake, self-declared)
 

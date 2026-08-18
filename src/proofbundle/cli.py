@@ -1052,8 +1052,16 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             # `signer_present` trennt sie: false heisst "dieser Schluessel hat diese Note nicht
             # signiert", true mit log_ok=false heisst "er hat, aber die Bytes stimmen nicht".
             out["signer_present"] = bool(res.get("signer_present"))
-            out["witnesses"] = {n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"]}
-                                for n, w in res["witnesses"].items()}
+            # DEEP-GATE F-4: carry the REASON a witness did not count, not just ok/alg/timestamp. The
+            # CHANGELOG promises a relying party can tell "excluded by rule" from "signature invalid" —
+            # that only held at the library level; the JSON projection dropped origin_excluded and detail
+            # one layer before output, so an origin-excluded witness and a bad-signature one printed
+            # byte-identically. Both are carried now (origin_excluded only when set; detail may be None).
+            out["witnesses"] = {
+                n: {"ok": w["ok"], "alg": w["alg"], "timestamp": w["timestamp"],
+                    **({"origin_excluded": True} if w.get("origin_excluded") else {}),
+                    "detail": w.get("detail")}
+                for n, w in res["witnesses"].items()}
             print(json.dumps(out, indent=2))
         else:
             # KONTROLLZEICHEN NEUTRALISIEREN, wie es `_cmd_verify` seit dem 2026-07-09 tut
@@ -1075,6 +1083,14 @@ def _cmd_verify_proof(args: argparse.Namespace) -> int:
             n_ok = sum(1 for w in res["witnesses"].values() if w["ok"])
             print(f"[{'PASS' if res['witnesses_ok'] else 'FAIL'}] witness-quorum: "
                   f"{n_ok} valid of {len(res['witnesses'])} known (threshold {args.threshold})")
+            # DEEP-GATE re-gate F-6: the reason a witness did not count belongs on the HUMAN path too,
+            # not only in --json. Without it an origin-excluded witness and a bad-signature one printed
+            # the same "N valid of M known" line — the reader most likely to act is the one who sees
+            # nothing. One indented line per non-verifying witness that carries a detail (name+keyID is
+            # attacker-influenced, so neutralise both).
+            for wname, w in res["witnesses"].items():
+                if not w["ok"] and w.get("detail"):
+                    print(f"        - {_safe_line(str(wname))}: {_safe_line(str(w['detail']))}")
             print(f"[{'PASS' if res['inclusion_ok'] else 'FAIL'}] merkle-inclusion: "
                   f"index {res['index']} of {res['tree_size']}")
             # Der Textpfad ist der, den ein Mensch liest — und er las bisher `[FAIL] log-signature:

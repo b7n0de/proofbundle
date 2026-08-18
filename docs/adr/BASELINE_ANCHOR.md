@@ -10,7 +10,7 @@ The verified current state of proofbundle's anchor layer, before the anchor-long
 | RFC 3161 TSA | `anchors_rfc3161.py` | hardened anchor type |
 | OpenTimestamps over Bitcoin | `anchors_ots.py` | the time anchor; own-frozen never trusted (WP-A1); a pending proof stays pending |
 | Chia DataLayer own-register | `anchors_chia.py`, `anchors_chia_add.py` | `chia-datalayer/v1`, level i / WARN; `anchor_add` now holds an automatic in-progress lock (wallet-switch safety) |
-| Witness quorum (freshness) | `checkpoint.py::witness_quorum` | k-of-n distinct witness KEY MATERIAL, ML-DSA + Ed25519 alg-agnostic |
+| Witness quorum (freshness) | `checkpoint.py::witness_quorum` | k-of-n distinct witness KEY MATERIAL, ML-DSA + Ed25519 alg-agnostic; a cosignature made with the log's own signing key (robust, alg-agnostic) or under its own origin name (exact name test) never counts, and a zero-width/control-cloaked origin is refused (origin-quorum rule, 2026-08-17; honest limit: a separate cosign key under a non-origin alias is roster provenance) |
 | Transparency-log inclusion | `tlogproof.py` | tlog-proof verify |
 | Relying-party root/anchor trust | SPEC §7i (3.0.0) | trust from the relying party, never from the producer's own material |
 

@@ -24,8 +24,11 @@ Verification (spec steps, all offline):
   1. compute the leaf hash — application-specific; for proofbundle the leaf is the exact payload
      bytes, hashed with RFC 6962 ``leaf_hash`` (0x00 prefix), same as ``verify_bundle``;
   2. the checkpoint origin is acceptable and the log signature verifies (tlog-checkpoint);
-  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness names; Ed25519
-     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`);
+  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness KEY MATERIAL; Ed25519
+     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`; a cosignature made
+     with the log's OWN signing key, or one under the log's own origin name, never counts — a log does
+     not vote in its own quorum, see :func:`proofbundle.checkpoint.witness_quorum` for the exact rule
+     and its honest limit);
   4. the inclusion proof binds the leaf hash at ``index`` to the checkpoint's root at its size.
   Cosignature timestamps are verified-then-ignored (spec: application policy may add constraints;
   an offline verifier has no trusted clock, so freshness stays the relying party's call).
@@ -38,7 +41,7 @@ import hmac
 from typing import Optional, Sequence
 
 from . import merkle
-from .checkpoint import verify_checkpoint, witness_quorum
+from .checkpoint import _log_key_material_of, verify_checkpoint, witness_quorum
 from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
@@ -166,8 +169,10 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
 
     ``leaf_data`` is the exact logged entry (for proofbundle receipts: the payload bytes); its
     RFC 6962 leaf hash is recomputed here, never taken from the file. ``threshold`` witnesses
-    (distinct names, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0`` means
-    no witness requirement (log signature only). Returns ``{ok, log_ok, witnesses_ok,
+    (distinct key material, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0``
+    means no witness requirement (log signature only). A witness vkey named like the checkpoint's
+    own origin line never counts (origin-quorum rule — a log never votes in its own quorum; see
+    :func:`proofbundle.checkpoint.witness_quorum`). Returns ``{ok, log_ok, witnesses_ok,
     inclusion_ok, origin, tree_size, root, index, witnesses}`` — every sub-verdict reported,
     ``ok`` is their conjunction (fail-closed).
     """
@@ -200,8 +205,11 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
         log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)
         # step 3 — witness quorum via the SHARED helper (dedup by KEY MATERIAL, not name): a single key under N
         # names must NOT satisfy threshold>1. Reuses checkpoint.witness_quorum so this reimplementation cannot
-        # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix).
-        witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold)
+        # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix). Passes the log's
+        # own key material so a cosignature made with the log key never counts as a witness (origin-quorum rule,
+        # DEEP-GATE F-2) — same operand the sibling surface passes, so the two cannot drift on this either.
+        witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold,
+                                                 log_key_material=_log_key_material_of(log_vkey))
 
         inclusion_ok = False                                     # steps 1 + 4
         if 0 <= parsed["index"] < log_res["tree_size"]:

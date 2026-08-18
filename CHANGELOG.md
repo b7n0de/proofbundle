@@ -6,6 +6,94 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+**Semantics: changed, in one deliberate, fail-closed direction — the origin-quorum rule.**
+
+### Changed
+
+* **Origin-quorum rule: a log does not vote in its own witness quorum.** `checkpoint.witness_quorum`
+  (and with it `verify_witnessed_checkpoint`, `tlogproof.verify_tlog_proof` and the experimental
+  `public_transparency` profile, which all share it) now **excludes a cosignature when its key
+  material equals the audited log's own signing key, OR when its name equals the origin line** —
+  fail-closed, before any signature math. The excluded entry stays visible in the `witnesses` dict as
+  `ok=False` with `origin_excluded=True` and a `detail` sentence naming which test fired. Two
+  operands, chosen because neither is the log's to pick: the caller (which knows the log) passes its
+  key material; the origin line is the note's own first line. The key-material test is the robust,
+  algorithm-agnostic one; the name test is exact-codepoint (robust for ML-DSA-44, whose signed
+  message binds the cosigner name — Colin's live vector — and defence-in-depth for Ed25519, whose
+  cosignature/v1 message does NOT bind the name and so can be relabelled). Verdict change, named
+  precisely: a roster listing a cosignature made with the log's key (under the origin name or any
+  alias) could previously satisfy part — or, at `threshold=1`, all — of the quorum with the log's own
+  signature; measured 2026-08-16 with a live probe (`witness_quorum(threshold=1) -> True` for a
+  self-cosigned mini-log), decided with the operator in issue #7, and re-gated 2026-08-17 after an
+  adversarial pass showed a name-only rule was bypassable (an alias, or a zero-width character in the
+  origin line). Honest limit, documented at the call sites: a log cosigning with a SEPARATE key under
+  a non-origin alias that a relying party wrongly trusts as an independent witness is roster
+  provenance, not a local check. The C2SP specs are silent on self-cosignature (checked 2026-08-17),
+  so the verifier holds the line. Rosters without a log-key or origin-named cosignature — including
+  every vector previously shipped in this repository — keep their verdict bit for bit.
+* **Origins and witness names must be printable ASCII (re-gate 2026-08-17).** An adversarial re-gate
+  showed the name test was bypassable one character class at a time — a zero-width (Cf), then a NBSP
+  (Zs), then a variation selector or Default-Ignorable letter (Mn / Lo), then an appended plain space —
+  because the compare used an operand the log writes (its own origin line). The durable fix is a
+  POSITIVE, non-enumerated rule: `checkpoint_note`, `verify_checkpoint` and the shared note parser
+  require the origin to be printable ASCII with no leading/trailing or double space (a single internal
+  space stays legal for Go sumdb's `go.sum database tree`); `_parse_witness_vkey` and the emit path
+  require a witness name to be printable ASCII with no space at all. None of the cloaking characters is
+  printable ASCII, so the whole look-alike class is closed at once. Fail-closed; measured against every
+  shipped external vector (Go sumdb, Rekor, rootcommit, Colin's fixtures) — all pass. **Deliberate,
+  documented restriction:** a non-ASCII (IDN/Unicode) origin is now refused for the verifier's identity
+  compare; no real tlog origin is non-ASCII. This also closes the NFC/NFD normalisation question at the
+  root — a decomposed non-ASCII identity cannot be built or verified at all. **The rule covers all THREE
+  identity slots** (re-gate: the first cut hardened origin and witness name but not the log key name —
+  the third): `key_id`, `cosign_key_id`, `cosign_key_id_mldsa`, `sign_checkpoint` and `_parse_vkey` all
+  require a printable-ASCII name now, so a surrogate name can no longer raise a raw `UnicodeEncodeError`
+  out of the public verify API, and a zero-width log key name can no longer substitute for a real one.
+  **Honest limit named precisely:** the name compare is exact bytes, so byte-different forms of the SAME
+  identity — an ASCII case variant (DNS is case-insensitive), an FQDN trailing dot, a path-normalisation
+  form — are not caught by the name prong (they are the same owner, not a look-alike); the robust
+  defences for them are the key-material prong and `expected_origin`. Exactness is kept deliberately
+  (normalising would loosen `expected_origin` acceptance, whose safe direction is the reverse).
+* **`public_transparency` witness-quorum fails closed on an unusable log_vkey (re-gate F-9).** A
+  `log_vkey` that is supplied but malformed is now "not measurable", a THIRD state distinct from "no log
+  context" — treating it as no-context silently switched the key-material exclusion off and let the log
+  vote in its own quorum under an alias with `errors=[]`. A relying party that SUPPLIED log context and
+  had it dropped is exactly the hidden fail-open; it now fails closed with a named error. (`_log_key_material_of`
+  itself still never raises — re-gate F-7 — but its `None` is no longer read as a pass.)
+* **`verify-proof` carries the exclusion reason on BOTH output paths.** `--json` projects
+  `origin_excluded` + `detail` per witness; the human text path prints an indented reason line per
+  non-verifying witness that has a detail (re-gate F-6 — the reason previously existed only in the
+  library and, on the text path, in `--json`; the reader most likely to act saw nothing). The
+  pre-existing `[pq]`-missing detail rides along on both.
+* **`_log_key_material_of` never raises (re-gate F-7).** It now catches the `ValueError`/`TypeError`
+  base families, not just `BundleFormatError`, so a lone-surrogate log-vkey name (which reaches
+  `name.encode("utf-8")` → `UnicodeEncodeError`) can no longer escape as a raw traceback out of the
+  `public_transparency` fail-closed surface. Honest limit kept: the `public_transparency` witness-quorum
+  path applies the key-material exclusion only when a `log_vkey` is supplied (it is optional there, and
+  the profile is EXPERIMENTAL); the always-wired surfaces (`verify_witnessed_checkpoint`,
+  `verify_tlog_proof`) always pass it.
+
+### Added
+
+* **The `markovian_log/proof_7271` fixture now verifies 8 of its 11 signature lines** (up from 6):
+  the two ML-DSA-44 **witness** cosignatures (navigli `6bc44249`, ring-any-bells `5774b075`) are
+  covered by operator-published verifier keys fetched from outside the audited log
+  (`witness.navigli.sunlight.geomys.org` and `transparency.dev/witnesses`, digest-frozen in
+  `SOURCES.md`), each verified independently against the frozen checkpoint with positive and
+  bit-flip counter-probes before being carried. Without the `[pq]` extra those two lines count as
+  non-verifying (fail-closed) and the fixture still verifies 6 of 11 — now a measured statement in
+  `MANIFEST.json` instead of a wrong guess (the pre-3.8.0 wording blamed the missing backend; the
+  backend was never the reason). The three remaining unverified lines carry their measured reasons:
+  two Ed25519 witnesses deliberately not carried, and the log's own origin-name ML-DSA line, which
+  no independent source can key today and which the origin-quorum rule would refuse to count anyway.
+* **A live self-signed checkpoint as the origin-quorum test vector**:
+  `markovian_log/checkpoint_7397/` freezes the log's checkpoint at tree size 7397 (fetched
+  2026-08-17, digest-pinned), which carries the log's own name twice — as its Ed25519 note
+  signature (excluded from witness quorums by the existing 0x01/0x04 domain separation) and as an
+  ML-DSA-44 line in cosignature shape (excluded by the new rule). `tests/test_origin_quorum_rule.py`
+  holds both halves plus the self-cosigned mini-log regression probe from the 2026-08-16 report.
+
 ## [3.8.0] - 2026-08-16 (CLI origin pinning, corpus fixture, BETA, relation EXPERIMENTAL)
 
 > **Aus der `[Unreleased]`-Rubrik auf `main` uebernommen (Merge 2026-08-17).** Diese Rubrik trug

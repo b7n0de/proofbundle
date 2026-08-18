@@ -12,14 +12,19 @@ the bundle's checkpoint root from the leaf bytes BEFORE proofbundle.tlogproof is
 one test asserts the two derivations agree. If proofbundle's canonicalization ever drifts, this fails.
 
 NO-OVERCLAIM, mirrored from MANIFEST.json and locked by TestMarkovianLogFixtureManifest:
-leaf 7271 is the log's own stream statement, so `POST /submit` is NOT exercised here; the three
-ML-DSA-44 lines are NOT verified (no ML-DSA-44 verifier key is carried for any of them, so the
-optional [pq] backend is irrelevant); rgdd.se/poc-witness and
-witness1.smartit.nu/witness1 cosigned but their keys are deliberately not carried, so they count
-toward nothing; and one bundle is a snapshot that says nothing about split-view behaviour over time.
+leaf 7271 is the log's own stream statement, so `POST /submit` is NOT exercised here; with the
+[pq] extra 8 of the 11 signature lines verify (the two ML-DSA-44 WITNESS cosignatures are covered
+since 2026-08-17 by operator-published keys sourced outside the audited log), without it those two
+count as non-verifying fail-closed and 6 of 11 verify; the third ML-DSA-44 line carries the log's
+own origin name — no independent source can key it today, and the origin-quorum rule would refuse
+to count it anyway; rgdd.se/poc-witness and witness1.smartit.nu/witness1 cosigned but their keys
+are deliberately not carried, so they count toward nothing; and one bundle is a snapshot that says
+nothing about split-view behaviour over time.
 
-No optional extra is needed: Ed25519 checkpoint and cosignature verification uses `cryptography`,
-which is a hard dependency.
+No optional extra is needed for the Ed25519 half (checkpoint + cosignature verification uses
+`cryptography`, a hard dependency). The ML-DSA-44 half states its verdicts on BOTH kinds of build:
+with the [pq] extra the two witness lines verify, without it they must report the missing backend
+— asserted, not skipped into a green run.
 """
 from __future__ import annotations
 
@@ -31,6 +36,13 @@ import unittest
 
 from proofbundle import merkle
 from proofbundle.tlogproof import MAGIC, parse_tlog_proof, verify_tlog_proof
+
+try:
+    from cryptography.hazmat.primitives.asymmetric import mldsa
+    mldsa.MLDSA44PublicKey.from_public_bytes  # probe — builds without FIPS 204 lack it
+    HAVE_MLDSA = True
+except (ImportError, AttributeError):
+    HAVE_MLDSA = False
 
 _FIXDIR = pathlib.Path(__file__).parent / "fixtures" / "anchors" / "markovian_log" / "proof_7271"
 _ORIGIN = "markovianprotocol.com/log"
@@ -159,18 +171,25 @@ class TestMarkovianLogFixtureManifest(unittest.TestCase):
         self.assertIn("NO-OVERCLAIM", purpose)
         self.assertIn("SECOND IMPLEMENTATION", purpose)
         self.assertIn("POST /submit", purpose)           # the untested path is named, not hidden
-        # The ML-DSA gate must name the REAL reason. It said "needs the optional [pq] backend"
-        # until 2026-08-15, which was wrong: no ML-DSA-44 verifier key is carried for any of
-        # the three lines, so no backend can help. test_no_mldsa_key_is_carried below measures
-        # that fact instead of trusting this sentence.
-        self.assertIn("no ML-DSA-44 verifier key", purpose)
         self.assertIn("own origin name", purpose)
         # the two cosigning witnesses we deliberately do not carry are named with a reason
         not_carried = {w["name"] for w in manifest["witnesses_present_but_not_carried"]}
         self.assertEqual(not_carried, {"rgdd.se/poc-witness", "witness1.smartit.nu/witness1"})
-        # five carried witnesses is above, not equal to, the declared threshold
-        self.assertEqual(len(manifest["witnesses_verified"]), 5)
+        # seven carried witness keys (five Ed25519 + two ML-DSA-44), above the declared threshold
+        self.assertEqual(len(manifest["witnesses_verified"]), 7)
+        self.assertEqual(
+            sorted(w["alg"] for w in manifest["witnesses_verified"]),
+            sorted(["ed25519-cosignature/v1"] * 5 + ["ml-dsa-44"] * 2))
         self.assertGreater(len(manifest["witnesses_verified"]), manifest["witness_threshold"])
+        # the declared line coverage carries BOTH build variants, so neither kind of run can
+        # read the other's number as its own
+        counts = manifest["verified_lines"]
+        self.assertEqual((counts["with_pq_extra"], counts["without_pq_extra"], counts["of_total"]),
+                         (8, 6, 11))
+        # the origin-name line is declared unverifiable-and-uncounted with its measured reason
+        origin_line = manifest["origin_name_line_not_carried"]
+        self.assertEqual(origin_line["key_id"], "bda842cb")
+        self.assertIn("origin-quorum rule", origin_line["reason"])
 
 
 class TestMarkovianLogSecondImplementation(unittest.TestCase):
@@ -223,17 +242,20 @@ class TestMarkovianLogKeyProvenance(unittest.TestCase):
     def test_key_ids_recompute(self):
         log_vkey, witnesses = _keys()
         self.assertIsNotNone(log_vkey)
-        self.assertEqual(len(witnesses), 5)
+        self.assertEqual(len(witnesses), 7)
         for vkey in [log_vkey] + witnesses:
             name, hex_id, b64 = vkey.split("+", 2)
             self.assertEqual(self._key_id(name, base64.b64decode(b64)).hex(), hex_id,
                              f"key ID in {name} does not match its own key material")
 
     def test_manifest_key_ids_match_the_key_file(self):
+        # (name, key_id) PAIRS, not a name->id dict: navigli and ring-any-bells each carry an
+        # Ed25519 AND an ML-DSA-44 key under the same name, and a dict keyed by name would let
+        # one of the two silently shadow the other.
         _, witnesses = _keys()
-        from_file = {v.split("+", 2)[0]: v.split("+", 2)[1] for v in witnesses}
-        for entry in _manifest()["witnesses_verified"]:
-            self.assertEqual(from_file[entry["name"]], entry["key_id"])
+        from_file = {(v.split("+", 2)[0], v.split("+", 2)[1]) for v in witnesses}
+        declared = {(e["name"], e["key_id"]) for e in _manifest()["witnesses_verified"]}
+        self.assertEqual(from_file, declared)
 
 
 class TestMarkovianLogThroughProofbundle(unittest.TestCase):
@@ -259,9 +281,16 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         recorded = json.loads((_FIXDIR / "ERGEBNIS.json").read_text())["witnesses"]
         self.assertEqual(set(res["witnesses"]), set(recorded))
         for name, entry in recorded.items():
-            self.assertTrue(res["witnesses"][name]["ok"], name)
-            self.assertEqual(res["witnesses"][name]["alg"], entry["alg"])
-            self.assertEqual(res["witnesses"][name]["timestamp"], entry["timestamp"])
+            live = res["witnesses"][name]
+            self.assertEqual(live["alg"], entry["alg"])
+            if entry["alg"] == "ml-dsa-44" and not HAVE_MLDSA:
+                # the recording was made WITH the [pq] extra; without it the same two lines must
+                # report the missing backend, fail-closed — never skip, never pretend to verify
+                self.assertFalse(live["ok"], name)
+                self.assertIn("[pq]", live.get("detail", ""), name)
+            else:
+                self.assertTrue(live["ok"], name)
+                self.assertEqual(live["timestamp"], entry["timestamp"])
 
     def test_tampered_payload_splits_the_verdict(self):
         res = self._verify(_tampered_leaf())
@@ -310,11 +339,18 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
                 self.assertFalse(res["ok"])
                 self.assertTrue(res["inclusion_ok"], f"{name}: inclusion flipped — wrong cause")
 
-    def test_threshold_above_the_carried_witnesses_fails_closed(self):
-        res = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey, self.witness_vkeys,
-                                threshold=6)
-        self.assertFalse(res["witnesses_ok"])   # only five keys are carried, six can never be met
-        self.assertFalse(res["ok"])
+    def test_threshold_at_and_above_the_verifying_witnesses(self):
+        # the quorum boundary sits exactly at the number of verifying DISTINCT keys on this build:
+        # 7 with the [pq] extra (5 Ed25519 + 2 ML-DSA-44), 5 without it (the ML-DSA pair counts
+        # as non-verifying, fail-closed)
+        n = 7 if HAVE_MLDSA else 5
+        at = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey, self.witness_vkeys,
+                               threshold=n)
+        self.assertTrue(at["witnesses_ok"])
+        above = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey, self.witness_vkeys,
+                                  threshold=n + 1)
+        self.assertFalse(above["witnesses_ok"])
+        self.assertFalse(above["ok"])
 
     def test_no_witness_keys_still_reports_the_log_signature(self):
         res = verify_tlog_proof(_bundle_text(), _leaf_bytes(), self.log_vkey)
@@ -323,13 +359,16 @@ class TestMarkovianLogThroughProofbundle(unittest.TestCase):
         self.assertTrue(res["ok"])              # threshold defaults to 0, documented behaviour
 
 
-class TestMarkovianLogMldsaKeysAreAbsent(unittest.TestCase):
-    """Why the three ML-DSA-44 lines are unverified, measured rather than asserted in prose.
+class TestMarkovianLogMldsaWitnessKeys(unittest.TestCase):
+    """The ML-DSA-44 line coverage, measured rather than asserted in prose.
 
-    Until 2026-08-15 the fixture said they were unverified because that "needs the optional [pq]
-    backend". That reason was never checked and it was wrong. No ML-DSA-44 verifier key is carried
-    for any of the three, so no backend can verify them. The sentence stayed wrong for a day because
-    a test pinned its wording instead of the fact behind it; these tests pin the fact.
+    History of this class: until 2026-08-15 the fixture said the three ML-DSA-44 lines were
+    unverified because that "needs the optional [pq] backend" \u2014 never checked, and wrong (no key
+    was carried, so no backend could help). Since 2026-08-17 the two WITNESS lines are keyed by
+    operator-published keys sourced outside the audited log, so the honest statement is now
+    three-way: two lines verify (with [pq]), the same two report the missing backend without it,
+    and the origin-name line has no independently sourceable key and never counts by rule.
+    These tests pin those facts, not the sentences describing them.
     """
 
     @staticmethod
@@ -356,27 +395,42 @@ class TestMarkovianLogMldsaKeysAreAbsent(unittest.TestCase):
                 found.append((name, blob[:4].hex()))
         return found
 
-    def test_no_mldsa_key_is_carried(self):
-        """The stated reason: not one carried key is ML-DSA-44 (algorithm byte 0x06)."""
+    def test_exactly_two_carried_keys_are_mldsa(self):
         algs = self._carried_keyids()
-        self.assertEqual(len(algs), 6)
-        self.assertEqual([k for k, a in algs.items() if a == 0x06], [],
-                         "a carried key is ML-DSA-44, so the recorded reason no longer holds")
+        self.assertEqual(len(algs), 8)
+        self.assertEqual(sorted(k for k, a in algs.items() if a == 0x06),
+                         ["5774b075", "6bc44249"])
 
-    def test_the_three_mldsa_lines_have_no_matching_key(self):
-        """Each ML-DSA-44 line's key ID is absent from the carried set, so nothing can verify it."""
+    def test_the_two_witness_mldsa_lines_are_keyed_and_the_origin_line_is_not(self):
         carried = set(self._carried_keyids())
         lines = self._mldsa_lines()
         self.assertEqual(len(lines), 3)
         for name, keyid in lines:
-            self.assertNotIn(keyid, carried,
-                             f"{name} keyid {keyid} is carried after all; verify it or fix the claim")
+            if name == _ORIGIN:
+                self.assertNotIn(keyid, carried,
+                                 "the origin-name line acquired a carried key; its MANIFEST reason "
+                                 "and the origin-quorum story must be re-measured, not assumed")
+            else:
+                self.assertIn(keyid, carried,
+                              f"{name} keyid {keyid} lost its carried key; 8-of-11 no longer holds")
 
     def test_one_mldsa_line_is_the_log_speaking_about_itself(self):
         """The structural half: one of the three can only be keyed by the audited log."""
         names = [name for name, _ in self._mldsa_lines()]
         self.assertEqual(names.count(_ORIGIN), 1)
         self.assertEqual(len(set(names)), 3)      # the other two are distinct witness names
+
+    def test_line_coverage_is_8_of_11_with_pq_and_6_of_11_without(self):
+        """The MANIFEST's verified_lines block, measured end to end on THIS build."""
+        log_vkey, witness_vkeys = _keys()
+        res = verify_tlog_proof(_bundle_text(), _leaf_bytes(), log_vkey, witness_vkeys,
+                                threshold=_THRESHOLD)
+        verified = 1 + sum(1 for w in res["witnesses"].values() if w["ok"])   # note sig + witnesses
+        declared = _manifest()["verified_lines"]
+        self.assertEqual(verified,
+                         declared["with_pq_extra"] if HAVE_MLDSA else declared["without_pq_extra"])
+        self.assertEqual(declared["of_total"], 11)
+        self.assertTrue(res["ok"])                # threshold 4 is met on both kinds of build
 
 
 class TestMarkovianLogSignatureLines(unittest.TestCase):
@@ -416,11 +470,14 @@ class TestMarkovianLogSignatureLines(unittest.TestCase):
         self.assertEqual(found["other"], 0)
         self.assertEqual(sum(found.values()), declared["total"])
 
-    def test_more_cosignatures_are_present_than_keys_we_carry(self):
-        # the honest gap: seven witnesses cosigned, we carry five keys and count only those
+    def test_more_ed25519_cosignatures_are_present_than_ed25519_keys_we_carry(self):
+        # the honest gap: seven witnesses cosigned in Ed25519, we carry five Ed25519 keys and
+        # count only those (plus two ML-DSA-44 keys, which cover ML-DSA lines, not these)
         _, witnesses = _keys()
+        ed25519 = [v for v in witnesses if base64.b64decode(v.split("+", 2)[2])[0] == 0x04]
         self.assertEqual(self._lines()["cosig"], 7)
-        self.assertEqual(len(witnesses), 5)
+        self.assertEqual(len(ed25519), 5)
+        self.assertEqual(len(witnesses), 7)
 
 
 if __name__ == "__main__":
