@@ -187,7 +187,6 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         raise BundleFormatError("signed note has no empty-line separator between text and signatures")
     note_text, sig_block = signed_note.split("\n\n", 1)
     note_text += "\n"                       # restore the trailing newline that belongs to the note text
-    note_bytes = note_text.encode("utf-8")
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
@@ -205,6 +204,16 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         root = base64.b64decode(root_b64, validate=True)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
+    # DEEP-GATE 4.0.0 re-gate (D2/D3): the note-text encode was ABOVE this block, so a lone/unpaired
+    # UTF-16 surrogate anywhere in the note (a str survives splitting but is not valid UTF-8) raised a
+    # raw UnicodeEncodeError out of verify_witnessed_checkpoint / evaluate_public_transparency — the one
+    # verify_checkpoint instance the F-8/F-10 validate-before-encode re-gates missed (verify_tlog_proof
+    # already wraps its call; the sibling _note_text_of already validates first). Encode AFTER the string
+    # validation, and fail-closed on any residual non-UTF-8 note text (e.g. a surrogate in an extension line).
+    try:
+        note_bytes = note_text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
 
     ok = False
     # WAR DER SCHLUESSEL UEBERHAUPT DABEI? Diese Unterscheidung entsteht in der Schleife unten und
@@ -581,7 +590,7 @@ def _log_key_material_of(log_vkey: str) -> "bytes | None":
 
 
 def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
-                   log_key_material: "bytes | None" = None):
+                   log_key_material: "bytes | None"):  # DEEP-GATE 4.0.0 D1: REQUIRED keyword (was `= None`)
     """Shared k-of-n witness quorum (release-review fix): counts DISTINCT witness KEY MATERIAL, not names —
     C2SP requires operators to use distinct keys per cosigner, so one physical key under N names is ONE witness.
     Alg-agnostic (Ed25519 0x04 + ML-DSA 0x06). Used by BOTH verify_witnessed_checkpoint AND tlogproof.

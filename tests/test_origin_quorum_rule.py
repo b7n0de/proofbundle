@@ -77,7 +77,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         # Before the rule this returned (True, {...ok=True...}) — measured, not assumed.
         note, _, self_witness = _self_cosigned_note()
         wvkey = cp.cosign_vkey(ORIGIN, _raw(self_witness))
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok, "a log satisfied its own witness quorum with its own signature")
         (entry,) = witnesses.values()
         self.assertFalse(entry["ok"])
@@ -93,7 +93,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         self.assertTrue(cp.verify_cosignature(note, wvkey)["ok"],
                         "precondition lost: the probe's self-cosignature no longer verifies, "
                         "so this test would pass for the wrong reason")
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
@@ -105,7 +105,8 @@ class TestOriginQuorumRegression(unittest.TestCase):
         note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log_key, ORIGIN)
         w = generate_signer()
         note = cp.cosign_checkpoint(note, w, "witness.example/w", TS)
-        ok, witnesses = cp.witness_quorum(note, [cp.cosign_vkey("witness.example/w", _raw(w))], 1)
+        ok, witnesses = cp.witness_quorum(note, [cp.cosign_vkey("witness.example/w", _raw(w))], 1,
+                                          log_key_material=None)
         self.assertTrue(ok)
         self.assertNotIn("origin_excluded", next(iter(witnesses.values())))
 
@@ -133,7 +134,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         pq = mldsa.MLDSA44PrivateKey.generate()
         note = cp.cosign_checkpoint_mldsa(note, pq, ORIGIN, TS)
         wvkey = cp.cosign_vkey_mldsa(ORIGIN, pq.public_key().public_bytes_raw())
-        ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+        ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         (entry,) = witnesses.values()
         self.assertIs(entry.get("origin_excluded"), True)
@@ -149,7 +150,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
                  + base64.b64encode(bytes([0x06]) + fake_pub).decode())
         with mock.patch.object(cp, "_mldsa_module",
                                side_effect=AssertionError("backend must not be touched")):
-            ok, witnesses = cp.witness_quorum(note, [wvkey], 1)
+            ok, witnesses = cp.witness_quorum(note, [wvkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
@@ -168,7 +169,7 @@ class TestOriginQuorumRegression(unittest.TestCase):
         def wird_ausgeschlossen(name: str) -> bool:
             try:
                 wv = cp.cosign_vkey(name, _raw(probe_key))   # malformed name now raises at BUILD too
-                _, witnesses = cp.witness_quorum(note, [wv], 1)
+                _, witnesses = cp.witness_quorum(note, [wv], 1, log_key_material=None)
             except BundleFormatError:
                 return False    # malformed near-miss (whitespace/zero-width/empty) — never the origin
             return next(iter(witnesses.values())).get("origin_excluded", False) is True
@@ -180,12 +181,12 @@ class TestOriginQuorumRegression(unittest.TestCase):
         # not swallow malformed input into a quiet non-count.
         note, _, _ = _self_cosigned_note()
         with self.assertRaises(BundleFormatError):
-            cp.witness_quorum(note, [ORIGIN], 1)                  # a bare name is not a vkey
+            cp.witness_quorum(note, [ORIGIN], 1, log_key_material=None)  # a bare name is not a vkey
         with self.assertRaises(BundleFormatError):
             # a 0x01 LOG key under the origin name stays rejected as malformed for a witness
             # role (domain separation), same as everywhere else
             log_key = generate_signer()
-            cp.witness_quorum(note, [cp.vkey(ORIGIN, _raw(log_key))], 1)
+            cp.witness_quorum(note, [cp.vkey(ORIGIN, _raw(log_key))], 1, log_key_material=None)
 
     def test_tlogproof_surface_inherits_the_rule(self):
         # Second public surface, through the shared helper: a tlog-proof whose roster lists an
@@ -280,7 +281,7 @@ class TestLiveCheckpointVector(unittest.TestCase):
         fake_pub = b"\x00" * 1312
         pq_vkey = (_LIVE_ORIGIN + "+" + cp.cosign_key_id_mldsa(_LIVE_ORIGIN, fake_pub).hex() + "+"
                    + base64.b64encode(bytes([0x06]) + fake_pub).decode())
-        ok, witnesses = cp.witness_quorum(self.note, [ed_vkey, pq_vkey], 1)
+        ok, witnesses = cp.witness_quorum(self.note, [ed_vkey, pq_vkey], 1, log_key_material=None)
         self.assertFalse(ok)
         self.assertEqual(len(witnesses), 2)
         for entry in witnesses.values():
@@ -292,7 +293,7 @@ class TestLiveCheckpointVector(unittest.TestCase):
         # it is excluded from witness quorums by construction — a log vkey is malformed AS a
         # witness key (domain separation), pinned here on the live vector.
         with self.assertRaises(BundleFormatError):
-            cp.witness_quorum(self.note, [self.log_vkey], 1)
+            cp.witness_quorum(self.note, [self.log_vkey], 1, log_key_material=None)
 
 
 class TestAllThreeIdentitySlotsAreHardened(unittest.TestCase):
@@ -555,8 +556,8 @@ class TestOriginQuorumHardening(unittest.TestCase):
             cp._parse_witness_vkey(cp.cosign_vkey("go.sum database tree", _raw(generate_signer())))
 
     def test_key_material_exclusion_needs_the_log_context(self):
-        # Honest scope: the material test only fires when the caller supplies log_key_material. A bare
-        # witness_quorum() call (no log context) applies the NAME test only — documented, and the public
+        # Honest scope: the material test only fires when the caller supplies log_key_material. An explicit
+        # log_key_material=None (no log context) applies the NAME test only — documented, and the public
         # surfaces always pass the material. This pins that a genuinely independent witness with a
         # DIFFERENT key is never excluded by the rule.
         log = generate_signer()
@@ -567,6 +568,22 @@ class TestOriginQuorumHardening(unittest.TestCase):
                                           log_key_material=_raw(log))
         self.assertTrue(ok, "an independent witness was wrongly excluded by key material")
         self.assertNotIn("origin_excluded", next(iter(witnesses.values())))
+
+    def test_d1_log_key_material_is_a_required_keyword(self):
+        # DEEP-GATE 4.0.0 D1: witness_quorum used to DEFAULT log_key_material=None, so a BARE call ran the
+        # NAME test only — a log voting under an ALIAS with its own key (name != origin) was counted. The
+        # material prong is the robust half; the caller must now make the choice VISIBLE (pass the log key
+        # material for the full rule, or an explicit None to opt into the documented name-only mode). No
+        # silent weak default. The three shipped surfaces already pass it; this pins the primitive's API.
+        log = generate_signer()
+        note = cp.sign_checkpoint(ORIGIN, 7, ROOT, log, ORIGIN)
+        note = cp.cosign_checkpoint(note, log, "independent.example/w", TS)   # log key, alias name
+        wv = cp.cosign_vkey("independent.example/w", _raw(log))
+        with self.assertRaises(TypeError):
+            cp.witness_quorum(note, [wv], 1)                          # no log_key_material -> required
+        ok, witnesses = cp.witness_quorum(note, [wv], 1, log_key_material=_raw(log))
+        self.assertFalse(ok, "the alias self-vote counted once the material was supplied")
+        self.assertIs(next(iter(witnesses.values())).get("origin_excluded"), True)
 
 
 if __name__ == "__main__":
