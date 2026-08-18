@@ -334,6 +334,22 @@ def _note_text_of(signed_note: str) -> str:
         note_text.encode("utf-8")
     except UnicodeEncodeError as exc:
         raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
+    # DEEP-GATE 4.0.0 re-gate iter4 (D2/D3 CLASS, third neighbour, found by a 4th adversarial pass):
+    # _note_text_of guaranteed only origin + UTF-8, NOT that line 1 is a uint64 decimal or line 2 valid
+    # base64. cosign_checkpoint_mldsa is the one consumer that does not RE-validate them (verify_checkpoint
+    # and verify_cosignature each do their own) — it fed the raw lines into int(size_s).to_bytes(8,"big") and
+    # base64.b64decode(validate=True), raising a raw ValueError / binascii.Error / OverflowError (incl. the
+    # CVE-2020-10735 integer-string DoS on a 5000-digit size) out of a public witness-signing surface.
+    # Validate the note-body fields here, once, for every consumer of the shared parser. The len<=20 test
+    # short-circuits before int(size_s), so an over-long digit string never reaches the (bounded) int parse.
+    size_s, root_b64 = lines[1], lines[2]
+    if len(size_s) > 20 or not (size_s.isascii() and size_s.isdigit()) \
+            or (size_s != "0" and size_s.startswith("0")) or int(size_s) >= 2 ** 64:
+        raise BundleFormatError("checkpoint tree size must be a uint64 ASCII decimal with no leading zeros")
+    try:
+        base64.b64decode(root_b64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise BundleFormatError("checkpoint root is not valid standard base64") from exc
     return note_text
 
 

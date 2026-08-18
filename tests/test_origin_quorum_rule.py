@@ -628,6 +628,27 @@ class TestNoteBodyExtensionLineNeverRaises(unittest.TestCase):
         res = cp.verify_cosignature(real, cp.cosign_vkey("witness.example/w", _raw(w)))
         self.assertTrue(res["ok"], "a valid ASCII extension-line note was wrongly rejected")
 
+    @unittest.skipUnless(HAVE_MLDSA, "cryptography build without ML-DSA (install proofbundle[pq])")
+    def test_cosign_checkpoint_mldsa_malformed_size_root_is_typed_not_raw(self):
+        # iter4 (a 4th adversarial pass, third neighbour of the class): cosign_checkpoint_mldsa routes the
+        # note body through _note_text_of but then did raw base64.b64decode(root) + int(size).to_bytes(8) —
+        # a non-base64 root, or a non-decimal / negative / >=2**64 / 5000-digit size, raised a raw
+        # binascii.Error / ValueError / OverflowError (incl. the CVE-2020-10735 integer-string DoS) out of
+        # this public witness-signing surface. _note_text_of now validates size + root once, for every consumer.
+        signer = mldsa.MLDSA44PrivateKey.generate()
+        r32 = base64.b64encode(b"\x22" * 32).decode()
+        for label, size, root in (("non-base64 root", "5", "NOTBASE64!!!"),
+                                   ("non-decimal size", "NOTANUMBER", r32),
+                                   ("negative size", "-1", r32),
+                                   ("size>=2**64", str(2 ** 64 + 1), r32),
+                                   ("5000-digit size", "9" * 5000, r32)):
+            with self.subTest(case=label):
+                note = f"origin-a\n{size}\n{root}\n\n{cp.EM_DASH} log1 AAAAAAAA\n"
+                with self.assertRaises(BundleFormatError):   # was a raw binascii/ValueError/OverflowError
+                    cp.cosign_checkpoint_mldsa(note, signer, "witness1", TS)
+        good = f"origin-a\n5\n{r32}\n\n{cp.EM_DASH} log1 AAAAAAAA\n"     # a valid note still cosigns
+        self.assertIsInstance(cp.cosign_checkpoint_mldsa(good, signer, "witness1", TS), str)
+
 
 if __name__ == "__main__":
     unittest.main()

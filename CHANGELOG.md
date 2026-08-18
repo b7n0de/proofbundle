@@ -100,8 +100,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `cosign_checkpoint`. Both parsers now validate the whole body first (`_note_text_of` once, for every
   consumer); the encode fails closed with a typed `BundleFormatError`, never a raw traceback.
   `verify_witnessed_checkpoint` and `verify_tlog_proof` were already shielded (call-ordering / a broad
-  `except` that already caught the `ValueError` subclass); the ML-DSA cosigned message excludes extension
-  lines by spec and is unaffected.
+  `except` that already caught the `ValueError` subclass). A fourth adversarial pass then found the note-body
+  FIELDS still returned unvalidated: the ML-DSA cosigned *message* excludes extension lines by spec, but the
+  ML-DSA cosign *function* (`cosign_checkpoint_mldsa`, a public witness-signing surface) — unlike the verify
+  surfaces, which re-validate them — fed the raw size/root lines into `int(size_s).to_bytes(8)` and
+  `base64.b64decode`, raising a raw `binascii.Error`/`ValueError`/`OverflowError` on a non-base64 root or a
+  non-decimal / negative / ≥2^64 / over-long size (the CVE-2020-10735 integer-string DoS class). `_note_text_of`
+  now validates the size (uint64 decimal, no leading zeros) and root (standard base64) too, so every consumer
+  of the shared parser is closed.
 
 ### Added
 
