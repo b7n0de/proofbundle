@@ -18,22 +18,28 @@ iteration 1 (pre-registration, frozen BEFORE the run)
   graded commit   391eb37a9767f9b05cc57788875f649be5482f4c   (origin/main, after PR #144 merge)
   graded src tree 638c2ae0a727e73aa1c726cbcc570f7a26df6e93
 
-iteration 2 (after the D1 + D2/D3 fixes, re-gated — the digest this verdict binds to)
+iteration 2 (after the first D1 + D2/D3 fixes, re-gated by the author)
   graded commit   2f6adadb793a8ef5ffd32553b20e263ea6147c18
   graded src tree 071d9836898301c891bebe130fe2d629900b2ada
-  code delta      v3.8.0..HEAD under src/: 6 files, 253 insertions, 36 deletions
+
+iteration 3 (after an INDEPENDENT pre-merge fix-review found the D2/D3 fix was an INSTANCE fix, not a
+             class fix; the class was then closed — the digest this verdict binds to)
+  graded commit   dbf1a38430c900aec5ef543d2c371167936cb3c3
+  graded src tree 000dcf09b7bf15a46cab38a71807ca80ace29076
+  code delta      v3.8.0..HEAD under src/: 6 files, 263 insertions, 36 deletions
 ```
 
-The verdict below binds to the iteration-2 digest `071d9836` / `2f6adad`. A verdict for an earlier
-digest does not carry to it; the two REFUTED targets were only closed at iteration 2.
+The verdict below binds to the iteration-3 digest `000dcf09` / `dbf1a38`. A verdict for an earlier digest
+does not carry to it; D1 and the D2/D3 instance were closed at iteration 2, and the D2/D3 CLASS — a
+neighbour the first fix missed (the shared cosignature-path parser) — at iteration 3.
 
 ## Targets — result
 
 | # | Target (pre-registered invariant) | Iter 1 | Fix | Iter 2 re-gate |
 |---|---|---|---|---|
 | D1 | A log cannot vote in its own witness quorum. | **REFUTED** | `witness_quorum` `log_key_material` → required keyword | **CLOSED** |
-| D2 | Printable-ASCII identities; the whole cloaking class closed, all three slots. | rule HOLDS; **ordering REFUTED** | `verify_checkpoint` validate-before-encode | **CLOSED** |
-| D3 | No public verify surface raises a raw exception on hostile identity input. | **REFUTED** (2 of 4 surfaces) | same fix as D2 | **CLOSED** |
+| D2 | Printable-ASCII identities; the whole cloaking class closed, all three slots. | rule HOLDS; **ordering REFUTED** | validate-before-encode; **class fix in `_note_text_of` (iter 3)** | **CLOSED** |
+| D3 | No public verify surface raises a raw exception on hostile identity input. | **REFUTED** (instance iter 1, neighbour iter 3) | `verify_checkpoint` + shared `_note_text_of` | **CLOSED** |
 | D4 | Nothing this release loosens an existing check; every shipped vector keeps its verdict. | HOLDS | — | HOLDS |
 | D5 | The NFC-origin mutation is killed and the pre-tag gate cannot be faked; `expected_origin` is not a hole. | HOLDS | — | HOLDS |
 | D6 | The record's + CHANGELOG's numbers and claims match the tree. | HOLDS | — | HOLDS |
@@ -83,13 +89,30 @@ D2's positive printable-ASCII rule itself (zero-width, NBSP, full-width/NFKC, de
 log-key-name slot) was independently re-checked by an oracle that recomputes `isascii()+isprintable()`
 outside the production code, and HOLDS — the REFUTED half was purely the encode/validate ordering.
 
+**Iteration 3 — the class, not the instance (independent pre-merge fix-review).** Before merge, three
+independent adversarial agents re-reviewed the iteration-2 FIX code (not the original). Two converged on
+the same real defect with running exploits: the iteration-2 D2/D3 fix closed only `verify_checkpoint`'s OWN
+copy of the note text. The SHARED cosignature-path parser `_note_text_of` validated only `lines[0]`
+(origin), never the size, root, or C2SP extension lines (`lines[3:]`) that `_cosigned_message` encodes
+WHOLE — so a lone surrogate in an EXTENSION line still raised a raw `UnicodeEncodeError` out of three public
+surfaces: `verify_cosignature` (top-level, `__all__`-exported), `evaluate_public_transparency`'s
+witness-quorum branch (its `except ProofBundleError` does not catch a `UnicodeEncodeError`), and
+`cosign_checkpoint` (signing side). A textbook fix-the-instance-not-the-class miss, three lines from a
+sibling ML-DSA branch that already wrapped its equivalent encode. Class fix: `_note_text_of` now validates
+the whole note body is UTF-8-safe once, for every consumer. Re-gate (executed): all three surfaces fail
+closed with a typed `BundleFormatError` / FAIL verdict; a valid ASCII extension-line note still cosigns and
+verifies (no false-negative). Pinned by `tests/test_origin_quorum_rule.py::TestNoteBodyExtensionLineNeverRaises`.
+This is the honest record of the gate catching its own author's incomplete fix before it reached the merge.
+
 ## D4 — regression (HOLDS)
 
 Every shipped external vector (Go sumdb, Rekor, rootcommit, Colin's fixtures) keeps its verdict on the
-iteration-2 digest: the full suite is green — 2273 passed, 8 skipped (ML-DSA backend absent), plus the
-three attestation-pending tests that pass once this record exists — 80.9 s. The `verify_checkpoint`
-reorder does not change the verdict for a well-formed note (same validation, reordered), and no shipped
-vector carries a non-UTF-8 note.
+iteration-3 digest: the full suite is green — 2280 passed, 8 skipped (measured: 4 Rust-parity /
+cargo-not-built, 4 ripemd160 / legacy-OpenSSL — none security-relevant to this release; ML-DSA is present
+in this venv and its tests pass). The
+`verify_checkpoint` reorder and the `_note_text_of` note-body validation do not change the verdict for a
+well-formed note (same validation, one added UTF-8 round-trip check), and no shipped vector carries a
+non-UTF-8 note.
 
 ## D5 — mutation killed · gate not fakeable · expected_origin (HOLDS)
 
@@ -113,10 +136,11 @@ vector carries a non-UTF-8 note.
 
 ## D6 — fidelity (HOLDS)
 
-The digests, the code-delta counts (6 files / 253 / 36) and the suite result (2273 passed) in this
-record were measured on the iteration-2 tree, not carried from an earlier draft. The CHANGELOG [4.0.0]
-claims map to the shipped code: the origin-quorum Changed bullet, the printable-ASCII Changed bullet, the
-D1 required-keyword bullet, and the D2/D3 validate-before-encode bullet each name a surface that exists.
+The digests, the code-delta counts (6 files / 263 / 36) and the suite result (2280 passed) in this record
+were measured on the iteration-3 tree, not carried from an earlier draft (the iteration-2 figures — 253
+insertions, 2273 passed — were corrected here, not left stale). The CHANGELOG [4.0.0] claims map to the
+shipped code: the origin-quorum Changed bullet, the printable-ASCII Changed bullet, the D1 required-keyword
+bullet, and the D2/D3 whole-note-body-validation bullet each name a surface that exists.
 
 ## Method compliance
 
@@ -131,11 +155,11 @@ whole non-UTF-8 note class, not just the origin instance).
 
 ## No-Fake boundary
 
-`WITHSTANDS_DEEPGATE` on `071d9836` / `2f6adad` means "ready for the Owner's tag", NOT "released" or
+`WITHSTANDS_DEEPGATE` on `000dcf09` / `dbf1a38` means "ready for the Owner's tag", NOT "released" or
 "proven secure". The tag and the PyPI publish remain the Owner's GO-3 touch-points. This record grades
 the code that ships; the Owner's merge of the release-prep PR and the tag are separate, human acts.
 
 ## Verdict
 
-**WITHSTANDS_DEEPGATE** — release 4.0.0, digest `071d9836898301c891bebe130fe2d629900b2ada`
-(commit `2f6adadb793a8ef5ffd32553b20e263ea6147c18`).
+**WITHSTANDS_DEEPGATE** — release 4.0.0, digest `000dcf09b7bf15a46cab38a71807ca80ace29076`
+(commit `dbf1a38430c900aec5ef543d2c371167936cb3c3`).
