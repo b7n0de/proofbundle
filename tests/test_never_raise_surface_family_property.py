@@ -50,7 +50,14 @@ _MODULES = [
 _NAME_PATTERN = re.compile(
     r"^(verify_|check_|load_|decode_|count_|recompute_|receipt_canonical|sd_jwt_hidden"
     r"|validate_|require_valid_|require_derived_|classify_|derive_"
-    r"|evaluate_|audit_|automation_|evidence_ladder_)")
+    r"|evaluate_|audit_|automation_|evidence_ladder_"
+    # Round 5 (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-NEVER-RAISE-COVERAGE-01): die cosign_*-Seite
+    # war NIE im Nenner. Sie ist keine reine Erzeuger-Seite: `cosign_checkpoint` und
+    # `cosign_checkpoint_mldsa` nehmen eine vom LOG gelieferte, also untrusted, Note entgegen —
+    # genau die Eingabe, gegen die diese Eigenschaft schuetzt. Dass vier Nachbarn derselben Klasse
+    # (iter1-4 des 4.0.0-Gates) nacheinander durchrutschten, hing an diesem Loch im Nenner, nicht
+    # an vier unabhaengigen Fehlern.
+    r"|cosign_)")
 
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
@@ -98,6 +105,87 @@ def _discover_surfaces():
                 out.append((mod_name, name, fn))
     return out
 
+
+
+# ── Der Nenner darf nicht mehr STILL altern (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-…-01) ──────────
+#
+# WAS PASSIERT IST: `_NAME_PATTERN` ist eine Allowlist von Namensfamilien. Die gesamte `cosign_*`-
+# Seite stand nie darin — und nichts sagte es. Der Bodentest unten wacht nur gegen KOLLAPS des
+# Nenners (>= 65), nicht gegen das Fehlen einer ganzen Familie: 91 entdeckte Surfaces sehen gesund
+# aus, auch wenn sechs Verbraucher-Surfaces daneben liegen. Vier Nachbarn derselben Klasse sind
+# waehrend des 4.0.0-Gates nacheinander durchgerutscht (iter1-4); das war kein Zufall, sondern
+# dieses Loch.
+#
+# WAS DER RIEGEL TUT: jede oeffentliche Funktion der gescannten Module muss ENTWEDER im Nenner
+# stehen ODER hier namentlich als ausserhalb gefuehrt sein. Eine NEUE oeffentliche Funktion, die
+# keins von beidem ist, laesst den Test FAILEN — sie erzwingt eine Entscheidung, statt lautlos
+# ausserhalb zu liegen. Das ist die positive Regel: nicht "was ist gefaehrlich" aufzaehlen
+# (unvollstaendig per Konstruktion), sondern "was ist geprueft" gegen "was ist bewusst nicht".
+#
+# WARUM DIESE 122 NAMEN AUSSERHALB LIEGEN — nach Familie, nicht pauschal:
+#   build_* / emit_* / sign_* / issue_* / create_* / save_* / to_* / export_*  ERZEUGER. Sie bauen
+#       aus EIGENEN, bereits geprueften Werten ein Artefakt. Ein TypeError bei falschem Aufrufer-
+#       Argument ist dort die richtige Antwort, nicht der Defekt, den diese Eigenschaft sucht.
+#   policy_* / profile-/template-Helfer / list_* / describe_* / explain_* / lint_*  BESCHREIBEND,
+#       ohne Verdikt fuer eine verlassende Partei.
+#   *_proven / *_trusted_by_role / *_violations / *_warning / *_gaps  URTEILE ueber bereits
+#       validierte Strukturen — ihre Eingabe hat die never-raise-Schicht schon passiert.
+#   Krypto-/Kodier-Primitive (pae, clvm_atom_hash, eip191_recover_address, key_id, vkey, …)
+#       arbeiten auf Bytes mit engem Vertrag; sie sind ueber ihre Aufrufer abgedeckt.
+# WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
+# und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
+_OUT_OF_SCOPE = frozenset({
+    "action_outcome_proven",  "anchor_proof_digest",  "build_preimage",  "beacon_audit_challenge",  "beacon_nonce",
+    "build_decision_statement",  "build_eval_claim",  "build_evidence_pack",
+    "build_initial_sequence",  "build_outcome_statement",  
+    "build_relation_statement",  "build_run_ledger_statement",  "build_sample_tree",
+    "build_summary_statement",  "build_trust_pack_statement",  "calendar_operator",
+    "calendar_operators",  "calendar_uris",  "canonical_profile_name",  "canonicalize",
+    "canonicalize_statement",  "catch_probability",  "checkpoint_note",  "claim_warnings",
+    "clvm_atom_hash",  "compute_digest",  "compute_dual_hash",  "consistency_proof",
+    "create_rfc3161_anchor",  "describe_proof",  "detect_outcome_sequence_gaps",
+    "eip191_recover_address",  "emit_bundle",  "emit_decision_receipt",  "emit_eval_receipt",
+    "emit_outcome_receipt",  "emit_relation_statement",  "emit_run_ledger",
+    "emit_verification_summary",  "enclave_assurance_proven",  "enclave_binding_for",
+    "eval_evidence_class",  "eval_results_yaml",  "evaluation_card_hash",
+    "executor_trusted_by_role",  "expected_key_id",  "explain_policy",  "export_eval_result_dsse",
+    "export_intoto_dsse",  "export_svr_dsse",  "format_tlog_proof",  "generate_mldsa",
+    "generate_signer",  "holder_key_from_cnf",  "inclusion_proof",  "instantiate_template",
+    "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
+    "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
+    "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
+    "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
+    "outcome_execution_proven",  "pae",  "parse_checkpoint_head",  "parse_tlog_proof",
+    "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
+    "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
+    "profile_aliases",  "profile_path",  "receipt_token",  "receiver_trusted_by_role",  "register",
+    "register_anchor_type",  "registered_anchor_types",  "renew_hashtree",  "renew_timestamp",
+    "resolve_evidence_ref",  "resolve_hash_alg",  "resolve_policy_source",  "resolve_receiver_ref",
+    "resolve_subject",  "root_authenticity_summary",  "root_bytes_from_b64",  "root_from_inclusion",
+    "salted_commit",  "sample_opening",  "save_signer",  "sign_checkpoint",  "sign_envelope",
+    "sign_mldsa",  "sign_trust_pack",  "split_key_binding",  "statement_content_root",
+    "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
+    "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
+    "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",
+})
+
+
+def _unclassified_public_functions():
+    """Oeffentliche Funktionen, die WEDER im Nenner noch bewusst ausserhalb sind. Muss leer sein."""
+    entdeckt = {name for _, name, _ in _discover_surfaces()}
+    offen = []
+    for mod_name in _MODULES:
+        try:
+            mod = importlib.import_module(f"proofbundle.{mod_name}")
+        except Exception:  # noqa: BLE001
+            continue
+        for name, fn in inspect.getmembers(mod, inspect.isfunction):
+            if fn.__module__ != mod.__name__ or name.startswith("_"):
+                continue
+            if name in entdeckt or name in _OUT_OF_SCOPE:
+                continue
+            offen.append(f"{mod_name}.{name}")
+    return sorted(offen)
 
 def _structural_corpus():
     """Structural hostile inputs on VALID-typed dicts/lists (round 8 — the old sweep only fuzzed 8 wrong TYPES,
@@ -148,6 +236,21 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
         # property below would vacuously pass. 70 at round-8 broadening; allow growth, guard against collapse.
         self.assertGreaterEqual(len(surfaces), 65,
                                 f"surface discovery collapsed to {len(surfaces)} — the denominator is broken")
+
+    def test_keine_unklassifizierte_oeffentliche_funktion(self):
+        """Der Nenner altert nicht mehr still: neue oeffentliche Funktion -> Entscheidung erzwungen.
+
+        Genau dieser Riegel haette `cosign_*` gemeldet, als es dazukam. Er ersetzt den Bodentest
+        NICHT (der wacht gegen Kollaps), er schliesst die andere Richtung: eine Familie, die nie
+        drin war.
+        """
+        offen = _unclassified_public_functions()
+        self.assertEqual(
+            offen, [],
+            "Diese oeffentlichen Funktionen sind weder im never-raise-Nenner noch bewusst "
+            "ausserhalb gefuehrt. ENTSCHEIDE je Funktion: nimmt sie untrusted Eingabe entgegen? "
+            "Dann gehoert ihr Namensmuster in _NAME_PATTERN. Sonst gehoert sie mit Begruendung "
+            f"in _OUT_OF_SCOPE. Unklassifiziert: {offen}")
 
     def test_no_public_surface_raises_raw_on_hostile_primary(self):
         # Round 8 (v4): sweep BOTH the 8 wrong TYPES and the STRUCTURAL hostile inputs (deep-nest / node-heavy /
