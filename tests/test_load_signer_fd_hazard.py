@@ -87,5 +87,77 @@ class LoadSignerNimmtKeineZahl(unittest.TestCase):
                     "ein gueltiger Pfad in dieser Form wird nicht mehr geladen")
 
 
+class SaveSignerHatDenSelbenBodenWieSeinNachbar(unittest.TestCase):
+    """Der Nachbar in derselben Datei — 2026-08-18 nachgemessen, Befund PBNACHBAR-EMIT-TYPBODEN-01.
+
+    `load_signer` bekam den Typboden am 16.08. mit ausfuehrlicher Begruendung. `save_signer` steht
+    zwanzig Zeilen darueber, nimmt denselben aufrufer-gelieferten Pfad und hatte ihn nicht:
+    `save_signer(echterSchluessel, 1)` warf einen rohen `TypeError` aus `os.open`. Der urspruengliche
+    Beleg des Befunds mass mit `None` als Schluessel und traf damit den falschen Gegenstand — der
+    rohe Fehler haette auch vom Schluessel kommen koennen. Mit echtem Schluessel gemessen liegt er
+    am Pfad.
+
+    WARUM ES DURCHRUTSCHTE: die Familieneigenschaft entdeckt ueber Namensfamilien (`load_` ja,
+    `save_` nein), und in der Ausschlussmenge steht `save_signer` als ERZEUGER — eine Begruendung,
+    die fuer sein `key`-Argument gilt und fuer seinen Pfad nicht. Sie bleibt dort richtig; deshalb
+    steht der Beleg HIER, wo der Gegenstand liegt, statt die Familieneigenschaft zu verbiegen.
+    """
+
+    def _key(self):
+        return generate_signer()
+
+    def test_ein_nicht_pfad_wird_typisiert_abgelehnt(self) -> None:
+        key = self._key()
+        for falsch in (1, None, [1], {"p": 1}, 3.5):
+            with self.subTest(argument=type(falsch).__name__):
+                with self.assertRaises(BundleFormatError):
+                    save_signer(key, falsch)
+
+    def test_das_geheimnis_wird_gar_nicht_erst_materialisiert(self) -> None:
+        """Nicht "es wirft", sondern "der Seed wird nie erzeugt" — die Schranke liegt VOR dem Rohwert.
+
+        DER ERSTE ENTWURF DIESES TESTS WAR BEINAHE TAUTOLOGISCH, und die Sensitivitaetsprobe hat es
+        gezeigt: er zaehlte ein Zielverzeichnis vorher und nachher auf. Bei `path=1` gibt es dort
+        aber ohnehin nie eine Datei — der Test blieb gruen, als ich absichtlich einen Schreibvorgang
+        VOR die Schranke setzte. Er mass die Abwesenheit von etwas, das an dieser Stelle nie
+        entstehen konnte.
+
+        Beobachtet wird deshalb der Gegenstand selbst: `save_signer` ruft `key.private_bytes(...)`,
+        um den 32-Byte-Seed im Klartext zu erzeugen. Liegt der Typboden davor, wird dieser Aufruf
+        NIE gemacht. Ein Attrappen-Schluessel merkt sich, ob er gefragt wurde.
+        """
+        gefragt = []
+
+        class Attrappe:
+            def private_bytes(self, *_a, **_k):
+                gefragt.append(True)
+                return b"S" * 32
+
+        with self.assertRaises(BundleFormatError):
+            save_signer(Attrappe(), 1)
+        self.assertEqual([], gefragt,
+                         "der private Seed wurde erzeugt, BEVOR der Pfad geprueft war — die "
+                         "Schranke liegt hinter dem Rohwert statt davor")
+
+    def test_ein_echter_pfad_schreibt_weiterhin_und_bleibt_0600(self) -> None:
+        """Die Gegenrichtung, und sie prueft mehr als das Gelingen.
+
+        Der Modus ist Teil des Vertrags dieser Funktion (ein Geheimnis darf nie, auch nicht kurz,
+        breiter lesbar sein). Eine Schranke, die den richtigen Aufruf beschaedigt, ist ein Ausfall.
+        """
+        import shutil
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        key = self._key()
+        for form in (str(d / "a.bin"), d / "b.bin", os.fsencode(str(d / "c.bin"))):
+            with self.subTest(form=type(form).__name__):
+                save_signer(key, form)
+                p = pathlib.Path(os.fsdecode(form))
+                self.assertTrue(p.is_file(), "der gueltige Aufruf hat nichts geschrieben")
+                self.assertEqual(0o600, p.stat().st_mode & 0o777)
+                self.assertEqual(load_signer(p).public_key().public_bytes_raw(),
+                                 key.public_key().public_bytes_raw())
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
