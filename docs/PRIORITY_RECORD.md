@@ -17,6 +17,11 @@ timestamps, never asserted in prose. This mirrors the standing related-work rule
   [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466).
 - **Technical Note 3.2.3:** version DOI
   [10.5281/zenodo.21384526](https://doi.org/10.5281/zenodo.21384526), published 16 July 2026.
+- **Technical Note 4.0.0:** version DOI
+  [10.5281/zenodo.22004295](https://doi.org/10.5281/zenodo.22004295), published 19 August 2026.
+  The deposited PDF has SHA-256
+  `d46b6cf7fc21e96e1e9379ff983640873cdfa1700d4d0f69a5a8882b001c34db` — the same file the concept
+  DOI above now resolves to.
 
 ## Public release history (GitHub tags and PyPI)
 
