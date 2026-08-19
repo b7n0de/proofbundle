@@ -7,12 +7,6 @@
 
 <h1>proofbundle</h1>
 
-**AI eval results need receipts.**
-
-Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
-these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
-Merkle, one file, no server, no network.
-
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![demo reproducible](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
@@ -23,9 +17,47 @@ Merkle, one file, no server, no network.
 
 Scorecard **6.5/10** — [what the four zeros mean, in one sentence each](#what-the-scorecard-badge-says-including-the-parts-that-are-low)
 
+**AI eval results need receipts.**
+
+Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
+these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
+Merkle, one file, no server, no network.
+
 **Reviewing this for adoption?** Start with the 30-minute adversarial audit path: **[docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md)**.
 
 </div>
+
+## Install
+
+```bash
+pip install proofbundle                 # core: offline verify + plain emit (two deps: cryptography, rfc8785)
+pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (RFC 8785 JCS canonicalizer)
+pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
+pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
+```
+
+Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 comes from
+`cryptography`; Merkle hashing is RFC 6962.
+
+## 60-second try (offline)
+
+```bash
+pip install "proofbundle[eval]"
+proofbundle demo   # honest receipt => OK, six tampers each => FAILED, sample swap caught
+```
+
+The demo runs entirely in memory and exits non-zero if any tamper slips through, so it doubles as a
+self-test.
+
+```bash
+# verify a real hosted receipt without writing any code — the verify runs fully offline:
+curl -fsSL https://raw.githubusercontent.com/b7n0de/proofbundle/main/examples/example_bundle.json -o receipt.json
+proofbundle verify receipt.json        # CRYPTO: OK   (exit 0 ok · 1 fail · 2 malformed · 3 policy)
+```
+
+Emit your own receipt, apply a trust policy, start from a shipped template, or run the Inspect-native
+path (METR Task Standard / UK-AISI ecosystem, mockllm, no API key): **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)** ·
+Inspect walkthrough **[docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md)**.
 
 ## What the Scorecard badge says, including the parts that are low
 
@@ -60,26 +92,6 @@ measured and not yet addressed.
 
 Publishing a middling number with its causes is the point. A project that sells evidence cannot
 withhold its own.
-
-## 60-second try (offline)
-
-```bash
-pip install "proofbundle[eval]"
-proofbundle demo   # honest receipt => OK, six tampers each => FAILED, sample swap caught
-```
-
-The demo runs entirely in memory and exits non-zero if any tamper slips through, so it doubles as a
-self-test.
-
-```bash
-# verify a real hosted receipt without writing any code — the verify runs fully offline:
-curl -fsSL https://raw.githubusercontent.com/b7n0de/proofbundle/main/examples/example_bundle.json -o receipt.json
-proofbundle verify receipt.json        # CRYPTO: OK   (exit 0 ok · 1 fail · 2 malformed · 3 policy)
-```
-
-Emit your own receipt, apply a trust policy, start from a shipped template, or run the Inspect-native
-path (METR Task Standard / UK-AISI ecosystem, mockllm, no API key): **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)** ·
-Inspect walkthrough **[docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md)**.
 
 ## The problem
 
@@ -168,18 +180,6 @@ version history (see also [CHANGELOG.md](https://github.com/b7n0de/proofbundle/b
   digest-bound evidence, and what was *not* checked) and a separately signed *outcome* with role
   separation (executor ≠ decision maker) — never a claim that the decision was correct.
   [decision-receipt.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/decision-receipt.md) · [action-outcome.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/action-outcome.md)
-
-## Install
-
-```bash
-pip install proofbundle                 # core: offline verify + plain emit (two deps: cryptography, rfc8785)
-pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (RFC 8785 JCS canonicalizer)
-pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
-pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
-```
-
-Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 comes from
-`cryptography`; Merkle hashing is RFC 6962.
 
 ## Post-quantum posture (honest)
 
