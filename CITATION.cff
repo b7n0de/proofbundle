@@ -26,3 +26,18 @@ keywords:
   - eval
   - attestation
   - provenance
+# The Technical Note is a SEPARATE work (a design write-up about this software), so it belongs in
+# `references` rather than replacing the software DOI above. `doi:` on line 19 stays the software
+# concept DOI; the two identify different objects and must not be conflated.
+references:
+  - type: report
+    title: "Evidence Integrity for AI Evaluations"
+    abbreviation: "proofbundle Technical Note"
+    authors:
+      - family-names: Gruszka
+        given-names: Konrad
+        orcid: "https://orcid.org/0009-0006-8947-6065"
+    version: 4.0.0
+    year: 2026
+    # Version DOI of Note 4.0.0. The concept DOI (all versions) is 10.5281/zenodo.21230466.
+    doi: 10.5281/zenodo.22004295
