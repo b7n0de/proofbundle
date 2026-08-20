@@ -44,6 +44,34 @@ _MLDSA44_SIG_LEN = 2420             # FIPS 204 ML-DSA-44 signature bytes
 _MLDSA_LABEL = b"subtree/v1\n\x00"  # cosigned_message.label[12] — fixed 12 bytes
 
 
+def expected_origin_wellformed(expected_origin: "str | None") -> "bool | None":
+    """Ist der vom AUFRUFER gepinnte Origin nach derselben Regel wohlgeformt wie der des Logs?
+
+    Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01 (un-Gegenlesung des NFC-Killing-Tests):
+    `_origin_wellformed` erzwingt printable-ASCII auf `log_res["origin"]`, aber der gepinnte
+    `expected_origin` lief ungeprueft in denselben exakten Vergleich. Das ist KEIN Loch — der
+    Vergleich gegen einen bereits validierten Operanden schlaegt fail-closed fehl —, aber er
+    schlaegt STILL fehl: wer ein Zero-Width oder ein NBSP in seinen Pin kopiert, sieht `ok=False`
+    und sucht den Fehler beim Log statt bei sich.
+
+    WARUM DAS HIER MELDET UND NICHT WIRFT — und das ist die Korrektur an meinem ersten Entwurf:
+    der zuerst gebaute `require_*`-Pruefer warf `BundleFormatError`, und die BESTEHENDEN Tests des
+    Repos haben ihn widerlegt. `tests/test_verify_proof_expected_origin.py::OriginVergleichIstExakt`
+    verlangt fuer jeden Beinahe-Treffer (fuehrendes Leerzeichen, Zeilenumbruch, leerer String)
+    ausdruecklich ein VERDIKT: `log_ok=False` bei UNBERUEHRTEM `inclusion_ok` — „der Fehlschlag
+    kommt vom Origin, nicht von der Signatur". Ein Wurf bricht die Verifikation ab und nimmt dem
+    Aufrufer genau diese Unterscheidung. Der Fund war „still", nicht „falsch"; die Antwort darauf
+    ist eine zusaetzliche Auskunft, keine geaenderte Semantik.
+
+    Drei Zustaende: `None` = kein Pin gesetzt (nicht gebunden, dokumentiert) · `True` wohlgeformt ·
+    `False` nicht wohlgeformt (der Vergleich kann dann per Konstruktion nicht treffen, weil die
+    Log-Seite dieselbe Regel bereits erzwingt).
+    """
+    if expected_origin is None:
+        return None
+    return isinstance(expected_origin, str) and _origin_wellformed(expected_origin)
+
+
 def _root_std_b64(root: bytes) -> str:
     """Standard RFC 4648 §4 base64 (with padding) of the raw Merkle root — NOT base64url."""
     return base64.b64encode(root).decode("ascii")
@@ -96,6 +124,23 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
     if not isinstance(root, bytes):    # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
         raise BundleFormatError("checkpoint root must be raw bytes")
+    # DER EMITTER DARF NICHTS BAUEN, WAS SEIN EIGENER VERIFIZIERER MALFORMED NENNT (2026-08-18, beim
+    # Nachmessen des Befunds PB-CHECKPOINT-CONSTRUCTOR-TYPEERROR-01 gefunden — dessen eigener Kern war
+    # laengst geschlossen, DIESER Nachbar nicht). `b""` ist bytes und lief durch, `base64.b64encode(b"")`
+    # ist der leere String, und die dritte Notenzeile wurde damit LEER. Gemessen: `sign_checkpoint`
+    # signierte diese Note anstandslos, und `verify_checkpoint` wie `_note_text_of` lehnten sie danach
+    # als "at least 3 non-empty lines" ab — der Aufrufer haelt eine signierte Note in der Hand, die
+    # KEIN Verifizierer akzeptiert, auch keiner ausserhalb dieser Bibliothek.
+    # DER REALISTISCHE WEG dorthin ist kein Tippfehler: `root_bytes_from_b64("")` gibt `b""` zurueck
+    # (leer ist gueltiges base64), nicht `None` — ein leeres Root-Feld im Bundle wird also stumm zu
+    # einem leeren Root und faengt sich nicht am isinstance-Riegel darueber.
+    # EHRLICHE GRENZE, absichtlich nicht weiter zugezogen: ein NICHT-leerer Root falscher Laenge
+    # (z.B. 5 Bytes) laeuft weiterhin durch, weil er den Rundlauf besteht — das ist ein Aufrufer-Fehler
+    # an den EIGENEN Wurzel-Bytes, kein angreifer-gelieferter Wert. Wo das Format eine Laenge wirklich
+    # verlangt, steht sie schon (`_mldsa_cosigned_message`: 32 Bytes).
+    if not root:
+        raise BundleFormatError("checkpoint root must not be empty — an empty root encodes to an "
+                                "empty third note line, which no verifier accepts")
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
@@ -770,6 +815,10 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     return {"ok": log_ok and witnesses_ok, "log_ok": log_ok,
             "witnesses_ok": witnesses_ok, "witnesses": witnesses,
             "origin": log_res["origin"], "expected_origin": expected_origin,
+            # Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01: sagt dem Aufrufer, ob SEIN Pin die
+            # Regel erfuellt, die die Log-Seite laengst erzwingt. None = kein Pin. Aendert das
+            # Verdikt NICHT (der exakte Vergleich bleibt), nimmt ihm nur das Stille.
+            "expected_origin_wellformed": expected_origin_wellformed(expected_origin),
             # NACHBAR IM SELBEN DURCHGANG: `verify_checkpoint` liefert `signer_present`, und der
             # tlogproof-Pfad reicht es durch — diese Schwesterflaeche baut ihr Ergebnis selbst und
             # liess es fallen. Ein Aufrufer saehe hier `log_ok=False`, ohne zu wissen, ob der

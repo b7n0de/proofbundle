@@ -631,9 +631,15 @@ class DasVerdiktNenntDieErwartungAuchMaschinell(unittest.TestCase):
         self.assertEqual(b["expected_origin"], _ORIGIN)
         # Gegenprobe des Messaufbaus: die beiden Laeufe unterscheiden sich SONST in nichts. Waere das
         # nicht so, koennte der Test durch irgendeine andere Abweichung gruen werden.
-        self.assertEqual({k: v for k, v in a.items() if k != "expected_origin"},
-                         {k: v for k, v in b.items() if k != "expected_origin"},
-                         "die beiden Laeufe unterscheiden sich in mehr als dem Erwartungs-Feld")
+        # ZWEI Erwartungs-Felder statt einem (2026-08-18, Befund PB-EXPECTED-ORIGIN-ASCII-…-01):
+        # `expected_origin_wellformed` sagt, ob der PIN SELBST die Regel erfuellt, die die Log-Seite
+        # laengst erzwingt. Es gehoert zur selben Auskunft und wechselt mit ihr (None ohne Pin,
+        # True/False mit) — die Zusicherung „sonst unterscheidet sich nichts" bleibt damit intakt,
+        # sie deckt jetzt beide Felder derselben Frage ab.
+        _erwartung = {"expected_origin", "expected_origin_wellformed"}
+        self.assertEqual({k: v for k, v in a.items() if k not in _erwartung},
+                         {k: v for k, v in b.items() if k not in _erwartung},
+                         "die beiden Laeufe unterscheiden sich in mehr als den Erwartungs-Feldern")
 
     def test_falscher_schluessel_und_verfaelschte_signatur_bleiben_ununterscheidbar(self) -> None:
         """Haelt den GEMESSENEN Stand fest — und zwar das richtige Paar.
@@ -1033,3 +1039,46 @@ class KanonischeNormalformZaehltAlsUnterschied(unittest.TestCase):
                 # und eine handgebaute non-ASCII-Origin-Note verifiziert nicht (verdikt, kein Crash)
                 from proofbundle.checkpoint import _origin_wellformed  # noqa: PLC0415
                 self.assertFalse(_origin_wellformed(form), f"{name}: non-ASCII origin gilt als wohlgeformt")
+
+
+class ExpectedOriginWirdWieDieLogSeiteGeprueft(unittest.TestCase):
+    """Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01 (un-Gegenlesung des NFC-Killing-Tests).
+
+    `_origin_wellformed` erzwang printable-ASCII auf der LOG-Seite; der vom Aufrufer GEPINNTE
+    `expected_origin` lief ungeprueft in denselben exakten Vergleich. Kein Loch — der Vergleich
+    gegen einen bereits validierten Operanden schlaegt fail-closed fehl —, aber er schlug STILL
+    fehl: wer ein Zero-Width oder ein NBSP in seinen Pin kopiert, sieht `ok=False` und sucht den
+    Fehler beim Log statt bei sich.
+
+    MELDEN STATT WERFEN, und diese Richtung ist gemessen erzwungen: mein erster Entwurf warf
+    BundleFormatError — `OriginVergleichIstExakt` oben hat ihn widerlegt, weil dort fuer jeden
+    Beinahe-Treffer ein VERDIKT verlangt wird (log_ok=False bei unberuehrtem inclusion_ok). Die
+    Auskunft kommt deshalb als zusaetzliches Feld, das Verdikt bleibt der exakte Vergleich.
+    """
+
+    def test_wohlgeformte_pins_gelten_als_wohlgeformt(self):
+        from proofbundle.checkpoint import expected_origin_wellformed as wf
+        self.assertIsNone(wf(None), "kein Pin ist kein Urteil")
+        for gut in ("sum.golang.org", "go.sum database tree", "markovianprotocol.com/log", "logKx"):
+            with self.subTest(origin=gut):   # logKx: PLAIN ASCII 'K' (U+004B)
+                self.assertIs(wf(gut), True)
+
+    def test_homoglyph_unsichtbares_und_nicht_strings_gelten_als_nicht_wohlgeformt(self):
+        from proofbundle.checkpoint import expected_origin_wellformed as wf
+        # U+212A KELVIN SIGN sieht wie 'K' aus — genau der Fall, an dem der NFC-Mutant hing.
+        for boese in ("log\u212ax", "log\u200b.example", "log\xa0example", "a+b",
+                      " lead", "trail ", "dou  ble", "", 42, b"bytes", ["liste"]):
+            with self.subTest(origin=boese):
+                self.assertIs(wf(boese), False)
+
+    def test_beide_flaechen_melden_dieselbe_auskunft(self):
+        """Die Auskunft steht an BEIDEN Vergleichsstellen — sonst waere die Regel nur halb gezogen."""
+        from proofbundle.tlogproof import verify_tlog_proof
+        res = verify_tlog_proof("kaputt", b"egal", "egal", (), expected_origin="sum.golang.org")
+        self.assertIn("ok", res)   # fail-closed, kein Crash
+        rc, out = _run("--expected-origin", "log\u212ax")   # KELVIN SIGN, kein ASCII-K
+        d = json.loads(out)
+        self.assertEqual(rc, 1)
+        self.assertFalse(d["log_ok"], "ein nicht wohlgeformter Pin darf nie treffen")
+        self.assertFalse(d["expected_origin_wellformed"], "der Pin haette als unsauber gemeldet werden muessen")
+        self.assertTrue(d["inclusion_ok"], "die Krypto bleibt unberuehrt — genau der Vertrag oben")

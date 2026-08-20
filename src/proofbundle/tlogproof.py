@@ -41,7 +41,8 @@ import hmac
 from typing import Optional, Sequence
 
 from . import merkle
-from .checkpoint import _log_key_material_of, verify_checkpoint, witness_quorum
+from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
+                         verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
@@ -159,7 +160,7 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     return format_tlog_proof(mk["leaf_index"], proof, signed_checkpoint, extra=extra)
 
 
-def _tlog_failclosed(detail: str) -> dict:
+def _tlog_failclosed(detail: str, expected_origin: "str | None" = None) -> dict:
     """RE-GATE never-raise: a fail-closed tlog-proof verdict (ok=False, every sub-verdict False) for
     malformed / type-confused untrusted input — the SAME dict shape as a full run, never a raw exception."""
     # 6-lens gate L3-01: "witnesses" must be a DICT to match the happy path (witness_quorum returns a name->
@@ -171,6 +172,13 @@ def _tlog_failclosed(detail: str) -> dict:
             # geparst, dass eine Signaturzeile gefunden werden konnte. Gleiche Form wie der
             # gruene Pfad, damit ein Aufrufer den Schluessel nie vermissen muss.
             "signer_present": False,
+            # DIESELBE FORM AUCH HIER, und das ist keine Formalie: die CLI liest den Schluessel
+            # unbedingt, und ohne ihn brach sie auf JEDEM fail-closed-Pfad mit KeyError ab. Gemessen
+            # sah das so aus, dass DREI verschiedene Ursachen (leere Datei, kaputter vkey, negative
+            # Schranke) byte-identische Ausgabe lieferten — der Test, der genau diese
+            # Unterscheidbarkeit sichert, hat es gefangen. Der Pin wird durchgereicht, weil seine
+            # Wohlgeformtheit auch dann eine Aussage ist, wenn die Note selbst nie geparst wurde.
+            "expected_origin_wellformed": expected_origin_wellformed(expected_origin),
             "detail": detail}
 
 
@@ -192,15 +200,15 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
     # verdict for malformed / type-confused untrusted input, never a raw exception — a non-str `text` crashed
     # parse_tlog_proof with a raw TypeError, and a bad threshold raised BundleFormatError. Both fail-closed.
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
-        return _tlog_failclosed("witness threshold must be a non-negative integer")
+        return _tlog_failclosed("witness threshold must be a non-negative integer", expected_origin)
     if not isinstance(text, str):
-        return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)")
+        return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)", expected_origin)
     try:
         parsed = parse_tlog_proof(text)
     except (ProofBundleError, ValueError, TypeError) as exc:
         # adversarial re-audit round 3: catch the BASE ProofBundleError so any sibling (BudgetExceeded / an
         # UnsupportedError from a future parse step) maps to the same fail-closed verdict, never a raw escape.
-        return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}")
+        return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}", expected_origin)
     checkpoint = parsed["checkpoint"]
 
     # Bug-hunt follow-up (3.6.2): parse_tlog_proof only frames the checkpoint (endswith newline + an internal
@@ -232,7 +240,7 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
             except ValueError:
                 inclusion_ok = False
     except (ProofBundleError, ValueError, TypeError, KeyError) as exc:
-        return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}")
+        return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}", expected_origin)
 
     return {"ok": log_ok and witnesses_ok and inclusion_ok,
             "log_ok": log_ok, "witnesses_ok": witnesses_ok, "inclusion_ok": inclusion_ok,
@@ -241,4 +249,9 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
             # Durchgereicht, damit ein falscher --log-vkey von einer verfaelschten Signatur
             # unterscheidbar wird: beide liefern log_ok=False, aber nur im zweiten Fall traegt
             # die Note ueberhaupt eine Signaturzeile fuer den uebergebenen Schluessel.
-            "signer_present": bool(log_res.get("signer_present"))}
+            "signer_present": bool(log_res.get("signer_present")),
+            # Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01, gleiche Auskunft wie an der
+            # Schwesterflaeche: erfuellt der GEPINNTE Origin dieselbe Regel wie der des Logs?
+            # None = kein Pin. Das Verdikt bleibt der exakte Vergleich — diese Zeile nimmt dem
+            # Fehlschlag nur das Stille, sie aendert ihn nicht.
+            "expected_origin_wellformed": expected_origin_wellformed(expected_origin)}
