@@ -15,7 +15,11 @@ Configuration (all optional, all env):
                          Default: the default file name in the current directory.
   PROOFBUNDLE_METRIC     which metric to bind (else the integration's first/most-relevant metric).
   PROOFBUNDLE_COMPARATOR ">=" | ">" | "<=" | "<"  (default ">=").
-  PROOFBUNDLE_THRESHOLD  decimal string (default "0") — the pass/fail threshold to assert.
+  PROOFBUNDLE_THRESHOLD  decimal string — the pass/fail threshold to assert. REQUIRED for emission:
+                         there is deliberately no default. With the former default "0" every
+                         non-negative score yielded passed=true — a vacuous verdict that reads like
+                         a result (measured live 2026-08-22: a run scoring mean 0.0 produced
+                         passed=true). Who wants pure binding without a verdict sets it explicitly.
 """
 from __future__ import annotations
 
@@ -24,7 +28,6 @@ from pathlib import Path
 from typing import Optional
 
 DEFAULT_COMPARATOR = ">="
-DEFAULT_THRESHOLD = "0"
 
 
 def emit_enabled(flag: bool = False) -> bool:
@@ -33,11 +36,14 @@ def emit_enabled(flag: bool = False) -> bool:
 
 
 def emit_config() -> dict:
-    """Read the (metric, comparator, threshold) emission config from the environment, with safe defaults."""
+    """Read the (metric, comparator, threshold) emission config from the environment.
+
+    ``threshold`` is None when PROOFBUNDLE_THRESHOLD is unset — the integrations then SKIP emission
+    with a clear message instead of asserting a vacuous passed=true against a default of 0."""
     return {
         "metric": os.environ.get("PROOFBUNDLE_METRIC"),
         "comparator": os.environ.get("PROOFBUNDLE_COMPARATOR") or DEFAULT_COMPARATOR,
-        "threshold": os.environ.get("PROOFBUNDLE_THRESHOLD") or DEFAULT_THRESHOLD,
+        "threshold": os.environ.get("PROOFBUNDLE_THRESHOLD") or None,
     }
 
 

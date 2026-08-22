@@ -47,16 +47,29 @@ class ProofbundleHooks(Hooks):
             from .adapters.inspect_ai import from_inspect_ai_log  # noqa: PLC0415
 
             log = data.log
+            # capture_mechanism (adversarial re-check 2026-08-22): name HOW the log reached the
+            # adapter, so a verifier can distinguish a hook-emitted receipt from a later reader run.
+            capture = "lifecycle_hook"
             # header-only (eval_set) fallback: if results are missing, re-read the full log from its location
             if getattr(log, "results", None) is None and getattr(log, "location", None):
                 from inspect_ai.log import read_eval_log  # noqa: PLC0415
                 log = read_eval_log(str(log.location))
+                capture = "lifecycle_hook_log_reread"
 
             cfg = emit_config()
+            if cfg["threshold"] is None:
+                # No default "0" any more: with threshold 0 every non-negative mean yields passed=true —
+                # a vacuous verdict that reads like a result (measured live 2026-08-22: mean 0.0,
+                # passed true). Binding without a verdict is a deliberate choice the user makes by
+                # setting the threshold explicitly (e.g. PROOFBUNDLE_THRESHOLD=0).
+                print("[proofbundle] PROOFBUNDLE_THRESHOLD not set — receipt skipped (a default "
+                      "threshold of 0 would make `passed` vacuous; set it explicitly, e.g. 0).")
+                return
             metric = cfg["metric"] or _first_metric(log)
             claim, _ = from_inspect_ai_log(log, metric, comparator=cfg["comparator"],
                                            threshold=cfg["threshold"],
-                                           timestamp=datetime.now(timezone.utc).isoformat())
+                                           timestamp=datetime.now(timezone.utc).isoformat(),
+                                           capture=capture)
             eval_id = getattr(data, "eval_id", None) or "eval"
             emit_claim_receipt(claim, f"proofbundle_receipt_{eval_id}.json")
         except Exception as e:  # noqa: BLE001 — an integration must never fail the host eval

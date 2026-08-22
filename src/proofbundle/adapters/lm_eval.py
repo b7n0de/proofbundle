@@ -72,6 +72,12 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
                   "skipped_samples": skipped_samples}
     if data.get("git_hash"):
         provenance["git_hash"] = str(data["git_hash"])
+    # Bind the producing harness VERSION, not just its name (adversarial re-check 2026-08-22):
+    # the promptfoo adapter binds promptfoo_version and the inspect adapter harness_version, but
+    # this one bound neither — an asymmetric binding a verifier cannot see. The field is written
+    # by lm-eval itself at the top level of results_*.json.
+    if data.get("lm_eval_version"):
+        provenance["harness_version"] = str(data["lm_eval_version"])
     if data.get("versions", {}).get(task) is not None:
         provenance["task_version"] = str(data["versions"][task])
     if data.get("n-shot", {}).get(task) is not None:

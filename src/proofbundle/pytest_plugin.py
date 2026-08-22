@@ -53,6 +53,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         pass_rate = len(clean_passed) / ran
 
         cfg = emit_config()
+        if cfg["threshold"] is None:
+            # No silent default of 0 (see _integration): a threshold-0 receipt asserts passed=true
+            # for any run — including one where every test failed (pass_rate 0.0 >= 0).
+            print("[proofbundle] PROOFBUNDLE_THRESHOLD not set — receipt skipped (a default "
+                  "threshold of 0 would make `passed` vacuous; set it explicitly, e.g. 0.9).")
+            return
         rootname = getattr(getattr(config, "rootpath", None), "name", None) or "pytest"
         provenance = {"harness": "pytest", "exit_status": int(exitstatus), "tests_ran": ran,
                       "tests_passed": len(clean_passed), **{f"n_{k}": v for k, v in counts.items()}}
