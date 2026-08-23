@@ -80,7 +80,21 @@ _NAME_PATTERN = re.compile(
     # genau die Eingabe, gegen die diese Eigenschaft schuetzt. Dass vier Nachbarn derselben Klasse
     # (iter1-4 des 4.0.0-Gates) nacheinander durchrutschten, hing an diesem Loch im Nenner, nicht
     # an vier unabhaengigen Fehlern.
-    r"|cosign_)")
+    r"|cosign_)"
+    # Runde 6 (2026-08-23, beim Landen des Deep-Gate-Zweigs auf den aktuellen main gemessen):
+    # ZWEI Oberflaechen standen unklassifiziert da, `automation_verdict.policy_standing_errors`
+    # und `intoto.statement_conformance_problems`. Beide sind nach ihrer eigenen Zusage Pruefer
+    # ueber UNTRUSTED Eingabe auf einem never-raise-Pfad ("Never raises" / "Total and fail-closed
+    # by contract") — also genau der Nenner, den diese Eigenschaft schuetzt. Sie fielen nur durch,
+    # weil ihr Name in keine PRAEFIX-Familie faellt.
+    #
+    # Eingetragen wird deshalb die KLASSE und nicht die zwei Namen: eine Funktion, die eine LISTE
+    # von Problemen ZURUECKGIBT, ist per Konstruktion ein berichtender Pruefer — sie kann ihre
+    # Zusage nur halten, wenn sie auch bei feindlicher Eingabe urteilt statt zu crashen. Ein
+    # Suffix-Muster faengt die naechste `*_errors`/`*_problems` ohne Edit; zwei Namen einzutragen
+    # haette denselben Fehlermodus wiederholt, den der Kommentar zu `/dist*/` weiter unten
+    # beschreibt: eine Aufzaehlung muss VOLLSTAENDIG sein, um zu wirken.
+    r"|.*_(errors|problems)$")
 
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError

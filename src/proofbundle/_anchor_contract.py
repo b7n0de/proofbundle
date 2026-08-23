@@ -30,6 +30,9 @@ failure into a pass. It does not sanitise proofs, and it does not swallow ``Keyb
 from __future__ import annotations
 
 import functools
+from collections.abc import Mapping
+
+from .errors import BundleFormatError, ProofBundleError
 from typing import Callable, Optional
 
 #: The verifier keyword arguments the anchor layer specifies as JSON objects: ``frozen`` (the bundle's
@@ -38,6 +41,11 @@ from typing import Callable, Optional
 #: a contract statement about ARGUMENTS, not a list of bad values: a shape not named here still lands on
 #: the rejected side through the fail-closed backstop below.
 MAPPING_ARGUMENTS = ("frozen", "rp_trust")
+
+#: Terminations that are the verifier DECIDING rather than crashing — they pass through the guard
+#: untouched. Identical to the ACCEPTED set of the repo's never-raise property, and deliberately so:
+#: two different answers to "is this a decision or a crash" would be the next drift.
+_TYPED_FAILCLOSED = (ProofBundleError, ValueError)
 
 #: Marker attribute set on a wrapped verifier. A structural gate can ask a registered verifier whether it
 #: carries the contract without calling it.
@@ -84,12 +92,32 @@ def failclosed_anchor_verifier(fn: Optional[Callable] = None, *,
     def _decorate(target: Callable) -> Callable:
         @functools.wraps(target)
         def _guarded(*args, **kwargs):
+            # RESOLVED 2026-08-23, when this branch was landed on the current main. Two contracts
+            # met here and BOTH were right, so neither was simply overruled.
+            #
+            # This branch (31.07.) replaced a non-mapping argument with ``{}`` — "strictly less
+            # material to trust, so it can never manufacture a pass". True, and it also swallows
+            # the diagnosis: a caller who passes rubbish is never told. main (16.08., commit
+            # 2d25e0f, "the floor tests the interface, not the implementation") requires a TYPED
+            # error for exactly that case, and that commit is the later, deliberate decision.
+            #
+            # A typed ``BundleFormatError`` satisfies both: it manufactures no pass AND it names
+            # the fault. It is not a breach of "never raise" either — the repo's own never-raise
+            # property lists ``ProofBundleError`` under ACCEPTED terminations. What that property
+            # forbids is a surface CRASHING INSTEAD OF DECIDING, and a typed fail-closed error is
+            # a decision. ``Mapping`` rather than ``dict`` follows main's measured reasoning: every
+            # use downstream is ``.get(...)``, so MappingProxyType and OrderedDict belong through.
             for name in MAPPING_ARGUMENTS:
-                if name in kwargs and not isinstance(kwargs[name], dict):
-                    kwargs[name] = {}
+                if name in kwargs and kwargs[name] is not None and not isinstance(kwargs[name], Mapping):
+                    raise BundleFormatError(
+                        f"{name} must be a mapping — got {type(kwargs[name]).__name__} (fail-closed)")
             try:
                 verdict = target(*args, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — the whole point: a verifier returns, it does not raise
+            except _TYPED_FAILCLOSED:
+                # A typed, fail-closed error is the verifier DECIDING, not crashing. Swallowing it
+                # into a generic rejection would erase the reason the caller needs.
+                raise
+            except Exception as exc:  # noqa: BLE001 — the point: an UNtyped escape becomes a verdict
                 return _rejection(template, exc)
             if not isinstance(verdict, dict):
                 return _rejection(template, TypeError("verifier returned a non-mapping verdict"))

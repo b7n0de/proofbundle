@@ -120,13 +120,18 @@ def discover_public_surfaces(root: pathlib.Path = PACKAGE_ROOT) -> dict[str, Sur
 # ``test_no_pinned_open_surface_is_already_fixed`` refused to let its pin survive the repair. Both halves
 # of the mechanism were exercised on live code rather than on a fixture: an unanticipated surface fell onto
 # the checked side by itself, and the exclusion list could not outlive the violation it admitted.
+# RATSCHE GEZOGEN 2026-08-23 (beim Landen des Deep-Gate-Zweigs auf den aktuellen main):
+# ``checkpoint.py::checkpoint_note`` und ``tlogproof.py::format_tlog_proof`` rendern ihren
+# Parameter NICHT MEHR unbounded — auf main repariert, waehrend der Zweig offen lag. Ihre
+# Pins sind damit hinfaellig und geloescht, die beiden Oberflaechen kehren in die erzwungene
+# Population zurueck. Genau das ist die Aufgabe von ``test_no_pinned_open_surface_is_already_
+# fixed``: eine Ausnahme darf die Verletzung nicht ueberleben, die sie zugelassen hat.
 SURFACE_DECISIONS: dict[str, str] = {
     key: "OPEN_UNBOUNDED_RENDERING" for key in (
         "adapters/eee.py::from_eee_dataset",
         "adapters/inspect_ai.py::from_inspect_ai_log",
         "adapters/lm_eval.py::from_lm_eval_results",
         "anchors_rootcommit.py::build_preimage",
-        "checkpoint.py::checkpoint_note",
         "checkpoint.py::cosign_checkpoint",
         "checkpoint.py::cosign_checkpoint_mldsa",
         "checkpoint.py::cosign_vkey",
@@ -144,7 +149,6 @@ SURFACE_DECISIONS: dict[str, str] = {
         "relation_statement.py::build_relation_statement",
         "run_ledger.py::build_run_ledger_statement",
         "statuslist.py::issue_status_list_token",
-        "tlogproof.py::format_tlog_proof",
         "trust_pack.py::build_trust_pack_statement",
         "verification_summary.py::build_summary_statement",
     )

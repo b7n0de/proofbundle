@@ -1,30 +1,25 @@
-"""A registered anchor verifier must obey the contract this project publishes to its extension authors.
+"""NACHGEZOGEN 2026-08-23, beim Landen dieses Zweigs auf den aktuellen main.
 
-THE CONTRACT. ``proofbundle.anchors.register_anchor_type`` tells a third party, in its own docstring,
-that a verifier "MUST be fail-closed: return ``{'ok': False, ...}`` on any doubt, never raise for an
-ordinary bad proof". The first-party verifiers did not obey it. ``verify_rfc3161`` reached
-``rp.get(...)`` / ``frozen.get(...)`` on values that need not be mappings and terminated with a raw
-``AttributeError``; ``verify_opentimestamps`` and, by delegation, ``verify_markovian`` carry the same
-shape once a proof deserializes far enough to consult that material.
+DIE VERTRAGSFRAGE, die hier entschieden wurde, und warum so. Dieser Zweig (31.07.) und main
+(16.08., commit 2d25e0f) beantworten dieselbe Frage gegenteilig: was tut ein Anker-Verifier,
+wenn `rp_trust` oder `frozen` KEIN Mapping ist?
 
-EXPOSURE, MEASURED RATHER THAN ASSERTED. ``verify_rfc3161`` is not exported (``"verify_rfc3161" in
-dir(proofbundle)`` is False) and its public caller ``anchors.verify_anchor`` wraps every dispatch in
-``except Exception``. Nothing reaches a relying party through the public path today. What is broken is
-the RULE: we ask outsiders to write verifiers we do not write ourselves, and the next caller of a
-verifier — a new dispatcher, a composing verifier such as ``anchors_markovian``, a test harness — does
-not inherit that net.
+  · dieser Zweig: ein Verdict zurueckgeben (`ok: False`) — "a verifier returns, it does not raise"
+  · main:         einen typisierten `BundleFormatError` werfen — "the floor tests the interface"
 
-WHY THIS FILE IS NOT A LIST OF REPRODUCERS. Fixing the five arguments the sweep happened to reach would
-close five instances and leave the class open: the population is "every registered anchor verifier x every
-argument", and it GROWS whenever a seventh anchor type is registered. So the rule here is written over the
-REGISTRY, not over a list of function names — a type registered tomorrow is swept without anyone editing
-this file — and it is paired with a structural rule that a new first-party verifier must opt into the
-contract or be pinned as a deliberate exclusion.
+Beide Seiten haben ein gutes Argument, und beide Test-Suiten liefen fuer sich gruen. Entschieden
+wurde fuer main, aus drei Gruenden: es ist die SPAETERE Entscheidung, sie ist im Commit
+ausfuehrlich begruendet (samt der Messung, dass jede Weiterverwendung `.get(...)` ist), und ein
+typisierter fail-closed Fehler ist nach der repo-eigenen never-raise-Eigenschaft ausdruecklich
+eine ZULAESSIGE Terminierung (`_ACCEPTED` enthaelt `ProofBundleError`). Was jene Eigenschaft
+verbietet, ist ein Crash STATT einer Entscheidung — und ein typisierter Fehler ist eine.
 
-The neighbouring surface in the same lane, ``prereg.prereg_hash`` / ``verify_prereg``, is here too: its
-defect is a different symptom (a raw ``OverflowError``, and an in-range integer being read AND CLOSED as
-the caller's file descriptor) of the same invariant — an untrusted argument reaching a primitive that
-accepts more shapes than the surface's contract admits.
+Was der Zweig-Ansatz zusaetzlich kostete und was den Ausschlag gab: das stille Ersetzen durch
+`{}` verschluckte die Diagnose. Ein Aufrufer, der Muell schickt, erfuhr es nie.
+
+Die Tests unten pruefen ab jetzt dieselbe SACHE (kein Verifier faellt mit einem
+Typverwechslungs-Crash aus), nur gegen die andere zulaessige Terminierungsform.
+
 """
 from __future__ import annotations
 
@@ -234,11 +229,11 @@ def test_rfc3161_non_mapping_frozen_returns_a_verdict():
     assert isinstance(verdict, dict) and verdict["ok"] is False
 
 
-def test_rfc3161_non_mapping_rp_trust_returns_a_verdict():
+def test_rfc3161_non_mapping_rp_trust_is_a_typed_error():
     """``rp_trust or {}`` only replaces a FALSY value, so a truthy non-mapping walked straight through."""
     from proofbundle.anchors_rfc3161 import verify_rfc3161
-    verdict = verify_rfc3161(b"", b"\x00" * 32, frozen={}, now=None, rp_trust="trust-me")
-    assert isinstance(verdict, dict) and verdict["ok"] is False
+    with pytest.raises(BundleFormatError):
+        verify_rfc3161(b"", b"\x00" * 32, frozen={}, now=None, rp_trust="trust-me")
 
 
 @pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps)")
