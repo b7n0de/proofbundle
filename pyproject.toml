@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "3.7.0"
+version = "4.0.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -96,7 +96,46 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
 inspect = ['inspect_ai>=0.3.112,<0.4']
-dev = ["pytest>=7", "ruff>=0.5", "jsonschema>=4", "mypy>=1.8", "build>=1", "hypothesis>=6",
+# ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
+# is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
+# to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
+#
+#   ruff 0.16.0 expanded its DEFAULT rule set from 59 rules to 413 (Astral's v0.16.0 release; the
+#   default had been untouched since v0.1.0). Measured here on the identical tree @2e5807a:
+#     ruff 0.15.0 / 0.15.10 / 0.15.22 -> 59 default rules  -> exit 0 over all 258 tracked .py
+#     ruff 0.16.0 / 0.16.1 / 0.16.2   -> 413 default rules -> exit 1, 1168 findings
+#   Top rules, re-measured on that same tree with 0.16.0: RUF100 400, UP045 181, I001 163,
+#   RUF059 57, EXE001 40, PLW1510 37, BLE001 36, UP006 30. NONE of them was enabled in 0.15.
+#   (The earlier note here cited "E402 257" and "F401 72". Both are wrong: on that tree, with
+#   that ruff, E402 and F401 each find ZERO. The total, 1168, was right. Corrected 2026-08-07.)
+#
+# So the bound stays, but for a NARROWER and honestly smaller reason: `select` fixes WHICH rules
+# judge us, it cannot fix a change in what an individual rule MEANS. That residue is what `<0.17`
+# still covers, and it is a much cheaper thing to re-check than a 7x rule-set swing.
+#
+# mypy is `mypy src`, the OTHER blocking judge in ci.yml, and it was unbounded for the same reason
+# ruff was. Two things were measured on 2026-08-07 before this bound went in, and they point in
+# opposite directions, so both are stated:
+#
+#   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
+#   2.2.0 / 2.3.0 exits 0 over `src` (63 files) — across BOTH major versions. So the declared
+#   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
+#   not pretend otherwise: it is prospective, not a fix for something broken.
+#
+#   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
+#   `--local-partial-types` and `--strict-bytes` (PEP 688: `bytearray`/`memoryview` no longer
+#   assignable to `bytes`) and redefined `--allow-redefinition`. This tree happens not to be
+#   sensitive to those three; the next major is a coin flip nobody has flipped yet.
+#
+# `<3` is therefore the granularity that matches where mypy actually moves, and it blocks nothing
+# today (2.3.0 is well under it). A bump is a deliberate act, like ruff's.
+#
+# HONEST CAVEAT ON HOW THE FLOOR WAS MEASURED: the first attempt ran each pinned mypy in a bare
+# venv and "found" that everything below 2.3 fails at pqsig.py:91. That was the measurement, not
+# the code — those venvs had no `cryptography`, so the `type: ignore[attr-defined]` on the
+# optional `slhdsa` import really is unused there. With the project's own dependency present, all
+# eight versions pass. A floor claim is only worth the environment it was measured in.
+dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
 
 [project.urls]
@@ -124,8 +163,76 @@ proofbundle = ["py.typed", "eee_eval_schema.json", "policies/*.json"]
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+# THE JUDGE'S CRITERIA ARE OURS, NOT THE VENDOR'S DEFAULT-OF-THE-DAY.
+#
+# `ruff check .` is a blocking CI step, so the set of enabled rules is an INPUT to a gate. Until
+# 2026-08-07 this file pinned only ruff's VERSION and left the rule SELECTION implicit, which meant
+# an upstream release could redefine what "green" means here without a line of our code changing.
+# It did: 0.16.0 took the default from 59 rules to 413. Capping the version deferred that; every
+# future cap raise would have replayed the same triage. Naming the rules removes the class.
+#
+# These four prefixes ARE the set that judged this repo through the whole 0.15 line — verified by
+# set comparison, not by eye: `--select E4,E7,E9,F` under 0.16.2 enables exactly the same 59 rules
+# that 0.15.0/0.15.10/0.15.22 enabled by default, and under that selection every one of
+# 0.15.0 / 0.15.10 / 0.15.22 / 0.16.0 / 0.16.1 / 0.16.2 exits 0 over all 258 tracked .py files.
+# This is also Astral's own documented way to keep the pre-0.16 behaviour.
+#
+# WHAT A PREFIX DOES NOT DO, said plainly because the sentence above reads stronger than it is:
+# a prefix is an OPEN set. `E4` means "every E4xx rule this ruff knows", not "these fifteen". A
+# future release can add a rule under one of these four prefixes and it is selected here without
+# anyone choosing it — the same shape of surprise as the 0.16 default swing, just narrower. So the
+# set equality above is a measurement AT a version, not a property of the config.
+#   Measured across the whole declared range (0.5.0, 0.15.0, 0.15.22, 0.16.0, 0.16.2), membership
+#   under these four prefixes: 0 rules added, 1 removed (E999, deprecated as a selectable rule).
+#   Eleven minor releases, no growth. That is evidence about the past, not a guarantee.
+# THIS is the residue the version bound in [project.optional-dependencies] actually catches, and it
+# is a better reason for that bound than the rule-semantics drift also named there. Enumerating all
+# 59 rule IDs would close it completely, at the cost of a config nobody re-reads; the bound plus a
+# deliberate bump was chosen instead. If that bump ever gets rubber-stamped, this trade is void.
+#
+# THE HALF THAT IS EASY TO MISS: 0.16 did not only ADD rules, it DROPPED 18 from the default —
+# E401 E402 E701 E702 E703 E711 E712 E713 E714 E721 E731 E741 E742 E743 F403 F405 F406 F722.
+# Among them `== None` (E711), `== True` (E712), type comparison by `==` (E721) and star-import
+# leakage (F403/F405). Simply raising the cap would have SILENTLY STOPPED checking all eighteen,
+# and nothing would have shown it: the finding count goes UP, so the regression hides inside an
+# apparent tightening. All eighteen sit inside the E4/E7/E9/F prefixes below, so they keep being
+# checked here. (Upstream has an open issue that this removal never reached BREAKING_CHANGES.md.)
+#
+# EXPANDING this set is a separate, deliberate task with its own diff — several of the 372 newly
+# defaulted rules look worth adopting. The point of naming the set is that adopting them becomes a
+# decision we make, at a time we choose, instead of one a `pip install` makes for us.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.mypy]
 python_version = "3.10"
 files = ["src"]
 ignore_missing_imports = true
 warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+# WARUM DIESER BLOCK EXISTIERT (2026-08-18, Befund PB-PYTEST-WURZEL-LAEUFT-NICHT-01):
+# `pytest` aus der Repo-Wurzel brach bei der Sammlung mit 740 Fehlern ab — gemessen:
+#   import file mismatch: imported module 'test_signature' has this __file__ attribute:
+#     dist_pkgtest/tree/tests/test_signature.py
+#   which is not the same as the test file we want to collect: tests/test_signature.py
+# Ursache ist kein Testfehler, sondern die Sammelmenge: die entpackten sdist-Baeume unter
+# `dist_pkgtest*/` tragen dieselben Modulnamen wie `tests/`, und ohne `__init__.py` entscheidet
+# pytest den Namen nach Basename. Wer zuerst gesammelt wird, gewinnt; der zweite kollidiert.
+#
+# WARUM `norecursedirs` UND NICHT `testpaths` — und was die Messung dazu WIDERLEGT hat:
+# `testpaths = ["tests"]` waere die kuerzere Zeile. Die naheliegende Begruendung dagegen waere
+# `scripts/test_manifest_gate.py` (der einzige getrackte `test_*.py` ausserhalb `tests/`), aber
+# gemessen sammelt diese Datei NULL Tests: sie ist ein Gate-SKRIPT mit test-artigem Namen, kein
+# pytest-Modul. In der Abdeckung waeren beide Wege also gleich. `norecursedirs` bleibt trotzdem,
+# weil es der SCHMALERE Eingriff ist: es schliesst aus, was Bauartefakt ist, statt die Sammlung
+# auf ein Verzeichnis zu verengen — ein spaeter hinzugefuegter Test ausserhalb `tests/` liefe
+# damit weiterhin mit, statt lautlos zu verschwinden.
+#
+# DIE LISTE IST GEMESSEN: `find` ueber ungetrackte `test_*.py` zaehlte 522 in `.venv*` und je 148
+# in `dist_pkgtest`…`dist_pkgtest5`. `build/` und `dist/` sind bereits pytest-Default; die
+# `dist_*`-Varianten sind es NICHT (der Default matcht `dist` exakt) — genau daran hing es.
+norecursedirs = [
+    "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+    "dist_*", ".venv*", "*.egg-info",
+]

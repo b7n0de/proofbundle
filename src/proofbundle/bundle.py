@@ -337,15 +337,28 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")   # required per SPEC §5
     if not isinstance(proof_list, list):
         raise BundleFormatError("field merkle.inclusion_proof_b64 must be a list")
-    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
-    root = _b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")
-    incl_ok = merkle.verify_inclusion(payload, leaf_index, tree_size, proof, root)
-    result.add(
-        "merkle-inclusion",
-        incl_ok,
-        f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
-        if incl_ok else "inclusion proof failed",
-    )
+    # DIE KAPPE VOR DER ARBEIT, auch auf dem zentralen Entrypoint (Owner-Entscheid 2026-08-18,
+    # Hausstandard wie 2c52596). `merkle.verify_inclusion` setzt merkle_path intern durch — aber
+    # erst, nachdem die Zeile darunter die GANZE Liste dekodiert hat. Gemessen an DIESER Flaeche:
+    # n=195000 ergab 195004 `_b64d`-Aufrufe und 410 ms bzw. 5418 ms bei 32- bzw. 3200-Byte-Elementen,
+    # jeweils vor der Ablehnung. Ein Beweis ueber der Kappe kann per Konstruktion nie verifizieren,
+    # das Verdikt aendert sich also nicht — nur die davor geleistete Arbeit entfaellt.
+    from .budget import DEFAULT_BUDGET as _BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    if len(proof_list) > _BUDGET.merkle_path:
+        result.add("merkle-inclusion", False,
+                   f"audit path has {len(proof_list)} steps (> merkle_path={_BUDGET.merkle_path}) "
+                   "— refused before decoding")
+        proof, root = [], _b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")
+    else:
+        proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
+        root = _b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")
+        incl_ok = merkle.verify_inclusion(payload, leaf_index, tree_size, proof, root)
+        result.add(
+            "merkle-inclusion",
+            incl_ok,
+            f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
+            if incl_ok else "inclusion proof failed",
+        )
 
     # 2b. P0-A (§6.2): relying-party root authentication. The stated root is NOT signed, so inclusion
     # alone does not authenticate it; only a bit-exact match against a root/size the relying party
@@ -729,17 +742,23 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     proof_list = _require(mk, "inclusion_proof_b64", "merkle.inclusion_proof_b64")
     if not isinstance(proof_list, list):
         raise BundleFormatError("field merkle.inclusion_proof_b64 must be a list")
-    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
     # Display the stated root in CANONICAL base64 (re-encode from the decoded bytes), so a non-canonical but
     # byte-equal stated root does not read as a spurious mismatch next to the canonical recomputed root (LOW #10/#15).
     stated_b64 = base64.b64encode(_b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")).decode("ascii")
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
-    if len(proof) > DEFAULT_BUDGET.merkle_path:
+    # DIE KAPPE VOR DER ARBEIT (Owner-Entscheid 2026-08-18, Hausstandard wie 2c52596). Der Check
+    # stand vorher UNTER der Dekodier-Zeile und zaehlte `len(proof)` — also die bereits geleistete
+    # Arbeit. Gemessen an dieser Flaeche: n=195000 Elemente ergaben 195002 `_b64d`-Aufrufe und
+    # 365 ms / 942 ms / 5714 ms bei Proof-Elementen von 32 / 320 / 3200 Byte, jeweils VOR der
+    # Ablehnung. `len(proof_list)` ist ohne das Dekodieren berechenbar und exakt gleich `len(proof)`,
+    # die Owner-Ausnahme greift also nicht.
+    if len(proof_list) > DEFAULT_BUDGET.merkle_path:
         # 6-lens gate L2-BDOS-01: cap the audit-path STEP count exactly as merkle.verify_inclusion does, so a
         # >256-step inclusion_proof_b64 cannot drive an uncapped per-step SHA-256 walk (measured multi-second
         # DoS) on this public surface. Fail-closed (an over-length proof's recomputed root was never accepted).
         return {"stated_b64": stated_b64, "recomputed_b64": None,
                 "detail": "inclusion proof exceeds merkle_path budget (DoS guard)"}
+    proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
     try:
         recomputed = merkle.root_from_inclusion(
             leaf_index, tree_size, merkle.leaf_hash(payload), proof)

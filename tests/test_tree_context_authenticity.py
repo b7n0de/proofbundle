@@ -217,10 +217,14 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
             rc = main(argv)
         return rc, out.getvalue(), err.getvalue()
 
-    def _files(self, bundle, root, tree_size, signer=None):
+    def _files(self, bundle, root, tree_size, signer=None, origin=ORIGIN, key_name=None):
+        # `origin` ist die ORIGIN-ZEILE der Note, `key_name` der Name IM Signaturblock. C2SP
+        # laesst sie auseinanderfallen (ein Betreiber, mehrere Baeume) — genau darum ist ein
+        # gepinnter Schluessel keine Aussage darueber, WELCHER Baum spricht.
         signer = signer or generate_signer()
-        note = cp.sign_checkpoint(ORIGIN, tree_size, root, signer, ORIGIN)
-        vk = cp.vkey(ORIGIN, _raw_pub(signer))
+        key_name = key_name or origin
+        note = cp.sign_checkpoint(origin, tree_size, root, signer, key_name)
+        vk = cp.vkey(key_name, _raw_pub(signer))
         bfd, bpath = tempfile.mkstemp(suffix=".json")
         with os.fdopen(bfd, "w") as f:
             json.dump(bundle, f)
@@ -268,6 +272,31 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
         self.assertEqual(self._run(["verify", bpath, "--trusted-checkpoint", npath])[0], 2)
         self.assertEqual(self._run(["verify", bpath, "--checkpoint-vkey", vk])[0], 2)
 
+    def test_expected_origin_ohne_checkpoint_ist_ein_eingabefehler(self):
+        """Ein Pin ohne Gegenstand ist kein Pin — und darf nicht wie einer aussehen.
+
+        GEMESSEN in der Falsifikations-Linse zu diesem Increment: `verify BUNDLE
+        --expected-origin voellig.fremd/log` endete mit rc=0 und ohne ein Wort. Der Aufrufer
+        haelt die Herkunft fuer gebunden, geprueft wurde nichts — dieselbe Klasse, die dieses
+        Release schliesst, nur eine Ebene hoeher: nicht der Vergleich war zu locker, er fand
+        gar nicht statt.
+
+        Der Nachbar-Sweep ueber die uebrigen verify-Flaggen mit Wert lief im selben Durchgang
+        und fand KEIN weiteres Mitglied: --expected-root, --expected-tree-size, --aud und
+        --nonce werden auch ohne Begleitflagge geprueft (je mit einem FALSCHEN Wert gemessen —
+        ein richtiger Wert kann nicht zwischen 'geprueft' und 'ignoriert' unterscheiden, und
+        genau daran ist die erste Fassung dieses Sweeps fast gescheitert).
+        """
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+        rc, _out, err = self._run(["verify", bpath, "--expected-origin", ORIGIN])
+        self.assertEqual(rc, 2, "eine unerfuellbare Erwartung darf nicht still durchgehen")
+        self.assertIn("--expected-origin", err)
+        # Die Gegenrichtung: MIT Checkpoint ist dieselbe Flagge voellig in Ordnung. Ohne diese
+        # Haelfte waere ein pauschales `raise` an derselben Stelle ebenfalls gruen.
+        self.assertEqual(self._run(["verify", bpath, "--trusted-checkpoint", npath,
+                                    "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])[0], 0)
+
     def test_conflicting_expected_root_is_ambiguity_error(self):
         bundle, _relabel, root = _two_leaf_bundle()
         bpath, npath, vk = self._files(bundle, root, 2)
@@ -300,6 +329,103 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
         self.assertEqual(ra["treeContextAuthenticity"], "PASS")
         self.assertEqual(ra["rootTrustLevel"], "ROOT_AND_TREE_SIZE_PINNED")
         self.assertEqual(ra["checkpointAuthenticity"], "NOT_EVALUATED")
+
+    def test_fremde_origin_geht_ohne_bindung_durch_und_faellt_mit(self):
+        """Die Luecke, die `--expected-origin` schliesst — beide Richtungen an EINEM Aufbau.
+
+        Die Note nennt in ihrer origin-Zeile einen FREMDEN Baum, ist aber unter dem Schluessel
+        gueltig, den der Pruefer haelt (C2SP: Signaturname und origin duerfen auseinanderfallen).
+        Root und tree_size stimmen mit dem Bundle ueberein. Ohne Bindung ist dieses Verdikt
+        BYTE-GLEICH mit dem ehrlichen — es gab bis 3.8.0 keinen Parameter, der die beiden trennt.
+        """
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2, origin="evil.example/other-tree",
+                                       key_name=ORIGIN)
+
+        rc, out, _ = self._run(["verify", "--json", bpath,
+                                "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(out)["root_authenticity"]["checkpointAuthenticity"], "PASS",
+                         "Vorbedingung: ohne Bindung geht die fremde Note DURCH — faellt das "
+                         "hier, misst der Test die Bedrohung nicht mehr")
+
+        rc, out, _ = self._run(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                                "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])
+        self.assertEqual(rc, 1, out)
+        ra = json.loads(out)["root_authenticity"]
+        self.assertEqual(ra["checkpointAuthenticity"], "FAIL")
+        self.assertNotEqual(ra["treeContextAuthenticity"], "PASS")
+        self.assertFalse(ra["safeForAutomation"])
+
+    def test_erwartete_origin_erzeugt_keinen_fehlalarm(self):
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+        rc, out, _ = self._run(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                                "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(out)["root_authenticity"]["checkpointAuthenticity"], "PASS")
+
+    def test_json_trennt_alle_vier_origin_zustaende(self):
+        """Die Frage muss maschinenlesbar sein, nicht nur in der Prosa des Details stehen.
+
+        GEMESSEN in der Vertrags-Linse: die Schwesterflaeche `verify-proof` fuehrt
+        `expected_origin` auf oberster Ebene, `verify` fuehrte NICHTS — ein automatischer
+        Verbraucher konnte 'gepinnt und gepasst' nicht von 'gar nicht gepinnt' unterscheiden,
+        beide liefern checkpointAuthenticity PASS. Das ist dieselbe Klasse wie
+        FINDING_json_trennt_die_drei_ursachen_nicht: die Ausgabe berichtet das Ergebnis, aber
+        nicht die Frage.
+
+        Vier Zustaende, alle vier verschieden — und der dritte ist der, an dem es haengt: ein
+        vorhandener, aber UNGEPINNTER Checkpoint nennt die beobachtete Herkunft trotzdem, sonst
+        waere ein ungepinnter Lauf nicht nachpruefbar (SPEC.md Paragraf 9 verlangt genau das).
+        """
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+        # der fremde Fall braucht seine eigenen Dateien (eigener Signierer)
+        f_bpath, f_npath, f_vk = self._files(bundle, root, 2, origin="evil.example/other-tree",
+                                             key_name=ORIGIN)
+
+        def feld(argv):
+            # oberste Ebene, genau wie der Nachbar `treeSizeExpectation` — nicht unter
+            # root_authenticity, wo die abgeleiteten Urteile stehen.
+            rc, out, _ = self._run(argv)
+            return rc, json.loads(out)["checkpointOriginExpectation"]
+
+        rc, f = feld(["verify", "--json", bpath])
+        self.assertEqual((rc, f["status"], f["expected"], f["actual"]), (0, "NOT_REQUESTED", None, None))
+
+        rc, f = feld(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                      "--checkpoint-vkey", vk])
+        self.assertEqual((rc, f["status"], f["expected"]), (0, "NOT_REQUESTED", None))
+        self.assertEqual(f["actual"], ORIGIN, "ein ungepinnter Lauf muss die beobachtete Herkunft "
+                                              "trotzdem nennen, sonst ist er nicht nachpruefbar")
+
+        rc, f = feld(["verify", "--json", bpath, "--trusted-checkpoint", npath,
+                      "--checkpoint-vkey", vk, "--expected-origin", ORIGIN])
+        self.assertEqual((rc, f["status"], f["expected"], f["actual"]), (0, "PASS", ORIGIN, ORIGIN))
+
+        rc, f = feld(["verify", "--json", f_bpath, "--trusted-checkpoint", f_npath,
+                      "--checkpoint-vkey", f_vk, "--expected-origin", ORIGIN])
+        self.assertEqual((rc, f["status"], f["expected"], f["actual"]),
+                         (1, "FAIL", ORIGIN, "evil.example/other-tree"))
+
+    def test_cli_expected_origin_wird_EXAKT_verglichen(self):
+        """Die CLI hat einen EIGENEN Vergleich — der Korpus auf Bibliotheksebene deckt ihn nicht.
+
+        Zwei Vergleichsstellen sind zwei Stellen, die sich lockern lassen; deshalb laeuft das
+        Korpus aus `tests/_beinahe_treffer.py` hier ein zweites Mal, gegen `main()` in-process.
+        """
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        bundle, _relabel, root = _two_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 2)
+
+        def akzeptiert(v):
+            rc, _out, _err = self._run(["verify", bpath, "--trusted-checkpoint", npath,
+                                        "--checkpoint-vkey", vk, "--expected-origin", v])
+            return rc == 0
+
+        pruefe_exakt(akzeptiert, ORIGIN, self)
 
     def test_disagreeing_policy_checkpoint_dominates_a_passing_pair(self):
         # Lens-1 review F1 (fail-closed / No-Fake): a pinned policy checkpoint that DISAGREES with the

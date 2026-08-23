@@ -169,7 +169,14 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
         return {"known_anchors": known, "binding": False, "reject": True, "status": "bad_opaque",
                 "detail": "rootcommit/v1 opaque is not 0x01 || wlen || wallet || ots"}
     wallet, ots = parsed
-    commitment = hashlib.sha256(build_preimage(origin, size, root, wallet)).digest()
+    # DEEP-GATE re-gate F-8 neighbour: build_preimage encodes attacker-controlled checkpoint fields to
+    # UTF-8; a lone-surrogate origin/wallet would raise a raw UnicodeEncodeError out of this "never a raw
+    # exception" surface (docstring on _iter helper). Fail closed to the same malformed verdict instead.
+    try:
+        commitment = hashlib.sha256(build_preimage(origin, size, root, wallet)).digest()
+    except (UnicodeError, ValueError, TypeError):
+        return {"known_anchors": known, "binding": False, "reject": True, "status": "malformed_checkpoint",
+                "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}
     b = _binding_status(ots, commitment, frozen=frozen, rp_trust=rp_trust)
     bound = b["status"] not in ("unbound", "malformed", "no_lib")
     return {"known_anchors": known, "binding": bound, "reject": not bound,
@@ -264,7 +271,13 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
     if parsed is None:
         return {"known_anchors": known, "binding": False, "sig_ok": None, "reject": True, "status": "bad_opaque"}
     wallet, sig, ots = parsed
-    commitment = hashlib.sha256(build_preimage(origin, size, root, wallet, tag=TAG_V1)).digest()
+    # DEEP-GATE re-gate F-8 neighbour (as in verify_rootcommit_v1): fail closed on a non-encodable field.
+    try:
+        commitment = hashlib.sha256(build_preimage(origin, size, root, wallet, tag=TAG_V1)).digest()
+    except (UnicodeError, ValueError, TypeError):
+        return {"known_anchors": known, "binding": False, "sig_ok": None, "reject": True,
+                "status": "malformed_checkpoint",
+                "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}
     b = _binding_status(ots, commitment, frozen=frozen, rp_trust=rp_trust)
     bound = b["status"] not in ("unbound", "malformed", "no_lib")
     # signature: EIP-191 recover over (tag + '\n' + commitment_hex) must equal the bound wallet (dep-gated)

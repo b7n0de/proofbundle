@@ -24,8 +24,11 @@ Verification (spec steps, all offline):
   1. compute the leaf hash — application-specific; for proofbundle the leaf is the exact payload
      bytes, hashed with RFC 6962 ``leaf_hash`` (0x00 prefix), same as ``verify_bundle``;
   2. the checkpoint origin is acceptable and the log signature verifies (tlog-checkpoint);
-  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness names; Ed25519
-     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`);
+  3. cosignatures verify per witness policy (k-of-n over DISTINCT witness KEY MATERIAL; Ed25519
+     cosignature/v1 and ML-DSA-44 both accepted via :mod:`proofbundle.checkpoint`; a cosignature made
+     with the log's OWN signing key, or one under the log's own origin name, never counts — a log does
+     not vote in its own quorum, see :func:`proofbundle.checkpoint.witness_quorum` for the exact rule
+     and its honest limit);
   4. the inclusion proof binds the leaf hash at ``index`` to the checkpoint's root at its size.
   Cosignature timestamps are verified-then-ignored (spec: application policy may add constraints;
   an offline verifier has no trusted clock, so freshness stays the relying party's call).
@@ -38,7 +41,8 @@ import hmac
 from typing import Optional, Sequence
 
 from . import merkle
-from .checkpoint import verify_checkpoint, witness_quorum
+from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
+                         verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
@@ -64,16 +68,24 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     optionally cosignatures) included verbatim; it must end with a newline."""
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:
         raise BundleFormatError("tlog-proof index must be a non-negative integer")
+    if not isinstance(signed_checkpoint, str):    # iter5 never-raise: non-str raised raw AttributeError from .endswith
+        raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     if not signed_checkpoint.endswith("\n"):
         raise BundleFormatError("signed checkpoint must end with a newline")
     if "\n\n" not in signed_checkpoint:
         raise BundleFormatError("signed checkpoint is missing its note/signature separator")
+    if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
+        raise BundleFormatError("tlog-proof extra must be bytes or None")
+    # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
+    # TypeError from the loop below; guard the container type, then each hash's type, before len().
+    if isinstance(inclusion_proof, (str, bytes, bytearray)) or not hasattr(inclusion_proof, "__iter__"):
+        raise BundleFormatError("inclusion proof must be a sequence of 32-byte hashes")
     lines = [MAGIC]
     if extra is not None:
         lines.append(f"extra {_b64(extra)}")
     lines.append(f"index {index}")
     for h in inclusion_proof:
-        if len(h) != 32:
+        if not isinstance(h, bytes) or len(h) != 32:
             raise BundleFormatError("inclusion proof hashes must be 32-byte SHA-256 values")
         lines.append(_b64(h))
     return "\n".join(lines) + "\n\n" + signed_checkpoint
@@ -130,6 +142,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     over the SAME root/size. No-Fake guard: the checkpoint's tree size and root MUST match the
     bundle's merkle fields — a proof whose checkpoint disagrees with its bundle is refused at
     build time rather than left to fail at verify time."""
+    if not isinstance(bundle, dict):    # iter5 never-raise: non-dict raised raw AttributeError from .get
+        raise BundleFormatError("bundle must be a dict")
+    if not isinstance(signed_checkpoint, str):    # iter5 never-raise: non-str raised raw AttributeError from .split
+        raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     mk = bundle.get("merkle")
     if not isinstance(mk, dict):
         raise BundleFormatError("bundle has no merkle object")
@@ -144,7 +160,7 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     return format_tlog_proof(mk["leaf_index"], proof, signed_checkpoint, extra=extra)
 
 
-def _tlog_failclosed(detail: str) -> dict:
+def _tlog_failclosed(detail: str, expected_origin: "str | None" = None) -> dict:
     """RE-GATE never-raise: a fail-closed tlog-proof verdict (ok=False, every sub-verdict False) for
     malformed / type-confused untrusted input — the SAME dict shape as a full run, never a raw exception."""
     # 6-lens gate L3-01: "witnesses" must be a DICT to match the happy path (witness_quorum returns a name->
@@ -152,6 +168,17 @@ def _tlog_failclosed(detail: str) -> dict:
     # closed verdict crashed with a raw AttributeError. Empty dict = same shape, still fail-closed (no witnesses).
     return {"ok": False, "log_ok": False, "witnesses_ok": False, "inclusion_ok": False,
             "origin": None, "tree_size": None, "root": None, "index": None, "witnesses": {},
+            # False, nicht fehlend: auf dem fail-closed-Pfad wurde die Note nie so weit
+            # geparst, dass eine Signaturzeile gefunden werden konnte. Gleiche Form wie der
+            # gruene Pfad, damit ein Aufrufer den Schluessel nie vermissen muss.
+            "signer_present": False,
+            # DIESELBE FORM AUCH HIER, und das ist keine Formalie: die CLI liest den Schluessel
+            # unbedingt, und ohne ihn brach sie auf JEDEM fail-closed-Pfad mit KeyError ab. Gemessen
+            # sah das so aus, dass DREI verschiedene Ursachen (leere Datei, kaputter vkey, negative
+            # Schranke) byte-identische Ausgabe lieferten — der Test, der genau diese
+            # Unterscheidbarkeit sichert, hat es gefangen. Der Pin wird durchgereicht, weil seine
+            # Wohlgeformtheit auch dann eine Aussage ist, wenn die Note selbst nie geparst wurde.
+            "expected_origin_wellformed": expected_origin_wellformed(expected_origin),
             "detail": detail}
 
 
@@ -162,8 +189,10 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
 
     ``leaf_data`` is the exact logged entry (for proofbundle receipts: the payload bytes); its
     RFC 6962 leaf hash is recomputed here, never taken from the file. ``threshold`` witnesses
-    (distinct names, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0`` means
-    no witness requirement (log signature only). Returns ``{ok, log_ok, witnesses_ok,
+    (distinct key material, from ``witness_vkeys``) must have valid cosignatures; ``threshold=0``
+    means no witness requirement (log signature only). A witness vkey named like the checkpoint's
+    own origin line never counts (origin-quorum rule — a log never votes in its own quorum; see
+    :func:`proofbundle.checkpoint.witness_quorum`). Returns ``{ok, log_ok, witnesses_ok,
     inclusion_ok, origin, tree_size, root, index, witnesses}`` — every sub-verdict reported,
     ``ok`` is their conjunction (fail-closed).
     """
@@ -171,15 +200,15 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
     # verdict for malformed / type-confused untrusted input, never a raw exception — a non-str `text` crashed
     # parse_tlog_proof with a raw TypeError, and a bad threshold raised BundleFormatError. Both fail-closed.
     if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
-        return _tlog_failclosed("witness threshold must be a non-negative integer")
+        return _tlog_failclosed("witness threshold must be a non-negative integer", expected_origin)
     if not isinstance(text, str):
-        return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)")
+        return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)", expected_origin)
     try:
         parsed = parse_tlog_proof(text)
     except (ProofBundleError, ValueError, TypeError) as exc:
         # adversarial re-audit round 3: catch the BASE ProofBundleError so any sibling (BudgetExceeded / an
         # UnsupportedError from a future parse step) maps to the same fail-closed verdict, never a raw escape.
-        return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}")
+        return _tlog_failclosed(f"malformed tlog-proof (fail-closed): {exc}", expected_origin)
     checkpoint = parsed["checkpoint"]
 
     # Bug-hunt follow-up (3.6.2): parse_tlog_proof only frames the checkpoint (endswith newline + an internal
@@ -196,8 +225,11 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
         log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)
         # step 3 — witness quorum via the SHARED helper (dedup by KEY MATERIAL, not name): a single key under N
         # names must NOT satisfy threshold>1. Reuses checkpoint.witness_quorum so this reimplementation cannot
-        # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix).
-        witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold)
+        # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix). Passes the log's
+        # own key material so a cosignature made with the log key never counts as a witness (origin-quorum rule,
+        # DEEP-GATE F-2) — same operand the sibling surface passes, so the two cannot drift on this either.
+        witnesses_ok, witnesses = witness_quorum(checkpoint, witness_vkeys, threshold,
+                                                 log_key_material=_log_key_material_of(log_vkey))
 
         inclusion_ok = False                                     # steps 1 + 4
         if 0 <= parsed["index"] < log_res["tree_size"]:
@@ -208,9 +240,18 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
             except ValueError:
                 inclusion_ok = False
     except (ProofBundleError, ValueError, TypeError, KeyError) as exc:
-        return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}")
+        return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}", expected_origin)
 
     return {"ok": log_ok and witnesses_ok and inclusion_ok,
             "log_ok": log_ok, "witnesses_ok": witnesses_ok, "inclusion_ok": inclusion_ok,
             "origin": log_res["origin"], "tree_size": log_res["tree_size"],
-            "root": log_res["root"], "index": parsed["index"], "witnesses": witnesses}
+            "root": log_res["root"], "index": parsed["index"], "witnesses": witnesses,
+            # Durchgereicht, damit ein falscher --log-vkey von einer verfaelschten Signatur
+            # unterscheidbar wird: beide liefern log_ok=False, aber nur im zweiten Fall traegt
+            # die Note ueberhaupt eine Signaturzeile fuer den uebergebenen Schluessel.
+            "signer_present": bool(log_res.get("signer_present")),
+            # Befund PB-EXPECTED-ORIGIN-ASCII-INKONSISTENZ-01, gleiche Auskunft wie an der
+            # Schwesterflaeche: erfuellt der GEPINNTE Origin dieselbe Regel wie der des Logs?
+            # None = kein Pin. Das Verdikt bleibt der exakte Vergleich — diese Zeile nimmt dem
+            # Fehlschlag nur das Stille, sie aendert ihn nicht.
+            "expected_origin_wellformed": expected_origin_wellformed(expected_origin)}

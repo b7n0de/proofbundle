@@ -83,13 +83,35 @@ class TestChainWalkerProperties(unittest.TestCase):
         # Wurzel erreichbar ist, muss FAIL mit Zyklus-Code kommen.
         reachable = self._reachable_via_verified(edges, related, v)
         if reachable:
+            # FAIL bleibt PFLICHT — das ist die Sicherheitseigenschaft und sie wird nicht weicher.
             self.assertEqual(res["lineage"], LINEAGE_FAIL)
-            self.assertTrue(any("relation:cycle" in err for err in res["errors"]))
+            # DER CODE darf seit dem L4-01-Fix ein staerkerer sein. Der Walker meldet den ERSTEN
+            # Fehler in DFS-Reihenfolge; seit Vorfahren auch kryptographisch geprueft werden, kann
+            # ein unverifizierter Geschwister-Zweig den Pfad beenden, BEVOR die eingespritzte
+            # Rueck-Kante ueberhaupt erreicht wird. Der Lauf faellt dann aus einem staerkeren Grund.
+            #
+            # Verlangt wird deshalb ein BENANNTER Grund aus der geschlossenen Menge — nie "FAIL
+            # ohne Code", denn das waere die Luecke, die dieser Test bewacht.
+            codes = " ".join(res["errors"])
+            self.assertTrue(
+                any(c in codes for c in ("relation:cycle",
+                                         "relation:ancestor_verification_failed",
+                                         "relation:ancestor_attached_target_malformed")),
+                f"FAIL ohne benannten Grund — weder Zyklus noch Vorfahren-Gate: {res['errors']}")
 
     def _reachable_via_verified(self, edges, related, target_hex):
-        # Erreichbarkeit entlang VERIFIZIERTER beigelegter Knoten (der Walker steigt in einen
-        # Knoten nur ein, wenn die Wurzel-Kante VERIFIED aufloest; danach folgt er allen
-        # beigelegten Kanten).
+        # Erreichbarkeit entlang VERIFIZIERTER beigelegter Knoten.
+        #
+        # KORRIGIERT 2026-08-08 (deep-gate L4-01): die Vorfassung stieg in die Wurzel nur bei
+        # VERIFIED ein und folgte "danach allen beigelegten Kanten" — ohne `verified` der
+        # DURCHLAUFENEN Knoten zu pruefen. Damit modellierte dieses Hilfsmittel exakt den Defekt,
+        # den das Gate gefunden hat: der Walker adjudizierte Vorfahren-Syntax und ueberging
+        # Vorfahren-Krypto, sodass ein gefaelschter Beleg ab Hop 2 als VERIFIED durchging.
+        #
+        # Der Walker bricht jetzt an einem unverifizierten Vorfahren ab (hard FAIL, wie am eigenen
+        # Rand). Ein Opferknoten HINTER einem solchen Vorfahren ist damit nicht mehr erreichbar,
+        # und das Verdikt bleibt FAIL — nur mit dem staerkeren Code statt mit dem Zyklus. Das
+        # Modell zieht hier nach; die Zusicherung des Tests bleibt unveraendert scharf.
         seen = set()
         stack = []
         for e in edges:
@@ -105,7 +127,10 @@ class TestChainWalkerProperties(unittest.TestCase):
                 return True
             for e2 in (related.get(n, {}).get("relationships") or []):
                 t2 = e2["targetReceiptDigest"]["digest"]
-                if t2 in related:
+                # Der Walker steigt in einen ATTACHED Knoten nur ein, wenn er selbst verifiziert
+                # ist; ein unverifizierter beendet den Pfad mit FAIL, bevor ein dahinterliegender
+                # Zyklus ueberhaupt sichtbar wird.
+                if t2 in related and isinstance(related[t2], dict) and related[t2].get("verified") is True:
                     stack.append(t2)
         return target_hex in seen
 

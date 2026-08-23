@@ -7,22 +7,37 @@
 
 <h1>proofbundle</h1>
 
-**AI eval results need receipts.**
-
-Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
-these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
-Merkle, one file, no server, no network.
-
 [![CI](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/ci.yml)
 [![demo reproducible](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21110642.svg)](https://doi.org/10.5281/zenodo.21110642)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/b7n0de/proofbundle/badge)](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proofbundle)
+
+Scorecard **6.5/10** — [what the four zeros mean, in one sentence each](#what-the-scorecard-badge-says-including-the-parts-that-are-low)
+
+**AI eval results need receipts.**
+
+Turn an AI evaluation result into one portable, offline-verifiable receipt. It proves *who signed
+these exact bytes* and *that nothing changed since* — not that the number is true. Ed25519 + RFC 6962
+Merkle, one file, no server, no network.
 
 **Reviewing this for adoption?** Start with the 30-minute adversarial audit path: **[docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md)**.
 
 </div>
+
+## Install
+
+```bash
+pip install proofbundle                 # core: offline verify + plain emit (two deps: cryptography, rfc8785)
+pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (RFC 8785 JCS canonicalizer)
+pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
+pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
+```
+
+Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 comes from
+`cryptography`; Merkle hashing is RFC 6962.
 
 ## 60-second try (offline)
 
@@ -43,6 +58,40 @@ proofbundle verify receipt.json        # CRYPTO: OK   (exit 0 ok · 1 fail · 2 
 Emit your own receipt, apply a trust policy, start from a shipped template, or run the Inspect-native
 path (METR Task Standard / UK-AISI ecosystem, mockllm, no API key): **[docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md)** ·
 Inspect walkthrough **[docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md)**.
+
+## What the Scorecard badge says, including the parts that are low
+
+The badge is live, so it will move. Measured 2026-08-07, re-measured 2026-08-10 with identical
+per-check values (Scorecard v5.5.0 both times): **6.5 / 10**. Ten checks
+score 10/10 — Security-Policy, Token-Permissions, SAST, Fuzzing, CI-Tests, Vulnerabilities,
+Dangerous-Workflow, Dependency-Update-Tool, Packaging, License. Four score 0, and rather than let you
+wonder, here is each cause in one sentence:
+
+- **Maintained (0/10)** — the check wants sustained activity on the default branch over 90 days, and
+  this repository is younger than that window. It resolves itself with time and is not worth chasing.
+- **CII-Best-Practices (0/10)** — the OpenSSF Best Practices badge has not been applied for. The
+  criteria were walked through honestly first:
+  [docs/openssf_best_practices_self_assessment.md](https://github.com/b7n0de/proofbundle/blob/main/docs/openssf_best_practices_self_assessment.md).
+- **Contributors (0/10)** — it counts contributors from two or more organisations. This is a
+  one-person project, and the zero is an accurate description of that.
+- **Signed-Releases (0/10)** — the check reads GitHub **release assets** looking for a signature file.
+  Every version release (`v*`) is attested (SLSA build provenance over the exact built bytes, PyPI
+  upload gated on a sha256 match), but that attestation lives in GitHub's attestation store and on
+  PyPI — not next to the release, which is where the check looks. The release workflow now also
+  places the provenance bundle next to the release assets; that takes effect with the next release,
+  and already-published releases were not modified after the fact. Nothing is re-signed — an
+  existing file is placed in a second location. Of the five releases the check reads, three are
+  corpus-review pre-releases that carry no such assets either, so the number will climb only as new
+  releases move through that window.
+
+Three further checks sit in between: **Code-Review 1/10** (most commits are not reviewed by a second
+person — structural for a single maintainer), **Binary-Artifacts 9/10** (the deducted point is a
+checked-in wheel+sdist pair kept as a reproduction fixture in `dist_final/`, and one point is not
+worth rebuilding that fixture), and **Pinned-Dependencies 3/10** / **Branch-Protection 3/10**, both
+measured and not yet addressed.
+
+Publishing a middling number with its causes is the point. A project that sells evidence cannot
+withhold its own.
 
 ## The problem
 
@@ -132,18 +181,6 @@ version history (see also [CHANGELOG.md](https://github.com/b7n0de/proofbundle/b
   separation (executor ≠ decision maker) — never a claim that the decision was correct.
   [decision-receipt.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/decision-receipt.md) · [action-outcome.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/action-outcome.md)
 
-## Install
-
-```bash
-pip install proofbundle                 # core: offline verify + plain emit (two deps: cryptography, rfc8785)
-pip install "proofbundle[eval]"          # + eval receipts, prereg, and the demo (RFC 8785 JCS canonicalizer)
-pip install "proofbundle[inspect]"      # inspect_ai adapter + hook
-pip install "proofbundle[pq]"           # verify ML-DSA-44 (post-quantum) witness cosignatures
-```
-
-Requires Python 3.10+. The verify path never rolls its own crypto — Ed25519 comes from
-`cryptography`; Merkle hashing is RFC 6962.
-
 ## Post-quantum posture (honest)
 
 proofbundle is **not** "quantum-safe" as a whole. Its hash-based layers (SHA-256, RFC 6962 / 9162
@@ -160,7 +197,8 @@ a post-quantum *payload* signature is on the roadmap. Detail: [docs/ANCHORS.md](
 If proofbundle helped your evaluation pipeline, please cite it. Machine-readable metadata is in
 [`CITATION.cff`](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff). The archival software record is on Zenodo under concept
 DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642); the Technical Note (design write-up) under concept DOI
-[10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466), also linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
+[10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466) — version 4.0.0 of the Note is
+[10.5281/zenodo.22004295](https://doi.org/10.5281/zenodo.22004295) — also linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
 
 ## Docs
 

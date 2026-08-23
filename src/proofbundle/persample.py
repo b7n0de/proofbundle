@@ -183,6 +183,24 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     result = {"ok": False, "record": None, "salt_b64": None, "detail": ""}
     if not isinstance(opening, dict):
         raise BundleFormatError("opening must be a JSON object")
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface: the caller
+    # hands over a parsed ``opening``, so loads_strict's input_bytes cap never runs and every other bound
+    # below is inert against sheer size. Concretely, the proof list is base64-decoded IN FULL further down
+    # before any per-element cap fires — an ``proof_b64`` of a million long strings is decoded first and
+    # bounded afterwards, which is the wrong order.
+    #
+    # _b64url_decode already guards the DISCLOSURE segment (round 7), and that is exactly why this looked
+    # covered: one segment was bounded, the container around it was not. The bound therefore goes on the
+    # whole ``opening`` and it goes FIRST.
+    #
+    # Raising matches this function's own convention: a malformed STRUCTURE raises BundleFormatError here
+    # (see the two guards around this one), while a failed VERIFICATION returns ok=False with a detail.
+    # Over-budget is a structural refusal, not a verification outcome.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    try:
+        enforce_structural_budget(opening)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"opening exceeds the verification budget (fail-closed): {exc}") from exc
     index = opening.get("index")
     disclosure = opening.get("disclosure")
     proof_list = opening.get("proof_b64")
@@ -191,6 +209,28 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         raise BundleFormatError("opening needs integer 'index', string 'disclosure', list 'proof_b64'")
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
         result["detail"] = "index out of range for the committed tree size"
+        return result
+    # DIE KAPPE VOR DER ARBEIT, DIE SIE BEGRENZT — Hausstandard des Budget-Moduls, Owner-Entscheid
+    # 2026-08-18 zu PB-GLEICHE-KLASSE-BLEIBT-UMGEKEHRT-ENTSCHIEDEN-01 ("vereinheitlichen auf
+    # Kappe-vor-Arbeit wie 2c52596").
+    #
+    # `merkle_path` (256) wird durchgesetzt, aber in `merkle.verify_inclusion` — also NACH der Zeile
+    # darunter, die die GANZE proof-Liste dekodiert. Fuer einen Beweis, der die Kappe reisst und
+    # darum niemals gueltig sein kann, wurde erst die volle Arbeit geleistet und danach abgelehnt.
+    # Die strukturelle Schranke oben schliesst nur den UNBEGRENZTEN Fall; dazwischen blieb ein
+    # Fenster bis 200000 Eintraege. Zwei Schranken, zwei verschiedene Groessen.
+    #
+    # DIE AUSNAHME DES OWNERS GREIFT HIER NICHT: die Kappe zaehlt Elemente, `len(proof_list)` ist
+    # ohne das Dekodieren berechenbar und exakt gleich `len(proof)`.
+    #
+    # BEWUSSTE FOLGE, die diesen Commit beim ersten Mal (2c52596) zurueckgenommen hat: eine Eingabe,
+    # die GLEICHZEITIG ueber der Kappe liegt UND kaputtes base64 traegt, bekam vorher einen
+    # Format-Fehler (CLI-Exit 2) und bekommt jetzt ein Verdikt (Exit 1). Das Verdikt selbst aendert
+    # sich nicht — ungueltig bleibt ungueltig —, nur die Fehlerklasse. Der Owner hat das entschieden.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    if len(proof_list) > DEFAULT_BUDGET.merkle_path:
+        result["detail"] = (f"audit path has {len(proof_list)} steps (> merkle_path="
+                            f"{DEFAULT_BUDGET.merkle_path}) — refused before decoding")
         return result
     try:
         proof = [base64.b64decode(p, validate=True) for p in proof_list]

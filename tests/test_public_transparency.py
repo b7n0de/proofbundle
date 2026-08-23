@@ -101,6 +101,20 @@ class TestEvaluate(unittest.TestCase):
                                              expected_root_b64=base64.b64encode(b"z" * 32).decode())
         self.assertEqual(r_bad["statuses"]["ROOT_BYTES_AUTHENTICITY"], "FAIL")
 
+    def test_root_b64_wird_EXAKT_verglichen(self):
+        """Wie oben: der bestehende Test nimmt einen voellig fremden Wert und kann deshalb nicht
+        zeigen, dass der Vergleich EXAKT ist. Nachgetragen im DEEP-Lauf 2026-08-17."""
+        import base64  # noqa: PLC0415 — im Modulkopf nicht importiert
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+
+        note, lv = _signed_note()
+        good = base64.b64encode(_ROOT).decode()
+        pruefe_exakt(
+            lambda v: evaluate_public_transparency(
+                note, {"requireSignedCheckpoint": True}, log_vkey=lv,
+                expected_root_b64=v)["statuses"]["ROOT_BYTES_AUTHENTICITY"] == "PASS",
+            good, self)
+
     def test_tree_context_mismatch_fails(self):
         note, lv = _signed_note()
         r = evaluate_public_transparency(note, {"requireSignedCheckpoint": True}, log_vkey=lv,

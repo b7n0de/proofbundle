@@ -47,6 +47,25 @@ def generate_signer() -> Ed25519PrivateKey:
     return Ed25519PrivateKey.generate()
 
 
+def _pfad_boden(path) -> None:
+    """EIN Typboden fuer beide Schluesseldatei-Flaechen, damit sie nicht wieder auseinanderlaufen.
+
+    Er stand ab 2026-08-16 nur in `load_signer`. `save_signer` steht in derselben Datei, nimmt
+    denselben aufrufer-gelieferten Pfad und hatte ihn nicht — gemessen 2026-08-18:
+    `save_signer(echterSchluessel, 1)` warf einen rohen `TypeError` aus `os.open`, waehrend
+    `load_signer(1)` eine typisierte Antwort gab. Zwei Nachbarn, ein Vertrag, zwei Antworten.
+
+    WARUM ES NIEMAND SAH: die never-raise-Familieneigenschaft entdeckt Flaechen ueber
+    Namensfamilien, und `load_` steht darin, `save_` nicht. In der begruendeten Ausschlussmenge
+    liegt `save_signer` als ERZEUGER — "baut aus EIGENEN, bereits geprueften Werten". Das trifft
+    auf sein `key`-Argument zu und auf seinen PFAD gerade nicht. Eine Begruendung, die fuer EIN
+    Argument stimmt, deckt die Funktion nicht.
+    """
+    if not isinstance(path, (str, bytes, os.PathLike)):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
+
+
 def save_signer(key: Ed25519PrivateKey, path: str) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
@@ -55,6 +74,9 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
     does not leak the key. Store it out of version control and treat it like a
     key, not like data.
     """
+    # Vor der os-Grenze, wie bei `load_signer` — und aus demselben Grund: was hinter der Grenze
+    # scheitert, scheitert bereits am Betriebssystem, und dessen Fehlerform ist nicht unsere.
+    _pfad_boden(path)
     raw = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     # Open with 0600 from the start to avoid a world-readable window.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -64,6 +86,16 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
 
 def load_signer(path: str) -> Ed25519PrivateKey:
     """Load an Ed25519 signing key from a 32 byte raw seed file."""
+    # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
+    # until then this surface sat OUTSIDE the never-raise family property: `emit` was not in `_MODULES`,
+    # so nothing ever asked the question. The moment the population was derived from the tree instead of
+    # a hand-maintained list, the property caught this on its first run.
+    #
+    # Measured before the fix: `load_signer(9)` raised `OSError: [Errno 9] Bad file descriptor`. That is
+    # the worse half of the int case — `open(9)` does not fail on a wrong type, it reads FILE
+    # DESCRIPTOR 9. A wider except-tuple would hide the escape while leaving the fd read in place; the
+    # floor is the fix, and it belongs before the os boundary, not after it.
+    _pfad_boden(path)
     with open(path, "rb") as handle:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 

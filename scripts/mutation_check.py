@@ -34,15 +34,28 @@ ROOT = Path(__file__).resolve().parent.parent
 # (relative file, exact old text, new text, label, expect_killed)
 MUTATIONS = [
     # relation/v0.1 (3.3.0) — lineage profile: the three load-bearing guards.
+    # BOTH cycle checks, because since #139 there are two and either one alone still catches.
+    # The look-ahead was added on purpose ("detecting the back-edge first makes the cycle code
+    # independent of sibling order"); it is not redundancy to remove, it is redundancy the
+    # operator has to account for. Measured: one site alone -> suite green; both -> 4 tests red,
+    # among them tests/test_relation_property.py::…test_injected_back_edge_onto_path_is_caught…
     ("src/proofbundle/relation.py",
-     "if node_hex in path:", "if False and node_hex in path:",
-     "relation: cycle detection disabled", True),
+     ("        if node_hex in path:",
+      "            if nxt is not None and nxt in path:"),
+     ("        if False and node_hex in path:",
+      "            if False and nxt is not None and nxt in path:"),
+     "relation: cycle detection disabled (both sites)", True),
     ("src/proofbundle/relation.py",
      'if not (isinstance(digest, str) and _SHA256_HEX.match(digest)):', "if False:",
      "relation: malformed-digest guard disabled (never-raise vector must catch)", True),
+    # Same shape: the direct-edge arm and the ancestor walker both apply this gate since #139.
+    # Laxening one lets the other catch the vector one level down.
     ("src/proofbundle/relation.py",
-     'elif target.get("verified") is not True:', 'elif target.get("verified") is False:',
-     "relation: verified-flag laxened (truthy sneaks past strict is-True)", True),
+     ('elif target.get("verified") is not True:',
+      '        if node.get("verified") is not True:'),
+     ('elif target.get("verified") is False:',
+      '        if node.get("verified") is False:'),
+     "relation: verified-flag laxened at both arms (truthy sneaks past strict is-True)", True),
     # v1.2 — KB-JWT / bundle / cosignature / CLI
     ("src/proofbundle/kbjwt.py",
      "if _b64url_nopad(h.digest()) != sd_hash:", "if False:",
@@ -73,6 +86,38 @@ MUTATIONS = [
      'return {"ok": log_ok and witnesses_ok and inclusion_ok,',
      'return {"ok": log_ok or witnesses_ok or inclusion_ok,',
      "tlogproof: verdict conjunction -> disjunction", True),
+    # ORIGIN-SCHRANKE, zwei Lockerungen. Der Gate-Meta-Test der DEEP-Runde hat beide eingepflanzt
+    # und gemessen, dass KEINER von 2030 Tests sie faengt: die zwei Origin-Tests prueften nur einen
+    # voellig FREMDEN Wert, und gegen einen fremden Wert verhaelt sich ein gelockerter Vergleich
+    # genau wie ein exakter. Der Beinahe-Treffer war der fehlende Fall -- und im Feld der
+    # gefaehrliche, denn wer einen eigenen Log betreibt, waehlt dessen Namen selbst.
+    # Gefangen werden sie jetzt von OriginVergleichIstExakt in
+    # tests/test_verify_proof_expected_origin.py; diese zwei Operatoren halten fest, DASS sie es
+    # tun -- ein Korpus ohne Mutant ist eine Behauptung ueber sich selbst.
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).startswith(str(expected_origin)))',
+     "tlogproof: origin equality -> startswith (a prefix would pass)", True),
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).casefold() == str(expected_origin).casefold())',
+     "tlogproof: origin comparison becomes case-insensitive", True),
+    # DREI OPERATOREN, die eine Gegenlesung als fehlend GEMESSEN hat. Der Befund war nicht "der
+    # Defekt kommt durch" — er kommt nicht durch —, sondern: fuenf Klassen haengen an EINER
+    # Testdatei, und faellt sie je weg, meldet das Mutations-Tor still gruen statt SURVIVED. Ein
+    # Operator ist die Anti-Goodhart-Ebene: er merkt, wenn das Korpus schrumpft.
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or __import__("unicodedata").normalize("NFC", str(log_res["origin"])) == __import__("unicodedata").normalize("NFC", str(expected_origin)))',
+     "tlogproof: origin comparison normalises canonically (NFC) — a decomposed name would pass", True),
+    ("src/proofbundle/tlogproof.py",
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (not expected_origin or log_res["origin"] == expected_origin)',
+     "tlogproof: absent collapses into empty — an empty expectation would skip the check", True),
+    ("src/proofbundle/cli.py",
+     'f"log-signature: {_safe_line(str(res[\'origin\']))}{origin_note}")',
+     'f"log-signature: {str(res[\'origin\'])}{origin_note}")',
+     "cli: control-character neutralisation dropped on the origin line (forged verdict line)", True),
     ("src/proofbundle/checkpoint.py",
      "_MLDSA_LABEL = b\"subtree/v1\\n\\x00\"", "_MLDSA_LABEL = b\"subtree/v2\\n\\x00\"",
      "mldsa: domain separation label changed", True),
@@ -296,6 +341,15 @@ MUTATIONS = [
      "        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))\n        return True",
      "        return True",
      "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
+    # SPIEGELBILD FUER Ed25519, und es fehlte — obwohl das der HAUPTPFAD ist. Ein Gate-Meta-Test hat
+    # die Asymmetrie gemessen: derselbe Fail-open in `verify_ed25519` liess 70 Tests quer durch
+    # dsse/checkpoint/decision/conformance rot werden, waehrend die Anti-Goodhart-Ebene fuer genau
+    # diesen Pfad keinen Operator hatte. Die Testebene war also stark und der Waechter DARUEBER
+    # blind: schruempfte das Korpus je, meldete das Tor still gruen statt SURVIVED.
+    ("src/proofbundle/signature.py",
+     "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
+     "        return True",
+     "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
     # bundle.py sd-jwt-issuer-identity fingerprint reverted to hardcoded "ed25519:" regardless of the
     # alg that actually verified — a false REJECT for a genuinely valid ES256-signed sd_jwt_vc that
     # discloses an "es256:"-prefixed issuer; killed by tests/test_bundle.py's
@@ -494,12 +548,30 @@ def _run_operators(work: Path) -> int:
     for rel, old, new, label, expect_killed in MUTATIONS:
         path = work / rel
         src = path.read_text(encoding="utf-8")
-        if old not in src:
+        # AN OPERATOR MAY NAME SEVERAL SITES, and since 2026-08-17 two of them must.
+        #
+        # The L4-01 fix (#139) gave the ancestor walker the same gates the direct-edge arm
+        # already had — deliberately, because the gate had been distance-scoped and the
+        # distance is attacker-chosen. The side effect: two operators that disable ONE line
+        # no longer disable the PROPERTY. The other guard still catches the defect, the mutant
+        # survives, and the gate reports a gap that is not one.
+        #
+        # Measured on 518d1ee7: `verified` laxened at the direct arm alone -> suite green;
+        # laxened at BOTH -> tests/test_relation_profile.py::…test_verified_flag_must_be_exactly_true
+        # goes red. Same shape for the two cycle checks. An operator whose label says
+        # "disabled" must actually disable, or the gate measures the wrong thing in the safe
+        # direction: it cries gap where the defence holds, and that is how a gate gets ignored.
+        pairs = list(zip(old, new)) if isinstance(old, tuple) else [(old, new)]
+        missing = [o for o, _ in pairs if o not in src]
+        if missing:
             print(f"  GAP  [{label}] pattern not found — operator is stale")
             gaps += 1
             continue
+        mutated = src
+        for o, n in pairs:
+            mutated = mutated.replace(o, n, 1)
         try:
-            path.write_text(src.replace(old, new, 1), encoding="utf-8")
+            path.write_text(mutated, encoding="utf-8")
             red = _red_count(work)
             killed = red > baseline
             ok = killed == expect_killed

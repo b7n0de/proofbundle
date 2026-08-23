@@ -91,20 +91,66 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     (a fail-open the adversarial deep-gate reproduced). Now a finding is legitimately superseded ONLY by a PRESENT,
     DIFFERENT id; a dangling/self supersession, a non-string/empty id, or a non-dict entry is an ANOMALY that
     is NEVER dropped (the caller fails closed on any anomaly), so no finding can vanish from the count."""
-    ids_present = {f["id"] for f in findings
-                   if isinstance(f, dict) and isinstance(f.get("id"), str) and f.get("id")}
+    # ── THE ID SPACE IS NORMALISED ONCE, HERE (deep-gate finding L5-01, P0) ──────────────────
+    #
+    # _norm() (NFKC + Cc/Cf strip) ran over `severity` and `status` and NOT over `id` and
+    # `superseded_by` — neighbouring fields in this very function, treated unequally. A validly
+    # SIGNED register could therefore hide an open P0: give the P0 `superseded_by = "X​"` and
+    # add a closed decoy with `id = "X​"`. Raw, the two strings differ, so the link looks like a
+    # legitimate supersession to a present, DIFFERENT id and the P0 drops out of the count. To a
+    # human reviewer both render as "X". The gate returned PASS.
+    #
+    # The fix is not to reject U+200B. A blocklist of invisible characters is the shape that failed
+    # in the neighbouring finding L5-02: it can only name what someone already thought of. Identity
+    # is decided on the SAME axis as everything else this function adjudicates.
+    #
+    # Normalised-id COLLISION is fail-closed, and which channel it takes depends on the statuses, so
+    # that neither typed reason becomes decoration: differing statuses are a CONTRADICTION (the
+    # existing channel keeps its meaning), identical ones an ANOMALY. Measured on the live register
+    # 2026-08-08: 17 findings, ids unique raw AND normalised, none altered by normalisation — the
+    # tightening blocks nothing that exists.
+    _nid: dict[int, str] = {}          # index -> normalised id
+    _raw_by_nid: dict[str, list[str]] = {}
+    for idx, f in enumerate(findings):
+        if isinstance(f, dict) and isinstance(f.get("id"), str) and f.get("id"):
+            n = _norm(f["id"])
+            _nid[idx] = n
+            _raw_by_nid.setdefault(n, []).append(f["id"])
+    ids_present = set(_raw_by_nid)
     effective: dict[str, dict] = {}
     contradictions: list[str] = []
     anomalies: list[str] = []
     legit_superseded: set[str] = set()
     sby_map: dict[str, str] = {}
+    # KEINE Sammel-Menge fuer die Kollisionen. Die erste Fassung fuehrte hier ein `_kollision`-Set,
+    # das befuellt und nie gelesen wurde — eine Variable, die wie ein Riegel aussieht und keiner ist.
+    # Das ist die Form des Nachbarbefunds L1-03 ("die Klasse ist per Konstruktion geschlossen"), und
+    # sie faellt bei einem Fix gegen genau diese Klasse doppelt auf. Die Kollision wirkt ueber die
+    # beiden typisierten Kanaele darunter, und beide sind beim Aufrufer fail-closed.
+    for n, rohe in _raw_by_nid.items():
+        if len(rohe) < 2:
+            continue
+        stati = {(_norm(str(f.get("status", ""))).lower())
+                 for i, f in enumerate(findings)
+                 if isinstance(f, dict) and _nid.get(i) == n}
+        if len(stati) > 1:
+            contradictions.append(n)
+        else:
+            anomalies.append(f"{n}:normalised-id-collision={sorted(set(rohe))!r}")
     for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             anomalies.append(f"index{idx}:non-dict-entry")
             continue
-        fid = f.get("id")
-        if not isinstance(fid, str) or not fid:
-            anomalies.append(f"index{idx}:bad-id={fid!r}")
+        fid_raw = f.get("id")
+        if not isinstance(fid_raw, str) or not fid_raw:
+            anomalies.append(f"index{idx}:bad-id={fid_raw!r}")
+            continue
+        # Ab hier IMMER die normalisierte Kennung. Ein leerer Rest nach der Normalisierung (eine
+        # Kennung, die NUR aus unsichtbaren Zeichen besteht) ist selbst eine Anomalie — sonst
+        # kollabierten mehrere solcher Kennungen still auf denselben leeren Schluessel.
+        fid = _nid[idx]
+        if not fid:
+            anomalies.append(f"index{idx}:id-normalises-to-empty={fid_raw!r}")
             continue
         # RT10-REG severity/status TYPE-confusion fail-open (6-lens gate): a non-string severity (e.g. the
         # LIST ["P0"]) or status would slip past the {P0,P1}/"closed" comparisons below and HIDE an open P0
@@ -120,10 +166,13 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
         if _norm(f["severity"]).upper() not in _KNOWN_SEVERITIES:
             anomalies.append(f"{fid}:unknown-severity={f['severity']!r}")
             continue
-        sby = f.get("superseded_by")
-        if isinstance(sby, str) and sby:
-            if sby == fid or sby not in ids_present:
-                anomalies.append(f"{fid}:dangling-or-self-supersede={sby!r}")  # do NOT drop, fail-closed
+        sby_raw = f.get("superseded_by")
+        if isinstance(sby_raw, str) and sby_raw:
+            # AUF DERSELBEN ACHSE vergleichen wie die Kennung: sonst ist "X" != "X<U+200B>" und ein
+            # Selbstverweis liest sich als Verweis auf einen anderen, vorhandenen Eintrag.
+            sby = _norm(sby_raw)
+            if not sby or sby == fid or sby not in ids_present:
+                anomalies.append(f"{fid}:dangling-or-self-supersede={sby_raw!r}")  # do NOT drop, fail-closed
             else:
                 legit_superseded.add(fid)
                 sby_map[fid] = sby
@@ -142,14 +191,17 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
                 break
             seen_chain.add(cur)
             cur = sby_map[cur]
-    for f in findings:
+    for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
-        fid = f.get("id")
-        if not isinstance(fid, str) or not fid or fid in legit_superseded:
+        fid = _nid.get(idx)      # normalisiert, wie ueberall sonst in dieser Funktion
+        if not fid or fid in legit_superseded:
             continue
-        if fid in effective and effective[fid].get("status") != f.get("status"):
-            contradictions.append(fid)
+        if fid in effective and _norm(str(effective[fid].get("status", ""))).lower() \
+                != _norm(str(f.get("status", ""))).lower():
+            # Bereits oben ueber die Kollision erfasst; hier nicht doppelt melden.
+            if fid not in contradictions:
+                contradictions.append(fid)
         effective[fid] = f
     return effective, contradictions, anomalies, legit_superseded
 

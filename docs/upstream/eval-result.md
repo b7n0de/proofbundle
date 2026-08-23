@@ -1,15 +1,16 @@
 # Predicate type: ML eval-result
 
-<!-- READY-TO-SUBMIT DRAFT for in-toto/attestation (spec/predicates/eval-result.md). NOT yet opened as
-a PR — held until a maintainer signal on in-toto/attestation#565, per the project's "review at the next
-maintainers meeting" process. When opened, this PR contains ONLY this spec file + a README entry; the
-protobuf definition follows as a separate PR (as SVR did: spec #470, proto #519, README #537). -->
+<!-- MIRROR of the spec file submitted upstream as in-toto/attestation#575
+(spec/predicates/eval-result.md). The PR is OPEN; this copy exists so proofbundle's own docs and the
+submission cannot drift apart. When the two differ, the PR is the source of truth and this file is
+the one that is wrong. Last aligned 2026-08-07 against branch head 35c83da. The protobuf definition
+follows as a separate PR, as SVR did: spec #470, proto #519, README #537. -->
 
 Type URI: https://in-toto.io/attestation/eval-result/v0.1
 
 Version: v0.1
 
-Authors: Konrad Gruszka (ORCID 0009-0006-8947-6065)
+Authors: Konrad Gruszka (@b7n0de, ORCID 0009-0006-8947-6065)
 
 ## Purpose
 
@@ -19,18 +20,18 @@ while keeping the evaluated model and dataset **private**. An ML eval has three 
 against it, the need to withhold the model/dataset identity, and an optional binding to an external
 signed receipt (and, later, an external time anchor for pre-registration).
 
-This predicate authenticates a *claim* — *who signed these exact eval bytes, and that nothing changed
+This predicate authenticates a *claim*: *who signed these exact eval bytes, and that nothing changed
 since*. It does **not** assert the semantic truth, fairness, safety, or generalization of the result;
 those remain human judgements (see [Non-claims](#non-claims)).
 
-## Use cases
+## Use Cases
 
-- **Private-model eval**: publish "model M passed safety suite S at `refusal_rate >= 0.98`" without
-  revealing M or the dataset, via salted commitments; a relying party verifies the signed claim offline.
-- **Release gating**: bind a release artifact (image/wheel/service digest) to a passing eval — "deploy
-  only if the eval passed" — as the ML attach point for a policy/SLSA decision.
-- **Pre-registration**: commit to the threshold and the dataset/model *before* the run, and later prove
-  the commitment predated the result (strengthened by an external time anchor).
+-   **Private-model eval**: publish "model M passed safety suite S at `refusal_rate >= 0.98`" without
+    revealing M or the dataset, via salted commitments; a relying party verifies the signed claim offline.
+-   **Release gating**: bind a release artifact (image/wheel/service digest) to a passing eval, "deploy
+    only if the eval passed", as the ML attach point for a policy/SLSA decision.
+-   **Pre-registration**: commit to the threshold and the dataset/model *before* the run, and later prove
+    the commitment predated the result (strengthened by an external time anchor).
 
 ## Prerequisites
 
@@ -44,7 +45,7 @@ issuer and is never in the attestation.
 An evaluation run produces a signed, tamper-evident receipt. This predicate is a projection of that
 receipt onto an in-toto Statement: the `subject` is what the attestation is *about* (the receipt itself,
 a public model artifact, or a gated release artifact), and the predicate carries the eval's facts. The
-detailed per-metric result lives here; a companion [SVR](https://github.com/in-toto/attestation/pull/470)
+detailed per-metric result lives here; a companion [SVR](svr.md)
 may summarize "a verifier confirmed this passed" as passing property strings.
 
 ## Schema
@@ -70,61 +71,77 @@ may summarize "a verifier confirmed this passed" as passing property strings.
     "subjectProfile": "receipt|public-model|release-gate",
     "preRegistration": { "alg": "sha256", "value": "<hex>" },   // OPTIONAL
     "receipt": { "schema": "<string>", "merkleRootB64": "<base64>" },  // OPTIONAL
-    "harness": { "name": "<string>", "version": "<string>" },   // OPTIONAL
-    "anchors": [ /* external time anchors — OPTIONAL, see the anchors extension */ ]
+    "harness": { "name": "<string>", "version": "<string>", "digest": { "sha256": "<hex>" } }  // OPTIONAL
   }
 }
 ```
 
-## Parsing rules
+### Parsing Rules
 
 This predicate follows the in-toto attestation
 [spec v1 parsing rules](../v1/README.md#parsing-rules): consumers **match on the subject `digest`
 alone**; `subject[].name` is a hint and MAY be `"_"` or omitted; unknown predicate fields MUST be
 ignored (forward compatibility); and the
-[Monotonic Principle](../../docs/validation.md) applies — a verifier denies unless a valid attestation
+[Monotonic Principle](../../docs/validation.md) applies: a verifier denies unless a valid attestation
 exists. Time fields are RFC 3339. `threshold` is a decimal **string**, never a JSON float, so a value
 is never altered by float round-tripping.
 
-## Fields
+Unless a field specifies otherwise, absence of an optional field means only that no claim is made
+for that field. Consumers MUST NOT infer or synthesize a default value from absence.
 
-`verifier.id` _(TypeURI, required)_: the party that emitted/verified the result.
+### Fields
 
-`evaluatedAt` _(Timestamp, required)_: when the evaluation ran.
+`verifier.id` *(TypeURI, required)*: the party that emitted/verified the result.
 
-`suite` _(object, required)_: `{name, version}` of the eval suite.
+`evaluatedAt` *(Timestamp, required)*: when the evaluation ran.
 
-`claims` _(array, required)_: one or more `{metric, comparator, threshold, passed}`. `comparator` is one
-of `>=`, `>`, `<=`, `<`; `passed` is the pass of `metric comparator threshold`.
+`suite` *(object, required)*: `{name, version}` of the eval suite.
 
-`sampleSize` _(int, required)_: number of samples the result is over.
+`claims` *(array, required)*: one or more `{metric, comparator, threshold, passed}`. `comparator` is one
+of `>=`, `>`, `<=`, `<`. `passed` is the producer's signed threshold verdict for the stated metric,
+comparator and threshold. Unless an exact observed value is disclosed by a separate profile, a generic
+consumer can authenticate the verdict but cannot recompute it from the predicate alone.
 
-`commitments` _(object, required)_: `model` and `dataset`, each `{alg, value, salted}`. When `salted` is
+`sampleSize` *(int, required)*: number of samples the result is over.
+
+`commitments` *(object, required)*: `model` and `dataset`, each `{alg, value, salted}`. When `salted` is
 `true` the `value` is a commitment (a hash over a secret salt ‖ identifier), **NOT** an artifact content
-digest — a generic verifier MUST NOT treat it as one. This is what lets the evaluated model/dataset stay
+digest; a generic verifier MUST NOT treat it as one. This is what lets the evaluated model/dataset stay
 private while the claim is still verifiable.
 
-`assuranceLevel` _(string, required)_: how much a pass is worth — `self_attested` (producer testimony),
-`third_party`, `reproduced`, or `enclave_attested`.
+`assuranceLevel` *(string, required)*: an issuer-declared assurance claim about how the result was
+produced: `self_attested` (producer testimony), `third_party`, `reproduced`, or `enclave_attested`. The
+value is the issuer's own declaration; this predicate does not corroborate it. External corroboration
+belongs in separately referenced evidence.
 
-`subjectProfile` _(string, required)_: which subject the attestation binds to — `receipt` (a binder over
+`subjectProfile` *(string, required)*: which subject the attestation binds to: `receipt` (a binder over
 the receipt; reveals nothing), `public-model` (a disclosed model's real digest), or `release-gate` (a
 release artifact gated on the pass).
 
-`preRegistration` _(object, optional)_: `{alg, value}` over the eval protocol committed before the run.
+`preRegistration` *(object, optional)*: `{alg, value}` over the eval protocol committed before the run.
 
-`receipt` _(object, optional)_: `{schema, merkleRootB64}` binding to the external signed receipt.
+`receipt` *(object, optional)*: `{schema, merkleRootB64}` binding to the external signed receipt.
 
-`harness` _(object, optional)_: `{name, version}` of the eval harness.
-
-`anchors` _(array, optional)_: external time anchors (e.g. RFC 3161 TSA, OpenTimestamps) for the
-receipt or the pre-registration. Defined by a separate anchors extension.
+`harness` *(object, optional)*: the eval harness. `name` and `version` identify it. `digest` is an
+optional [DigestSet](../v1/digest_set.md) over the harness artifact, for consumers that need to bind
+the exact artifact that produced the result. A `harness` that carries only `name` and `version`
+remains conforming. `digest` binds identity only. It asserts nothing about the harness's detection
+performance.
 
 ## Non-claims
 
 A verifier that accepts this attestation learns that the signed claim is authentic and unchanged. It
 does **not** learn that the metric is correct, that the eval was well designed, that the model is safe
 or fair, or that the score generalizes. Those are out of scope for this predicate.
+
+This predicate does not establish that the evaluation harness or grader is fit for purpose, or
+that it has any particular detection performance.
+
+The consequences can be asymmetric. When detected positives are evidence of capability, missed
+positives can understate performance. When `passed: true` depends on the absence of detected
+failures, missed failures can instead yield a passing verdict even though the failures occurred.
+This attestation authenticates either verdict without establishing the harness's detection
+capability.
 
 ## Examples
 
@@ -155,11 +172,14 @@ A private-model eval (subject is the receipt; the model stays secret):
 A release-gate example (subject is the deployed artifact's real digest) is in the reference
 implementation's `examples/intoto/release-gate.statement.json`.
 
-## Changelog
+## Changelog and Migrations
 
-- v0.1 — initial draft. Reference emitter/verifier: [proofbundle](https://github.com/b7n0de/proofbundle)
-  (`proofbundle intoto`). Discussion: in-toto/attestation#565. Until this type is registered upstream,
-  the reference implementation emits the vendor-namespaced `predicateType`
-  `https://b7n0de.com/attestation/eval-result/v0.1` and migrates to the `in-toto.io` URI on
-  registration (a redirect/alias is added at that point). Consumers match on the subject digest, so a
-  `predicateType` rename does not affect binding.
+-   v0.1: initial draft. Reference emitter/verifier: [proofbundle](https://github.com/b7n0de/proofbundle)
+    (`proofbundle intoto`). Discussion: in-toto/attestation#565.
+
+## proofbundle-specific note (not part of the upstream file)
+
+Until this type is registered upstream, the reference implementation emits the vendor-namespaced
+`predicateType` `https://b7n0de.com/attestation/eval-result/v0.1` and migrates to the `in-toto.io`
+URI on registration (a redirect/alias is added at that point). Consumers match on the subject digest,
+so a `predicateType` rename does not affect binding.

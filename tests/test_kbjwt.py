@@ -93,6 +93,28 @@ class TestKbRoundtrip(unittest.TestCase):
         self.assertFalse(verify_key_binding(presented, expected_aud="other.example")["ok"])
         self.assertFalse(verify_key_binding(presented, expected_nonce="n-2")["ok"])
 
+    def test_aud_und_nonce_werden_EXAKT_verglichen(self):
+        """Das Beinahe-Treffer-Korpus fuer beide Erwartungen — die Luecke, die ein Meta-Test fand.
+
+        `test_aud_nonce_policy` darueber prueft je EINEN voellig fremden Wert
+        (`other.example`, `n-2`). Gegen einen fremden Wert verhaelt sich ein gelockerter
+        Vergleich exakt wie ein exakter: gemessen 2026-08-16 blieb die volle Suite gruen,
+        als `expected_aud != aud` auf `.startswith()` gelockert wurde — ein Token mit
+        `aud="verifier.example.evil.test"` verifizierte dann gegen die Erwartung
+        `"verifier.example"`. Dasselbe fuer die Nonce, also fuer den Replay-Schutz.
+
+        Das Korpus kommt aus `tests/_beinahe_treffer.py` und ist dasselbe, das die anderen
+        Erwartungsvergleiche benutzen — eine Quelle, viele Flaechen. Waere es hier
+        abgeschrieben, waere die Klasse als Instanz behandelt.
+        """
+        from _beinahe_treffer import pruefe_exakt
+
+        presented, _, _ = _issue_presented()
+        pruefe_exakt(lambda v: verify_key_binding(presented, expected_aud=v)["ok"],
+                     "verifier.example", self)
+        pruefe_exakt(lambda v: verify_key_binding(presented, expected_nonce=v)["ok"],
+                     "n-1", self)
+
     def test_absent_kb_is_reported_absent(self):
         issuer = generate_signer()
         claim = dict(CLAIM)

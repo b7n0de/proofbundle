@@ -196,6 +196,22 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     _ensure_builtin_types()
     if not isinstance(anchor, dict):
         raise BundleFormatError("each anchor must be a JSON object")
+    # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface — and a
+    # narrow-looking one: ``_ANCHOR_KEYS`` bounds which FIELDS may appear, which is why this read as
+    # already-guarded. It bounds the key set, not the value sizes. ``canonicalRoot`` and ``proof`` are
+    # base64-decoded below with no length cap of their own, so a single 100 MB ``proof`` string is expanded
+    # before any verifier is even chosen.
+    #
+    # The peer primitive in this same module (``receipt_canonical_root``) already applies this bound; the
+    # entry point that actually receives third-party input did not. Raising matches this function's
+    # convention: a malformed STRUCTURE raises BundleFormatError (see the guard above and ``_b64d``),
+    # while a failed verification is reported in the ``out`` dict.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        enforce_structural_budget(anchor)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"anchor exceeds the verification budget (fail-closed): {exc}") from exc
     unknown = set(anchor) - _ANCHOR_KEYS
     if unknown:
         raise BundleFormatError(f"anchor has unknown field(s) {sorted(unknown)}")

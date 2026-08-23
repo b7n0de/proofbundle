@@ -30,6 +30,18 @@ _MODULES = [
     # the sweep, hiding the decision/outcome/subject_binding RecursionError class):
     "subject_binding", "relation", "assurance", "automation_verdict", "beacon", "public_transparency",
     "signature", "policy_profiles", "canonical",
+    # 2026-08-16: the population was hand-maintained and had drifted 14 modules behind the package.
+    # A coverage guard (tests/test_never_raise_population_guard.py) now derives the expected set from
+    # the tree, so a module added to the package can no longer sit outside this property unnoticed.
+    # These seven carried 11 matching surfaces the property had never entered.
+    "anchors_chia", "anchors_markovian", "anchors_ots", "anchors_rfc3161", "anchors_rootcommit",
+    "emit", "pqsig",
+    # 2026-08-17: the coverage guard itself globbed the top level only, so a module inside a
+    # SUBPACKAGE was outside the ground truth — and therefore outside the guard that exists to prove
+    # nothing is outside. Measured after widening it to `rglob`: 50 modules -> 56, and of the six new
+    # ones exactly this one carries a matching surface. It ships, it has a documented import path,
+    # and it is its own CLI subcommand (`verify-enclave`).
+    "experimental.enclave",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -37,13 +49,59 @@ _MODULES = [
 # round-4 re-gate proved (evaluate_policy/evaluate_public_transparency/automation_summary/evidence_ladder_*).
 _NAME_PATTERN = re.compile(
     r"^(verify_|check_|load_|decode_|count_|recompute_|receipt_canonical|sd_jwt_hidden"
-    r"|validate_|require_valid_|require_derived_|classify_|derive_"
-    r"|evaluate_|audit_|automation_|evidence_ladder_)")
+    # Explizit wie `receipt_canonical`/`sd_jwt_hidden`: ein Praedikat ueber einen vom AUFRUFER
+    # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
+    # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
+    r"|expected_origin_wellformed"
+    # 2026-08-18, Deep-Gate-Linse 2 Befund 1: `split_key_binding` und `holder_key_from_cnf`
+    # standen in der Ausschlussmenge unter ERZEUGER ("baut aus eigenen, bereits geprueften
+    # Werten"). Das traf auf sie nie zu — beide nehmen ihr PRIMAERargument aus einer
+    # halter-gelieferten Praesentation und sind damit Parser untrusted Eingabe. Gemessen
+    # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
+    # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
+    r"|split_key_binding|holder_key_from_cnf"
+    # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
+    # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
+    # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —
+    # er war der erste Entwurf und wurde durch das BERICHTENDE `expected_origin_wellformed`
+    # ersetzt, weil der repo-eigene Test `OriginVergleichIstExakt` das harte Ablehnen widerlegte.
+    # Die Begruendung blieb stehen und lehrte damit einen Gegenstand, den es nicht gibt.
+    # GEMESSEN, was die Oeffnung wirklich bewirkt: Nenner 91 -> 98, und alle sieben Zugaenge sind
+    # `cosign_*`/`expected_origin_wellformed` — kein einziges `require_*` kommt hinzu. Die
+    # Verallgemeinerung ist heute WIRKUNGSLOS und bleibt trotzdem stehen: sie ist die richtige
+    # Form fuer die Familie (ein `require_`-Pruefer gehoert hier hin, sobald es einen gibt), und
+    # sie einzuengen waere eine Aenderung ohne Anlass. Was nicht bleiben durfte, ist eine
+    # Begruendung, die auf etwas Nichtexistierendes zeigt.
+    r"|validate_|require_|classify_|derive_"
+    r"|evaluate_|audit_|automation_|evidence_ladder_"
+    # Round 5 (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-NEVER-RAISE-COVERAGE-01): die cosign_*-Seite
+    # war NIE im Nenner. Sie ist keine reine Erzeuger-Seite: `cosign_checkpoint` und
+    # `cosign_checkpoint_mldsa` nehmen eine vom LOG gelieferte, also untrusted, Note entgegen —
+    # genau die Eingabe, gegen die diese Eigenschaft schuetzt. Dass vier Nachbarn derselben Klasse
+    # (iter1-4 des 4.0.0-Gates) nacheinander durchrutschten, hing an diesem Loch im Nenner, nicht
+    # an vier unabhaengigen Fehlern.
+    r"|cosign_)")
 
 # ACCEPTED terminations: a returned value, or a TYPED fail-closed error. ProofBundleError covers
 # BundleFormatError / BudgetExceeded / PQUnavailable / UnsupportedError / CanonicalizerUnavailable / PolicyError
 # / SdjwtVcError / EvalClaimError-as-PBError; ValueError covers EvalClaimError + the rfc8785 domain family.
-_ACCEPTED = (ProofBundleError, ValueError)
+# `FileNotFoundError` added 2026-08-16 — and the FIRST attempt added `OSError`, which was wrong in a
+# way worth recording, because the mistake and the claim contradicted each other. The commit text said
+# "widens by a single measured case, not by a guess"; the mechanism widened the whole hierarchy.
+# `OSError` is the base class of `PermissionError`, `TimeoutError`, `BrokenPipeError` and more. A
+# `PermissionError` on an anchor file is not a missing file — it can be an indicator that something
+# blocked access, and swallowing it silently is fail-open on exactly the axis this property defends.
+# The counter-read caught it (un, REJECT, 2026-08-16): admit the measured case, not its family.
+#
+# Why this ONE subclass is admissible: the contract forbids a surface CRASHING INSTEAD OF DECIDING —
+# the type-confusion signatures in `_FORBIDDEN`. A loader reporting "this path does not exist" is the
+# opposite: fail-closed, informative, and it produces no verdict a relying party could mistake for a
+# pass. Measured across all 90 discovered surfaces and the full corpus: ZERO forbidden escapes and
+# exactly ONE unclassified case (`emit.load_signer` on `b"bytes-not-str"` → `FileNotFoundError`).
+#
+# Any OTHER `OSError` subclass therefore still lands in the unclassified branch below and is REPORTED,
+# which is the point: the next one gets a decision, not an inherited pass.
+_ACCEPTED = (ProofBundleError, ValueError, FileNotFoundError)
 # FORBIDDEN raw terminations = the type-confusion crash signatures a public verify surface must never emit.
 _FORBIDDEN = (AttributeError, TypeError, RecursionError, KeyError, IndexError, UnicodeDecodeError, MemoryError)
 
@@ -70,6 +128,87 @@ def _discover_surfaces():
                 out.append((mod_name, name, fn))
     return out
 
+
+
+# ── Der Nenner darf nicht mehr STILL altern (2026-08-18, Befund PB-COSIGN-SIGN-SIDE-…-01) ──────────
+#
+# WAS PASSIERT IST: `_NAME_PATTERN` ist eine Allowlist von Namensfamilien. Die gesamte `cosign_*`-
+# Seite stand nie darin — und nichts sagte es. Der Bodentest unten wacht nur gegen KOLLAPS des
+# Nenners (>= 65), nicht gegen das Fehlen einer ganzen Familie: 91 entdeckte Surfaces sehen gesund
+# aus, auch wenn sechs Verbraucher-Surfaces daneben liegen. Vier Nachbarn derselben Klasse sind
+# waehrend des 4.0.0-Gates nacheinander durchgerutscht (iter1-4); das war kein Zufall, sondern
+# dieses Loch.
+#
+# WAS DER RIEGEL TUT: jede oeffentliche Funktion der gescannten Module muss ENTWEDER im Nenner
+# stehen ODER hier namentlich als ausserhalb gefuehrt sein. Eine NEUE oeffentliche Funktion, die
+# keins von beidem ist, laesst den Test FAILEN — sie erzwingt eine Entscheidung, statt lautlos
+# ausserhalb zu liegen. Das ist die positive Regel: nicht "was ist gefaehrlich" aufzaehlen
+# (unvollstaendig per Konstruktion), sondern "was ist geprueft" gegen "was ist bewusst nicht".
+#
+# WARUM DIESE 122 NAMEN AUSSERHALB LIEGEN — nach Familie, nicht pauschal:
+#   build_* / emit_* / sign_* / issue_* / create_* / save_* / to_* / export_*  ERZEUGER. Sie bauen
+#       aus EIGENEN, bereits geprueften Werten ein Artefakt. Ein TypeError bei falschem Aufrufer-
+#       Argument ist dort die richtige Antwort, nicht der Defekt, den diese Eigenschaft sucht.
+#   policy_* / profile-/template-Helfer / list_* / describe_* / explain_* / lint_*  BESCHREIBEND,
+#       ohne Verdikt fuer eine verlassende Partei.
+#   *_proven / *_trusted_by_role / *_violations / *_warning / *_gaps  URTEILE ueber bereits
+#       validierte Strukturen — ihre Eingabe hat die never-raise-Schicht schon passiert.
+#   Krypto-/Kodier-Primitive (pae, clvm_atom_hash, eip191_recover_address, key_id, vkey, …)
+#       arbeiten auf Bytes mit engem Vertrag; sie sind ueber ihre Aufrufer abgedeckt.
+# WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
+# und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
+_OUT_OF_SCOPE = frozenset({
+    "action_outcome_proven",  "anchor_proof_digest",  "build_preimage",  "beacon_audit_challenge",  "beacon_nonce",
+    "build_decision_statement",  "build_eval_claim",  "build_evidence_pack",
+    "build_initial_sequence",  "build_outcome_statement",  
+    "build_relation_statement",  "build_run_ledger_statement",  "build_sample_tree",
+    "build_summary_statement",  "build_trust_pack_statement",  "calendar_operator",
+    "calendar_operators",  "calendar_uris",  "canonical_profile_name",  "canonicalize",
+    "canonicalize_statement",  "catch_probability",  "checkpoint_note",  "claim_warnings",
+    "clvm_atom_hash",  "compute_digest",  "compute_dual_hash",  "consistency_proof",
+    "create_rfc3161_anchor",  "describe_proof",  "detect_outcome_sequence_gaps",
+    "eip191_recover_address",  "emit_bundle",  "emit_decision_receipt",  "emit_eval_receipt",
+    "emit_outcome_receipt",  "emit_relation_statement",  "emit_run_ledger",
+    "emit_verification_summary",  "enclave_assurance_proven",  "enclave_binding_for",
+    "eval_evidence_class",  "eval_results_yaml",  "evaluation_card_hash",
+    "executor_trusted_by_role",  "expected_key_id",  "explain_policy",  "export_eval_result_dsse",
+    "export_intoto_dsse",  "export_svr_dsse",  "format_tlog_proof",  "generate_mldsa",
+    "generate_signer",  "inclusion_proof",  "instantiate_template",
+    "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
+    "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
+    "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
+    "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
+    "outcome_execution_proven",  "pae",  "parse_checkpoint_head",  "parse_tlog_proof",
+    "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
+    "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
+    "profile_aliases",  "profile_path",  "receipt_token",  "receiver_trusted_by_role",  "register",
+    "register_anchor_type",  "registered_anchor_types",  "renew_hashtree",  "renew_timestamp",
+    "resolve_evidence_ref",  "resolve_hash_alg",  "resolve_policy_source",  "resolve_receiver_ref",
+    "resolve_subject",  "root_authenticity_summary",  "root_bytes_from_b64",  "root_from_inclusion",
+    "salted_commit",  "sample_opening",  "save_signer",  "sign_checkpoint",  "sign_envelope",
+    "sign_mldsa",  "sign_trust_pack",  "statement_content_root",
+    "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
+    "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
+    "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",
+})
+
+
+def _unclassified_public_functions():
+    """Oeffentliche Funktionen, die WEDER im Nenner noch bewusst ausserhalb sind. Muss leer sein."""
+    entdeckt = {name for _, name, _ in _discover_surfaces()}
+    offen = []
+    for mod_name in _MODULES:
+        try:
+            mod = importlib.import_module(f"proofbundle.{mod_name}")
+        except Exception:  # noqa: BLE001
+            continue
+        for name, fn in inspect.getmembers(mod, inspect.isfunction):
+            if fn.__module__ != mod.__name__ or name.startswith("_"):
+                continue
+            if name in entdeckt or name in _OUT_OF_SCOPE:
+                continue
+            offen.append(f"{mod_name}.{name}")
+    return sorted(offen)
 
 def _structural_corpus():
     """Structural hostile inputs on VALID-typed dicts/lists (round 8 — the old sweep only fuzzed 8 wrong TYPES,
@@ -121,6 +260,21 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
         self.assertGreaterEqual(len(surfaces), 65,
                                 f"surface discovery collapsed to {len(surfaces)} — the denominator is broken")
 
+    def test_keine_unklassifizierte_oeffentliche_funktion(self):
+        """Der Nenner altert nicht mehr still: neue oeffentliche Funktion -> Entscheidung erzwungen.
+
+        Genau dieser Riegel haette `cosign_*` gemeldet, als es dazukam. Er ersetzt den Bodentest
+        NICHT (der wacht gegen Kollaps), er schliesst die andere Richtung: eine Familie, die nie
+        drin war.
+        """
+        offen = _unclassified_public_functions()
+        self.assertEqual(
+            offen, [],
+            "Diese oeffentlichen Funktionen sind weder im never-raise-Nenner noch bewusst "
+            "ausserhalb gefuehrt. ENTSCHEIDE je Funktion: nimmt sie untrusted Eingabe entgegen? "
+            "Dann gehoert ihr Namensmuster in _NAME_PATTERN. Sonst gehoert sie mit Begruendung "
+            f"in _OUT_OF_SCOPE. Unklassifiziert: {offen}")
+
     def test_no_public_surface_raises_raw_on_hostile_primary(self):
         # Round 8 (v4): sweep BOTH the 8 wrong TYPES and the STRUCTURAL hostile inputs (deep-nest / node-heavy /
         # NaN·Inf·bigint on valid-typed dicts) — the old test fuzzed only types, so every recursion/DoS class
@@ -158,6 +312,20 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                 except _FORBIDDEN as exc:
                     escapes.append(f"{mod_name}.{name} on {type(bad).__name__}: raw "
                                    f"{type(exc).__name__}: {exc}")
+                except Exception as exc:              # noqa: BLE001 — see below, this is the point
+                    # UNCLASSIFIED IS REPORTED, NOT SWALLOWED (2026-08-16). Until this branch existed, an
+                    # exception that was neither _ACCEPTED nor _FORBIDDEN propagated straight out of this
+                    # loop: the test ended as ERROR and every surface AFTER the offending one was never
+                    # reached. The taxonomy's gap did not under-report, it STOPPED MEASURING — and the
+                    # damage scaled with iteration position, not with severity. Measured when found:
+                    # `emit.load_signer` sat at position 87 of 90, so three surfaces went untested; the
+                    # same gap at position 1 would have cost 89.
+                    #
+                    # A third axis of the same instrument. The module axis (population) and the argument
+                    # axis (only position 0) were already known; this is the exception-taxonomy axis.
+                    escapes.append(f"{mod_name}.{name} on {type(bad).__name__}: UNCLASSIFIED "
+                                   f"{type(exc).__name__}: {exc} — neither accepted nor forbidden; "
+                                   f"decide which it is instead of letting it abort the sweep")
         self.assertEqual(escapes, [], "raw type-confusion escapes over the AUTO-DISCOVERED surface family:\n"
                          + "\n".join(escapes))
 

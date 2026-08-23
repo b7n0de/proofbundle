@@ -139,8 +139,15 @@ class TestMldsaUnavailableFailsClosed(unittest.TestCase):
         """A 0x06 vkey on a system without ML-DSA must raise UnsupportedError (clear, fail-closed)
         — never return ok=False as if the signature were checked and invalid."""
         note, _ = _note()
-        fake_vkey = (ORIGIN + "+00000000+"
-                     + base64.b64encode(bytes([0x06]) + b"\x00" * 1312).decode())
+        # Der Schluessel ist erfunden, seine keyID aber KORREKT berechnet. Die Abkuerzung
+        # "+00000000+" war seit 2026-08-16 keine mehr: ein vkey, dessen deklarierte ID nicht zu
+        # seinem eigenen Material passt, ist malformed und faellt vorher typisiert durch. Der
+        # Gegenstand DIESES Tests ist aber das fehlende PQ-Backend, nicht ein kaputter Schluessel —
+        # die ID-Berechnung ist reines SHA-256 und braucht kein Backend, also bleibt der Testzweck
+        # erreichbar, statt ihn auf einen Formfehler umzudeuten.
+        _fake_pub = b"\x00" * 1312
+        fake_vkey = (ORIGIN + "+" + cp.cosign_key_id_mldsa(ORIGIN, _fake_pub).hex() + "+"
+                     + base64.b64encode(bytes([0x06]) + _fake_pub).decode())
         if HAVE_MLDSA:
             # With PQ available the path proceeds to (correctly) not find a matching line.
             self.assertFalse(cp.verify_cosignature(note, fake_vkey)["ok"])

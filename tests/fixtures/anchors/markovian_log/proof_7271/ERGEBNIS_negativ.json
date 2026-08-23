@@ -1,0 +1,50 @@
+{
+  "ok": false,
+  "log_ok": true,
+  "witnesses_ok": true,
+  "inclusion_ok": false,
+  "origin": "markovianprotocol.com/log",
+  "tree_size": 7341,
+  "index": 7271,
+  "expected_origin": null,
+  "threshold": 4,
+  "detail": null,
+  "signer_present": true,
+  "witnesses": {
+    "witness.stagemole.eu+67f7aea0": {
+      "ok": true,
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689302
+    },
+    "transparency.dev/DEV:witness-little-garden+d8042a87": {
+      "ok": true,
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689303
+    },
+    "staging.witness.transparency.goog/ring-any-bells+2e1a8dc9": {
+      "ok": true,
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689303
+    },
+    "remora.n621.de+da77ade7": {
+      "ok": true,
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689304
+    },
+    "witness.navigli.sunlight.geomys.org+a3e00fe2": {
+      "ok": true,
+      "alg": "ed25519-cosignature/v1",
+      "timestamp": 1786689302
+    },
+    "staging.witness.transparency.goog/ring-any-bells+5774b075": {
+      "ok": true,
+      "alg": "ml-dsa-44",
+      "timestamp": 1786689303
+    },
+    "witness.navigli.sunlight.geomys.org+6bc44249": {
+      "ok": true,
+      "alg": "ml-dsa-44",
+      "timestamp": 1786689302
+    }
+  }
+}

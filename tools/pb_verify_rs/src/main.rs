@@ -877,10 +877,31 @@ fn walk_chain(
         if proven_safe.contains(node_hex) {
             return None;
         }
+        // NOT attached -> the path ends honestly beyond the attached horizon (declared-only).
         let Some(node) = related.get(node_hex) else {
             proven_safe.insert(node_hex.to_string());
             return None;
         };
+        // ── DISTANCE INVARIANCE OF RELATION GATES (deep-gate finding L4-01, P1) ──────────────
+        //
+        // Mirrors the Python fix one to one. Every gate the direct-edge arm applies to the
+        // receipt's own edge must also apply to every ATTACHED ancestor. Before this, the walk
+        // adjudicated ancestor SYNTAX (malformed_ancestor below) and skipped ancestor CRYPTO:
+        // a forged receipt placed at hop >= 2 yielded lineage=VERIFIED and safeForAutomation=true,
+        // and the distance is attacker-chosen. Measured in BOTH languages on d3401a7; untested in
+        // both because every chain test hardcodes verified=true on every ancestor.
+        //
+        // ASYMMETRY vs Python, stated rather than silently absent: TargetInfo is a typed struct,
+        // so the "attached target is not a well-formed object" case cannot arise here — the
+        // loader rejects it earlier. Python needs that third gate, Rust does not.
+        if !node.verified {
+            return Some(
+                "relation:ancestor_verification_failed: an ATTACHED ancestor does not verify \
+                 standalone (present-and-wrong is a hard FAIL at any hop, exactly as for the \
+                 receipt's own edge)"
+                    .into(),
+            );
+        }
         let Some(nested) = &node.relationships else {
             proven_safe.insert(node_hex.to_string());
             return None;
@@ -891,8 +912,41 @@ fn walk_chain(
         let mut next_path = path.clone();
         next_path.insert(node_hex.to_string());
         if let Some(arr) = nested.as_array() {
+            // A CYCLE IS ORDER-INDEPENDENT, so it is decided before any descent: once the ancestor
+            // gates above exist, an unverified sibling listed BEFORE a back-edge would otherwise
+            // mask the cycle, making the reported code depend on the order the issuer wrote the
+            // edges in — the same "verdict depends on position" shape, one level down.
             for edge in arr {
                 if let Some(nxt) = edge_target_hex(edge) {
+                    if next_path.contains(&nxt) {
+                        return Some(
+                            "relation:cycle: attached chain revisits a receipt on its own ancestry path"
+                                .into(),
+                        );
+                    }
+                }
+            }
+            for edge in arr {
+                if let Some(nxt) = edge_target_hex(edge) {
+                    // The subject pin binds at EVERY hop, not only on the receipt's own edge.
+                    // Same accept path as the direct arm: no declared pin -> optional; declared ->
+                    // the resolved target must expose a present, EQUAL actual subject.
+                    if let Some(anc) = related.get(&nxt) {
+                        if let Some(d) = edge_subject_hex(edge) {
+                            match &anc.subject_digest {
+                                Some(a) if &d == a => {}
+                                _ => {
+                                    return Some(
+                                        "relation:ancestor_edge: relation:target_subject_mismatch \
+                                         (RELATION_TARGET_SUBJECT_MISMATCH): a declared \
+                                         targetSubjectDigest on an ancestor edge does not bind a \
+                                         present, equal subject on the resolved target"
+                                            .into(),
+                                    );
+                                }
+                            }
+                        }
+                    }
                     if related.contains_key(&nxt) || next_path.contains(&nxt) {
                         if let Some(err) =
                             dfs(&nxt, depth + 1, &next_path, related, proven_safe, max_depth)

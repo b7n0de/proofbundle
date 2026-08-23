@@ -46,12 +46,93 @@ _AUDIT_NEGATION = re.compile(
     re.IGNORECASE)
 
 
+# ── The verdict source: an ALLOWLIST of one exact attesting line (deep gate finding L5-02, P1) ──────
+#
+# The gate used to grant PASS from a discipline MARKER minus a NEGATION blocklist. That shape cannot
+# terminate against natural language (Ranum; CWE-183 "permissive list of allowed inputs" inverted), and
+# the gate proved it: a CHANGELOG line stating the audit had been DROPPED passed ``--strict``, because
+# "dropped" was not among the ~30 enumerated negations. Every fix of that shape is one more word.
+#
+# So the polarity is inverted, exactly as the finding requires. There is ONE canonical attesting form,
+# it is matched as a WHOLE line, and it carries the version it attests:
+#
+#     pre-tag-adversarial-audit: RUN | version=3.7.0
+#
+# A negation cannot live inside a closed full-line form, so no vocabulary has to be enumerated. And the
+# embedded version closes a second hole the blocklist never touched: until now ANY marker-carrying file
+# under ``audit_artifacts/<token>/`` granted the pass, so a record copied over from an earlier release
+# attested the new one by sitting in the right folder. The record must now SAY which version it attests.
+#
+# HONEST LIMIT: this is provenance-SHAPED, not provenance. The finding's end state is a runner-signed
+# record whose subject digest equals the artifact being tagged; that needs a signing path this repo does
+# not have yet. What is closed here is that PROSE can no longer move the verdict — in either direction.
+_ATTESTATION = re.compile(
+    r"(?mi)^[ \t]*pre-tag-adversarial-audit:[ \t]*RUN[ \t]*\|[ \t]*version=(?P<v>[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*)[ \t]*$")
+
+
+def attests_version(text: str, version: str) -> bool:
+    """True iff ``text`` carries the canonical attesting line for EXACTLY ``version``."""
+    return any(m.group("v") == version for m in _ATTESTATION.finditer(text))
+
+
+def attesting_records_for(repo: Path, version: str) -> list[str]:
+    """Records under ``audit_artifacts/<token>/`` that ATTEST this exact version, deterministically ordered.
+
+    Distinct from :func:`audit_records_for`, which stays marker-based for its existing consumers (the
+    audit-candidate matrix and C12.2 scan the full candidate list). Only THIS function feeds the verdict.
+    """
+    scoped = repo / "audit_artifacts" / _version_token(version)
+    if not scoped.is_dir():
+        return []
+    out: list[str] = []
+    for f in sorted(scoped.rglob("*.md")):
+        if not f.is_file():
+            continue
+        if attests_version(f.read_text(encoding="utf-8", errors="ignore"), version):
+            out.append(str(f.relative_to(repo)))
+    return out
+
+
 def _positive_audit_marker(text: str) -> bool:
-    """True iff some line ASSERTS an adversarial/N-lens audit was run — a discipline marker on a line that
-    is NOT negated. Line-scoped so a real positive note survives an unrelated negation elsewhere in the file,
-    while a marker whose own sentence concedes the audit did not run does not grant a false PASS."""
-    for line in text.splitlines():
-        if _AUDIT_MARKERS.search(line) and not _AUDIT_NEGATION.search(line):
+    """True iff some PARAGRAPH asserts an adversarial/N-lens audit was run — a discipline marker in a
+    paragraph that carries no negation.
+
+    RT10-PRETAG-03 (2026-08-16, found by triggering it): the scope used to be the physical LINE, and a
+    wrapped sentence walked straight through the RT10-PRETAG-02 negation guard. Measured live on a real
+    release candidate, where an honest retraction being written INTO the CHANGELOG flipped the gate to
+    ``ok: true, changelog_records_audit: true`` for roughly two minutes:
+
+        …never shipped a user-facing CLI flag in a patch release. That claim was falsified during the pre-tag
+        adversarial audit and is retracted here rather than quietly deleted: four patch releases have shipped
+
+    The second line opens with ``adversarial`` and carries no negation token of its own — the words that
+    take it back (``never``, and the fact that the audit was still running) sit on the line above. Nothing
+    was crafted to defeat the guard; ordinary prose wrapping at 110 columns did it, and it will do it again
+    to anyone who writes a careful sentence about an audit that has not finished. The guard was therefore
+    most easily defeated by exactly the kind of honest text this project requires of itself.
+
+    Paragraph scope is strictly STRICTER than line scope — a paragraph contains its lines, so it can only
+    ever bring MORE negation tokens into view, never fewer. No text that the old rule rejected can be
+    accepted by the new one.
+
+    Sentence scope was measured first and REJECTED: it still returns True on the block above, because
+    "falsified" is not a negation token and the sentence carrying ``adversarial`` genuinely contains none.
+    A finer scope does not help when the negation lives in the surrounding argument rather than in a word.
+
+    The counter-direction is measured too, because a stricter gate that rejects genuine records would just
+    be a different defect: the real ``audit_artifacts/370/pre_tag_adversarial_audit_370.md`` still returns
+    True. Its opening paragraph pairs the claim with a "NOT a substitute for the external audit"
+    disclaimer, so that paragraph is correctly not counted — and the later "Six diverse falsification-first
+    lenses …" paragraph carries the marker with no negation, which is the attestation. House style survives.
+
+    HONEST LIMIT, unchanged by this fix: this infers a fact from free prose, and prose inference stays
+    defeatable in principle. The durable answer is an explicit attestation token that means one thing
+    ("pre-tag-adversarial-audit: RUN | version=X.Y.Z"), which is what the version-consistency-gate branch
+    moves to. This narrows a live hole in the mechanism that guards releases today; it does not claim to
+    have made prose inference sound.
+    """
+    for absatz in re.split(r"\n\s*\n", text):
+        if _AUDIT_MARKERS.search(absatz) and not _AUDIT_NEGATION.search(absatz):
             return True
     return False
 
@@ -134,19 +215,33 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
         return {"ok": False, "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
     section = changelog_section(repo, version)
-    changelog_ok = bool(section and _positive_audit_marker(section))  # RT10-PRETAG-02 negation guard
-    artifact = audit_artifact_for(repo, version)
-    ok = changelog_ok or bool(artifact)
+    # PRESENTATIONAL ONLY (L5-02). Reported so a reader sees the state, but it can no longer move the
+    # verdict in EITHER direction — neither granting a PASS from a marker nor withholding one. That is
+    # the whole point: the attestation is the record's job, the CHANGELOG renders it.
+    changelog_ok = bool(section and _positive_audit_marker(section))
+    attesting = attesting_records_for(repo, version)
+    artifact = attesting[0] if attesting else None
+    ok = bool(attesting)
+    # Kept for the operator: a record that carries the old discipline marker but NOT the canonical
+    # attestation is the likeliest reason for a surprising MISSING, so name it instead of staying mute.
+    marker_only = [r for r in audit_records_for(repo, version) if r not in attesting]
     return {
         "ok": ok,
         "version": version,
         "changelog_section_found": section is not None,
         "changelog_records_audit": changelog_ok,
+        "changelog_is_presentational": True,
         "audit_artifact": artifact,
+        "attesting_records": attesting,
+        "marker_only_records": marker_only,
         "reason": None if ok else (
-            f"no adversarial/N-lens audit recorded for {version}: the CHANGELOG [{version}] section "
-            "carries no lens/adversarial note and no audit_artifacts file names it — run the pre-tag "
-            "adversarial audit (master-prompt-v2) and record it before tagging (Front-Load §7)"),
+            f"no attesting pre-tag audit record for {version}: no file under audit_artifacts/"
+            f"{_version_token(version)}/ carries the canonical line "
+            f"'pre-tag-adversarial-audit: RUN | version={version}'"
+            + (f" (found {len(marker_only)} record(s) with a discipline marker but no attestation: "
+               f"{marker_only})" if marker_only else "")
+            + ". The CHANGELOG text is presentational and cannot grant this — run the pre-tag "
+              "adversarial audit and record it before tagging (Front-Load §7)"),
     }
 
 

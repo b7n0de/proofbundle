@@ -5,6 +5,38 @@ non-negotiable invariant: **the artifact published to PyPI is the exact artifact
 attested** — the release workflow builds once, attests those bytes, and gates the PyPI upload on
 a sha256 match. This checklist covers the human steps around that.
 
+## Release gate (answer this before asking for the Owner-GO)
+
+**No calendar, no cadence, no waiting period.** A release happens when it can answer the questions
+below, not because a date arrived. What is slowed down is vagueness, not speed — whoever can answer
+this list today releases today.
+
+Every line is checkable by someone else. "I think so" is not an answer.
+
+- [ ] **A written scope list exists** for this version: what is in, and what is explicitly out, with
+      one reason per line. For a PATCH the reason must survive the SemVer question: no semantic
+      change, no new obligation, no changed behaviour at a public interface. In doubt, leave it out
+      and say so in the list. Scope lists live in `docs/release_scope/<version>.md`.
+- [ ] **`scripts/check_version_and_changelog.py --external --require-external` is green.** Source
+      (`pyproject.toml`), the two derived files, the tracked prose places, PyPI and the project page
+      all state the same version. `--require-external` is deliberate here: at release time,
+      "we could not reach it" must block, because that is exactly when the number matters.
+- [ ] **No security-relevant work exists only locally**, in a stash or under `/tmp`. Measure it, do
+      not remember it: `git stash list` plus `git branch -r --contains <sha>` per entry.
+      `git rev-list --all --not --remotes` alone is NOT sufficient — it only sees `refs/stash`, i.e.
+      `stash@{0}`; older stash entries live in that ref's reflog and stay invisible to it.
+- [ ] **The CHANGELOG entry says explicitly whether semantics change.** For a PATCH the expected
+      sentence is that they do not.
+- [ ] **An adversarial deep-gate run holds a valid verdict on exactly this digest.** A verdict for an
+      earlier digest is not a verdict for this one (`scripts/pre_tag_audit_gate.py --strict` blocks
+      the build without the record).
+- [ ] **The external surfaces that must follow are named**, each with who pulls it: at minimum PyPI,
+      the README badge, the project page (version *and* the "checked on" line), and the description
+      of any open upstream pull request that states the version.
+
+The Owner-GO is asked for after this list is answered, not before. The release itself is a one-way
+door; the list is what makes it a decision instead of a habit.
+
 ## Release ordering (the tag comes last)
 
 The order below is the convention, not a suggestion. A release is a fact about `main` (or a
@@ -46,7 +78,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 ## Beta / pre-release (any future pre-release line)
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
-stable default has since moved on to the 3.x line (current: 3.7.0) and the `[experimental]` extra
+stable default has since moved on to the 4.x line (current: 4.0.0) and the `[experimental]` extra
 ships with normal releases.
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
@@ -96,5 +128,14 @@ after the merge (see *Release ordering* above).
 ```bash
 pip download proofbundle==X.Y.Z --no-deps -d /tmp/pb
 sha256sum /tmp/pb/*            # compare against the GitHub Release SHA256SUMS
+# or, with SHA256SUMS downloaded next to the artifacts, let the tool do the comparing.
+# --ignore-missing is required, not cosmetic: the command above fetches only the WHEEL, while
+# SHA256SUMS lists the wheel AND the sdist, so a plain `-c` reports the sdist line as
+# "No such file or directory / FAILED" on a perfectly good download. Measured, both failure
+# modes still fail: a wrong digest exits 1, and an empty directory exits 1 with
+# "no file was verified" — it does not pass silently when there is nothing to check.
+( cd /tmp/pb && sha256sum --ignore-missing -c SHA256SUMS )
+# to check both artifacts, fetch the sdist as well:
+#   pip download proofbundle==X.Y.Z --no-deps --no-binary :all: -d /tmp/pb
 gh attestation verify /tmp/pb/proofbundle-X.Y.Z-py3-none-any.whl --repo b7n0de/proofbundle
 ```

@@ -288,9 +288,23 @@ def evaluate_public_transparency(
         elif not witness_vkeys:
             statuses["WITNESS_QUORUM"] = "FAIL"
             errors.append("witnessQuorum required but no witness vkeys supplied (fail-closed)")
+        elif log_vkey is not None and cp._log_key_material_of(log_vkey) is None:
+            # DEEP-GATE re-gate F-9: THREE states, not two. A log_vkey was supplied but is unusable
+            # (malformed / surrogate name) — that is "not measurable", NOT "no log context". Treating it
+            # as no-context (log_key_material=None) silently switches the key-material exclusion off and
+            # lets the log vote in its own quorum under an alias with errors=[]. A relying party that
+            # SUPPLIED log context and had it silently dropped is exactly the hidden fail-open; fail-closed.
+            statuses["WITNESS_QUORUM"] = "FAIL"
+            errors.append("witnessQuorum: a log_vkey was supplied but is unusable (malformed) — the "
+                          "self-witness key-material exclusion cannot be applied, fail-closed")
         else:
             try:
-                ok, _ = cp.witness_quorum(signed_note, witness_vkeys, th)
+                # DEEP-GATE F-2: when a log_vkey is known, pass its key material so the audited log's own
+                # signing key never counts toward the quorum, whatever name a cosignature line claims
+                # (origin-quorum rule). log_vkey may be absent here (optional param) — then the name test
+                # still applies, and this surface is EXPERIMENTAL/unwired anyway.
+                log_km = cp._log_key_material_of(log_vkey) if log_vkey else None
+                ok, _ = cp.witness_quorum(signed_note, witness_vkeys, th, log_key_material=log_km)
                 statuses["WITNESS_QUORUM"] = "PASS" if ok else "FAIL"
                 if not ok:
                     errors.append(f"witness quorum not met (need {th} distinct witnesses)")
