@@ -1,0 +1,1 @@
+{"_type":"https://in-toto.io/Statement/v1","predicate":{"alpha":{"a":1,"b":2},"mid":[3,2,1],"zeta":1},"predicateType":"https://b7n0de.com/proofbundle/vector/v0.1","subject":[{"digest":{"sha256":"abababababababababababababababababababababababababababababababab"},"name":"vector-subject"}]}

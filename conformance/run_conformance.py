@@ -293,9 +293,130 @@ def _check_relation_statement(case: dict, case_dir: pathlib.Path, *, require_anc
     return _check_relation(case, case_dir, verb="relation-statement")
 
 
+def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_anchors: bool = False) -> dict:
+    """Phase 1 / R51: action-chain content-root vectors (`conformance/action_chain_content_roots/`).
+
+    Language-neutral golden pins for the ONE statement content-root primitive (ADR 0002,
+    `jcs-sha256-v1`): the pinned `.jcs` bytes must equal the canonical output, the pinned root must
+    recompute on BOTH sides of the two-part rule (object/producer and exact-bytes/verifier), a
+    cross-predicate reference must bind the referenced statement's root byte-for-byte, the declared
+    algorithm binding must reject an algorithm-confusion payload and accept the NAMED legacy wire,
+    and envelope signature blocks must never move the root. Four modes, each with a fail-closed
+    required-expectations floor (an under-declared case FAILs, it never passes green by asserting
+    nothing). Vectors are self-generated golden pins from this implementation at the pinned commit;
+    independent recomputation by a second implementation is OPEN (recorded in the case attribution
+    and the corpus README — a pin regression is caught, cross-implementation agreement is not yet
+    proven)."""
+    # The declared-algorithm binding gate lives in intoto (module-internal on purpose: it guards the
+    # DSSE verify paths). The vector exercises it as data so a second implementation can map the same
+    # payload/verdict pair onto its own binding check.
+    from proofbundle.intoto import _content_root_binding  # noqa: PLC0415
+    cid = case["caseId"]
+    exp = case["expected"]
+    mode = case.get("mode")
+
+    def _confined(name: str) -> pathlib.Path | None:
+        f = (case_dir / name).resolve()
+        if not str(f).startswith(str(case_dir.resolve()) + "/") or not f.is_file():
+            return None
+        return f
+
+    def _floor(keys: list[str]) -> list[str]:
+        return [k for k in keys if k not in exp]
+
+    if mode == "canonical":
+        missing = _floor(["jcsFile", "contentRoot", "objectAndBytesAgree"])
+        if missing:
+            return _fail(cid, f"under-declared (fail-closed): missing {missing}")
+        inp = _confined(case.get("input", "statement.json"))
+        jcs_f = _confined(exp["jcsFile"])
+        if inp is None or jcs_f is None:
+            return _fail(cid, "statement/jcs fixture missing or escapes the case directory")
+        statement = json.loads(inp.read_text(encoding="utf-8"))
+        canon = canonicalize_statement(statement)
+        jcs = jcs_f.read_bytes()
+        if canon != jcs:
+            return _fail(cid, "canonical output is not byte-identical to the pinned .jcs")
+        root_obj = _content_root_hex(statement)
+        root_bytes = statement_content_root(jcs).hex()
+        if root_obj != exp["contentRoot"]:
+            return _fail(cid, f"object-path root {root_obj} != pinned {exp['contentRoot']}")
+        if root_bytes != exp["contentRoot"]:
+            return _fail(cid, f"bytes-path root {root_bytes} != pinned {exp['contentRoot']}")
+        if bool(exp["objectAndBytesAgree"]) is not (root_obj == root_bytes):
+            return _fail(cid, "objectAndBytesAgree expectation does not match the measurement")
+        return {"caseId": cid, "ok": True, "detail": f"root {root_obj[:12]}… on both sides of the two-part rule"}
+
+    if mode == "pair_reference":
+        missing = _floor(["decisionRoot", "evidenceRoot", "evidenceRefBindsRoot",
+                          "decisionJcsFile", "evidenceJcsFile"])
+        if missing:
+            return _fail(cid, f"under-declared (fail-closed): missing {missing}")
+        dec_f = _confined(case.get("input", "decision.json"))
+        ev_f = _confined("evidence.json")
+        dj = _confined(exp["decisionJcsFile"])
+        ej = _confined(exp["evidenceJcsFile"])
+        if None in (dec_f, ev_f, dj, ej):
+            return _fail(cid, "pair fixtures missing or escape the case directory")
+        dec = json.loads(dec_f.read_text(encoding="utf-8"))
+        ev = json.loads(ev_f.read_text(encoding="utf-8"))
+        if canonicalize_statement(dec) != dj.read_bytes() or canonicalize_statement(ev) != ej.read_bytes():
+            return _fail(cid, "pinned .jcs bytes do not match canonical output")
+        dec_root = _content_root_hex(dec)
+        ev_root = _content_root_hex(ev)
+        if dec_root != exp["decisionRoot"] or ev_root != exp["evidenceRoot"]:
+            return _fail(cid, f"roots {dec_root[:12]}…/{ev_root[:12]}… != pinned")
+        refs = dec.get("predicate", {}).get("evidenceRefs") or []
+        bound = any(isinstance(r, dict) and r.get("digest", {}).get("sha256") == ev_root for r in refs)
+        if bound is not bool(exp["evidenceRefBindsRoot"]):
+            return _fail(cid, f"evidenceRef binding {bound} != expected {exp['evidenceRefBindsRoot']}")
+        return {"caseId": cid, "ok": True, "detail": f"decision {dec_root[:12]}… binds evidence {ev_root[:12]}…"}
+
+    if mode == "binding":
+        missing = _floor(["bindingOk", "alg"])
+        if missing:
+            return _fail(cid, f"under-declared (fail-closed): missing {missing}")
+        pay_f = _confined(case.get("input", "payload.bytes"))
+        if pay_f is None:
+            return _fail(cid, "payload fixture missing or escapes the case directory")
+        payload = pay_f.read_bytes()
+        statement = json.loads(payload.decode("utf-8"))
+        ok, alg, detail = _content_root_binding(statement, payload)
+        if ok is not bool(exp["bindingOk"]):
+            return _fail(cid, f"binding ok={ok} != expected {exp['bindingOk']} ({detail})")
+        if alg != exp["alg"]:
+            return _fail(cid, f"declared alg {alg!r} != expected {exp['alg']!r}")
+        return {"caseId": cid, "ok": True, "detail": f"binding {ok} under declared alg {alg}"}
+
+    if mode == "envelope_invariance":
+        missing = _floor(["contentRoot", "secondEnvelope"])
+        if missing:
+            return _fail(cid, f"under-declared (fail-closed): missing {missing}")
+        import base64  # noqa: PLC0415
+        env_a_f = _confined(case.get("input", "envelope_a.json"))
+        env_b_f = _confined(exp["secondEnvelope"])
+        if env_a_f is None or env_b_f is None:
+            return _fail(cid, "envelope fixtures missing or escape the case directory")
+        pay_a = base64.standard_b64decode(json.loads(env_a_f.read_text())["payload"])
+        pay_b = base64.standard_b64decode(json.loads(env_b_f.read_text())["payload"])
+        if pay_a != pay_b:
+            return _fail(cid, "the two envelopes do not carry the same payload bytes")
+        sig_a = json.loads(env_a_f.read_text()).get("signatures")
+        sig_b = json.loads(env_b_f.read_text()).get("signatures")
+        if sig_a == sig_b:
+            return _fail(cid, "vector degenerate: both envelopes carry identical signature blocks")
+        root = statement_content_root(pay_a).hex()
+        if root != exp["contentRoot"]:
+            return _fail(cid, f"root {root} != pinned {exp['contentRoot']}")
+        return {"caseId": cid, "ok": True, "detail": f"root {root[:12]}… invariant across differing signature blocks"}
+
+    return _fail(cid, f"unknown content_root_vector mode {mode!r} (fail-closed)")
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
              "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
-             "relation_statement": _check_relation_statement}
+             "relation_statement": _check_relation_statement,
+             "content_root_vector": _check_content_root_vector}
 
 
 def run(*, require_anchors: bool = False) -> int:

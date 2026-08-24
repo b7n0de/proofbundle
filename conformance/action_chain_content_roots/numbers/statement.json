@@ -1,0 +1,25 @@
+{
+ "_type": "https://in-toto.io/Statement/v1",
+ "subject": [
+  {
+   "name": "vector-subject",
+   "digest": {
+    "sha256": "abababababababababababababababababababababababababababababababab"
+   }
+  }
+ ],
+ "predicateType": "https://b7n0de.com/proofbundle/vector/v0.1",
+ "predicate": {
+  "int": 7,
+  "float_int": 1.0,
+  "exp": 100.0,
+  "neg_zero": -0.0,
+  "half": 0.5,
+  "big": 9007199254740991,
+  "list": [
+   0,
+   -1,
+   2.5
+  ]
+ }
+}

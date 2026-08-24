@@ -58,6 +58,15 @@
     "relation/statement-retracts-declared-unresolved",
     "relation/statement-supersedes-verified",
     "relation/statement-malformed",
-    "relation/wrong-payloadtype-target"
+    "relation/wrong-payloadtype-target",
+    "action_chain_content_roots/key-order",
+    "action_chain_content_roots/unicode",
+    "action_chain_content_roots/numbers",
+    "action_chain_content_roots/nested-arrays",
+    "action_chain_content_roots/unknown-top-field",
+    "action_chain_content_roots/cross-predicate-ref",
+    "action_chain_content_roots/negative-alg-confusion",
+    "action_chain_content_roots/legacy-absent-verifies",
+    "action_chain_content_roots/envelope-invariance"
   ]
 }

@@ -1,0 +1,16 @@
+{
+ "caseId": "content-root-envelope-invariance",
+ "kind": "content_root_vector",
+ "mode": "envelope_invariance",
+ "input": "envelope_a.json",
+ "expected": {
+  "contentRoot": "a0dd638f2904c16f5ff81c71b0fd1969f21d7d1f1d3e7534bcd98ca0b02dea76",
+  "secondEnvelope": "envelope_b.json"
+ },
+ "specRefs": [
+  "ADR 0002 (signature bytes never part of the preimage)",
+  "R29 axes 8+9"
+ ],
+ "rationale": "The root is computed over the STATEMENT payload bytes, never the envelope: two envelopes with different/multiple signature blocks over the same payload yield the SAME root (counter-signing and key rotation cannot move the action identity). Signatures here are DELIBERATELY fake — this vector pins root invariance, not signature validity.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

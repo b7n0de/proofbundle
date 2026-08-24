@@ -1,0 +1,17 @@
+{
+ "caseId": "content-root-key-order",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "378c93782ad45e7913e61a74c9925778a3a18351ab4e6b24d80a3c4e48ba64a9",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "RFC 8785 §3.2.3",
+  "ADR 0002"
+ ],
+ "rationale": "Key insertion order must not change the root: the input file stores keys unsorted; the pinned .jcs is the RFC 8785 canonical form.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

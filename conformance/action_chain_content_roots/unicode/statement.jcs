@@ -1,0 +1,1 @@
+{"_type":"https://in-toto.io/Statement/v1","predicate":{"emoji":"🔒","escape":"a\tb\"c\\d","schlüssel":"wert","text":"π ist grün — € 3,50"},"predicateType":"https://b7n0de.com/proofbundle/vector/v0.1","subject":[{"digest":{"sha256":"abababababababababababababababababababababababababababababababab"},"name":"vector-subject"}]}

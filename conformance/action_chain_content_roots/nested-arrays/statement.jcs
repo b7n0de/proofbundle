@@ -1,0 +1,1 @@
+{"_type":"https://in-toto.io/Statement/v1","predicate":{"bools":[true,false],"empty_obj":{},"matrix":[[1,[2,{"k":[3,4]}]],[]],"null_val":null},"predicateType":"https://b7n0de.com/proofbundle/vector/v0.1","subject":[{"digest":{"sha256":"abababababababababababababababababababababababababababababababab"},"name":"vector-subject"}]}

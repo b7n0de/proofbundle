@@ -1,0 +1,28 @@
+{
+ "_type": "https://in-toto.io/Statement/v1",
+ "subject": [
+  {
+   "name": "vector-subject",
+   "digest": {
+    "sha256": "abababababababababababababababababababababababababababababababab"
+   }
+  }
+ ],
+ "predicateType": "https://b7n0de.com/attestation/eval-result/v0.1",
+ "predicate": {
+  "verifier": {
+   "id": "https://b7n0de.com/proofbundle"
+  },
+  "suite": {
+   "name": "vector-suite"
+  },
+  "claims": [
+   {
+    "metric": "accuracy",
+    "comparator": ">=",
+    "threshold": 0.9,
+    "passed": true
+   }
+  ]
+ }
+}

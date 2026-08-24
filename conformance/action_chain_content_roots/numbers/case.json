@@ -1,0 +1,17 @@
+{
+ "caseId": "content-root-numbers",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "dc6c98580dd4209df666c0ca39599c16d9f397de184330c1ed950ea46f9a382a",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "RFC 8785 §3.2.2.3",
+  "ADR 0002"
+ ],
+ "rationale": "ECMAScript number serialization: 1.0 -> 1, 1e2 -> 100, -0.0 -> 0. Exactly the axis where json.dumps(sort_keys=True) and RFC 8785 diverge.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

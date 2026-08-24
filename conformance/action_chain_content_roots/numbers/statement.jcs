@@ -1,0 +1,1 @@
+{"_type":"https://in-toto.io/Statement/v1","predicate":{"big":9007199254740991,"exp":100,"float_int":1,"half":0.5,"int":7,"list":[0,-1,2.5],"neg_zero":0},"predicateType":"https://b7n0de.com/proofbundle/vector/v0.1","subject":[{"digest":{"sha256":"abababababababababababababababababababababababababababababababab"},"name":"vector-subject"}]}

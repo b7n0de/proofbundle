@@ -50,6 +50,16 @@ def load_cases(manifest_path: pathlib.Path = MANIFEST_PATH) -> list[tuple[str, d
     return out
 
 
+def _schema_kinds() -> set[str]:
+    """The allowed `kind` values, read from vector_schema.json — the ONE source. The fallback used to
+    carry its own literal copy of this enum and drifted (it was missing `relation_statement`, so with
+    jsonschema absent every relation_statement case flagged as unknown — fail-closed direction, but a
+    second measuring station for the same quantity). If the schema itself is unreadable that is a
+    loud corpus problem, not a silent empty set."""
+    schema = json.loads(SCHEMA_PATH.read_text())
+    return set(schema["properties"]["kind"]["enum"])
+
+
 def _structural_validate(case: dict) -> list[str]:
     """Dependency-free fallback for the fail-closed floor (used when jsonschema is absent).
     Deliberately conservative: it enforces exactly the invariants the runner relies on."""
@@ -57,8 +67,7 @@ def _structural_validate(case: dict) -> list[str]:
     for key in ("caseId", "kind", "expected"):
         if key not in case:
             errs.append(f"missing required key {key!r}")
-    if case.get("kind") not in {"decision_crossimpl", "native_bundle", "decision_relation",
-                                 "outcome_relation"}:
+    if case.get("kind") not in _schema_kinds():
         errs.append(f"unknown kind {case.get('kind')!r}")
     exp = case.get("expected")
     if not isinstance(exp, dict) or not exp:

@@ -1,0 +1,15 @@
+{
+ "caseId": "content-root-negative-alg-confusion",
+ "kind": "content_root_vector",
+ "mode": "binding",
+ "input": "payload.bytes",
+ "expected": {
+  "bindingOk": false,
+  "alg": "jcs-sha256-v1"
+ },
+ "specRefs": [
+  "ADR 0002 §1 algorithm-confusion guard"
+ ],
+ "rationale": "A json.dumps(sort_keys=True) body OFFERED as jcs-sha256-v1 must be rejected (1.0 stays '1.0' in sortkeys but becomes '1' in JCS) — the verifier byte-compares against the DECLARED algorithm and never falls back.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

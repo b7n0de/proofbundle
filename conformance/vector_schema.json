@@ -14,8 +14,13 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation", "relation_statement"],
-      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`)."
+      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation", "relation_statement", "content_root_vector"],
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`). content_root_vector (Phase 1 / R51) pins the ONE statement content-root primitive (ADR 0002): canonical bytes, roots on both sides of the two-part rule, cross-predicate root references, declared-algorithm binding (confusion rejected, named legacy accepted), and envelope-signature invariance."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["canonical", "pair_reference", "binding", "envelope_invariance"],
+      "description": "content_root_vector only: which check family the case exercises. An unknown/missing mode is a per-case FAIL (fail-closed)."
     },
     "input": {
       "type": "string",

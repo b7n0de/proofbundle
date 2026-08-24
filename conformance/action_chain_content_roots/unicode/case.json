@@ -1,0 +1,17 @@
+{
+ "caseId": "content-root-unicode",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "a5f3ff7d762f2a047326b4792df3e01e0d3cf54aefdbb33f753cc89d3b40f5c2",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "RFC 8785 §3.2.2.2",
+  "ADR 0002"
+ ],
+ "rationale": "Non-ASCII keys/values serialize as raw UTF-8 (no \\u escapes beyond the mandatory set); escaping is normalized per RFC 8785 §3.2.2.2.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}
