@@ -12,7 +12,7 @@ Companion data file: `CONTROL_PLANE_CONSUMER_MAP.json` (same directory, same gen
 | Repo | Commit | Context |
 |---|---|---|
 | proofbundle | `c669d39e3d8e8bf235ec1c03e40378cb146fba7a` | == `origin/main` at measurement; measured in a clean worktree on work branch `feat/control-plane-phase0-1-20260824`; the primary checkout carries unrelated in-flight work (7 dirty entries, another branch) and is untouched |
-| private producer repo ("2bedone") | `279d453224a5d5f5a1d9169fd3e33afdfcbf1073` | working tree carries 155 uncommitted entries (night work awaiting an owner commit token); the inventory reads the working tree because that is what the runtime executes |
+| private producer repo ("2bedone") | `279d4532209a262bea8f74725266fda49d0f80ce` | working tree carries 155 uncommitted entries (night work awaiting an owner commit token); the inventory reads the working tree because that is what the runtime executes |
 
 **Bound-snapshot comparison (R01): all 7 files the source document pinned are byte-identical
 with this commit** (sha256 table in the map). The reviewer's basis IS our current `origin/main`
@@ -34,9 +34,10 @@ Full per-entry evidence (file:line + observable effect, three states, never a gr
 `CONTROL_PLANE_CONSUMER_MAP.json`. The load-bearing findings:
 
 1. **Decision receipts have real, effect-verified consumers in both repos** — the privileged-click
-   adjudication (deny on missing/invalid witness decision), the review-receipt verifier, the
+   adjudication (Phase-A draft EMITTER; the verify + 403-deny lives in the witness, its own
+   entry — wording corrected after deep-gate lens 1), the review-receipt verifier, the
    land-attestation witness (separate unix user, exit codes gate landing), trust-policy lint,
-   CI gates.
+   CI gates, and three direct-import test consumers.
 2. **`safeForAutomation` has exactly ONE effective external reader** (`b7_review_receipt_verify`,
    gate branch on `is not True`) — and it uses the field exactly per the R27 semantics
    (verification-profile gate, never an action grant). Inside proofbundle nothing branches on it
@@ -75,6 +76,15 @@ Full per-entry evidence (file:line + observable effect, three states, never a gr
 - Non-statement digest sites (subject binders, disclosure hashes, labeled config-digest
   fallbacks) are distinct quantities and are listed as such in the map so nobody mistakes them
   for divergent content roots.
+
+### 3b. Lens-1 corrections (the gate worked)
+
+The adversarial deep-gate lens 1 REFUTED two claims of the first revision, both fixed here:
+the **in-browser verifier** `frontend/proofbundle/verify/app.js` (Pyodide runs
+`verify_bundle()` for any visitor; vendored wheel **3.6.3** while issuer/witness sign with
+**4.0.0** — recorded as finding BROWSER-VERIFIER-VENDORT-3.6.3-…-01, P2) was missing because
+the search set omitted `frontend/`; and the adjudication entry described the witness's
+verify-effect at an emit-site line. The search set is widened and recorded in the map.
 
 ## 5. Boundaries (in the map as `not_measurable`, not omitted)
 

@@ -67,6 +67,7 @@
     "action_chain_content_roots/cross-predicate-ref",
     "action_chain_content_roots/negative-alg-confusion",
     "action_chain_content_roots/legacy-absent-verifies",
-    "action_chain_content_roots/envelope-invariance"
+    "action_chain_content_roots/envelope-invariance",
+    "action_chain_content_roots/utf16-order"
   ]
 }

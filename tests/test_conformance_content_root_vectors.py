@@ -126,6 +126,125 @@ def test_property_confusion_rejected_legacy_accepted():
     assert ok_leg is True and alg_leg == "legacy-sortkeys-json-v0"
 
 
+# ─────────── Iteration-2 catch proofs (the deep-gate lens findings, each now bites) ───────────
+
+def test_catch_proof_bare_predicate_fails(tmp_path):
+    """Lens-2 P2: a bare predicate (no _type/subject/predicateType) passed green in iteration 1 —
+    this vector kind pins STATEMENT roots, so the full-Statement shape guard is now mandatory
+    (ADR 0002 §2). The handler either fails the case or raises (the runner's per-case try maps a
+    raise to a per-case FAIL — both are a caught defect, never a green)."""
+    import hashlib
+
+    from proofbundle.canonical import canonicalize_statement
+    from proofbundle.errors import ProofBundleError
+
+    d = tmp_path / "bare"
+    d.mkdir()
+    bare = {"verdict": "ALLOW", "decidedAt": "2026-08-24T00:00:00Z"}
+    jcs = canonicalize_statement(bare)   # deliberately WITHOUT the shape guard: build the fixture
+    (d / "statement.json").write_text(json.dumps(bare), encoding="utf-8")
+    (d / "statement.jcs").write_bytes(jcs)
+    case = {"caseId": "probe-bare", "kind": "content_root_vector", "mode": "canonical",
+            "input": "statement.json",
+            "expected": {"jcsFile": "statement.jcs",
+                         "contentRoot": hashlib.sha256(jcs).hexdigest(),
+                         "objectAndBytesAgree": True}}
+    try:
+        res = RC._check_content_root_vector(case, d)
+        assert not res["ok"], "bare predicate must never pass as a statement content-root vector"
+    except ProofBundleError as exc:
+        assert "Statement" in str(exc)
+
+
+def test_catch_proof_nonbinding_pair_fails(tmp_path):
+    """Lens-2 P1: a pair case declaring evidenceRefBindsRoot:false passed green with a detail line
+    CLAIMING a binding. The binding is now an unconditional floor: a false declaration fails, and
+    a pair whose decision does NOT bind the evidence root fails even when everything else is
+    consistent."""
+    import hashlib
+
+    from proofbundle.canonical import canonicalize_statement
+
+    src = VECTORS / "cross-predicate-ref"
+    d = tmp_path / "pair"
+    shutil.copytree(src, d)
+    case = json.loads((d / "case.json").read_text())
+
+    # (a) the switch-off itself fails
+    case_false = json.loads(json.dumps(case))
+    case_false["expected"]["evidenceRefBindsRoot"] = False
+    res = RC._check_content_root_vector(case_false, d)
+    assert not res["ok"] and "literally true" in res["detail"]
+
+    # (b) a consistent-but-non-binding pair fails on the unconditional floor
+    dec = json.loads((d / "decision.json").read_text())
+    dec["predicate"]["evidenceRefs"][0]["digest"]["sha256"] = "de" * 32
+    jcs = canonicalize_statement(dec, require_statement_shape=True)
+    (d / "decision.json").write_text(json.dumps(dec), encoding="utf-8")
+    (d / "decision.jcs").write_bytes(jcs)
+    case_nb = json.loads(json.dumps(case))
+    case_nb["expected"]["decisionRoot"] = hashlib.sha256(jcs).hexdigest()
+    res = RC._check_content_root_vector(case_nb, d)
+    assert not res["ok"]
+    assert "does not bind" in res["detail"]
+
+
+def test_catch_proof_string_false_is_not_a_boolean(tmp_path):
+    """Lens-3 F5: bool("false") is True — a JSON-string expectation must never satisfy a boolean
+    axis. All three boolean axes now demand real booleans (canonical/pair: literally true)."""
+    src = VECTORS / "key-order"
+    d = tmp_path / "ko"
+    shutil.copytree(src, d)
+    case = json.loads((d / "case.json").read_text())
+    case["expected"]["objectAndBytesAgree"] = "false"
+    res = RC._check_content_root_vector(case, d)
+    assert not res["ok"] and "literally true" in res["detail"]
+
+    src_b = VECTORS / "negative-alg-confusion"
+    db = tmp_path / "neg"
+    shutil.copytree(src_b, db)
+    case_b = json.loads((db / "case.json").read_text())
+    case_b["expected"]["bindingOk"] = "false"
+    res_b = RC._check_content_root_vector(case_b, db)
+    assert not res_b["ok"] and "JSON boolean" in res_b["detail"]
+
+
+def test_property_utf16_order_vector_discriminates():
+    """Lens-2 F3c gap: no vector exercised RFC 8785 §3.2.3's actual hard part (UTF-16 code-unit
+    ordering). The iteration-2 vector pins it: the astral key (U+1F512) precedes the BMP key
+    (U+FF00) in the canonical bytes — code-point or UTF-8-byte ordering would reverse them."""
+    d = VECTORS / "utf16-order"
+    jcs = (d / "statement.jcs").read_bytes()
+    i_astral = jcs.find("\U0001F512key".encode())
+    i_bmp = jcs.find("＀key".encode())
+    assert i_astral != -1 and i_bmp != -1
+    assert i_astral < i_bmp, "UTF-16 code-unit order puts the astral key first; anything else diverges"
+    assert "＀key" < "\U0001F512key" or True  # documentation: Python's code-point order is the reverse
+    assert sorted(["\U0001F512key", "＀key"])[0] == "＀key"
+
+
+def test_property_receipt_root_delegates_to_the_one_canonicalizer(monkeypatch):
+    """Lens-2 F3a-2: anchors.receipt_canonical_root was a second inline rfc8785+budget copy (the
+    duplication had already cost a double fix). It now routes through canonical.canonicalize_statement
+    — measured by a call-spy, and the output stays byte-stable."""
+    import hashlib
+
+    from proofbundle import anchors, canonical
+
+    calls = []
+    echt = canonical.canonicalize_statement
+
+    def spion(obj, **kw):
+        calls.append(1)
+        return echt(obj, **kw)
+
+    monkeypatch.setattr(canonical, "canonicalize_statement", spion)
+    bundle = {"schema": "probe", "n": 1.0, "u": "ü"}
+    root = anchors.receipt_canonical_root(bundle)
+    assert calls, "receipt_canonical_root no longer delegates to the one canonicalizer"
+    assert root == hashlib.sha256(echt(bundle)).digest()
+
+
 def test_schema_and_fallback_share_one_kind_source():
     """The class fix behind the drift found while adding this kind: the dependency-free fallback
     in cross_format.py used to carry its OWN literal copy of the kind enum and had already drifted

@@ -328,12 +328,22 @@ def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_an
         missing = _floor(["jcsFile", "contentRoot", "objectAndBytesAgree"])
         if missing:
             return _fail(cid, f"under-declared (fail-closed): missing {missing}")
+        # Lens-3 finding (iteration 2): bool("false") is True — a JSON-string expectation must never
+        # satisfy a boolean axis. The agreement of the two sides is DEFINITIONAL for this mode, so the
+        # declaration must be literally true (the schema pins it as const:true; this is the
+        # dependency-free floor for a run without jsonschema).
+        if exp["objectAndBytesAgree"] is not True:
+            return _fail(cid, "objectAndBytesAgree must be literally true (JSON boolean) — the "
+                              "two-part-rule agreement is the defining property of this mode")
         inp = _confined(case.get("input", "statement.json"))
         jcs_f = _confined(exp["jcsFile"])
         if inp is None or jcs_f is None:
             return _fail(cid, "statement/jcs fixture missing or escapes the case directory")
         statement = json.loads(inp.read_text(encoding="utf-8"))
-        canon = canonicalize_statement(statement)
+        # Lens-2 finding (iteration 2): a bare predicate passed green — this vector kind pins
+        # STATEMENT roots, so the full-Statement shape guard is mandatory (ADR 0002 §2; the guard
+        # exists in canonical.py for exactly this context-confusion class).
+        canon = canonicalize_statement(statement, require_statement_shape=True)
         jcs = jcs_f.read_bytes()
         if canon != jcs:
             return _fail(cid, "canonical output is not byte-identical to the pinned .jcs")
@@ -343,8 +353,6 @@ def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_an
             return _fail(cid, f"object-path root {root_obj} != pinned {exp['contentRoot']}")
         if root_bytes != exp["contentRoot"]:
             return _fail(cid, f"bytes-path root {root_bytes} != pinned {exp['contentRoot']}")
-        if bool(exp["objectAndBytesAgree"]) is not (root_obj == root_bytes):
-            return _fail(cid, "objectAndBytesAgree expectation does not match the measurement")
         return {"caseId": cid, "ok": True, "detail": f"root {root_obj[:12]}… on both sides of the two-part rule"}
 
     if mode == "pair_reference":
@@ -358,9 +366,18 @@ def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_an
         ej = _confined(exp["evidenceJcsFile"])
         if None in (dec_f, ev_f, dj, ej):
             return _fail(cid, "pair fixtures missing or escape the case directory")
+        # Lens-2 finding (iteration 2): the binding is the DEFINING property of this mode — the older
+        # sibling handler (_check_decision_crossimpl) asserts it unconditionally, and this one made it
+        # expectation-switchable (a probe case declaring evidenceRefBindsRoot:false passed green with a
+        # detail line CLAIMING a binding). The declaration must be literally true, and the measured
+        # binding is an unconditional floor. Lens-3: literal-True also closes the bool("false") trap.
+        if exp["evidenceRefBindsRoot"] is not True:
+            return _fail(cid, "evidenceRefBindsRoot must be literally true (JSON boolean) — the "
+                              "cross-predicate binding is the defining property of this mode")
         dec = json.loads(dec_f.read_text(encoding="utf-8"))
         ev = json.loads(ev_f.read_text(encoding="utf-8"))
-        if canonicalize_statement(dec) != dj.read_bytes() or canonicalize_statement(ev) != ej.read_bytes():
+        if (canonicalize_statement(dec, require_statement_shape=True) != dj.read_bytes()
+                or canonicalize_statement(ev, require_statement_shape=True) != ej.read_bytes()):
             return _fail(cid, "pinned .jcs bytes do not match canonical output")
         dec_root = _content_root_hex(dec)
         ev_root = _content_root_hex(ev)
@@ -368,8 +385,9 @@ def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_an
             return _fail(cid, f"roots {dec_root[:12]}…/{ev_root[:12]}… != pinned")
         refs = dec.get("predicate", {}).get("evidenceRefs") or []
         bound = any(isinstance(r, dict) and r.get("digest", {}).get("sha256") == ev_root for r in refs)
-        if bound is not bool(exp["evidenceRefBindsRoot"]):
-            return _fail(cid, f"evidenceRef binding {bound} != expected {exp['evidenceRefBindsRoot']}")
+        if not bound:
+            return _fail(cid, "evidenceRefs[*].digest does not bind the evidence content root "
+                              "(unconditional floor — a non-binding pair is not a valid vector)")
         return {"caseId": cid, "ok": True, "detail": f"decision {dec_root[:12]}… binds evidence {ev_root[:12]}…"}
 
     if mode == "binding":
@@ -379,10 +397,15 @@ def _check_content_root_vector(case: dict, case_dir: pathlib.Path, *, require_an
         pay_f = _confined(case.get("input", "payload.bytes"))
         if pay_f is None:
             return _fail(cid, "payload fixture missing or escapes the case directory")
+        # Lens-3 finding (iteration 2): bool("false") is True — bindingOk must be a real JSON boolean.
+        # This mode legitimately pins BOTH verdicts (a rejected confusion payload AND an accepted
+        # legacy payload), so True and False are both valid declarations — but nothing else is.
+        if not isinstance(exp["bindingOk"], bool):
+            return _fail(cid, f"bindingOk must be a JSON boolean, got {type(exp['bindingOk']).__name__}")
         payload = pay_f.read_bytes()
         statement = json.loads(payload.decode("utf-8"))
         ok, alg, detail = _content_root_binding(statement, payload)
-        if ok is not bool(exp["bindingOk"]):
+        if ok is not exp["bindingOk"]:
             return _fail(cid, f"binding ok={ok} != expected {exp['bindingOk']} ({detail})")
         if alg != exp["alg"]:
             return _fail(cid, f"declared alg {alg!r} != expected {exp['alg']!r}")

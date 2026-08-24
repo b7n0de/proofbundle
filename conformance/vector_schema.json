@@ -80,7 +80,18 @@
           "description": "Decision predicate verdict, when the case exercises one."
         },
         "rejected": {"type": "boolean"},
-        "errorContains": {"type": "string"}
+        "errorContains": {"type": "string"},
+        "contentRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "content_root_vector: the pinned 64-hex statement content root."},
+        "decisionRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "evidenceRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "objectAndBytesAgree": {"const": true, "description": "content_root_vector canonical mode: definitional — must be literally true (iteration 2, lens 3: bool('false') is True, so a string here was exploitable; the handler enforces the same floor dependency-free)."},
+        "evidenceRefBindsRoot": {"const": true, "description": "content_root_vector pair_reference mode: definitional — must be literally true; the measured binding is additionally an unconditional handler floor (iteration 2, lens 2)."},
+        "bindingOk": {"type": "boolean", "description": "content_root_vector binding mode: JSON boolean only — both verdicts are valid declarations (confusion rejected / legacy accepted)."},
+        "jcsFile": {"type": "string"},
+        "decisionJcsFile": {"type": "string"},
+        "evidenceJcsFile": {"type": "string"},
+        "secondEnvelope": {"type": "string"},
+        "alg": {"type": "string"}
       }
     },
     "crossFormatId": {

@@ -31,8 +31,9 @@
     },
     "private_producer_repo": {
       "note": "referred to as `2bedone`; paths are repo-relative only (no hosts, no users, no absolute paths — data-minimization per R76); branch name withheld (internal naming policy), the commit hash pins the state",
-      "commit": "279d453224a5d5f5a1d9169fd3e33afdfcbf1073",
-      "worktree": "155 uncommitted entries at measurement time (night work awaiting an owner commit token) — inventory reads the working tree, i.e. the state the runtime actually executes"
+      "commit": "279d4532209a262bea8f74725266fda49d0f80ce",
+      "worktree": "155 uncommitted entries at measurement time (night work awaiting an owner commit token) — inventory reads the working tree, i.e. the state the runtime actually executes",
+      "commit_herkunft": "MEASURED via git rev-parse HEAD on 2026-08-24 (iteration 2). The first revision carried a FABRICATED value: a real 9-char short id completed with invented hex — refuted by deep-gate lens 3 (the private repo's known error class 'wrote numbers instead of measuring them', instance recorded). One measurement feeds both artifacts."
     }
   },
   "categories": {
@@ -84,9 +85,10 @@
       },
       {
         "repo": "2bedone",
-        "where": "scripts/b7_b7priv_adjudikation.py:244",
+        "where": "scripts/b7_b7priv_adjudikation.py:244-247",
         "effect": "effect_verified",
-        "evidence": "imports proofbundle.decision; witness ALLOW decision is verified before a privileged owner click is accepted — failure path denies (403 decision_missing class)"
+        "evidence": "imports proofbundle.decision and EMITS/SIGNS the Phase-A decision-receipt DRAFT (emit_decision_receipt at :247, inside draft()) — a producer-side consumer. The VERIFY of the witness ALLOW and the 403-deny of the owner click happen in deploy/b7-runner/run_and_sign.py (_verify_adjudication_allow), which this map lists as its own entry. CORRECTED after deep-gate lens 1: the first wording dressed this emit site with the verifier's effect — exactly the class the map's own rule forbids.",
+        "role": "producer"
       },
       {
         "repo": "2bedone",
@@ -141,6 +143,12 @@
         "where": "scripts/lib/un_review_signer.py:213 + scripts/lib/b7_proofbundle_signer.py:55,109",
         "effect": "effect_verified",
         "evidence": "signers produce receipt bundles that third parties verify with `proofbundle verify` (verification effect measured by existing receipt records)"
+      },
+      {
+        "repo": "2bedone",
+        "where": "tests/test_review_receipt_adapter_verify.py · tests/test_review_deepgate_fixes.py · tests/test_b7priv_zeuge_decision_conditioning.py (direct proofbundle imports)",
+        "effect": "effect_verified",
+        "evidence": "test consumers asserting the listed producers' behavior (CI-gating assertions); added after lens 1 widened the search set"
       }
     ],
     "3_outcome_consumers": [
@@ -367,6 +375,12 @@
         "where": ".claude/hooks/ (4 files)",
         "effect": "name_mention_only",
         "evidence": "comments/labels only; no predicate consumption"
+      },
+      {
+        "repo": "2bedone",
+        "where": "frontend/proofbundle/verify/app.js:23,34-35,79-86",
+        "effect": "effect_verified",
+        "evidence": "public in-browser verifier (Pyodide/WASM): vendors and micropip-installs the wheel proofbundle-3.6.3-py3-none-any.whl, runs verify_bundle() on visitor-supplied bundles and renders the pass/fail verdict on the page. Maintained surface (NOTICE.md re-vendor procedure, SRI pins in index.html:125-126, byte-pin doctor scripts/b7_verify_bytes_integrity_doctor.py). FOUND BY deep-gate lens 1 — the original search set omitted frontend/. NOTE: the vendored wheel is 3.6.3 while the published/witness/agent version is 4.0.0 — the public page verifies with a two-majors-older tool than the issuer signs with; recorded as finding BROWSER-VERIFIER-VENDORT-3.6.3-WAEHREND-ZEUGE-4.0.0-SIGNIERT-01 (P2) in the private repo's finding queue. The version-parity doctor covers agent+witness venvs only, not this third verifying surface."
       }
     ],
     "11_boundaries_not_measurable": [
@@ -388,8 +402,11 @@
     ]
   },
   "completeness": {
-    "search_set": "proofbundle: src/ + tests/ + docs/ + pyproject (patterns: safeForAutomation, execution_proven, statement_content_root, canonicalize_statement, sort_keys, CONTENT_ROOT_ALG, add_parser, __all__, entry-points). 2bedone: scripts/ backend/ deploy/ evals/ .claude/hooks/ + user crontab (patterns: import/from proofbundle, proofbundle CLI verbs, safeForAutomation, execution_proven, b7_aktionsobjekt, aktionsobjekte.jsonl).",
+    "search_set": "proofbundle: src/ + tests/ + docs/ + pyproject (patterns: safeForAutomation, execution_proven, statement_content_root, canonicalize_statement, sort_keys, CONTENT_ROOT_ALG, add_parser, __all__, entry-points). 2bedone: scripts/ backend/ deploy/ evals/ .claude/hooks/ + user crontab (patterns: import/from proofbundle, proofbundle CLI verbs, safeForAutomation, execution_proven, b7_aktionsobjekt, aktionsobjekte.jsonl). WIDENED after deep-gate lens 1: + frontend/ (found the in-browser verifier), + tests/ (top-level, found 3 direct-import test consumers), + .github/workflows (wraps only already-listed scripts), + apps/ Swift (name mentions only, consistent with category 9), + office/ + architecture/ (no further effect consumers).",
     "recall_caveat": "name-based search defines recall: a consumer that shells out to the CLI under an aliased path or reads receipt JSON without naming proofbundle would be missed; mitigated by also searching predicate-type strings and field names, not just the package name"
   },
-  "gate_r50": "PASS — every category enumerated with per-entry effect state; unmeasurable surfaces are IN the map as not_measurable entries, not omitted"
+  "gate_r50": "PASS — every category enumerated with per-entry effect state; unmeasurable surfaces are IN the map as not_measurable entries, not omitted",
+  "lens_findings": {
+    "deep_gate_lens_1": "F1 REFUTED (browser verifier missing -> added) · F2 REFUTED (adjudication evidence described the wrong file's effect -> corrected). Both fixes in this revision; the gate worked as designed."
+  }
 }

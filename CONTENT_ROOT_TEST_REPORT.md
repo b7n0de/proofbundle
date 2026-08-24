@@ -51,3 +51,19 @@ recomputation is the follow-up (the clamp sheet's gate wording allows exactly th
 Unifying further — removing or re-defaulting the NAMED legacy acceptance
 (`legacy-sortkeys-json-v0`, absent-field semantics) — would be a backwards-incompatible change to
 a public predicate surface. That is an owner decision and was NOT taken in this phase.
+
+## Iteration 2 (after the adversarial gate)
+
+The deep-gate jury refuted five claims of iteration 1 (see `CONTENT_ROOT_CONTRACT.md` §7 for the
+finding→fix table). Re-measured after the fixes, all at the iteration-2 work-branch state:
+
+| Run | Result |
+|---|---|
+| Conformance corpus (now incl. the 10th `utf16-order` vector) | **67/67 cases pass** |
+| Vector + harness tests (now incl. 5 iteration-2 catch proofs) | **32 passed, 1 skipped** (6.3 s) |
+| Full suite (re-run because `anchors.py::receipt_canonical_root` now delegates to the one canonicalizer) | **2156 passed, 176 skipped, 553 subtests, exit 0** (95.9 s — grew by exactly the 5 new catch-proof tests; first written down BEFORE the run finished and corrected after: the fabrication class lens 3 caught, caught once more in the act) |
+| Lint over all changed files | **All checks passed** |
+
+The lens exploits themselves are now the regression suite: the bare-predicate case, the
+non-binding pair, and the `"false"`-string declaration each FAIL the fixed handler (executed in
+the catch-proof tests), and the UTF-16 discriminator property is asserted on the shipped bytes.

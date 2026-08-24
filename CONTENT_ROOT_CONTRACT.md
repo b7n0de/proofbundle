@@ -32,7 +32,7 @@ Every emit/verify path of the predicate classes named in R28 delegates to the on
 | verification-summary | `verification_summary.py:141`; SVR DSSE export `intoto.py:562-614` (default `CONTENT_ROOT_ALG`) | jcs-sha256-v1 (default) |
 | run-ledger | `run_ledger.py:190` | jcs-sha256-v1 |
 | eval-result / test-result DSSE exports | `intoto.py:140-155` (`_serialize_statement`, default `CONTENT_ROOT_ALG`) | jcs-sha256-v1 (default), named legacy opt-in |
-| subject-binding | `subject_binding.py:38` | jcs-sha256-v1 |
+| subject-binding (statement scope) | `subject_binding.py:38` (canonical delegate) — the module ALSO hosts the predicate-scope subject-digest derivation at `:46`, which is NOT a statement root (see §4) | jcs-sha256-v1 |
 
 **Gate verdict (R51): on the same statement bytes every relevant existing predicate path produces
 the same root** — the verifier side hashes exact bytes everywhere, and every producer path
@@ -61,15 +61,41 @@ To keep future audits from miscounting, these digest sites are different quantit
 out of scope for this contract: subject binder digests (`intoto.py:279-284,394-399` — flat
 fixed-key scalar objects), per-sample disclosure hashes (`persample.py:104`), the hf bundle digest
 (`hf_evals.py:56`), and the LABELED config-digest fallbacks in the adapters
-(`adapters/_provenance.py:53`, `adapters/eee.py:139`).
+(`adapters/_provenance.py:53`, `adapters/eee.py:139`, `adapters/promptfoo.py:96-98`).
+
+**Added in iteration 2 (deep-gate lens 2 refuted the first enumeration as incomplete):**
+
+* **The `sha256(JCS(predicate))` subject-digest family** — seven sites, one per predicate module
+  (`decision.py:387`, `outcome.py:407`, `relation_statement.py:126`, `run_ledger.py:210`,
+  `verification_summary.py:161`, `trust_pack.py:313`, `subject_binding.py:46`). This is a
+  PREDICATE-scope commitment used as the Statement's `subject.digest` — deliberately NOT the
+  full-Statement content root (a subject cannot contain the hash of the statement it is part of).
+  Both values are 64-hex and both travel in fields named `digest.sha256`; measured on the shipped
+  cross-impl fixture they differ (statement root `19d6c23eecc9…` vs subject digest
+  `f8f27c96d173…`). Any audit counting "roots" must keep these two families apart.
+* **The relation edge-digest sharpness:** `relation.py:131-133` validates `targetReceiptDigest`
+  (a statement root) and `targetSubjectDigest` (a predicate-scope subject digest) with one
+  `_validate_edge_digest` under the single alg id of `relation.py:48`. The two fields carry
+  different preimages under the same label — semantically distinguished by FIELD NAME, not by
+  algorithm id. Recorded here as a documented sharpness; changing the wire (separate alg ids or
+  a scope marker) would be a public-surface decision, not a Phase-1 act.
+* **`anchors.receipt_canonical_root`** (bundle-scope receipt-anchor root) — was a second inline
+  rfc8785+budget implementation (the duplication had already cost the same structural-budget fix
+  twice, rounds 5 and 7); since iteration 2 it delegates to the one canonicalizer home while
+  keeping its anchor-layer `BundleFormatError` contract. The QUANTITY stays distinct
+  (bundle scope, no Statement shape requirement).
 
 ## 5. Conformance vectors
 
-`conformance/action_chain_content_roots/` — 9 cases, kind `content_root_vector`, run by
+`conformance/action_chain_content_roots/` — 10 cases, kind `content_root_vector`, run by
 `conformance/run_conformance.py` (same harness, same manifest, no second runner):
 
 * canonical: key order · unicode · number formatting (1.0→1, 1e2→100, −0→0) · nested arrays ·
-  unknown top-level field (root MUST change);
+  unknown top-level field (root MUST change) · **UTF-16 code-unit ordering (RFC 8785 §3.2.3's
+  hard part: an astral-plane key sorts before a BMP key under UTF-16 code units and after it
+  under code points/UTF-8 — added in iteration 2 after lens 2 measured that no vector
+  discriminated this axis; a second implementation using its language's default sort passes
+  every other vector and diverges exactly here)**;
 * pair_reference: a decision statement binds an evidence statement by its root, recomputed from
   pinned bytes;
 * binding: algorithm confusion rejected / named legacy accepted — the declared-alg gate as data;
@@ -89,3 +115,22 @@ The existing `decision_crossimpl` cases (second independent implementation, Mark
 prove cross-impl agreement for the decision pair; extending that to this vector set is the open
 follow-up (R51 gate wording: "Cross Language Vektoren werden vorbereitet oder als offen markiert"
 — they are prepared, and marked open).
+
+## 7. Iteration 2 — what the adversarial gate refuted, and what changed
+
+The deep-gate jury (three diverse lenses + one non-Claude local reviewer) ran against the
+iteration-1 commit and REFUTED five claims. Every refutation is fixed and bound by a catch proof
+in `tests/test_conformance_content_root_vectors.py`:
+
+| Lens finding | Fix |
+|---|---|
+| a bare predicate passed as a "statement" vector (ADR 0002 §2 context-confusion class) | `require_statement_shape=True` in the canonical and pair modes; catch proof `test_catch_proof_bare_predicate_fails` |
+| the pair-mode evidence binding was expectation-switchable, with a PASS line claiming a binding it had measured as absent | binding is an unconditional floor and the declaration must be literally true; catch proof `test_catch_proof_nonbinding_pair_fails` |
+| `bool("false") is True` — a JSON-string expectation satisfied a boolean axis (handler AND schema were open) | literal-boolean floors in the handler + `const: true` / `type: boolean` in the schema; catch proof `test_catch_proof_string_false_is_not_a_boolean` |
+| no vector discriminated RFC 8785 §3.2.3's UTF-16 code-unit ordering (a code-point-sorting second implementation passed everything) | 10th vector `utf16-order` (astral-vs-BMP key pair), property test `test_property_utf16_order_vector_discriminates` |
+| §4's distinct-quantities list was incomplete (subject-digest family, relation edge-digest sharpness, promptfoo site) and `anchors.receipt_canonical_root` was a second inline canonicalizer implementation | §4 extended above; `receipt_canonical_root` now delegates to the one canonicalizer home (call-spy test `test_property_receipt_root_delegates_to_the_one_canonicalizer`) |
+
+The 9 iteration-1 pins themselves WITHSTOOD independent recomputation (rfc8785+hashlib only, no
+proofbundle import): every `.jcs` byte-identical, every root reproduced, and both `binding`
+vectors genuinely discriminate (the payloads are valid sortkeys AND invalid JCS, with
+`1.0` vs `1` as the measured divergence).

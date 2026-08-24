@@ -114,21 +114,24 @@ def _b64d(value, field: str) -> bytes:
 
 def receipt_canonical_root(bundle: dict) -> bytes:
     """The RFC 8785 (JCS) sha256 of the receipt bundle — the canonical root a ``receipt`` anchor stamps.
-    Uses a real RFC 8785 canonicalizer (the ``[anchors]``/``[eval]`` extra); never a home-grown sort."""
-    try:
-        import rfc8785  # noqa: PLC0415
-    except ImportError as exc:   # pragma: no cover - guarded by the extra
-        raise BundleFormatError(
-            "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
-    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
+
+    A BUNDLE-scope quantity, deliberately distinct from the STATEMENT content root (no Statement
+    shape requirement — a receipt bundle is not an in-toto Statement). Since the R51 unification
+    pass (deep-gate lens finding, 2026-08-24) the JCS mechanics come from the ONE canonicalizer
+    home ``canonical.canonicalize_statement`` instead of a second inline rfc8785+budget copy: the
+    duplication had already cost a double fix (the round-5 structural-budget guard on the peer had
+    to be re-applied here in round 7). The anchor-layer error contract is preserved: every failure
+    is the documented ``BundleFormatError``, never a raw error and never a foreign exception type."""
     from .errors import ProofBundleError  # noqa: PLC0415
     try:
-        # adversarial re-audit round 7: bound depth (<=64) / node count BEFORE rfc8785.dumps recurses — a deeply
-        # nested bundle made rfc8785.dumps raise a raw RecursionError (a RuntimeError, NOT the ValueError arm
-        # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
-        # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
-        enforce_structural_budget(bundle)
-        return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+        from .canonical import CanonicalizerUnavailable, canonicalize_statement  # noqa: PLC0415
+        try:
+            # canonicalize_statement enforces the structural budget BEFORE rfc8785 recurses (its
+            # round-5 guard) — the round-7 duplicate here is gone with the delegation.
+            return hashlib.sha256(canonicalize_statement(bundle)).digest()
+        except CanonicalizerUnavailable as exc:   # pragma: no cover - guarded by the extra
+            raise BundleFormatError(
+                "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
     except BundleFormatError:
         raise
     except (ProofBundleError, ValueError, RecursionError) as exc:
