@@ -1,0 +1,395 @@
+{
+  "schema": "proofbundle.control-plane-consumer-map.v0.1",
+  "generated_utc": "2026-08-24T07:57:43Z",
+  "phase": "Phase 0 / R50 (source-of-truth inventory)",
+  "order": "20260824T071500Z (clamp sheet) over umsetzungsprompt sha256 1bfc06cefd284867271862808e4929bf7070aa8c3eb5b1ad168356a3e9891709",
+  "rule": "A source-text hit is NOT a consumer. Every entry carries whether the consumer has an observable effect, with file:line evidence. No evidence -> not_measurable, never an empty or green cell.",
+  "effect_states": [
+    "effect_verified",
+    "name_mention_only",
+    "not_measurable",
+    "measured_empty"
+  ],
+  "repos": {
+    "proofbundle": {
+      "commit": "c669d39e3d8e8bf235ec1c03e40378cb146fba7a",
+      "context": "== origin/main at measurement time; local branch `main` is behind (6f7535696d81); measured in a clean worktree at this commit",
+      "version_reported": "4.0.0 (src import at pinned commit)",
+      "main_checkout_worktree": "carries unrelated in-flight work (7 dirty entries on another branch) — explicitly NOT part of this measurement and untouched",
+      "bound_snapshots_r01": {
+        "verdict": "ALL 7 IDENTICAL byte-for-byte with the source document's pinned snapshots",
+        "files": {
+          "README.md": "9a0468dfd5236d1fe08078107cd31199dda39decc5c959e5f4633b72efc131f6",
+          "pyproject.toml": "0a345fa894e0d7d83163cc44f671b2e3bb2f055a8e16aea103b025a0fda0e2c0",
+          "docs/predicates/decision-receipt.md": "dfc85f2b9b3d5c9b69a80e98062be85a046f5021cc52f0771290c31fca4d9335",
+          "docs/predicates/action-outcome.md": "a8fdeefd698f0fa980ca84f9e319e1728ccc5b8958adbc54123603a3416acf88",
+          "src/proofbundle/decision.py": "4e10569e02aef7f650ea8276bcdc6a946354e27c9bb0c7211de13856d02bd1aa",
+          "src/proofbundle/outcome.py": "925a0c4e696aa760238c6689a0989c27851304b211c5524a97d326ccaeb4d101",
+          "src/proofbundle/automation_verdict.py": "c336b8c449318913c8e1994b7bcd54bf70247023c0fb8f5aae75326564284cda"
+        }
+      }
+    },
+    "private_producer_repo": {
+      "note": "referred to as `2bedone`; paths are repo-relative only (no hosts, no users, no absolute paths — data-minimization per R76); branch name withheld (internal naming policy), the commit hash pins the state",
+      "commit": "279d453224a5d5f5a1d9169fd3e33afdfcbf1073",
+      "worktree": "155 uncommitted entries at measurement time (night work awaiting an owner commit token) — inventory reads the working tree, i.e. the state the runtime actually executes"
+    }
+  },
+  "categories": {
+    "1_public_api_and_cli_proofbundle": {
+      "python_api": {
+        "exports": 57,
+        "evidence": "src/proofbundle/__init__.py __all__ (runtime len at pinned commit)"
+      },
+      "cli_subcommands": [
+        "verify",
+        "emit",
+        "emit-eval",
+        "show-eval",
+        "verify-proof",
+        "hf-token",
+        "audit-challenge",
+        "verify-opening",
+        "verify-enclave",
+        "demo",
+        "intoto",
+        "svr",
+        "policy",
+        "prereg",
+        "evalcard",
+        "decision",
+        "outcome",
+        "relation-statement",
+        "anchor"
+      ],
+      "cli_evidence": "runtime --help at pinned commit (PYTHONPATH=worktree src); 19 top-level subcommands, several with nested init/emit/inspect/verify",
+      "entry_points": {
+        "console": "proofbundle = proofbundle.cli:main (pyproject [project.scripts])",
+        "inspect_ai": "proofbundle._inspect_registry (opt-in auto-emit)",
+        "pytest11": "proofbundle.pytest_plugin"
+      }
+    },
+    "2_decision_consumers": [
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/cli.py (decision verify subcommand)",
+        "effect": "effect_verified",
+        "evidence": "cli exit codes + printed verdict; decision.py:730 computes content root inside verify"
+      },
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/decision.py:330,637",
+        "effect": "effect_verified",
+        "evidence": "evidenceRefs/relation subject roots recomputed and compared during verify (mismatch fails)"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/b7_b7priv_adjudikation.py:244",
+        "effect": "effect_verified",
+        "evidence": "imports proofbundle.decision; witness ALLOW decision is verified before a privileged owner click is accepted — failure path denies (403 decision_missing class)"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_review_receipt_verify.py:49-158",
+        "effect": "effect_verified",
+        "evidence": "verifies review decision receipts; builds fail-closed verdict shells (lines 59, 82) and gates on automation.safeForAutomation is True (line 158)"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_review_receipt_adapter.py:252-315",
+        "effect": "effect_verified",
+        "evidence": "statement_content_root_hex(envelope) via proofbundle.anchors+dsse; content_root lands in the review record consumed downstream"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_reviewer_trust_policy.py:54,108",
+        "effect": "effect_verified",
+        "evidence": "DECISION_RECEIPT_PREDICATE_TYPE pin + policy load/lint decide reviewer trust (PolicyError rejects)"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_review_result.py:66",
+        "effect": "effect_verified",
+        "evidence": "loads_strict parses receipts fail-closed (duplicate keys rejected) — deliberately NOT reimplemented"
+      },
+      {
+        "repo": "2bedone",
+        "where": "deploy/b7-runner/run_and_sign.py:1292,2494",
+        "effect": "effect_verified",
+        "evidence": "witness (separate unix user) emits/verifies decision receipts for land attestation; exit codes gate landing"
+      },
+      {
+        "repo": "2bedone",
+        "where": "deploy/b7priv/test_b7priv.py:79",
+        "effect": "effect_verified",
+        "evidence": "root-channel test asserts decision verification behavior"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/no_false_pass_gate.py:525",
+        "effect": "effect_verified",
+        "evidence": "cmd proofbundle-verify: CLI gate command with exit code"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/b7_berkeley_gate_receipt.py:172",
+        "effect": "effect_verified",
+        "evidence": "deep-gate run receipts emitted/verified via proofbundle; runs/*.proofbundle.json artifacts exist"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/un_review_signer.py:213 + scripts/lib/b7_proofbundle_signer.py:55,109",
+        "effect": "effect_verified",
+        "evidence": "signers produce receipt bundles that third parties verify with `proofbundle verify` (verification effect measured by existing receipt records)"
+      }
+    ],
+    "3_outcome_consumers": [
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/outcome.py:646-647",
+        "effect": "effect_verified",
+        "evidence": "verify path derives execution_proven and downgrades (see category 7)"
+      },
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/cli.py:2040-2070 (outcome verify --json/text)",
+        "effect": "effect_verified",
+        "evidence": "prints/serializes the granular outcome verdict; execution_proven False prints an honest self-asserted caveat"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_review_typed_blocker.py:124-139",
+        "effect": "effect_verified",
+        "evidence": "PRODUCER of the honest placeholder: execution_proven is ALWAYS False here; a proof can only come from the separate outcome path"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/b7_evidence_export_bundle.py:2408 + scripts/b7_review_audit_export.py:132",
+        "effect": "effect_verified",
+        "evidence": "export writers set execution_proven False / no_action_outcome_path_active — honest-negative producers, not readers"
+      },
+      {
+        "repo": "2bedone",
+        "finding": "NO positive execution_proven reader exists in the private repo (nothing treats it as proof of real effect) — this SUPPORTS R17; recorded as a measured absence, not a gap to fill silently (stop condition 20 of the source)",
+        "effect": "measured_empty"
+      }
+    ],
+    "4_trust_pack_consumers": [
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/trust_pack.py (+ outcome/decision role checks; canonical delegate at trust_pack.py:293)",
+        "effect": "effect_verified",
+        "evidence": "role separation and trusted-signer checks act on verify verdicts"
+      },
+      {
+        "repo": "2bedone",
+        "effect": "measured_empty",
+        "evidence": "grep over scripts/ and deploy/ for trust_pack|trust-pack: no consumer. Reviewer trust in 2bedone runs via policy files (b7_reviewer_trust_policy), not trust packs"
+      }
+    ],
+    "5_assurance_consumers": [
+      {
+        "repo": "proofbundle",
+        "where": "src/proofbundle/assurance.py:4,198",
+        "effect": "effect_verified",
+        "evidence": "EvidenceLevel ladder picks the strongest applicable field; consumed by outcome verify result + cli --json (evidence_levels)"
+      },
+      {
+        "repo": "2bedone",
+        "effect": "measured_empty",
+        "evidence": "no importer of proofbundle.assurance in scripts/, backend/, deploy/, evals/"
+      }
+    ],
+    "6_automation_and_safeforautomation_consumers": [
+      {
+        "repo": "proofbundle",
+        "role": "producers",
+        "where": "src/proofbundle/automation_verdict.py:125 · src/proofbundle/bundle.py:580-634 · src/proofbundle/decision.py:509,845-854 · run_ledger.py:244 · verification_summary.py:193 · trust_pack.py:357",
+        "effect": "effect_verified",
+        "evidence": "verdict computed strictly (policy_ok IS True; attribution required; fail-closed False shells)"
+      },
+      {
+        "repo": "proofbundle",
+        "role": "readers",
+        "where": "tests (6 files: test_relation_subject_pin_361.py, test_jcs_mandatory_361.py, test_relation_gate_distance_invariance.py, test_dup_key_reject.py, test_policy_lifecycle_purpose.py, test_never_raise_361.py)",
+        "effect": "effect_verified",
+        "evidence": "assertions gate CI"
+      },
+      {
+        "repo": "proofbundle",
+        "role": "readers",
+        "finding": "no library/CLI code path BRANCHES on safeForAutomation (it is emitted, documented, and asserted in tests; nothing inside proofbundle executes anything based on it) — consistent with R03/E7",
+        "effect": "measured_empty"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_review_receipt_verify.py:158",
+        "effect": "effect_verified",
+        "evidence": "auto.get(safeForAutomation) is not True -> gate branch; the ONLY effective external reader, and it uses the field exactly per R27 semantics (verification-profile gate, never an action grant)"
+      }
+    ],
+    "7_execution_proven_consumers": [
+      {
+        "repo": "proofbundle",
+        "role": "producer",
+        "where": "src/proofbundle/outcome.py:223,434,507,646",
+        "effect": "effect_verified",
+        "evidence": "derived in verify; documented as over-strong legacy digest-presence value"
+      },
+      {
+        "repo": "proofbundle",
+        "role": "reader",
+        "where": "src/proofbundle/cli.py:2066",
+        "effect": "effect_verified",
+        "evidence": "False -> prints honest self-asserted caveat (downgrade output, no gate)"
+      },
+      {
+        "repo": "proofbundle",
+        "role": "reader",
+        "where": "src/proofbundle/assurance.py",
+        "effect": "effect_verified",
+        "evidence": "mapped into the EvidenceLevel ladder (REFERENCE_WELL_FORMED ceiling)"
+      },
+      {
+        "repo": "2bedone",
+        "role": "writers-of-honest-false",
+        "where": "scripts/b7_review_audit_export.py:132 · scripts/b7_evidence_export_bundle.py:2408 · scripts/lib/b7_review_typed_blocker.py:135 · scripts/lib/b7_review_checkpoint.py:67 (doc)",
+        "effect": "effect_verified",
+        "evidence": "all four SET False or document it; none reads it as positive proof"
+      }
+    ],
+    "8_content_root_functions": {
+      "the_one_primitive": {
+        "where": "src/proofbundle/canonical.py:79-143",
+        "alg": "jcs-sha256-v1 (CONTENT_ROOT_ALG, canonical.py:43)",
+        "contract": "producer canonicalizes (RFC 8785) and signs those bytes; verifier hashes EXACT transmitted bytes, never re-canonicalizes (ADR 0002 two-part rule)"
+      },
+      "delegates_all_via_primitive": [
+        "src/proofbundle/anchors.py:153-169 (public wrapper)",
+        "src/proofbundle/decision.py:346-358",
+        "src/proofbundle/outcome.py:379-384",
+        "src/proofbundle/trust_pack.py:293",
+        "src/proofbundle/verification_summary.py:141",
+        "src/proofbundle/run_ledger.py:190",
+        "src/proofbundle/relation_statement.py:103",
+        "src/proofbundle/subject_binding.py:38",
+        "src/proofbundle/relation.py:48 (jcs-sha256-v1 the only accepted alg)"
+      ],
+      "named_legacy": {
+        "where": "src/proofbundle/intoto.py:50,120-201",
+        "alg": "legacy-sortkeys-json-v0",
+        "semantics": "released 2.0.0 wire; a Statement DECLARES contentRootAlg inside the signed payload; ABSENT => legacy (how released receipts keep verifying); absence is NEVER silently treated as jcs; unknown alg fails closed; verifier byte-compares the payload against its OWN declared alg (algorithm-confusion guard)"
+      },
+      "distinct_quantities_not_statement_roots": [
+        "src/proofbundle/intoto.py:279-284,394-399 (subject binder digests: json.dumps sort_keys over 4 fixed scalar fields — a different quantity; documented, not migrated)",
+        "src/proofbundle/persample.py:104 (salted disclosure hash)",
+        "src/proofbundle/hf_evals.py:56 (hf bundle digest)",
+        "src/proofbundle/adapters/_provenance.py:53 + adapters/eee.py:139 (LABELED deterministic config-digest fallbacks)"
+      ]
+    },
+    "9_action_object_and_card_consumers_private_repo": {
+      "authoritative_measurement": "reports/kartenlogik_contract_map.json (generated by scripts/pruefe_kartenvertrag.py, exit 0 at measurement time) — 61 contract fields, 27 with an effective reader, 3 steering operability. Referenced, NOT recomputed (one measuring station per quantity).",
+      "producer": {
+        "where": "scripts/b7_b7priv_antragshalter.py",
+        "effect": "effect_verified",
+        "evidence": "since 2026-08-24 creates one action-object Vorgang per living privileged request (instance id = req_id, risk class from executor derivation, default escalates to hard-to-reverse)"
+      },
+      "store_library": {
+        "where": "scripts/lib/b7_aktionsobjekt.py",
+        "effect": "effect_verified",
+        "evidence": "three-state read (damaged != empty), atomic claim via flock+LOCK_NB+fsync; 20-process parallel test: exactly 1 EXECUTING (tests/test_aktionsobjekt_atomicitaet.py)"
+      },
+      "test_consumers": [
+        "tests/test_aktionsobjekt_phase0.py",
+        "tests/test_aktionsobjekt_atomicitaet.py",
+        "tests/test_aktionsobjekt_drei_zustaende.py",
+        "tests/test_klickbarkeit_aus_aktionsobjekt.py",
+        "tests/test_antragshalter_deckung_wird_gelesen.py",
+        "tests/test_vorbedingung_mit_eigener_gueltigkeit.py",
+        "tests/test_gegenlesung_welle1_funde.py"
+      ],
+      "ui_swift": {
+        "effect": "measured_empty",
+        "evidence": "the app decodes NONE of the action-object feed fields today (CodingKeys are exhaustive; the 5 aktionsobjekt fields are in the map's dead group). Clickability is deliberately NOT bound to store readiness yet: on measurement day every door was view-only, a binding would have locked the owner out of the only approval channel (order's own abort condition). R-03 remains open by design until a live-door migration measurement."
+      }
+    },
+    "10_infra_consumers": [
+      {
+        "repo": "2bedone",
+        "where": "user crontab: b7_proofbundle_issue_check.py every 8h",
+        "effect": "effect_verified",
+        "evidence": "writes issue-check log/status; repo-level consumer (GitHub issues), not a predicate consumer"
+      },
+      {
+        "repo": "2bedone",
+        "where": "deploy/b7-runner/install.sh:200 · deploy/b7priv/runner_proofbundle_angleichen.sh:75-154 · deploy/b7priv/runner_requirements_pin.sh:39 · scripts/b7_standing_proofbundle_version_parity_doctor.py:68",
+        "effect": "effect_verified",
+        "evidence": "root-unit + witness venv keep the SAME published proofbundle version as the agent venv (issuer and verifier must not be different tools); version drift is a FAIL state"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_ledger_kette.py:84-105",
+        "effect": "effect_verified",
+        "evidence": "RFC 6962 merkle over class-ledger raw line bytes via proofbundle.merkle + checkpoint_note; four states incl. NICHT_MESSBAR"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/b7_pcc_freeze.py:113-130",
+        "effect": "effect_verified",
+        "evidence": "artefakt_digest via merkle over pair list"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/lib/b7_zustandsbehauptung.py:459,474 · scripts/b7_standing_proofbundle_receipts_doctor.py:43,65 · scripts/b7_standing_berkeley_gate_receipt_doctor.py:76 · scripts/b7_un_review_adversarial_gate.py:457",
+        "effect": "effect_verified",
+        "evidence": "importability/receipt checks feed PASS/FAIL/DATA_BLOCKED states consumed by the standing doctors runner and CI gate"
+      },
+      {
+        "repo": "2bedone",
+        "where": "scripts/b7_proofbundle_facts_refresh.py:185 · scripts/b7_proofbundle_terminal_capture.py:45-143",
+        "effect": "effect_verified",
+        "evidence": "facts refresh (governance json guarded by homepage gate) and terminal capture artifact for the public page"
+      },
+      {
+        "repo": "2bedone",
+        "where": "backend/services/contact_identity/aussenkontakte.py:82-94",
+        "effect": "effect_verified",
+        "evidence": "pb.verify_bundle(...).ok gates external-contact verification; a crashing bundle counts as NOT verified (False), never unknown"
+      },
+      {
+        "repo": "2bedone",
+        "where": "backend/services/contact_identity/checks.py:354 · scripts/b7_receipt_kette_spiegel.py:7,45,47",
+        "effect": "name_mention_only",
+        "evidence": "human-facing text recommending proofbundle verify; no runtime call at these sites"
+      },
+      {
+        "repo": "2bedone",
+        "where": ".claude/hooks/ (4 files)",
+        "effect": "name_mention_only",
+        "evidence": "comments/labels only; no predicate consumption"
+      }
+    ],
+    "11_boundaries_not_measurable": [
+      {
+        "what": "root crontab",
+        "effect": "not_measurable",
+        "why": "not readable from this process; a consumer there would be invisible — a measurement limit, not an all-clear"
+      },
+      {
+        "what": "Mac LaunchAgents",
+        "effect": "not_measurable",
+        "why": "live on the Mac and are not measured from here"
+      },
+      {
+        "what": "external PyPI users of the published package",
+        "effect": "not_measurable",
+        "why": "unknowable population; public-surface compatibility duties follow from this, see baseline"
+      }
+    ]
+  },
+  "completeness": {
+    "search_set": "proofbundle: src/ + tests/ + docs/ + pyproject (patterns: safeForAutomation, execution_proven, statement_content_root, canonicalize_statement, sort_keys, CONTENT_ROOT_ALG, add_parser, __all__, entry-points). 2bedone: scripts/ backend/ deploy/ evals/ .claude/hooks/ + user crontab (patterns: import/from proofbundle, proofbundle CLI verbs, safeForAutomation, execution_proven, b7_aktionsobjekt, aktionsobjekte.jsonl).",
+    "recall_caveat": "name-based search defines recall: a consumer that shells out to the CLI under an aliased path or reads receipt JSON without naming proofbundle would be missed; mitigated by also searching predicate-type strings and field names, not just the package name"
+  },
+  "gate_r50": "PASS — every category enumerated with per-entry effect state; unmeasurable surfaces are IN the map as not_measurable entries, not omitted"
+}
