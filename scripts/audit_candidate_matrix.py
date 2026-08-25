@@ -52,6 +52,46 @@ _NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL}
 VERSION_UNDER_TEST = "3.6.0"
 
 
+def version_pin_binding(pinned: str) -> dict:
+    """Is the pinned version still the version we SHIP? Three states, never two.
+
+    FOUND BY THE PRE-TAG DEEP GATE on 2026-08-25 (finding L6-01, three lenses converged
+    independently): this matrix pinned ``3.6.0``, evaluated ``release_evidence_slots["3.6.0"]``
+    and ``pre_tag_audit_gate.evaluate(version="3.6.0")``, and reported
+    ``audit_candidate_ready=True`` with exit 0 — while the shipping package was ``5.0.0``, two
+    majors ahead. A release-readiness gate was attesting readiness from evidence about a
+    different release, and nothing in the pipeline could notice.
+
+    THE POINT IS NOT THE LITERAL. Editing ``3.6.0`` to ``5.0.0`` would make this instance green
+    and recreate the class at the next version bump — the pin would go stale again, silently,
+    and again nothing would notice. What is missing is the BINDING: a gate whose verdict is
+    version-scoped must fail closed when its scope no longer matches the shipping identity.
+
+    Three states:
+      * ``bound``          — the pin equals the package version; this gate speaks about what ships.
+      * ``drift``          — they differ; the verdict is about another release and cannot be read
+                             as readiness for this one.
+      * ``not_determinable`` — the package version could not be read here. Explicitly NOT a pass:
+                             an unmeasurable binding is not a verified one.
+    """
+    try:
+        import proofbundle
+        shipping = str(getattr(proofbundle, "__version__", "") or "")
+    except Exception as exc:                                    # noqa: BLE001
+        return {"state": "not_determinable", "pinned": pinned, "shipping": None,
+                "detail": f"package version unreadable: {type(exc).__name__}: {exc}"}
+    if not shipping:
+        return {"state": "not_determinable", "pinned": pinned, "shipping": None,
+                "detail": "proofbundle.__version__ is empty"}
+    if shipping == pinned:
+        return {"state": "bound", "pinned": pinned, "shipping": shipping,
+                "detail": f"pin matches the shipping package ({shipping})"}
+    return {"state": "drift", "pinned": pinned, "shipping": shipping,
+            "detail": (f"this matrix is scoped to {pinned} but the package ships {shipping} — "
+                       f"its checks read {pinned} evidence slots and a {pinned} pre-tag audit "
+                       f"record, so its verdict says nothing about {shipping}")}
+
+
 def _read(rel: str, base: Path = REPO) -> str:
     p = base / rel
     return p.read_text(encoding="utf-8") if p.is_file() else ""
@@ -552,10 +592,23 @@ def evaluate() -> dict:
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
               for v in (PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL)}
     ready = counts[FAIL] == 0 and all(r["verdict"] in _NON_FAIL for r in rows)
+    # THE BINDING GATES THE VERDICT, not just decorates it. A green matrix about another release
+    # is not a green matrix about this one — and `ready` is the field a reader takes at face value.
+    # `not_determinable` withholds readiness too: an unmeasurable binding is not a verified one,
+    # and this gate's whole job is to be falsifiable.
+    # THE PIN IS PASSED, NOT DEFAULTED. A default argument is bound once, when the function is
+    # defined; the constant is then frozen into the signature and a later change to
+    # VERSION_UNDER_TEST would no longer reach the check. Caught by this file's own anti-parity
+    # test, which set the constant and watched the guard ignore it — a binding check that reads a
+    # stale copy of the thing it binds is the same class of defect it exists to catch.
+    binding = version_pin_binding(VERSION_UNDER_TEST)
+    if binding["state"] != "bound":
+        ready = False
     fully_here = ready and counts[DATA_BLOCKED] == 0
     return {
         "schema": "proofbundle.audit_candidate_matrix.v1",
         "version_under_test": VERSION_UNDER_TEST,
+        "version_pin": binding,
         "total_checks": len(rows),
         "counts": counts,
         "audit_candidate_ready": ready,
@@ -569,7 +622,19 @@ def evaluate() -> dict:
 
 def _fmt(result: dict) -> str:
     c = result["counts"]
-    lines = [
+    pin = result.get("version_pin") or {}
+    lines = []
+    # The binding goes FIRST when it is not clean: a reader who stops after one line must not
+    # walk away with a readiness impression that the line below would have withdrawn.
+    if pin.get("state") == "drift":
+        lines.append(f"[audit-candidate-matrix] VERSION PIN DRIFT — {pin.get('detail')}")
+        lines.append("  audit_candidate_ready is withheld: this matrix does not speak about the "
+                     "shipping version. Bind the pin (or scope the claim), do not just bump it.")
+    elif pin.get("state") == "not_determinable":
+        lines.append(f"[audit-candidate-matrix] VERSION PIN NOT DETERMINABLE — {pin.get('detail')}")
+        lines.append("  audit_candidate_ready is withheld: an unmeasurable binding is not a "
+                     "verified one.")
+    lines += [
         f"[audit-candidate-matrix] {result['total_checks']} checks · "
         f"PASS {c[PASS]} · PENDING {c[PENDING]} · DATA_BLOCKED {c[DATA_BLOCKED]} · "
         f"EXTERNAL {c[EXTERNAL]} · FAIL {c[FAIL]}",

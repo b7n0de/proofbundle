@@ -58,10 +58,29 @@ class TestAuditCandidateMatrix(unittest.TestCase):
         self.m = _load("acm_matrix", "scripts/audit_candidate_matrix.py")
 
     def test_matrix_is_ready_and_has_33_checks(self):
+        """The 33 obligations hold — and readiness is now conditional on the version binding.
+
+        CHANGED 2026-08-25 after pre-tag deep-gate finding L6-01. This assertion previously read
+        `assertTrue(audit_candidate_ready)` unconditionally, and that is exactly what let the
+        false green ship: the matrix is scoped to 3.6.0, the package moved to 5.0.0, and every
+        one of the 33 checks stayed green because each of them is genuinely fine — about 3.6.0.
+        A test that asserts readiness without asserting WHAT it is readiness FOR cannot tell the
+        two apart.
+
+        The obligations themselves are unchanged and still asserted: 33 checks, zero FAIL. What
+        is now conditional is the top-level verdict, and the condition is stated rather than
+        assumed."""
         r = self.m.evaluate()
         self.assertEqual(r["total_checks"], 33)
-        self.assertTrue(r["audit_candidate_ready"], r["counts"])
         self.assertEqual(r["counts"][self.m.FAIL], 0)
+        pin = r["version_pin"]
+        if pin["state"] == "bound":
+            self.assertTrue(r["audit_candidate_ready"], r["counts"])
+        else:
+            # Withheld — and the reason must be the binding, not a broken obligation.
+            self.assertFalse(r["audit_candidate_ready"])
+            self.assertIn(pin["state"], ("drift", "not_determinable"))
+            self.assertTrue(pin["detail"], "a withheld verdict must carry its reason")
 
     def test_external_is_the_single_open_gate(self):
         r = self.m.evaluate()
