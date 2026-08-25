@@ -27,13 +27,21 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 > fixes to the latest released minor of the current major line, and announcing a maintenance branch
 > we do not intend to serve would be a promise with nothing behind it.
 >
-> **Pre-tag adversarial deep gate: the targets are frozen, the run record is not yet written.**
-> [audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md](audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md)
-> fixes the six falsification targets before the run, as the method requires. The RUN record — the
-> file the pre-tag gate actually reads — is deliberately absent until a run returns
-> `WITHSTANDS_DEEPGATE`; `pre_tag_audit_gate --strict` therefore reports MISSING for 5.0.0, and
-> that is the correct state, not an oversight. Writing the record before the run is exactly the
-> failure this gate exists to catch.
+> **Pre-tag adversarial deep gate: `WITHSTANDS_DEEPGATE` on `9bc179e`, after four runs.**
+> The six falsification targets were frozen before the first run in
+> [audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md](audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md);
+> the outcome of all four rounds is in
+> [audit_artifacts/500/DEEP_RUN_RECORD_500.md](audit_artifacts/500/DEEP_RUN_RECORD_500.md).
+>
+> The first three rounds returned `FIX_FIRST` with real findings — a CI gate attesting readiness
+> from another release's evidence, an unbounded integer magnitude on three exported verify
+> surfaces, and its neighbour on the *rendering* axis that the second round's own sweep had not
+> asked about. Each was fixed as a class. The fourth round found nothing that survived the
+> three-juror refute-to-kill.
+>
+> `WITHSTANDS_DEEPGATE` means **ready for the Owner's tag**, not "released" and not "bug-free".
+> One reproducible candidate that did *not* survive the jury is recorded in the run record rather
+> than dropped, and the round's ledger coverage (80 of 140 learned classes) is stated there too.
 
 ### Changed
 - **The `merkle_path` cap now runs BEFORE the decoding it bounds**, on all three surfaces that
