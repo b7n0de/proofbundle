@@ -134,7 +134,7 @@
       },
       {
         "repo": "2bedone",
-        "where": "scripts/b7_berkeley_gate_receipt.py:172",
+        "where": "scripts/b7_<gate>_receipt.py:172",
         "effect": "effect_verified",
         "evidence": "deep-gate run receipts emitted/verified via proofbundle; runs/*.proofbundle.json artifacts exist"
       },
@@ -348,7 +348,7 @@
       },
       {
         "repo": "2bedone",
-        "where": "scripts/lib/b7_zustandsbehauptung.py:459,474 · scripts/b7_standing_proofbundle_receipts_doctor.py:43,65 · scripts/b7_standing_berkeley_gate_receipt_doctor.py:76 · scripts/b7_un_review_adversarial_gate.py:457",
+        "where": "scripts/lib/b7_zustandsbehauptung.py:459,474 · scripts/b7_standing_proofbundle_receipts_doctor.py:43,65 · scripts/b7_standing_<gate>_receipt_doctor.py:76 · scripts/b7_un_review_adversarial_gate.py:457",
         "effect": "effect_verified",
         "evidence": "importability/receipt checks feed PASS/FAIL/DATA_BLOCKED states consumed by the standing doctors runner and CI gate"
       },
