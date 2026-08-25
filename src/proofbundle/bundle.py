@@ -162,7 +162,12 @@ def _require_int(obj: dict, key: str, field: str) -> int:
     # (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of verify_bundle(dict). The
     # loads_strict int-cap already fails closed on the str/file path; this restores parity on the direct-dict
     # path. A real leaf_index/tree_size is <= 2**64; an 8192-bit ceiling is astronomically generous.
-    if val.bit_length() > 8192:
+    # ONE definition of the ceiling, read from the budget (2026-08-25). The literal 8192 lived here and
+    # nowhere else, which is exactly why the three ARGUMENT-taking surfaces (verify_inclusion,
+    # verify_consistency, verify_sample_opening) went without it for a month — a bound that lives inside
+    # one function is not a bound anyone else can honour. The value is unchanged.
+    from .budget import int_magnitude_ok  # noqa: PLC0415 - local import avoids an import cycle
+    if not int_magnitude_ok(val):
         raise BundleFormatError(f"field {field} integer is implausibly large (fail-closed)")
     return val
 

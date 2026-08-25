@@ -19,6 +19,25 @@ for sub in ("src", "scripts", "formal", "conformance"):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+# ── Ein DATA_BLOCKED ist kein Fehlschlag, und ein Test darf es nicht dazu machen ────────────────
+#
+# GEFUNDEN VOM PRE-TAG-DEEP-GATE, 2026-08-25 (L6-F1-SDIST-PYYAML, P2). Aus dem entpackten sdist in
+# einer Basis-Installation (nur `cryptography` + `rfc8785`, KEIN PyYAML) FIELEN sieben Tests dieser
+# Datei, statt zu ueberspringen. Das verletzt die Invariante, die pyproject.toml:92 dokumentiert:
+# `pip install <sdist> && pytest` muss mit exit 0 enden, Uebersprungenes erlaubt.
+#
+# DER PRODUKTIONSCODE IST HIER NICHT DER DEFEKT, und das ist der Punkt. `c1_1_two_ci_gates` faengt
+# den ImportError und meldet ehrlich DATA_BLOCKED — genau die Drei-Zustaende-Regel des Hauses.
+# Der Test erwartete PASS und machte aus dem dritten Zustand einen Fehlschlag. Wer ein
+# Drei-Zustaende-Gate mit assertEqual auf EINEN Zustand prueft, hat die dritte Antwort abgeschafft.
+#
+# GEMESSEN mit blockiertem yaml-Import: sieben Tests, alle c1_1-bezogen (das Gate nannte sechs).
+_YAML_DA = importlib.util.find_spec("yaml") is not None
+_braucht_yaml = unittest.skipUnless(
+    _YAML_DA,
+    "PyYAML fehlt (Basis-Installation) — c1_1 meldet dann korrekt DATA_BLOCKED, und ein "
+    "nicht messbarer Zustand ist kein Fehlschlag")
+
 
 def _load(name: str, rel: str):
     spec = importlib.util.spec_from_file_location(name, REPO / rel)
@@ -133,6 +152,7 @@ class TestCheckDiscrimination(unittest.TestCase):
 
     # --- C1.1 'two named CI gates' — falsifiable when the second (repository/test) gate is gone ---
 
+    @_braucht_yaml
     def test_c1_1_green_on_real_repo(self):
         verdict, _ = self.m.c1_1_two_ci_gates()
         self.assertEqual(verdict, self.m.PASS)
@@ -148,6 +168,7 @@ class TestCheckDiscrimination(unittest.TestCase):
             self.assertEqual(verdict, self.m.FAIL, detail)
             self.assertIn("ci.yml", detail)
 
+    @_braucht_yaml
     def test_c1_1_fails_when_second_gate_is_not_a_test_gate(self):
         # ci.yml exists but carries neither `name: CI` nor a pytest/test step -> FAIL (not a real gate).
         with tempfile.TemporaryDirectory() as td:
@@ -248,6 +269,7 @@ class TestCheckDiscrimination(unittest.TestCase):
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
 
+    @_braucht_yaml
     def test_variant3_pytest_only_in_comment_echo_or_disabled_job_fails_c1_1(self):
         # Variant 3: ci.yml names CI but 'pytest' appears ONLY in a YAML comment, an echo argument, a
         # shell #TODO, and an if:false (disabled) job — no run: step actually executes it -> FAIL.
@@ -276,6 +298,7 @@ class TestCheckDiscrimination(unittest.TestCase):
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
 
+    @_braucht_yaml
     def test_variant3b_real_executing_run_step_passes_c1_1(self):
         # counterpart to variant 3: a genuine executing run: step (python -m unittest discover) PASSes,
         # so the FAIL above discriminates on real execution, it is not a blanket reject.
@@ -305,16 +328,19 @@ class TestCheckDiscrimination(unittest.TestCase):
                 f"      - run: {run_line}\n")
             return self.m.c1_1_two_ci_gates(repo=Path(td))
 
+    @_braucht_yaml
     def test_c1_1_which_pytest_is_not_a_test_run(self):
         # a bare mention that never executes the suite -> FAIL (single step `run: which pytest`).
         verdict, detail = self._c1_1_with_test_step("which pytest")
         self.assertEqual(verdict, self.m.FAIL, detail)
 
+    @_braucht_yaml
     def test_c1_1_collect_only_is_not_a_test_run(self):
         # collect-only imports the tests but runs none -> FAIL.
         verdict, detail = self._c1_1_with_test_step("pytest --collect-only")
         self.assertEqual(verdict, self.m.FAIL, detail)
 
+    @_braucht_yaml
     def test_c1_1_real_unittest_discover_passes(self):
         # a genuine executing run -> PASS (discriminates the FAILs above from a blanket reject).
         verdict, detail = self._c1_1_with_test_step("python -m unittest discover -s tests")

@@ -208,6 +208,20 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
         result["detail"] = "index out of range for the committed tree size"
         return result
+    # DIE GROESSE DER ZAHL, nicht nur ihr Typ (L2-BDOS-HUGEINT, Pre-Tag-Deep-Gate 2026-08-25).
+    #
+    # Die strukturelle Schranke oben sieht einen Skalar, und ein Skalar ist klein: `n = 2**1000000`
+    # sind sieben Zeichen Quelltext. Die Bereichspruefung eine Zeile hoeher besteht er ebenfalls.
+    # Erst der O(bit_length)-Schiebe-Loop in `verify_inclusion` bezahlt dafuer — gemessen 3,3 s bei
+    # 2**300000, hochgerechnet rund 34 s bei 2**1000000, gegen 0,015 s auf dem Bundle-Pfad.
+    #
+    # Dieselbe Schranke wie `bundle._require_int` und dieselbe Quelle: `verify_inclusion` wuerde die
+    # Zahl inzwischen selbst abweisen, aber diese Funktion soll ihr eigenes Urteil sprechen und nicht
+    # von der Reihenfolge ihrer Aufrufe abhaengen.
+    from .budget import int_magnitude_ok  # noqa: PLC0415 - lokaler Import wie die Nachbarn
+    if not (int_magnitude_ok(n) and int_magnitude_ok(index)):
+        result["detail"] = "committed tree size or index is implausibly large (fail-closed)"
+        return result
     # DIE KAPPE VOR DER ARBEIT, DIE SIE BEGRENZT — Hausstandard des Budget-Moduls, Owner-Entscheid
     # 2026-08-18 zu PB-GLEICHE-KLASSE-BLEIBT-UMGEKEHRT-ENTSCHIEDEN-01 ("vereinheitlichen auf
     # Kappe-vor-Arbeit wie 2c52596").

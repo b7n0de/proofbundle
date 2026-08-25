@@ -141,12 +141,20 @@ def verify_inclusion(
     triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
     can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
     read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
     if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
         # PB-2026-0718-16: enforce the audit-path STEP budget (merkle_path) in the verification core, so it
         # is effective on the DIRECT dict path where the byte-size proxy (input_bytes) never runs. A
         # log2(tree_size) proof needs <= 256 steps for any realistic tree; a longer (or non-list) proof is
         # fail-closed, never an unbounded per-step hash loop.
+        return False
+    # THE STEP CAP ABOVE DOES NOT BOUND THE INTEGERS (L2-BDOS-HUGEINT, pre-tag deep gate 2026-08-25).
+    # A one-element proof passes it; `tree_size = 2**1000000` then drives an O(bit_length) shift loop.
+    # Measured: verify_inclusion(2**300000, …) took 3.3 s and returned the CORRECT False — correct
+    # verdict, unbounded cost, which is what a DoS looks like. `bundle._require_int` has carried this
+    # ceiling since L2-BDOS-01; the surfaces taking their integers as ARGUMENTS never got it. Same
+    # budget object, so the two cannot drift apart.
+    if not (int_magnitude_ok(leaf_index) and int_magnitude_ok(tree_size)):
         return False
     if not isinstance(leaf_index, int) or isinstance(leaf_index, bool) \
             or not isinstance(tree_size, int) or isinstance(tree_size, bool):
@@ -172,12 +180,17 @@ def verify_consistency(
     second_root: bytes,
 ) -> bool:
     """Return True iff ``first_root`` is a consistent prefix of ``second_root`` (RFC 9162 2.1.4.2)."""
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
     if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
         return False   # PB-2026-0718-16: audit-path step budget, effective on the direct dict path
     if not isinstance(first_size, int) or isinstance(first_size, bool) \
             or not isinstance(second_size, int) or isinstance(second_size, bool):
         return False   # non-int sizes are malformed input, fail-closed (never a raw comparison TypeError)
+    # The MAGNITUDE, not just the type (L2-BDOS-HUGEINT): the step cap and the type check above both pass
+    # for `second_size = 2**1000000`, and the shift loop below is O(bit_length). Same shared ceiling as
+    # bundle._require_int, read from the same budget.
+    if not (int_magnitude_ok(first_size) and int_magnitude_ok(second_size)):
+        return False
     if not isinstance(first_root, (bytes, bytearray)) or not isinstance(second_root, (bytes, bytearray)) \
             or not all(isinstance(p, (bytes, bytearray)) for p in proof):
         # 6-lens gate L3-02: non-bytes roots or proof elements reached hmac.compare_digest / _node_hash as a
