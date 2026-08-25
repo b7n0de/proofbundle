@@ -8,6 +8,28 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-25 (the cap runs before the work it bounds · MAJOR)
+
+> **MAJOR (SemVer), and the trigger is one sentence:** an input class that previously exited **2**
+> now exits **1**. `SPEC.md` is normative under RFC 2119 and documents exit 2 as *malformed / usage
+> error* and exit 1 as *crypto failure / verdict*. A caller who branches on those numbers takes a
+> different branch for this input class from this release on. Semantic Versioning 2.0.0 requires a
+> MAJOR increment for any backward-incompatible change to the declared public API, and a declared
+> exit-code contract is public API. The change itself is deliberate (Owner decision 2026-08-18) and
+> is not being reconsidered here — only the number that carries it.
+>
+> **What does NOT change:** no verdict flips. The affected input is simultaneously over the cap
+> *and* carries invalid base64; it could never verify under any release. Nothing that verified
+> before stops verifying, and nothing that failed before starts passing.
+>
+> **Support line:** the 4.x line ends here. There is no `release/v4.0.x` maintenance branch, and
+> fixes will not be backported to it. Saying so plainly is the honest option: `SECURITY.md` gives
+> fixes to the latest released minor of the current major line, and announcing a maintenance branch
+> we do not intend to serve would be a promise with nothing behind it.
+>
+> A pre-tag adversarial deep-gate record for this release is in
+> [audit_artifacts/500/DEEP_RUN_RECORD_500.md](audit_artifacts/500/DEEP_RUN_RECORD_500.md).
+
 ### Changed
 - **The `merkle_path` cap now runs BEFORE the decoding it bounds**, on all three surfaces that
   carry an inclusion proof: `verify_bundle`, `recompute_merkle_root_b64`, and
