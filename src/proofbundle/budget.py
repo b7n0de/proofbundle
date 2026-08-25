@@ -32,7 +32,40 @@ from dataclasses import dataclass
 
 from .errors import ProofBundleError
 
-__all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok"]
+__all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
+           "render_safe"]
+
+
+def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
+    """Render ONE untrusted value for a diagnostic message without letting it raise.
+
+    THE SECOND HALF OF THE MAGNITUDE CLASS, found by the pre-tag deep gate on 2026-08-25
+    (L2-BDOS-RENEWAL-HUGEINT-01/02) — one round AFTER the first half was closed, on a neighbour
+    the first sweep did not reach.
+
+    The first half was about COMPUTE: a huge integer drives an O(bit_length) shift loop. This half
+    is about RENDERING, and it is sneakier: CPython caps int->str conversion at
+    ``sys.get_int_max_str_digits`` (4300 by default, CVE-2020-10735). Interpolating an untrusted
+    integer into a diagnostic string therefore raises a raw ``ValueError`` — out of a surface whose
+    entire contract is that it never raises. The value was never even used for a computation; it was
+    used to explain WHY the input was rejected.
+
+    WHY A RENDER HELPER AND NOT A GUARD AT EVERY SITE: a guard has to be remembered at each of the
+    nine render sites in ``renewal.py`` alone, and the tenth one written next month is a new
+    instance of the same class. A helper is remembered once — and the diagnostic keeps saying
+    something useful about the value instead of refusing to mention it.
+
+    Beyond the ceiling the value is described rather than printed: ``<int, 16610 bits>``. That is
+    honest (it names what it is and how big) and it is exactly what a reader needs — nobody
+    diagnoses anything from 5000 decimal digits.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        # Only integers carry this hazard. Everything else renders as it always did, including
+        # containers — a list of ints is handled by the caller passing its elements through here.
+        return repr(value)
+    if int_magnitude_ok(value, budget):
+        return str(value)
+    return f"<int, {value.bit_length()} bits>"
 
 
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:

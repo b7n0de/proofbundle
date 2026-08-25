@@ -27,8 +27,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 > fixes to the latest released minor of the current major line, and announcing a maintenance branch
 > we do not intend to serve would be a promise with nothing behind it.
 >
-> A pre-tag adversarial deep-gate record for this release is in
-> [audit_artifacts/500/DEEP_RUN_RECORD_500.md](audit_artifacts/500/DEEP_RUN_RECORD_500.md).
+> **Pre-tag adversarial deep gate: the targets are frozen, the run record is not yet written.**
+> [audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md](audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md)
+> fixes the six falsification targets before the run, as the method requires. The RUN record — the
+> file the pre-tag gate actually reads — is deliberately absent until a run returns
+> `WITHSTANDS_DEEPGATE`; `pre_tag_audit_gate --strict` therefore reports MISSING for 5.0.0, and
+> that is the correct state, not an oversight. Writing the record before the run is exactly the
+> failure this gate exists to catch.
 
 ### Changed
 - **The `merkle_path` cap now runs BEFORE the decoding it bounds**, on all three surfaces that

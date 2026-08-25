@@ -29,6 +29,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .budget import int_magnitude_ok
+from .budget import render_safe as _rs
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
@@ -118,7 +120,21 @@ class ArchiveTimeStamp:
     def token(self) -> str:
         """The stable string a later ATS covers when it renews this one — RFC 4998 timestamp renewal covers
         the prior timestamp token INCLUDING its signature. Unsigned ATS keep the legacy (base) form so
-        existing sequences are unaffected."""
+        existing sequences are unaffected.
+
+        THIS RENDER IS NOT A DIAGNOSTIC — it is the covered material. The `render_safe` helper used at
+        the diagnostic sites must NOT be used here: shortening a huge value would change the signed
+        bytes, and every existing signature over this token would stop verifying. A defensive
+        abbreviation is worse than the crash it prevents when the string IS the contract.
+
+        So the magnitude is REFUSED instead of rendered differently. A time whose decimal form would
+        trip CPython's int->str cap (CVE-2020-10735) is not a legitimate timestamp under any reading —
+        it is refused with a typed error, the same fail-closed direction the rest of this module takes.
+        """
+        if not int_magnitude_ok(self.time):
+            raise ProofBundleError(
+                f"ATS time is implausibly large ({self.time.bit_length()} bits) — refused before "
+                "rendering the covered token (a shortened render would change the signed bytes)")
         base = f"{self.hash_alg}:{self.covered_digest}:{self.time}"
         if not self.sig_alg:
             return base
@@ -412,7 +428,7 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -441,7 +457,7 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -576,13 +592,33 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).
     times = [a.time for a in flat]
     if not all(isinstance(t, int) and not isinstance(t, bool) for t in times):
-        result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: {times}"))
+        result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: [{', '.join(_rs(t) for t in times)}]"))
         ordered = False
+    elif not all(int_magnitude_ok(t) for t in times):
+        # DIE GROESSE, NICHT NUR DER TYP — und der Check gehoert HIERHIN, nicht in `token()`.
+        #
+        # `token()` refuses an implausible magnitude by RAISING, because there the rendered string
+        # IS the signed material and a shortened form would break every existing signature. But
+        # this function is a never-raise surface: it owes the caller a VERDICT. Left to `token()`
+        # (called further down at the covering check), the refusal would escape as an exception —
+        # typed, but still an exception out of a surface whose contract forbids one.
+        #
+        # Same magnitude, two correct answers, because the two places have different contracts.
+        result.checks.append(Check(
+            "renewal:ordered", False,
+            "ATS time is implausibly large: ["
+            + ", ".join(_rs(t) for t in times) + "] — refused fail-closed"))
+        # UND ZURUECK, nicht nur markiert. Die erste Fassung setzte `ordered = False` wie der
+        # Typ-Check daneben und liess die Funktion weiterlaufen — bis zum `prior.token()` weiter
+        # unten, das dann doch warf. Der Typ-Check darf weiterlaufen (ein `str` rendert harmlos),
+        # dieser nicht: die Groesse ist genau das, woran das Rendern scheitert. Dieselbe Form wie
+        # der Ketten-Budget-Check ein paar Zeilen hoeher, der ebenfalls sofort zurueckgibt.
+        return result
     else:
         ordered = all(times[i] < times[i + 1] for i in range(len(times) - 1))
         result.checks.append(Check("renewal:ordered", ordered,
                                    "ATS strictly ascending by time" if ordered
-                                   else f"ATS not strictly ascending: {times}"))
+                                   else f"ATS not strictly ascending: [{', '.join(_rs(t) for t in times)}]"))
 
     # 2) each ATS uses a KNOWN hash algorithm. A now-DEPRECATED algorithm is TOLERATED here: the whole
     #    point of renewal is that a hash-tree-renewed sequence survives the ageing of an algorithm it once
@@ -786,13 +822,13 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     # fresh, so a future date could otherwise permanently evade the renewal-due signal. Flag it as overdue.
     _ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (newest.time, now))
     if _ints and newest.time > now:
-        reasons.append(f"newest ATS time {newest.time} is in the future (now={now}) — anomalous, not fresh")
+        reasons.append(f"newest ATS time {_rs(newest.time)} is in the future (now={_rs(now)}) — anomalous, not fresh")
     if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
-        reasons.append(f"newest ATS age {now - newest.time} exceeds max {policy.max_ats_age}")
+        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(policy.max_ats_age)}")
 
     if not reasons:
         result.checks.append(Check("renewal:policy", True,
-                                   f"newest ATS ({newest.hash_alg}, age {now - newest.time}) is within "
+                                   f"newest ATS ({newest.hash_alg}, age {_rs(now - newest.time)}) is within "
                                    "policy — no renewal due"))
         return result
 
