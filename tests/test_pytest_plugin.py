@@ -60,3 +60,17 @@ class TestPytestPlugin(unittest.TestCase):
             pytest_terminal_summary(_reporter(passed=0), 5, _config(False))
             self.assertEqual(list(Path(d).glob("*.json")), [])
             os.environ.pop("PROOFBUNDLE_EMIT", None)
+
+
+class TestThresholdRequired(unittest.TestCase):
+    def test_no_threshold_no_receipt(self):
+        """No silent default of 0: pass_rate 0.0 >= 0 would assert passed=true for a run where
+        every test failed (adversarial re-check 2026-08-22)."""
+        with TemporaryDirectory() as d:
+            import os
+            os.environ["PROOFBUNDLE_EMIT"] = "1"
+            os.environ["PROOFBUNDLE_OUT"] = d
+            os.environ.pop("PROOFBUNDLE_THRESHOLD", None)
+            pytest_terminal_summary(_reporter(passed=0, failed=4), 1, _config(False))
+            os.environ.pop("PROOFBUNDLE_EMIT", None)
+            self.assertEqual(list(Path(d).glob("*.json")), [])

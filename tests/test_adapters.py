@@ -132,3 +132,27 @@ class TestAdapters(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLmEvalVersionBinding(unittest.TestCase):
+    def test_harness_version_bound_from_results_file(self):
+        """Asymmetric-binding fix (adversarial re-check 2026-08-22): promptfoo binds its version,
+        inspect binds harness_version — lm-eval bound neither, though the results file carries
+        lm_eval_version at top level."""
+        claim, _ = from_lm_eval_results(FX / "lm_eval_arc_easy_real.json", "arc_easy", "acc",
+                                        comparator=">=", threshold="0.4",
+                                        timestamp="2026-08-22T00:00:00+00:00")
+        self.assertEqual(claim["provenance"].get("harness_version"), "0.4.12")
+
+    def test_missing_version_field_stays_absent_not_invented(self):
+        import json as _json
+        from tempfile import TemporaryDirectory
+        src = _json.loads((FX / "lm_eval_arc_easy_real.json").read_text())
+        src.pop("lm_eval_version", None)
+        with TemporaryDirectory() as d:
+            p = Path(d) / "r.json"
+            p.write_text(_json.dumps(src))
+            claim, _ = from_lm_eval_results(p, "arc_easy", "acc", comparator=">=",
+                                            threshold="0.4",
+                                            timestamp="2026-08-22T00:00:00+00:00")
+            self.assertNotIn("harness_version", claim["provenance"])

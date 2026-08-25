@@ -368,6 +368,16 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
         return 1
+    # --expect-issuer (adversarial re-check 2026-08-22): without pinning, show-eval verifies
+    # against the pubkey EMBEDDED in the receipt — a forged claim RE-SIGNED with a fresh key
+    # passes rc=0 (self_attested scope). claim['issuer'] here is the key that actually carried
+    # the signature (decode_eval_claim binds issuer == signature key), so comparing it against
+    # a caller-pinned issuer closes exactly that gap — opt-in, fully backwards compatible.
+    expected = getattr(args, "expect_issuer", None) or []
+    if expected and claim["issuer"] not in expected:
+        print(f"=> FAILED: issuer mismatch — receipt is signed by {claim['issuer']}, "
+              f"expected {' or '.join(expected)} (re-signed forgery or wrong key)", file=sys.stderr)
+        return 1
     print(f"suite      {claim['suite']} ({claim['suite_version']})")
     print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
     print(f"passed     {claim['passed']}   (n={claim['n']})")
@@ -2545,6 +2555,12 @@ def build_parser() -> argparse.ArgumentParser:
                            help="[EXPERIMENTAL v2.0] the RATS Verifier's Ed25519 public key (base64), used with --eat")
     show_eval.add_argument("--profile", default=None,
                            help="[EXPERIMENTAL v2.0] pin an expected eat_profile URI (optional, used with --eat)")
+    show_eval.add_argument("--expect-issuer", dest="expect_issuer", action="append", default=None,
+                           metavar="ISSUER",
+                           help="pin the accepted issuer (the receipt's signing key, e.g. 'ed25519:…'); "
+                                "repeatable for key rotation. Without it the receipt is verified against "
+                                "its own embedded key (self-attested scope) — a re-signed forgery would "
+                                "pass; with it, an issuer mismatch fails with exit 1")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(
