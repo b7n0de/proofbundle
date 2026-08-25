@@ -76,6 +76,15 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     # the promptfoo adapter binds promptfoo_version and the inspect adapter harness_version, but
     # this one bound neither — an asymmetric binding a verifier cannot see. The field is written
     # by lm-eval itself at the top level of results_*.json.
+    #
+    # Deep-gate T1/iter5 (2026-08-25) proposed writing this UNCONDITIONALLY (an absent field cannot
+    # be told apart from "this adapter does not bind the version"). That was NOT done: the contract
+    # `test_missing_version_field_stays_absent_not_invented` forbids it, and its reasoning is the
+    # stronger one — writing "unknown" into a version field puts a value into EVIDENCE that the
+    # harness never reported, which is exactly what this project exists to prevent. The ambiguity
+    # is real but belongs to a different remedy (a separate reported-flag, or documenting that all
+    # four adapters bind the same field when it exists) and is an Owner decision, not a silent
+    # override of a deliberate test.
     if data.get("lm_eval_version"):
         provenance["harness_version"] = str(data["lm_eval_version"])
     if data.get("versions", {}).get(task) is not None:

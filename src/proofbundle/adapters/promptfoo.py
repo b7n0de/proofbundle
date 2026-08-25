@@ -119,7 +119,18 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
                   "dataset_commitment_scope": commitment_scope}
     if eval_id:
         provenance["eval_id"] = str(eval_id)
+    # Deep-gate T1/iter5 (2026-08-25), THE CLASS: three of four adapters bind the harness version
+    # under `harness_version`; this one bound it under `promptfoo_version` only. The lm_eval
+    # adapter's own comment cites promptfoo as an adapter that "binds" — mistaking a different
+    # field name for the same binding. A reader comparing receipts across adapters therefore found
+    # `harness_version` missing here and could not tell "promptfoo reports no version" from "this
+    # adapter names it differently". Both names are written now: `harness_version` for
+    # cross-adapter comparison, `promptfoo_version` kept so existing readers do not break. Written
+    # only when promptfoo actually reports it — the contract
+    # `test_missing_version_field_stays_absent_not_invented` (lm_eval) forbids inventing a value
+    # into evidence, and the same reasoning applies here.
     if metadata.get("promptfooVersion"):
+        provenance["harness_version"] = str(metadata["promptfooVersion"])
         provenance["promptfoo_version"] = str(metadata["promptfooVersion"])
     if summary.get("timestamp"):
         provenance["run_timestamp"] = str(summary["timestamp"])
