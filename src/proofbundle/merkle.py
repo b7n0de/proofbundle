@@ -139,7 +139,11 @@ def verify_inclusion(
     MUST be obtained ATOMICALLY from ONE authenticated source (a signed checkpoint / STH) — never
     independently. This function verifies the audit path for the given ``(leaf_index, tree_size, root)``
     triple; it does not independently authenticate ``tree_size``, so a proof honestly valid for size N
-    can also satisfy a falsely-claimed adjacent size N±1 under the same root. proofbundle's own callers
+    also satisfies a WHOLE BAND of falsely-claimed sizes under the same root — NOT merely N±1.
+    Measured for N=255, leaf_index=0: every size in 129..256 verifies (127 wrong sizes), because a
+    given leaf's audit path is shared by every tree_size with the same sibling-shape at that index.
+    This ambiguity is INHERENT to Merkle inclusion proofs — exactly why ``tree_size`` MUST come
+    atomically from the same signed source as ``root``. proofbundle's own callers
     read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
     from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
     if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
@@ -179,7 +183,18 @@ def verify_consistency(
     first_root: bytes,
     second_root: bytes,
 ) -> bool:
-    """Return True iff ``first_root`` is a consistent prefix of ``second_root`` (RFC 9162 2.1.4.2)."""
+    """Return True iff ``first_root`` is a consistent prefix of ``second_root`` (RFC 9162 2.1.4.2).
+
+    **Trust precondition (same discipline as ``verify_inclusion``):** ``first_size``/``second_size``
+    and ``first_root``/``second_root`` MUST be obtained ATOMICALLY from AUTHENTICATED sources (signed
+    STHs) — never from an attacker-claimed size. The final ``sn == 0`` check binds the proof to the
+    declared sizes per RFC 9162 §2.1.4.2 (an earlier ``fn == 0`` was strictly weaker and, for a
+    power-of-two ``first_size``, vacuous — it accepted any ``second_size``; Deep-Gate iter9 L1). But
+    like every Merkle size proof, a proof honestly valid for ``(m, n)`` can also satisfy a NARROW
+    band of falsely-claimed ``(m, n')`` against the SAME roots (measured: e.g. a (1,3)-proof also
+    verifies at n'=4) — an independent RFC-6962-bis decomposition oracle accepts exactly the same
+    set, so this is INHERENT to the primitive, not a defect here. It is harmless precisely because
+    the sizes come from the signed STH, never from the claim being verified."""
     from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
     if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
         return False   # PB-2026-0718-16: audit-path step budget, effective on the direct dict path
@@ -228,8 +243,13 @@ def verify_consistency(
             sr = _node_hash(sr, c)
         fn >>= 1
         sn >>= 1
+    # RFC 9162 §2.1.4.2 verlangt als Schlusspruefung `sn == 0` (Deep-Gate iter9 Linse 1): `fn == 0`
+    # ist strikt SCHWAECHER — fn <= sn, beide gleich geshiftet, also `sn==0 => fn==0` aber NICHT
+    # umgekehrt; damit band der Beweis NICHT an die behauptete second_size (ein echter (1,2)-Beweis
+    # wurde unter second_size {3..32} als konsistent akzeptiert). Die Schwesterfunktion
+    # root_from_inclusion prueft korrekt `sn != 0` — dieselbe Bindung gehoert hierher.
     return (
-        fn == 0
+        sn == 0
         and hmac.compare_digest(fr, first_root)
         and hmac.compare_digest(sr, second_root)
     )
