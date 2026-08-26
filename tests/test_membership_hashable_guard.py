@@ -112,7 +112,14 @@ class TestNoUnguardedMembershipInTheTree(unittest.TestCase):
             if "is_member(" not in text:
                 continue
             with self.subTest(datei=str(pfad.relative_to(SRC.parent))):
-                self.assertIn("_membership import is_member", text)
+                # import-ORDER-robust: `from ._membership import as_dict, is_member` is isort-canonical,
+                # so a literal-substring check for "_membership import is_member" false-flags a legitimate
+                # multi-name import. The INTENT is unchanged — is_member must be imported from _membership
+                # where it is called — and this regex checks exactly that regardless of the name order.
+                import re as _re  # noqa: PLC0415
+                self.assertTrue(
+                    _re.search(r"_membership import [\w,\s]*\bis_member\b", text),
+                    f"{pfad.name} calls is_member() but does not import it from _membership")
 
 
 class TestTheScannerActuallyCatches(unittest.TestCase):
