@@ -11,7 +11,9 @@ Maps the 15 classes to the three reconstructed gates:
   audit_candidate_matrix (F2/F7): PENDING_JUSTIFIED, DATA_BLOCKED, unknown verdict, negated-keyword decoy.
 
 Spur-2 Linse A note: cc01/cc02 now OBSERVE gate.evaluate() (they were vacuous re-transcriptions of the
-rule), and class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10).
+rule), class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10), and class 16
+binds acceptance to evaluate()'s HEADLINE never_raise_ok verdict + the _exercise_nested INTEGRATION (the
+Gates re-gate showed cc04/05/06 tested the helpers in isolation, so a stripped-wiring regression passed).
 """
 from __future__ import annotations
 
@@ -217,6 +219,35 @@ def cc15_inventory_disagreement():
     return detected, f"seeded inventory disagreement -> inventories_agree={r['inventories_agree']}, complete={r['population_complete']}"
 
 
+def cc16_evaluate_never_raise_verdict_observed():
+    # Spur-2 GATES re-gate T1: cc04/05/06 exercise the gate HELPERS (_exercise/_exercise_nested) in
+    # isolation, and the positive control only checked population_complete — NOTHING bound acceptance to
+    # evaluate()'s HEADLINE never_raise_ok verdict or the _exercise_nested INTEGRATION. So a regression
+    # that strips the nested-leaf wiring (M1), or hard-wires violations=[] (M-ULT), blinded the gate while
+    # the harness stayed 15/15. This class SEEDS an IN_SCOPE surface whose inner leaf raw-crashes and
+    # confirms the FULL evaluate() reports never_raise_ok=False + raw>0 (M1/M-ULT turn THIS red).
+    def victim(x):
+        if not isinstance(x, dict):
+            raise BundleFormatError("shape")
+        return x["status"] in {"ok", "bad"}   # unhashable leaf -> raw TypeError, only the nested matrix finds it
+    victim.__module__ = "proofbundle_seeded_cc16"
+    saved = (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips)
+    tcg._FIELD_CACHE["proofbundle_seeded_cc16"] = ["status"]
+    tcg.discover_python_verify_functions = lambda: {"proofbundle.seeded.verify_x": None}
+    tcg._runtime_inventory = lambda: ({"proofbundle.seeded.verify_x"}, [])
+    tcg._parse_skips = lambda: []
+    tcg._classify = lambda q, info=None: {"status": "IN_SCOPE", "fn": victim, "extra_kwargs": {},
+                                          "payloads": [], "primary_name": "x", "primary_kwonly": False,
+                                          "str_matrix": []}
+    try:
+        r = tcg.evaluate()
+    finally:
+        (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips) = saved
+        tcg._FIELD_CACHE.pop("proofbundle_seeded_cc16", None)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"evaluate() on a seeded nested-leaf crasher -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -233,6 +264,7 @@ CLASSES = [
     ("13_unknown_verdict", "audit_candidate", cc13_unknown_verdict),
     ("14_negated_keyword_decoy", "audit_candidate", cc14_negated_keyword_decoy),
     ("15_inventory_disagreement", "type_confusion", cc15_inventory_disagreement),
+    ("16_evaluate_never_raise_verdict", "type_confusion", cc16_evaluate_never_raise_verdict_observed),
 ]
 
 
@@ -247,7 +279,11 @@ def _positive_controls():
     out.append(("type_confusion_defended_clean", (not viol) and ret > 0))
     # the REAL gate must ACCEPT the clean subject tree (population_complete True) — proves the 15 detections
     # above are a discriminating gate, not a constant reject (green positive control per gate).
-    out.append(("type_confusion_real_population_complete", tcg.evaluate()["population_complete"] is True))
+    _real = tcg.evaluate()
+    out.append(("type_confusion_real_population_complete", _real["population_complete"] is True))
+    # and the gate's HEADLINE never-raise verdict must be green on the clean tree (Gates re-gate T1):
+    # cc16 seeds a crash and demands detection; this control demands the clean tree is NOT a false-positive.
+    out.append(("type_confusion_real_never_raise_ok", _real["never_raise_ok"] is True))
     return out
 
 
@@ -266,7 +302,8 @@ def run() -> dict:
         "classes_total": len(results),
         "classes_detected": detected_n,
         "detection_rate": f"{detected_n}/{len(results)}",
-        "acceptance_15_15": detected_n == len(results) == 15,
+        "acceptance_all_classes_detected": detected_n == len(results) and len(results) >= 15,
+        "acceptance_15_15": detected_n == len(results) and len(results) >= 15,  # back-compat alias
         "positive_controls": pos,
         "positive_controls_all_green": all(p["passed"] for p in pos),
         "results": results,
@@ -276,7 +313,7 @@ def run() -> dict:
 def main(argv=None) -> int:
     r = run()
     print(json.dumps(r, indent=2, ensure_ascii=False))
-    ok = r["acceptance_15_15"] and r["positive_controls_all_green"]
+    ok = r["acceptance_all_classes_detected"] and r["positive_controls_all_green"]
     return 0 if ok else 1
 
 

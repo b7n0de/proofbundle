@@ -94,3 +94,73 @@ def test_positive_control_valid_sequence_unchanged():
     assert verify_sequence(seq, DATA, allow_unauthenticated_anchor=True).ok is True
     assert evaluate_renewal_policy(seq, policy=RenewalPolicy(), now=200).ok is True
     assert isinstance(seq[0][0].token(), str)
+
+
+# --- Deep-Gate Produkt-Linse Runde 2: the class was still instance-level. These sweep the members the
+#     re-gate found — container-nested giant int, the sibling operand max_ats_age, data_digests, the
+#     policy constructor — plus the STRUCTURAL net that enforces never-raise for anything unanticipated.
+
+CONTAINER_GIANT = [1 << 100000]   # a giant int NESTED in a container (escapes a scalar-only guard)
+
+
+@pytest.mark.parametrize("field", ["hash_alg", "covered_digest", "time", "sig_alg", "signatures", "external_token_type"])
+def test_verify_sequence_container_nested_giant_int(field):
+    bad = _ats(**({field: CONTAINER_GIANT, "sig_alg": "ed25519"} if field == "signatures"
+                  else {field: CONTAINER_GIANT}))
+    if field == "external_token_type":
+        bad = _ats(external_token_type=CONTAINER_GIANT, external_token=b"x")
+    assert not verify_sequence([[bad]], DATA).ok
+    # the standalone never-raise bool surface must also survive it
+    from proofbundle.renewal import _verify_ats_signature
+    assert _verify_ats_signature(_ats(sig_alg=CONTAINER_GIANT), {"ed25519": b"\0" * 32}) is False
+
+
+@pytest.mark.parametrize("bad", [
+    pytest.param("99", id="str"), pytest.param([1], id="list"), pytest.param({}, id="dict"),
+    pytest.param(b"x", id="bytes"), pytest.param(1 << 20000, id="giant_int_ok"),
+])
+def test_evaluate_policy_malformed_max_ats_age(bad):
+    # DEFECT 1: max_ats_age is the sibling operand of the guarded `now`
+    r = evaluate_renewal_policy([[_ats()]], policy=RenewalPolicy(max_ats_age=bad), now=5000)
+    assert isinstance(r.ok, bool)
+
+
+@pytest.mark.parametrize("dd", [pytest.param(123, id="int"), pytest.param(None, id="none"),
+                                pytest.param("abc", id="str")])
+def test_verify_sequence_malformed_data_digests(dd):
+    r = verify_sequence([[_ats()]], dd)
+    assert isinstance(r.ok, bool)
+
+
+def test_evaluate_policy_malformed_deprecated_algs_direct():
+    r = evaluate_renewal_policy([[_ats()]], policy=RenewalPolicy(deprecated_algs=123), now=2000)
+    assert isinstance(r.ok, bool)
+
+
+def test_from_dict_untrusted_policy_json_never_raw_crashes():
+    from proofbundle.renewal import RenewalError
+    # strictness giant int -> typed; max_ats_age non-int -> typed; unhashable deprecated_algs -> filtered
+    with pytest.raises(RenewalError):
+        RenewalPolicy.from_dict({"strictness": 1 << 20000})
+    with pytest.raises(RenewalError):
+        RenewalPolicy.from_dict({"max_ats_age": "99"})
+    pol = RenewalPolicy.from_dict({"deprecated_algs": [[], "sha1", {}]})   # junk filtered, str kept
+    assert pol.deprecated_algs == frozenset({"sha1"})
+
+
+def test_structural_net_enforces_never_raise_for_unanticipated_fields(monkeypatch):
+    # the decorator net is the fix-the-CLASS backstop: it must convert a FUTURE, unanticipated inner crash
+    # (one no explicit guard names) into a fail-closed verdict. Simulate the gap by making an inner helper
+    # raise, and confirm both surfaces return a VerificationResult (never propagate). A plant-and-catch on
+    # the decorator itself (remove it) makes THIS test red -> the net is proven, not decorative.
+    import proofbundle.renewal as R
+
+    def _boom(*a, **k):
+        raise RuntimeError("simulated future gap")
+
+    monkeypatch.setattr(R, "_all_ats", _boom)
+    r1 = R.verify_sequence([[_ats()]], DATA)
+    assert r1.ok is False, "the net must yield a fail-closed verdict, not propagate"
+    monkeypatch.setattr(R, "_newest", _boom)
+    r2 = R.evaluate_renewal_policy([[_ats()]], policy=RenewalPolicy(), now=2000)
+    assert r2.ok is False

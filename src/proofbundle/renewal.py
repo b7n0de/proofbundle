@@ -24,6 +24,7 @@ missing / unknown / deprecated algorithm — a renewal never introduces a weak h
 from __future__ import annotations
 
 import base64
+import functools
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -83,6 +84,45 @@ def _refuse_giant_int(*values) -> None:
             raise ProofBundleError(
                 f"ATS field is an implausibly large integer ({v.bit_length()} bits) — refused before "
                 "rendering the signed bytes (a shortened render would change them)")
+
+
+def _refuse_malformed_signed_fields(hash_alg, covered_digest, sig_alg, time) -> None:
+    """Signed-bytes fields must be exactly str/int (fix-the-CLASS, Deep-Gate Produkt-Linse Runde 2):
+    token()/_ats_content interpolate them RAW into the signed material, so a CONTAINER field (e.g.
+    sig_alg=[1<<100000]) renders a nested giant int and re-raises the int->str cap — a raw crash out of
+    the never-raise verify callers. _refuse_giant_int caught only a SCALAR giant int; a malformed field
+    TYPE cannot be signed bytes at all. Refuse it typed; the never-raise surfaces catch it fail-closed."""
+    for name, v in (("hash_alg", hash_alg), ("covered_digest", covered_digest), ("sig_alg", sig_alg)):
+        if not isinstance(v, str):
+            raise ProofBundleError(
+                f"ATS {name} must be a str for signed bytes, got {type(v).__name__} (fail-closed)")
+    if not isinstance(time, int) or isinstance(time, bool):
+        raise ProofBundleError(
+            f"ATS time must be an int for signed bytes, got {type(time).__name__} (fail-closed)")
+    _refuse_giant_int(time)
+
+
+def _never_raise_verdict(check_name: str):
+    """Structural never-raise enforcement (fix-the-CLASS, Deep-Gate Produkt-Linse Runde 2). The deep gate
+    crashed these renewal verify surfaces TWICE, each time on a sibling of a just-guarded field (now ->
+    max_ats_age, scalar -> container giant int). Explicit guards give good diagnostics for the common
+    cases, but the CONTRACT — a verify surface returns a VERDICT, never an exception — is enforced HERE by
+    construction: any residual/future malformed-input crash becomes a fail-closed VerificationResult, not a
+    raw traceback. It cannot silently mask a real regression: a logic bug that raised on VALID input would
+    fail the positive-control tests (a valid sequence/policy must still verify ok=True)."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 — never-raise contract: malformed input -> fail-closed
+                result = VerificationResult()
+                result.checks.append(Check(
+                    check_name, False,
+                    f"malformed input rejected fail-closed ({type(exc).__name__})"))
+                return result
+        return wrapper
+    return deco
 
 
 class RenewalError(ProofBundleError):
@@ -147,7 +187,7 @@ class ArchiveTimeStamp:
         """
         # fix-the-CLASS (Deep-Gate iter9 Linse C): EVERY field folded into the covered token carries the
         # int->str exposure, not only `time`; refuse an implausible magnitude on all of them.
-        _refuse_giant_int(self.time, self.hash_alg, self.covered_digest, self.sig_alg)
+        _refuse_malformed_signed_fields(self.hash_alg, self.covered_digest, self.sig_alg, self.time)
         base = f"{self.hash_alg}:{self.covered_digest}:{self.time}"
         if not self.sig_alg:
             return base
@@ -214,7 +254,7 @@ def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) ->
     # implausible magnitude is REFUSED, never shortened. The earlier guard covered only `time`; every
     # field interpolated here (sig_alg/hash_alg/covered_digest as a giant int too) has the same int->str
     # exposure. _verify_ats_signature, a never-raise surface, catches this typed refusal fail-closed.
-    _refuse_giant_int(time, hash_alg, covered_digest, sig_alg)
+    _refuse_malformed_signed_fields(hash_alg, covered_digest, sig_alg, time)
     return f"archivetimestamp/v1\n{sig_alg}\n{hash_alg}\n{covered_digest}\n{time}".encode()
 
 
@@ -525,6 +565,7 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
     return _newest(sequence)
 
 
+@_never_raise_verdict("renewal:internal_fail_closed")
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                     authority_keys: Optional[dict] = None,
                     anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None,
@@ -602,6 +643,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         result.checks.append(Check(
             "renewal:shape", False,
             "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
+        return result
+
+    # fix-the-CLASS: data_digests is iterated (_cover_data/_validate_digests); a non-sequence (int/None)
+    # crashed this never-raise surface with a raw TypeError. Guard it like the sequence shape.
+    if not isinstance(data_digests, (list, tuple)):
+        result.checks.append(Check(
+            "renewal:data_digests_shape", False,
+            "data_digests must be a list/tuple of lowercase-hex strings (fail-closed)"))
         return result
 
     def _default_anchor(a: ArchiveTimeStamp) -> bool:
@@ -843,14 +892,24 @@ class RenewalPolicy:
     def from_dict(cls, obj: dict) -> "RenewalPolicy":
         strictness = obj.get("strictness", "warn")
         if strictness not in ("warn", "fail"):
-            raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {strictness!r}")
+            raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {_rs(strictness)}")
+        # fix-the-CLASS (Deep-Gate Produkt-Linse Runde 2): from_dict parses UNTRUSTED policy JSON. A giant
+        # int strictness crashed the {!r} render (now _rs); an unhashable deprecated_algs element crashed
+        # frozenset(); a non-int max_ats_age flowed to a raw comparison crash downstream. Refuse/normalize
+        # them HERE (a raise-idiom constructor); keep only str hash-alg names.
+        _mage = obj.get("max_ats_age")
+        if _mage is not None and not (isinstance(_mage, int) and not isinstance(_mage, bool)):
+            raise RenewalError(
+                f"renewal policy max_ats_age must be an int or None, got {type(_mage).__name__}")
         return cls(
-            deprecated_algs=frozenset(_as_list(obj.get("deprecated_algs", []))),
-            max_ats_age=obj.get("max_ats_age"),
+            deprecated_algs=frozenset(x for x in _as_list(obj.get("deprecated_algs", []))
+                                      if isinstance(x, str)),
+            max_ats_age=_mage,
             strictness=strictness,
         )
 
 
+@_never_raise_verdict("renewal:internal_fail_closed")
 def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: RenewalPolicy,
                             now: int) -> VerificationResult:
     """Report whether the newest ArchiveTimeStamp is overdue for renewal, per ``policy`` (no network).
@@ -885,6 +944,21 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     if not isinstance(now, int) or isinstance(now, bool):
         result.checks.append(Check("renewal:now_malformed", False,
                                    f"now must be an int, got {type(now).__name__} (fail-closed)"))
+        return result
+    # fix-the-CLASS (Deep-Gate Produkt-Linse Runde 2, DEFECT 1): max_ats_age is the OTHER operand of the
+    # `(now - newest.time) > policy.max_ats_age` comparison below; the earlier round guarded `now` but left
+    # its sibling. A non-int max_ats_age (untrusted policy JSON) crashed here with a raw TypeError.
+    # deprecated_algs is the `in` operand a few lines down — guard both, same fail-closed direction.
+    if policy.max_ats_age is not None and not (isinstance(policy.max_ats_age, int)
+                                               and not isinstance(policy.max_ats_age, bool)):
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy.max_ats_age must be an int or None, got "
+                                   f"{type(policy.max_ats_age).__name__} (fail-closed)"))
+        return result
+    if not isinstance(policy.deprecated_algs, (set, frozenset, list, tuple)):
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy.deprecated_algs must be a set/list, got "
+                                   f"{type(policy.deprecated_algs).__name__} (fail-closed)"))
         return result
 
     reasons = []

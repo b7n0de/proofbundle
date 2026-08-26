@@ -60,9 +60,15 @@ def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
     diagnoses anything from 5000 decimal digits.
     """
     if isinstance(value, bool) or not isinstance(value, int):
-        # Only integers carry this hazard. Everything else renders as it always did, including
-        # containers — a list of ints is handled by the caller passing its elements through here.
-        return repr(value)
+        # A non-int normally renders via repr. But a CONTAINER holding a giant int (or any object whose
+        # __repr__ interpolates one) re-raises the int->str cap from INSIDE repr() — the deep gate found a
+        # never-raise surface passing a whole container field here (e.g. sig_alg=[1<<100000]). The note
+        # above assumed callers pass container ELEMENTS; the never-raise surfaces pass the whole field, so
+        # the contract ("without letting it raise") is enforced here — one helper, every site.
+        try:
+            return repr(value)
+        except Exception:  # noqa: BLE001 — nested implausible int / hostile __repr__ must not escape
+            return f"<unrenderable {type(value).__name__}>"
     if int_magnitude_ok(value, budget):
         return str(value)
     return f"<int, {value.bit_length()} bits>"
