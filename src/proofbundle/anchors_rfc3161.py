@@ -75,12 +75,20 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     # `OrderedDict` and any dict-like object work here and were being rejected for no reason. A floor that
     # refuses valid input is a defect of its own, just a quieter one than the crash it replaced.
     from collections.abc import Mapping as _Mapping  # noqa: PLC0415
-    if frozen is not None and not isinstance(frozen, _Mapping):
+
+    def _nutzbares_mapping(x) -> bool:
+        # isinstance(x, Mapping) beweist `.get` NICHT: `Mapping.register(cls)` macht isinstance True ohne
+        # die Mixin-Methoden (Deep-Gate iter9 Linse 3a, ueber register_anchor_type erreichbar). Die
+        # sechs .get-Aufrufe unten wuerden sonst roh stuerzen — also `.get`-Aufrufbarkeit mitpruefen.
+        # (Dasselbe Muster ist in anchors_ots gefixt; hier dieselbe Klasse, andere Konvention: raise.)
+        return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
+
+    if frozen is not None and not _nutzbares_mapping(frozen):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)")
-    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
+        raise _BFE(f"frozen must be a usable mapping (with .get), got {type(frozen).__name__} (fail-closed)")
+    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)")
+        raise _BFE(f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:
