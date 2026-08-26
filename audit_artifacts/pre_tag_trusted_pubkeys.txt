@@ -1,0 +1,7 @@
+# Trusted ed25519 public keys (base64, raw 32-byte) that may sign a pre-tag audit RECEIPT.
+# The gate (scripts/pre_tag_audit_gate.py) grants ok=true ONLY for a receipt signed by a key listed
+# here AND bound to the current tree + release version + gate source (makellose-500 Phase 3, F6).
+#
+# The PRIVATE half of each key is a release secret held by the RUNNER (CI / owner), NEVER in this repo.
+# An EMPTY file (only comments) = no trust anchor = the gate FAILS CLOSED. A release adds the runner's
+# public key here in an owner-approved commit, then the runner signs the receipt with the private half.

@@ -80,11 +80,13 @@ class WasEinVorTagTorKoennenMuss(unittest.TestCase):
         self.assertFalse(self._erteilt(self._baum()),
                          "eine leere Akte erteilt die Freigabe — dann misst nichts hier etwas")
 
-    def test_P4_ein_wahrhaftiger_eintrag_erteilt(self) -> None:
-        """Die Gegenrichtung, und sie ist genauso wichtig: ein Tor, das NICHTS durchlaesst, ist
-        kein Tor, sondern eine Mauer. Wer nur die Falsch-Erteilung prueft, baut sich eine."""
-        self.assertTrue(self._erteilt(self._baum(RECORD__md=_WAHRHAFTIG)),
-                        "die kanonische wahrhaftige Attestierung wird abgelehnt")
+    def test_P4_eine_prosa_zeile_erteilt_keinen_pass_mehr(self) -> None:
+        """makellose-500 F6: die kanonische Prosa-Zeile war forgeable (P6 des Gegenlesers) und ist jetzt
+        presentational. Der Verdikt kommt aus einem signierten, tree-gebundenen Receipt. Die
+        Gegenrichtung — dass das Tor nicht ALLES ablehnt — ist die Positiv-Kontrolle in
+        tests/test_pre_tag_receipt_gate.py (ein gueltiger Receipt verifiziert)."""
+        self.assertFalse(self._erteilt(self._baum(RECORD__md=_WAHRHAFTIG)),
+                         "eine Prosa-Zeile hat weiterhin einen PASS erteilt (F6 nicht geschlossen)")
 
     # ---- die drei gemessenen Luecken. Werden sie gruen, meldet unittest UNEXPECTED SUCCESS. ----
 

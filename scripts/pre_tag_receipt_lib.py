@@ -1,0 +1,94 @@
+"""Pre-tag audit RECEIPT — a runner-produced, tree-bound, signed attestation that the adversarial
+pre-tag audit ACTUALLY RAN for exactly this release digest (makellose-500 Phase 3, reviewer F6).
+
+The old gate granted ok=true from a self-written CHANGELOG line. A line is prose; prose is forgeable
+by anyone who can type, and the gate's own docstring admitted it was "provenance-shaped, not
+provenance". This module makes the verdict source a STRUCTURED receipt that BINDS the subject tree
+digest, the audit command + exit code + output digest, the gate source digest, and a runner identity,
+and is SIGNED (ed25519) by a key whose public half is pinned in the repo and whose private half lives
+with the runner (CI / owner), OUTSIDE the agent's reach.
+
+HONEST LIMIT: this repo (OSS proofbundle) has no in-repo runner daemon; the private key is a release
+secret held by CI/owner. So on a dev tree with no signed receipt the gate is FAIL-CLOSED (correct —
+the audit is not signed-attested for this tree). At release, the runner signs; the gate verifies.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+RECEIPT_SCHEMA = "b7n0de.pre_tag_audit_receipt.v1"
+_SIGNED_FIELDS = (
+    "schema", "version", "subject_tree_digest", "gate_source_digest",
+    "audit_command", "audit_exit_code", "audit_output_digest", "runner_identity", "produced_at",
+)
+
+
+def canonical_bytes(receipt: dict) -> bytes:
+    """The exact bytes signed/verified: the SIGNED fields only, sorted, compact — never the signature
+    or the signer pubkey (those wrap it). A missing signed field is a hard error, not a silent default,
+    so a receipt cannot omit its way to a shorter signed message."""
+    body = {}
+    for k in _SIGNED_FIELDS:
+        if k not in receipt:
+            raise ValueError(f"receipt is missing signed field {k!r}")
+        body[k] = receipt[k]
+    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def load_trusted_pubkeys(repo: Path) -> list[str]:
+    """Base64 ed25519 public keys the gate trusts to sign a pre-tag receipt. One per line, '#' comments.
+    An ABSENT or EMPTY file means the gate has no trust anchor and MUST fail closed — never trust-all."""
+    p = repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt"
+    if not p.is_file():
+        return []
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.append(line)
+    return out
+
+
+def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_version: str,
+                   subject_tree_digest: str, gate_source_digest: str) -> "tuple[bool, str]":
+    """(ok, reason). ok iff the receipt is a well-formed, SIGNED (by a trusted key) attestation that
+    BINDS this exact tree + version + gate source, and records a SUCCESSFUL audit (exit 0)."""
+    import base64  # noqa: PLC0415
+    from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+    if not isinstance(receipt, dict):
+        return False, "receipt is not an object"
+    if receipt.get("schema") != RECEIPT_SCHEMA:
+        return False, f"unknown schema {receipt.get('schema')!r} (want {RECEIPT_SCHEMA})"
+    if receipt.get("version") != expected_version:
+        return False, f"receipt version {receipt.get('version')!r} != release {expected_version!r}"
+    if receipt.get("subject_tree_digest") != subject_tree_digest:
+        return False, ("receipt subject_tree_digest does not bind THIS tree "
+                       f"({receipt.get('subject_tree_digest')!r} != {subject_tree_digest!r}) — a copied "
+                       "record from another release cannot attest this one")
+    if receipt.get("gate_source_digest") != gate_source_digest:
+        return False, "receipt gate_source_digest does not match the gate that is judging"
+    if receipt.get("audit_exit_code") != 0:
+        return False, f"the recorded audit did not succeed (exit {receipt.get('audit_exit_code')!r})"
+    if not trusted_pubkeys:
+        return False, ("no trusted signing key pinned (audit_artifacts/pre_tag_trusted_pubkeys.txt "
+                       "absent/empty) — the gate has no trust anchor and fails closed")
+    signer = receipt.get("signer_pubkey")
+    if signer not in trusted_pubkeys:
+        return False, f"receipt signer_pubkey is not in the trusted set (signer={str(signer)[:20]}...)"
+    sig = receipt.get("signature")
+    if not isinstance(sig, str):
+        return False, "receipt carries no signature"
+    try:
+        msg = canonical_bytes(receipt)
+        ok = verify_ed25519(base64.b64decode(signer), base64.b64decode(sig), msg)
+    except Exception as e:  # noqa: BLE001
+        return False, f"signature check errored (fail-closed): {type(e).__name__}: {e}"
+    if not ok:
+        return False, "ed25519 signature does not verify over the canonical receipt bytes"
+    return True, "signed, tree-bound, successful-audit receipt verified"
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
