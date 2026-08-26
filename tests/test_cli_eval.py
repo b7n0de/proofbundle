@@ -80,7 +80,8 @@ class TestExpectIssuer(unittest.TestCase):
         out = os.path.join(d, name)
         self.assertEqual(_run("emit-eval", "--claim", claim, "--out", out,
                               "--new-key", os.path.join(d, key)).returncode, 0)
-        issuer = json.loads(Path(out).read_text())  # the real issuer is in the shown claim
+        # The issuer is taken from what show-eval PRINTS, not from the file: the CLI is the surface
+        # --expect-issuer is compared against, so the test must pin the same string a caller sees.
         show = _run("show-eval", out)
         line = next(ln for ln in show.stdout.splitlines() if ln.startswith("issuer"))
         return out, line.split(None, 1)[1].strip()

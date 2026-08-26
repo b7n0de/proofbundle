@@ -158,6 +158,149 @@ def test_lm_eval_reports_none_and_says_so():
     assert version_status_issues(pr) == []
 
 
+# --- the OTHER THREE adapters, both directions each ------------------------------------------
+#
+# WHY THESE EXIST (deep-gate iteration 6, 2026-08-26, finding
+# STATUSKLASSE-UEBER-VIER-ADAPTER-EIN-TEST-FAEHRT-EINEN-ERZEUGERPFAD-01). The status is a format
+# commitment across FOUR adapters, and until now this file exercised exactly one producer path
+# (lm-eval). The behaviour of the other three was correct when measured by hand — but nothing in
+# the suite would have noticed if a later edit made a call site syntactically valid and
+# semantically wrong, for instance passing a constant placeholder instead of what the harness
+# reported. A raising call site was already caught by the neighbouring adapter tests; a lying one
+# was not, and that is precisely what
+# `test_missing_version_field_stays_absent_not_invented` exists to prevent, one field over.
+#
+# Each adapter is checked in BOTH directions, because one direction alone cannot tell a working
+# binding from a constant: an adapter that always writes `reported` passes the first half.
+
+def _promptfoo_claim(mit_version: bool):
+    from proofbundle.adapters.promptfoo import from_promptfoo_results
+    d = {"evalId": "ev1",
+         "config": {"description": "s", "tests": [{"vars": {"a": 1}}], "providers": ["p:1"]},
+         "results": {"version": 3, "stats": {"successes": 3, "failures": 1, "errors": 0},
+                     "results": [{"provider": {"id": "p:1"}}]},
+         "metadata": {"promptfooVersion": "0.100.0"} if mit_version else {}}
+    p = pathlib.Path(tempfile.mkdtemp()) / "results.json"
+    p.write_text(json.dumps(d))
+    claim, _ = from_promptfoo_results(str(p), comparator=">=", threshold="0.5",
+                                      timestamp="2026-08-26T00:00:00Z")
+    return claim["provenance"]
+
+
+def test_promptfoo_reports_a_version_under_BOTH_names():
+    """Iteration 5's asymmetric binding: three adapters bound `harness_version`, this one bound
+    `promptfoo_version` only, so a reader could not tell 'reports nothing' from 'names it
+    differently'. Both names carry a status, or the hole is rebuilt next door."""
+    pr = _promptfoo_claim(True)
+    assert pr["harness_version"] == "0.100.0"
+    assert pr["promptfoo_version"] == "0.100.0"
+    assert pr["harness_version_status"] == "reported"
+    assert pr["promptfoo_version_status"] == "reported"
+    assert version_status_issues(pr) == []
+
+
+def test_promptfoo_reports_none_and_says_so_on_both():
+    pr = _promptfoo_claim(False)
+    for field in ("harness_version", "promptfoo_version"):
+        assert field not in pr, f"{field} must stay absent, never invented"
+        assert pr[f"{field}_status"] == "not_reported"
+        assert pr[f"{field}_status_reason"]
+    assert version_status_issues(pr) == []
+
+
+def _inspect_claim(mit_version: bool):
+    from proofbundle.adapters.inspect_ai import from_inspect_ai_log
+
+    class _Metric:
+        value = 0.9
+
+    class _Score:
+        metrics = {"accuracy": _Metric()}
+        scorer = "s"
+        name = "n"
+        reducer = None
+        scored_samples = 10
+        params = None
+
+    class _Eval:
+        task = "t"
+        model = "m"
+        dataset = None
+        revision = None
+        run_id = "r"
+        created = "2026-08-26"
+        task_args = None
+        packages = {"inspect_ai": "0.3.112"} if mit_version else {}
+        task_version = 7 if mit_version else None
+
+    class _Results:
+        scores = [_Score()]
+        total_samples = 10
+
+    class _Log:
+        eval = _Eval()
+        results = _Results()
+
+    claim, _ = from_inspect_ai_log(_Log(), "accuracy", comparator=">=", threshold="0.5",
+                                   timestamp="2026-08-26T00:00:00Z")
+    return claim["provenance"]
+
+
+def test_inspect_ai_reports_both_of_its_version_fields():
+    pr = _inspect_claim(True)
+    assert pr["harness_version"] == "0.3.112"
+    assert pr["harness_version_status"] == "reported"
+    assert pr["task_version"] == "7"
+    assert pr["task_version_status"] == "reported"
+    assert version_status_issues(pr) == []
+
+
+def test_inspect_ai_reports_none_and_says_so_on_both():
+    pr = _inspect_claim(False)
+    for field in ("harness_version", "task_version"):
+        assert field not in pr, f"{field} must stay absent, never invented"
+        assert pr[f"{field}_status"] == "not_reported"
+        assert pr[f"{field}_status_reason"]
+    assert version_status_issues(pr) == []
+
+
+def _eee_provenance(mit_version: bool):
+    from proofbundle.adapters.eee import from_eee_dataset
+    fixture = pathlib.Path(__file__).resolve().parent / "fixtures" / "eee_arc_easy.json"
+    rec = json.loads(fixture.read_text())
+    if not mit_version:
+        rec["eval_library"].pop("version", None)
+    claim, _ = from_eee_dataset(rec, comparator=">=", threshold="0.30", validate=False)
+    return claim["provenance"]
+
+
+def test_eee_reports_a_version():
+    pr = _eee_provenance(True)
+    assert pr["harness_version"] == "0.4.12"
+    assert pr["harness_version_status"] == "reported"
+    assert version_status_issues(pr) == []
+
+
+def test_eee_reports_none_and_says_so():
+    pr = _eee_provenance(False)
+    assert "harness_version" not in pr
+    assert pr["harness_version_status"] == "not_reported"
+    assert pr["harness_version_status_reason"]
+    assert version_status_issues(pr) == []
+
+
+def test_every_named_field_is_exercised_by_some_adapter_test():
+    """A named set that grows without a producer test would re-open exactly the gap these tests
+    close. This binds the two: every member of REPORTED_VERSION_FIELDS must appear in a status
+    written by a real adapter above, not merely in a hand-built dict."""
+    gesehen = set()
+    for provenance in (_lm_eval_claim(True), _promptfoo_claim(True), _inspect_claim(True),
+                       _eee_provenance(True)):
+        gesehen |= {k[: -len("_status")] for k in provenance if k.endswith("_status")}
+    fehlend = set(REPORTED_VERSION_FIELDS) - gesehen
+    assert not fehlend, f"no adapter test writes a status for: {sorted(fehlend)}"
+
+
 # --- Jury lens 1 (2026-08-26): two findings, one held, one did not ---------------------------
 #
 # FINDING 1 HELD AND IT WAS THE SERIOUS ONE. The first version matched EVERY provenance key

@@ -221,11 +221,23 @@ def version_status_issues(provenance: dict) -> list[str]:
         # receipt look non-conformant, and the whole point of this product is that a receipt
         # says what it means.
         #
-        # The rule is the SUFFIX OF THE FIELD, not a hard-coded list: the class is "harness-
-        # reported version fields", and every member of it is named `*_version`
-        # (harness_version, task_version, promptfoo_version). A future adapter that binds
-        # `foo_version` is covered without an edit here, and nothing else is ever touched — a
-        # literal list would have to be maintained and would silently miss the next one.
+        # THE RULE IS THE NAMED SET `REPORTED_VERSION_FIELDS`, NOT A SUFFIX. An earlier version of
+        # this check accepted any `<field>_status` whose field ended in `_version`, and this comment
+        # argued for that. Jury lens 1, round 2 refuted it and the refutation held: `schema_version`
+        # ends in `_version` and is NOT a harness-reported field, so a malformed
+        # `schema_version_status` produced a finding about a field this rule has no business
+        # judging. The suffix over-matches by construction, because `*_version` is a NAME, and the
+        # class this rule governs is a ROLE — "a version the harness reported about itself".
+        #
+        # WHY THE LITERAL LIST IS THE RIGHT ANSWER HERE, and not merely the safer one. For a
+        # verifier the two error directions are not equal: a false finding makes a VALID receipt
+        # look non-conformant, which is this product's own failure class pointed the other way,
+        # while a missed field simply produces no finding. The maintenance cost the suffix rule was
+        # meant to avoid is real but is paid in the right place — adding a member is one line at
+        # REPORTED_VERSION_FIELDS, and the conformance corpus is where a new member proves it
+        # behaves. A rule that needs no edit also gets no review. And the same set is shared with
+        # the writer (`bind_reported_version`), so the two sides cannot drift into different ideas
+        # of the class; a suffix rule here and a set there would be exactly that drift.
         if field not in REPORTED_VERSION_FIELDS:
             continue
         status = provenance.get(key)
