@@ -17,6 +17,7 @@ from typing import Any, Callable
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
+from ._membership import is_member
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -149,7 +150,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
 
     # decisionType enum
     dt = predicate.get("decisionType")
-    if dt is not None and (not isinstance(dt, str) or dt not in _DECISION_TYPES):
+    if dt is not None and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
         errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {dt!r}")
 
     # RFC3339-Z time fields
@@ -162,7 +163,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     dec = predicate.get("decision")
     if isinstance(dec, dict):
         vd = dec.get("verdict")
-        if not isinstance(vd, str) or vd not in _VERDICTS:
+        if not isinstance(vd, str) or not is_member(vd, _VERDICTS):
             errors.append(f"decision.verdict must be one of {sorted(_VERDICTS)}, got {vd!r}")
         rc = dec.get("reasonCodes")
         if not isinstance(rc, list) or not rc or not all(isinstance(x, str) for x in rc):
@@ -238,7 +239,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     ao = predicate.get("actionOutcome")
     if isinstance(ao, dict):
         st = ao.get("status")
-        if not isinstance(st, str) or st not in _OUTCOME_STATUS:
+        if not isinstance(st, str) or not is_member(st, _OUTCOME_STATUS):
             errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
     elif "actionOutcome" in predicate:
         errors.append("actionOutcome must be a JSON object")

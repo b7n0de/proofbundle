@@ -40,6 +40,7 @@ from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from .signature import verify_ed25519
 from ._wire_b64 import decode_b64url
+from ._membership import is_member
 
 __all__ = ["split_key_binding", "verify_key_binding", "holder_key_from_cnf"]
 
@@ -217,7 +218,7 @@ def verify_key_binding(
 
     # sd_hash binds the KB-JWT to the exact presented SD-JWT + disclosure set.
     sd_alg = issuer_payload.get("_sd_alg", "sha-256")
-    if sd_alg not in _HASH_ALG:
+    if not is_member(sd_alg, _HASH_ALG):
         result["detail"] = f"unsupported _sd_alg {sd_alg}"
         return result
     h = hashlib.new(_HASH_ALG[sd_alg])

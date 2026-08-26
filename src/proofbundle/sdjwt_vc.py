@@ -28,6 +28,7 @@ from typing import Any
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64url
+from ._membership import is_member
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
 _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding",
@@ -57,7 +58,7 @@ def validate_vc_policy(policy: Any) -> list[str]:
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]
     for k in policy:
-        if k not in _POLICY_KEYS:
+        if not is_member(k, _POLICY_KEYS):
             errors.append(f"unknown policy key {k!r}")
     va = policy.get("vctAllowlist")
     if not (isinstance(va, list) and va and all(isinstance(x, str) and x for x in va)):

@@ -31,6 +31,7 @@ from .bundle import load_bundle, verify_bundle
 from .emit import emit_bundle
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
+from ._membership import is_member
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -171,7 +172,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
     threshold/score are decimal STRINGS (never floats). Returns:
         (claim: dict, salts: {"model_salt": bytes, "dataset_salt": bytes})
     """
-    if comparator not in _COMPARATORS:
+    if not is_member(comparator, _COMPARATORS):
         raise EvalClaimError(f"comparator must be one of {sorted(_COMPARATORS)}")
     if assurance_level not in ASSURANCE_LEVELS:
         raise EvalClaimError(f"assurance_level must be one of {list(ASSURANCE_LEVELS)}")
@@ -306,7 +307,7 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         # WITHOUT build_eval_claim's checks, so a signed claim could carry an out-of-enum comparator or a
         # non-decimal/non-finite threshold ("inf") — either silently collapses a downstream verdict check (e.g. the
         # HF value-vs-verdict guard) into a tautology. Enforce them here, fail-closed, so every decoded claim is sane.
-        if claim.get("comparator") not in _COMPARATORS:
+        if not is_member(claim.get('comparator'), _COMPARATORS):
             return None
         _thr = claim.get("threshold")
         if not (isinstance(_thr, str) and _DECIMAL_RE.match(_thr)):
@@ -396,7 +397,7 @@ def eval_evidence_class(claim: dict) -> dict:
     threshold = claim.get("threshold")
     passed = claim.get("passed")
     score = claim.get("score")
-    if (isinstance(score, str) and _DECIMAL_RE.match(score) and comparator in _COMPARATORS
+    if (isinstance(score, str) and _DECIMAL_RE.match(score) and is_member(comparator, _COMPARATORS)
             and isinstance(threshold, str) and _DECIMAL_RE.match(threshold) and isinstance(passed, bool)):
         from decimal import Decimal, InvalidOperation  # noqa: PLC0415
         try:

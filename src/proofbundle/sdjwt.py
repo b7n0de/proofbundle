@@ -51,6 +51,7 @@ from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from .signature import verify_ecdsa_p256, verify_ed25519
 from ._wire_b64 import decode_b64url
+from ._membership import is_member
 
 # Finding 20 / issue #27: issuer-signature algorithms this verifier accepts, each dispatched to its
 # own alg-specific primitive with its own fixed key/signature length (32-byte Ed25519 raw key + Ed25519
@@ -154,7 +155,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     alg = header.get("alg")
     result["alg"] = alg
     sd_alg = payload.get("_sd_alg", "sha-256")
-    if sd_alg not in _HASH_ALG:
+    if not is_member(sd_alg, _HASH_ALG):
         result["detail"] = f"unsupported _sd_alg {sd_alg}"
         return result
 

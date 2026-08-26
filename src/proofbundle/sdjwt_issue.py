@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64url
+from ._membership import is_member
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -154,7 +155,7 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     except ProofBundleError as exc:
         raise ValueError(f"presented SD-JWT issuer payload is malformed or oversized: {exc}") from exc
     sd_alg = _issuer_payload.get("_sd_alg", SD_ALG)
-    if sd_alg not in _HASH_BY_SD_ALG:
+    if not is_member(sd_alg, _HASH_BY_SD_ALG):
         raise ValueError(f"unsupported _sd_alg {sd_alg!r} in the presented SD-JWT")
     sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
     header = {"alg": "EdDSA", "typ": "kb+jwt"}

@@ -44,6 +44,7 @@ import hashlib
 from typing import Callable, Optional
 
 from .errors import BundleFormatError
+from ._membership import is_member
 
 ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "frozen"}
@@ -227,7 +228,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         # JSON-schema layer in front of them).
         out["detail"] = "anchor anchoredAt must be an RFC 3339 string or null (informative only)"
         return out
-    if not isinstance(atype, str) or atype not in _VERIFIERS:
+    if not isinstance(atype, str) or not is_member(atype, _VERIFIERS):
         # Unknown type is a FAIL, not a SKIP — an anchor we cannot check must never pass silently.
         out["detail"] = (f"no verifier registered for anchor type {atype!r} "
                          "(install proofbundle[anchors] or register the extension type)")

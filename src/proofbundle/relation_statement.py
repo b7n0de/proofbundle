@@ -28,6 +28,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._membership import is_member
 
 RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -64,7 +65,7 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED:
         if req not in predicate:
@@ -319,7 +320,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         edge0 = edges[0] if edges else {}
         rel0 = edge0.get("relation")
         resolved = edge0.get("resolution") == LINEAGE_VERIFIED
-        if resolved and relations.get("reject_retracted") and rel0 in _SELF_ASSERTED_RETRACTORS:
+        if resolved and relations.get("reject_retracted") and is_member(rel0, _SELF_ASSERTED_RETRACTORS):
             _viol = list(_viol) + [{
                 "code": CODE_LINEAGE_REQUIREMENT_FAILED,
                 "message": ("reject_retracted: a verified relation-statement RETRACTS the target; "

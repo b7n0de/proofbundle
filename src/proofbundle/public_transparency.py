@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .errors import ProofBundleError
+from ._membership import is_member
 
 _STATUS_NAMES = (
     "LOG_ORIGIN", "CHECKPOINT_SIGNATURE", "ROOT_BYTES_AUTHENTICITY",
@@ -119,7 +120,7 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]
     for k in policy:
-        if k not in _POLICY_KEYS:
+        if not is_member(k, _POLICY_KEYS):
             errors.append(f"unknown policy key {k!r}")
     if "requireSignedCheckpoint" in policy and not isinstance(policy["requireSignedCheckpoint"], bool):
         errors.append("requireSignedCheckpoint must be a boolean")
