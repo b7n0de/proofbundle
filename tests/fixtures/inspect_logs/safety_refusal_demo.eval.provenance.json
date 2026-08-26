@@ -1,0 +1,15 @@
+{
+  "fixture": "safety_refusal_demo.eval",
+  "recorded_with_inspect_ai": "0.3.217",
+  "eval_log_version": 2,
+  "recorded_at": "2026-07-01T17:08:08+00:00",
+  "why_this_file": "makellose-500 I3: a release-shipped fixture without a recorded version silently checks the adapter against a frozen format. This states which inspect_ai wrote it and records the measured backward-compat, so a format drift is a visible decision, not an invisible one.",
+  "measured_backward_compat": {
+    "measured_at": "2026-08-27",
+    "current_pin_ceiling": "0.3.260",
+    "reads_this_fixture": true,
+    "writes_same_eval_log_version": 2,
+    "second_fixture_needed": false,
+    "note": "inspect_ai 0.3.260 (the pin's measured ceiling) both READS this 0.3.217 fixture and WRITES log_version 2 — the format is stable across 0.3.217..0.3.260, so no second fixture is recorded. Do NOT delete this fixture: it is the backward-compat witness. Record a second fixture at the pin ceiling ONLY when a future measured ceiling writes a different log_version."
+  }
+}
