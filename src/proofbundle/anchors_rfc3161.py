@@ -14,12 +14,13 @@ error there never touches the local receipt.
 from __future__ import annotations
 
 import base64
+from ._wire_b64 import decode_b64
 from typing import Optional
 
 
 def _load_der_cert(b64: str):
     from cryptography import x509  # noqa: PLC0415
-    return x509.load_der_x509_certificate(base64.b64decode(b64))
+    return x509.load_der_x509_certificate(decode_b64(b64))
 
 
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,

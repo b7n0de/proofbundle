@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .bundle import load_bundle, verify_bundle
 from .emit import emit_bundle
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64, decode_b64url
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 COMMIT_ALG = "sha256-salted-v1"
@@ -284,7 +285,7 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         result = verify_bundle(bundle)
         if not result.ok:
             return None
-        payload = base64.b64decode(bundle["payload_b64"])
+        payload = decode_b64(bundle["payload_b64"])
         claim = load_claim_text(payload.decode("utf-8"))
         if claim.get("schema") != EVAL_CLAIM_SCHEMA:
             return None
@@ -298,7 +299,7 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             return None
         # Issuer binding: the claim's issuer must be the key that signed the bundle.
         sig_pub_b64 = bundle["signature"]["public_key_b64"]
-        want = "ed25519:" + base64.b64encode(base64.b64decode(sig_pub_b64)).decode("ascii")
+        want = "ed25519:" + base64.b64encode(decode_b64(sig_pub_b64)).decode("ascii")
         if claim.get("issuer") != want:
             return None
         # Verify-boundary schema invariants (release-review CRITICAL): emit_eval_receipt signs a hand-built claim
@@ -504,7 +505,7 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         # F12 (release-audit follow-up 2026-07-12): loads_strict, not json.loads — a 5th SD-JWT
         # issuer-payload parse site of the same parser-differential class. A duplicate key (e.g. two
         # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.
-        payload = loads_strict(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        payload = loads_strict(decode_b64url(payload_b64).decode("utf-8"))
     except (ProofBundleError, ValueError, KeyError, IndexError):
         # adversarial re-audit round 3 (repro-confirmed): sd_jwt_hidden_count is PUBLIC — a node-heavy embedded
         # payload made loads_strict raise a SIBLING BudgetExceeded that `except BundleFormatError` let escape

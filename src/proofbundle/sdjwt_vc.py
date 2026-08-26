@@ -27,6 +27,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64url
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
 _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding",
@@ -47,7 +48,7 @@ class SdjwtVcError(ProofBundleError):
 
 
 def _b64url_decode(s: str) -> bytes:
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    return decode_b64url(s)
 
 
 def validate_vc_policy(policy: Any) -> list[str]:

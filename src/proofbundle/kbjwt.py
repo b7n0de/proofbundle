@@ -39,6 +39,7 @@ from typing import Optional, Tuple
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from .signature import verify_ed25519
+from ._wire_b64 import decode_b64url
 
 __all__ = ["split_key_binding", "verify_key_binding", "holder_key_from_cnf"]
 
@@ -54,7 +55,7 @@ def _b64url_decode(s: str) -> bytes:
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def _b64url_nopad(b: bytes) -> str:

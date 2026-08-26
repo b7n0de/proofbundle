@@ -29,6 +29,7 @@ from typing import Optional
 
 from .errors import BundleFormatError
 from .signature import verify_ed25519
+from ._wire_b64 import decode_b64_either
 
 __all__ = ["pae", "sign_envelope", "verify_envelope"]
 
@@ -36,10 +37,7 @@ __all__ = ["pae", "sign_envelope", "verify_envelope"]
 def _b64decode_any(s: str) -> bytes:
     """Decode standard OR url-safe base64 (DSSE verifiers MUST accept either). Tries standard first, then
     url-safe; raises binascii.Error if neither is valid."""
-    try:
-        return base64.b64decode(s, validate=True)
-    except (ValueError, binascii.Error):
-        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    return decode_b64_either(s)
 
 
 def pae(payload_type: str, body: bytes) -> bytes:

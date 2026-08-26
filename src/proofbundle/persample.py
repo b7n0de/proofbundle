@@ -49,6 +49,7 @@ from typing import List, Optional, Sequence
 from . import merkle
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64url
 
 __all__ = ["LEAF_ALG", "derive_leaf_salt", "make_disclosure", "build_sample_tree",
            "sample_opening", "verify_sample_opening", "audit_challenge"]
@@ -72,7 +73,7 @@ def _b64url_decode(s: str) -> bytes:
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:

@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64url
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -178,7 +179,7 @@ def _jwt_payload(compact: str) -> dict:
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-    return loads_strict(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    return loads_strict(decode_b64url(padded).decode("utf-8"))
 
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:

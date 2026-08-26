@@ -30,6 +30,7 @@ from typing import Optional, Tuple
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
+from ._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
@@ -44,7 +45,7 @@ def _b64url(data: bytes) -> str:
 
 def _b64url_decode(s: str) -> bytes:
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def receipt_token(bundle: dict) -> str:
@@ -252,7 +253,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                 # (it is NOT in the tuple below) — the schema label of a dup-key payload cannot be
                 # read reliably, so refusing to publish is the only honest outcome. Adding it to
                 # the except would set _is_eval=False and fail OPEN for dup-key eval claims.
-                _raw = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                _raw = loads_strict(decode_b64(bundle["payload_b64"]).decode("utf-8"))
                 _is_eval = isinstance(_raw, dict) and _raw.get("schema") == EVAL_CLAIM_SCHEMA
             except (ValueError, TypeError, KeyError):
                 _is_eval = False

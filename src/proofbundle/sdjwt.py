@@ -50,6 +50,7 @@ from typing import Optional, Set
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from .signature import verify_ecdsa_p256, verify_ed25519
+from ._wire_b64 import decode_b64url
 
 # Finding 20 / issue #27: issuer-signature algorithms this verifier accepts, each dispatched to its
 # own alg-specific primitive with its own fixed key/signature length (32-byte Ed25519 raw key + Ed25519
@@ -77,7 +78,7 @@ def _b64url_decode(s: str) -> bytes:
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def _b64url_nopad(b: bytes) -> str:

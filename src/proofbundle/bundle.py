@@ -34,6 +34,7 @@ from .errors import BundleFormatError, ProofBundleError, UnsupportedError, Verif
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
 from .sdjwt import verify_sd_jwt
+from ._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["SCHEMA", "verify_bundle", "load_bundle", "recompute_merkle_root_b64",
            "root_authenticity_summary", "AUTOMATION_BLOCKER_REASONS"]
@@ -83,7 +84,7 @@ def _issuer_requires_holder_binding(sd_part: str) -> bool:
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
-        payload = loads_strict(base64.urlsafe_b64decode(payload_b64 + b"=" * (-len(payload_b64) % 4)))
+        payload = loads_strict(decode_b64url(payload_b64))
         return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
     except ProofBundleError:
         # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
@@ -510,7 +511,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             try:
                 # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
                 # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
-                _claim = loads_strict(base64.b64decode(bundle["payload_b64"]).decode("utf-8"))
+                _claim = loads_strict(decode_b64(bundle["payload_b64"]).decode("utf-8"))
             except (ValueError, KeyError, TypeError, ProofBundleError):
                 _claim = None
             _root = _as_dict(bundle.get("merkle")).get("root_b64")
