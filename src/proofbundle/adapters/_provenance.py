@@ -123,6 +123,23 @@ VERSION_STATUS_NOT_BOUND = "not_bound"      # this adapter binds no such field f
 VERSION_STATUS_VALUES = (VERSION_STATUS_REPORTED, VERSION_STATUS_NOT_REPORTED,
                          VERSION_STATUS_NOT_BOUND)
 
+# THE FIELDS THE RULE GOVERNS — named, not guessed by suffix (jury lens 1, round 2, held).
+#
+# The previous version accepted any `<field>_status` whose field ended in `_version`. That
+# over-matched: `schema_version` ends in `_version` and is NOT a harness-reported field, so a
+# malformed `schema_version_status` produced a finding about a field the rule has no business
+# judging. For a VERIFIER the two error directions are not equal — a false finding makes a valid
+# receipt look non-conformant, while a missed field simply produces no finding. The safe rule is
+# therefore the narrow one, and the reviewer's argument beat the author's.
+#
+# SHARED BY BOTH SIDES ON PURPOSE. The writer validates against this set too, so a typo in an
+# adapter (`harnes_version`) raises instead of quietly creating a status nobody ever checks —
+# the writer and the verifier cannot drift apart into two different ideas of the class.
+#
+# Adding a field is one line here, and the conformance corpus is where a new member proves it
+# behaves; a suffix rule needs no edit and is exactly why it silently judged the wrong things.
+REPORTED_VERSION_FIELDS = ("harness_version", "task_version", "promptfoo_version")
+
 
 def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
                           bound: bool = True) -> dict:
@@ -140,6 +157,10 @@ def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
     a status that says "not reported" without saying why moves the ambiguity rather than closing
     it, and this helper exists precisely to stop that.
     """
+    if field not in REPORTED_VERSION_FIELDS:
+        raise ValueError(
+            f"{field!r} is not a reported-version field {list(REPORTED_VERSION_FIELDS)} — a status "
+            f"on an unlisted field would never be checked by the verifier")
     status_key, reason_key = f"{field}_status", f"{field}_status_reason"
     if bound and value not in (None, ""):
         provenance[field] = str(value)
@@ -151,6 +172,11 @@ def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
         raise ValueError(
             f"{status_key}={'not_bound' if not bound else 'not_reported'} requires a reason — "
             f"a status without a reason moves the ambiguity instead of closing it")
+    # THE WRITER MUST NOT CREATE THE CONTRADICTION IT WARNS ABOUT (jury lens 1, round 2, held).
+    # Called twice — first with a value, then without — the earlier version left the version field
+    # in place beside a `not_reported` status. The verifier caught it, but a writer that produces
+    # a block its own verifier rejects is a defect in the writer.
+    provenance.pop(field, None)
     provenance[status_key] = (VERSION_STATUS_NOT_BOUND if not bound
                               else VERSION_STATUS_NOT_REPORTED)
     provenance[reason_key] = str(reason).strip()
@@ -200,7 +226,7 @@ def version_status_issues(provenance: dict) -> list[str]:
         # (harness_version, task_version, promptfoo_version). A future adapter that binds
         # `foo_version` is covered without an edit here, and nothing else is ever touched — a
         # literal list would have to be maintained and would silently miss the next one.
-        if not field.endswith("_version"):
+        if field not in REPORTED_VERSION_FIELDS:
             continue
         status = provenance.get(key)
         if status not in VERSION_STATUS_VALUES:

@@ -24,8 +24,8 @@ import tempfile
 
 import pytest
 
-from proofbundle.adapters._provenance import (VERSION_STATUS_VALUES, bind_reported_version,
-                                              version_status_issues)
+from proofbundle.adapters._provenance import (REPORTED_VERSION_FIELDS, VERSION_STATUS_VALUES,
+                                              bind_reported_version, version_status_issues)
 
 
 # --- the writer -----------------------------------------------------------------------------
@@ -189,11 +189,39 @@ def test_an_unrelated_status_does_not_mask_a_real_one():
     assert len(got) == 1 and "harness_version_status" in got[0], got
 
 
-def test_the_rule_follows_the_field_suffix_not_a_hard_coded_list():
-    """A future adapter binding `foo_version` is covered without editing the verifier — a literal
-    list would have to be maintained and would silently miss the next one."""
-    got = version_status_issues({"foo_version_status": "maybe"})
-    assert got and "foo_version_status" in got[0]
+def test_the_rule_governs_a_NAMED_set_not_every_field_ending_in_version():
+    """BERICHTIGT durch Jury-Linse 1, Runde 2 — der Reviewer hatte das bessere Argument.
+
+    Die erste Fassung liess jedes Feld zu, dessen Name auf `_version` endet, mit der Begruendung,
+    ein kuenftiges `foo_version` sei dann ohne Codeaenderung gedeckt. Das ueberzieht: `schema_version`
+    endet ebenfalls so und ist KEIN von der Harness gemeldetes Feld. Fuer einen Verifier sind die
+    beiden Fehlerrichtungen nicht gleich — ein erfundener Fund laesst einen gueltigen Beleg
+    unkonform aussehen, ein uebersehenes Feld erzeugt nur keinen Fund. Also die enge Regel.
+    """
+    assert version_status_issues({"schema_version_status": "v1"}) == []
+    assert version_status_issues({"foo_version_status": "maybe"}) == []
+    for f in REPORTED_VERSION_FIELDS:
+        got = version_status_issues({f"{f}_status": "maybe"})
+        assert got and f in got[0], f
+
+
+def test_the_writer_validates_the_field_against_the_same_set():
+    """Schreiber und Verifier duerfen nicht in zwei Vorstellungen der Klasse auseinanderlaufen:
+    ein Tippfehler im Adapter erzeugt sonst still einen Status, den nie jemand prueft."""
+    with pytest.raises(ValueError, match="not a reported-version field"):
+        bind_reported_version({}, "harnes_version", "1.0", reason="x")
+
+
+def test_the_writer_does_not_create_the_contradiction_it_warns_about():
+    """Zweimal gerufen — erst mit Wert, dann ohne — liess die vorige Fassung das Versionsfeld
+    neben einem not_reported-Status stehen. Der Verifier fing es, aber ein Schreiber, der einen
+    von seinem eigenen Verifier abgelehnten Block erzeugt, ist selbst der Defekt."""
+    p = {}
+    bind_reported_version(p, "harness_version", "1.0", reason="unused")
+    bind_reported_version(p, "harness_version", None, reason="nothing reported")
+    assert "harness_version" not in p, p
+    assert p["harness_version_status"] == "not_reported"
+    assert version_status_issues(p) == []
 
 
 def test_a_receipt_without_any_status_stays_valid():
