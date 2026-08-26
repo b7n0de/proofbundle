@@ -103,7 +103,24 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # is surfaced as evidence only. BitcoinBlockHeaderAttestation's own check is exactly
     # `attestation_message == block_header.hashMerkleRoot`; we do that comparison directly against the
     # RP-supplied root (equivalent, and avoids reconstructing a full CBlockHeader).
+    # Typ-Konfusions-Guard (Deep-Gate iter9, dieselbe Klasse wie anchors_rfc3161:78-82): eine
+    # container-typisierte Eingabe, die KEIN Mapping ist, darf nie ein blankes `.get` erreichen.
+    # Lens-3-Exploit war zweistufig — `frozen=[]` (Nicht-Mapping) UND `rp_trust={"bitcoin_block_headers":
+    # [1,2]}` (Mapping mit Nicht-Mapping-WERT) → beide fuehrten zu rohem `AttributeError`. Fail-closed als
+    # VERDIKT statt Raise: OTS gibt ueberall Verdikte zurueck, und `verify_markovian` delegiert hierher und
+    # darf keine rohe Ausnahme erben (sein Vertrag ist „never raises for an ordinary bad proof").
+    from collections.abc import Mapping as _Mapping  # noqa: PLC0415
+    if not isinstance(frozen, _Mapping):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)"}
+    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)"}
     rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
+    if not isinstance(rp_headers, _Mapping):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": ("rp_trust.bitcoin_block_headers must be a mapping height->root, got "
+                           f"{type(rp_headers).__name__} (fail-closed)")}
     frozen_headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
     if not rp_headers:
         # no RP trust material → cannot confirm. Frozen alone is NOT trust (it could be a self-committed
