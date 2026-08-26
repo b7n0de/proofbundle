@@ -192,7 +192,11 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
         # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
         return False
     try:
-        p = _jwt_payload(compact)
+        # as_dict, not the bare return: _jwt_payload is annotated -> dict but decodes attacker JSON, so a
+        # payload that is a bare array/scalar returns a non-dict and crashed `p.get(field)` below with a
+        # raw AttributeError out of the flagship verify_bundle path (deep gate iter9 Linse A neighbor —
+        # only `p.get("receipt")` was guarded, `p` itself was not). A non-dict payload can never bind.
+        p = as_dict(_jwt_payload(compact))
     except (ProofBundleError, ValueError, KeyError, IndexError):
         # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12).
         # adversarial re-audit round 3: the BASE ProofBundleError also catches loads_strict's SIBLING

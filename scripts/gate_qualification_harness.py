@@ -6,9 +6,12 @@ not a gate). One surviving preregistered counter-proof strips that gate of its r
 
 Maps the 15 classes to the three reconstructed gates:
   type_confusion_gate (F1/F3/F4/F5): empty population, vanished/parser/import surface, nested-leaf,
-    string|path on a dict|str primary, shared-payload mutation, comment-as-coverage.
-  pre_tag_audit_gate  (F6): copied/bare attestation line, wrong subject digest, unsigned/unbound receipt.
+    string|path on a dict|str primary, shared-payload mutation, comment-as-coverage, inventory disagreement.
+  pre_tag_audit_gate  (F6): copied/bare attestation line, wrong subject digest, unsigned/untrusted receipt.
   audit_candidate_matrix (F2/F7): PENDING_JUSTIFIED, DATA_BLOCKED, unknown verdict, negated-keyword decoy.
+
+Spur-2 Linse A note: cc01/cc02 now OBSERVE gate.evaluate() (they were vacuous re-transcriptions of the
+rule), and class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10).
 """
 from __future__ import annotations
 
@@ -35,20 +38,43 @@ def _kp():
 
 # ---- type_confusion_gate counter-examples (a gate helper must CATCH a seeded raw crash / gap) --------
 def cc01_empty_population():
-    # population_size==0 must be fail-closed (population_complete False), never a vacuous green.
-    complete = (0 > 0)  # the gate's rule: population_size>0 AND evaluated==population
-    return not complete, "population_size==0 -> population_complete False (fail-closed)"
+    # OBSERVE the gate, never re-transcribe its rule (Spur-2 Linse A: cc01/cc02 were vacuous — they
+    # recomputed `0>0` and Python's own ast.parse without touching the gate). Seed an empty inventory and
+    # confirm evaluate() ITSELF computes population_complete=False; a future regression that drops the
+    # population>0 guard turns THIS red.
+    orig_disc, orig_rt = tcg.discover_python_verify_functions, tcg._runtime_inventory
+    tcg.discover_python_verify_functions = lambda: {}
+    tcg._runtime_inventory = lambda: (set(), [])
+    try:
+        r = tcg.evaluate()
+    finally:
+        tcg.discover_python_verify_functions, tcg._runtime_inventory = orig_disc, orig_rt
+    detected = r["population_complete"] is False and r["population_size"] == 0
+    return detected, f"gate.evaluate() on an empty population -> population_complete={r['population_complete']} (fail-closed)"
 
 
 def cc02_vanished_or_parser_surface():
-    # a source file the AST cannot parse must be reported (parse_skips non-empty -> not complete).
-    import ast as _ast
+    # OBSERVE the gate's OWN parse-skip detection on a seeded unparseable file under the scanned root,
+    # THEN confirm evaluate() propagates it to population_complete=False (the `and not parse_skips` clause).
+    # discover silently skips a SyntaxError file (its verify_* vanish) — the gate must FAIL, not skip.
+    import tempfile
+    orig_src = tcg.SRC
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "seeded_broken.py").write_text("def broken(:\n")  # a real SyntaxError source
+        tcg.SRC = Path(d)
+        try:
+            skips = tcg._parse_skips()
+        finally:
+            tcg.SRC = orig_src
+    detected_scan = any("seeded_broken.py" in x for x in skips)
+    orig_ps = tcg._parse_skips
+    tcg._parse_skips = lambda: ["seeded_broken.py: SyntaxError: seeded"]
     try:
-        _ast.parse("def broken(:\n")  # a SyntaxError, i.e. an unparseable surface
-        detected = False
-    except SyntaxError:
-        detected = True
-    return detected, "an unparseable source file is a parse_skip -> population not complete"
+        r = tcg.evaluate()
+    finally:
+        tcg._parse_skips = orig_ps
+    detected = detected_scan and r["population_complete"] is False
+    return detected, f"gate._parse_skips detects the seeded file ({detected_scan}) -> evaluate.complete={r['population_complete']}"
 
 
 def cc03_import_error_surface():
@@ -176,6 +202,21 @@ def cc14_negated_keyword_decoy():
     return not _acm_ready(rows), "lexical decoys are informative -> cannot grant readiness"
 
 
+def cc15_inventory_disagreement():
+    # Spur-2 Linse A made class 15 DISTINCT (it was a duplicate of cc10). OBSERVE the two-independent-
+    # inventory invariant: seed a runtime inventory carrying a phantom surface the AST inventory lacks, and
+    # confirm evaluate() withholds completeness via inventories_agree=False. The reviewer's "two inventories,
+    # equality enforced" rule — distinct from cc01 (empty), cc02 (parse-skip), cc03 (import error).
+    orig_rt = tcg._runtime_inventory
+    tcg._runtime_inventory = lambda: ({"proofbundle.phantom.verify_nonexistent"}, [])
+    try:
+        r = tcg.evaluate()
+    finally:
+        tcg._runtime_inventory = orig_rt
+    detected = r["population_complete"] is False and r["inventories_agree"] is False
+    return detected, f"seeded inventory disagreement -> inventories_agree={r['inventories_agree']}, complete={r['population_complete']}"
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -191,7 +232,7 @@ CLASSES = [
     ("12_data_blocked", "audit_candidate", cc12_data_blocked_internal),
     ("13_unknown_verdict", "audit_candidate", cc13_unknown_verdict),
     ("14_negated_keyword_decoy", "audit_candidate", cc14_negated_keyword_decoy),
-    ("15_unbound_substitute_check", "pre_tag", cc10_unsigned_or_untrusted_receipt),
+    ("15_inventory_disagreement", "type_confusion", cc15_inventory_disagreement),
 ]
 
 
@@ -204,6 +245,9 @@ def _positive_controls():
     # type_confusion: a defended verifier produces NO violation (returns a verdict, not a raw crash)
     viol, ret = tcg._exercise(lambda x: False, {}, [None, {}, "s", 5], "x", False)
     out.append(("type_confusion_defended_clean", (not viol) and ret > 0))
+    # the REAL gate must ACCEPT the clean subject tree (population_complete True) — proves the 15 detections
+    # above are a discriminating gate, not a constant reject (green positive control per gate).
+    out.append(("type_confusion_real_population_complete", tcg.evaluate()["population_complete"] is True))
     return out
 
 

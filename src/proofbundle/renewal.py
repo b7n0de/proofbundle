@@ -71,6 +71,20 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
+def _refuse_giant_int(*values) -> None:
+    """Signed-bytes guard (Deep-Gate iter9 Linse C, fix-the-CLASS not the instance): token()/_ats_content
+    build the material a signature is computed over, so a shortened render is NOT an option — it would
+    change the signed bytes. An ATS field that is an implausibly large INT trips CPython's int->str cap
+    (CVE-2020-10735) the moment it is interpolated, raising a raw ValueError. EVERY field folded into the
+    signed string carries that exposure, not just ``time`` (the one an earlier round guarded); refuse the
+    magnitude with a typed error on all of them. The never-raise verify surfaces catch it fail-closed."""
+    for v in values:
+        if isinstance(v, int) and not isinstance(v, bool) and not int_magnitude_ok(v):
+            raise ProofBundleError(
+                f"ATS field is an implausibly large integer ({v.bit_length()} bits) — refused before "
+                "rendering the signed bytes (a shortened render would change them)")
+
+
 class RenewalError(ProofBundleError):
     """A renewal was attempted without a confirmed prior anchor, or with a broken/weak input."""
 
@@ -131,13 +145,23 @@ class ArchiveTimeStamp:
         trip CPython's int->str cap (CVE-2020-10735) is not a legitimate timestamp under any reading —
         it is refused with a typed error, the same fail-closed direction the rest of this module takes.
         """
-        if not int_magnitude_ok(self.time):
-            raise ProofBundleError(
-                f"ATS time is implausibly large ({self.time.bit_length()} bits) — refused before "
-                "rendering the covered token (a shortened render would change the signed bytes)")
+        # fix-the-CLASS (Deep-Gate iter9 Linse C): EVERY field folded into the covered token carries the
+        # int->str exposure, not only `time`; refuse an implausible magnitude on all of them.
+        _refuse_giant_int(self.time, self.hash_alg, self.covered_digest, self.sig_alg)
         base = f"{self.hash_alg}:{self.covered_digest}:{self.time}"
         if not self.sig_alg:
             return base
+        # a malformed `signatures` (non-iterable container, or entries that are not (str, str) 2-tuples)
+        # cannot be well-formed signed bytes — refuse it typed here, rather than let `sorted(...)` raise a
+        # raw TypeError out of the covering check (which catches ProofBundleError, NOT TypeError). This is
+        # token()'s OWN iteration; _verify_ats_signature guards a SEPARATE one, so both need the guard.
+        if not isinstance(self.signatures, (list, tuple)) or not all(
+                isinstance(it, tuple) and len(it) == 2
+                and isinstance(it[0], str) and isinstance(it[1], str)
+                for it in self.signatures):
+            raise ProofBundleError(
+                "ATS signatures must be a sequence of (alg, base64) string pairs — refused before "
+                "rendering the covered token (a malformed signatures field cannot be signed bytes)")
         sig_part = ";".join(f"{a}={s}" for a, s in sorted(self.signatures))
         return f"{base}:{self.sig_alg}:{sig_part}"
 
@@ -186,14 +210,11 @@ def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) ->
     hybrid ATS's ed25519 leg, if relabeled ``sig_alg="ed25519"``, would be checked against DIFFERENT bytes
     and fail. Without this binding a post-quantum attacker could downgrade a hybrid/mldsa65 ATS to its
     classical leg with no forgery."""
-    # Deep-Gate iter9 Linse 3a: ein Riesen-int time (>4300 Dezimalstellen) crasht die f-string-int->str-
-    # Konvertierung ROH (ValueError), aus einer Funktion, die die signierten Bytes baut. Wie token() vor
-    # dem Rendern abweisen — eine gekuerzte Zahl wuerde den signierten Inhalt aendern. Non-int time faengt
-    # _require_int_time / render_safe; hier greift der Magnitude-Fall (int_magnitude_ok(str) ist True).
-    if isinstance(time, int) and not int_magnitude_ok(time):
-        raise ProofBundleError(
-            f"ATS time is implausibly large ({time.bit_length()} bits) — refused before rendering the "
-            "signed ATS content (a shortened render would change the signed bytes)")
+    # Deep-Gate iter9 Linse C (fix-the-CLASS): this builds the SIGNED bytes, so — like token() — an
+    # implausible magnitude is REFUSED, never shortened. The earlier guard covered only `time`; every
+    # field interpolated here (sig_alg/hash_alg/covered_digest as a giant int too) has the same int->str
+    # exposure. _verify_ats_signature, a never-raise surface, catches this typed refusal fail-closed.
+    _refuse_giant_int(time, hash_alg, covered_digest, sig_alg)
     return f"archivetimestamp/v1\n{sig_alg}\n{hash_alg}\n{covered_digest}\n{time}".encode()
 
 
@@ -202,7 +223,7 @@ def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
     ``{"ed25519": ed25519_private_key, "mldsa65": mldsa65_private_key}``). Fail-closed on a missing signer
     or an unknown algorithm."""
     if sig_alg not in _SIG_ALGS:
-        raise RenewalError(f"unknown ATS signature algorithm {sig_alg!r} (one of {_SIG_ALGS})")
+        raise RenewalError(f"unknown ATS signature algorithm {_rs(sig_alg)} (one of {_SIG_ALGS})")
     sigs: list[tuple[str, str]] = []
     if sig_alg in ("ed25519", "hybrid-ed25519-mldsa65"):
         ed = signers.get("ed25519")
@@ -224,7 +245,13 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     authority_keys = _as_dict(authority_keys)  # adversarial re-audit r6: non-dict kwarg fail-closed
     if not ats.sig_alg:
         return False
-    content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
+    try:
+        content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
+    except ProofBundleError:
+        # _ats_content refuses an implausible field magnitude by raising (it builds signed bytes); this is
+        # a never-raise verdict surface, so a malformed ATS is a fail-closed False, not a propagated
+        # exception (fix-the-CLASS: the refusal and its catch are the two ends of one contract).
+        return False
     # robust against a malformed signatures field (None / non-2-tuple entries) — fail-closed, never raise
     sigmap: dict[str, str] = {}
     # Deep-Gate iter9 Linse 3c: eine non-iterable .signatures (int/bool/float/object) crasht die
@@ -659,7 +686,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             resolve_hash_alg(a.hash_alg, allow_deprecated=True)
         except HashAlgError as exc:
             algs_ok = False
-            result.checks.append(Check(f"renewal:hashalg:{a.hash_alg}", False, str(exc)))
+            result.checks.append(Check(f"renewal:hashalg:{_rs(a.hash_alg)}", False, str(exc)))
     if algs_ok:
         result.checks.append(Check("renewal:hashalg", True, "all ATS use a known hash algorithm"))
 
@@ -738,7 +765,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             _ext_ok = _ext_ok or bool(_ext.get("warn"))
         result.checks.append(Check(
             "renewal:external_token", _ext_ok,
-            f"newest ATS external token ({newest.external_token_type}): {_ext.get('detail', '')}"))
+            f"newest ATS external token ({_rs(newest.external_token_type)}): {_ext.get('detail', '')}"))
     elif require_external_token:
         # Fail-closed (crypto-review, 2026-07-15): external_token_type/external_token are DELIBERATELY
         # excluded from the signed ATS bytes (token()/_ats_content()), so an attacker or MITM can strip them
@@ -759,15 +786,18 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # only cryptographically checked in authority-signature mode (_verify_ats_signature verifies the
         # hybrid/mldsa65 signature over _ats_content); in anchor_verifier / unauthenticated / no-anchor modes
         # the ATS signature is never checked, so a PQ label on newest.sig_alg proves nothing — fail closed.
-        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in (newest.sig_alg or "")
+        # fix-the-CLASS: a non-str sig_alg (attacker-built ATS) crashed `"mldsa" in (int or "")` with a
+        # raw TypeError; normalize for the membership test, render every field through _rs.
+        _sig_label = newest.sig_alg if isinstance(newest.sig_alg, str) else ""
+        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
         if pq_verified:
-            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {newest.sig_alg!r}, authority "
+            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(newest.sig_alg)}, authority "
                          "signature)")
         elif anchor_mode != "authority signature":
             pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
-            pq_detail = f"newest ATS sig_alg {newest.sig_alg!r} has no verified PQ leg (require_pq)"
+            pq_detail = f"newest ATS sig_alg {_rs(newest.sig_alg)} has no verified PQ leg (require_pq)"
         result.checks.append(Check("renewal:pq_floor", pq_verified, pq_detail))
 
     # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
@@ -780,14 +810,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
         if newest_dep:
-            hash_detail = (f"newest ATS hash {newest.hash_alg!r} is deprecated"
+            hash_detail = (f"newest ATS hash {_rs(newest.hash_alg)} is deprecated"
                            + (" (require_current_hash, fail-closed)" if require_current_hash
                               else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
                                    "or pass require_current_hash=True to reject"))
         elif newest_current:
-            hash_detail = f"newest ATS hash {newest.hash_alg!r} is current"
+            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is current"
         else:
-            hash_detail = f"newest ATS hash {newest.hash_alg!r} is not a known current hash (require_current_hash)"
+            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is not a known current hash (require_current_hash)"
         result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 
@@ -849,6 +879,13 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         result.checks.append(Check("renewal:time_malformed", False,
                                    f"newest ATS time must be an int, got {type(newest.time).__name__} (fail-closed)"))
         return result
+    # fix-the-CLASS (Deep-Gate iter9 Linse C): `now` is the OTHER operand of `now - newest.time` below; an
+    # earlier round guarded newest.time but left the caller's `now` unchecked, so a non-int `now` still
+    # crashed this never-raise surface with a raw TypeError. Same guard, same fail-closed direction.
+    if not isinstance(now, int) or isinstance(now, bool):
+        result.checks.append(Check("renewal:now_malformed", False,
+                                   f"now must be an int, got {type(now).__name__} (fail-closed)"))
+        return result
 
     reasons = []
     if isinstance(newest.hash_alg, str) and newest.hash_alg in policy.deprecated_algs:
@@ -864,7 +901,7 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
 
     if not reasons:
         result.checks.append(Check("renewal:policy", True,
-                                   f"newest ATS ({newest.hash_alg}, age {_rs(now - newest.time)}) is within "
+                                   f"newest ATS ({_rs(newest.hash_alg)}, age {_rs(now - newest.time)}) is within "
                                    "policy — no renewal due"))
         return result
 

@@ -37,14 +37,28 @@ def canonical_bytes(receipt: dict) -> bytes:
     return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def load_trusted_pubkeys(repo: Path) -> list[str]:
-    """Base64 ed25519 public keys the gate trusts to sign a pre-tag receipt. One per line, '#' comments.
-    An ABSENT or EMPTY file means the gate has no trust anchor and MUST fail closed — never trust-all."""
-    p = repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt"
-    if not p.is_file():
+def load_trusted_pubkeys(repo: Path, *, ref: str = "HEAD") -> list[str]:
+    """Base64 ed25519 public keys the gate trusts to sign a pre-tag receipt, read from the COMMITTED tree
+    (``git show {ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt``), NOT the working tree.
+
+    Spur-2 Linse A (2026-08-27): the receipt binds ``subject_tree_digest`` = the COMMITTED ``HEAD^{tree}``,
+    so the trust anchor MUST come from that SAME committed tree. Reading the WORKING-tree file let a dirty
+    checkout inject a pubkey (uncommitted) and self-sign a receipt that binds the clean committed tree and
+    verified — the trusted-key set was NOT covered by the digest the receipt commits to. Reading the
+    committed blob binds it by the same digest, so the guarantee no longer depends on a clean checkout.
+    An ABSENT/EMPTY file, a non-git repo, or a dangling ref means no trust anchor -> fail closed, never
+    trust-all (one key per line, ``#`` comments). The gate resolves the digest from the same ``HEAD``."""
+    import subprocess  # noqa: PLC0415
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{ref}:audit_artifacts/pre_tag_trusted_pubkeys.txt"],
+            capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001 — no git binary / timeout -> no trust anchor, fail closed
+        return []
+    if r.returncode != 0:  # file not committed in this tree, or unknown ref -> fail closed
         return []
     out = []
-    for line in p.read_text(encoding="utf-8").splitlines():
+    for line in r.stdout.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             out.append(line)
