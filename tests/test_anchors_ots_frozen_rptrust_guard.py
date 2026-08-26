@@ -60,3 +60,28 @@ class TestOtsFrozenRpTrustGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRpHeaderValueGuard(unittest.TestCase):
+    """iter9 fix-the-class, eine Ebene tiefer: rp_headers IST ein Mapping, aber seine WERTE muessen
+    keine Hex-Strings sein. `bytes.fromhex(<Nicht-str>)` wirft TypeError (nicht ValueError) — der
+    Fang muss beide fassen, sonst crasht ein Listen-/int-Wert roh (der Nachbar des Guards)."""
+    def setUp(self):
+        self.root = hashlib.sha256(b"target").digest()
+        self.proof = _upgraded_proof(self.root)
+
+    def test_rp_header_listen_wert_liefert_verdikt(self):
+        r = verify_opentimestamps(self.proof, self.root, frozen={},
+                                  rp_trust={"bitcoin_block_headers": {"700000": [1, 2]}})
+        self.assertIsInstance(r, dict)
+        self.assertNotIn(r.get("status"), (None,))   # ein Verdikt, kein Crash
+
+    def test_rp_header_int_wert_liefert_verdikt(self):
+        r = verify_opentimestamps(self.proof, self.root, frozen={},
+                                  rp_trust={"bitcoin_block_headers": {"700000": 123}})
+        self.assertIsInstance(r, dict)
+
+    def test_rp_header_bad_hex_liefert_verdikt(self):
+        r = verify_opentimestamps(self.proof, self.root, frozen={},
+                                  rp_trust={"bitcoin_block_headers": {"700000": "xyz"}})
+        self.assertIsInstance(r, dict)

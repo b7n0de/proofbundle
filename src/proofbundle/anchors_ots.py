@@ -160,8 +160,12 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
             continue
         try:
             expected = bytes.fromhex(merkle_root_hex)
-        except ValueError:
+        except (ValueError, TypeError):
             # a malformed RP header for THIS height must not short-circuit — another branch may confirm.
+            # ValueError = bad hex; TypeError = the value is not even a str (e.g. a list/int slipped into
+            # rp_trust.bitcoin_block_headers[height]). The top guard proves rp_headers IS a mapping, but a
+            # mapping does not prove its VALUES are hex strings — the neighbour one level down (iter9
+            # fix-the-class: guarding the container is not guarding its leaves).
             bad_header_heights.append(height)
             continue
         if att_msg != expected:

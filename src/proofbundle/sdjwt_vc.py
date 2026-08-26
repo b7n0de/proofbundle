@@ -198,7 +198,18 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
             issuer_ok = False
         else:
             issuer = sdjwt.verify_sd_jwt(compact, issuer_pubkey)
-            issuer_ok = bool(issuer.get("sig_checked") and issuer.get("sig_ok"))
+            # structure_ok is the DISCLOSURE-COMMITMENT check (RFC 9901, the core of selective disclosure):
+            # every PRESENTED disclosure must hash to a digest committed inside the issuer-signed payload.
+            # Without it this path accepts a FORGED, never-committed disclosure (a critical FALSE-ACCEPT —
+            # Deep-Gate iter9 lens 2): sig_ok only proves the PAYLOAD is signed, not that the presented
+            # disclosures belong to it. The flagship path (bundle.py, check "sd-jwt-disclosures") wires
+            # structure_ok as a failing check; sdjwt_vc dropped it from the final verdict.
+            issuer_ok = bool(issuer.get("sig_checked") and issuer.get("sig_ok") and issuer.get("structure_ok"))
+    # requireIssuerSignature=False bleibt der EHRLICHE Opt-out (issuer=None, issuer_ok=True aus der
+    # Initialisierung): der Payload ist dann ohnehin NICHT authentifiziert, also ist structure_ok darauf
+    # bedeutungslos — der Halter kontrolliert die _sd-Digests genauso wie die Disclosures und koennte
+    # beide passend faelschen. Das Verdikt reflektiert dann Profil + Bindung; der Aufrufer hat die
+    # Nicht-Authentifizierung bewusst gewaehlt (test_explicit_opt_out_is_honest).
 
     binding = None
     binding_ok = True

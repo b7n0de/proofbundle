@@ -220,3 +220,31 @@ class TestProfileAlgCasing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestForgedDisclosureRejected(unittest.TestCase):
+    """iter9 Deep-Gate Linse 2 (P0 False-Accept): verify_sdjwt_vc darf eine PRAESENTIERTE Disclosure, die
+    der Aussteller NIE committet hat (gefaelschter Claim), NICHT als ok=True durchwinken. structure_ok
+    (Disclosure-Commitment, RFC 9901, Kern der selektiven Offenlegung) muss ins Endverdikt — vorher las
+    die Bahn nur sig_ok und akzeptierte die Faelschung. Die Flaggschiff-Bahn bundle.py prueft es laengst."""
+
+    def _issue_no_kb(self):
+        issuer = generate_signer()
+        compact = issue_sd_jwt(_claim(issuer), issuer, root_b64="cm9vdA==", exact_score="0.9", vct=_VCT)
+        return compact, issuer
+
+    def test_kontrolle_gueltiges_credential_akzeptiert(self):
+        compact, issuer = self._issue_no_kb()
+        r = verify_sdjwt_vc(compact, {"vctAllowlist": [_VCT], "requireKeyBinding": False},
+                            issuer_pubkey=_raw_pub(issuer))
+        self.assertTrue(r["ok"], f"ein gueltiges Credential muss akzeptiert bleiben (keine Ueber-Ablehnung): {r}")
+
+    def test_gefaelschte_disclosure_wird_abgelehnt(self):
+        compact, issuer = self._issue_no_kb()
+        forged = _b64url(json.dumps(["forgesalt", "injected_claim", True]).encode())
+        tampered = compact.rstrip("~") + "~" + forged + "~"     # nie-committete Disclosure mitpraesentiert
+        r = verify_sdjwt_vc(tampered, {"vctAllowlist": [_VCT], "requireKeyBinding": False},
+                            issuer_pubkey=_raw_pub(issuer))
+        self.assertFalse(r["ok"], "eine nie-committete Disclosure MUSS abgelehnt werden (P0 False-Accept)")
+        self.assertFalse((r.get("issuer") or {}).get("structure_ok"),
+                         "structure_ok muss False sein bei einer nicht-committeten Disclosure")
