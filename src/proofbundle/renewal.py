@@ -406,6 +406,16 @@ def _require_prior_anchor(prior: ArchiveTimeStamp, *,
     return "self_asserted_status"
 
 
+def _require_int_time(time, prior: "ArchiveTimeStamp") -> None:
+    # renew_timestamp/renew_hashtree vergleichen `time <= prior.time`; ein non-int auf einer Seite
+    # crashte diesen Vergleich ROH, bevor die RenewalError darunter feuern konnte (Deep-Gate iter9 L2).
+    # Das sind raise-Idiom-Konstruktoren (keine never-raise-Verifizierer), also ist der Fix ein
+    # typisierter RenewalError — dieselbe fail-closed-Richtung, die das Modul sonst nimmt.
+    for label, t in (("renewal", time), ("prior ATS", prior.time)):
+        if not isinstance(t, int) or isinstance(t, bool):
+            raise RenewalError(f"{label} time must be an int, got {type(t).__name__} (fail-closed)")
+
+
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
                     anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
                     signers: Optional[dict] = None,
@@ -427,6 +437,7 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
+    _require_int_time(time, prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
@@ -456,6 +467,7 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
+    _require_int_time(time, prior)
     if time <= prior.time:
         raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
@@ -655,7 +667,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                 else:
                     prior = chain[ai - 1]
                     expect = compute_digest(prior.token().encode(), a.hash_alg, allow_deprecated=True)
-            except (HashAlgError, RenewalError) as exc:
+            except ProofBundleError as exc:  # base class (HashAlgError/RenewalError sind Subtypen):
+                # faengt AUCH token()s Magnitude-Guard auf eine Riesen-.time (Deep-Gate iter9 L2) —
+                # diese exportierte Flaeche ist never-raise, ein malformer ATS faellt beim Cover-Check
                 covering_ok = False
                 result.checks.append(Check(f"renewal:cover:c{ci}a{ai}", False,
                                            f"covered digest not verifiable: {exc}"))
@@ -813,6 +827,12 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
     newest = _newest(sequence)
+    # Deep-Gate iter9 L2: eine non-int newest.time erreichte `now - newest.time` als rohen TypeError
+    # aus dieser never-raise-Flaeche. Fail-closed mit typisiertem Check, gleiche Richtung wie der Shape-Guard.
+    if not isinstance(newest.time, int) or isinstance(newest.time, bool):
+        result.checks.append(Check("renewal:time_malformed", False,
+                                   f"newest ATS time must be an int, got {type(newest.time).__name__} (fail-closed)"))
+        return result
 
     reasons = []
     if newest.hash_alg in policy.deprecated_algs:
