@@ -129,9 +129,15 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
     # only when promptfoo actually reports it — the contract
     # `test_missing_version_field_stays_absent_not_invented` (lm_eval) forbids inventing a value
     # into evidence, and the same reasoning applies here.
-    if metadata.get("promptfooVersion"):
-        provenance["harness_version"] = str(metadata["promptfooVersion"])
-        provenance["promptfoo_version"] = str(metadata["promptfooVersion"])
+    # v5.0.0: explicit reporting status beside each harness-reported version (see _provenance).
+    # BOTH names get one: `promptfoo_version` is a harness-reported version field of the same
+    # class, and patching only `harness_version` would rebuild the hole next door — which is
+    # exactly what iteration 5 found here in the first place.
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    _pfv = metadata.get("promptfooVersion")
+    _pf_reason = "the promptfoo output file carried no `metadata.promptfooVersion`"
+    bind_reported_version(provenance, "harness_version", _pfv, reason=_pf_reason)
+    bind_reported_version(provenance, "promptfoo_version", _pfv, reason=_pf_reason)
     if summary.get("timestamp"):
         provenance["run_timestamp"] = str(summary["timestamp"])
 

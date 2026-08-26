@@ -89,3 +89,104 @@ def add_provenance(provenance: dict, *, run_id=None, config=None, log_timestamp=
     if benchjack_audit_report_sha256 is not None:
         provenance["benchjack_audit_report_sha256"] = str(benchjack_audit_report_sha256)
     return provenance
+
+
+# --- Reported-version status (v5.0.0, additive) ---------------------------------------------
+#
+# THE GAP THIS CLOSES. Until now a harness-reported version field was written when the harness
+# reported one and simply ABSENT when it did not. Absence therefore carried two different
+# meanings and the receipt did not say which:
+#
+#     the harness ran and reported no version
+#     no harness was bound at all, or this adapter never fills the field
+#
+# For a verifier that ambiguity is the failure class the product exists against: a receipt must
+# say what it means. A reader comparing receipts could not tell "nothing to report" from
+# "nobody looked".
+#
+# THE FORM IS A STATUS WITH THREE VALUES, DELIBERATELY NOT A BOOLEAN. A boolean has three states
+# of its own — true, false and absent — and would push the same ambiguity one level up.
+#
+# THE VERSION FIELD ITSELF IS UNTOUCHED. `test_missing_version_field_stays_absent_not_invented`
+# forbids writing a value the harness never reported, and that contract still holds byte for
+# byte: when nothing was reported the version key stays ABSENT. The status says something about
+# the REPORTING, never about the version.
+#
+# NEVER DERIVED. The status is written only from what the harness actually returned. It is not
+# inferred from other fields, and `not_reported` is never an all-clear — it does not fold to
+# PASS, and no gate reads it as one.
+
+VERSION_STATUS_REPORTED = "reported"        # the harness returned a version; the field is present
+VERSION_STATUS_NOT_REPORTED = "not_reported"   # the harness ran and returned none; field absent
+VERSION_STATUS_NOT_BOUND = "not_bound"      # this adapter binds no such field for this format
+
+VERSION_STATUS_VALUES = (VERSION_STATUS_REPORTED, VERSION_STATUS_NOT_REPORTED,
+                         VERSION_STATUS_NOT_BOUND)
+
+
+def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
+                          bound: bool = True) -> dict:
+    """Write a harness-reported version field together with its explicit status.
+
+    ``field`` is the provenance key (e.g. ``"harness_version"``, ``"task_version"``); the status
+    lands in ``f"{field}_status"`` and, when the status is not ``reported``, the mandatory reason
+    lands in ``f"{field}_status_reason"``.
+
+    - ``value`` truthy          -> field written, status ``reported`` (no reason: nothing to explain)
+    - ``value`` absent/empty    -> field NOT written, status ``not_reported`` + reason
+    - ``bound=False``           -> field NOT written, status ``not_bound`` + reason
+
+    ``reason`` is REQUIRED whenever the status can be non-``reported``. An empty reason raises:
+    a status that says "not reported" without saying why moves the ambiguity rather than closing
+    it, and this helper exists precisely to stop that.
+    """
+    status_key, reason_key = f"{field}_status", f"{field}_status_reason"
+    if bound and value not in (None, ""):
+        provenance[field] = str(value)
+        provenance[status_key] = VERSION_STATUS_REPORTED
+        # A previously written reason would now be stale; the reported case explains itself.
+        provenance.pop(reason_key, None)
+        return provenance
+    if not str(reason or "").strip():
+        raise ValueError(
+            f"{status_key}={'not_bound' if not bound else 'not_reported'} requires a reason — "
+            f"a status without a reason moves the ambiguity instead of closing it")
+    provenance[status_key] = (VERSION_STATUS_NOT_BOUND if not bound
+                              else VERSION_STATUS_NOT_REPORTED)
+    provenance[reason_key] = str(reason).strip()
+    return provenance
+
+
+def version_status_issues(provenance: dict) -> list[str]:
+    """Verifier side: every problem with the reported-version status fields, as plain sentences.
+
+    An empty list means the provenance is CONSISTENT in this respect — it never means the
+    versions themselves are trustworthy (a status is a statement about the reporting, not about
+    the software). Checked:
+
+      1. a status value outside the three literals
+      2. a non-``reported`` status without its mandatory reason
+      3. ``reported`` while the version field it speaks about is absent
+      4. a version field present while its status says it was not reported or not bound
+
+    (3) and (4) are the two ways the pair can contradict itself, and both must be caught: a
+    verifier that only looked at the status could be told anything.
+    """
+    issues: list[str] = []
+    for key in sorted(provenance):
+        if not key.endswith("_status"):
+            continue
+        field = key[: -len("_status")]
+        status = provenance.get(key)
+        if status not in VERSION_STATUS_VALUES:
+            issues.append(f"{key}={status!r} is not one of {list(VERSION_STATUS_VALUES)}")
+            continue
+        reason = str(provenance.get(f"{field}_status_reason") or "").strip()
+        if status != VERSION_STATUS_REPORTED and not reason:
+            issues.append(f"{key}={status} without {field}_status_reason (reason is mandatory)")
+        present = provenance.get(field) not in (None, "")
+        if status == VERSION_STATUS_REPORTED and not present:
+            issues.append(f"{key}=reported but {field} is absent")
+        if status != VERSION_STATUS_REPORTED and present:
+            issues.append(f"{key}={status} but {field} is present ({provenance.get(field)!r})")
+    return issues

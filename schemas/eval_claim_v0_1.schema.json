@@ -106,7 +106,7 @@
     },
     "provenance": {
       "type": "object",
-      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr, run_attempts, aborted_runs, methodology_sha256, benchjack_audit_report_sha256) — additive, backward-compatible"
+      "description": "optional run provenance (harness, git_hash, task_version, n_shot, stderr, run_attempts, aborted_runs, methodology_sha256, benchjack_audit_report_sha256) — additive, backward-compatible; 5.0.0 adds, for every harness-REPORTED version field (harness_version, task_version, promptfoo_version), an explicit `<field>_status` with the three literals reported/not_reported/not_bound and a `<field>_status_reason` that is mandatory whenever the status is not `reported` — so the ABSENCE of a version field stops carrying two meanings at once. The version field itself is unchanged and stays absent when nothing was reported"
     },
     "samples": {
       "type": "object",

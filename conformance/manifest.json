@@ -58,6 +58,13 @@
     "relation/statement-retracts-declared-unresolved",
     "relation/statement-supersedes-verified",
     "relation/statement-malformed",
-    "relation/wrong-payloadtype-target"
+    "relation/wrong-payloadtype-target",
+    "provenance/version-status-reported",
+    "provenance/version-status-not-reported",
+    "provenance/version-status-not-bound",
+    "provenance/version-status-reported-without-field",
+    "provenance/version-status-not-reported-with-field",
+    "provenance/version-status-missing-reason",
+    "provenance/version-status-unknown-literal"
   ]
 }

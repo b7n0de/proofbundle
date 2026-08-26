@@ -55,3 +55,15 @@ Corpus changes come as pull requests that (a) touch only the cases they name, (b
 successor, or a retirement. Maintainer review is required; for external vectors the
 attribution and the pure-data property (no local edits to vendored bytes) are review
 blockers.
+
+## Reported-version status (5.0.0)
+
+A conformant implementation writes, beside every harness-reported version field, a
+`<field>_status` drawn from exactly `reported`, `not_reported`, `not_bound`, and a
+`<field>_status_reason` whenever that status is not `reported`. It rejects a provenance block
+that uses a fourth literal, that omits a mandatory reason, or in which status and field
+contradict each other in either direction.
+
+The corpus carries one vector per status value and one per rejection class under
+`conformance/provenance/`. A rule with no rejection vector is not conformance-testable: an
+implementation could satisfy every positive case and still accept anything.

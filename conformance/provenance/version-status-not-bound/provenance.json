@@ -1,0 +1,5 @@
+{
+  "harness": "custom-runner",
+  "harness_version_status": "not_bound",
+  "harness_version_status_reason": "this format carries no harness version; the adapter binds none"
+}

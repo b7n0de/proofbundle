@@ -1,0 +1,5 @@
+{
+  "harness": "lm-eval",
+  "harness_version_status": "not_reported",
+  "harness_version_status_reason": "lm-eval did not write `lm_eval_version` into results.json"
+}

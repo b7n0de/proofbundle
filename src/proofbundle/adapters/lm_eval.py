@@ -85,10 +85,16 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     # is real but belongs to a different remedy (a separate reported-flag, or documenting that all
     # four adapters bind the same field when it exists) and is an Owner decision, not a silent
     # override of a deliberate test.
-    if data.get("lm_eval_version"):
-        provenance["harness_version"] = str(data["lm_eval_version"])
-    if data.get("versions", {}).get(task) is not None:
-        provenance["task_version"] = str(data["versions"][task])
+    # v5.0.0: the version field keeps its old behaviour (absent when not reported — the contract
+    # `test_missing_version_field_stays_absent_not_invented` is untouched) and now carries an
+    # explicit STATUS beside it, so absence stops meaning two different things at once.
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    bind_reported_version(
+        provenance, "harness_version", data.get("lm_eval_version"),
+        reason="lm-eval did not write `lm_eval_version` into results.json for this run")
+    bind_reported_version(
+        provenance, "task_version", (data.get("versions") or {}).get(task),
+        reason=f"lm-eval reported no version for task {task!r} under `versions`")
     if data.get("n-shot", {}).get(task) is not None:
         provenance["n_shot"] = str(data["n-shot"][task])
     if stderr is not None:

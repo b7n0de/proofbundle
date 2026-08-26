@@ -10,6 +10,32 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [5.0.0] - 2026-08-25 (the cap runs before the work it bounds · MAJOR)
 
+### Added — reported-version status (additive; no further major bump)
+
+Every provenance field carrying a harness-reported version (`harness_version`, `task_version`,
+`promptfoo_version`) now also carries `<field>_status` with the literals `reported` /
+`not_reported` / `not_bound`, plus a `<field>_status_reason` that is **mandatory** whenever the
+status is not `reported`.
+
+**The gap this closes.** Until now such a field was simply ABSENT when the harness reported no
+version. Absence therefore meant two different things — *the harness ran and reported nothing*
+and *no harness was bound* — and the receipt did not say which. For a verifier that is the
+failure class the product exists against.
+
+**Not a boolean, deliberately.** A boolean has three states of its own (true, false, absent) and
+would move the ambiguity one level up.
+
+**Backwards compatible.** The version field itself is unchanged: when nothing was reported it
+stays absent, and no value the harness never reported is ever written (the contract
+`test_missing_version_field_stays_absent_not_invented` is untouched). Existing receipts remain
+valid; the status is additive metadata. The status is never derived, and `not_reported` never
+folds to PASS.
+
+Verifier side: `version_status_issues()` rejects an unknown literal, a missing mandatory reason,
+and a status/field contradiction in either direction. Conformance vectors:
+`conformance/provenance/version-status-*` (one per status value, one per rejection class).
+
+
 > **MAJOR (SemVer), and there are TWO independent triggers.** Either would carry the increment on
 > its own; both are recorded because a release note that names one and omits the other invites the
 > reader to assume it read the whole picture.

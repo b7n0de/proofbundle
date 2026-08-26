@@ -293,9 +293,50 @@ def _check_relation_statement(case: dict, case_dir: pathlib.Path, *, require_anc
     return _check_relation(case, case_dir, verb="relation-statement")
 
 
+def _check_provenance_version_status(case: dict, case_dir: pathlib.Path, *,
+                                     require_anchors: bool = False) -> dict:
+    """A provenance block is checked against the reported-version status rule (v5.0.0).
+
+    WHY THIS KIND EXISTS. A harness-reported version field used to be simply ABSENT when the
+    harness reported none, so absence carried two meanings at once — "the harness reported
+    nothing" and "nobody bound this field". For a verifier that ambiguity is the failure class
+    the product exists against. v5.0.0 adds an explicit three-value status beside each such
+    field; the corpus is the original authority for that rule, so the rule needs cases here and
+    not only unit tests.
+
+    The case declares `expected.issues`: the exact list of problem sentences the verifier must
+    produce for that provenance block. An EMPTY list means the block is consistent. Declaring
+    the exact list (rather than only a count) is deliberate — a case that merely asserted "some
+    problem" would pass on the wrong problem.
+    """
+    cid = case.get("caseId", str(case_dir))
+    exp = case.get("expected") or {}
+    if "issues" not in exp:
+        return _fail(cid, "provenance_version_status case under-declares its expectations "
+                          "(fail-closed): missing `issues`")
+    name = case.get("input") or "provenance.json"
+    if pathlib.Path(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts:
+        return _fail(cid, f"input {name!r} escapes the case directory")
+    try:
+        prov = json.loads((case_dir / name).read_text())
+    except Exception as e:                                   # noqa: BLE001
+        return _fail(cid, f"{name} unreadable ({type(e).__name__}: {e})")
+    if not isinstance(prov, dict):
+        return _fail(cid, f"{name} must contain a JSON object")
+    sys.path.insert(0, str(ROOT.parent / "src"))
+    from proofbundle.adapters._provenance import version_status_issues  # noqa: PLC0415
+    got = sorted(version_status_issues(prov))
+    want = sorted(str(x) for x in exp["issues"])
+    if got != want:
+        return _fail(cid, f"issues {got!r} != expected {want!r}")
+    return {"caseId": cid, "ok": True,
+            "detail": f"{len(got)} issue(s) as expected"}
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
              "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
-             "relation_statement": _check_relation_statement}
+             "relation_statement": _check_relation_statement,
+             "provenance_version_status": _check_provenance_version_status}
 
 
 def run(*, require_anchors: bool = False) -> int:

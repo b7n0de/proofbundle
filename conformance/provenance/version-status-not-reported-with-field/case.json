@@ -1,0 +1,17 @@
+{
+  "caseId": "provenance-version-status-not-reported-with-field",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": [
+      "harness_version_status=not_reported but harness_version is present ('0.4.12')"
+    ]
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "The mirror contradiction: the status denies a report while the value sits right beside it. Both directions must be caught, otherwise the pair can lie in one of them."
+}

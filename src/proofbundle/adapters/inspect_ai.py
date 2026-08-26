@@ -94,11 +94,15 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     if commit:
         provenance["git_hash"] = str(commit)
     packages = getattr(ev, "packages", None) or {}
-    if isinstance(packages, dict) and packages.get("inspect_ai"):
-        provenance["harness_version"] = str(packages["inspect_ai"])
-    tv = getattr(ev, "task_version", None)
-    if tv is not None:
-        provenance["task_version"] = str(tv)
+    # v5.0.0: explicit reporting status beside each harness-reported version (see _provenance).
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    bind_reported_version(
+        provenance, "harness_version",
+        packages.get("inspect_ai") if isinstance(packages, dict) else None,
+        reason="the inspect_ai eval log carried no `packages['inspect_ai']` entry")
+    bind_reported_version(
+        provenance, "task_version", getattr(ev, "task_version", None),
+        reason="the inspect_ai eval spec carried no `task_version`")
 
     # Bind the metric to the scorer that produced it. Without these fields, a deterministic scorer
     # and an LLM judge can emit byte-identical claims when their aggregate numbers match. We record

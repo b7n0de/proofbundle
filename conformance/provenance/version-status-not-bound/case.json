@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-not-bound",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "No harness version is bound for this format at all. This is the OTHER meaning that bare absence used to carry, and it is now a distinct, named state."
+}
