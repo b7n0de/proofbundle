@@ -85,5 +85,24 @@ class TestAnchorExtraArgTypeConfusion(unittest.TestCase):
                     self._assert_verdict(fn, proof, root, frozen={}, rp_trust=bad)
 
 
+    def test_virtuelles_mapping_ohne_get_liefert_verdikt(self):
+        """iter9 Linse 3a: ein via collections.abc.Mapping.register() virtuell registriertes Objekt
+        OHNE `.get` passiert `isinstance(x, Mapping)`, hat aber kein `.get` — der Guard muss die
+        Aufrufbarkeit mitpruefen, sonst roher AttributeError. Erreichbar ueber register_anchor_type."""
+        from collections.abc import Mapping
+        import importlib
+
+        class _NoGet:
+            def __getitem__(self, k): raise KeyError(k)
+            def __iter__(self): return iter(())
+            def __len__(self): return 0
+        Mapping.register(_NoGet)
+        for mod, name, prim in REGISTRY:
+            fn = getattr(importlib.import_module(mod), name)
+            proof, root = prim()
+            with self.subTest(verifier=name):
+                self._assert_verdict(fn, proof, root, frozen=_NoGet(), rp_trust={})
+
+
 if __name__ == "__main__":
     unittest.main()

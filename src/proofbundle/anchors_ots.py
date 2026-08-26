@@ -110,16 +110,26 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # VERDIKT statt Raise: OTS gibt ueberall Verdikte zurueck, und `verify_markovian` delegiert hierher und
     # darf keine rohe Ausnahme erben (sein Vertrag ist „never raises for an ordinary bad proof").
     from collections.abc import Mapping as _Mapping  # noqa: PLC0415
-    if not isinstance(frozen, _Mapping):
+
+    def _nutzbares_mapping(x) -> bool:
+        # isinstance(x, Mapping) allein beweist `.get` NICHT: `collections.abc.Mapping.register(cls)`
+        # macht isinstance True, OHNE die Mixin-Methoden zu vererben (Deep-Gate iter9 Linse 3a). Das ist
+        # ueber den dokumentierten Extension-Point `register_anchor_type` erreichbar, nicht nur malizioes —
+        # also auch die `.get`-Aufrufbarkeit pruefen. Der exotische Rest (ein Mapping, dessen `.get` selbst
+        # wirft) bleibt eine Aussage ueber ein vom Aufrufer gebautes feindliches Objekt, ausserhalb des
+        # Bedrohungsmodells. (anchors_rfc3161:78-82 traegt dasselbe Muster — Folge-Kandidat.)
+        return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
+
+    if not _nutzbares_mapping(frozen):
         return {"ok": False, "warn": False, "status": "malformed",
-                "detail": f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)"}
-    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
+                "detail": f"frozen must be a usable mapping, got {type(frozen).__name__} (fail-closed)"}
+    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         return {"ok": False, "warn": False, "status": "malformed",
-                "detail": f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)"}
+                "detail": f"rp_trust must be a usable mapping, got {type(rp_trust).__name__} (fail-closed)"}
     rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
-    if not isinstance(rp_headers, _Mapping):
+    if not _nutzbares_mapping(rp_headers):
         return {"ok": False, "warn": False, "status": "malformed",
-                "detail": ("rp_trust.bitcoin_block_headers must be a mapping height->root, got "
+                "detail": ("rp_trust.bitcoin_block_headers must be a usable mapping height->root, got "
                            f"{type(rp_headers).__name__} (fail-closed)")}
     frozen_headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
     if not rp_headers:
