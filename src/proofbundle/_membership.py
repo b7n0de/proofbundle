@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 from typing import Any, Container
 
-__all__ = ["is_member"]
+__all__ = ["is_member", "as_dict"]
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -65,3 +65,15 @@ def is_member(value: Any, container: Container) -> bool:
         # `__hash__` exists but failed — a tuple whose elements are unhashable is the reachable
         # shape. See the module docstring: the isinstance check alone was measurably not enough.
         return False
+
+def as_dict(value: Any) -> dict:
+    """``value`` if it is a dict, else ``{}`` — the safe form of the ``(x or {}).get(...)`` idiom.
+
+    THE DEFECT CLASS: ``(x or {})`` only replaces a FALSY ``x``. A TRUTHY non-dict — a ``str``/``list``/
+    ``int``/``True`` from attacker-controlled JSON — slips straight through and the downstream ``.get``
+    raises a bare ``AttributeError`` out of a never-raise verify surface (deep gate: ``verify_bundle`` via
+    ``sdjwt_issue.check_binds_bundle`` on a truthy non-dict ``receipt``). ``anchors_chia_add.py`` already
+    closed the exact class with an ``_as_dict``; routing container access through ONE shared helper closes
+    it as an assumption, not one line, and the scanner (tests/test_membership_hashable_guard.py) fails on a
+    new unguarded ``(x or {}).get`` site."""
+    return value if isinstance(value, dict) else {}

@@ -125,7 +125,12 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
         return None
     try:
         raw = _b64url_decode(x)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ProofBundleError):
+        # _b64url_decode's pre-decode DoS guard (re-audit round 7) raises BundleFormatError (a
+        # ProofBundleError, NOT ValueError-rooted) on an oversized x. holder_key_from_cnf documents
+        # "Returns None if there is no usable key" — a never-raise contract — so a direct caller passing
+        # attacker JSON with an oversized cnf.jwk.x must get None, not a typed crash (deep gate iter9
+        # Linse B). Same except-contract-drift class checkpoint.py's F-7 already closed.
         return None
     return raw if len(raw) == 32 else None
 

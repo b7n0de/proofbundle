@@ -186,6 +186,14 @@ def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) ->
     hybrid ATS's ed25519 leg, if relabeled ``sig_alg="ed25519"``, would be checked against DIFFERENT bytes
     and fail. Without this binding a post-quantum attacker could downgrade a hybrid/mldsa65 ATS to its
     classical leg with no forgery."""
+    # Deep-Gate iter9 Linse 3a: ein Riesen-int time (>4300 Dezimalstellen) crasht die f-string-int->str-
+    # Konvertierung ROH (ValueError), aus einer Funktion, die die signierten Bytes baut. Wie token() vor
+    # dem Rendern abweisen — eine gekuerzte Zahl wuerde den signierten Inhalt aendern. Non-int time faengt
+    # _require_int_time / render_safe; hier greift der Magnitude-Fall (int_magnitude_ok(str) ist True).
+    if isinstance(time, int) and not int_magnitude_ok(time):
+        raise ProofBundleError(
+            f"ATS time is implausibly large ({time.bit_length()} bits) — refused before rendering the "
+            "signed ATS content (a shortened render would change the signed bytes)")
     return f"archivetimestamp/v1\n{sig_alg}\n{hash_alg}\n{covered_digest}\n{time}".encode()
 
 
@@ -219,7 +227,11 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
     # robust against a malformed signatures field (None / non-2-tuple entries) — fail-closed, never raise
     sigmap: dict[str, str] = {}
-    for item in ats.signatures or ():
+    # Deep-Gate iter9 Linse 3c: eine non-iterable .signatures (int/bool/float/object) crasht die
+    # for-Schleife roh ('object is not iterable'); der bestehende Kommentar deckte nur None/non-2-tuple
+    # EINTRAEGE, nicht einen non-iterable CONTAINER.
+    _sigs = ats.signatures if isinstance(ats.signatures, (list, tuple)) else ()
+    for item in _sigs:
         if isinstance(item, tuple) and len(item) == 2:
             a, s = item
             if isinstance(a, str) and isinstance(s, str):
@@ -296,6 +308,10 @@ def _verify_ats_external_token(ats: ArchiveTimeStamp, *, rp_trust: Optional[dict
 def _is_deprecated_hash(alg: str) -> bool:
     """True iff ``alg`` is a KNOWN but deprecated registry hash (sha1/md5). An unknown/absent alg is not
     'deprecated' (it fails the resolvable-hash check instead)."""
+    # Deep-Gate iter9 Linse 3b: ein unhashable hash_alg (list/dict) crasht HASH_REGISTRY.get(alg) roh.
+    # Ein Nicht-String ist kein bekannter Algorithmus -> nicht deprecated (faellt sonst am Resolve-Check).
+    if not isinstance(alg, str):
+        return False
     spec = HASH_REGISTRY.get(alg)
     return spec is not None and spec.status == "deprecated"
 
@@ -759,7 +775,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
     # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
     newest_dep = _is_deprecated_hash(newest.hash_alg)
-    _spec = HASH_REGISTRY.get(newest.hash_alg)
+    _spec = HASH_REGISTRY.get(newest.hash_alg) if isinstance(newest.hash_alg, str) else None
     newest_current = _spec is not None and _spec.status == "current"
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
@@ -835,7 +851,7 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         return result
 
     reasons = []
-    if newest.hash_alg in policy.deprecated_algs:
+    if isinstance(newest.hash_alg, str) and newest.hash_alg in policy.deprecated_algs:
         reasons.append(f"newest ATS uses policy-deprecated hash {newest.hash_alg!r}")
     # Future-dated guard (No-Fake): a newest.time AFTER `now` is anomalous — the freshness/age test below
     # ((now - newest.time) > max_ats_age) goes NEGATIVE for a future time and would report it as perpetually

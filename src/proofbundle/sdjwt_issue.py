@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64url
-from ._membership import is_member
+from ._membership import as_dict, is_member
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -205,4 +205,7 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     for field in ("passed", "threshold", "comparator", "suite", "issuer"):
         if field not in claim or p.get(field) != claim.get(field):
             return False
-    return (p.get("receipt") or {}).get("root_b64") == root_b64
+    # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
+    # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
+    # flagship verify_bundle path (deep gate iter9 Linse A). as_dict closes the class.
+    return as_dict(p.get("receipt")).get("root_b64") == root_b64
