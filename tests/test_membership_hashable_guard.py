@@ -212,3 +212,39 @@ class TestScannerOnADisposableTree(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheGuardCannotRaiseItself(unittest.TestCase):
+    """REGRESSION for the finding the mandatory review lane raised on 2026-08-26 (verdict REJECT).
+
+    A guard whose entire contract is "never raises" must not have a shape that raises. The first
+    version used `isinstance(value, Hashable)` alone, and that tests whether `__hash__` EXISTS, not
+    whether calling it succeeds — a tuple inherits `__hash__` and only fails once it hashes its
+    elements. Not reachable from `json.loads` today, which is a property of the CALLERS, not of this
+    function; a guard that is only correct because of what happens to be passed to it is not a guard.
+    """
+
+    def setUp(self):
+        import sys
+        if str(REPO / "src") not in sys.path:
+            sys.path.insert(0, str(REPO / "src"))
+        from proofbundle._membership import is_member
+        self.is_member = is_member
+
+    def test_a_tuple_holding_an_unhashable_element_does_not_raise(self):
+        self.assertFalse(self.is_member(("a", []), {"ok"}))
+        self.assertFalse(self.is_member((1, {}), {"ok"}))
+        self.assertFalse(self.is_member(((),[]), {"ok"}))
+
+    def test_the_reviewers_dict_example_was_already_covered(self):
+        # Recorded because half the finding did NOT hold: `dict.__hash__` is None, so the isinstance
+        # check rejects it before any hashing. Keeping the measurement stops the wrong half from
+        # being "re-discovered" later as a new defect.
+        from collections.abc import Hashable
+        self.assertFalse(isinstance({"a": []}, Hashable))
+        self.assertFalse(self.is_member({"a": []}, {"ok"}))
+
+    def test_anti_parity_a_hashable_tuple_still_works_normally(self):
+        # Without this, an is_member that returned False for every tuple would pass the test above.
+        self.assertTrue(self.is_member(("a", "b"), {("a", "b"), "x"}))
+        self.assertFalse(self.is_member(("a", "b"), {"x"}))

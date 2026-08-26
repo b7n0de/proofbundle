@@ -17,9 +17,26 @@ assumption intact everywhere else, including in code not yet written. What is fi
 assumption, in one place, with a scanner (tests/test_membership_hashable_guard.py) that fails on any
 new unguarded site.
 
-DELIBERATELY NOT A ``try/except TypeError``: that would also swallow a TypeError raised by a broken
-container or a __hash__ with a bug, i.e. it would convert unrelated real defects into a quiet False.
-The test here is exactly the property the call site needs — "can this value be a member at all".
+WHY ``try/except TypeError`` AND NOT ONLY ``isinstance(value, Hashable)``. The first version of this
+module used the isinstance check alone and argued against the try/except as "too broad". That argument
+was wrong, and the mandatory review lane refuted it on 2026-08-26 (verdict REJECT, one finding held):
+``collections.abc.Hashable`` tests whether ``__hash__`` EXISTS, not whether calling it succeeds.
+Measured: ``isinstance(("a", []), Hashable)`` is ``True`` and ``hash(("a", []))`` raises anyway — a
+tuple inherits ``__hash__`` and only fails once it hashes its elements. So the guard whose entire
+contract is "never raises" could raise. That is the very class it exists to remove, one level down;
+this is the third time in one day that a fix reproduced its own defect inside itself.
+
+HONEST NOTE ON REACH, because the finding was half right and half wrong. The reviewer's example was
+``{"a": []}``, and that one does NOT get through: ``dict.__hash__`` is ``None``, so the isinstance
+check already rejects it. Only the TUPLE case gets through — and ``json.loads`` never produces a
+tuple, so no attacker-controlled JSON reaches it today. It is fixed anyway: a guard that is only
+correct because of what its callers happen to pass is not a guard, and "not reachable today" is a
+property of the callers, not of this function.
+
+The isinstance check stays as the fast path (it is the common case and needs no exception machinery).
+Swallowing a TypeError from a genuinely broken ``__hash__`` is fine here rather than regrettable: such
+an object cannot be an element of a hash-based container either, so ``False`` remains the true answer
+to the only question this function asks.
 """
 from __future__ import annotations
 
@@ -42,4 +59,9 @@ def is_member(value: Any, container: Container) -> bool:
     """
     if not isinstance(value, Hashable):
         return False
-    return value in container
+    try:
+        return value in container
+    except TypeError:
+        # `__hash__` exists but failed — a tuple whose elements are unhashable is the reachable
+        # shape. See the module docstring: the isinstance check alone was measurably not enough.
+        return False
