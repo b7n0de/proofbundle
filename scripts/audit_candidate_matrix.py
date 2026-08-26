@@ -49,6 +49,14 @@ PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL = (
     "PASS", "PENDING_JUSTIFIED", "DATA_BLOCKED", "EXTERNAL_PENDING", "FAIL")
 _NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL}
 
+# F7 CLOSED (makellose-500 Phase 4, reviewer P8): these checks measure a keyword / a directory entry /
+# non-emptiness, not a behaviour — 7 of them passed on pure lexical decoys incl. a NEGATED sentence. A
+# presence proxy cannot GRANT release readiness, so they are INFORMATIVE (reported, never release-
+# deciding). ``audit_candidate_ready`` is computed only over the release-deciding checks.
+_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}
+_KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL}
+_EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
+
 VERSION_UNDER_TEST = "3.6.0"
 
 
@@ -591,7 +599,16 @@ def evaluate() -> dict:
                      "verdict": verdict, "detail": detail})
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
               for v in (PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL)}
-    ready = counts[FAIL] == 0 and all(r["verdict"] in _NON_FAIL for r in rows)
+    # F2 + F7 CLOSED (makellose-500 Phase 4): audit_candidate_ready = every RELEASE-DECIDING check is
+    # PASS, EXCEPT exactly the one explicitly-external open audit (EXT.1 == EXTERNAL_PENDING). An internal
+    # PENDING_JUSTIFIED, an internal DATA_BLOCKED (a check that could NOT be measured here), an unknown
+    # verdict, a FAIL, or an unbound version pin is NOT ready — honesty about not-having-measured is not
+    # readiness. Informative (presence-only) checks are excluded from the verdict entirely. Fail-closed.
+    unknown = [r for r in rows if r["verdict"] not in _KNOWN_VERDICTS]
+    deciding = [r for r in rows if r["id"] not in _INFORMATIVE_CHECKS]
+    ready = (counts[FAIL] == 0 and not unknown and all(
+        r["verdict"] == PASS or (r["id"] == _EXTERNAL_CHECK_ID and r["verdict"] == EXTERNAL)
+        for r in deciding))
     # THE BINDING GATES THE VERDICT, not just decorates it. A green matrix about another release
     # is not a green matrix about this one — and `ready` is the field a reader takes at face value.
     # `not_determinable` withholds readiness too: an unmeasurable binding is not a verified one,
@@ -605,17 +622,31 @@ def evaluate() -> dict:
     if binding["state"] != "bound":
         ready = False
     fully_here = ready and counts[DATA_BLOCKED] == 0
+    # status_boundary is COMPUTED, never a static claim: it says "all internal deciding gates green" only
+    # when that is actually true (reviewer F7 — the old static string claimed it unconditionally).
+    not_pass_deciding = [r["id"] for r in deciding
+                         if not (r["verdict"] == PASS or r["id"] == _EXTERNAL_CHECK_ID)]
+    if ready:
+        boundary = ("audit-candidate: all internal release-deciding gates PASS; the sole remaining gate "
+                    "to stable is the independent external security audit. NOT stable, NOT audited, NOT "
+                    "production-ready.")
+    else:
+        boundary = ("NOT audit-candidate-ready: internal release-deciding obligations are not all PASS "
+                    f"(unmet: {not_pass_deciding or 'version-pin unbound'}). NOT stable, NOT audited, "
+                    "NOT production-ready.")
     return {
         "schema": "proofbundle.audit_candidate_matrix.v1",
         "version_under_test": VERSION_UNDER_TEST,
         "version_pin": binding,
         "total_checks": len(rows),
+        "release_deciding_count": len(deciding),
+        "informative_count": len(rows) - len(deciding),
+        "unknown_verdicts": [r["id"] for r in unknown],
+        "unmet_deciding": not_pass_deciding,
         "counts": counts,
         "audit_candidate_ready": ready,
         "fully_verified_here": fully_here,
-        "status_boundary": ("audit-candidate: all internal assurance gates green; the sole remaining "
-                            "gate to stable is an independent external security audit. NOT stable, NOT "
-                            "audited, NOT production-ready."),
+        "status_boundary": boundary,
         "checks": rows,
     }
 

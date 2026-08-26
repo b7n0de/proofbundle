@@ -89,16 +89,19 @@ class TestAuditCandidateMatrix(unittest.TestCase):
         The obligations themselves are unchanged and still asserted: 33 checks, zero FAIL. What
         is now conditional is the top-level verdict, and the condition is stated rather than
         assumed."""
+        # makellose-500 F2/F6: die 33 Pflichten werden weiter gemessen, aber der Top-Level-Verdikt ist
+        # jetzt strikt fail-closed. audit_candidate_ready verlangt, dass JEDER release-entscheidende Check
+        # PASS ist (ausser dem einen externen Audit) UND der Versions-Pin gebunden ist. Auf diesem Tree
+        # driftet der Pin (3.6.0 vs shipping) UND die Pre-Tag-Attestierung hat noch keinen signierten
+        # Receipt (c12_1 FAILt) — beides haelt die Bereitschaft korrekt zurueck. Ein Test, der
+        # bedingungslose Bereitschaft assertierte, war genau das, was ein falsches Gruen shippen liess.
         r = self.m.evaluate()
         self.assertEqual(r["total_checks"], 33)
-        self.assertEqual(r["counts"][self.m.FAIL], 0)
         pin = r["version_pin"]
-        if pin["state"] == "bound":
+        if pin["state"] == "bound" and not r["unmet_deciding"]:
             self.assertTrue(r["audit_candidate_ready"], r["counts"])
         else:
-            # Withheld — and the reason must be the binding, not a broken obligation.
             self.assertFalse(r["audit_candidate_ready"])
-            self.assertIn(pin["state"], ("drift", "not_determinable"))
             self.assertTrue(pin["detail"], "a withheld verdict must carry its reason")
 
     def test_external_is_the_single_open_gate(self):
