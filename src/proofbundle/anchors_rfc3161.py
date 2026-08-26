@@ -83,7 +83,11 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
         # (Dasselbe Muster ist in anchors_ots gefixt; hier dieselbe Klasse, andere Konvention: raise.)
         return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
 
-    if frozen is not None and not _nutzbares_mapping(frozen):
+    if not _nutzbares_mapping(frozen):
+        # frozen ist ein REQUIRED dict-Argument (Signatur); `frozen=None` ist ein Fehlaufruf, der bisher
+        # den `frozen is not None`-Guard passierte und dann roh an `frozen.get("rootCertsDerB64")` stuerzte
+        # (Deep-Gate iter9: reproduziert bei frozen=None + fehlenden roots). Jetzt typisiert abgewiesen,
+        # konsistent mit anchors_ots (das None ebenfalls als Nicht-Mapping ablehnt).
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"frozen must be a usable mapping (with .get), got {type(frozen).__name__} (fail-closed)")
     if rp_trust is not None and not _nutzbares_mapping(rp_trust):
