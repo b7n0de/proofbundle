@@ -77,6 +77,24 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     if frozen is not None and not isinstance(frozen, _Mapping):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)")
+    # `None` PASSES the guard above (`frozen is not None`) and then hits `frozen.get(...)` a few
+    # lines down. Measured on main c669d39, without the `[anchors]` extra installed: calling this
+    # function with an empty token, an empty payload and a frozen block of None raised
+    # `AttributeError: 'NoneType' object has no attribute 'get'` — a raw AttributeError out of a
+    # surface whose own docstring promises "Returns {ok, detail}". (The reproduction is written out
+    # in prose on purpose: a commented-out call to a verification function is exactly the shape
+    # `mutant_signature_guard` exists to catch, and a guard one silences with an allow-marker for
+    # a comment is a guard one silences again for the real thing. The executable form of this
+    # reproduction lives in tests/test_verifier_total_boundary_contract.py.)
+    #
+    # NORMALIZED, NOT REJECTED, and the choice is deliberate: `verify_anchor` already maps every
+    # non-dict `frozen` to `{}` before calling a verifier, so "absent frozen block" is an
+    # established, fail-closed meaning here — `{}` yields `frozenEvidence: False` and
+    # `needs_rp_trust`, which is exactly the safe direction. Rejecting `None` instead would make
+    # the guard contradict the caller that normalizes, and it would turn a harmless omission into
+    # an exception on a surface the review wants TOTAL.
+    if frozen is None:
+        frozen = {}
     if rp_trust is not None and not isinstance(rp_trust, _Mapping):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)")

@@ -252,6 +252,29 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     try:
         res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
                              frozen=_frozen, now=now, rp_trust=rp_trust)
+        # THE RETURN SHAPE IS VALIDATED INSIDE THE GUARD, and that placement is the whole fix.
+        #
+        # The comment above says the `except Exception` below "already fail-closes" a misbehaving
+        # verifier. That was true for one who RAISES and false for one who RETURNS the wrong
+        # shape: every `res.get(...)` below sits OUTSIDE this try. Measured on main c669d39 with a
+        # registered verifier returning each shape:
+        #     None    -> AttributeError: 'NoneType' object has no attribute 'get'
+        #     [1, 2]  -> AttributeError: 'list' object has no attribute 'get'
+        #     42      -> AttributeError: 'int' object has no attribute 'get'
+        #     "text"  -> AttributeError: 'str' object has no attribute 'get'
+        # Four raw exceptions out of the very surface that promises third-party authors it will
+        # contain theirs.
+        #
+        # `Mapping`, not `dict` — same reasoning as the type floor in `anchors_rfc3161`: only
+        # `.get(...)` is used below, so `MappingProxyType` and `OrderedDict` are valid returns and
+        # were never the problem. Raising here rather than returning directly keeps ONE exit path
+        # for "verifier misbehaved": the `except` below turns it into the same fail-closed verdict
+        # a raising verifier gets, so both misbehaviours are indistinguishable to the caller —
+        # which is what a total boundary owes its consumers.
+        from collections.abc import Mapping as _Mapping  # noqa: PLC0415
+        if not isinstance(res, _Mapping):
+            raise TypeError(
+                f"verifier for {atype!r} returned {type(res).__name__}, expected a mapping")
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
