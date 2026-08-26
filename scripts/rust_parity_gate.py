@@ -9,8 +9,11 @@ without anyone remembering to touch the Rust doc too.
 
 This gate replaces "hope someone remembers" with a live, re-checked-every-run mechanism:
 
-  1. AST-scan every `src/proofbundle/*.py` for a module-level `def verify_*` — the GROUND TRUTH
-     inventory. This is re-discovered fresh each run; nothing here is hand-copied from the Python side.
+  1. AST-scan every `src/proofbundle/**/*.py` for a `def verify_*` / `def validate_*`, at module level
+     or inside a class — the GROUND TRUTH inventory. This is re-discovered fresh each run; nothing here
+     is hand-copied from the Python side. FOUR consumers besides this gate share this one population
+     (type_confusion_gate, fuzz_soak, test_rust_parity_gate, test_roadmap_frontload_foundations), so a
+     surface missing HERE is missing from three gates and two tests at once.
   2. Look each one up in the declarative registry (`scripts/rust_parity_registry.json`), which says
      COVERED / PARTIAL / PENDING plus (for COVERED/PARTIAL) which Rust subcommand and which literal
      crosscheck.py call site back the claim.
@@ -68,26 +71,99 @@ _CLAIMED_STATUSES = {STATUS_COVERED, STATUS_PARTIAL}
 _MATCH_ARM_RE = re.compile(r'^\s*"([a-z][a-z0-9-]*)"\s*=>', re.MULTILINE)
 
 
+# The name prefixes that mark a SECURITY-DECIDING surface. `validate_` is here for the same reason
+# `verify_` is: `outcome.validate_outcome_predicate` and `run_ledger.validate_run_ledger_predicate`
+# decide whether a claim is accepted. Splitting the inventory by naming convention rather than by role
+# meant two of the four confirmed type-confusion defects of 2026-08-26 lived on surfaces this function
+# had never enumerated — and a gate cannot fail on a surface it never sees.
+_SURFACE_PREFIXES = ("verify_", "validate_")
+
+
+def _surface_nodes(tree: ast.Module):
+    """(qualifier, node) for every prefix-matching def — module level AND inside a class body.
+
+    A `verify_*` METHOD was invisible before because only ``tree.body`` was walked. There is no such
+    method in the tree today; that is exactly why it had to be fixed BEFORE one appears, since the
+    failure mode is silence, not an error."""
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name.startswith(_SURFACE_PREFIXES):
+                yield "", node
+        elif isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and \
+                        sub.name.startswith(_SURFACE_PREFIXES):
+                    yield f"{node.name}.", sub
+
+
 def discover_python_verify_functions(src_dir: Path = SRC) -> dict[str, dict]:
-    """AST-scan every module-level `def verify_*` in ``src_dir`` — the ground-truth inventory this
-    gate holds the registry accountable to. Returns {qualified_name: {module, function, doc}}."""
+    """AST-scan every security-deciding `def verify_*` / `def validate_*` under ``src_dir`` — the
+    ground-truth inventory this gate holds the registry accountable to, and the SHARED population of
+    four other consumers (type_confusion_gate, fuzz_soak, test_rust_parity_gate,
+    test_roadmap_frontload_foundations). What this function does not see, none of them see.
+
+    Returns {qualified_name: {module, function, doc_first_line}} where ``function`` may be
+    ``Class.method`` and ``module`` may be a dotted subpackage path.
+
+    FOUR NARROWINGS were lifted on 2026-08-26 (deep gate iteration 8, finding L3-05). Each one made
+    the population smaller than the surface it claimed to inventory, and each one failed SILENTLY —
+    a missing surface produces no error anywhere, only a gate that passes for the wrong reason:
+      1. ``glob("*.py")`` saw only the top level, never ``adapters/``, ``experimental/``, ``policies/``.
+      2. ``startswith("verify_")`` never matched ``validate_*``.
+      3. only ``tree.body`` was walked, so nothing inside a class body was reachable, which is
+      4. why every ``verify_*`` METHOD was invisible.
+    Measured effect on the real tree: 47 -> 57 surfaces."""
     found: dict[str, dict] = {}
-    for path in sorted(src_dir.glob("*.py")):
-        module = path.stem
+    for path in sorted(src_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        parts = [p for p in path.relative_to(src_dir).with_suffix("").parts if p != "__init__"]
+        module = ".".join(parts)
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (SyntaxError, OSError):
             continue
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name.startswith("verify_"):
-                qualified = f"proofbundle.{module}.{node.name}"
-                doc = ast.get_docstring(node) or ""
-                found[qualified] = {
-                    "module": module,
-                    "function": node.name,
-                    "doc_first_line": doc.strip().split("\n")[0] if doc else "",
-                }
+        for qualifier, node in _surface_nodes(tree):
+            function = f"{qualifier}{node.name}"
+            qualified = f"proofbundle.{module}.{function}" if module else f"proofbundle.{function}"
+            doc = ast.get_docstring(node) or ""
+            found[qualified] = {
+                "module": module,
+                "function": function,
+                "doc_first_line": doc.strip().split("\n")[0] if doc else "",
+            }
     return found
+
+
+def resolve_surface(qname: str):
+    """Import and return the callable a ground-truth qualified name points at.
+
+    THE ONE RESOLVER, deliberately living next to the population it resolves. Both consumers used to
+    carry their own ``qname.split(".")[1], qname.split(".")[2]`` — a hard-coded two-segment assumption
+    that mis-resolves precisely the subpackage and class-method surfaces the widened population just
+    added, and then swallowed the failure (``IMPORT_ERROR`` / ``skipped``). Two resolvers beside one
+    population is the same defect as two populations: the second one rots unobserved.
+
+    Raises ``ValueError`` when the name cannot be resolved — a caller that wants to be lenient has to
+    say so out loud."""
+    parts = qname.split(".")
+    if len(parts) < 2 or parts[0] != "proofbundle":
+        raise ValueError(f"not a proofbundle ground-truth name: {qname!r}")
+    import importlib
+    # Longest importable module prefix first: `proofbundle.experimental.enclave` must win over
+    # `proofbundle.experimental` so a subpackage module and a class attribute never collide.
+    for cut in range(len(parts) - 1, 0, -1):
+        try:
+            obj = importlib.import_module(".".join(parts[:cut]))
+        except ImportError:
+            continue
+        try:
+            for attr in parts[cut:]:
+                obj = getattr(obj, attr)
+        except AttributeError:
+            continue
+        return obj
+    raise ValueError(f"cannot resolve {qname!r} to a callable")
 
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict:
