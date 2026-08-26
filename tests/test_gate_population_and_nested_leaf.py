@@ -124,7 +124,7 @@ class TestNestedLeafMatrixCatchesAPlantedDefect(unittest.TestCase):
         # shape check, so no inner validator ever runs. If this ever starts finding the planted
         # defect, the two passes have converged and the second one's justification must be re-read.
         with _PlantedModule() as modul:
-            alt = tcg._exercise(modul.validate_planted_predicate, {}, tcg.TYPE_CONFUSION_PAYLOADS)
+            alt, _ = tcg._exercise(modul.validate_planted_predicate, {}, tcg.TYPE_CONFUSION_PAYLOADS)
         self.assertEqual(alt, [], "pass one now catches it; the docstring's rationale is stale")
 
     def test_depth_two_is_reached(self):

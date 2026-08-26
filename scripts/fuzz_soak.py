@@ -173,7 +173,8 @@ def _resolve_targets():
         # bad path raising OSError/FileNotFoundError is correct API behaviour, not a robustness bug
         # (mirrors type_confusion_gate's exact reasoning — bare strings are a legit input class there).
         union_str = "str" in str(params[0].annotation)
-        targets.append((qname, fn, _input_kind(fn), extra, union_str))
+        targets.append((qname, fn, _input_kind(fn), extra, union_str, params[0].name,
+                        params[0].kind == inspect.Parameter.KEYWORD_ONLY))
     return targets, skipped
 
 
@@ -209,13 +210,15 @@ def soak(duration_seconds: float, seed: int = 0, max_iters: int | None = None) -
         return max_iters is not None or duration_seconds > 0  # no budget at all -> stop
 
     while n and _keep_going():
-        qname, fn, kind, extra, union_str = targets[idx % n]
+        qname, fn, kind, extra, union_str, primary_name, kwonly = targets[idx % n]
         idx += 1
         payload = _gen_for(kind, rng)
         per_parser_iters[qname] = per_parser_iters.get(qname, 0) + 1
         iters += 1
         try:
-            result = fn(payload, **extra)
+            # a keyword-only primary (e.g. verify_hybrid) must be passed by keyword, else a
+            # signature TypeError is a PROBE artifact, not a surface crash (makellose-500 gate-1 parity)
+            result = fn(**{primary_name: payload}, **extra) if kwonly else fn(payload, **extra)
         except _ALLOWED:
             continue
         except (KeyboardInterrupt, SystemExit):

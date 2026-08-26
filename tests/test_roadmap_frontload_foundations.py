@@ -123,7 +123,7 @@ class TestF4TypeConfusion(unittest.TestCase):
         # bidirectional: a deliberately raw-crashing verifier MUST be reported as a violation.
         def broken(x):
             return x["missing"]  # raw KeyError/TypeError on type confusion
-        violations = self.gate._exercise(broken, {}, [None, {}, 5, "s"])
+        violations, _ = self.gate._exercise(broken, {}, [None, {}, 5, "s"])
         self.assertTrue(violations, "a raw-raising verifier must be caught")
 
     def test_defended_verifier_is_clean(self):
@@ -133,7 +133,7 @@ class TestF4TypeConfusion(unittest.TestCase):
             if not isinstance(x, dict):
                 raise BundleFormatError("not an object")
             return {"ok": False}
-        self.assertEqual(self.gate._exercise(defended, {}, [None, 5, {}, "s"]), [])
+        self.assertEqual(self.gate._exercise(defended, {}, [None, 5, {}, "s"])[0], [])
 
 
 class TestF5ReadinessPack(unittest.TestCase):
