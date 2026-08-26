@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-absent-legacy-receipt",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (jury lens 1, 2026-08-26)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "A receipt issued before 5.0.0 carries NO status at all and stays valid. The change is additive by requirement, not by accident: demanding a status would invalidate every receipt ever issued. This vector locks that in, so a later reading cannot quietly turn absence into a rejection."
+}

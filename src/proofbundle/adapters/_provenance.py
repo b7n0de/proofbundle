@@ -172,11 +172,36 @@ def version_status_issues(provenance: dict) -> list[str]:
     (3) and (4) are the two ways the pair can contradict itself, and both must be caught: a
     verifier that only looked at the status could be told anything.
     """
+    # A VERIFIER MUST REPORT, NEVER CRASH (jury lens 1 follow-up, own attack): a non-dict
+    # provenance raised TypeError here. A caller who hands us garbage deserves a finding, not a
+    # traceback that aborts the whole verification of an otherwise valid bundle.
+    if not isinstance(provenance, dict):
+        return [f"provenance must be an object, got {type(provenance).__name__}"]
     issues: list[str] = []
-    for key in sorted(provenance):
+    # Nur die STRING-Schluessel sortieren. `sorted()` ueber gemischte Typen wirft
+    # TypeError (int gegen str) — gefunden vom eigenen Test nach der Jury-Runde. JSON
+    # erlaubt zwar nur String-Schluessel, aber diese Funktion bekommt ein Python-dict,
+    # und ein Aufrufer kann eines mit anderen Schluesseln bauen. Ein Verifier, der an
+    # einem fremden Schluessel abstuerzt, prueft den Rest des Belegs nicht mehr.
+    for key in sorted(k for k in provenance if isinstance(k, str)):
         if not key.endswith("_status"):
             continue
         field = key[: -len("_status")]
+        # ONLY VERSION FIELDS (jury lens 1, finding 1 — measured and it held). The first version
+        # matched EVERY key ending in `_status`, so an unrelated `run_status` or `scorer_status`
+        # in the same provenance block produced a FALSE finding: "run_status='active' is not one
+        # of [reported, not_reported, not_bound]". A verifier that invents a finding on a field
+        # it was never asked about is worse than one that misses something — it makes a valid
+        # receipt look non-conformant, and the whole point of this product is that a receipt
+        # says what it means.
+        #
+        # The rule is the SUFFIX OF THE FIELD, not a hard-coded list: the class is "harness-
+        # reported version fields", and every member of it is named `*_version`
+        # (harness_version, task_version, promptfoo_version). A future adapter that binds
+        # `foo_version` is covered without an edit here, and nothing else is ever touched — a
+        # literal list would have to be maintained and would silently miss the next one.
+        if not field.endswith("_version"):
+            continue
         status = provenance.get(key)
         if status not in VERSION_STATUS_VALUES:
             issues.append(f"{key}={status!r} is not one of {list(VERSION_STATUS_VALUES)}")

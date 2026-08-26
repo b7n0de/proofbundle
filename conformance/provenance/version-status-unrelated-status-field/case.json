@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-unrelated-status-field",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (jury lens 1, 2026-08-26)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "A provenance block may carry OTHER fields ending in `_status` (run_status, scorer_status). They are not harness-reported version fields and MUST NOT produce a finding. A verifier that invents a finding on a field it was never asked about makes a valid receipt look non-conformant — the failure this product exists against, pointed the other way. The rule follows the field suffix `_version`, not a hard-coded list, so a future `foo_version` is covered and nothing else is ever touched."
+}

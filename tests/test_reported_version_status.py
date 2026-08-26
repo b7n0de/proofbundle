@@ -156,3 +156,61 @@ def test_lm_eval_reports_none_and_says_so():
     assert pr["harness_version_status"] == "not_reported"
     assert pr["harness_version_status_reason"]
     assert version_status_issues(pr) == []
+
+
+# --- Jury lens 1 (2026-08-26): two findings, one held, one did not ---------------------------
+#
+# FINDING 1 HELD AND IT WAS THE SERIOUS ONE. The first version matched EVERY provenance key
+# ending in `_status`, so an unrelated `run_status` or `scorer_status` in the same block produced
+# a FALSE finding. A verifier that invents a finding on a field it was never asked about is worse
+# than one that misses something: it makes a VALID receipt look non-conformant, which is exactly
+# the failure this product exists against, pointed the other way.
+#
+# FINDING 2 DID NOT HOLD. The jury argued that a provenance with no status at all should be
+# rejected. It must not be: the change is additive and existing receipts stay valid — that is a
+# stated requirement of the release, not an oversight. Requiring a status would invalidate every
+# receipt ever issued. The test below nails that down so a later reading of the jury's report
+# cannot quietly turn it into a change.
+#
+# A THIRD came from attacking the code myself after the jury answered: a non-dict provenance
+# RAISED instead of reporting.
+
+
+def test_an_unrelated_status_field_is_not_a_version_status():
+    """The false-positive class. `run` does not end in `_version`, so it is none of our business."""
+    for prov in ({"run_status": "active"}, {"scorer_status": "llm"},
+                 {"anchor_status": "confirmed"}, {"_status": "x"}):
+        assert version_status_issues(prov) == [], prov
+
+
+def test_an_unrelated_status_does_not_mask_a_real_one():
+    """The neighbour must neither create a finding nor swallow one."""
+    got = version_status_issues({"run_status": "done", "harness_version_status": "maybe"})
+    assert len(got) == 1 and "harness_version_status" in got[0], got
+
+
+def test_the_rule_follows_the_field_suffix_not_a_hard_coded_list():
+    """A future adapter binding `foo_version` is covered without editing the verifier — a literal
+    list would have to be maintained and would silently miss the next one."""
+    got = version_status_issues({"foo_version_status": "maybe"})
+    assert got and "foo_version_status" in got[0]
+
+
+def test_a_receipt_without_any_status_stays_valid():
+    """ADDITIVE, and this is a requirement rather than an omission: every receipt issued before
+    5.0.0 carries no status, and demanding one would invalidate all of them."""
+    assert version_status_issues({"harness": "lm-eval", "harness_version": "0.4.12"}) == []
+    assert version_status_issues({}) == []
+
+
+def test_a_non_dict_provenance_is_reported_not_raised():
+    """A verifier must report, never crash: a traceback here would abort the verification of an
+    otherwise valid bundle."""
+    for bad in (None, 5, [], "x", True):
+        got = version_status_issues(bad)
+        assert got and "must be an object" in got[0], (bad, got)
+
+
+def test_a_non_string_key_does_not_break_the_scan():
+    assert version_status_issues({1: "x", "harness_version_status": "reported",
+                                  "harness_version": "1.0"}) == []

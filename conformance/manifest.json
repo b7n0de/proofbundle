@@ -65,6 +65,8 @@
     "provenance/version-status-reported-without-field",
     "provenance/version-status-not-reported-with-field",
     "provenance/version-status-missing-reason",
-    "provenance/version-status-unknown-literal"
+    "provenance/version-status-unknown-literal",
+    "provenance/version-status-unrelated-status-field",
+    "provenance/version-status-absent-legacy-receipt"
   ]
 }
