@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "5.0.0",
+  "subject_tree_digest": "bb1fbba35d45ad08b11d3118f7d0fa487fe689feb640a332b83f8860b0a62ee1",
+  "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
+  "audit_command": "adversarial deep-gate (DEEP six-lens / subagent executable exploits) per docs/PRE_TAG_AUDIT.md + office/runbooks/berkeley_gate.md; verdict WITHSTANDS_DEEPGATE; record audit_artifacts/500/DEEP_RUN_RECORD_500_ITER8_CEREMONY.md",
+  "audit_exit_code": 0,
+  "audit_output_digest": "84a2a9dc736e513663b7fd8bb61149d0ab5620aa0daea0e5a3499493bd7010e2",
+  "runner_identity": "b7n0de-release-runner (farmer; claude-code)",
+  "produced_at": "2026-08-27T12:19:12Z",
+  "signature": "B71nW96/k5+mn14yBTGmmeF2RBTYptNeRWVsyhSKLk6r6w+LYrosFh5Ku46DRXnBlnWY5dgYAkDmiaJDmfhkCA==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}
