@@ -420,6 +420,129 @@ def cc20_completeness_wiring_observed():
     return detected, f"completeness wiring -> population_complete={r['population_complete']}, evaluated={r['evaluated_count']}/{r['population_size']}"
 
 
+# ---- Gates re-gate ROUND 6 fix-the-CLASS: bind the REAL _classify ROUTING to evaluate() --------------
+# The round-5 re-gate (WIDERLEGT) showed cc16-cc23 bind the never-raise wirings only through a MOCKED
+# _classify (_seed_evaluate sets status="IN_SCOPE" directly). The REAL router that ENABLES nested
+# detection — _is_json_primary's Any/dict->IN_SCOPE branch — was therefore unbound: a one-token strip of
+# `"Any" in text or ` reclassifies an Any-primary surface IN_SCOPE->NON_JSON (no nested matrix, crash
+# missed) while the harness stayed 23/23 green. Same class: the bytes->NON_JSON exclusion and the
+# RecursionError handler. FIX: three classes that plant a REAL importable proofbundle.* module and drive
+# the FULL evaluate() with the REAL _classify (only discover/_runtime_inventory/_parse_skips patched,
+# NEVER _classify) — so the real routing is the ONLY thing that can carry the detection.
+# MAINTENANCE INVARIANT: a NEW routing branch in _classify/_is_json_primary/_primary_kind needs a NEW
+# class here that reaches it through the real router, not a seeded status.
+
+def _real_router_victim(modname: str, src: str):
+    """Write a REAL importable proofbundle.<modname> to a tempdir and register it in sys.modules, so the
+    gate's REAL resolve_surface(qname) imports it and the REAL _classify routes it by its real signature.
+    Returns (qname, full_module_name, tmpdir). Caller cleans up _FIELD_CACHE + sys.modules + tmpdir."""
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, f"{modname}.py")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    full = f"proofbundle.{modname}"
+    spec = importlib.util.spec_from_file_location(full, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[full] = mod
+    spec.loader.exec_module(mod)
+    fn_name = next(line.split("(")[0].removeprefix("def ").strip()
+                   for line in src.splitlines() if line.startswith("def "))
+    return f"{full}.{fn_name}", full, d
+
+
+def _seed_evaluate_real_router(qname: str):
+    """Drive the FULL tcg.evaluate() scoped to ONE real surface with the REAL _classify (NOT mocked): only
+    discover/_runtime_inventory/_parse_skips are patched (both inventories carry the phantom so
+    inventories_agree stays True). The REAL routing is thus the ONLY thing that can carry the verdict —
+    unlike _seed_evaluate, which patches tcg._classify and therefore never exercises the router."""
+    saved = (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._parse_skips)
+    tcg.discover_python_verify_functions = lambda: {qname: None}
+    tcg._runtime_inventory = lambda: ({qname}, [])
+    tcg._parse_skips = lambda: []
+    try:
+        return tcg.evaluate()
+    finally:
+        (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._parse_skips) = saved
+
+
+_CC24_SRC = '''from typing import Any
+_ALLOWED = {"ok", "bad"}
+def validate_cc24_any_route(obj: Any):
+    """Any-primary (name NOT in _JSON_PRIMARY_NAMES) with a depth-2 nested-leaf membership defect. Routes
+    IN_SCOPE ONLY via _is_json_primary's `"Any" in text`; strip that token -> NON_JSON -> crash missed."""
+    if not isinstance(obj, dict):
+        return ["shape"]
+    runs = obj.get("runs")
+    if isinstance(runs, list):
+        for entry in runs:
+            if isinstance(entry, dict):
+                if entry.get("status") not in _ALLOWED:
+                    return ["bad"]
+    return []
+'''
+
+_CC25_SRC = '''def validate_cc25_bytes_route(bundle: bytes):
+    """bytes primary whose NAME ('bundle') IS in _JSON_PRIMARY_NAMES; routes NON_JSON ONLY via
+    _is_json_primary's `"bytes" in text` exclusion. Strip that token -> IN_SCOPE by name -> JSON matrix
+    (no bytes payload) -> the bytes crash is missed."""
+    if isinstance(bundle, (bytes, bytearray)):
+        raise OSError("raw crash on a bytes primary")
+    return []
+'''
+
+_CC26_SRC = '''def validate_cc26_recursion(bundle: dict):
+    """Unbounded recursion -> RecursionError, which _exercise MUST count as a violation (a bounded-depth
+    defence is owed). Strip `except RecursionError: violations.append(...)` -> swallowed -> missed."""
+    return validate_cc26_recursion(bundle)
+'''
+
+
+def cc24_any_inscope_routing_real():
+    # REAL _classify routing: an Any-annotated primary must route IN_SCOPE and receive the nested matrix.
+    # Strip `"Any" in text or ` from _is_json_primary -> NON_JSON -> nested crash missed -> THIS reddens.
+    qname, full, d = _real_router_victim("cc24_any_route", _CC24_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, (f"real Any->IN_SCOPE routing -> in_scope={r.get('in_scope')} "
+                      f"never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}")
+
+
+def cc25_bytes_nonjson_routing_real():
+    # REAL _classify routing: a bytes primary must be EXCLUDED from the JSON matrix and exercised with the
+    # bytes NON_JSON matrix. Strip `"bytes" in text or ` -> IN_SCOPE by name -> JSON matrix (no bytes) ->
+    # the bytes crash missed -> THIS reddens.
+    qname, full, d = _real_router_victim("cc25_bytes_route", _CC25_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, (f"real bytes->NON_JSON routing -> non_json={r.get('non_json')} "
+                      f"never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}")
+
+
+def cc26_recursionerror_routing_real():
+    # REAL evaluate(): a verifier that recurses unbounded raises RecursionError, which _exercise MUST count
+    # as a violation. Strip the RecursionError->violations.append -> swallowed -> missed -> THIS reddens.
+    qname, full, d = _real_router_victim("cc26_recursion", _CC26_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, (f"real RecursionError handling -> never_raise_ok={r['never_raise_ok']} "
+                      f"raw={r['raw_exception_count']}")
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -444,6 +567,9 @@ CLASSES = [
     ("21_only_runtime_wiring", "type_confusion", cc21_only_runtime_disagreement),
     ("22_runtime_import_errors_wiring", "type_confusion", cc22_runtime_import_errors),
     ("23_nested_depth2_wiring", "type_confusion", cc23_nested_depth2_observed),
+    ("24_any_inscope_routing_real", "type_confusion", cc24_any_inscope_routing_real),
+    ("25_bytes_nonjson_routing_real", "type_confusion", cc25_bytes_nonjson_routing_real),
+    ("26_recursionerror_routing_real", "type_confusion", cc26_recursionerror_routing_real),
 ]
 
 

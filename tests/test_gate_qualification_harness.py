@@ -51,6 +51,13 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
         "23_nested_depth2_wiring": (
             'return v1 + v2, len(d1) + len(d2), gekuerzt',
             'return v1, len(d1) + len(d2), gekuerzt'),
+        # Gates re-gate ROUND 6: the REAL _classify routing wirings (round-5 WIDERLEGT was the Any branch).
+        "24_any_inscope_routing": (
+            '"Any" in text or ', ''),
+        "25_bytes_nonjson_routing": (
+            '"bytes" in text or ', ''),
+        "26_recursionerror_routing": (
+            'violations.append(f"RecursionError on payload {_short(payload)}")', 'pass'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -64,7 +71,10 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "15_only_ast_conjunct": "cc15_inventory_disagreement",
                  "21_only_runtime_conjunct": "cc21_only_runtime_disagreement",
                  "22_runtime_import_errors_conjunct": "cc22_runtime_import_errors",
-                 "23_nested_depth2_wiring": "cc23_nested_depth2_observed"}
+                 "23_nested_depth2_wiring": "cc23_nested_depth2_observed",
+                 "24_any_inscope_routing": "cc24_any_inscope_routing_real",
+                 "25_bytes_nonjson_routing": "cc25_bytes_nonjson_routing_real",
+                 "26_recursionerror_routing": "cc26_recursionerror_routing_real"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
