@@ -69,6 +69,8 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                          'if False:  # STRIPPED\n        return "int"'),
         "28_kind_path": ('if any(k in name for k in ("path", "file", "dir")) or "Path" in text:\n        return "path"',
                          'if False:  # STRIPPED\n        return "path"'),
+        # Gates re-gate ROUND 8: the nested-path RecursionError arm (distinct from cc26's whole-arg arm).
+        "29_nested_recursionerror": ('violations.append(f"RecursionError on nested leaf {pfad}")', 'pass'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -92,7 +94,8 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "27_list": "cc27_all_inscope_routing_tokens_real",
                  "27_List": "cc27_all_inscope_routing_tokens_real",
                  "28_kind_int": "cc28_all_nonjson_kind_routing_real",
-                 "28_kind_path": "cc28_all_nonjson_kind_routing_real"}
+                 "28_kind_path": "cc28_all_nonjson_kind_routing_real",
+                 "29_nested_recursionerror": "cc29_nested_recursionerror_real"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
@@ -165,3 +168,21 @@ def test_cc27_table_covers_every_inscope_routing_token():
     # and every bound token must really be a source token (no dead table entries drifting from the gate)
     stale = bound_tokens - source_tokens
     assert not stale, f"_INSCOPE_ROUTING_TOKENS lists {sorted(stale)} which _is_json_primary no longer has"
+
+
+def test_every_recursionerror_arm_is_bound():
+    """Gates re-gate round 8 (fix-the-class): the gate defends RecursionError in TWO exercise paths -- the
+    whole-arg _exercise (bound by cc26) and the nested _exercise_nested (bound by cc29). A NEW RecursionError
+    arm added to the gate without a binding class + strip is the round-6/7/8 failure mode (fix-the-instance).
+    This guard finds EVERY `violations.append(f"RecursionError...")` arm in the gate source and asserts the
+    strip meta-test above carries a strip for each -- so a new arm cannot be added unbound."""
+    import re
+    from pathlib import Path
+    gate = Path(__file__).resolve().parents[1] / "scripts" / "type_confusion_gate.py"
+    arms = re.findall(r'violations\.append\(f"RecursionError[^"]*"\)', gate.read_text(encoding="utf-8"))
+    assert len(arms) >= 2, f"expected >=2 RecursionError arms (whole-arg + nested), found {len(arms)}: {arms}"
+    this = Path(__file__).read_text(encoding="utf-8")
+    for arm in arms:
+        assert arm in this, (
+            f"RecursionError arm {arm!r} in the gate has no strip in the meta-test muts -- add a binding "
+            f"class (like cc26/cc29) + its strip, binding the CLASS 'RecursionError in every exercise path'.")

@@ -658,6 +658,27 @@ def cc28_all_nonjson_kind_routing_real():
                       if detected else "UNBOUND NON_JSON kind(s): " + ", ".join(missed))
 
 
+_CC29_SRC = """def validate_cc29_nested_recursion(bundle: dict):
+    if isinstance(bundle, dict) and "runs" in bundle:
+        return validate_cc29_nested_recursion(bundle)
+    return []
+"""
+
+
+def cc29_nested_recursionerror_real():
+    # the NESTED-path RecursionError handler (distinct from cc26's whole-arg one): recurses ONLY when a
+    # nested field is present, so only the nested matrix triggers it. Strip the nested except-append -> missed.
+    qname, full, d = _real_router_victim("cc29_nested_recursion", _CC29_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"nested-path RecursionError -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -687,6 +708,7 @@ CLASSES = [
     ("26_recursionerror_routing_real", "type_confusion", cc26_recursionerror_routing_real),
     ("27_all_inscope_routing_tokens", "type_confusion", cc27_all_inscope_routing_tokens_real),
     ("28_all_nonjson_kind_routing", "type_confusion", cc28_all_nonjson_kind_routing_real),
+    ("29_nested_recursionerror", "type_confusion", cc29_nested_recursionerror_real),
 ]
 
 
