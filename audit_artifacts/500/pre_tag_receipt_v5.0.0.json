@@ -1,13 +1,18 @@
 {
   "schema": "b7n0de.pre_tag_audit_receipt.v1",
   "version": "5.0.0",
-  "subject_tree_digest": "bb1fbba35d45ad08b11d3118f7d0fa487fe689feb640a332b83f8860b0a62ee1",
+  "subject_tree_digest": "4212087273dc93004f2fd4b525870f2d1a0e28f8bbc5bab50a15545e1aa3909c",
   "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
   "audit_command": "adversarial deep-gate (DEEP six-lens / subagent executable exploits) per docs/PRE_TAG_AUDIT.md + office/runbooks/berkeley_gate.md; verdict WITHSTANDS_DEEPGATE; record audit_artifacts/500/DEEP_RUN_RECORD_500_ITER8_CEREMONY.md",
   "audit_exit_code": 0,
-  "audit_output_digest": "84a2a9dc736e513663b7fd8bb61149d0ab5620aa0daea0e5a3499493bd7010e2",
+  "audit_output_digest": "460fcdf3849e1cfadabd3d588e456244452677d0c4ac6ffd502c5263d48b4427",
   "runner_identity": "b7n0de-release-runner (farmer; claude-code)",
-  "produced_at": "2026-08-27T12:19:12Z",
-  "signature": "B71nW96/k5+mn14yBTGmmeF2RBTYptNeRWVsyhSKLk6r6w+LYrosFh5Ku46DRXnBlnWY5dgYAkDmiaJDmfhkCA==",
+  "produced_at": "2026-08-27T13:05:45Z",
+  "_informational_not_signed": {
+    "note": "The 9 fields above are the SIGNED set (what payload_v5.0.0.bin contains and what the Mac signs); the values here are NOT signed.",
+    "merge_head": "4ce9a8dbc32f973c5ce6af1026cb1281fc62b8a0",
+    "payload_sha256": "dbc89df19fafdda0f5ce78176ccc796cbaef463dca51b55a509260760413719a"
+  },
+  "signature": "77zx8s8ta8RIiHeVf9lP1Yi2+l8qTMg1y9MSejisEO77cG/W91fGswNu0s6nqCfYH5ODreG48FBkLPrriyeLBw==",
   "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
 }
