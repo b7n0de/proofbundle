@@ -22,7 +22,7 @@ from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, sha256_text  # 
 
 
 def _tree_digest(repo: Path) -> str:
-    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"],
+    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD:src/proofbundle"],
                        capture_output=True, text=True, timeout=10)
     return r.stdout.strip()
 

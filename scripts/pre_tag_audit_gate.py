@@ -212,7 +212,7 @@ def audit_artifact_for(repo: Path, version: str) -> str | None:
 def _gate_tree_digest(repo: Path) -> str:
     import subprocess  # noqa: PLC0415
     try:
-        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"],
+        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD:src/proofbundle"],
                            capture_output=True, text=True, timeout=10)
         return r.stdout.strip() or "unknown"
     except Exception:  # noqa: BLE001
