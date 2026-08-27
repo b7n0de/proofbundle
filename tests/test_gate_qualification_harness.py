@@ -48,6 +48,9 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
             'inventories_agree = not only_ast and not only_runtime and not runtime_import_errors', 'inventories_agree = not only_ast and not runtime_import_errors'),
         "22_runtime_import_errors_conjunct": (
             'inventories_agree = not only_ast and not only_runtime and not runtime_import_errors', 'inventories_agree = not only_ast and not only_runtime'),
+        "23_nested_depth2_wiring": (
+            'return v1 + v2, len(d1) + len(d2), gekuerzt',
+            'return v1, len(d1) + len(d2), gekuerzt'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -60,7 +63,8 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "20_completeness_wiring": "cc20_completeness_wiring_observed",
                  "15_only_ast_conjunct": "cc15_inventory_disagreement",
                  "21_only_runtime_conjunct": "cc21_only_runtime_disagreement",
-                 "22_runtime_import_errors_conjunct": "cc22_runtime_import_errors"}
+                 "22_runtime_import_errors_conjunct": "cc22_runtime_import_errors",
+                 "23_nested_depth2_wiring": "cc23_nested_depth2_observed"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"

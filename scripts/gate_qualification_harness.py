@@ -17,8 +17,14 @@ completeness sub-term, each with a MINIMAL seed reachable through ONE wiring onl
   never_raise: nested-leaf (16), whole-arg (17), str_matrix/F5 (18), NON_JSON/F3 (19);
   completeness: population>0 (01), evaluated==population (20), not parse_skips (02),
   and inventories_agree's THREE conjuncts — not only_ast (15), not only_runtime (21),
-  not runtime_import_errors (22). (import_error==0 / no_input==0 are redundant defensive terms of
-  evaluated==population — see cc20's note + test_unresolved_surfaces_all_reduce_evaluated.)
+  not runtime_import_errors (22); nested DEPTH-2 traversal (23, real _field_names path). (import_error==0 /
+  no_input==0 are redundant defensive terms of evaluated==population — see cc20's note.)
+RESIDUAL (named, honest, P3): _field_names' subscript vs in-compare AST branches are not INDIVIDUALLY
+isolated — a subscript on a missing key raises KeyError (still a crash), so a crash-critical field cannot
+be extracted via subscript-ONLY without an in-compare/.get guard that re-extracts it (the Gates lens noted
+the same: 'not each given a separate real-module crasher'). cc23 binds depth-2 + the real _field_names
+extraction as a group (a total extraction break reddens it); the finer branch split is future-regression
+detection of a field-extraction sub-mechanism, not a live defect.
 Rounds 2-4 each found a wiring bound only IN ISOLATION or by a NON-minimal seed (cc04/05/07 tested helpers;
 cc15's old whole-inventory seed tripped only_ast AND only_runtime at once) — so stripping one term stayed
 green. Every term is now bound + proven isolated by the wiring-strip meta-test in the anchor test.
@@ -26,8 +32,12 @@ green. Every term is now bound + proven isolated by the wiring-strip meta-test i
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -238,6 +248,46 @@ def cc22_runtime_import_errors():
     return detected, f"runtime_import_errors -> errors={r['inventory_runtime_import_errors']}, complete={r['population_complete']}"
 
 
+def _make_real_module_victim():
+    """Gates re-gate round 5: cc16/cc04 seed _FIELD_CACHE and crash at DEPTH-1, leaving the nested wiring's
+    DEPTH-2 traversal (_exercise_nested v2) and the real _field_names AST extraction unqualified — a one-line
+    `return v1` (drop v2) blinds never_raise_ok for a depth-2-only crasher while the harness stays green.
+    This builds a REAL importable proofbundle.* module (so _field_names reads its SOURCE, no cache seed)
+    whose verifier survives every depth-1 payload and raw-crashes ONLY at depth-2. Returns (module, dir)."""
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "regate_seed_depth2.py")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(
+            "def verify_regate_depth2(pred):\n"
+            "    runs = pred.get('runs')\n"                       # .get branch -> field 'runs'
+            "    if isinstance(runs, list):\n"
+            "        for entry in runs:\n"
+            "            if isinstance(entry, dict):\n"
+            "                _ = entry.get('status') in {'ok', 'bad'}\n"   # .get 'status'; unhashable -> depth-2 crash
+            "    return False\n")
+    spec = importlib.util.spec_from_file_location("proofbundle.regate_seed_depth2", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["proofbundle.regate_seed_depth2"] = mod
+    spec.loader.exec_module(mod)
+    return mod, d
+
+
+def cc23_nested_depth2_observed():
+    # NESTED DEPTH-2 traversal (v2) + the real _field_names extraction path (Gates re-gate round 5). Strip
+    # the depth-2 wiring (`return v1` instead of `v1 + v2`) -> a depth-2-only crash is missed -> THIS reddens.
+    # Strip _field_names' extraction -> no fields -> no nested payload -> no crash -> THIS reddens.
+    mod, d = _make_real_module_victim()
+    try:
+        r = _seed_evaluate({"status": "IN_SCOPE", "fn": mod.verify_regate_depth2, "extra_kwargs": {},
+                            "payloads": [], "primary_name": "pred", "primary_kwonly": False, "str_matrix": []})
+    finally:
+        tcg._FIELD_CACHE.pop("proofbundle.regate_seed_depth2", None)
+        sys.modules.pop("proofbundle.regate_seed_depth2", None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"nested depth-2 (real _field_names) -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
 # ---- Gates re-gate ROUND 3 fix-the-CLASS: bind EVERY release-deciding detection wiring to evaluate() ----
 # The round-2 fix added ONE observing class (cc16, nested-leaf). The re-gate showed the SIBLING wirings —
 # whole-arg _exercise, the str_matrix (F5), the NON_JSON exercise (F3), and the completeness term
@@ -393,6 +443,7 @@ CLASSES = [
     ("20_completeness_wiring", "type_confusion", cc20_completeness_wiring_observed),
     ("21_only_runtime_wiring", "type_confusion", cc21_only_runtime_disagreement),
     ("22_runtime_import_errors_wiring", "type_confusion", cc22_runtime_import_errors),
+    ("23_nested_depth2_wiring", "type_confusion", cc23_nested_depth2_observed),
 ]
 
 
