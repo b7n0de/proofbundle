@@ -1,12 +1,16 @@
-"""Release-ceremony INTEGRATION test (makellose-500 round-13 gate fix, option B).
+"""Release-ceremony INTEGRATION test (makellose-500 round-14 gate fix, option C).
 
-The pre-tag receipt binds ``subject_tree_digest``. Before the fix it bound the FULL ``HEAD^{tree}``,
-which INCLUDES the receipt once committed -- committing the attestation changed the tree it bound, so
-the gate rejected every committed receipt (circular, proven 2026-08-27). The fix binds
-``HEAD:src/proofbundle`` (the published package subtree); ``audit_artifacts/`` lies outside it, so
-committing the receipt no longer moves the bound tree. This test proves the REAL
-produce -> commit -> verify flow end-to-end (subprocess, real scripts, real git), which the harness's
-fixed-constant unit tests never exercised -- the exact gap that let the circular binding ship.
+The pre-tag receipt binds ``subject_tree_digest``. It once bound the FULL ``HEAD^{tree}``, which
+INCLUDES the receipt once committed -- committing the attestation changed the tree it bound, so the gate
+rejected every committed receipt (circular, proven 2026-08-27). Round 13 (option B) bound
+``HEAD:src/proofbundle`` and fixed the circularity, but the deep-gate refuted it: binding only the
+package subtree unbinds ``pyproject.toml``, so a dependency injected AFTER signing shipped past the gate.
+Round 14 (option C, owner-GO) binds the ``HEAD`` top-level tree MINUS ``audit_artifacts/`` -- src +
+pyproject (deps) + scripts (the verifier) + every release surface, with the receipt's own directory
+outside so the binding stays committable. This test proves the REAL produce -> commit -> verify flow
+end-to-end (subprocess, real scripts, real git): a committed receipt verifies, a post-signing dependency
+injection is REJECTED (the refuted-option-B exploit), and a src change is REJECTED -- the exact
+integration the harness's fixed-constant unit tests never exercised.
 """
 import base64
 import subprocess
@@ -71,6 +75,19 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
               "--strict"], repo, env)
     assert g.returncode == 0, f"committed receipt must verify after option-B fix: {g.stdout}\n{g.stderr}"
     assert "receipt-verified=True" in g.stdout
+
+    # OPTION C regression (the deep-gate refuted src-only option B here): a dependency injection into
+    # pyproject.toml AFTER signing must be REJECTED -- src/proofbundle is unchanged, but pyproject is
+    # now inside the bound subject, so the backdoored dep can no longer ship past the gate.
+    pj = repo / "pyproject.toml"
+    pj.write_text(pj.read_text().replace('version = "5.0.0"',
+                  'version = "5.0.0"\ndependencies = ["evil-backdoor-pkg==6.6.6"]', 1))
+    _git(["add", "pyproject.toml"], repo)
+    _git(["commit", "-q", "-m", "inject dep"], repo)
+    gdep = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0",
+                 "--strict"], repo, env)
+    assert gdep.returncode == 1, f"a pyproject dep injection after signing must be REJECTED (option C), got {gdep.returncode}: {gdep.stdout}"
+    assert "does not bind THIS tree" in gdep.stdout or "receipt-verified=False" in gdep.stdout
 
     # NOT WEAKENED: a src/proofbundle change after signing must be REJECTED.
     (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n# tampered\n")

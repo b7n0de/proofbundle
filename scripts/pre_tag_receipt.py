@@ -13,18 +13,15 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, sha256_text  # noqa: E402
+from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, sha256_text, subject_tree_digest  # noqa: E402
 
 
 def _tree_digest(repo: Path) -> str:
-    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD:src/proofbundle"],
-                       capture_output=True, text=True, timeout=10)
-    return r.stdout.strip()
+    return subject_tree_digest(repo)
 
 
 def _gate_source_digest(repo: Path) -> str:

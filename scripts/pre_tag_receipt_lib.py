@@ -25,6 +25,21 @@ _SIGNED_FIELDS = (
 )
 
 
+def subject_tree_digest(repo) -> str:
+    """Digest the receipt binds and the gate verifies: a stable sha256 over the repo top-level
+    ``git ls-tree HEAD`` entries EXCLUDING ``audit_artifacts/`` (where the receipt is committed).
+    Excluding that dir removes the circular binding while still binding src/proofbundle,
+    pyproject.toml (deps), scripts/ (gate+verifier) and every other release surface -- a change to
+    any of them after signing invalidates the receipt. (Option C, owner-GO after the deep-gate
+    refuted the src/proofbundle-only option B on a dependency-injection exploit.)"""
+    import hashlib  # noqa: PLC0415
+    import subprocess as _sp  # noqa: PLC0415
+    r = _sp.run(["git", "-C", str(repo), "ls-tree", "HEAD"],
+                capture_output=True, text=True, timeout=10)
+    lines = [ln for ln in r.stdout.splitlines() if not ln.endswith("\taudit_artifacts")]
+    return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
+
+
 def canonical_bytes(receipt: dict) -> bytes:
     """The exact bytes signed/verified: the SIGNED fields only, sorted, compact — never the signature
     or the signer pubkey (those wrap it). A missing signed field is a hard error, not a silent default,
