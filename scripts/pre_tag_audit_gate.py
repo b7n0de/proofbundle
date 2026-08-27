@@ -252,6 +252,15 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     _here = str(Path(__file__).resolve().parent)
     if _here not in _sys.path:
         _sys.path.insert(0, _here)
+    # P1-A (four-lens review): CI runs this gate as bare ``python pre_tag_audit_gate.py`` with no
+    # PYTHONPATH=src. ``verify_receipt`` imports ``proofbundle.signature`` at call time; without src on
+    # the path that raises ModuleNotFoundError and the receipt loop below has no guard, so the gate
+    # CRASHES on a receipt-present tree instead of ruling on it (local-green -> CI-red). src is the tree
+    # the receipt already binds via subject_tree_digest, so importing it here changes no trust surface;
+    # it only lets the gate run where it previously died. Mirrors audit_candidate_matrix.py's src setup.
+    _src = str(Path(repo).resolve() / "src")
+    if _src not in _sys.path:
+        _sys.path.insert(0, _src)
     from pre_tag_receipt_lib import load_trusted_pubkeys, verify_receipt  # noqa: PLC0415
     version = version or pyproject_version(repo)
     if not version:
@@ -262,8 +271,15 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     trusted = load_trusted_pubkeys(repo)
     verified, rejected = [], []
     for rp, rc in _receipt_candidates(repo, version):
-        ok_r, reason = verify_receipt(rc, trusted_pubkeys=trusted, expected_version=version,
-                                      subject_tree_digest=tree, gate_source_digest=gate_src)
+        # A gate must RULE, never crash (P1-A defense-in-depth): any exception from verify_receipt is a
+        # fail-closed REJECT of that candidate, never a false accept and never an uncaught traceback that
+        # a CI reader could misread. The src-path setup above resolves the actual import case; this is the
+        # backstop for anything else (a genuinely missing src, a malformed receipt object, etc.).
+        try:
+            ok_r, reason = verify_receipt(rc, trusted_pubkeys=trusted, expected_version=version,
+                                          subject_tree_digest=tree, gate_source_digest=gate_src)
+        except Exception as e:  # noqa: BLE001
+            ok_r, reason = False, f"verify_receipt raised {type(e).__name__}: {e} (fail-closed reject)"
         (verified if ok_r else rejected).append({"path": rp, "reason": reason})
     ok = bool(verified)
     # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
