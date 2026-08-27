@@ -81,11 +81,15 @@ class TestTheBindingItself:
 
 class TestTheBindingGatesTheVerdict:
     def test_drift_withholds_readiness(self, matrix, monkeypatch):
-        """The live repository IS the drift case (matrix pinned 3.6.0, package 5.0.0). The
-        verdict must be withheld and the exit code nonzero — the observed defect was the opposite."""
+        """Drift withholds readiness. Before the 5.0.0 re-baseline the LIVE repo exhibited this
+        (matrix pinned 3.6.0 while the package shipped 5.0.0); now the pin is BOUND, so the drift is
+        exercised SYNTHETICALLY — the binding is the same code and must still withhold the verdict on
+        a version mismatch, with the observed L6-01 defect (a green matrix about another release) ruled
+        out in both directions (see TestNotAConstantFail below)."""
+        monkeypatch.setattr(matrix, "VERSION_UNDER_TEST", "0.0.1-synthetic-old")
         result = matrix.evaluate()
         assert result["version_pin"]["state"] == "drift", (
-            "expected the live repo to exhibit the drift this test is about; "
+            "expected a pin older than the shipping package to exhibit drift; "
             f"got {result['version_pin']}")
         assert result["audit_candidate_ready"] is False
         assert result["fully_verified_here"] is False
@@ -96,9 +100,11 @@ class TestTheBindingGatesTheVerdict:
         assert "version_pin" in result
         assert result["version_pin"]["detail"]
 
-    def test_the_human_output_leads_with_the_drift(self, matrix):
-        """A reader who stops after the first line must not walk away with a readiness
-        impression that a later line would have withdrawn."""
+    def test_the_human_output_leads_with_the_drift(self, matrix, monkeypatch):
+        """A reader who stops after the first line must not walk away with a readiness impression a
+        later line would withdraw. Exercised synthetically now that the live pin is bound (was live at
+        3.6.0)."""
+        monkeypatch.setattr(matrix, "VERSION_UNDER_TEST", "0.0.1-synthetic-old")
         text = matrix._fmt(matrix.evaluate())
         first = text.splitlines()[0]
         assert "DRIFT" in first.upper(), f"first line does not lead with the drift: {first!r}"

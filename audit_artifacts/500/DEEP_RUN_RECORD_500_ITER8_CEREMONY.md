@@ -34,12 +34,21 @@ identically at the `bc96fa5` baseline (outside the diff).
 
 ## Relationship to the tagged tree
 
-The deep-gate certifies the **ceremony code + the src product**. The `src/proofbundle` product is
-byte-identical to the earlier WITHSTANDS candidate; only the two ceremony files changed here. The
-release-prep duties added on the branch after this record — `version_pin` 3.6.0→5.0.0 in
-`audit_candidate_matrix.py` (a test-config constant), `docs/release_scope/5.0.0.md`, and this record
-itself — do **not** touch any verify surface or the ceremony, so the verdict carries to the final tree
-for the product + ceremony. The cryptographic binding to the exact tagged tree is the **signed pre-tag
+The deep-gate certifies the **ceremony code + the src product** as of `2b8a16e`. The ceremony files
+(`scripts/pre_tag_*.py`) are byte-identical from `2b8a16e` through the branch head `ac1d005`
+(`git diff 2b8a16e..ac1d005 -- 'scripts/pre_tag_*.py'` is empty), so T1–T4 carry unchanged. The
+release-prep changes added AFTER this record — `docs/release_scope/5.0.0.md` (doc); the ruff-E702
+test-lint splits; the **reverted** `version_pin` bump (it is deliberately kept at `3.6.0` until the
+vor-tag re-baseline — `audit_candidate_matrix.version_pin_binding` fails closed on the 3.6.0-vs-5.0.0
+drift, which is the L6-01 fix, not the literal); `src/proofbundle/evalclaim.py` (+1 line,
+`assert isinstance(comparator, str)` — a mypy type-narrowing assert, behavior-preserving because the
+`is_member(comparator, _COMPARATORS)` guard already guarantees a str when it is reached); and three
+test files gaining the canonical `_HAS_OTS`/`@skipUnless` opentimestamps skip-guards — do **not** touch
+any verify surface or the ceremony. An independent adversarial re-gate at `ac1d005` (2026-08-27)
+confirmed all four targets HELD under executable proof (the assert is behavior-preserving for every
+JSON/validated input incl. `python -O`; the guards RUN and PASS with anchors, skip honestly without,
+and still catch a seeded defect; `type_confusion_gate --strict` 57/57 and the harness are identical),
+so the verdict carries to the branch head. The cryptographic binding to the exact tagged tree is the **signed pre-tag
 receipt** (option C, `subject_tree_digest` = final tree minus `audit_artifacts/`), produced at tag time
 via the Mac key-custody handshake; `pre_tag_audit_gate.py --strict` in `release.yml` verifies it and
 blocks the build without it.
