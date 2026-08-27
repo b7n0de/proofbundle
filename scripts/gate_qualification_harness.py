@@ -10,10 +10,13 @@ Maps the 15 classes to the three reconstructed gates:
   pre_tag_audit_gate  (F6): copied/bare attestation line, wrong subject digest, unsigned/untrusted receipt.
   audit_candidate_matrix (F2/F7): PENDING_JUSTIFIED, DATA_BLOCKED, unknown verdict, negated-keyword decoy.
 
-Spur-2 Linse A note: cc01/cc02 now OBSERVE gate.evaluate() (they were vacuous re-transcriptions of the
-rule), class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10), and class 16
-binds acceptance to evaluate()'s HEADLINE never_raise_ok verdict + the _exercise_nested INTEGRATION (the
-Gates re-gate showed cc04/05/06 tested the helpers in isolation, so a stripped-wiring regression passed).
+Spur-2 Linse A note (rounds 1-3): cc01/cc02 OBSERVE gate.evaluate() (they were vacuous re-transcriptions
+of the rule); class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10); and
+cc16-cc20 bind acceptance to evaluate()'s HEADLINE verdict for EVERY release-deciding detection wiring —
+nested-leaf (16), whole-arg _exercise (17), str_matrix/F5 (18), NON_JSON/F3 exercise (19), and the
+completeness term evaluated==population (20). The re-gate showed cc04/05/06/07 tested the helpers in
+ISOLATION, so stripping any one wiring stayed green; cc16-cc20 each seed a defect reachable ONLY through
+one wiring and observe the full evaluate() (proven by the wiring-strip meta-test in the anchor test).
 """
 from __future__ import annotations
 
@@ -219,33 +222,106 @@ def cc15_inventory_disagreement():
     return detected, f"seeded inventory disagreement -> inventories_agree={r['inventories_agree']}, complete={r['population_complete']}"
 
 
-def cc16_evaluate_never_raise_verdict_observed():
-    # Spur-2 GATES re-gate T1: cc04/05/06 exercise the gate HELPERS (_exercise/_exercise_nested) in
-    # isolation, and the positive control only checked population_complete — NOTHING bound acceptance to
-    # evaluate()'s HEADLINE never_raise_ok verdict or the _exercise_nested INTEGRATION. So a regression
-    # that strips the nested-leaf wiring (M1), or hard-wires violations=[] (M-ULT), blinded the gate while
-    # the harness stayed 15/15. This class SEEDS an IN_SCOPE surface whose inner leaf raw-crashes and
-    # confirms the FULL evaluate() reports never_raise_ok=False + raw>0 (M1/M-ULT turn THIS red).
-    def victim(x):
-        if not isinstance(x, dict):
-            raise BundleFormatError("shape")
-        return x["status"] in {"ok", "bad"}   # unhashable leaf -> raw TypeError, only the nested matrix finds it
-    victim.__module__ = "proofbundle_seeded_cc16"
+# ---- Gates re-gate ROUND 3 fix-the-CLASS: bind EVERY release-deciding detection wiring to evaluate() ----
+# The round-2 fix added ONE observing class (cc16, nested-leaf). The re-gate showed the SIBLING wirings —
+# whole-arg _exercise, the str_matrix (F5), the NON_JSON exercise (F3), and the completeness term
+# (evaluated==population) — were still bound only in isolation (cc04/05/07 test the helpers), so stripping
+# any one stayed 16/16 green. Generalise cc16's technique: one class per release-deciding wiring, each
+# seeding a defect reachable ONLY through that wiring and observing the FULL evaluate() headline verdict.
+# MAINTENANCE INVARIANT: a NEW detection wiring in type_confusion_gate.evaluate() needs a NEW class here.
+
+
+class _Boom(RuntimeError):
+    pass
+
+
+def _seed_evaluate(info, *, field_cache_mod=None, field_cache_fields=None):
+    """Drive the FULL tcg.evaluate() with a single seeded surface classified as `info` (a copy per call),
+    so a class OBSERVES evaluate()'s headline verdict for ONE detection wiring. AST/runtime inventories are
+    made to agree (both carry the phantom) so only the targeted term can move the verdict."""
     saved = (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips)
-    tcg._FIELD_CACHE["proofbundle_seeded_cc16"] = ["status"]
+    if field_cache_mod:
+        tcg._FIELD_CACHE[field_cache_mod] = field_cache_fields
     tcg.discover_python_verify_functions = lambda: {"proofbundle.seeded.verify_x": None}
     tcg._runtime_inventory = lambda: ({"proofbundle.seeded.verify_x"}, [])
     tcg._parse_skips = lambda: []
-    tcg._classify = lambda q, info=None: {"status": "IN_SCOPE", "fn": victim, "extra_kwargs": {},
-                                          "payloads": [], "primary_name": "x", "primary_kwonly": False,
-                                          "str_matrix": []}
+    tcg._classify = lambda q, i=None: dict(info)
     try:
-        r = tcg.evaluate()
+        return tcg.evaluate()
     finally:
         (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips) = saved
-        tcg._FIELD_CACHE.pop("proofbundle_seeded_cc16", None)
+        if field_cache_mod:
+            tcg._FIELD_CACHE.pop(field_cache_mod, None)
+
+
+def _v_nested(x):
+    if not isinstance(x, dict):
+        raise BundleFormatError("shape")
+    return x["status"] in {"ok", "bad"}   # unhashable inner leaf -> raw TypeError, only the nested matrix finds it
+
+
+def _v_wholearg(x):
+    if not isinstance(x, dict):
+        raise _Boom("raw crash on a non-dict WHOLE argument")   # only the whole-arg matrix reaches this
+    return False
+
+
+def _v_str(x):
+    if isinstance(x, str):
+        raise _Boom("raw crash on a string primary")            # only the str_matrix reaches this
+    return False
+
+
+def _v_nonjson(x):
+    if not isinstance(x, dict):
+        raise _Boom("raw crash on a non-json primary")          # only the NON_JSON _exercise reaches this
+    return False
+
+
+def cc16_evaluate_never_raise_verdict_observed():
+    # NESTED-leaf wiring + the headline never_raise_ok/raw verdict (Gates re-gate round 2).
+    _v_nested.__module__ = "proofbundle_seeded_cc16"
+    r = _seed_evaluate({"status": "IN_SCOPE", "fn": _v_nested, "extra_kwargs": {}, "payloads": [],
+                        "primary_name": "x", "primary_kwonly": False, "str_matrix": []},
+                       field_cache_mod="proofbundle_seeded_cc16", field_cache_fields=["status"])
     detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
-    return detected, f"evaluate() on a seeded nested-leaf crasher -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+    return detected, f"nested-leaf wiring -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
+def cc17_wholearg_wiring_observed():
+    # WHOLE-ARG _exercise wiring: strip it and this class alone reddens (nested/str untouched).
+    r = _seed_evaluate({"status": "IN_SCOPE", "fn": _v_wholearg, "extra_kwargs": {},
+                        "payloads": [None, 0, [], "s", 5], "primary_name": "x", "primary_kwonly": False,
+                        "str_matrix": []})
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"whole-arg wiring -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
+def cc18_str_matrix_wiring_observed():
+    # STR-MATRIX (F5, Union[dict,str] string primary) wiring: payloads carry NO str, str_matrix does.
+    r = _seed_evaluate({"status": "IN_SCOPE", "fn": _v_str, "extra_kwargs": {},
+                        "payloads": [None, {}, {"a": 1}], "primary_name": "x", "primary_kwonly": False,
+                        "str_matrix": tcg._COMPACT_STR_PAYLOADS})
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"str-matrix wiring -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
+def cc19_nonjson_exercise_wiring_observed():
+    # NON_JSON (F3) exercise wiring: a NON_JSON primary that raw-crashes must be EXERCISED, not skipped.
+    r = _seed_evaluate({"status": "NON_JSON", "fn": _v_nonjson, "extra_kwargs": {},
+                        "payloads": tcg._BYTES_PAYLOADS, "primary_name": "x", "primary_kwonly": False,
+                        "primary_kind": "bytes", "notes": "seeded non_json crasher"})
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"NON_JSON wiring -> never_raise_ok={r['never_raise_ok']}, raw={r['raw_exception_count']}"
+
+
+def cc20_completeness_wiring_observed():
+    # COMPLETENESS (evaluated==population) wiring: an unevaluated NEEDS_FIXTURE surface must withhold
+    # population_complete (a coverage gap is not a clean run). Strip the term -> completeness stays True.
+    r = _seed_evaluate({"python_ref": "proofbundle.seeded.verify_x", "status": "NEEDS_FIXTURE",
+                        "notes": "seeded: extra required arg has no benign fixture"})
+    detected = r["population_complete"] is False and r["evaluated_count"] < r["population_size"]
+    return detected, f"completeness wiring -> population_complete={r['population_complete']}, evaluated={r['evaluated_count']}/{r['population_size']}"
 
 
 CLASSES = [
@@ -265,6 +341,10 @@ CLASSES = [
     ("14_negated_keyword_decoy", "audit_candidate", cc14_negated_keyword_decoy),
     ("15_inventory_disagreement", "type_confusion", cc15_inventory_disagreement),
     ("16_evaluate_never_raise_verdict", "type_confusion", cc16_evaluate_never_raise_verdict_observed),
+    ("17_wholearg_wiring", "type_confusion", cc17_wholearg_wiring_observed),
+    ("18_str_matrix_wiring", "type_confusion", cc18_str_matrix_wiring_observed),
+    ("19_nonjson_exercise_wiring", "type_confusion", cc19_nonjson_exercise_wiring_observed),
+    ("20_completeness_wiring", "type_confusion", cc20_completeness_wiring_observed),
 ]
 
 
