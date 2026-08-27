@@ -318,6 +318,12 @@ def cc19_nonjson_exercise_wiring_observed():
 def cc20_completeness_wiring_observed():
     # COMPLETENESS (evaluated==population) wiring: an unevaluated NEEDS_FIXTURE surface must withhold
     # population_complete (a coverage gap is not a clean run). Strip the term -> completeness stays True.
+    # REDUNDANCY NOTE (un round-3 flagged import_error==0 as "unbound"; verified redundant): every
+    # unresolved status — NEEDS_FIXTURE, IMPORT_ERROR, NO_INPUT — is NOT counted in `evaluated`, so any one
+    # forces evaluated<population and this class already catches it. The population_complete terms
+    # import_error==0 and no_input==0 are therefore DEFENSIVE REDUNDANCY of evaluated==population, not
+    # independent wirings; a dedicated class would share this mechanism and break one-class-per-strip
+    # isolation. The redundancy invariant is pinned by test_unresolved_surfaces_all_reduce_evaluated.
     r = _seed_evaluate({"python_ref": "proofbundle.seeded.verify_x", "status": "NEEDS_FIXTURE",
                         "notes": "seeded: extra required arg has no benign fixture"})
     detected = r["population_complete"] is False and r["evaluated_count"] < r["population_size"]

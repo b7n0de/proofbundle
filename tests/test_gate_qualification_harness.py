@@ -74,3 +74,25 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
     finally:
         gate.write_text(orig, encoding="utf-8")            # belt-and-suspenders restore
         shutil.os.unlink(bak.name)
+
+
+def test_unresolved_surfaces_all_reduce_evaluated():
+    """Redundancy invariant (un round-3, question D): the population_complete sub-terms import_error==0 and
+    no_input==0 are DEFENSIVE REDUNDANCY of evaluated==population_size, NOT independent wirings — because a
+    surface of ANY unresolved status (IMPORT_ERROR / NEEDS_FIXTURE / NO_INPUT) is not counted in
+    `evaluated`, so it already forces evaluated<population (which cc20 binds). This pins that: if a future
+    change ever counted an unresolved surface toward `evaluated`, import_error==0 would stop being
+    redundant and would need its own binding class — and THIS test would go red first."""
+
+    def seed(status, extra=None):
+        info = {"python_ref": "proofbundle.seeded.verify_x", "status": status}
+        if extra:
+            info.update(extra)
+        r = h._seed_evaluate(info)
+        return r
+
+    for status in ("IMPORT_ERROR", "NEEDS_FIXTURE"):
+        r = seed(status)
+        assert r["evaluated_count"] < r["population_size"], f"{status} must not count toward evaluated"
+        assert r["population_complete"] is False, f"{status} surface must withhold completeness"
+        assert r["import_error"] == (1 if status == "IMPORT_ERROR" else 0)
