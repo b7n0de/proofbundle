@@ -38,6 +38,8 @@ performance. Tightening a check that only ever accepted input the spec already c
 fix, not a break — and the CHANGELOG entry has to say so explicitly, because from the outside a
 stricter check and a break look identical.
 
+**5.0.0, worked example.** Both MAJOR triggers of 5.0.0 (recorded in [`docs/release_scope/5.0.0.md`](docs/release_scope/5.0.0.md)) are the two rules above made concrete: an input class that used to exit **2** (malformed/usage) now exits **1** (a crypto failure / verdict) — the meaning of an exit code changed, and exit codes are surface 2; and the Inspect lifecycle hook and the pytest plugin now **require** `PROOFBUNDLE_THRESHOLD` instead of silently defaulting it to `0` — an optional obligation made required. Neither flips a verdict: nothing that verified before stops, nothing that failed starts. Migration is one line: `export PROOFBUNDLE_THRESHOLD=0`.
+
 ## What each version step allows
 
 | Step | Allowed |

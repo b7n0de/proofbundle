@@ -94,6 +94,17 @@
         "locked test manifest (no silent test shrink)",
         "claims-hygiene extended with the stable/audited/production-ready forbidden list"
       ]
+    },
+    "5.0.0": {
+      "status": "filled",
+      "delivers": [
+        "reported-version status: every harness-reported version field (harness_version/task_version/promptfoo_version) carries a <field>_status in {reported,not_reported,not_bound} plus a mandatory <field>_status_reason; absence stops meaning two things at once (verifier version_status_issues + conformance vectors)",
+        "never-raise / fail-closed hardening sweep across the verify surfaces (makellose-500): a public verify surface that raised a raw exception on a malformed producer argument now rules fail-closed; closed as the CLASS with property/mutation tests (renewal, merkle, kbjwt, sdjwt/-vc, tlogproof, statuslist, relation, persample, run_ledger, anchors)",
+        "membership guard (_membership.py): 27 membership sites that hashed attacker data fixed as the class, and the never-raises guard that could itself raise closed",
+        "wire-form singleton: a signed receipt again has EXACTLY one accepted wire form",
+        "pre-tag ceremony option C (subject_tree_digest binds the HEAD tree minus audit_artifacts) + the two-half keyless receipt mode for the Mac key-custody handshake (private release key never on the build host)",
+        "gate-qualification harness hardening: cc-classes + AST-count meta-tests + option-C dep-injection regression"
+      ]
     }
   },
   "navigation": {

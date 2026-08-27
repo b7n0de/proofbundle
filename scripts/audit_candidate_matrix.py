@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""3.6.0 AUDIT-CANDIDATE matrix — the 33 machine-checkable acceptance checks (§9 minus external audit).
+"""5.0.0 AUDIT-CANDIDATE matrix — the 33 machine-checkable acceptance checks (§9 minus external audit).
 
 The audit-candidate status is TRUE only when every INTERNAL, machine-checkable acceptance criterion of
 the Assurance-Extension §10 is green, leaving the single external human crypto/protocol audit as the one
@@ -57,7 +57,7 @@ _INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3
 _KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
 
-VERSION_UNDER_TEST = "3.6.0"
+VERSION_UNDER_TEST = "5.0.0"
 
 
 def version_pin_binding(pinned: str) -> dict:
@@ -465,8 +465,8 @@ def c10_1_pack_ok():
 def c10_2_slot_filled():
     idx = _json_artifact("docs/readiness_pack/index.json") or {}
     slot = (idx.get("release_evidence_slots") or {}).get(VERSION_UNDER_TEST) or {}
-    return (PASS, "3.6.0 readiness slot is filled") if slot.get("status") == "filled" \
-        else (FAIL, f"3.6.0 slot status is {slot.get('status')!r}, expected filled")
+    return (PASS, f"{VERSION_UNDER_TEST} readiness slot is filled") if slot.get("status") == "filled" \
+        else (FAIL, f"{VERSION_UNDER_TEST} slot status is {slot.get('status')!r}, expected filled")
 
 
 def c10_3_open_points():
@@ -567,7 +567,7 @@ CHECKS = [
     ("C9.1", 9, "two sdists byte-identical", c9_1_two_sdists_identical),
     ("C9.2", 9, "SLSA-L3 reusable attest workflow", c9_2_slsa_reusable),
     ("C10.1", 10, "readiness pack grounded", c10_1_pack_ok),
-    ("C10.2", 10, "3.6.0 readiness slot filled", c10_2_slot_filled),
+    ("C10.2", 10, f"{VERSION_UNDER_TEST} readiness slot filled", c10_2_slot_filled),
     ("C10.3", 10, "auditor open-points list", c10_3_open_points),
     ("C10.4", 10, "SHA-256 manifest + self-receipt", c10_4_manifest_self_receipt),
     ("C10.5", 10, "reproduction runbook", c10_5_runbook),

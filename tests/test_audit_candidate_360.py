@@ -91,10 +91,11 @@ class TestAuditCandidateMatrix(unittest.TestCase):
         assumed."""
         # makellose-500 F2/F6: die 33 Pflichten werden weiter gemessen, aber der Top-Level-Verdikt ist
         # jetzt strikt fail-closed. audit_candidate_ready verlangt, dass JEDER release-entscheidende Check
-        # PASS ist (ausser dem einen externen Audit) UND der Versions-Pin gebunden ist. Auf diesem Tree
-        # driftet der Pin (3.6.0 vs shipping) UND die Pre-Tag-Attestierung hat noch keinen signierten
-        # Receipt (c12_1 FAILt) — beides haelt die Bereitschaft korrekt zurueck. Ein Test, der
-        # bedingungslose Bereitschaft assertierte, war genau das, was ein falsches Gruen shippen liess.
+        # PASS ist (ausser dem einen externen Audit) UND der Versions-Pin gebunden ist. Nach dem
+        # 5.0.0-Re-Baseline ist der Pin GEBUNDEN; die Pre-Tag-Attestierung hat aber bis zur Mac-Zeremonie
+        # noch keinen signierten Receipt (c12_1 FAILt), das haelt die Bereitschaft korrekt zurueck. Ein
+        # Test, der bedingungslose Bereitschaft assertierte, war genau das, was ein falsches Gruen
+        # shippen liess (die Drift-Falle selbst wird jetzt synthetisch geprueft, siehe version_pin_binding).
         r = self.m.evaluate()
         self.assertEqual(r["total_checks"], 33)
         pin = r["version_pin"]
