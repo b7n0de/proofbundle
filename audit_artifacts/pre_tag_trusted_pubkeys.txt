@@ -5,3 +5,9 @@
 # The PRIVATE half of each key is a release secret held by the RUNNER (CI / owner), NEVER in this repo.
 # An EMPTY file (only comments) = no trust anchor = the gate FAILS CLOSED. A release adds the runner's
 # public key here in an owner-approved commit, then the runner signs the receipt with the private half.
+
+# proofbundle v5.0.0 release signing key — ed25519 PUBLIC half (base64, raw 32-byte).
+# Private half held on the Mac under Cowork key custody (release_ed25519_public.pem, generated
+# 2026-08-27 via openssl), NEVER on the build host / runner. Pinned in Phase A.4 of the v5.0.0
+# release; the runner verifies the pre-tag receipt signature against this key, it does not sign.
+iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=
