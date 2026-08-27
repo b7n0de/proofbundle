@@ -731,17 +731,24 @@ def cc31_field_extraction_subscript_real():
 
 
 def cc32_pretag_check_coverage():
-    # a receipt valid-EXCEPT one release-deciding binding field MUST be rejected (the makellose spec binds
-    # Version/GateSource/Exitcode/Schema). cc08-10 bind bare-prose/wrong-subject/unsigned; cc32 binds the rest.
+    # round 12 (fix-the-class, un gegenlesung REJECT): EVERY release-deciding verify_receipt check must reject a
+    # receipt valid EXCEPT that one thing -- the four binding fields (schema/version/gate_source/audit_exit) AND
+    # the signer-trust (#8) and signature-verify (#10) checks (the named P3-2, now harness-bound). subject_tree=cc09,
+    # no-trusted-key=cc10; #9 isinstance(sig,str) is inert -- subsumed by #10 fail-closed b64decode except (a785573f).
     priv, pub = _kp()
+    priv2, pub2 = _kp()  # an untrusted signer carrying its OWN valid self-signature
+    tampered = _receipt(priv, pub)
+    tampered["signature"] = base64.b64encode(b"\x00" * 64).decode()  # valid b64, signature does not verify
     cases = {
         "version": _receipt(priv, pub, version="4.9.9"),
         "gate_source_digest": _receipt(priv, pub, gate_source_digest="f" * 64),
         "audit_exit_code": _receipt(priv, pub, audit_exit_code=1),
         "schema": _receipt(priv, pub, schema="wrong.receipt.schema"),
+        "untrusted_signer": _receipt(priv2, pub2),  # #8: valid self-sig, signer not in trusted set
+        "tampered_signature": tampered,             # #10: trusted signer, signature fails to verify
     }
     accepted = [k for k, r in cases.items() if _v(r, [pub])]
-    return (not accepted), ("all valid-except-one-binding receipts rejected"
+    return (not accepted), ("all valid-except-one release-deciding receipts rejected"
                             if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
 
 

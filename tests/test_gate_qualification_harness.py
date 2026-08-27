@@ -248,27 +248,29 @@ def test_every_field_extraction_branch_is_bound():
         "the subscript-branch meta-test strip (32 -> cc31) is gone -- the round-9 WIDERLEGT can reopen.")
 
 
-def test_every_pretag_binding_check_is_bound():
-    """Gates re-gate round 11 (fix-the-class, closes P3-1): verify_receipt compares each SIGNED binding
-    field to its expected value (schema / version / subject_tree_digest / gate_source_digest /
-    audit_exit_code). cc08-10 bind bare-prose / wrong-subject / unsigned; the sibling test
-    test_pre_tag_receipt_gate.py binds version/gate_source/audit_exit; but the SCHEMA check was unbound by
-    BOTH (round-10 re-gate P3-1). cc32 binds every binding-field check (a valid-except-one receipt must be
-    rejected). This guard enumerates verify_receipt's binding-field checks and asserts each is covered by
-    cc32 (or cc09 for subject_tree) -> a NEW binding check cannot be added unbound; the generator-hardening
-    the pre_tag surface previously lacked (mirrors cc27's IN_SCOPE-token guard for type_confusion)."""
-    import re
+def test_every_pretag_rejection_is_bound():
+    """Round 12 (fix-the-class; un gegenlesung REJECT on the round-11 regex guard). The round-11 guard
+    enumerated verify_receipt's binding checks by REGEX (`receipt.get("X") != `), which a differently-formed
+    check escapes -- `receipt["X"] != `, `receipt.get("X") is None`, `signer not in trusted_pubkeys` -- so a
+    NEW unbound check could stay green. Replace it with an AST count-pin that is robust to the condition FORM:
+    every `return False` in verify_receipt is a rejection path; a NEW one changes the count and reddens this
+    guard, forcing the author to add a cc32 case (a valid-except-that receipt must be rejected). The current
+    11 paths: not-dict (type guard), schema/version/subject_tree/gate_source/audit_exit (binding fields),
+    no-trusted-key, untrusted-signer, no-signature(#9), sig-errored, sig-not-verify(#10). cc32 binds
+    schema/version/gate_source/audit_exit + untrusted-signer + tampered-signature; cc09 subject_tree; cc10
+    no-trusted-key; #9 isinstance(sig,str) is inert (subsumed by the fail-closed b64decode except, re-gate a785573f)."""
+    import ast
     from pathlib import Path
     lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
-    body = lib.read_text(encoding="utf-8")
-    body = body[body.index("def verify_receipt"):]
-    fields = set(re.findall(r'receipt\.get\("(\w+)"\) != ', body))
-    covered_by_cc32 = {"version", "gate_source_digest", "audit_exit_code", "schema"}
-    covered_by_cc09 = {"subject_tree_digest"}
-    missing = fields - covered_by_cc32 - covered_by_cc09
-    assert not missing, (
-        f"verify_receipt binds field(s) {sorted(missing)} that no cc-class tests -- add a cc32 case "
-        f"(a valid-except-that-field receipt must be rejected).")
+    fn = next(n for n in ast.walk(ast.parse(lib.read_text(encoding="utf-8")))
+              if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
+    returns_false = [n for n in ast.walk(fn)
+                     if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple) and n.value.elts
+                     and isinstance(n.value.elts[0], ast.Constant) and n.value.elts[0].value is False]
+    assert len(returns_false) == 11, (
+        f"verify_receipt now has {len(returns_false)} rejection paths (pinned 11) -- a release-deciding check "
+        f"was added or removed. Add/remove the matching cc32 case (a valid-except-that receipt must be rejected) "
+        f"and update this pin. AST-based so it is robust to the condition form (subscript / is-None / not-in).")
 
 
 def test_pretag_binding_check_strips_redden_cc32():
@@ -284,6 +286,8 @@ def test_pretag_binding_check_strips_redden_cc32():
         'if receipt.get("version") != expected_version:',
         'if receipt.get("gate_source_digest") != gate_source_digest:',
         'if receipt.get("audit_exit_code") != 0:',
+        'if signer not in trusted_pubkeys:',
+        'if not ok:',
     ]
 
     def cc32_detects():
