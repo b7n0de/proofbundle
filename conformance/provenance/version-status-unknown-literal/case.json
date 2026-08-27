@@ -1,0 +1,17 @@
+{
+  "caseId": "provenance-version-status-unknown-literal",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": [
+      "harness_version_status='maybe' is not one of ['reported', 'not_reported', 'not_bound']"
+    ]
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "Only the three English literals are conformant. An open vocabulary would let an implementation invent a fourth state and call a receipt conformant."
+}

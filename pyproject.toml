@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "4.0.0"
+version = "5.0.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -95,7 +95,14 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
-inspect = ['inspect_ai>=0.3.112,<0.4']
+#
+# makellose-500 I1 (2026-08-27): the ceiling was a BLIND `<0.4` — it admitted UNMEASURED versions. It is
+# now pinned to the last MEASURED-WORKING version. inspect_ai 0.3.260 (published 2026-08-21) was verified
+# end-to-end against this hook in a fresh env: entry-point discovery, on_task_end emit, verify_bundle +
+# decode_eval_claim, and the no-EMIT-no-receipt guard all pass; the fixture (recorded 0.3.217, log v2)
+# still reads and 0.3.260 still writes log v2. Trade-off (owner-directed): a new inspect_ai release now
+# needs a MEASURED bump here, not a silent widen — an optional extra, so the blast radius is opt-in only.
+inspect = ['inspect_ai>=0.3.112,<=0.3.260']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -136,7 +143,7 @@ inspect = ['inspect_ai>=0.3.112,<0.4']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<0.4']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.260']
 
 [project.urls]
 Homepage = "https://b7n0de.com"

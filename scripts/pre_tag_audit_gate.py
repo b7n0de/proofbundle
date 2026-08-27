@@ -209,39 +209,101 @@ def audit_artifact_for(repo: Path, version: str) -> str | None:
     return recs[0] if recs else None
 
 
+def _gate_tree_digest(repo: Path) -> str:
+    from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+    try:
+        return subject_tree_digest(repo)
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _gate_source_digest() -> str:
+    import hashlib  # noqa: PLC0415
+    try:
+        return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+    except OSError:
+        return "unreadable"
+
+
+def _receipt_candidates(repo: Path, version: str) -> list:
+    """Every *.json under audit_artifacts/<token>/ that parses to an object — the pre-tag receipt
+    candidates. A non-JSON / unparseable file is skipped (it is not a receipt), never a crash."""
+    scoped = repo / "audit_artifacts" / _version_token(version)
+    out = []
+    if not scoped.is_dir():
+        return out
+    for f in sorted(scoped.rglob("*.json")):
+        if not f.is_file():
+            continue
+        try:
+            rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(rc, dict):
+            out.append((str(f.relative_to(repo)), rc))
+    return out
+
+
 def evaluate(repo: Path, version: str | None = None) -> dict:
+    # F6 CLOSED (makellose-500 Phase 3): the verdict source is a SIGNED, TREE-BOUND RECEIPT, not a prose
+    # line. A self-written CHANGELOG line can no longer grant ok=true; only a receipt that binds THIS tree
+    # + version + gate source and is signed by a repo-pinned trusted key does. Fail-closed by default.
+    import sys as _sys  # noqa: PLC0415
+    _here = str(Path(__file__).resolve().parent)
+    if _here not in _sys.path:
+        _sys.path.insert(0, _here)
+    # P1-A (four-lens review): CI runs this gate as bare ``python pre_tag_audit_gate.py`` with no
+    # PYTHONPATH=src. ``verify_receipt`` imports ``proofbundle.signature`` at call time; without src on
+    # the path that raises ModuleNotFoundError and the receipt loop below has no guard, so the gate
+    # CRASHES on a receipt-present tree instead of ruling on it (local-green -> CI-red). src is the tree
+    # the receipt already binds via subject_tree_digest, so importing it here changes no trust surface;
+    # it only lets the gate run where it previously died. Mirrors audit_candidate_matrix.py's src setup.
+    _src = str(Path(repo).resolve() / "src")
+    if _src not in _sys.path:
+        _sys.path.insert(0, _src)
+    from pre_tag_receipt_lib import load_trusted_pubkeys, verify_receipt  # noqa: PLC0415
     version = version or pyproject_version(repo)
     if not version:
         return {"ok": False, "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
+    tree = _gate_tree_digest(repo)
+    gate_src = _gate_source_digest()
+    trusted = load_trusted_pubkeys(repo)
+    verified, rejected = [], []
+    for rp, rc in _receipt_candidates(repo, version):
+        # A gate must RULE, never crash (P1-A defense-in-depth): any exception from verify_receipt is a
+        # fail-closed REJECT of that candidate, never a false accept and never an uncaught traceback that
+        # a CI reader could misread. The src-path setup above resolves the actual import case; this is the
+        # backstop for anything else (a genuinely missing src, a malformed receipt object, etc.).
+        try:
+            ok_r, reason = verify_receipt(rc, trusted_pubkeys=trusted, expected_version=version,
+                                          subject_tree_digest=tree, gate_source_digest=gate_src)
+        except Exception as e:  # noqa: BLE001
+            ok_r, reason = False, f"verify_receipt raised {type(e).__name__}: {e} (fail-closed reject)"
+        (verified if ok_r else rejected).append({"path": rp, "reason": reason})
+    ok = bool(verified)
+    # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
+    # verdict in either direction (L5-02 kept; the attestation is the receipt's job now).
     section = changelog_section(repo, version)
-    # PRESENTATIONAL ONLY (L5-02). Reported so a reader sees the state, but it can no longer move the
-    # verdict in EITHER direction — neither granting a PASS from a marker nor withholding one. That is
-    # the whole point: the attestation is the record's job, the CHANGELOG renders it.
     changelog_ok = bool(section and _positive_audit_marker(section))
-    attesting = attesting_records_for(repo, version)
-    artifact = attesting[0] if attesting else None
-    ok = bool(attesting)
-    # Kept for the operator: a record that carries the old discipline marker but NOT the canonical
-    # attestation is the likeliest reason for a surprising MISSING, so name it instead of staying mute.
-    marker_only = [r for r in audit_records_for(repo, version) if r not in attesting]
     return {
         "ok": ok,
         "version": version,
+        "subject_tree_digest": tree,
+        "gate_source_digest": gate_src,
+        "trusted_pubkey_count": len(trusted),
+        "verified_receipts": verified,
+        "rejected_receipts": rejected,
         "changelog_section_found": section is not None,
         "changelog_records_audit": changelog_ok,
         "changelog_is_presentational": True,
-        "audit_artifact": artifact,
-        "attesting_records": attesting,
-        "marker_only_records": marker_only,
         "reason": None if ok else (
-            f"no attesting pre-tag audit record for {version}: no file under audit_artifacts/"
-            f"{_version_token(version)}/ carries the canonical line "
-            f"'pre-tag-adversarial-audit: RUN | version={version}'"
-            + (f" (found {len(marker_only)} record(s) with a discipline marker but no attestation: "
-               f"{marker_only})" if marker_only else "")
-            + ". The CHANGELOG text is presentational and cannot grant this — run the pre-tag "
-              "adversarial audit and record it before tagging (Front-Load §7)"),
+            f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. "
+            + (f"{len(rejected)} candidate receipt(s) rejected: {[r['reason'] for r in rejected]}"
+               if rejected else
+               f"no receipt under audit_artifacts/{_version_token(version)}/*.json — a CHANGELOG line is "
+               "presentational and cannot grant this. The RUNNER must produce a signed receipt "
+               "(scripts/pre_tag_receipt.py) bound to this tree. Fail-closed by design (reviewer F6).")),
     }
 
 
@@ -251,19 +313,25 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--version", default=None, help="override the release version (default: pyproject)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--strict", action="store_true",
-                   help="exit non-zero if no pre-tag adversarial audit is recorded for the version")
+                   help="retained; the gate is FAIL-CLOSED by default now — no valid receipt exits "
+                        "non-zero WITHOUT --strict")
     args = p.parse_args(argv)
     result = evaluate(args.repo.resolve(), args.version)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        status = "OK" if result["ok"] else "MISSING"
-        print(f"[pre-tag-audit] version={result['version']} audit-recorded={result['ok']} ({status})")
-        if result.get("audit_artifact"):
-            print(f"  artifact: {result['audit_artifact']}")
+        status = "OK" if result["ok"] else "NO_VALID_RECEIPT"
+        print(f"[pre-tag-audit] version={result['version']} receipt-verified={result['ok']} ({status}) "
+              f"tree={result.get('subject_tree_digest', '?')[:12]} "
+              f"trusted_keys={result.get('trusted_pubkey_count', 0)}")
+        for r in result.get("verified_receipts", []):
+            print(f"  VERIFIED {r['path']}")
+        for r in result.get("rejected_receipts", []):
+            print(f"  REJECTED {r['path']}: {r['reason']}")
         if not result["ok"]:
             print(f"  {result['reason']}")
-    if args.strict and not result["ok"]:
+    # Fail-closed by default (reviewer F6): no valid receipt -> non-zero, --strict not required.
+    if not result["ok"]:
         return 1
     return 0
 

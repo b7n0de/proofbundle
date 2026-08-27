@@ -51,6 +51,7 @@ from typing import Optional
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
 from ..signature import verify_ed25519
+from .._wire_b64 import decode_b64url
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
            "issue_enclave_attestation"]
@@ -65,7 +66,7 @@ def _b64url(data: bytes) -> str:
 
 def _b64url_decode(s: str) -> bytes:
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def enclave_binding_for(bundle: dict) -> str:

@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-reported",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "The harness reported a version: the field is present and the status says `reported`. No reason is required — a reported version explains itself. This is the baseline case; an implementation that flags it has made the status itself a finding."
+}

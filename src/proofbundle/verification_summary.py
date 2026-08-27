@@ -18,6 +18,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._membership import is_member
 
 VERIFICATION_SUMMARY_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/verification-summary/v0.1"
 SUMMARY_SCHEMA_VERSION = "0.1.0"
@@ -114,13 +115,13 @@ def _validate_level(lvl: Any) -> list[str]:
     for req in _LEVEL_REQUIRED:
         if req not in lvl:
             errs.append(f"missing {req!r}")
-    if "kind" in lvl and lvl.get("kind") not in _LEVEL_KINDS:
+    if "kind" in lvl and not is_member(lvl.get('kind'), _LEVEL_KINDS):
         errs.append(f"kind must be one of {sorted(_LEVEL_KINDS)}")
     if "receiptRef" in lvl and not _is_digest(lvl.get("receiptRef")):
         errs.append("receiptRef must be a sha256 digest object")
-    if "status" in lvl and lvl.get("status") not in _STATUS:
+    if "status" in lvl and not is_member(lvl.get('status'), _STATUS):
         errs.append(f"status must be one of {sorted(_STATUS)}")
-    if "evidenceClass" in lvl and lvl.get("evidenceClass") not in _EVIDENCE_CLASS:
+    if "evidenceClass" in lvl and not is_member(lvl.get('evidenceClass'), _EVIDENCE_CLASS):
         errs.append(f"evidenceClass must be one of {sorted(_EVIDENCE_CLASS)}")
     ch = lvl.get("checks")
     if "checks" in lvl and not (isinstance(ch, list) and all(isinstance(x, str) for x in ch)):

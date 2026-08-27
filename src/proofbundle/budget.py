@@ -32,7 +32,63 @@ from dataclasses import dataclass
 
 from .errors import ProofBundleError
 
-__all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded"]
+__all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
+           "render_safe"]
+
+
+def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
+    """Render ONE untrusted value for a diagnostic message without letting it raise.
+
+    THE SECOND HALF OF THE MAGNITUDE CLASS, found by the pre-tag deep gate on 2026-08-25
+    (L2-BDOS-RENEWAL-HUGEINT-01/02) — one round AFTER the first half was closed, on a neighbour
+    the first sweep did not reach.
+
+    The first half was about COMPUTE: a huge integer drives an O(bit_length) shift loop. This half
+    is about RENDERING, and it is sneakier: CPython caps int->str conversion at
+    ``sys.get_int_max_str_digits`` (4300 by default, CVE-2020-10735). Interpolating an untrusted
+    integer into a diagnostic string therefore raises a raw ``ValueError`` — out of a surface whose
+    entire contract is that it never raises. The value was never even used for a computation; it was
+    used to explain WHY the input was rejected.
+
+    WHY A RENDER HELPER AND NOT A GUARD AT EVERY SITE: a guard has to be remembered at each of the
+    nine render sites in ``renewal.py`` alone, and the tenth one written next month is a new
+    instance of the same class. A helper is remembered once — and the diagnostic keeps saying
+    something useful about the value instead of refusing to mention it.
+
+    Beyond the ceiling the value is described rather than printed: ``<int, 16610 bits>``. That is
+    honest (it names what it is and how big) and it is exactly what a reader needs — nobody
+    diagnoses anything from 5000 decimal digits.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        # A non-int normally renders via repr. But a CONTAINER holding a giant int (or any object whose
+        # __repr__ interpolates one) re-raises the int->str cap from INSIDE repr() — the deep gate found a
+        # never-raise surface passing a whole container field here (e.g. sig_alg=[1<<100000]). The note
+        # above assumed callers pass container ELEMENTS; the never-raise surfaces pass the whole field, so
+        # the contract ("without letting it raise") is enforced here — one helper, every site.
+        try:
+            return repr(value)
+        except Exception:  # noqa: BLE001 — nested implausible int / hostile __repr__ must not escape
+            return f"<unrenderable {type(value).__name__}>"
+    if int_magnitude_ok(value, budget):
+        return str(value)
+    return f"<int, {value.bit_length()} bits>"
+
+
+def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:
+    """Non-raising magnitude check for ONE untrusted integer — the shared entry guard.
+
+    Deliberately non-raising and deliberately tolerant of a non-int: the callers are surfaces with
+    different contracts. ``verify_inclusion`` returns ``bool`` and never raises; ``verify_sample_opening``
+    returns a verdict dict; ``bundle._require_int`` raises a typed ``BundleFormatError``. A shared guard
+    that RAISED would force the first two to catch it back — and a guard whose result has to be undone at
+    two of three call sites is a guard nobody will call at the fourth.
+
+    A non-integer passes here (``True``): type-checking is the caller's job and each does it its own way.
+    This function answers exactly one question, and answering only it is why it can be shared.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return True
+    return value.bit_length() <= (budget or DEFAULT_BUDGET).int_bits
 
 
 class BudgetExceeded(ProofBundleError):
@@ -82,6 +138,24 @@ class VerificationBudget:
     * ``witnesses``         — named-key-material entries in a threshold/quorum construct: a Trust Pack's
                                ``keys`` map, or one role's ``keyIds`` list (mirrors the quorum-signer
                                concept ``checkpoint.py``'s ``witness_quorum`` already names).
+    * ``int_bits``          — MAGNITUDE of a single untrusted integer (bit length), not a count. This is
+                               the one dimension that bounds CPU rather than memory: a tree size or leaf
+                               index arrives as a tiny JSON token (``2**1000000`` is seven characters of
+                               source) and then drives an ``O(bit_length)`` shift loop. Every structural
+                               budget above passes it — ``input_bytes``, ``json_nodes`` and ``string_len``
+                               all see a scalar, and a scalar is small.
+
+                               Found by the pre-tag deep gate on 2026-08-25 (L2-BDOS-HUGEINT, P2):
+                               ``bundle._require_int`` has carried an 8192-bit ceiling since the earlier
+                               L2-BDOS-01 fix, but the three EXPORTED surfaces that take their integers as
+                               ARGUMENTS rather than from a dict — ``verify_inclusion``,
+                               ``verify_consistency``, ``verify_sample_opening`` — never got it. Measured:
+                               ``verify_inclusion(2**300000, …)`` ran 3.3 s and returned the correct
+                               ``False``; at ``2**1000000`` that scales to roughly 34 s, against
+                               ``verify_bundle``'s ~0.015 s on the identical magnitude. Correct verdict,
+                               unbounded cost — which is precisely what a DoS looks like.
+
+                               8192 bits is astronomically generous: a real tree size is below ``2**64``.
     """
 
     input_bytes: int = 8 * 1024 * 1024
@@ -93,6 +167,7 @@ class VerificationBudget:
     disclosures: int = 256
     renewal_ats_chain: int = 10_000
     witnesses: int = 256
+    int_bits: int = 8192
 
     def within(self, dimension: str, value: int) -> bool:
         """Non-raising: True iff ``value`` is within the named dimension's limit. Prefer this in a

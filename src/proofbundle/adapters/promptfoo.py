@@ -119,8 +119,25 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
                   "dataset_commitment_scope": commitment_scope}
     if eval_id:
         provenance["eval_id"] = str(eval_id)
-    if metadata.get("promptfooVersion"):
-        provenance["promptfoo_version"] = str(metadata["promptfooVersion"])
+    # Deep-gate T1/iter5 (2026-08-25), THE CLASS: three of four adapters bind the harness version
+    # under `harness_version`; this one bound it under `promptfoo_version` only. The lm_eval
+    # adapter's own comment cites promptfoo as an adapter that "binds" — mistaking a different
+    # field name for the same binding. A reader comparing receipts across adapters therefore found
+    # `harness_version` missing here and could not tell "promptfoo reports no version" from "this
+    # adapter names it differently". Both names are written now: `harness_version` for
+    # cross-adapter comparison, `promptfoo_version` kept so existing readers do not break. Written
+    # only when promptfoo actually reports it — the contract
+    # `test_missing_version_field_stays_absent_not_invented` (lm_eval) forbids inventing a value
+    # into evidence, and the same reasoning applies here.
+    # v5.0.0: explicit reporting status beside each harness-reported version (see _provenance).
+    # BOTH names get one: `promptfoo_version` is a harness-reported version field of the same
+    # class, and patching only `harness_version` would rebuild the hole next door — which is
+    # exactly what iteration 5 found here in the first place.
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    _pfv = metadata.get("promptfooVersion")
+    _pf_reason = "the promptfoo output file carried no `metadata.promptfooVersion`"
+    bind_reported_version(provenance, "harness_version", _pfv, reason=_pf_reason)
+    bind_reported_version(provenance, "promptfoo_version", _pfv, reason=_pf_reason)
     if summary.get("timestamp"):
         provenance["run_timestamp"] = str(summary["timestamp"])
 

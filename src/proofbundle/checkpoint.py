@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .errors import BundleFormatError, UnsupportedError
 from .signature import verify_ed25519
+from ._wire_b64 import decode_b64
 
 __all__ = ["checkpoint_note", "key_id", "vkey", "sign_checkpoint", "verify_checkpoint",
            "root_bytes_from_b64", "cosign_key_id", "cosign_vkey", "cosign_checkpoint",
@@ -649,7 +650,7 @@ def _witness_key_material(vkey: str) -> bytes:
     """The DECODED key material (sig-type byte ‖ pubkey) of a cosignature vkey — the identity to dedup a quorum
     by. NOT the name (a single key can wear many names) and NOT the raw base64 substring (padding can vary while
     the bytes are equal). name+keyID contain no '+'; the base64 keymat is everything after the second '+'."""
-    return base64.b64decode(vkey.split("+", 2)[2])
+    return decode_b64(vkey.split("+", 2)[2])
 
 
 def _log_key_material_of(log_vkey: str) -> "bytes | None":

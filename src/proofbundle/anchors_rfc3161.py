@@ -14,12 +14,13 @@ error there never touches the local receipt.
 from __future__ import annotations
 
 import base64
+from ._wire_b64 import decode_b64
 from typing import Optional
 
 
 def _load_der_cert(b64: str):
     from cryptography import x509  # noqa: PLC0415
-    return x509.load_der_x509_certificate(base64.b64decode(b64))
+    return x509.load_der_x509_certificate(decode_b64(b64))
 
 
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
@@ -74,12 +75,24 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     # `OrderedDict` and any dict-like object work here and were being rejected for no reason. A floor that
     # refuses valid input is a defect of its own, just a quieter one than the crash it replaced.
     from collections.abc import Mapping as _Mapping  # noqa: PLC0415
-    if frozen is not None and not isinstance(frozen, _Mapping):
+
+    def _nutzbares_mapping(x) -> bool:
+        # isinstance(x, Mapping) beweist `.get` NICHT: `Mapping.register(cls)` macht isinstance True ohne
+        # die Mixin-Methoden (Deep-Gate iter9 Linse 3a, ueber register_anchor_type erreichbar). Die
+        # sechs .get-Aufrufe unten wuerden sonst roh stuerzen — also `.get`-Aufrufbarkeit mitpruefen.
+        # (Dasselbe Muster ist in anchors_ots gefixt; hier dieselbe Klasse, andere Konvention: raise.)
+        return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
+
+    if not _nutzbares_mapping(frozen):
+        # frozen ist ein REQUIRED dict-Argument (Signatur); `frozen=None` ist ein Fehlaufruf, der bisher
+        # den `frozen is not None`-Guard passierte und dann roh an `frozen.get("rootCertsDerB64")` stuerzte
+        # (Deep-Gate iter9: reproduziert bei frozen=None + fehlenden roots). Jetzt typisiert abgewiesen,
+        # konsistent mit anchors_ots (das None ebenfalls als Nicht-Mapping ablehnt).
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"frozen must be a mapping, got {type(frozen).__name__} (fail-closed)")
-    if rp_trust is not None and not isinstance(rp_trust, _Mapping):
+        raise _BFE(f"frozen must be a usable mapping (with .get), got {type(frozen).__name__} (fail-closed)")
+    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"rp_trust must be a mapping, got {type(rp_trust).__name__} (fail-closed)")
+        raise _BFE(f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:

@@ -8,7 +8,98 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-25 (the cap runs before the work it bounds · MAJOR)
+
+### Added — reported-version status (additive; no further major bump)
+
+Every provenance field carrying a harness-reported version (`harness_version`, `task_version`,
+`promptfoo_version`) now also carries `<field>_status` with the literals `reported` /
+`not_reported` / `not_bound`, plus a `<field>_status_reason` that is **mandatory** whenever the
+status is not `reported`.
+
+**The gap this closes.** Until now such a field was simply ABSENT when the harness reported no
+version. Absence therefore meant two different things — *the harness ran and reported nothing*
+and *no harness was bound* — and the receipt did not say which. For a verifier that is the
+failure class the product exists against.
+
+**Not a boolean, deliberately.** A boolean has three states of its own (true, false, absent) and
+would move the ambiguity one level up.
+
+**Backwards compatible.** The version field itself is unchanged: when nothing was reported it
+stays absent, and no value the harness never reported is ever written (the contract
+`test_missing_version_field_stays_absent_not_invented` is untouched). Existing receipts remain
+valid; the status is additive metadata. The status is never derived, and `not_reported` never
+folds to PASS.
+
+Verifier side: `version_status_issues()` rejects an unknown literal, a missing mandatory reason,
+and a status/field contradiction in either direction. Conformance vectors:
+`conformance/provenance/version-status-*` (one per status value, one per rejection class).
+
+
+> **MAJOR (SemVer), and there are TWO independent triggers.** Either would carry the increment on
+> its own; both are recorded because a release note that names one and omits the other invites the
+> reader to assume it read the whole picture.
+>
+> **Trigger 1, the exit-code class:** an input class that previously exited **2**
+> now exits **1**. `SPEC.md` is normative under RFC 2119 and documents exit 2 as *malformed / usage
+> error* and exit 1 as *crypto failure / verdict*. A caller who branches on those numbers takes a
+> different branch for this input class from this release on. Semantic Versioning 2.0.0 requires a
+> MAJOR increment for any backward-incompatible change to the declared public API, and a declared
+> exit-code contract is public API. The change itself is deliberate (Owner decision 2026-08-18) and
+> is not being reconsidered here — only the number that carries it.
+>
+> **Trigger 2, a threshold is now required for a verdict.** The Inspect lifecycle hook and the
+> pytest plugin previously defaulted `PROOFBUNDLE_THRESHOLD` to `"0"`, which made `passed: true`
+> for *any* non-negative score — a verdict that could not fail by construction. A measured run
+> scored `mean 0.0` with both samples wrong and its receipt still said passed. Both integrations
+> now require the variable and **skip emission** with a clear message when it is unset.
+>
+> **Measured, both sides, before the decision:** exit codes do **not** move (both `0` on a trivial
+> green test), but the contract surface does. Under identical conditions the previous release
+> writes a signed receipt and this one writes none. A caller who relied on getting a receipt gets
+> nothing — and for a verification tool that is a break, whatever the return value says. The
+> migration is one line: `export PROOFBUNDLE_THRESHOLD=0` for anyone who wants binding without a
+> verdict.
+>
+> **What does NOT change:** no verdict flips. The affected input is simultaneously over the cap
+> *and* carries invalid base64; it could never verify under any release. Nothing that verified
+> before stops verifying, and nothing that failed before starts passing.
+>
+> **Support line:** the 4.x line ends here. There is no `release/v4.0.x` maintenance branch, and
+> fixes will not be backported to it. Saying so plainly is the honest option: `SECURITY.md` gives
+> fixes to the latest released minor of the current major line, and announcing a maintenance branch
+> we do not intend to serve would be a promise with nothing behind it.
+>
+> **The pre-tag audit is PENDING for this scope.** An earlier run reached
+> `WITHSTANDS_DEEPGATE` on `9bc179e` after four rounds — but that commit predates the scope
+> decision recorded below, and a record over a tree that has since changed is worth nothing. The
+> gate runs again over the final scope, and the record under `audit_artifacts/500/` is what counts
+> for the tag. What follows describes the earlier run and is kept because its findings are real
+> and were fixed as classes; it is **not** the release attestation.
+>
+> **Earlier run: `WITHSTANDS_DEEPGATE` on `9bc179e`, after four rounds.**
+> The six falsification targets were frozen before the first run in
+> [audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md](audit_artifacts/500/PRE_REGISTRATION_DEEP_500.md);
+> the outcome of all four rounds is in
+> [audit_artifacts/500/DEEP_RUN_RECORD_500.md](audit_artifacts/500/DEEP_RUN_RECORD_500.md).
+>
+> The first three rounds returned `FIX_FIRST` with real findings — a CI gate attesting readiness
+> from another release's evidence, an unbounded integer magnitude on three exported verify
+> surfaces, and its neighbour on the *rendering* axis that the second round's own sweep had not
+> asked about. Each was fixed as a class. The fourth round found nothing that survived the
+> three-juror refute-to-kill.
+>
+> `WITHSTANDS_DEEPGATE` means **ready for the Owner's tag**, not "released" and not "bug-free".
+> One reproducible candidate that did *not* survive the jury is recorded in the run record rather
+> than dropped, and the round's ledger coverage (80 of 140 learned classes) is stated there too.
+
 ### Changed
+- **BREAKING. A threshold is now required for a verdict.** `PROOFBUNDLE_THRESHOLD` no longer
+  defaults to `"0"`. The Inspect lifecycle hook and the pytest plugin skip emission when it is
+  unset, with a message naming the reason. Previously a default of `0` made every non-negative
+  score pass; a measured run scored `mean 0.0` with both samples wrong and its receipt still read
+  `passed: true`. The published claim schema is untouched — `threshold` and `passed` remain
+  required claim fields. Migration: set the threshold explicitly.
 - **The `merkle_path` cap now runs BEFORE the decoding it bounds**, on all three surfaces that
   carry an inclusion proof: `verify_bundle`, `recompute_merkle_root_b64`, and
   `verify_sample_opening`. Owner decision 2026-08-18 unifying the class on the budget module's
@@ -31,6 +122,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `os.open`, and the private seed is no longer materialised before the check.
 
 ### Added
+- **`capture_mechanism` in signed provenance.** `from_inspect_ai_log(..., capture=...)` records how
+  a receipt came into existence: `lifecycle_hook` (live `data.log` read inside the producing
+  process), `lifecycle_hook_log_reread` (hook-triggered, log re-read from disk) and
+  `persisted_log_reader` (the reader default). Previously a hook-emitted and a reader-emitted
+  receipt were byte-indistinguishable, so a verifier could not see how the evidence arose.
+- **lm-eval binds its framework version.** `provenance.harness_version` is now taken from the
+  `lm_eval_version` field of the results file. If the field is absent the provenance field stays
+  honestly absent — nothing is invented. This closes an asymmetry: promptfoo bound
+  `promptfoo_version`, Inspect bound `harness_version`, lm-eval bound nothing.
+- **`--expect-issuer` on `show-eval`** pins the accepted signer, repeatable for key rotation, and
+  compares against the *verified* signature key. A mismatch prints a clear message and exits 1.
+  Opt-in and backwards compatible. Adversarially motivated: a flipped receipt re-signed with a
+  fresh key previously passed with `rc=0` under self-attested scope.
 - `verify_witnessed_checkpoint` and `verify_tlog_proof` results carry
   **`expected_origin_wellformed`** (`True` / `False` / `None` when no pin was supplied), and
   `verify-proof --json` carries it on **every** invocation, including the fail-closed paths. It

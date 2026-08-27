@@ -72,8 +72,29 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
                   "skipped_samples": skipped_samples}
     if data.get("git_hash"):
         provenance["git_hash"] = str(data["git_hash"])
-    if data.get("versions", {}).get(task) is not None:
-        provenance["task_version"] = str(data["versions"][task])
+    # Bind the producing harness VERSION, not just its name (adversarial re-check 2026-08-22):
+    # the promptfoo adapter binds promptfoo_version and the inspect adapter harness_version, but
+    # this one bound neither — an asymmetric binding a verifier cannot see. The field is written
+    # by lm-eval itself at the top level of results_*.json.
+    #
+    # Deep-gate T1/iter5 (2026-08-25) proposed writing this UNCONDITIONALLY (an absent field cannot
+    # be told apart from "this adapter does not bind the version"). That was NOT done: the contract
+    # `test_missing_version_field_stays_absent_not_invented` forbids it, and its reasoning is the
+    # stronger one — writing "unknown" into a version field puts a value into EVIDENCE that the
+    # harness never reported, which is exactly what this project exists to prevent. The ambiguity
+    # is real but belongs to a different remedy (a separate reported-flag, or documenting that all
+    # four adapters bind the same field when it exists) and is an Owner decision, not a silent
+    # override of a deliberate test.
+    # v5.0.0: the version field keeps its old behaviour (absent when not reported — the contract
+    # `test_missing_version_field_stays_absent_not_invented` is untouched) and now carries an
+    # explicit STATUS beside it, so absence stops meaning two different things at once.
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    bind_reported_version(
+        provenance, "harness_version", data.get("lm_eval_version"),
+        reason="lm-eval did not write `lm_eval_version` into results.json for this run")
+    bind_reported_version(
+        provenance, "task_version", (data.get("versions") or {}).get(task),
+        reason=f"lm-eval reported no version for task {task!r} under `versions`")
     if data.get("n-shot", {}).get(task) is not None:
         provenance["n_shot"] = str(data["n-shot"][task])
     if stderr is not None:

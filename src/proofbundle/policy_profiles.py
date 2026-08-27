@@ -39,6 +39,7 @@ import copy
 import importlib.resources
 import os
 import sys
+from ._membership import is_member
 
 __all__ = ["PROFILE_NAMES", "PROFILE_ALIASES", "PROFILE_ID_PREFIX", "list_profiles",
            "profile_aliases", "canonical_profile_name", "profile_path", "resolve_policy_source",
@@ -103,9 +104,9 @@ def canonical_profile_name(name):
     if not isinstance(name, str):
         return None
     short = _strip_prefix(name)
-    if short in PROFILE_NAMES:
+    if is_member(short, PROFILE_NAMES):
         return short
-    if short in PROFILE_ALIASES:
+    if is_member(short, PROFILE_ALIASES):
         return PROFILE_ALIASES[short]
     return None
 
@@ -122,9 +123,9 @@ def profile_path(name: str) -> str:
     ``proofbundle-policy/`` prefix or not, and may be a canonical name OR a deprecated alias — an alias
     resolves to the canonical file and prints a deprecation line on stderr (AP-2 §6.1)."""
     short = _strip_prefix(name)
-    if short in PROFILE_NAMES:
+    if is_member(short, PROFILE_NAMES):
         canonical = short
-    elif short in PROFILE_ALIASES:
+    elif is_member(short, PROFILE_ALIASES):
         canonical = PROFILE_ALIASES[short]
         _warn_deprecated_alias(short, canonical)
     else:
@@ -149,7 +150,7 @@ def resolve_policy_source(value: str) -> str:
     if os.path.exists(value):
         return value
     short = _strip_prefix(value)
-    if short in PROFILE_NAMES or short in PROFILE_ALIASES:
+    if is_member(short, PROFILE_NAMES) or is_member(short, PROFILE_ALIASES):
         try:
             return profile_path(short)   # emits the deprecation warning for an alias
         except FileNotFoundError:

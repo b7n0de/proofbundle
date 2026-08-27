@@ -30,6 +30,7 @@ import re
 from typing import Any
 
 from .errors import ProofBundleError
+from ._membership import is_member
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -458,7 +459,7 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
             continue
         for edge in nested:
             rel = edge.get("relation")
-            if rel in SUCCESSOR_RELATIONS and _edge_target_hex(edge) == subject_hex:
+            if is_member(rel, SUCCESSOR_RELATIONS) and _edge_target_hex(edge) == subject_hex:
                 return (f"superseded_by_attached: attached receipt {other_hex[:12]}… declares "
                         f"{rel} over this receipt")
             if rel == "retracts" and _edge_target_hex(edge) == subject_hex:

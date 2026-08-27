@@ -1,0 +1,17 @@
+{
+  "caseId": "provenance-version-status-reported-without-field",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": [
+      "harness_version_status=reported but harness_version is absent"
+    ]
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "A status that claims `reported` while the field it speaks about is absent MUST be rejected. Without this case a verifier could be told anything by the status alone."
+}

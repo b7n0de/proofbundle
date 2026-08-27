@@ -24,6 +24,7 @@ from typing import Any, Callable
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
+from ._membership import is_member
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
@@ -131,7 +132,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
             errors.append(f"{df}, when present, must be a sha256 digest object")
 
     st = predicate.get("status")
-    if "status" in predicate and st not in _OUTCOME_STATUS:
+    if "status" in predicate and not is_member(st, _OUTCOME_STATUS):
         errors.append(f"status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
 
     for tp in _TIME_PATHS:

@@ -121,9 +121,19 @@ class TestDiscoverPythonVerifyFunctions(unittest.TestCase):
             found = rpg.discover_python_verify_functions(src)
             self.assertEqual(found, {})
 
-    def test_method_inside_a_class_is_not_module_level(self):
-        # A verify_* METHOD is a different surface (bound to an object, not a free function) — the
-        # gate's ground truth is module-level functions only, matching the registry's dotted refs.
+    def test_method_inside_a_class_is_part_of_the_ground_truth(self):
+        # THIS ASSERTION WAS INVERTED ON 2026-08-26, deliberately and by Owner order.
+        #
+        # It used to assert `found == {}` with the reason "the gate's ground truth is module-level
+        # functions only, matching the registry's dotted refs". That was a real decision, not an
+        # oversight — which is why it had a test. It was still wrong: the ground truth is the set of
+        # SECURITY-DECIDING surfaces, and a `verify_*` method decides exactly as much as a `verify_*`
+        # function. Five consumers share this one population (rust_parity_gate, type_confusion_gate,
+        # fuzz_soak, and two test modules), so anything invisible here is invisible to three gates and
+        # two tests at once, silently — nothing errors, a gate just passes for the wrong reason.
+        #
+        # The registry's dotted refs are unharmed: a method gets the NEW key shape
+        # `proofbundle.<module>.<Class>.<method>`, so no existing entry changes or breaks.
         with tempfile.TemporaryDirectory() as d:
             src = Path(d)
             _write(src / "thing.py", '''\
@@ -132,7 +142,7 @@ class TestDiscoverPythonVerifyFunctions(unittest.TestCase):
                         return True
             ''')
             found = rpg.discover_python_verify_functions(src)
-            self.assertEqual(found, {})
+            self.assertIn("proofbundle.thing.Foo.verify_bar", found)
 
 
 class TestRustMatchArms(unittest.TestCase):

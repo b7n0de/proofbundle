@@ -226,8 +226,11 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
         add_provenance(provenance, run_id=_rid)
     if eval_library.get("name"):
         provenance["harness"] = str(eval_library["name"])
-    if eval_library.get("version"):
-        provenance["harness_version"] = str(eval_library["version"])
+    # v5.0.0: explicit reporting status beside the harness-reported version (see _provenance).
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    bind_reported_version(
+        provenance, "harness_version", eval_library.get("version"),
+        reason="the EEE record carried no `eval_library.version`")
     # NOTE: the EEE `evaluation_id` (format eval_name/model_id/timestamp) embeds the model id in cleartext,
     # which would defeat proofbundle's salted model commitment (a receipt is meant to hide the model). So it
     # is deliberately NOT copied into provenance — the receipt keeps the model private by design.

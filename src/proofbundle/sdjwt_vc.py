@@ -27,6 +27,8 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64url
+from ._membership import is_member
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
 _POLICY_KEYS = {"vctAllowlist", "requireTypeMetadataIntegrity", "requireKeyBinding",
@@ -47,7 +49,7 @@ class SdjwtVcError(ProofBundleError):
 
 
 def _b64url_decode(s: str) -> bytes:
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    return decode_b64url(s)
 
 
 def validate_vc_policy(policy: Any) -> list[str]:
@@ -56,7 +58,7 @@ def validate_vc_policy(policy: Any) -> list[str]:
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]
     for k in policy:
-        if k not in _POLICY_KEYS:
+        if not is_member(k, _POLICY_KEYS):
             errors.append(f"unknown policy key {k!r}")
     va = policy.get("vctAllowlist")
     if not (isinstance(va, list) and va and all(isinstance(x, str) and x for x in va)):
@@ -196,7 +198,18 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
             issuer_ok = False
         else:
             issuer = sdjwt.verify_sd_jwt(compact, issuer_pubkey)
-            issuer_ok = bool(issuer.get("sig_checked") and issuer.get("sig_ok"))
+            # structure_ok is the DISCLOSURE-COMMITMENT check (RFC 9901, the core of selective disclosure):
+            # every PRESENTED disclosure must hash to a digest committed inside the issuer-signed payload.
+            # Without it this path accepts a FORGED, never-committed disclosure (a critical FALSE-ACCEPT —
+            # Deep-Gate iter9 lens 2): sig_ok only proves the PAYLOAD is signed, not that the presented
+            # disclosures belong to it. The flagship path (bundle.py, check "sd-jwt-disclosures") wires
+            # structure_ok as a failing check; sdjwt_vc dropped it from the final verdict.
+            issuer_ok = bool(issuer.get("sig_checked") and issuer.get("sig_ok") and issuer.get("structure_ok"))
+    # requireIssuerSignature=False bleibt der EHRLICHE Opt-out (issuer=None, issuer_ok=True aus der
+    # Initialisierung): der Payload ist dann ohnehin NICHT authentifiziert, also ist structure_ok darauf
+    # bedeutungslos — der Halter kontrolliert die _sd-Digests genauso wie die Disclosures und koennte
+    # beide passend faelschen. Das Verdikt reflektiert dann Profil + Bindung; der Aufrufer hat die
+    # Nicht-Authentifizierung bewusst gewaehlt (test_explicit_opt_out_is_honest).
 
     binding = None
     binding_ok = True

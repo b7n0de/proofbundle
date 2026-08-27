@@ -24,11 +24,14 @@ missing / unknown / deprecated algorithm — a renewal never introduces a weak h
 from __future__ import annotations
 
 import base64
+import functools
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .budget import int_magnitude_ok
+from .budget import render_safe as _rs
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
@@ -67,6 +70,59 @@ def _as_dict(v):
 
 def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
+
+
+def _refuse_giant_int(*values) -> None:
+    """Signed-bytes guard (Deep-Gate iter9 Linse C, fix-the-CLASS not the instance): token()/_ats_content
+    build the material a signature is computed over, so a shortened render is NOT an option — it would
+    change the signed bytes. An ATS field that is an implausibly large INT trips CPython's int->str cap
+    (CVE-2020-10735) the moment it is interpolated, raising a raw ValueError. EVERY field folded into the
+    signed string carries that exposure, not just ``time`` (the one an earlier round guarded); refuse the
+    magnitude with a typed error on all of them. The never-raise verify surfaces catch it fail-closed."""
+    for v in values:
+        if isinstance(v, int) and not isinstance(v, bool) and not int_magnitude_ok(v):
+            raise ProofBundleError(
+                f"ATS field is an implausibly large integer ({v.bit_length()} bits) — refused before "
+                "rendering the signed bytes (a shortened render would change them)")
+
+
+def _refuse_malformed_signed_fields(hash_alg, covered_digest, sig_alg, time) -> None:
+    """Signed-bytes fields must be exactly str/int (fix-the-CLASS, Deep-Gate Produkt-Linse Runde 2):
+    token()/_ats_content interpolate them RAW into the signed material, so a CONTAINER field (e.g.
+    sig_alg=[1<<100000]) renders a nested giant int and re-raises the int->str cap — a raw crash out of
+    the never-raise verify callers. _refuse_giant_int caught only a SCALAR giant int; a malformed field
+    TYPE cannot be signed bytes at all. Refuse it typed; the never-raise surfaces catch it fail-closed."""
+    for name, v in (("hash_alg", hash_alg), ("covered_digest", covered_digest), ("sig_alg", sig_alg)):
+        if not isinstance(v, str):
+            raise ProofBundleError(
+                f"ATS {name} must be a str for signed bytes, got {type(v).__name__} (fail-closed)")
+    if not isinstance(time, int) or isinstance(time, bool):
+        raise ProofBundleError(
+            f"ATS time must be an int for signed bytes, got {type(time).__name__} (fail-closed)")
+    _refuse_giant_int(time)
+
+
+def _never_raise_verdict(check_name: str):
+    """Structural never-raise enforcement (fix-the-CLASS, Deep-Gate Produkt-Linse Runde 2). The deep gate
+    crashed these renewal verify surfaces TWICE, each time on a sibling of a just-guarded field (now ->
+    max_ats_age, scalar -> container giant int). Explicit guards give good diagnostics for the common
+    cases, but the CONTRACT — a verify surface returns a VERDICT, never an exception — is enforced HERE by
+    construction: any residual/future malformed-input crash becomes a fail-closed VerificationResult, not a
+    raw traceback. It cannot silently mask a real regression: a logic bug that raised on VALID input would
+    fail the positive-control tests (a valid sequence/policy must still verify ok=True)."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 — never-raise contract: malformed input -> fail-closed
+                result = VerificationResult()
+                result.checks.append(Check(
+                    check_name, False,
+                    f"malformed input rejected fail-closed ({type(exc).__name__})"))
+                return result
+        return wrapper
+    return deco
 
 
 class RenewalError(ProofBundleError):
@@ -118,10 +174,34 @@ class ArchiveTimeStamp:
     def token(self) -> str:
         """The stable string a later ATS covers when it renews this one — RFC 4998 timestamp renewal covers
         the prior timestamp token INCLUDING its signature. Unsigned ATS keep the legacy (base) form so
-        existing sequences are unaffected."""
+        existing sequences are unaffected.
+
+        THIS RENDER IS NOT A DIAGNOSTIC — it is the covered material. The `render_safe` helper used at
+        the diagnostic sites must NOT be used here: shortening a huge value would change the signed
+        bytes, and every existing signature over this token would stop verifying. A defensive
+        abbreviation is worse than the crash it prevents when the string IS the contract.
+
+        So the magnitude is REFUSED instead of rendered differently. A time whose decimal form would
+        trip CPython's int->str cap (CVE-2020-10735) is not a legitimate timestamp under any reading —
+        it is refused with a typed error, the same fail-closed direction the rest of this module takes.
+        """
+        # fix-the-CLASS (Deep-Gate iter9 Linse C): EVERY field folded into the covered token carries the
+        # int->str exposure, not only `time`; refuse an implausible magnitude on all of them.
+        _refuse_malformed_signed_fields(self.hash_alg, self.covered_digest, self.sig_alg, self.time)
         base = f"{self.hash_alg}:{self.covered_digest}:{self.time}"
         if not self.sig_alg:
             return base
+        # a malformed `signatures` (non-iterable container, or entries that are not (str, str) 2-tuples)
+        # cannot be well-formed signed bytes — refuse it typed here, rather than let `sorted(...)` raise a
+        # raw TypeError out of the covering check (which catches ProofBundleError, NOT TypeError). This is
+        # token()'s OWN iteration; _verify_ats_signature guards a SEPARATE one, so both need the guard.
+        if not isinstance(self.signatures, (list, tuple)) or not all(
+                isinstance(it, tuple) and len(it) == 2
+                and isinstance(it[0], str) and isinstance(it[1], str)
+                for it in self.signatures):
+            raise ProofBundleError(
+                "ATS signatures must be a sequence of (alg, base64) string pairs — refused before "
+                "rendering the covered token (a malformed signatures field cannot be signed bytes)")
         sig_part = ";".join(f"{a}={s}" for a, s in sorted(self.signatures))
         return f"{base}:{self.sig_alg}:{sig_part}"
 
@@ -170,6 +250,11 @@ def _ats_content(hash_alg: str, covered_digest: str, time: int, sig_alg: str) ->
     hybrid ATS's ed25519 leg, if relabeled ``sig_alg="ed25519"``, would be checked against DIFFERENT bytes
     and fail. Without this binding a post-quantum attacker could downgrade a hybrid/mldsa65 ATS to its
     classical leg with no forgery."""
+    # Deep-Gate iter9 Linse C (fix-the-CLASS): this builds the SIGNED bytes, so — like token() — an
+    # implausible magnitude is REFUSED, never shortened. The earlier guard covered only `time`; every
+    # field interpolated here (sig_alg/hash_alg/covered_digest as a giant int too) has the same int->str
+    # exposure. _verify_ats_signature, a never-raise surface, catches this typed refusal fail-closed.
+    _refuse_malformed_signed_fields(hash_alg, covered_digest, sig_alg, time)
     return f"archivetimestamp/v1\n{sig_alg}\n{hash_alg}\n{covered_digest}\n{time}".encode()
 
 
@@ -178,7 +263,7 @@ def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
     ``{"ed25519": ed25519_private_key, "mldsa65": mldsa65_private_key}``). Fail-closed on a missing signer
     or an unknown algorithm."""
     if sig_alg not in _SIG_ALGS:
-        raise RenewalError(f"unknown ATS signature algorithm {sig_alg!r} (one of {_SIG_ALGS})")
+        raise RenewalError(f"unknown ATS signature algorithm {_rs(sig_alg)} (one of {_SIG_ALGS})")
     sigs: list[tuple[str, str]] = []
     if sig_alg in ("ed25519", "hybrid-ed25519-mldsa65"):
         ed = signers.get("ed25519")
@@ -200,10 +285,20 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     authority_keys = _as_dict(authority_keys)  # adversarial re-audit r6: non-dict kwarg fail-closed
     if not ats.sig_alg:
         return False
-    content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
+    try:
+        content = _ats_content(ats.hash_alg, ats.covered_digest, ats.time, ats.sig_alg)
+    except ProofBundleError:
+        # _ats_content refuses an implausible field magnitude by raising (it builds signed bytes); this is
+        # a never-raise verdict surface, so a malformed ATS is a fail-closed False, not a propagated
+        # exception (fix-the-CLASS: the refusal and its catch are the two ends of one contract).
+        return False
     # robust against a malformed signatures field (None / non-2-tuple entries) — fail-closed, never raise
     sigmap: dict[str, str] = {}
-    for item in ats.signatures or ():
+    # Deep-Gate iter9 Linse 3c: eine non-iterable .signatures (int/bool/float/object) crasht die
+    # for-Schleife roh ('object is not iterable'); der bestehende Kommentar deckte nur None/non-2-tuple
+    # EINTRAEGE, nicht einen non-iterable CONTAINER.
+    _sigs = ats.signatures if isinstance(ats.signatures, (list, tuple)) else ()
+    for item in _sigs:
         if isinstance(item, tuple) and len(item) == 2:
             a, s = item
             if isinstance(a, str) and isinstance(s, str):
@@ -280,6 +375,10 @@ def _verify_ats_external_token(ats: ArchiveTimeStamp, *, rp_trust: Optional[dict
 def _is_deprecated_hash(alg: str) -> bool:
     """True iff ``alg`` is a KNOWN but deprecated registry hash (sha1/md5). An unknown/absent alg is not
     'deprecated' (it fails the resolvable-hash check instead)."""
+    # Deep-Gate iter9 Linse 3b: ein unhashable hash_alg (list/dict) crasht HASH_REGISTRY.get(alg) roh.
+    # Ein Nicht-String ist kein bekannter Algorithmus -> nicht deprecated (faellt sonst am Resolve-Check).
+    if not isinstance(alg, str):
+        return False
     spec = HASH_REGISTRY.get(alg)
     return spec is not None and spec.status == "deprecated"
 
@@ -390,6 +489,16 @@ def _require_prior_anchor(prior: ArchiveTimeStamp, *,
     return "self_asserted_status"
 
 
+def _require_int_time(time, prior: "ArchiveTimeStamp") -> None:
+    # renew_timestamp/renew_hashtree vergleichen `time <= prior.time`; ein non-int auf einer Seite
+    # crashte diesen Vergleich ROH, bevor die RenewalError darunter feuern konnte (Deep-Gate iter9 L2).
+    # Das sind raise-Idiom-Konstruktoren (keine never-raise-Verifizierer), also ist der Fix ein
+    # typisierter RenewalError — dieselbe fail-closed-Richtung, die das Modul sonst nimmt.
+    for label, t in (("renewal", time), ("prior ATS", prior.time)):
+        if not isinstance(t, int) or isinstance(t, bool):
+            raise RenewalError(f"{label} time must be an int, got {type(t).__name__} (fail-closed)")
+
+
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
                     anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
                     signers: Optional[dict] = None,
@@ -411,8 +520,9 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
+    _require_int_time(time, prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new = _make_ats(prior.hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -440,8 +550,9 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
+    _require_int_time(time, prior)
     if time <= prior.time:
-        raise RenewalError(f"renewal time {time} must be strictly after the prior ATS time {prior.time}")
+        raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
     new_sig_alg = prior.sig_alg if sig_alg is None else sig_alg
     new_chain = [_make_ats(new_hash_alg, covered, time, anchor_status, new_sig_alg, signers,
@@ -454,6 +565,7 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
     return _newest(sequence)
 
 
+@_never_raise_verdict("renewal:internal_fail_closed")
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                     authority_keys: Optional[dict] = None,
                     anchor_verifier: Optional[Callable[[ArchiveTimeStamp], bool]] = None,
@@ -533,6 +645,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
         return result
 
+    # fix-the-CLASS: data_digests is iterated (_cover_data/_validate_digests); a non-sequence (int/None)
+    # crashed this never-raise surface with a raw TypeError. Guard it like the sequence shape.
+    if not isinstance(data_digests, (list, tuple)):
+        result.checks.append(Check(
+            "renewal:data_digests_shape", False,
+            "data_digests must be a list/tuple of lowercase-hex strings (fail-closed)"))
+        return result
+
     def _default_anchor(a: ArchiveTimeStamp) -> bool:
         return a.anchor_status == _CONFIRMED
 
@@ -576,13 +696,33 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).
     times = [a.time for a in flat]
     if not all(isinstance(t, int) and not isinstance(t, bool) for t in times):
-        result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: {times}"))
+        result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: [{', '.join(_rs(t) for t in times)}]"))
         ordered = False
+    elif not all(int_magnitude_ok(t) for t in times):
+        # DIE GROESSE, NICHT NUR DER TYP — und der Check gehoert HIERHIN, nicht in `token()`.
+        #
+        # `token()` refuses an implausible magnitude by RAISING, because there the rendered string
+        # IS the signed material and a shortened form would break every existing signature. But
+        # this function is a never-raise surface: it owes the caller a VERDICT. Left to `token()`
+        # (called further down at the covering check), the refusal would escape as an exception —
+        # typed, but still an exception out of a surface whose contract forbids one.
+        #
+        # Same magnitude, two correct answers, because the two places have different contracts.
+        result.checks.append(Check(
+            "renewal:ordered", False,
+            "ATS time is implausibly large: ["
+            + ", ".join(_rs(t) for t in times) + "] — refused fail-closed"))
+        # UND ZURUECK, nicht nur markiert. Die erste Fassung setzte `ordered = False` wie der
+        # Typ-Check daneben und liess die Funktion weiterlaufen — bis zum `prior.token()` weiter
+        # unten, das dann doch warf. Der Typ-Check darf weiterlaufen (ein `str` rendert harmlos),
+        # dieser nicht: die Groesse ist genau das, woran das Rendern scheitert. Dieselbe Form wie
+        # der Ketten-Budget-Check ein paar Zeilen hoeher, der ebenfalls sofort zurueckgibt.
+        return result
     else:
         ordered = all(times[i] < times[i + 1] for i in range(len(times) - 1))
         result.checks.append(Check("renewal:ordered", ordered,
                                    "ATS strictly ascending by time" if ordered
-                                   else f"ATS not strictly ascending: {times}"))
+                                   else f"ATS not strictly ascending: [{', '.join(_rs(t) for t in times)}]"))
 
     # 2) each ATS uses a KNOWN hash algorithm. A now-DEPRECATED algorithm is TOLERATED here: the whole
     #    point of renewal is that a hash-tree-renewed sequence survives the ageing of an algorithm it once
@@ -595,7 +735,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             resolve_hash_alg(a.hash_alg, allow_deprecated=True)
         except HashAlgError as exc:
             algs_ok = False
-            result.checks.append(Check(f"renewal:hashalg:{a.hash_alg}", False, str(exc)))
+            result.checks.append(Check(f"renewal:hashalg:{_rs(a.hash_alg)}", False, str(exc)))
     if algs_ok:
         result.checks.append(Check("renewal:hashalg", True, "all ATS use a known hash algorithm"))
 
@@ -619,7 +759,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                 else:
                     prior = chain[ai - 1]
                     expect = compute_digest(prior.token().encode(), a.hash_alg, allow_deprecated=True)
-            except (HashAlgError, RenewalError) as exc:
+            except ProofBundleError as exc:  # base class (HashAlgError/RenewalError sind Subtypen):
+                # faengt AUCH token()s Magnitude-Guard auf eine Riesen-.time (Deep-Gate iter9 L2) —
+                # diese exportierte Flaeche ist never-raise, ein malformer ATS faellt beim Cover-Check
                 covering_ok = False
                 result.checks.append(Check(f"renewal:cover:c{ci}a{ai}", False,
                                            f"covered digest not verifiable: {exc}"))
@@ -672,7 +814,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             _ext_ok = _ext_ok or bool(_ext.get("warn"))
         result.checks.append(Check(
             "renewal:external_token", _ext_ok,
-            f"newest ATS external token ({newest.external_token_type}): {_ext.get('detail', '')}"))
+            f"newest ATS external token ({_rs(newest.external_token_type)}): {_ext.get('detail', '')}"))
     elif require_external_token:
         # Fail-closed (crypto-review, 2026-07-15): external_token_type/external_token are DELIBERATELY
         # excluded from the signed ATS bytes (token()/_ats_content()), so an attacker or MITM can strip them
@@ -693,15 +835,18 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # only cryptographically checked in authority-signature mode (_verify_ats_signature verifies the
         # hybrid/mldsa65 signature over _ats_content); in anchor_verifier / unauthenticated / no-anchor modes
         # the ATS signature is never checked, so a PQ label on newest.sig_alg proves nothing — fail closed.
-        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in (newest.sig_alg or "")
+        # fix-the-CLASS: a non-str sig_alg (attacker-built ATS) crashed `"mldsa" in (int or "")` with a
+        # raw TypeError; normalize for the membership test, render every field through _rs.
+        _sig_label = newest.sig_alg if isinstance(newest.sig_alg, str) else ""
+        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
         if pq_verified:
-            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {newest.sig_alg!r}, authority "
+            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(newest.sig_alg)}, authority "
                          "signature)")
         elif anchor_mode != "authority signature":
             pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
-            pq_detail = f"newest ATS sig_alg {newest.sig_alg!r} has no verified PQ leg (require_pq)"
+            pq_detail = f"newest ATS sig_alg {_rs(newest.sig_alg)} has no verified PQ leg (require_pq)"
         result.checks.append(Check("renewal:pq_floor", pq_verified, pq_detail))
 
     # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
@@ -709,19 +854,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
     # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
     newest_dep = _is_deprecated_hash(newest.hash_alg)
-    _spec = HASH_REGISTRY.get(newest.hash_alg)
+    _spec = HASH_REGISTRY.get(newest.hash_alg) if isinstance(newest.hash_alg, str) else None
     newest_current = _spec is not None and _spec.status == "current"
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
         if newest_dep:
-            hash_detail = (f"newest ATS hash {newest.hash_alg!r} is deprecated"
+            hash_detail = (f"newest ATS hash {_rs(newest.hash_alg)} is deprecated"
                            + (" (require_current_hash, fail-closed)" if require_current_hash
                               else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
                                    "or pass require_current_hash=True to reject"))
         elif newest_current:
-            hash_detail = f"newest ATS hash {newest.hash_alg!r} is current"
+            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is current"
         else:
-            hash_detail = f"newest ATS hash {newest.hash_alg!r} is not a known current hash (require_current_hash)"
+            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is not a known current hash (require_current_hash)"
         result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 
@@ -747,14 +892,24 @@ class RenewalPolicy:
     def from_dict(cls, obj: dict) -> "RenewalPolicy":
         strictness = obj.get("strictness", "warn")
         if strictness not in ("warn", "fail"):
-            raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {strictness!r}")
+            raise RenewalError(f"renewal policy strictness must be 'warn' or 'fail', got {_rs(strictness)}")
+        # fix-the-CLASS (Deep-Gate Produkt-Linse Runde 2): from_dict parses UNTRUSTED policy JSON. A giant
+        # int strictness crashed the {!r} render (now _rs); an unhashable deprecated_algs element crashed
+        # frozenset(); a non-int max_ats_age flowed to a raw comparison crash downstream. Refuse/normalize
+        # them HERE (a raise-idiom constructor); keep only str hash-alg names.
+        _mage = obj.get("max_ats_age")
+        if _mage is not None and not (isinstance(_mage, int) and not isinstance(_mage, bool)):
+            raise RenewalError(
+                f"renewal policy max_ats_age must be an int or None, got {type(_mage).__name__}")
         return cls(
-            deprecated_algs=frozenset(_as_list(obj.get("deprecated_algs", []))),
-            max_ats_age=obj.get("max_ats_age"),
+            deprecated_algs=frozenset(x for x in _as_list(obj.get("deprecated_algs", []))
+                                      if isinstance(x, str)),
+            max_ats_age=_mage,
             strictness=strictness,
         )
 
 
+@_never_raise_verdict("renewal:internal_fail_closed")
 def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: RenewalPolicy,
                             now: int) -> VerificationResult:
     """Report whether the newest ArchiveTimeStamp is overdue for renewal, per ``policy`` (no network).
@@ -777,22 +932,50 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
     newest = _newest(sequence)
+    # Deep-Gate iter9 L2: eine non-int newest.time erreichte `now - newest.time` als rohen TypeError
+    # aus dieser never-raise-Flaeche. Fail-closed mit typisiertem Check, gleiche Richtung wie der Shape-Guard.
+    if not isinstance(newest.time, int) or isinstance(newest.time, bool):
+        result.checks.append(Check("renewal:time_malformed", False,
+                                   f"newest ATS time must be an int, got {type(newest.time).__name__} (fail-closed)"))
+        return result
+    # fix-the-CLASS (Deep-Gate iter9 Linse C): `now` is the OTHER operand of `now - newest.time` below; an
+    # earlier round guarded newest.time but left the caller's `now` unchecked, so a non-int `now` still
+    # crashed this never-raise surface with a raw TypeError. Same guard, same fail-closed direction.
+    if not isinstance(now, int) or isinstance(now, bool):
+        result.checks.append(Check("renewal:now_malformed", False,
+                                   f"now must be an int, got {type(now).__name__} (fail-closed)"))
+        return result
+    # fix-the-CLASS (Deep-Gate Produkt-Linse Runde 2, DEFECT 1): max_ats_age is the OTHER operand of the
+    # `(now - newest.time) > policy.max_ats_age` comparison below; the earlier round guarded `now` but left
+    # its sibling. A non-int max_ats_age (untrusted policy JSON) crashed here with a raw TypeError.
+    # deprecated_algs is the `in` operand a few lines down — guard both, same fail-closed direction.
+    if policy.max_ats_age is not None and not (isinstance(policy.max_ats_age, int)
+                                               and not isinstance(policy.max_ats_age, bool)):
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy.max_ats_age must be an int or None, got "
+                                   f"{type(policy.max_ats_age).__name__} (fail-closed)"))
+        return result
+    if not isinstance(policy.deprecated_algs, (set, frozenset, list, tuple)):
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy.deprecated_algs must be a set/list, got "
+                                   f"{type(policy.deprecated_algs).__name__} (fail-closed)"))
+        return result
 
     reasons = []
-    if newest.hash_alg in policy.deprecated_algs:
+    if isinstance(newest.hash_alg, str) and newest.hash_alg in policy.deprecated_algs:
         reasons.append(f"newest ATS uses policy-deprecated hash {newest.hash_alg!r}")
     # Future-dated guard (No-Fake): a newest.time AFTER `now` is anomalous — the freshness/age test below
     # ((now - newest.time) > max_ats_age) goes NEGATIVE for a future time and would report it as perpetually
     # fresh, so a future date could otherwise permanently evade the renewal-due signal. Flag it as overdue.
     _ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (newest.time, now))
     if _ints and newest.time > now:
-        reasons.append(f"newest ATS time {newest.time} is in the future (now={now}) — anomalous, not fresh")
+        reasons.append(f"newest ATS time {_rs(newest.time)} is in the future (now={_rs(now)}) — anomalous, not fresh")
     if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
-        reasons.append(f"newest ATS age {now - newest.time} exceeds max {policy.max_ats_age}")
+        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(policy.max_ats_age)}")
 
     if not reasons:
         result.checks.append(Check("renewal:policy", True,
-                                   f"newest ATS ({newest.hash_alg}, age {now - newest.time}) is within "
+                                   f"newest ATS ({_rs(newest.hash_alg)}, age {_rs(now - newest.time)}) is within "
                                    "policy — no renewal due"))
         return result
 

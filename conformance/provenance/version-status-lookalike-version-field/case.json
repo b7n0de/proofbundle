@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-lookalike-version-field",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (jury lens 1 round 2, 2026-08-26)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "`schema_version` ends in `_version` but is NOT a harness-reported field. Its status — even a malformed one — must produce NO finding, while the real harness field beside it is still checked. The rule governs a NAMED set, not every name that looks like a version: for a verifier a false finding (a valid receipt made to look non-conformant) is the worse error direction, and a suffix rule over-matches by construction."
+}

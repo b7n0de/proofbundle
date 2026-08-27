@@ -139,32 +139,33 @@ class ProsaEntscheidetNicht(unittest.TestCase):
                              changelog_text="six-lens adversarial audit run."), VERSION)
         self.assertFalse(r["ok"], "ein Beleg fuer 1.2.3 hat 9.9.9 attestiert")
 
-    def test_ein_markertragender_beleg_ohne_attestierung_wird_benannt(self):
-        """Kein stummes MISSING: der wahrscheinlichste Grund fuer eine ueberraschende Ablehnung steht drin."""
+    def test_ein_markertragender_beleg_erteilt_keinen_pass(self):
+        """makellose-500 F6: ein markertragender Prosa-Beleg (.md) ist kein signierter Receipt und
+        erteilt nichts. Fail-closed ohne stummes Grün."""
         r = g.evaluate(_baum(self.tmp, record_text="# audit\n\nsix-lens adversarial audit run.\n",
                              changelog_text="nothing here"), VERSION)
         self.assertFalse(r["ok"])
-        self.assertTrue(r["marker_only_records"], "der Marker-Beleg wurde nicht benannt")
 
     # ── Gegenrichtung: der Riegel darf nicht ALLES ablehnen ─────────────────────────────────
-    def test_gegenrichtung_ein_echter_beleg_erteilt_den_pass(self):
+    def test_F6_eine_prosa_attestierungszeile_erteilt_keinen_pass_mehr(self):
+        # makellose-500 F6: die kanonische Zeile war forgeable Prosa (P6 des Gegenlesers). Der Verdikt
+        # kommt jetzt aus einem signierten, tree-gebundenen Receipt (audit_artifacts/<token>/*.json);
+        # eine .md-Prosa-Zeile ist presentational und erteilt nichts. Die Positiv-Kontrolle (ein
+        # gueltiger Receipt verifiziert) steht in tests/test_pre_tag_receipt_gate.py.
         r = g.evaluate(_baum(self.tmp, record_text=f"# audit\n\n{ATTEST}\n",
                              changelog_text="nothing about audits here at all"), VERSION)
-        self.assertTrue(r["ok"], f"ein echter Beleg wurde abgelehnt: {r['reason']}")
-        self.assertEqual(len(r["attesting_records"]), 1)
+        self.assertFalse(r["ok"], "eine Prosa-Zeile hat weiterhin einen PASS erteilt (F6 nicht geschlossen)")
 
     @unittest.skipUnless(_conftest.running_in_repo_checkout(),
                          "liest das ECHTE Repo indirekt ueber das Gate (kein Pfad-Literal im Modul, also "
                          "von der conftest-Ableitung nicht erkennbar) — N/A ausserhalb eines Checkouts")
     def test_gegenrichtung_das_echte_repo_besteht_weiterhin(self):
-        """Ohne diese Zeile waere jede Verschaerfung 'erfolgreich' — ein Riegel, der alles ablehnt.
-
-        Gemessen am 2026-08-08: fuer 3.7.0 erteilte die CHANGELOG-Prosa ohnehin keinen Pass
-        (changelog_records_audit war bereits False), der Beleg tat es. Die Umkehr blockt also nichts Echtes.
-        """
+        """makellose-500 F6: ohne signierten Receipt fuer DIESEN Tree ist fail-closed der KORREKTE
+        Zustand. Dass der Riegel nicht ALLES ablehnt, zeigt die Positiv-Kontrolle in
+        test_pre_tag_receipt_gate.py (ein gueltiger Receipt verifiziert)."""
         r = g.evaluate(REPO)
-        self.assertTrue(r["ok"], f"das echte Repo wurde ueberblockt: {r['reason']}")
-        self.assertTrue(r["attesting_records"], "kein attestierender Beleg im echten Repo")
+        self.assertFalse(r["ok"], "das echte Repo hat ohne signierten Receipt einen PASS erteilt")
+        self.assertIn("receipt", (r["reason"] or "").lower())
 
     def test_die_attestierung_ist_eine_ganze_zeile_kein_teilstring(self):
         """Sonst waere die Allowlist nur eine weitere Substring-Suche und beliebig einbettbar."""

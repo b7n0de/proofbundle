@@ -37,12 +37,20 @@ def _score_str(value) -> str:
 
 
 def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, timestamp: str,
-                        model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
+                        model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,
+                        capture: str = "persisted_log_reader"):
     """Read an inspect_ai eval log via the stable API and build an eval claim for `metric`.
 
     ``path`` may be a path/str to a ``.eval`` log OR an already-loaded EvalLog object (e.g. the inspect_ai
     hook's ``data.log``). Returns (claim, salts). Raises InspectAdapterError if inspect_ai is unavailable
     or the log is missing the expected attributes — a clear error instead of an opaque AttributeError.
+
+    ``capture`` names HOW the log reached this adapter and is written into the receipt's provenance as
+    ``capture_mechanism`` (adversarial re-check 2026-08-22: a hook-emitted receipt and a much-later
+    reader-emitted one were byte-indistinguishable). Three named values: ``persisted_log_reader``
+    (default — this call read a stored log), ``lifecycle_hook`` (live ``data.log`` inside the producing
+    process), ``lifecycle_hook_log_reread`` (hook-triggered, but the log was re-read from disk, e.g. the
+    header-only ``eval_set`` fallback).
     """
     # An already-loaded EvalLog (has .eval + .results) is used directly — no re-read from disk.
     if hasattr(path, "eval") and hasattr(path, "results"):
@@ -80,17 +88,21 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     dataset_id = str(getattr(dataset, "name", None) or suite)
 
     # Provenance parity with the lm-eval adapter: inspect_ai exposes the same run provenance for free.
-    provenance: dict[str, Any] = {"harness": "inspect_ai"}
+    provenance: dict[str, Any] = {"harness": "inspect_ai", "capture_mechanism": str(capture)}
     revision = getattr(ev, "revision", None)
     commit = getattr(revision, "commit", None)
     if commit:
         provenance["git_hash"] = str(commit)
     packages = getattr(ev, "packages", None) or {}
-    if isinstance(packages, dict) and packages.get("inspect_ai"):
-        provenance["harness_version"] = str(packages["inspect_ai"])
-    tv = getattr(ev, "task_version", None)
-    if tv is not None:
-        provenance["task_version"] = str(tv)
+    # v5.0.0: explicit reporting status beside each harness-reported version (see _provenance).
+    from ._provenance import bind_reported_version  # noqa: PLC0415
+    bind_reported_version(
+        provenance, "harness_version",
+        packages.get("inspect_ai") if isinstance(packages, dict) else None,
+        reason="the inspect_ai eval log carried no `packages['inspect_ai']` entry")
+    bind_reported_version(
+        provenance, "task_version", getattr(ev, "task_version", None),
+        reason="the inspect_ai eval spec carried no `task_version`")
 
     # Bind the metric to the scorer that produced it. Without these fields, a deterministic scorer
     # and an LLM judge can emit byte-identical claims when their aggregate numbers match. We record

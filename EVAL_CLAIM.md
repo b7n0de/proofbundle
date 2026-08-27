@@ -63,6 +63,40 @@ that is the path for selective disclosure in v0.5.
 | `prereg_sha256` | no | string | sha256 (hex) over the RAW bytes of the eval protocol file, committed BEFORE the run (`proofbundle prereg`); a verifier re-hashes the disclosed protocol and checks it |
 | `evaluation_card_sha256` | no | string | sha256 (hex) over the RAW bytes of an external, human-readable Eval Card document (Hugging Face EvalEval Coalition "Evaluation Cards", arXiv:2606.09809 — see `src/proofbundle/evalcard.py`); mechanically identical to `prereg_sha256` (`proofbundle evalcard` / `evalcard.verify_evaluation_card`). Added in this revision: because the schema is `additionalProperties: false`, a receipt carrying this field is a one-way compatibility step — an older proofbundle build rejects it as an unknown field (mirrors `anchors[]`, SPEC.md §7i) rather than silently ignoring it |
 | `provenance` | no | object | traceability metadata (not a security commitment): `harness`, `git_hash`, `harness_version`, `run_id`, `run_timestamp` (log-native), `config_hash` (`<alg>:<hex>` over canonical config JSON), plus adapter-specific keys (e.g. `task_hash`, `stderr`) and the additive benchmark-hacking VISIBILITY keys `run_attempts`/`aborted_runs` (non-negative integers) and `methodology_sha256`/`benchjack_audit_report_sha256` (plain sha256 references; see THREAT_MODEL.md — visibility only, never a guarantee against a gamed benchmark, BenchJack arXiv:2605.12673) |
+
+### Reported-version status (5.0.0, additive)
+
+Every provenance field that carries a version **as reported by the harness** — `harness_version`,
+`task_version`, `promptfoo_version` — is accompanied by an explicit status:
+
+| key | values | meaning |
+|---|---|---|
+| `<field>_status` | `reported` \| `not_reported` \| `not_bound` | what the harness actually said |
+| `<field>_status_reason` | free text | **mandatory** whenever the status is not `reported` |
+
+**Why a status and not a boolean.** A boolean has three states of its own — true, false and
+absent — and would push the ambiguity one level up instead of closing it.
+
+**What it fixes.** Before 5.0.0 a version field was simply ABSENT when the harness reported
+none, so absence carried two different meanings at once: *the harness ran and reported no
+version* and *no harness was bound at all*. A verifier could not tell them apart. For a product
+whose whole claim is that a receipt says what it means, that is the failure class it exists
+against.
+
+**The version field itself is unchanged.** When nothing was reported the version key stays
+**absent** — writing a value the harness never reported would put a number into evidence that
+nobody measured. The status makes a statement about the REPORTING, never about the version.
+
+**Never derived.** The status is written only from what the harness returned. It is not inferred
+from neighbouring fields, and `not_reported` is never an all-clear: it does not fold to PASS and
+no gate reads it as one.
+
+A verifier rejects a provenance block whose status is outside the three literals, whose
+non-`reported` status carries no reason, or whose status and field contradict each other in
+either direction (`reported` without the field, or the field present while the status denies it).
+Conformance vectors: `conformance/provenance/version-status-*` — one per status value plus one
+per rejection class.
+
 | `samples` | no | object | per-sample Merkle commitment `{root_b64, n, leaf_alg}` — SIGNED; `samples.n` MUST equal `n`; enables the forced-random-sample audit (SPEC §7g, `proofbundle audit-challenge` / `verify-opening`) |
 
 Machine-readable: [`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json).

@@ -1,0 +1,17 @@
+{
+  "caseId": "provenance-version-status-missing-reason",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": [
+      "harness_version_status=not_reported without harness_version_status_reason (reason is mandatory)"
+    ]
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "A non-`reported` status without its reason moves the ambiguity instead of closing it — which is the whole point of the rule. The reason is mandatory and its absence is non-conformant."
+}

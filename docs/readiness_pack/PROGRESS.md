@@ -1,6 +1,6 @@
 # Honest progress accounting (No-Overclaim)
 
-The denominator is the full distance from the 3.3.0 baseline (current release: 4.0.0) to the externally
+The denominator is the full distance from the 3.3.0 baseline (current release: 5.0.0) to the externally
 audited, trustworthy state. That state is defined by audit completion and closed findings, not by any
 version number — the audit is decoupled from the version line and happens when maturity is reached,
 whatever version is current then. This is a factual progress statement, not a forward promise, and it is

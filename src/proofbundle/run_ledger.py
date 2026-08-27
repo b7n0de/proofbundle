@@ -19,6 +19,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._membership import is_member
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
@@ -143,7 +144,7 @@ def _validate_run_shape(run: Any) -> list[str]:
     seq = run.get("seq")
     if "seq" in run and not (isinstance(seq, int) and not isinstance(seq, bool) and seq >= 1):
         errs.append("seq must be an integer >= 1")
-    if "status" in run and run.get("status") not in _RUN_STATUS:
+    if "status" in run and not is_member(run.get('status'), _RUN_STATUS):
         errs.append(f"status must be one of {sorted(_RUN_STATUS)}")
     if "resultDigest" in run and not _is_digest(run.get("resultDigest")):
         errs.append("resultDigest must be a sha256 digest object")
@@ -176,7 +177,7 @@ def link_runs(result_digests: list[str], statuses: list[str] | None = None) -> l
     for i, (rd, st) in enumerate(zip(result_digests, statuses)):
         if not (isinstance(rd, str) and _SHA256_HEX.match(rd)):
             raise RunLedgerError(f"result_digests[{i}] is not a 64-hex sha256")
-        if st not in _RUN_STATUS:
+        if not is_member(st, _RUN_STATUS):
             raise RunLedgerError(f"statuses[{i}] must be one of {sorted(_RUN_STATUS)}")
         runs.append({"seq": i + 1, "status": st, "resultDigest": {"sha256": rd}, "prevDigest": prev})
         prev = {"sha256": rd}

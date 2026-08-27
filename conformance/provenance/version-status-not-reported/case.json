@@ -1,0 +1,15 @@
+{
+  "caseId": "provenance-version-status-not-reported",
+  "kind": "provenance_version_status",
+  "input": "provenance.json",
+  "attribution": "proofbundle 5.0.0 — reported-version status (deep-gate iteration 5, finding F-C)",
+  "expected": {
+    "issues": []
+  },
+  "specRefs": [
+    "EVAL_CLAIM.md",
+    "CONFORMANCE.md",
+    "CHANGELOG.md"
+  ],
+  "rationale": "The harness RAN and reported no version. The version field stays ABSENT — writing a value the harness never reported is forbidden — and the status plus its mandatory reason say so explicitly. Before 5.0.0 this receipt was byte-indistinguishable from one where nobody bound the field at all."
+}

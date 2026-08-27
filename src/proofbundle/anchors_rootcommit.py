@@ -37,6 +37,7 @@ error at module load).
 from __future__ import annotations
 
 import hashlib
+from ._wire_b64 import decode_b64
 from typing import Optional
 
 # --- spec constants (rootcommit/SPEC.md §"Anchor line", SPEC_SIG.md §"Anchor line opaque") ---
@@ -77,7 +78,6 @@ def _iter_our_anchor_opaques(text: str, want_id: str):
     """Yield the `opaque` bytes of every well-formed anchor line under our key name whose decoded
     (keyID, sig-type, identifier) match `want_id`. Data extraction + identity only (no crypto here);
     unknown ids / grease lines are skipped (forward-compat: unknown signatures MUST be ignored)."""
-    import base64  # noqa: PLC0415
     parts = text.split("\n\n", 1)
     if len(parts) < 2:
         return
@@ -86,7 +86,7 @@ def _iter_our_anchor_opaques(text: str, want_id: str):
         if not line.startswith(_ANCHOR_PREFIX):
             continue
         try:
-            payload = base64.b64decode(line.split(" ", 2)[2])
+            payload = decode_b64(line.split(" ", 2)[2])
             kid, stype, idlen = payload[:4], payload[4], payload[5]
             ident, opaque = payload[6:6 + idlen], payload[6 + idlen:]
         except Exception:

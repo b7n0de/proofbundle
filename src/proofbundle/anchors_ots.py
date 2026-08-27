@@ -103,7 +103,34 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # is surfaced as evidence only. BitcoinBlockHeaderAttestation's own check is exactly
     # `attestation_message == block_header.hashMerkleRoot`; we do that comparison directly against the
     # RP-supplied root (equivalent, and avoids reconstructing a full CBlockHeader).
+    # Typ-Konfusions-Guard (Deep-Gate iter9, dieselbe Klasse wie anchors_rfc3161:78-82): eine
+    # container-typisierte Eingabe, die KEIN Mapping ist, darf nie ein blankes `.get` erreichen.
+    # Lens-3-Exploit war zweistufig — `frozen=[]` (Nicht-Mapping) UND `rp_trust={"bitcoin_block_headers":
+    # [1,2]}` (Mapping mit Nicht-Mapping-WERT) → beide fuehrten zu rohem `AttributeError`. Fail-closed als
+    # VERDIKT statt Raise: OTS gibt ueberall Verdikte zurueck, und `verify_markovian` delegiert hierher und
+    # darf keine rohe Ausnahme erben (sein Vertrag ist „never raises for an ordinary bad proof").
+    from collections.abc import Mapping as _Mapping  # noqa: PLC0415
+
+    def _nutzbares_mapping(x) -> bool:
+        # isinstance(x, Mapping) allein beweist `.get` NICHT: `collections.abc.Mapping.register(cls)`
+        # macht isinstance True, OHNE die Mixin-Methoden zu vererben (Deep-Gate iter9 Linse 3a). Das ist
+        # ueber den dokumentierten Extension-Point `register_anchor_type` erreichbar, nicht nur malizioes —
+        # also auch die `.get`-Aufrufbarkeit pruefen. Der exotische Rest (ein Mapping, dessen `.get` selbst
+        # wirft) bleibt eine Aussage ueber ein vom Aufrufer gebautes feindliches Objekt, ausserhalb des
+        # Bedrohungsmodells. (anchors_rfc3161:78-82 traegt dasselbe Muster — Folge-Kandidat.)
+        return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
+
+    if not _nutzbares_mapping(frozen):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"frozen must be a usable mapping, got {type(frozen).__name__} (fail-closed)"}
+    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"rp_trust must be a usable mapping, got {type(rp_trust).__name__} (fail-closed)"}
     rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
+    if not _nutzbares_mapping(rp_headers):
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": ("rp_trust.bitcoin_block_headers must be a usable mapping height->root, got "
+                           f"{type(rp_headers).__name__} (fail-closed)")}
     frozen_headers = frozen.get("bitcoinBlockHeaderMerkleRootsByHeight") or {}
     if not rp_headers:
         # no RP trust material → cannot confirm. Frozen alone is NOT trust (it could be a self-committed
@@ -143,8 +170,12 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
             continue
         try:
             expected = bytes.fromhex(merkle_root_hex)
-        except ValueError:
+        except (ValueError, TypeError):
             # a malformed RP header for THIS height must not short-circuit — another branch may confirm.
+            # ValueError = bad hex; TypeError = the value is not even a str (e.g. a list/int slipped into
+            # rp_trust.bitcoin_block_headers[height]). The top guard proves rp_headers IS a mapping, but a
+            # mapping does not prove its VALUES are hex strings — the neighbour one level down (iter9
+            # fix-the-class: guarding the container is not guarding its leaves).
             bad_header_heights.append(height)
             continue
         if att_msg != expected:

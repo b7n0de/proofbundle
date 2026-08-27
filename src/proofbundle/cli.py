@@ -12,6 +12,7 @@ from .budget import DEFAULT_BUDGET
 from .bundle import SCHEMA, recompute_merkle_root_b64, verify_bundle
 from .emit import emit_bundle, generate_signer, load_signer, save_signer
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64
 
 
 def _read_capped(handle) -> str:
@@ -367,6 +368,16 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         return 2
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+        return 1
+    # --expect-issuer (adversarial re-check 2026-08-22): without pinning, show-eval verifies
+    # against the pubkey EMBEDDED in the receipt — a forged claim RE-SIGNED with a fresh key
+    # passes rc=0 (self_attested scope). claim['issuer'] here is the key that actually carried
+    # the signature (decode_eval_claim binds issuer == signature key), so comparing it against
+    # a caller-pinned issuer closes exactly that gap — opt-in, fully backwards compatible.
+    expected = getattr(args, "expect_issuer", None) or []
+    if expected and claim["issuer"] not in expected:
+        print(f"=> FAILED: issuer mismatch — receipt is signed by {claim['issuer']}, "
+              f"expected {' or '.join(expected)} (re-signed forgery or wrong key)", file=sys.stderr)
         return 1
     print(f"suite      {claim['suite']} ({claim['suite_version']})")
     print(f"metric     {claim['metric']} {claim['comparator']} {claim['threshold']}")
@@ -1586,7 +1597,6 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
 
 
 def _cmd_intoto(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
 
     from .bundle import load_bundle  # noqa: PLC0415
     from .intoto import (  # noqa: PLC0415
@@ -1595,13 +1605,17 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     if args.verify:
         if args.pub is None:
             # MJ-1: --verify needs --pub. --pub cannot be argparse-required (these commands also EMIT, where
-            # --pub is unused), so guard here — a clean 'exit 2' instead of a raw TypeError from b64decode(None).
+            # --pub is unused), so guard here — a named error instead of a decode failure on None. The guard
+            # still earns its place after the strict-decoder sweep: decode_b64(None) now raises a typed
+            # binascii.Error rather than TypeError, which the handler below would turn into a generic
+            # "ERROR: base64 field must be str or bytes, got NoneType" — true, but it does not tell the
+            # caller which flag is missing.
             print("ERROR: --verify requires --pub", file=sys.stderr)
             return 2
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-            pub = base64.b64decode(args.pub)
+            pub = decode_b64(args.pub)
             res = verify_eval_result_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -1637,7 +1651,6 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
 
 
 def _cmd_svr(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
 
     from .intoto import SVR_PREDICATE_TYPE, export_svr_dsse, verify_svr_dsse  # noqa: PLC0415
     if args.verify:
@@ -1648,7 +1661,7 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-            res = verify_svr_dsse(envelope, base64.b64decode(args.pub))
+            res = verify_svr_dsse(envelope, decode_b64(args.pub))
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
@@ -1777,7 +1790,6 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
 
 
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     from .decision import verify_decision_receipt  # noqa: PLC0415
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
@@ -1804,7 +1816,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-        pub = base64.b64decode(args.pub)
+        pub = decode_b64(args.pub)
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
         # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
         rp_trust = _build_rp_trust(args)
@@ -1902,7 +1914,6 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_decision_inspect(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     try:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
@@ -1910,7 +1921,7 @@ def _cmd_decision_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     try:
-        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+        statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:   # bad base64 / dup key / not JSON → clean exit, not a traceback
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -2001,7 +2012,6 @@ def _cmd_outcome_emit(args: argparse.Namespace) -> int:
 
 
 def _cmd_outcome_verify(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     from .outcome import verify_outcome_receipt  # noqa: PLC0415
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
@@ -2021,7 +2031,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-        pub = base64.b64decode(args.pub)
+        pub = decode_b64(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
@@ -2103,7 +2113,6 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     try:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
@@ -2111,7 +2120,7 @@ def _cmd_outcome_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     try:
-        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+        statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -2170,7 +2179,6 @@ def _cmd_relation_statement_emit(args: argparse.Namespace) -> int:
 
 
 def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     from .relation_statement import verify_relation_statement  # noqa: PLC0415
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
@@ -2187,7 +2195,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-        pub = base64.b64decode(args.pub)
+        pub = decode_b64(args.pub)
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
@@ -2245,7 +2253,6 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
-    import base64  # noqa: PLC0415
     try:
         with _open_input(args.receipt) as handle:
             obj = loads_strict(_read_capped(handle))   # WP-C1
@@ -2253,7 +2260,7 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     try:
-        statement = loads_strict(base64.b64decode(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
+        statement = loads_strict(decode_b64(obj["payload"])) if isinstance(obj, dict) and "payload" in obj else obj
     except (ProofBundleError, ValueError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -2545,6 +2552,12 @@ def build_parser() -> argparse.ArgumentParser:
                            help="[EXPERIMENTAL v2.0] the RATS Verifier's Ed25519 public key (base64), used with --eat")
     show_eval.add_argument("--profile", default=None,
                            help="[EXPERIMENTAL v2.0] pin an expected eat_profile URI (optional, used with --eat)")
+    show_eval.add_argument("--expect-issuer", dest="expect_issuer", action="append", default=None,
+                           metavar="ISSUER",
+                           help="pin the accepted issuer (the receipt's signing key, e.g. 'ed25519:…'); "
+                                "repeatable for key rotation. Without it the receipt is verified against "
+                                "its own embedded key (self-attested scope) — a re-signed forgery would "
+                                "pass; with it, an issuer mismatch fails with exit 1")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(

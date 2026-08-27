@@ -123,7 +123,7 @@ class TestF4TypeConfusion(unittest.TestCase):
         # bidirectional: a deliberately raw-crashing verifier MUST be reported as a violation.
         def broken(x):
             return x["missing"]  # raw KeyError/TypeError on type confusion
-        violations = self.gate._exercise(broken, {}, [None, {}, 5, "s"])
+        violations, _ = self.gate._exercise(broken, {}, [None, {}, 5, "s"])
         self.assertTrue(violations, "a raw-raising verifier must be caught")
 
     def test_defended_verifier_is_clean(self):
@@ -133,7 +133,7 @@ class TestF4TypeConfusion(unittest.TestCase):
             if not isinstance(x, dict):
                 raise BundleFormatError("not an object")
             return {"ok": False}
-        self.assertEqual(self.gate._exercise(defended, {}, [None, 5, {}, "s"]), [])
+        self.assertEqual(self.gate._exercise(defended, {}, [None, 5, {}, "s"])[0], [])
 
 
 class TestF5ReadinessPack(unittest.TestCase):
@@ -151,9 +151,13 @@ class TestF7PreTagAudit(unittest.TestCase):
     def setUp(self):
         self.gate = _load("frontload_pretag_gate", "scripts/pre_tag_audit_gate.py")
 
-    def test_released_version_has_audit_record(self):
+    def test_released_repo_without_signed_receipt_is_fail_closed(self):
+        # makellose-500 F6: der Verdikt kommt aus einem SIGNIERTEN, tree-gebundenen Receipt, nicht aus
+        # einer Prosa-Zeile. Ein Dev-Tree ohne signierten Receipt ist FAIL-CLOSED (korrekt). Die
+        # Positiv-Kontrolle (ein gueltiger Receipt verifiziert) steht in tests/test_pre_tag_receipt_gate.py.
         result = self.gate.evaluate(REPO)
-        self.assertTrue(result["ok"], result)
+        self.assertFalse(result["ok"], result)
+        self.assertIn("receipt", (result["reason"] or "").lower())
 
     def test_missing_audit_is_caught(self):
         result = self.gate.evaluate(REPO, version="9.9.9")
@@ -189,7 +193,7 @@ class TestF7PreTagAudit(unittest.TestCase):
                 (rec / "note.md").write_text(f"# 7.7.0\n\n{concession}\n")
                 self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"], concession)
 
-    def test_eine_echte_attestierung_erteilt_den_pass(self):
+    def test_F6_eine_prosa_zeile_erteilt_keinen_pass_mehr(self):
         # counterpart: a genuine record IS accepted (discriminates the gate from a blanket reject).
         #
         # Bis 2026-08-08 hiess dieser Test test_positive_marker_still_passes und legte eine PROSA-Notiz an
@@ -204,7 +208,9 @@ class TestF7PreTagAudit(unittest.TestCase):
             (rec / "note.md").write_text(
                 "# 7.7.0\n\npre-tag-adversarial-audit: RUN | version=7.7.0\n\n"
                 "Ran a 6-lens adversarial audit; all findings fixed.\n")
-            self.assertTrue(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
+            # makellose-500 F6: eine .md-Prosa-Zeile (auch die kanonische) ist jetzt presentational und
+            # erteilt NICHTS mehr — nur ein signierter, tree-gebundener Receipt tut es.
+            self.assertFalse(self.gate.evaluate(Path(td), version="7.7.0")["ok"])
 
     def test_prosa_allein_erteilt_keinen_pass_mehr(self):
         # Die Kehrseite, neu: dieselbe Prosa OHNE Attestierung darf nichts mehr erteilen. Ohne diese Zeile
@@ -216,7 +222,6 @@ class TestF7PreTagAudit(unittest.TestCase):
             (rec / "note.md").write_text("# 7.7.0\n\nRan a 6-lens adversarial audit; all findings fixed.\n")
             r = self.gate.evaluate(Path(td), version="7.7.0")
             self.assertFalse(r["ok"], "eine Prosa-Notiz erteilt weiterhin einen PASS")
-            self.assertTrue(r["marker_only_records"], "der Marker-Beleg wurde nicht benannt")
 
 
 if __name__ == "__main__":

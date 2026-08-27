@@ -31,6 +31,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64url
+from ._membership import as_dict, is_member
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -153,7 +155,7 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     except ProofBundleError as exc:
         raise ValueError(f"presented SD-JWT issuer payload is malformed or oversized: {exc}") from exc
     sd_alg = _issuer_payload.get("_sd_alg", SD_ALG)
-    if sd_alg not in _HASH_BY_SD_ALG:
+    if not is_member(sd_alg, _HASH_BY_SD_ALG):
         raise ValueError(f"unsupported _sd_alg {sd_alg!r} in the presented SD-JWT")
     sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
     header = {"alg": "EdDSA", "typ": "kb+jwt"}
@@ -178,7 +180,7 @@ def _jwt_payload(compact: str) -> dict:
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-    return loads_strict(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    return loads_strict(decode_b64url(padded).decode("utf-8"))
 
 
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
@@ -190,7 +192,11 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
         # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
         return False
     try:
-        p = _jwt_payload(compact)
+        # as_dict, not the bare return: _jwt_payload is annotated -> dict but decodes attacker JSON, so a
+        # payload that is a bare array/scalar returns a non-dict and crashed `p.get(field)` below with a
+        # raw AttributeError out of the flagship verify_bundle path (deep gate iter9 Linse A neighbor —
+        # only `p.get("receipt")` was guarded, `p` itself was not). A non-dict payload can never bind.
+        p = as_dict(_jwt_payload(compact))
     except (ProofBundleError, ValueError, KeyError, IndexError):
         # a duplicate-key (BundleFormatError) or malformed payload cannot bind → False, fail-closed (F12).
         # adversarial re-audit round 3: the BASE ProofBundleError also catches loads_strict's SIBLING
@@ -203,4 +209,7 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     for field in ("passed", "threshold", "comparator", "suite", "issuer"):
         if field not in claim or p.get(field) != claim.get(field):
             return False
-    return (p.get("receipt") or {}).get("root_b64") == root_b64
+    # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
+    # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
+    # flagship verify_bundle path (deep gate iter9 Linse A). as_dict closes the class.
+    return as_dict(p.get("receipt")).get("root_b64") == root_b64

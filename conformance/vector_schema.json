@@ -4,7 +4,11 @@
   "title": "proofbundle conformance vector (case.json)",
   "description": "Fundament F1 — the ONE machine-readable vector format for the whole conformance corpus. The offline runner (run_conformance.py), the cross-format comparator (cross_format.py) and the Python<->Rust differential (crosscheck.py) all consume THIS format; there is no second vector format in the repo. A case declares what it proves (expected) AND, optionally, its cross-format identity (crossFormatId) so the SAME logical scenario expressed in different encodings can be held to ONE common-vocabulary verdict (conformance/common_vocabulary.py). Additive: 3.4.0/3.5.0/3.6.0 add new expected axes and kinds here, never a parallel schema.",
   "type": "object",
-  "required": ["caseId", "kind", "expected"],
+  "required": [
+    "caseId",
+    "kind",
+    "expected"
+  ],
   "additionalProperties": true,
   "properties": {
     "caseId": {
@@ -14,8 +18,15 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation", "relation_statement"],
-      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`)."
+      "enum": [
+        "decision_crossimpl",
+        "native_bundle",
+        "decision_relation",
+        "outcome_relation",
+        "relation_statement",
+        "provenance_version_status"
+      ],
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`). provenance_version_status (5.0.0) checks a provenance block against the reported-version status rule: every harness-reported version field carries an explicit three-value status, a mandatory reason when it is not `reported`, and the pair may not contradict itself."
     },
     "input": {
       "type": "string",
@@ -27,12 +38,16 @@
     },
     "related": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "decision_relation/outcome_relation only: attached predecessor receipts (--with-related)."
     },
     "relatedPubs": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "WP-A (3.4.0): base64 issuer keys position-paired with `related` (i-th key for the i-th target; empty string = same-key/--pub). Enables cross-issuer chains verified under relation_signer."
     },
     "policy": {
@@ -41,7 +56,9 @@
     },
     "verifyArgs": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Extra CLI verify args drawn from a small allowlist (no file/network flags)."
     },
     "requiresAnchorsExtra": {
@@ -56,26 +73,56 @@
       "properties": {
         "exitCode": {
           "type": "integer",
-          "enum": [0, 1, 2, 3],
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
           "description": "CLI verify exit-code contract: 0 VERIFIED, 1 CRYPTO_FAIL, 2 MALFORMED, 3 POLICY_UNMET."
         },
         "exitClass": {
           "type": "string",
-          "enum": ["VERIFIED", "CRYPTO_FAIL", "MALFORMED", "POLICY_UNMET"],
+          "enum": [
+            "VERIFIED",
+            "CRYPTO_FAIL",
+            "MALFORMED",
+            "POLICY_UNMET"
+          ],
           "description": "Named exit class (alternative to the numeric exitCode; the F1 vocabulary maps between them)."
         },
         "lineage": {
-          "type": ["string", "null"],
-          "enum": ["VERIFIED", "DECLARED_UNRESOLVED", "FAIL", "NOT_EVALUATED", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "VERIFIED",
+            "DECLARED_UNRESOLVED",
+            "FAIL",
+            "NOT_EVALUATED",
+            null
+          ],
           "description": "relation/v0.1 lineage state. null == NOT_EVALUATED (same observable fact)."
         },
         "policyVerdict": {
           "type": "string",
-          "enum": ["ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"],
+          "enum": [
+            "ALLOW",
+            "DENY",
+            "REFUSE",
+            "ESCALATE",
+            "DEFER",
+            "OBSERVE"
+          ],
           "description": "Decision predicate verdict, when the case exercises one."
         },
-        "rejected": {"type": "boolean"},
-        "errorContains": {"type": "string"}
+        "rejected": {
+          "type": "boolean"
+        },
+        "errorContains": {
+          "type": "string"
+        }
       }
     },
     "crossFormatId": {
@@ -85,11 +132,19 @@
     },
     "specRefs": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Pointers to the spec/design sections this case pins."
     },
-    "rationale": {"type": "string"},
-    "attribution": {"type": "string"},
-    "testKeys": {"type": "string"}
+    "rationale": {
+      "type": "string"
+    },
+    "attribution": {
+      "type": "string"
+    },
+    "testKeys": {
+      "type": "string"
+    }
   }
 }

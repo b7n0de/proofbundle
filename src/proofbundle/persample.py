@@ -49,6 +49,7 @@ from typing import List, Optional, Sequence
 from . import merkle
 from ._strict_json import loads_strict
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64url
 
 __all__ = ["LEAF_ALG", "derive_leaf_salt", "make_disclosure", "build_sample_tree",
            "sample_opening", "verify_sample_opening", "audit_challenge"]
@@ -72,7 +73,7 @@ def _b64url_decode(s: str) -> bytes:
     if len(s) > DEFAULT_BUDGET.input_bytes:
         raise BundleFormatError("base64 segment exceeds the input_bytes budget (pre-decode DoS guard)")
     raw = s.encode("ascii")
-    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+    return decode_b64url(raw)
 
 
 def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
@@ -207,6 +208,20 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         raise BundleFormatError("opening needs integer 'index', string 'disclosure', list 'proof_b64'")
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
         result["detail"] = "index out of range for the committed tree size"
+        return result
+    # DIE GROESSE DER ZAHL, nicht nur ihr Typ (L2-BDOS-HUGEINT, Pre-Tag-Deep-Gate 2026-08-25).
+    #
+    # Die strukturelle Schranke oben sieht einen Skalar, und ein Skalar ist klein: `n = 2**1000000`
+    # sind sieben Zeichen Quelltext. Die Bereichspruefung eine Zeile hoeher besteht er ebenfalls.
+    # Erst der O(bit_length)-Schiebe-Loop in `verify_inclusion` bezahlt dafuer — gemessen 3,3 s bei
+    # 2**300000, hochgerechnet rund 34 s bei 2**1000000, gegen 0,015 s auf dem Bundle-Pfad.
+    #
+    # Dieselbe Schranke wie `bundle._require_int` und dieselbe Quelle: `verify_inclusion` wuerde die
+    # Zahl inzwischen selbst abweisen, aber diese Funktion soll ihr eigenes Urteil sprechen und nicht
+    # von der Reihenfolge ihrer Aufrufe abhaengen.
+    from .budget import int_magnitude_ok  # noqa: PLC0415 - lokaler Import wie die Nachbarn
+    if not (int_magnitude_ok(n) and int_magnitude_ok(index)):
+        result["detail"] = "committed tree size or index is implausibly large (fail-closed)"
         return result
     # DIE KAPPE VOR DER ARBEIT, DIE SIE BEGRENZT — Hausstandard des Budget-Moduls, Owner-Entscheid
     # 2026-08-18 zu PB-GLEICHE-KLASSE-BLEIBT-UMGEKEHRT-ENTSCHIEDEN-01 ("vereinheitlichen auf
