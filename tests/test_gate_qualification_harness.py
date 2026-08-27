@@ -42,6 +42,12 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
         "20_completeness_wiring": (
             'population_size > 0 and evaluated == population_size and import_error == 0',
             'population_size > 0 and import_error == 0'),
+        "15_only_ast_conjunct": (
+            'inventories_agree = not only_ast and not only_runtime and not runtime_import_errors', 'inventories_agree = not only_runtime and not runtime_import_errors'),
+        "21_only_runtime_conjunct": (
+            'inventories_agree = not only_ast and not only_runtime and not runtime_import_errors', 'inventories_agree = not only_ast and not runtime_import_errors'),
+        "22_runtime_import_errors_conjunct": (
+            'inventories_agree = not only_ast and not only_runtime and not runtime_import_errors', 'inventories_agree = not only_ast and not only_runtime'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -51,7 +57,10 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
     target_fn = {"17_wholearg_wiring": "cc17_wholearg_wiring_observed",
                  "18_str_matrix_wiring": "cc18_str_matrix_wiring_observed",
                  "19_nonjson_exercise_wiring": "cc19_nonjson_exercise_wiring_observed",
-                 "20_completeness_wiring": "cc20_completeness_wiring_observed"}
+                 "20_completeness_wiring": "cc20_completeness_wiring_observed",
+                 "15_only_ast_conjunct": "cc15_inventory_disagreement",
+                 "21_only_runtime_conjunct": "cc21_only_runtime_disagreement",
+                 "22_runtime_import_errors_conjunct": "cc22_runtime_import_errors"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"

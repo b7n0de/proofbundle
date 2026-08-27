@@ -12,11 +12,16 @@ Maps the 15 classes to the three reconstructed gates:
 
 Spur-2 Linse A note (rounds 1-3): cc01/cc02 OBSERVE gate.evaluate() (they were vacuous re-transcriptions
 of the rule); class 15 is a distinct inventory-disagreement counter-example (it duplicated cc10); and
-cc16-cc20 bind acceptance to evaluate()'s HEADLINE verdict for EVERY release-deciding detection wiring —
-nested-leaf (16), whole-arg _exercise (17), str_matrix/F5 (18), NON_JSON/F3 exercise (19), and the
-completeness term evaluated==population (20). The re-gate showed cc04/05/06/07 tested the helpers in
-ISOLATION, so stripping any one wiring stayed green; cc16-cc20 each seed a defect reachable ONLY through
-one wiring and observe the full evaluate() (proven by the wiring-strip meta-test in the anchor test).
+cc15-cc22 bind acceptance to evaluate()'s HEADLINE verdict for EVERY release-deciding detection wiring and
+completeness sub-term, each with a MINIMAL seed reachable through ONE wiring only:
+  never_raise: nested-leaf (16), whole-arg (17), str_matrix/F5 (18), NON_JSON/F3 (19);
+  completeness: population>0 (01), evaluated==population (20), not parse_skips (02),
+  and inventories_agree's THREE conjuncts — not only_ast (15), not only_runtime (21),
+  not runtime_import_errors (22). (import_error==0 / no_input==0 are redundant defensive terms of
+  evaluated==population — see cc20's note + test_unresolved_surfaces_all_reduce_evaluated.)
+Rounds 2-4 each found a wiring bound only IN ISOLATION or by a NON-minimal seed (cc04/05/07 tested helpers;
+cc15's old whole-inventory seed tripped only_ast AND only_runtime at once) — so stripping one term stayed
+green. Every term is now bound + proven isolated by the wiring-strip meta-test in the anchor test.
 """
 from __future__ import annotations
 
@@ -208,18 +213,29 @@ def cc14_negated_keyword_decoy():
 
 
 def cc15_inventory_disagreement():
-    # Spur-2 Linse A made class 15 DISTINCT (it was a duplicate of cc10). OBSERVE the two-independent-
-    # inventory invariant: seed a runtime inventory carrying a phantom surface the AST inventory lacks, and
-    # confirm evaluate() withholds completeness via inventories_agree=False. The reviewer's "two inventories,
-    # equality enforced" rule — distinct from cc01 (empty), cc02 (parse-skip), cc03 (import error).
-    orig_rt = tcg._runtime_inventory
-    tcg._runtime_inventory = lambda: ({"proofbundle.phantom.verify_nonexistent"}, [])
-    try:
-        r = tcg.evaluate()
-    finally:
-        tcg._runtime_inventory = orig_rt
-    detected = r["population_complete"] is False and r["inventories_agree"] is False
-    return detected, f"seeded inventory disagreement -> inventories_agree={r['inventories_agree']}, complete={r['population_complete']}"
+    # inventories_agree conjunct `not only_ast` (Gates re-gate round 4: MINIMAL seed so this binds only_ast
+    # ALONE). runtime = ast minus one surface -> only_ast={that one}, only_runtime=[], errors=[].
+    r = _seed_inventory(["proofbundle.a.verify_x", "proofbundle.a.verify_y"], ["proofbundle.a.verify_x"], [])
+    detected = (r["population_complete"] is False and bool(r["inventory_only_ast"])
+                and not r["inventory_only_runtime"] and not r["inventory_runtime_import_errors"])
+    return detected, f"only_ast disagreement -> only_ast={r['inventory_only_ast']}, complete={r['population_complete']}"
+
+
+def cc21_only_runtime_disagreement():
+    # inventories_agree conjunct `not only_runtime` (MINIMAL): runtime = ast plus one phantom the AST lacks.
+    r = _seed_inventory(["proofbundle.a.verify_x"], ["proofbundle.a.verify_x", "proofbundle.a.verify_phantom"], [])
+    detected = (r["population_complete"] is False and bool(r["inventory_only_runtime"])
+                and not r["inventory_only_ast"] and not r["inventory_runtime_import_errors"])
+    return detected, f"only_runtime disagreement -> only_runtime={r['inventory_only_runtime']}, complete={r['population_complete']}"
+
+
+def cc22_runtime_import_errors():
+    # inventories_agree conjunct `not runtime_import_errors` (MINIMAL): inventories equal, but a submodule
+    # failed to import at runtime — a broken surface must withhold completeness, not be silently dropped.
+    r = _seed_inventory(["proofbundle.a.verify_x"], ["proofbundle.a.verify_x"], ["proofbundle.brokenmod: ImportError"])
+    detected = (r["population_complete"] is False and bool(r["inventory_runtime_import_errors"])
+                and not r["inventory_only_ast"] and not r["inventory_only_runtime"])
+    return detected, f"runtime_import_errors -> errors={r['inventory_runtime_import_errors']}, complete={r['population_complete']}"
 
 
 # ---- Gates re-gate ROUND 3 fix-the-CLASS: bind EVERY release-deciding detection wiring to evaluate() ----
@@ -276,6 +292,30 @@ def _v_nonjson(x):
     if not isinstance(x, dict):
         raise _Boom("raw crash on a non-json primary")          # only the NON_JSON _exercise reaches this
     return False
+
+
+def _v_benign(x):
+    return False   # a clean verify: returns a verdict, never crashes (for the inventory-disagreement seeds)
+
+
+def _seed_inventory(ast_names, runtime_names, runtime_errors):
+    """Drive evaluate() with a CONTROLLED AST-vs-runtime inventory, every surface benign IN_SCOPE so the
+    ONLY term that can withhold population_complete is the inventories_agree conjunct under test. Gates
+    re-gate round 4: cc15's old whole-inventory seed tripped only_ast AND only_runtime at once, so no
+    conjunct was isolated (stripping one still left cc15 detecting via its sibling). A MINIMAL seed per
+    conjunct fixes that: only_ast (runtime = ast minus one), only_runtime (runtime = ast plus one),
+    runtime_import_errors (runtime = ast, with an import error)."""
+    saved = (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips)
+    tcg.discover_python_verify_functions = lambda: {n: None for n in ast_names}
+    tcg._runtime_inventory = lambda: (set(runtime_names), list(runtime_errors))
+    tcg._parse_skips = lambda: []
+    tcg._classify = lambda q, i=None: {"status": "IN_SCOPE", "fn": _v_benign, "extra_kwargs": {},
+                                       "payloads": [{}], "primary_name": "x", "primary_kwonly": False,
+                                       "str_matrix": []}
+    try:
+        return tcg.evaluate()
+    finally:
+        (tcg.discover_python_verify_functions, tcg._runtime_inventory, tcg._classify, tcg._parse_skips) = saved
 
 
 def cc16_evaluate_never_raise_verdict_observed():
@@ -351,6 +391,8 @@ CLASSES = [
     ("18_str_matrix_wiring", "type_confusion", cc18_str_matrix_wiring_observed),
     ("19_nonjson_exercise_wiring", "type_confusion", cc19_nonjson_exercise_wiring_observed),
     ("20_completeness_wiring", "type_confusion", cc20_completeness_wiring_observed),
+    ("21_only_runtime_wiring", "type_confusion", cc21_only_runtime_disagreement),
+    ("22_runtime_import_errors_wiring", "type_confusion", cc22_runtime_import_errors),
 ]
 
 
