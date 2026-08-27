@@ -26,9 +26,13 @@ def _ots_valid_primary():
     from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
     from opentimestamps.core.serialize import BytesSerializationContext
     root = hashlib.sha256(b"target").digest()
-    ts = Timestamp(root); c = ts.ops.add(OpAppend(b"\x01")); g = c.ops.add(OpSHA256())
+    ts = Timestamp(root)
+    c = ts.ops.add(OpAppend(b"\x01"))
+    g = c.ops.add(OpSHA256())
     g.attestations.add(BitcoinBlockHeaderAttestation(700000))
-    dtf = DetachedTimestampFile(OpSHA256(), ts); ctx = BytesSerializationContext(); dtf.serialize(ctx)
+    dtf = DetachedTimestampFile(OpSHA256(), ts)
+    ctx = BytesSerializationContext()
+    dtf.serialize(ctx)
     return (ctx.getbytes(), root)
 
 
