@@ -63,6 +63,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install cryptography — the pre-tag gate below verifies the signed ed25519 receipt
+        # verify_receipt (ed25519) needs `cryptography`; the gate runs BEFORE the build/install below,
+        # so without this the signed-receipt check fails ModuleNotFoundError and fail-closed rejects.
+        run: python -m pip install "cryptography>=42"
+
       - name: Pre-tag adversarial audit gate (Front-Load F7 — the audit ran for THIS release)
         # The six-lens / master-prompt-v2 adversarial audit is a gate before EVERY tag, not only the
         # audit-candidate (Loek's decoy-parent finding landed AFTER 3.3.0 shipped). This step fails
