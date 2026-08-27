@@ -153,10 +153,21 @@ class TestF7PreTagAudit(unittest.TestCase):
 
     def test_released_repo_without_signed_receipt_is_fail_closed(self):
         # makellose-500 F6: der Verdikt kommt aus einem SIGNIERTEN, tree-gebundenen Receipt, nicht aus
-        # einer Prosa-Zeile. Ein Dev-Tree ohne signierten Receipt ist FAIL-CLOSED (korrekt). Die
+        # einer Prosa-Zeile. Ein Tree OHNE signierten Receipt ist FAIL-CLOSED (korrekt). Die
         # Positiv-Kontrolle (ein gueltiger Receipt verifiziert) steht in tests/test_pre_tag_receipt_gate.py.
-        result = self.gate.evaluate(REPO)
+        # ISOLIERT (Post-Release-Cleanup 2026-08-27): geprueft wird ein BELEG-FREIER Temp-Baum, NICHT das
+        # echte Repo. Sobald ein Release einen gueltigen Receipt in den echten Baum committet, erteilt das
+        # Gate dort korrekt einen PASS — die Negativkontrolle muss die fail-closed-Invariante deshalb auf
+        # einem garantiert receipt-freien Baum fangen (wie die Nachbar-Tests in dieser Datei), sonst kippt
+        # sie bei jedem Release. QITEM-PB5-POST-RELEASE-CLEANUP-01.
+        import tempfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            result = self.gate.evaluate(Path(td), version="5.0.0")
         self.assertFalse(result["ok"], result)
+        # STRUKTURELLE Invariante statt Keyword (Gegenlesung un, Fund B): fail-closed muss WEIL 0 Belege
+        # verifiziert wurden eintreten, nicht aus einem anderen Grund, dessen reason zufaellig "receipt"
+        # enthaelt. Sonst waere gruen eine Tautologie.
+        self.assertEqual(result.get("verified_receipts") or [], [], result)
         self.assertIn("receipt", (result["reason"] or "").lower())
 
     def test_missing_audit_is_caught(self):

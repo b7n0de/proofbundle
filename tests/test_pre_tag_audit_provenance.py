@@ -156,15 +156,21 @@ class ProsaEntscheidetNicht(unittest.TestCase):
                              changelog_text="nothing about audits here at all"), VERSION)
         self.assertFalse(r["ok"], "eine Prosa-Zeile hat weiterhin einen PASS erteilt (F6 nicht geschlossen)")
 
-    @unittest.skipUnless(_conftest.running_in_repo_checkout(),
-                         "liest das ECHTE Repo indirekt ueber das Gate (kein Pfad-Literal im Modul, also "
-                         "von der conftest-Ableitung nicht erkennbar) — N/A ausserhalb eines Checkouts")
     def test_gegenrichtung_das_echte_repo_besteht_weiterhin(self):
-        """makellose-500 F6: ohne signierten Receipt fuer DIESEN Tree ist fail-closed der KORREKTE
+        """makellose-500 F6: ohne signierten Receipt fuer einen Tree ist fail-closed der KORREKTE
         Zustand. Dass der Riegel nicht ALLES ablehnt, zeigt die Positiv-Kontrolle in
-        test_pre_tag_receipt_gate.py (ein gueltiger Receipt verifiziert)."""
-        r = g.evaluate(REPO)
-        self.assertFalse(r["ok"], "das echte Repo hat ohne signierten Receipt einen PASS erteilt")
+        test_pre_tag_receipt_gate.py (ein gueltiger Receipt verifiziert).
+        ISOLIERT (Post-Release-Cleanup 2026-08-27): geprueft wird ein garantiert BELEG-FREIER Temp-Baum,
+        NICHT das echte Repo — das traegt nach einem Release einen gueltigen Receipt und erteilt dort
+        korrekt einen PASS (bewiesen von der Positiv-Kontrolle). Das skipUnless(running_in_repo_checkout)
+        entfaellt, weil der Test nicht mehr vom echten Checkout abhaengt. QITEM-PB5-POST-RELEASE-CLEANUP-01."""
+        import tempfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            r = g.evaluate(pathlib.Path(td), version="5.0.0")
+        self.assertFalse(r["ok"], "ein beleg-freier Baum hat ohne signierten Receipt einen PASS erteilt")
+        # STRUKTURELLE Invariante statt Keyword (Gegenlesung un, Fund B): fail-closed WEIL 0 Belege
+        # verifiziert wurden, nicht aus einem anderen Grund, dessen reason zufaellig "receipt" enthaelt.
+        self.assertEqual(r.get("verified_receipts") or [], [], r)
         self.assertIn("receipt", (r["reason"] or "").lower())
 
     def test_die_attestierung_ist_eine_ganze_zeile_kein_teilstring(self):
