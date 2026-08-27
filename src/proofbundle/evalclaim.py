@@ -399,6 +399,7 @@ def eval_evidence_class(claim: dict) -> dict:
     score = claim.get("score")
     if (isinstance(score, str) and _DECIMAL_RE.match(score) and is_member(comparator, _COMPARATORS)
             and isinstance(threshold, str) and _DECIMAL_RE.match(threshold) and isinstance(passed, bool)):
+        assert isinstance(comparator, str)  # narrowed by is_member above; assures mypy for the dict index below
         from decimal import Decimal, InvalidOperation  # noqa: PLC0415
         try:
             recomputed = {">=": Decimal(score) >= Decimal(threshold), ">": Decimal(score) > Decimal(threshold),

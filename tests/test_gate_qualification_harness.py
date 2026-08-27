@@ -7,7 +7,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import gate_qualification_harness as h  # noqa: E402
 
+import pytest  # noqa: E402
 
+try:  # test_15_of_15 asserts the gate reports population_complete=True, which requires the FULL
+    import opentimestamps  # noqa: F401,E402  # surface population — the anchor OTS surfaces only
+    _HAS_OTS = True         # import at runtime with opentimestamps ([anchors] extra). Without it the
+except ImportError:         # gate HONESTLY reports the population incomplete, so this control is N/A.
+    _HAS_OTS = False
+
+
+@pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps): the gate's "
+                    "full surface population includes anchor OTS surfaces that only import with it")
 def test_15_of_15_counterproofs_detected_with_green_positive_controls():
     r = h.run()
     missed = [x["class"] for x in r["results"] if not x["detected"]]

@@ -14,6 +14,12 @@ import json
 import base64
 import unittest
 
+try:  # opentimestamps lives in the [anchors] extra; the REGISTRY verifiers (OTS + markovian)
+    import opentimestamps  # noqa: F401  # both need it. Guarded so the module SKIPS (never errors)
+    _HAS_OTS = True        # under a bare [test]/[dev] install. Matches the sibling OTS modules.
+except ImportError:
+    _HAS_OTS = False
+
 from proofbundle.errors import ProofBundleError
 
 
@@ -60,6 +66,7 @@ _RPTRUST_CONFUSIONS = [[], (), 0, "x", [1, 2],
                        {"bitcoin_block_headers": {"700000": 123}}]
 
 
+@unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestAnchorExtraArgTypeConfusion(unittest.TestCase):
     def _assert_verdict(self, fn, proof, root, **extra):
         try:

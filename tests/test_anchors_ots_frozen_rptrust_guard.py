@@ -6,10 +6,19 @@ hatten den Guard, OTS/markovian nicht."""
 import hashlib
 import unittest
 
-from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile
-from opentimestamps.core.op import OpSHA256, OpAppend
-from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
-from opentimestamps.core.serialize import BytesSerializationContext
+# anchors OTS test: the opentimestamps names live in the [anchors] extra. Guard the import so the
+# module COLLECTS without the extra and its OTS classes SKIP — never a collection ImportError under
+# pytest (published-artifact-gate installs [test]) nor a discover error under `unittest discover`
+# (ci.yml installs [dev], both anchor-free). unittest- AND pytest-compatible; matches the 8 sibling
+# OTS modules' _HAS_OTS pattern.
+try:
+    from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile
+    from opentimestamps.core.op import OpSHA256, OpAppend
+    from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
+    from opentimestamps.core.serialize import BytesSerializationContext
+    _HAS_OTS = True
+except ImportError:
+    _HAS_OTS = False
 from proofbundle.anchors_ots import verify_opentimestamps
 
 
@@ -26,6 +35,7 @@ def _upgraded_proof(root: bytes) -> bytes:
     return ctx.getbytes()
 
 
+@unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestOtsFrozenRpTrustGuard(unittest.TestCase):
     def setUp(self):
         self.root = hashlib.sha256(b"target").digest()
@@ -62,6 +72,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
+@unittest.skipUnless(_HAS_OTS, "needs proofbundle[anchors] (opentimestamps)")
 class TestRpHeaderValueGuard(unittest.TestCase):
     """iter9 fix-the-class, eine Ebene tiefer: rp_headers IST ein Mapping, aber seine WERTE muessen
     keine Hex-Strings sein. `bytes.fromhex(<Nicht-str>)` wirft TypeError (nicht ValueError) — der
