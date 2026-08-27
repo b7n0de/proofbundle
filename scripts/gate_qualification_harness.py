@@ -679,6 +679,30 @@ def cc29_nested_recursionerror_real():
     return detected, f"nested-path RecursionError -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
 
 
+_CC30_SRC = """from typing import Union
+def validate_cc30_union_str(bundle: Union[dict, str]):
+    if isinstance(bundle, str):
+        raise OSError("raw crash on a string primary of a Union[dict,str] surface")
+    return []
+"""
+
+
+def cc30_str_matrix_assignment_real():
+    # the str_matrix ASSIGNMENT in the real _classify (F5, L250): a Union[dict,str] primary crashing ONLY on
+    # a string is caught ONLY by str_matrix=_COMPACT_STR_PAYLOADS. Strip the assignment (-> []) -> the string
+    # crash is missed (whole-arg is _NONSTR, nested needs dict fields), harness stays green -> THIS reddens.
+    # cc18 tests only the str_matrix CONSUMPTION via a MOCKED _classify; cc30 drives the REAL router.
+    qname, full, d = _real_router_victim("cc30_union_str", _CC30_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"real str_matrix assignment (Union[dict,str]) -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -709,6 +733,7 @@ CLASSES = [
     ("27_all_inscope_routing_tokens", "type_confusion", cc27_all_inscope_routing_tokens_real),
     ("28_all_nonjson_kind_routing", "type_confusion", cc28_all_nonjson_kind_routing_real),
     ("29_nested_recursionerror", "type_confusion", cc29_nested_recursionerror_real),
+    ("30_str_matrix_assignment", "type_confusion", cc30_str_matrix_assignment_real),
 ]
 
 

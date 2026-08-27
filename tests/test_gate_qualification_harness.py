@@ -71,6 +71,10 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                          'if False:  # STRIPPED\n        return "path"'),
         # Gates re-gate ROUND 8: the nested-path RecursionError arm (distinct from cc26's whole-arg arm).
         "29_nested_recursionerror": ('violations.append(f"RecursionError on nested leaf {pfad}")', 'pass'),
+        # Gates re-gate ROUND 9: the matrix-SELECTION assignments in the real _classify (F5, ~L249/L250).
+        # cc18 tests the str_matrix CONSUMPTION via a mocked _classify; the ASSIGNMENT was unbound.
+        "30_str_matrix_assignment": ('"str_matrix": _COMPACT_STR_PAYLOADS if union_str else []', '"str_matrix": []'),
+        "31_payloads_assignment": ('"payloads": _NONSTR_PAYLOADS if union_str else TYPE_CONFUSION_PAYLOADS', '"payloads": []'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -95,7 +99,9 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "27_List": "cc27_all_inscope_routing_tokens_real",
                  "28_kind_int": "cc28_all_nonjson_kind_routing_real",
                  "28_kind_path": "cc28_all_nonjson_kind_routing_real",
-                 "29_nested_recursionerror": "cc29_nested_recursionerror_real"}
+                 "29_nested_recursionerror": "cc29_nested_recursionerror_real",
+                 "30_str_matrix_assignment": "cc30_str_matrix_assignment_real",
+                 "31_payloads_assignment": "cc26_recursionerror_routing_real"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
@@ -186,3 +192,24 @@ def test_every_recursionerror_arm_is_bound():
         assert arm in this, (
             f"RecursionError arm {arm!r} in the gate has no strip in the meta-test muts -- add a binding "
             f"class (like cc26/cc29) + its strip, binding the CLASS 'RecursionError in every exercise path'.")
+
+
+def test_every_matrix_selection_assignment_is_bound():
+    """Gates re-gate round 9 (fix-the-class): _classify SELECTS the never-raise matrices for an IN_SCOPE
+    surface via `union_str`-conditional assignments ("payloads", "str_matrix" at ~L249/L250, the F5 fix).
+    cc18 tested only the str_matrix CONSUMPTION through a MOCKED _classify; the ASSIGNMENT was unbound
+    (round-8 WIDERLEGT: the real shipped verify_bundle Union[dict,str] surface). This guard finds every
+    `"<key>": <...> if union_str else <...>` matrix-selection assignment in _classify and asserts the
+    strip meta-test carries a strip for each -> a new matrix key / changed assignment cannot be added
+    unbound. Same generator-hardening as cc27's IN_SCOPE-token guard, applied to matrix selection."""
+    import re
+    from pathlib import Path
+    gate = Path(__file__).resolve().parents[1] / "scripts" / "type_confusion_gate.py"
+    assigns = re.findall(r'"\w+": [^\n]*? if union_str else [^\n,]*', gate.read_text(encoding="utf-8"))
+    assert len(assigns) >= 2, f"expected >=2 matrix-selection assignments (payloads + str_matrix), found {len(assigns)}: {assigns}"
+    this = Path(__file__).read_text(encoding="utf-8")
+    for a in assigns:
+        assert a in this, (
+            f"matrix-selection assignment {a!r} in _classify has no strip in the meta-test muts -- add a "
+            f"real-router binding class (like cc30) + its strip, binding the CLASS 'every matrix _classify "
+            f"selects is exercised through the real router'.")
