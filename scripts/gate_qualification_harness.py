@@ -730,6 +730,21 @@ def cc31_field_extraction_subscript_real():
     return detected, f"_field_names subscript branch -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
 
 
+def cc32_pretag_check_coverage():
+    # a receipt valid-EXCEPT one release-deciding binding field MUST be rejected (the makellose spec binds
+    # Version/GateSource/Exitcode/Schema). cc08-10 bind bare-prose/wrong-subject/unsigned; cc32 binds the rest.
+    priv, pub = _kp()
+    cases = {
+        "version": _receipt(priv, pub, version="4.9.9"),
+        "gate_source_digest": _receipt(priv, pub, gate_source_digest="f" * 64),
+        "audit_exit_code": _receipt(priv, pub, audit_exit_code=1),
+        "schema": _receipt(priv, pub, schema="wrong.receipt.schema"),
+    }
+    accepted = [k for k, r in cases.items() if _v(r, [pub])]
+    return (not accepted), ("all valid-except-one-binding receipts rejected"
+                            if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -762,6 +777,7 @@ CLASSES = [
     ("29_nested_recursionerror", "type_confusion", cc29_nested_recursionerror_real),
     ("30_str_matrix_assignment", "type_confusion", cc30_str_matrix_assignment_real),
     ("31_field_extraction_subscript", "type_confusion", cc31_field_extraction_subscript_real),
+    ("32_pretag_binding_checks", "pre_tag", cc32_pretag_check_coverage),
 ]
 
 

@@ -246,3 +246,61 @@ def test_every_field_extraction_branch_is_bound():
     assert "cc31_field_extraction_subscript_real" in harness, "cc31 (subscript-branch binding) is gone"
     assert "False and isinstance(k, ast.Subscript)" in this, (
         "the subscript-branch meta-test strip (32 -> cc31) is gone -- the round-9 WIDERLEGT can reopen.")
+
+
+def test_every_pretag_binding_check_is_bound():
+    """Gates re-gate round 11 (fix-the-class, closes P3-1): verify_receipt compares each SIGNED binding
+    field to its expected value (schema / version / subject_tree_digest / gate_source_digest /
+    audit_exit_code). cc08-10 bind bare-prose / wrong-subject / unsigned; the sibling test
+    test_pre_tag_receipt_gate.py binds version/gate_source/audit_exit; but the SCHEMA check was unbound by
+    BOTH (round-10 re-gate P3-1). cc32 binds every binding-field check (a valid-except-one receipt must be
+    rejected). This guard enumerates verify_receipt's binding-field checks and asserts each is covered by
+    cc32 (or cc09 for subject_tree) -> a NEW binding check cannot be added unbound; the generator-hardening
+    the pre_tag surface previously lacked (mirrors cc27's IN_SCOPE-token guard for type_confusion)."""
+    import re
+    from pathlib import Path
+    lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
+    body = lib.read_text(encoding="utf-8")
+    body = body[body.index("def verify_receipt"):]
+    fields = set(re.findall(r'receipt\.get\("(\w+)"\) != ', body))
+    covered_by_cc32 = {"version", "gate_source_digest", "audit_exit_code", "schema"}
+    covered_by_cc09 = {"subject_tree_digest"}
+    missing = fields - covered_by_cc32 - covered_by_cc09
+    assert not missing, (
+        f"verify_receipt binds field(s) {sorted(missing)} that no cc-class tests -- add a cc32 case "
+        f"(a valid-except-that-field receipt must be rejected).")
+
+
+def test_pretag_binding_check_strips_redden_cc32():
+    """Each verify_receipt binding-field check, stripped, must make cc32 go red -> genuinely bound, not
+    vacuous. Mutation on pre_tag_receipt_lib.py; the schema strip is the round-10 P3-1 that is now caught."""
+    import subprocess
+    from pathlib import Path
+    lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
+    orig = lib.read_text(encoding="utf-8")
+    repo = str(Path(__file__).resolve().parents[1])
+    strips = [
+        'if receipt.get("schema") != RECEIPT_SCHEMA:',
+        'if receipt.get("version") != expected_version:',
+        'if receipt.get("gate_source_digest") != gate_source_digest:',
+        'if receipt.get("audit_exit_code") != 0:',
+    ]
+
+    def cc32_detects():
+        r = subprocess.run(
+            ["python3", "-c", "import gate_qualification_harness as h; print(h.cc32_pretag_check_coverage()[0])"],
+            env={"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin"},
+            capture_output=True, text=True)
+        return r.stdout.strip().endswith("True")
+
+    try:
+        for s in strips:
+            assert orig.count(s) == 1, f"pretag check anchor not unique: {s!r}"
+            lib.write_text(orig.replace(s, "if False and " + s[3:], 1), encoding="utf-8")
+            try:
+                detects = cc32_detects()
+            finally:
+                lib.write_text(orig, encoding="utf-8")
+            assert not detects, f"stripping {s!r} must make cc32 go red (binding vacuous?)"
+    finally:
+        lib.write_text(orig, encoding="utf-8")
