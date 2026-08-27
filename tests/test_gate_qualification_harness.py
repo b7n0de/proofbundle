@@ -58,6 +58,17 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
             '"bytes" in text or ', ''),
         "26_recursionerror_routing": (
             'violations.append(f"RecursionError on payload {_short(payload)}")', 'pass'),
+        # Gates re-gate ROUND 7: the REAL routing is a CLASS of tokens, not one instance. cc27 binds every
+        # IN_SCOPE token (round 6 bound only "Any"); cc28 binds the NON_JSON kind routes with a real hole.
+        "27_dict":    ('"dict" in text or ', ''),
+        "27_Dict":    ('"Dict" in text or ', ''),
+        "27_Mapping": ('"Mapping" in text or ', ''),
+        "27_list":    ('"list" in text or ', ''),
+        "27_List":    ('"List" in text or ', ''),
+        "28_kind_int":  ('if param.annotation is int or text == "int":\n        return "int"',
+                         'if False:  # STRIPPED\n        return "int"'),
+        "28_kind_path": ('if any(k in name for k in ("path", "file", "dir")) or "Path" in text:\n        return "path"',
+                         'if False:  # STRIPPED\n        return "path"'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -74,7 +85,14 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "23_nested_depth2_wiring": "cc23_nested_depth2_observed",
                  "24_any_inscope_routing": "cc24_any_inscope_routing_real",
                  "25_bytes_nonjson_routing": "cc25_bytes_nonjson_routing_real",
-                 "26_recursionerror_routing": "cc26_recursionerror_routing_real"}
+                 "26_recursionerror_routing": "cc26_recursionerror_routing_real",
+                 "27_dict": "cc27_all_inscope_routing_tokens_real",
+                 "27_Dict": "cc27_all_inscope_routing_tokens_real",
+                 "27_Mapping": "cc27_all_inscope_routing_tokens_real",
+                 "27_list": "cc27_all_inscope_routing_tokens_real",
+                 "27_List": "cc27_all_inscope_routing_tokens_real",
+                 "28_kind_int": "cc28_all_nonjson_kind_routing_real",
+                 "28_kind_path": "cc28_all_nonjson_kind_routing_real"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
@@ -119,3 +137,31 @@ def test_unresolved_surfaces_all_reduce_evaluated():
         assert r["evaluated_count"] < r["population_size"], f"{status} must not count toward evaluated"
         assert r["population_complete"] is False, f"{status} surface must withhold completeness"
         assert r["import_error"] == (1 if status == "IMPORT_ERROR" else 0)
+
+
+def test_cc27_table_covers_every_inscope_routing_token():
+    """Generator-hardening (Gates re-gate round 7): cc27's _INSCOPE_ROUTING_TOKENS must list EVERY
+    IN_SCOPE routing token in type_confusion_gate._is_json_primary, so a NEW token cannot be added to the
+    gate without a binding class here (the round-6 failure was binding one instance, "Any", of a token
+    CLASS). 'Union[dict' is excluded on purpose: any annotation whose str() matches it also matches
+    'dict', so it is a redundant/dominated branch, not a separately reachable route."""
+    import re
+    from pathlib import Path
+    import gate_qualification_harness as h
+
+    gate = Path(__file__).resolve().parents[1] / "scripts" / "type_confusion_gate.py"
+    body = gate.read_text(encoding="utf-8")
+    body = body[body.index("def _is_json_primary"):]
+    # the IN_SCOPE if-condition is the one that leads to `return True`
+    idx = body.index("return True")
+    cond = body[body.rindex("if ", 0, idx):idx]
+    source_tokens = set(re.findall(r'"([^"]+)" in text', cond))
+    source_tokens.discard("Union[dict")  # dominated by "dict"
+    bound_tokens = {tok for tok, _ann in h._INSCOPE_ROUTING_TOKENS}
+    missing = source_tokens - bound_tokens
+    assert not missing, (
+        f"_is_json_primary routes IN_SCOPE via token(s) {sorted(missing)} that cc27 does not bind — "
+        f"add them to _INSCOPE_ROUTING_TOKENS (with an annotation whose str() matches only that token).")
+    # and every bound token must really be a source token (no dead table entries drifting from the gate)
+    stale = bound_tokens - source_tokens
+    assert not stale, f"_INSCOPE_ROUTING_TOKENS lists {sorted(stale)} which _is_json_primary no longer has"

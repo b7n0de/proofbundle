@@ -543,6 +543,121 @@ def cc26_recursionerror_routing_real():
                       f"raw={r['raw_exception_count']}")
 
 
+# ---- Gates re-gate ROUND 7 fix-the-CLASS: bind EVERY IN_SCOPE routing token, not just "Any" ----------
+# Round 6 bound the "Any" token (cc24) but that was itself an INSTANCE fix: _is_json_primary routes a
+# JSON-object primary IN_SCOPE via SEVEN string tokens (dict/Dict/Mapping/list/List/Any/Union[dict), and
+# stripping any of the other five leaves a nested-leaf surface of that annotation routed NON_JSON (no
+# nested matrix, crash missed) while the harness stayed 26/26 — the exact Any-hole class, five siblings
+# over. ("Union[dict" is dominated by "dict": any annotation that matches it also matches "dict", so it is
+# redundant, not a separate reachable branch.) cc27 binds the WHOLE token set: one real-module plant per
+# token, annotated to route IN_SCOPE ONLY via that token, each with the depth-2 nested-leaf defect; strip
+# ANY token -> its plant routes NON_JSON -> nested crash missed -> cc27 reddens. A COVERAGE GUARD test
+# asserts this table lists every IN_SCOPE token the gate actually has, so a NEW token cannot be added
+# without a binding (generator-hardening, not a point fixture).
+
+# (token-in-_is_json_primary, annotation-source that str()-matches ONLY that token)
+_INSCOPE_ROUTING_TOKENS = [
+    ("dict", "dict"),        # str(dict)      = "<class 'dict'>"
+    ("Dict", "Dict"),        # str(Dict)      = "typing.Dict"
+    ("Mapping", "Mapping"),  # str(Mapping)   = "typing.Mapping"
+    ("list", "list"),        # str(list)      = "<class 'list'>"
+    ("List", "List"),        # str(List)      = "typing.List"
+    ("Any", "Any"),          # str(Any)       = "typing.Any"
+]
+
+_CC27_HDR = "from typing import Dict, List, Mapping, Any, Union\n_ALLOWED = {\"ok\", \"bad\"}\n"
+_CC27_TMPL = '''def validate_cc27_{tok}(obj: {ann}):
+    """Routes IN_SCOPE ONLY via _is_json_primary's `"{tok}" in text`; strip that token -> NON_JSON -> the
+    depth-2 nested-leaf crash is missed. Annotation str() matches only "{tok}"."""
+    if not isinstance(obj, dict):
+        return ["shape"]
+    runs = obj.get("runs")
+    if isinstance(runs, list):
+        for entry in runs:
+            if isinstance(entry, dict):
+                if entry.get("status") not in _ALLOWED:
+                    return ["bad"]
+    return []
+'''
+
+
+def _cc27_probe_one(tok, ann):
+    src = _CC27_HDR + _CC27_TMPL.format(tok=tok, ann=ann)
+    qname, full, d = _real_router_victim(f"cc27_{tok.lower()}_{ann.lower().replace('[','_').replace(']','').replace(',','_').replace(' ','')}", src)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    return (r["never_raise_ok"] is False and r["raw_exception_count"] > 0), r.get("in_scope")
+
+
+def cc27_all_inscope_routing_tokens_real():
+    # fix-the-CLASS: bind EVERY IN_SCOPE routing token through the real _classify. detected iff ALL tokens'
+    # nested-leaf plants are caught; strip any token -> its plant routes NON_JSON -> missed -> cc27 reddens.
+    missed = []
+    for tok, ann in _INSCOPE_ROUTING_TOKENS:
+        caught, in_scope = _cc27_probe_one(tok, ann)
+        if not caught:
+            missed.append(f"{tok}(in_scope={in_scope})")
+    detected = not missed
+    return detected, ("all IN_SCOPE routing tokens bound"
+                      if detected else "UNBOUND IN_SCOPE token(s): " + ", ".join(missed))
+
+
+# ---- Gates re-gate ROUND 7 fix-the-CLASS: bind the NON_JSON kind routing (not just bytes/cc25) ---------
+# The IN_SCOPE side is bound by cc27. The NON_JSON side has the SAME class of holes: _is_json_primary's
+# exclusion tokens (bytes/int/float/str) decide NON_JSON, and _primary_kind (bytes/int/path/compact_str)
+# decides WHICH never-raise matrix. Measured: stripping `text == "int"` sends an int-primary surface out
+# of the int matrix and a huge-int raw crash is MISSED with NO fallback (the int matrix's 2**64 is unique).
+# cc28 binds each NON_JSON kind through the real router: one real-module plant per kind that raw-crashes
+# ONLY on a payload UNIQUE to that kind's matrix; mis-route it (strip the exclusion OR the _primary_kind
+# branch) -> wrong matrix -> crash missed -> cc28 reddens. bytes stays additionally bound by cc25.
+
+# (label, annotated-signature, crash-body reached ONLY by a payload unique to the correct kind matrix)
+_NONJSON_KIND_PROBES = [
+    ("int",  "obj_int: int",
+     "if isinstance(obj_int, int) and not isinstance(obj_int, bool) and obj_int >= 2**64:\n"
+     "        raise OverflowError('raw crash on a huge int')"),
+    ("compact_str", "obj_str: str",
+     "if isinstance(obj_str, str) and len(obj_str) >= 100000:\n"
+     "        raise OSError('raw crash on a long compact string')"),
+    ("path", "obj_path: str",
+     "if isinstance(obj_path, str) and obj_path.startswith('/nonexistent'):\n"
+     "        raise OSError('raw crash on a bad path')"),
+    ("bytes", "obj_bytes: bytes",
+     "if isinstance(obj_bytes, (bytes, bytearray)) and len(obj_bytes) >= (1 << 20):\n"
+     "        raise OSError('raw crash on a 1 MiB byte blob')"),
+]
+
+
+def _cc28_probe_one(label, annsig, body):
+    src = f"def validate_cc28_{label}({annsig}):\n    {body}\n    return []\n"
+    qname, full, d = _real_router_victim(f"cc28_{label}", src)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    return (r["never_raise_ok"] is False and r["raw_exception_count"] > 0), r.get("non_json"), r.get("in_scope")
+
+
+def cc28_all_nonjson_kind_routing_real():
+    # fix-the-CLASS: bind every NON_JSON kind route through the real _classify. Each kind crashes ONLY on a
+    # payload UNIQUE to its matrix; strip its exclusion or _primary_kind branch -> wrong matrix -> missed
+    # -> cc28 reddens. detected iff ALL kinds caught.
+    missed = []
+    for label, annsig, body in _NONJSON_KIND_PROBES:
+        caught, nj, isc = _cc28_probe_one(label, annsig, body)
+        if not caught:
+            missed.append(f"{label}(non_json={nj},in_scope={isc})")
+    detected = not missed
+    return detected, ("all NON_JSON kind routes bound"
+                      if detected else "UNBOUND NON_JSON kind(s): " + ", ".join(missed))
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -570,6 +685,8 @@ CLASSES = [
     ("24_any_inscope_routing_real", "type_confusion", cc24_any_inscope_routing_real),
     ("25_bytes_nonjson_routing_real", "type_confusion", cc25_bytes_nonjson_routing_real),
     ("26_recursionerror_routing_real", "type_confusion", cc26_recursionerror_routing_real),
+    ("27_all_inscope_routing_tokens", "type_confusion", cc27_all_inscope_routing_tokens_real),
+    ("28_all_nonjson_kind_routing", "type_confusion", cc28_all_nonjson_kind_routing_real),
 ]
 
 
