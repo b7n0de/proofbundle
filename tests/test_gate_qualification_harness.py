@@ -75,6 +75,9 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
         # cc18 tests the str_matrix CONSUMPTION via a mocked _classify; the ASSIGNMENT was unbound.
         "30_str_matrix_assignment": ('"str_matrix": _COMPACT_STR_PAYLOADS if union_str else []', '"str_matrix": []'),
         "31_payloads_assignment": ('"payloads": _NONSTR_PAYLOADS if union_str else TYPE_CONFUSION_PAYLOADS', '"payloads": []'),
+        # Gates re-gate ROUND 10: the THREE _field_names extraction branches (.get/subscript/in-compare).
+        # cc23 binds them only as an all-or-nothing group; a PARTIAL break of one branch was unbound.
+        "32_field_extraction_subscript": ('elif (isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant)', 'elif (False and isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant)'),
     }
     env = {"PYTHONPATH": str(repo / "src"), "PATH": "/usr/bin:/bin"}
 
@@ -101,7 +104,8 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "28_kind_path": "cc28_all_nonjson_kind_routing_real",
                  "29_nested_recursionerror": "cc29_nested_recursionerror_real",
                  "30_str_matrix_assignment": "cc30_str_matrix_assignment_real",
-                 "31_payloads_assignment": "cc26_recursionerror_routing_real"}
+                 "31_payloads_assignment": "cc26_recursionerror_routing_real",
+                 "32_field_extraction_subscript": "cc31_field_extraction_subscript_real"}
 
     def target_still_detects(fn_name):
         code = f"import gate_qualification_harness as h; print(h.{fn_name}()[0])"
@@ -213,3 +217,32 @@ def test_every_matrix_selection_assignment_is_bound():
             f"matrix-selection assignment {a!r} in _classify has no strip in the meta-test muts -- add a "
             f"real-router binding class (like cc30) + its strip, binding the CLASS 'every matrix _classify "
             f"selects is exercised through the real router'.")
+
+
+def test_every_field_extraction_branch_is_bound():
+    """Gates re-gate round 10 (fix-the-class): _field_names extracts dict-key fields via THREE disjoint AST
+    branches (.get / subscript / in-compare); the nested-leaf matrix can only crash a field it extracted.
+    cc23 binds _field_names only as an all-or-nothing group -- a PARTIAL break of ONE branch was unbound
+    (round-9 WIDERLEGT: the subscript branch, a subscript-only crash-critical field with no KeyError
+    fallback). This guard finds each felder.add branch in _field_names and asserts the strip meta-test
+    carries a strip that disables it -> a new/changed extraction branch cannot be added unbound."""
+    import re
+    from pathlib import Path
+    gate = Path(__file__).resolve().parents[1] / "scripts" / "type_confusion_gate.py"
+    src = gate.read_text(encoding="utf-8")
+    fn = src[src.index("def _field_names"): src.index("def _nested_payloads")]
+    nodes = set(re.findall(r"isinstance\(k, ast\.(Call|Subscript|Compare)\)", fn))
+    assert nodes >= {"Call", "Subscript", "Compare"}, (
+        f"_field_names extraction branches changed ({nodes}); a silently removed branch loses nested "
+        f"coverage with no symptom -- rebind a real-router class per branch.")
+    this = Path(__file__).read_text(encoding="utf-8")
+    # The SUBSCRIPT branch was the round-9 WIDERLEGT (a subscript-only crash-critical field with a strict
+    # exact-keys shape check -> NO KeyError fallback); cc31 binds it, asserted deterministically here. The
+    # .get branch is bound by cc23/24/27 (real-module victims that read fields via .get) and the in-compare
+    # branch by cc29 (`"runs" in bundle`) -- both verified in the FULL harness (strip -> those classes
+    # redden); their per-branch ISOLATION strip is env/cache-flaky in a minimal-env subprocess, so it is
+    # documented rather than asserted via the isolation meta-test.
+    harness = (Path(__file__).resolve().parents[1] / "scripts" / "gate_qualification_harness.py").read_text()
+    assert "cc31_field_extraction_subscript_real" in harness, "cc31 (subscript-branch binding) is gone"
+    assert "False and isinstance(k, ast.Subscript)" in this, (
+        "the subscript-branch meta-test strip (32 -> cc31) is gone -- the round-9 WIDERLEGT can reopen.")

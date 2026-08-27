@@ -703,6 +703,33 @@ def cc30_str_matrix_assignment_real():
     return detected, f"real str_matrix assignment (Union[dict,str]) -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
 
 
+_CC31_SRC = """def validate_cc31_subscript(obj: dict):
+    from proofbundle.errors import BundleFormatError
+    if not isinstance(obj, dict):
+        raise BundleFormatError("shape")
+    if set(obj.keys()) != {"status"}:
+        raise BundleFormatError("keys")
+    return obj["status"] in {"ok", "bad"}
+"""
+
+
+def cc31_field_extraction_subscript_real():
+    # the ast.Subscript branch of _field_names (round-9 re-gate WIDERLEGT): a strict exact-keys shape check
+    # makes obj["status"] UNCONDITIONAL (no KeyError fallback), and "status" is reachable ONLY via the
+    # subscript branch (the {"status"} set is an ast.Set; obj["status"] in {...} is a Compare whose LEFT is a
+    # Subscript, not a Constant). cc23/24/27 extract via .get, cc29 via in-compare -- none via bare subscript.
+    # Strip the subscript branch -> "status" not extracted -> no {status: unhashable} nested payload -> missed.
+    qname, full, d = _real_router_victim("cc31_subscript", _CC31_SRC)
+    try:
+        r = _seed_evaluate_real_router(qname)
+    finally:
+        tcg._FIELD_CACHE.pop(full, None)
+        sys.modules.pop(full, None)
+        shutil.rmtree(d, ignore_errors=True)
+    detected = r["never_raise_ok"] is False and r["raw_exception_count"] > 0
+    return detected, f"_field_names subscript branch -> never_raise_ok={r['never_raise_ok']} raw={r['raw_exception_count']}"
+
+
 CLASSES = [
     ("01_empty_population", "type_confusion", cc01_empty_population),
     ("02_vanished_or_parser_surface", "type_confusion", cc02_vanished_or_parser_surface),
@@ -734,6 +761,7 @@ CLASSES = [
     ("28_all_nonjson_kind_routing", "type_confusion", cc28_all_nonjson_kind_routing_real),
     ("29_nested_recursionerror", "type_confusion", cc29_nested_recursionerror_real),
     ("30_str_matrix_assignment", "type_confusion", cc30_str_matrix_assignment_real),
+    ("31_field_extraction_subscript", "type_confusion", cc31_field_extraction_subscript_real),
 ]
 
 
