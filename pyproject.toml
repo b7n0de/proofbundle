@@ -95,6 +95,19 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # the .eval format + pydantic schema change between versions (inspect_ai issue 834), and the fixture
 # test is bound to this range. Since v1.4.0 the project floor is Python 3.10, so no per-extra version
 # marker is needed here (inspect_ai's own >=3.10 requirement is always satisfiable on a supported base).
+#
+# MEASURED, not assumed (2026-08-29, order 20260826T213824Z): the bound `<0.4` today resolves to
+# inspect_ai 0.3.260, and the adapter was measured against exactly that in a fresh venv with a real
+# `PROOFBUNDLE_EMIT=1 inspect eval … --model mockllm/model` run — hook found via the entry-point
+# group ("hooks enabled: 1"), receipt written, `verify_bundle().ok` true, and no receipt at all
+# without the opt-in. The fixture's own log format (version 2, recorded with 0.3.217) is still what
+# 0.3.260 writes, so the frozen fixture is not testing a dead format
+# (tests/fixtures/inspect_logs/README.md carries that measurement).
+#
+# The upper bound STAYS `<0.4`: the measurement raises no floor and removes no ceiling, it removes
+# the blindness. An upper bound nobody has measured against is a guess; this one has a date, a
+# version and a run behind it. What is NOT covered: a semantic change inside the same format
+# version (as reported for the scorers in 0.3.258) — that needs its own measurement.
 inspect = ['inspect_ai>=0.3.112,<0.4']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
