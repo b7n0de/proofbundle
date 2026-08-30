@@ -110,6 +110,27 @@ class TestKorpusDeckung(unittest.TestCase):
             self.assertIn("counter_proof", rollen[regel], f"{regel} ohne Gegenprobe")
             self.assertIn("positive_control", rollen[regel], f"{regel} ohne Positivkontrolle")
 
+    def test_die_zahl_im_text_ist_die_gemessene_zahl(self):
+        """Die Prosa nennt eine Vektorzahl. Sie muss die GEZAEHLTE sein.
+
+        Am 30.08.2026 stand dort 'twelve', gezaehlt waren dreizehn — die Zahl war nach dem
+        Hinzufuegen eines Vektors nicht mitgewachsen. Das ist der Instanzfehler; der Klassenfehler
+        ist, dass eine Zahl in einem Dokument an nichts gebunden war. Jetzt ist sie es.
+        """
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        gezaehlt = len(list((root / "conformance" / "envelope_profile").glob("*/case.json")))
+        WORT = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
+                15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen"}
+        self.assertIn(gezaehlt, WORT, f"{gezaehlt} Vektoren — Zahlwort-Tabelle erweitern")
+        wort = WORT[gezaehlt]
+        for rel in ("docs/RECEIPT_ENVELOPE_PROFILE.md", "CONFORMANCE.md"):
+            text = (root / rel).read_text(encoding="utf-8")
+            stellen = [z for z in text.splitlines() if "envelope_profile/" in z and " vectors" in z]
+            self.assertTrue(stellen, f"{rel} nennt die Vektorzahl nicht mehr — Test anpassen oder Text")
+            for z in stellen:
+                self.assertIn(wort, z, f"{rel}: '{z.strip()[:80]}' nennt nicht {wort} ({gezaehlt} gezaehlt)")
+
 
 if __name__ == "__main__":
     unittest.main()

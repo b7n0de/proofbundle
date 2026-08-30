@@ -70,7 +70,7 @@ implementation could satisfy every positive case and still accept anything.
 
 ## Receipt-envelope profile (5.1)
 
-`conformance/envelope_profile/` holds twelve vectors for the profile in
+`conformance/envelope_profile/` holds thirteen vectors for the profile in
 `docs/RECEIPT_ENVELOPE_PROFILE.md`: at least one counter-proof and one positive control for each of
 R1 to R5. R1 carries three, because two of its three divergence axes cannot arise in a format that
 refuses floats — for those the refusal itself is the counter-proof.
@@ -82,7 +82,8 @@ score perfectly on the counter-proofs, and the corpus would call that conformanc
 
 R6 (every rule ships its counter-proof) deliberately has NO vector: a case asserting that the cases
 exist is the tautology the rule warns about. R6 is satisfied by the family existing and by its
-detection rate being measured — eight planted defects, eight caught, two of which escaped on the
-first attempt and each bought a missing vector. A third gap came from reading the profile against the
+detection rate being measured — nine effective planted defects, nine caught, two of which escaped
+on the first attempt and each bought a missing vector. Two further attempts were ineffective (they
+changed a message, not a property) and are deliberately not counted among the nine. A third gap came from reading the profile against the
 corpus rather than from the meta-test: a meta-test measures whether a shipped check can fail, it
 cannot notice a check that was never shipped.

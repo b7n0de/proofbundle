@@ -139,19 +139,23 @@ control each. Detection rate 100 percent, otherwise the profile counts as unmet.
 
 A profile without shipped counter-proofs is a statement of intent.
 
-**Shipped since 2026-08-30.** `conformance/envelope_profile/` — twelve vectors, at least one
+**Shipped since 2026-08-30.** `conformance/envelope_profile/` — thirteen vectors (R1 three, R2 three, R3 two, R4 two, R5 three), at least one
 counter-proof and one positive control per rule R1 to R5, all running through our own emit and verify
 path rather than a purpose-built mock.
 
-Detection rate is MEASURED, not asserted. Final state: **eight planted defects, eight caught.** The
-path there matters more than the number, so it is written out rather than summarised.
+Detection rate is MEASURED, not asserted. Final state: **nine effective planted defects, nine
+caught** — seven in the full round over the corpus, two more for the R1 vectors added afterwards. The
+path there matters more than the number, so it is written out rather than summarised. (This count was
+itself wrong once: an earlier draft said eight, and the error was found by recounting the vectors
+against the manifest rather than trusting the sentence.)
 
 - **Two escaped on the first attempt**, and each escape bought a vector that was missing: the
   authenticity ordering under R2 (no vector was both unverifiable *and* foreign-schema, so removing
   the ordering changed no verdict), and a hand-signed coverage block under R5 (the unit tests caught
   it, the corpus did not — and the corpus is the outward authority).
-- **Two attempted mutations were ineffective rather than escaped**, which looks identical in the
-  output and is not the same thing at all. One replaced a branch whose neighbour carried the same
+- **Two further attempts were ineffective rather than escaped** — they are NOT in the nine, because
+  a mutation that changes nothing is not a defect the corpus failed to catch. It looks identical in
+  the output and is not the same thing at all. One replaced a branch whose neighbour carried the same
   effect; one removed the float branch, after which the value was still refused by the next clause —
   the mutation changed the *message*, not the property. Both were replaced with mutations that change
   the property. A mutation that changes nothing proves nothing about the test.
