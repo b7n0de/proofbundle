@@ -67,3 +67,28 @@ contradict each other in either direction.
 The corpus carries one vector per status value and one per rejection class under
 `conformance/provenance/`. A rule with no rejection vector is not conformance-testable: an
 implementation could satisfy every positive case and still accept anything.
+
+## Receipt-envelope profile (5.1)
+
+`conformance/envelope_profile/` holds ten vectors for the profile in
+`docs/RECEIPT_ENVELOPE_PROFILE.md`: at least one counter-proof and one positive control for each of
+**R1 to R4**. R1 carries three, because two of its three divergence axes cannot arise in a format
+that refuses floats — for those the refusal itself is the counter-proof.
+
+**R5 carries no vector, and that is recorded rather than quietly left out.** Its field form was
+withdrawn on 2026-08-30 after `draft-hillier-coverage-attestation-00` (CAP-1, 20 Aug 2026) was
+measured to rule out the shape this profile had proposed. A counter-proof against a withdrawn shape
+would test nothing; the R5 probe follows once CAP-1 has been read.
+They run through the library's own emit and verify path — a vector family checked by a purpose-built
+mock would prove something about the mock.
+
+The positive controls are not decoration. Without them a verifier that rejected every input would
+score perfectly on the counter-proofs, and the corpus would call that conformance.
+
+R6 (every rule ships its counter-proof) deliberately has NO vector: a case asserting that the cases
+exist is the tautology the rule warns about. R6 is satisfied by the family existing and by its
+detection rate being measured — the planted defects that remain applicable after the R5 withdrawal
+are counted in the profile, together with the two that escaped on the first attempt and the two
+attempts that were ineffective rather than escaped (they changed a message, not a property). A third gap came from reading the profile against the
+corpus rather than from the meta-test: a meta-test measures whether a shipped check can fail, it
+cannot notice a check that was never shipped.

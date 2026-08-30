@@ -333,10 +333,104 @@ def _check_provenance_version_status(case: dict, case_dir: pathlib.Path, *,
             "detail": f"{len(got)} issue(s) as expected"}
 
 
+def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
+                                 require_anchors: bool = False) -> dict:
+    """One rule of the receipt-envelope profile, checked through OUR OWN emit/verify path (5.1).
+
+    WHY THIS KIND EXISTS. The profile (docs/RECEIPT_ENVELOPE_PROFILE.md) states in R6 that whoever
+    claims it ships the executable counter-proofs. A profile whose rules are only prose is a
+    statement of intent, and one whose vectors are checked by a purpose-built mock proves something
+    about the mock. So each rule R1 to R5 gets one COUNTER-PROOF (the thing that must fail) and one
+    POSITIVE CONTROL — without which a verifier that rejected everything would score perfectly.
+
+    The case declares exactly ONE expectation axis. A case that declares none is a FAIL, not a skip:
+    an under-declared case is the quiet way a corpus grows cases that cannot fail.
+    """
+    cid = case.get("caseId", str(case_dir))
+    exp = case.get("expected") or {}
+    sys.path.insert(0, str(ROOT.parent / "src"))
+    from proofbundle.evalclaim import canonicalize, classify_eval_claim  # noqa: PLC0415
+
+    # EXACTLY one axis, checked BEFORE any of them runs. Under-declaration was fail-closed from the
+    # start; OVER-declaration was not, and that is the same hole seen from the other side: the
+    # if-chain returns on the FIRST axis, so a case naming two had its second silently ignored and
+    # went green on the first. Measured 2026-08-30: a case carrying a correct `contentRootHex` and a
+    # nonsense `classification` passed. (Raised by the cross-read; confirmed at source before fixing.)
+    _ACHSEN = ("contentRootHex", "nonConformantDiffers", "canonicalizeRefuses",
+               "classification")
+    genannt = [a for a in _ACHSEN if a in exp]
+    if len(genannt) != 1:
+        return _fail(cid, f"envelope_profile_rule case must declare EXACTLY ONE expectation axis "
+                          f"(fail-closed), got {genannt or 'none'} — an under-declared case cannot "
+                          f"fail, an over-declared one hides everything after the first")
+
+    def _read(name):
+        if pathlib.Path(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts:
+            raise ValueError(f"input {name!r} escapes the case directory")
+        return json.loads((case_dir / name).read_text())
+
+    # R1 — one normative canonicalization.
+    if "contentRootHex" in exp:
+        got = hashlib.sha256(canonicalize(_read(case.get("input") or "object.json"))).hexdigest()
+        if got != exp["contentRootHex"]:
+            return _fail(cid, f"content root {got} != expected {exp['contentRootHex']}")
+        return {"caseId": cid, "ok": True, "detail": "canonical content root reproduced"}
+
+    if "nonConformantDiffers" in exp:
+        obj = _read(case.get("input") or "object.json")
+        konform = hashlib.sha256(canonicalize(obj)).hexdigest()
+        legacy = hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=True,
+                                           separators=(",", ":")).encode("utf-8")).hexdigest()
+        differs = konform != legacy
+        if differs is not bool(exp["nonConformantDiffers"]):
+            return _fail(cid, f"divergence {differs} != expected {exp['nonConformantDiffers']} "
+                              f"(conformant {konform[:16]}, legacy {legacy[:16]})")
+        return {"caseId": cid, "ok": True,
+                "detail": f"serializations differ as expected ({konform[:12]} vs {legacy[:12]})"}
+
+    if "canonicalizeRefuses" in exp:
+        from proofbundle.evalclaim import EvalClaimError  # noqa: PLC0415
+        objs = _read(case.get("input") or "objects.json")
+        if not isinstance(objs, list) or not objs:
+            return _fail(cid, "canonicalizeRefuses case needs a non-empty list of objects")
+        durchgelassen, hart = [], []
+        for o in objs:
+            try:
+                canonicalize(o)
+                durchgelassen.append(o)
+            except EvalClaimError:
+                pass                       # the principled refusal this axis is about
+            except RecursionError:
+                # A crash is ALSO a refusal to produce bytes, so it does not fake a pass. But it is
+                # NOT the same thing as a typed rejection, and collapsing the two would hide a
+                # robustness defect behind a green case. Measured: canonicalize lets RecursionError
+                # escape on a deeply nested object. Counted as refused, reported separately.
+                hart.append(type(o).__name__)
+        refuses_all = not durchgelassen
+        if refuses_all is not bool(exp["canonicalizeRefuses"]):
+            return _fail(cid, f"refused_all={refuses_all} != expected {exp['canonicalizeRefuses']} "
+                              f"(serialized instead of refusing: {durchgelassen!r})")
+        zusatz = f", {len(hart)} of them by an UNTYPED crash (RecursionError), not a typed rejection" if hart else ""
+        return {"caseId": cid, "ok": True,
+                "detail": f"all {len(objs)} object(s) refused, as the counter-proof asserts{zusatz}"}
+
+    # R2/R3/R4 — the three-outcome classification.
+    if "classification" in exp:
+        got, _claim = classify_eval_claim(_read(case.get("input") or "bundle.json"))
+        if got != exp["classification"]:
+            return _fail(cid, f"classification {got!r} != expected {exp['classification']!r}")
+        return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+
+    return _fail(cid, "envelope_profile_rule case under-declares its expectations (fail-closed): "
+                      "none of contentRootHex / nonConformantDiffers / "
+                      "canonicalizeRefuses / classification")
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
              "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
              "relation_statement": _check_relation_statement,
-             "provenance_version_status": _check_provenance_version_status}
+             "provenance_version_status": _check_provenance_version_status,
+             "envelope_profile_rule": _check_envelope_profile_rule}
 
 
 def run(*, require_anchors: bool = False) -> int:

@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r2-positive-control-known-schema-classifies-valid",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "positive_control",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — the schema-id is read before anything else",
+  "expected": {
+    "classification": "valid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "The positive control that stops the counter-proof from passing for the wrong reason: a verifier that refused EVERYTHING would satisfy the R2 counter-proof and be useless."
+}

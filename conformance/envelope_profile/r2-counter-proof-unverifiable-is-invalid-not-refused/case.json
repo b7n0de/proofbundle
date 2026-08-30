@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r2-counter-proof-unverifiable-is-invalid-not-refused",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — ordering counter-proof, added after a planted defect survived the first ten vectors (2026-08-30)",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "A refusal says 'I cannot judge this'. A broken signature IS judgeable, so a bundle that fails verification must be `invalid` even though its payload names a schema this verifier does not know. Reporting `refused_unknown_schema` here would let a forger buy silence by renaming the schema field. This case exists because a planted defect removing the authenticity-first ordering left all ten other vectors green — the ordering was documented and unproven."
+}

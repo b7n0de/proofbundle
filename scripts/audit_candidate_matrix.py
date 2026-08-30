@@ -514,6 +514,25 @@ def c11_3_relation_experimental():
 
 
 def c12_1_pretag_audit():
+    """A signed pre-tag audit receipt must bind THIS tree, THIS version and THIS gate.
+
+    WHY THIS IS RED ON A WORK BRANCH, AND WHY THAT IS CORRECT (Owner decision 2026-08-30, card
+    OA-4a8daddb55). A receipt binds a `subject_tree_digest`. A work branch is not finished and will
+    get at least one more commit when it merges, so a receipt issued against it attests a tree that
+    is about to stop existing. Producing one anyway would be exactly the act this check was built to
+    catch — it would REPRODUCE the finding instead of closing it. C12.1 is a RELEASE gate; the
+    receipt belongs to the tree that actually gets tagged.
+
+    So a red C12.1 on a branch is not unfinished work and not a tool defect. It is the check doing
+    its job on an object it was not meant to bless. Measured the same day: the v5.0.0 receipt
+    (`audit_artifacts/500/pre_tag_receipt_v5.0.0.json`) binds `4212087273dc…`, which IS the
+    subject_tree_digest of the v5.0.0 tag, is signed by the pinned key, and this gate returns ok
+    when run against that tree.
+
+    HONEST LIMIT, recorded rather than smoothed over: the receipt's signed `audit_output_digest`
+    resolves to no artifact that could be found, and nothing in this gate resolves it — the field is
+    signed, which makes it tamper-evident and attributable, not checkable.
+    """
     import pre_tag_audit_gate as pta
     r = pta.evaluate(REPO, version=VERSION_UNDER_TEST)
     return (PASS, f"pre-tag adversarial audit recorded for {VERSION_UNDER_TEST}") if r["ok"] \

@@ -1,0 +1,16 @@
+{
+  "caseId": "envelope-profile-r1-counter-proof-nonconformant-serializer-diverges",
+  "kind": "envelope_profile_rule",
+  "rule": "R1",
+  "role": "counter_proof",
+  "input": "object.json",
+  "attribution": "receipt-envelope-profile v0.1 R1 — measured 2026-08-28 against inspect-receipts@397ae3ad",
+  "expected": {
+    "nonConformantDiffers": true
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "RFC 8785"
+  ],
+  "rationale": "The counter-proof that makes R1 load-bearing: a json.dumps(sort_keys=True, ensure_ascii=True) serialization of the SAME object must produce a DIFFERENT content root. If the two agreed, R1 would be an empty requirement. The divergence is string escaping alone — \\uXXXX against raw UTF-8 — which is why three ASCII-only vectors did not isolate it."
+}

@@ -63,6 +63,75 @@ for different threats (computation-correctness vs. artifact authenticity/integri
 
 [ValiChord](https://github.com/ValiChord/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Named fairly, the v1 library differs in exactly the standards proofbundle leads with: its format v1 carries **no digital signature** (`signatures` is reserved for v2), uses a **simple SHA-256 Merkle tree** (no RFC 6962 domain separation), and has **no SD-JWT, no in-toto, and no Every Eval Ever converter**; blind peer consensus and an attested log live in its Holochain layer (v2 scope). proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
 
+## CSOAI inspect-receipts — measured, three pinned commits
+
+[`CSOAI-ORG/inspect-receipts`](https://github.com/CSOAI-ORG/inspect-receipts) (package
+`inspect-signed-receipt`, schema `csoai.inspect-receipt/0.2`) signs Inspect AI eval runs. It is the
+nearest neighbour to this project's own shape, and the only one here measured **independently**
+rather than read from its documentation.
+
+**This section is a measurement record.** Every line is pinned to a commit hash and a date. It
+contains no assessment of the project, its authors or their intentions, and nothing about work that
+may exist outside the commits named. A measurement against a pinned commit says what that tree does;
+it says nothing about a branch nobody published.
+
+### What was measured, and when
+
+| Commit | Date | Measured |
+|---|---|---|
+| `ca3fd060` | 2026-08-19 | 2 commits, no CI, no LICENSE file, no did:web resolution path |
+| `8e33f160` | 2026-08-20 | 7 commits, publish-only workflow, 6 tests (green when run by hand), did:web resolution present and working |
+| `397ae3ad` | 2026-08-29 | canonicalisation re-measured with the real `jcs 0.2.1` encoder installed |
+
+### Envelope interoperability — both directions, both fail before signature verification
+
+Measured 2026-08-20 against `8e33f160`, with `proofbundle==4.0.0` from PyPI, both verifiers in the
+same throwaway environment.
+
+- **Their receipt through our verifier:** `ERROR: unsupported schema 'csoai.inspect-receipt/0.2',
+  expected 'proofbundle/v0.1'` — `proofbundle/bundle.py:298`, `UnsupportedError`.
+- **Our `conformance/bundle/valid-minimal` through their verifier:**
+  `INVALID — content_id mismatch` — their `receipt.py:295-301`, which runs *before* their signature
+  check. Our bundle carries no `content_id` field at all; its top-level fields are `merkle`,
+  `payload_b64`, `schema`, `sd_jwt_vc`, `signature`.
+
+Neither direction reaches the cryptography. **This is the subject of
+[issue #147](https://github.com/b7n0de/proofbundle/issues/147)** and the reason a common envelope is
+worth defining: two implementations that both sign correctly still cannot read each other.
+
+A control was run first in both directions — each verifier against its own fixture — because a
+failure at the wrapper looks exactly like a failure at the substance. In the first pass ours was
+invoked as `python -m proofbundle`, which the package does not provide; both legs then failed on the
+invocation rather than on the question, and the control leg was the one that mattered. Repeated with
+the real entry point.
+
+### Canonicalisation — the divergence is string escaping alone
+
+Measured 2026-08-29 against `397ae3ad`, with `jcs 0.2.1` and `rfc8785 0.1.4` both really installed.
+
+|  | `jcs.canonicalize` | `rfc8785` | their `canonical.canonical_bytes` |
+|---|---|---|---|
+| UTF-16 key order | raw | same | same order, **escaped** |
+| number `1e-7` | `1e-7` | same | same |
+| integer `2` | `2` | same | same |
+
+**Key ordering agrees everywhere** — that was vector 1's actual question, and it is answered. The
+bytes differ because the encoder is parametrised as
+`JSONEncoder(sort_keys=True, ensure_ascii=True, separators=(",",":"))`, and `ensure_ascii=True`
+writes every non-ASCII character as `\uXXXX`, while RFC 8785 emits raw UTF-8. Since
+`content_id = sha256(canonical_bytes(body))`, a body containing one non-ASCII character yields a
+different `content_id` than a conformant serializer computes. **ASCII-only receipts are byte-identical**,
+which is why a corpus of ASCII vectors does not surface it — an earlier pass of ours reported "no
+finding" on exactly that basis and was
+[corrected in the thread on 28 August](https://github.com/b7n0de/proofbundle/issues/147).
+
+### Not measured
+
+Whether the escaping is intended as RFC 8785 conformant (their docstring names the `\uXXXX`
+escaping as part of the implementation, but says nothing about the intent). RFC 8785 conformance
+beyond the three vectors. Any state of the code outside the three pinned commits. How the two
+projects should reconcile — that is a conversation in the issue, not a measurement.
+
 ## Comparison tables (fair, at-a-glance)
 
 ### vs Sigstore Rekor / Rekor v2

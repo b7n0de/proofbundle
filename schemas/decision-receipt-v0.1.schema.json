@@ -27,6 +27,18 @@
         "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
+    "typedDigest": {
+      "type": "object",
+      "required": ["type", "digestAlgorithm", "digest"],
+      "additionalProperties": false,
+      "description": "Typed digest reference (5.1, additive, OPTIONAL): an ADDITIONAL shape beside the existing `digest`/`artifactDigest`, carrying what the referenced thing IS (`type`) and what role the digest plays (`purpose`) alongside the algorithm and the value. Neither replaces nor deprecates anything: an entry may carry `digest` alone, `typedDigest` alone, or both. Shape follows the SCITT payload-binding draft's typed digest reference (see docs/SCITT_CPB_MAPPING.md, G3). NAMING: the draft writes `digest_alg`; this schema writes `digestAlgorithm` because that field already exists in `relationDigest` above with the same meaning and this document is lowerCamelCase throughout (ITE-9). Two names for one quantity in one file would be the drift, so the correspondence is recorded in the mapping document instead. `type` and `purpose` are the draft's names unchanged.",
+      "properties": {
+        "type": {"type": "string", "minLength": 1, "description": "what the referenced object IS, e.g. an eval receipt statement"},
+        "purpose": {"type": "string", "minLength": 1, "description": "what role this digest plays for the referring receipt"},
+        "digestAlgorithm": {"const": "jcs-sha256-v1", "description": "EXPLICIT and REQUIRED — never defaulted; a missing value is exactly where algorithm confusion hides"},
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "relationships": {
       "type": "array",
       "minItems": 1,
@@ -155,7 +167,8 @@
           "digest": {"$ref": "#/$defs/sha256Digest", "description": "content root: sha256 over the RFC-8785 canonical Statement bytes of the referenced evidence (not an envelope/file hash)"},
           "artifactDigest": {"$ref": "#/$defs/sha256Digest", "description": "optional: sha256 of a concrete stored blob/envelope for exact retrieval pinning"},
           "uri": {"type": "string"},
-          "predicateType": {"type": "string"}
+          "predicateType": {"type": "string"},
+          "typedDigest": {"$ref": "#/$defs/typedDigest", "description": "optional additive typed reference; when present it must be self-consistent, and it never replaces the required `digest`"}
         }
       }
     },

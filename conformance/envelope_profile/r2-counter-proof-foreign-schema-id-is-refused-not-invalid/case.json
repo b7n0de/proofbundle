@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r2-counter-proof-foreign-schema-id-is-refused-not-invalid",
+  "kind": "envelope_profile_rule",
+  "rule": "R2",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R2 — measured 2026-08-26 against inspect-receipts@397ae3ad (valid=True)",
+  "expected": {
+    "classification": "refused_unknown_schema"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "A cryptographically sound bundle declaring a schema this verifier does not know. TWO wrong answers exist and the case excludes BOTH: `valid` (the measured defect in the reference implementation) and `invalid` (a wrong verdict on someone else's sound artifact). The refusal is its own outcome. NOTE, honestly: the released `decode_eval_claim` returns None for a refusal AND for an invalid claim; the distinction lives in the additive `classify_eval_claim`, because changing the released return contract would be a breaking SemVer step."
+}

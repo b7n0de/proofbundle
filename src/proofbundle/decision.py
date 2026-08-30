@@ -73,7 +73,8 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "proposedAction.parametersSchemaRef": ("uri", "digest"),
     "policyBoundary": ("policyEngine", "policyId", "policyDigest", "decisionPath", "bundleRevision",
                        "validFrom", "validUntil"),
-    "evidenceRefs[]": ("relation", "digest", "artifactDigest", "uri", "predicateType"),
+    "evidenceRefs[]": ("relation", "digest", "artifactDigest", "uri", "predicateType", "typedDigest"),
+    "evidenceRefs[].typedDigest": ("type", "purpose", "digestAlgorithm", "digest"),
     "decision": ("verdict", "reasonCodes", "humanReadableSummary", "obligations", "allowedScope"),
     "notChecked[]": ("field", "reason", "impact"),
     "decisionChangeConditions[]": ("conditionType", "description", "requiredEvidenceType"),
@@ -83,6 +84,38 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "validity": ("audience", "nonce", "expiresAt"),
     "inputSnapshot[]": ("name", "uri", "digest", "mediaType"),
 }
+
+
+def _typed_digest_error(td: Any) -> str | None:
+    """The typed-digest-reference invariant — ONE definition, mirrored by schemas/decision-receipt.
+
+    An ADDITIONAL shape beside `digest`/`artifactDigest`, never a replacement: it carries what the
+    referenced thing IS and what role the digest plays, next to an EXPLICIT algorithm. `digestAlgorithm`
+    is required and never defaulted for the same reason `relationDigest` gives — a missing value is
+    exactly where algorithm confusion hides. See docs/SCITT_CPB_MAPPING.md (G3).
+
+    Returns an error string, or None when the reference is sound.
+    """
+    if not isinstance(td, dict):
+        return "must be an object"
+    # Own key-set check, not only the nested closure: this helper is called directly (and tested
+    # directly), so it must be sound STANDING ALONE. Relying on a caller's closure would make the
+    # docstring's "ONE definition" true only in one code path.
+    unknown = sorted(set(td) - {"type", "purpose", "digestAlgorithm", "digest"})
+    if unknown:
+        return f"undeclared field(s) {unknown}"
+    missing = [k for k in ("type", "digestAlgorithm", "digest") if k not in td]
+    if missing:
+        return f"missing required field(s) {missing}"
+    if td.get("digestAlgorithm") != "jcs-sha256-v1":
+        return "digestAlgorithm must be 'jcs-sha256-v1' (explicit, never defaulted)"
+    for k in ("type", "purpose"):
+        if k in td and not (isinstance(td[k], str) and td[k]):
+            return f"{k}, when present, must be a non-empty string"
+    dg = td.get("digest")
+    if not (isinstance(dg, str) and _SHA256_HEX.match(dg)):
+        return "digest must be a 64-character lowercase sha256 hex string"
+    return None
 
 
 def _as_dict(v):
@@ -230,6 +263,8 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
                 errors.append(f"evidenceRefs[{i}] needs a string 'relation' and a sha256 content-root 'digest'")
             elif "artifactDigest" in ref and not _is_digest(ref.get("artifactDigest")):
                 errors.append(f"evidenceRefs[{i}].artifactDigest, when present, must be a sha256 digest")
+            elif "typedDigest" in ref and _typed_digest_error(ref.get("typedDigest")) is not None:
+                errors.append(f"evidenceRefs[{i}].typedDigest: {_typed_digest_error(ref.get('typedDigest'))}")
     elif "evidenceRefs" in predicate:
         errors.append("evidenceRefs must be a list")
 

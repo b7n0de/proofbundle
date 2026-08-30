@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r4-counter-proof-issuer-is-not-the-signing-key",
+  "kind": "envelope_profile_rule",
+  "rule": "R4",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R4 — an embedded key alone never carries valid=True",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "The bundle carries a perfectly good signature by a DIFFERENT key than the one the payload names as issuer. It verifies as a bundle and must still not be a valid claim: a key that travels with the receipt authenticates nothing on its own."
+}
