@@ -186,3 +186,34 @@ class TestCoverageSchemaParitaet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFehlerformIstEinheitlich(unittest.TestCase):
+    """Alle Aufrufstellen pruefen `is not None`, nie den Wahrheitswert. Ein leerer Fehlerstring
+    waere falsy und rutschte an einer Wahrheitspruefung vorbei, waehrend die Identitaetspruefung
+    ihn zurueckwiese — zwei Formen, die sich widersprechen, sind die Asymmetrie eine Ebene tiefer.
+    Aufgeworfen von der Gegenlesung am 30.08.2026."""
+
+    def test_kein_rueckgabewert_ist_ein_leerer_string(self):
+        import ast
+        import inspect
+        from proofbundle import evalclaim
+        quelle = inspect.getsource(evalclaim._coverage_error)
+        baum = ast.parse(quelle.lstrip())
+        rueck = [n for n in ast.walk(baum) if isinstance(n, ast.Return)]
+        self.assertTrue(rueck)
+        for r in rueck:
+            if isinstance(r.value, ast.Constant):
+                self.assertNotEqual(r.value.value, "", "ein leerer Fehlerstring waere falsy")
+
+    def test_alle_aufrufstellen_pruefen_identitaet(self):
+        import inspect
+        from proofbundle import evalclaim
+        quelle = inspect.getsource(evalclaim)
+        zeilen = [z.strip() for z in quelle.splitlines() if "_coverage_error(" in z]
+        aufrufe = [z for z in zeilen if not z.startswith("def ")]
+        self.assertGreaterEqual(len(aufrufe), 3, "build, emit und verify muessen rufen")
+        for z in aufrufe:
+            # entweder direkt `is not None`, oder Zuweisung an err (die naechste Zeile prueft sie)
+            self.assertTrue("is not None" in z or z.startswith("err = "), f"Form nicht einheitlich: {z}")
+        self.assertNotIn("if err:", quelle, "Wahrheitspruefung auf einen Fehlerstring")

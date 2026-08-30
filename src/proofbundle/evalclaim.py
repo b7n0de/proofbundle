@@ -133,7 +133,11 @@ def _coverage_error(coverage, n) -> Optional[str]:
     Optional as a WHOLE, COMPLETE when present: a missing denominator invites the reader to assume
     the ratio is 1.
 
-    Returns an error string, or None when the block is sound.
+    Returns an error string, or None when the block is sound. Every call site tests ``is not None``,
+    never truthiness: an empty-string return would be falsy and would slip past a truthiness test
+    while the identity test still rejected it — the two forms disagreeing IS the emit-vs-verify
+    asymmetry, one level down. No return here is empty today; the uniform form keeps it that way
+    even if one ever became so. (Raised by the 2026-08-30 cross-read, which asked exactly this.)
     """
     if not isinstance(coverage, dict):
         return "coverage must be an object"
@@ -286,7 +290,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                             "leaf_alg": samples["leaf_alg"]}
     if coverage is not None:
         err = _coverage_error(coverage, n)
-        if err:
+        if err is not None:
             raise EvalClaimError(err)
         claim["coverage"] = {k: coverage[k] for k in
                              ("population_size", "evaluated_count", "unresolved_count")}
@@ -318,7 +322,7 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
         # Shape-check at EMIT too, not only at decode: emitting a receipt that our OWN verifier
         # will reject is a footgun, and the caller finds out at the worst possible moment.
         err = _coverage_error(claim["coverage"], claim.get("n"))
-        if err:
+        if err is not None:
             raise EvalClaimError(err)
     payload = canonicalize(claim)
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
