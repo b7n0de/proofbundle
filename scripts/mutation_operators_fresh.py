@@ -19,8 +19,27 @@ Sekunden zu beantworten — kein Testlauf noetig. Diese Vorpruefung beantwortet 
 Arbeit beginnt. Sie ersetzt das Tor NICHT: sie sagt nichts darueber, ob ein Mutant getoetet wird.
 Sie sagt nur, ob die Operatoren ueberhaupt noch auf den Code zeigen, den sie zu pruefen behaupten.
 
-  exit 0 = jeder Operator findet sein Muster
-  exit 1 = mindestens einer ist stale (mit Datei, Index und Bezeichnung)
+ZWEI FRAGEN, nicht eine. Aufgeworfen von der Gegenlesung am 30.08.2026:
+
+  1. Findet jedes Muster seine Datei?            — sonst misst der Operator NICHTS.
+  2. Findet es sie GENAU EINMAL?                 — sonst trifft `str.replace(alt, neu, 1)` die
+                                                   ERSTE Fundstelle, und die muss nicht die
+                                                   gemeinte sein. Der Operator mutiert dann still
+                                                   den falschen Ort und misst etwas anderes, als
+                                                   seine Bezeichnung sagt.
+
+Die zweite Frage ist genauso statisch wie die erste und war vorher nicht gestellt. Gemessen am
+30.08.2026: 0 von 88 Mustern sind mehrdeutig — der Fall tritt heute nicht auf, und genau deshalb
+faellt er ohne Pruefung auch nicht auf, wenn er eintritt.
+
+EHRLICHE GRENZE, und sie ist der wichtigste Satz hier. Diese Vorpruefung faengt SYNTAKTISCHE
+Veralterung. Sie faengt NICHT den Fall, dass das Muster noch passt, waehrend die Logik DRUMHERUM
+sich geaendert hat — etwa eine neue Bedingung neben der zitierten, die die mutierte Wache
+kompensiert. Dann meldet sie OK, und der Operator misst trotzdem weniger, als er behauptet. Dagegen
+hilft nur der volle Lauf.
+
+  exit 0 = jedes Muster wird genau einmal gefunden
+  exit 1 = mindestens eines fehlt oder ist mehrdeutig (mit Datei, Index und Bezeichnung)
 """
 from __future__ import annotations
 
@@ -40,7 +59,7 @@ def _mutations():
 
 
 def stale_operators(repo: pathlib.Path | None = None) -> list[dict]:
-    """Jeder Operator, dessen Muster seine Datei nicht mehr trifft. Leere Liste = alle frisch."""
+    """Jeder Operator, dessen Muster fehlt ODER mehrdeutig ist. Leere Liste = alle frisch."""
     repo = repo or ROOT
     out: list[dict] = []
     for idx, (rel, old, _new, label, _expect) in enumerate(_mutations()):
@@ -55,6 +74,14 @@ def stale_operators(repo: pathlib.Path | None = None) -> list[dict]:
             out.append({"index": idx, "label": label, "file": rel,
                         "reason": f"{len(fehlend)} von {len(pats)} Muster(n) nicht gefunden",
                         "missing": fehlend})
+            continue
+        # Mehrdeutig ist NICHT dasselbe wie fehlend, und es ist leiser: der Operator laeuft
+        # durch, mutiert aber die erste Fundstelle statt der gemeinten.
+        viele = [(p, src.count(p)) for p in pats if src.count(p) != 1]
+        if viele:
+            out.append({"index": idx, "label": label, "file": rel,
+                        "reason": "; ".join(f"Muster kommt {n}x vor (erwartet genau 1x)" for _p, n in viele),
+                        "missing": [p for p, _n in viele]})
     return out
 
 
