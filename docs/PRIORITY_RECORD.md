@@ -48,6 +48,26 @@ release dates at [pypi.org/project/proofbundle](https://pypi.org/project/proofbu
   predicate proposal: eval-result"), opened 3 July 2026: a public proposal for an in-toto eval-result
   predicate, referencing proofbundle as the MIT reference implementation.
 
+- **proofbundle issue [#147](https://github.com/b7n0de/proofbundle/issues/147)** ("Common receipt
+  envelope: interop with CSOAI inspect-receipts"), opened **19 August 2026**, open as of 30 August
+  2026. The thread is the dated public record for the receipt-envelope requirements. Three of its
+  entries carry measurements rather than proposals, each pinned to a commit hash:
+
+  | Date (UTC) | Entry | What became public |
+  |---|---|---|
+  | 2026-08-19 | issue opened | the common-envelope requirement, stated |
+  | 2026-08-26 | comment | counter-proofs for the schema-id, binding and key-resolution rules, measured against `397ae3ad` |
+  | 2026-08-28 | comment | a **correction to our own earlier note**: the 26 August canonicalisation pass reported "no finding" and had measured the wrong object |
+
+  The 28 August entry is in this record deliberately. A priority record that listed only the
+  findings and not the retraction would be selecting its own evidence.
+
+**Not yet a public record.** `docs/RECEIPT_ENVELOPE_PROFILE.md` (profile v0.1) and
+`docs/SCITT_CPB_MAPPING.md` were written on 30 August 2026 and are **proposed, not adopted** — they
+are in-repo documents, not released artifacts, and no row above rests on them. They become a dated
+public record when they are released, not when they are written. Anyone can resolve every row above
+today; that is the test this document applies to itself.
+
 ## How to read this
 
 Each row is a public, dated artifact anyone can resolve. The record establishes *when* something was
