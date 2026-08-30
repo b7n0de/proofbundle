@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Stale-Operator-Vorpruefung — die Klasse hinter beiden Luecken vom 30.08.2026.
+
+WARUM ES DAS GIBT. Die Operatoren in ``mutation_check.py`` zitieren Quelltext WOERTLICH. Wird die
+zitierte Zeile veraendert — auch voellig zu Recht —, misst der Operator nichts mehr. Beide Luecken
+des Laufs vom 30.08. waren genau das, und BEIDE wurden von einem KLASSENFIX ausgeloest:
+
+  #58  38a672a  "mldsa" in (newest.sig_alg or "")  ->  "mldsa" in _sig_label
+                (ein nicht-String sig_alg liess den Mitgliedstest mit rohem TypeError abstuerzen)
+  #80  fd84e1d  rel0 in _SELF_ASSERTED_RETRACTORS  ->  is_member(rel0, _SELF_ASSERTED_RETRACTORS)
+                ("27 Mitgliedstests hashten Angreiferdaten — die Klasse, nicht die 27 Zeilen")
+
+Ein Klassenfix, der N Aufrufstellen verbessert, entwertet still jeden Pruefer, der diese Stellen
+woertlich zitiert. Das ist die Klasse, und sie ist teurer als sie aussieht: das Tor bemerkt es erst
+nach einem ~3-Stunden-Lauf, weil jeder Operator eine volle Testsuite kostet.
+
+WAS DAS HIER AENDERT. Die Frage "passt jedes Muster noch auf seine Datei" ist REIN STATISCH und in
+Sekunden zu beantworten — kein Testlauf noetig. Diese Vorpruefung beantwortet sie, bevor die teure
+Arbeit beginnt. Sie ersetzt das Tor NICHT: sie sagt nichts darueber, ob ein Mutant getoetet wird.
+Sie sagt nur, ob die Operatoren ueberhaupt noch auf den Code zeigen, den sie zu pruefen behaupten.
+
+  exit 0 = jeder Operator findet sein Muster
+  exit 1 = mindestens einer ist stale (mit Datei, Index und Bezeichnung)
+"""
+from __future__ import annotations
+
+import importlib.util as _iu
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _mutations():
+    spec = _iu.spec_from_file_location("mutation_check", ROOT / "scripts" / "mutation_check.py")
+    mod = _iu.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod.MUTATIONS
+
+
+def stale_operators(repo: pathlib.Path | None = None) -> list[dict]:
+    """Jeder Operator, dessen Muster seine Datei nicht mehr trifft. Leere Liste = alle frisch."""
+    repo = repo or ROOT
+    out: list[dict] = []
+    for idx, (rel, old, _new, label, _expect) in enumerate(_mutations()):
+        pfad = repo / rel
+        if not pfad.is_file():
+            out.append({"index": idx, "label": label, "file": rel, "reason": "Datei fehlt"})
+            continue
+        src = pfad.read_text(encoding="utf-8")
+        pats = list(old) if isinstance(old, tuple) else [old]
+        fehlend = [p for p in pats if p not in src]
+        if fehlend:
+            out.append({"index": idx, "label": label, "file": rel,
+                        "reason": f"{len(fehlend)} von {len(pats)} Muster(n) nicht gefunden",
+                        "missing": fehlend})
+    return out
+
+
+def main() -> int:
+    stale = stale_operators()
+    gesamt = len(_mutations())
+    if not stale:
+        print(f"[mutation-operators-fresh] OK — alle {gesamt} Operatoren finden ihr Muster")
+        return 0
+    print(f"[mutation-operators-fresh] STALE — {len(stale)} von {gesamt} Operator(en) zeigen ins Leere:")
+    for s in stale:
+        print(f"  #{s['index']}  {s['label']}")
+        print(f"      {s['file']}: {s['reason']}")
+        for p in s.get("missing", [])[:2]:
+            print(f"      erwartet: {p.strip()[:100]}")
+    print("  Ein stale Operator misst NICHTS. Muster auf den heutigen Quelltext ziehen — und dabei")
+    print("  den ERSATZ mitziehen, sonst mutiert er nebenbei etwas, das seine Bezeichnung nicht nennt.")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

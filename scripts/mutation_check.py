@@ -300,9 +300,13 @@ MUTATIONS = [
      "renewal: B3<->B5 ATS ML-DSA signature check disabled (forged anchor)", True),
     # 3.2.1 hardening (final-audit findings) — each new fail-closed guard must be killed by its test.
     # F1 — require_pq reverted to a LABEL check accepts a PQ label with an unverified anchor (No-Fake).
+    # 2026-08-30: beide Zeilen auf den heutigen Quelltext gezogen. 38a672a normalisierte
+    # `newest.sig_alg` in ein `_sig_label`; der Operator nannte weiter den alten Wortlaut und war
+    # damit STALE — er meldete eine Luecke, die im PRUEFER lag und nicht im Code. Ersatz mitgezogen,
+    # sonst mutierte er nebenbei die Normalisierung zurueck und aenderte zwei Dinge statt einem.
     ("src/proofbundle/renewal.py",
-     'pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in (newest.sig_alg or "")',
-     'pq_verified = "mldsa" in (newest.sig_alg or "")',
+     'pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label',
+     'pq_verified = "mldsa" in _sig_label',
      "renewal: F1 require_pq reverted to label-only (unverified PQ label passes)", True),
     # F2 — dropping the future-time guard lets a future-dated newest ATS read as perpetually fresh.
     ("src/proofbundle/renewal.py",
@@ -447,9 +451,13 @@ MUTATIONS = [
      "relation-statement: exactly-one-edge structure gate removed", True),
     # (vii) reject_retracted self-assertion gate disabled (a verified retracts statement no longer
     #       blocks continued automated use): killed by TestPolicyGates.test_reject_retracted_blocks.
+    # 2026-08-30: beide Zeilen auf den heutigen Quelltext gezogen. fd84e1d ("27 Mitgliedstests
+    # hashten Angreiferdaten — die Klasse, nicht die 27 Zeilen") routete den Mitgliedstest durch
+    # is_member; der Operator nannte weiter `rel0 in ...` und war damit STALE. Ersatz mitgezogen,
+    # sonst mutierte er nebenbei die Haertung zurueck und aenderte zwei Dinge statt einem.
     ("src/proofbundle/relation_statement.py",
-     "        if resolved and relations.get(\"reject_retracted\") and rel0 in _SELF_ASSERTED_RETRACTORS:",
-     "        if False and relations.get(\"reject_retracted\") and rel0 in _SELF_ASSERTED_RETRACTORS:",
+     "        if resolved and relations.get(\"reject_retracted\") and is_member(rel0, _SELF_ASSERTED_RETRACTORS):",
+     "        if False and relations.get(\"reject_retracted\") and is_member(rel0, _SELF_ASSERTED_RETRACTORS):",
      "relation-statement: reject_retracted gate disabled (retracts no longer blocks)", True),
     # (viii) lattice violation — cryptoValid dropped from the aggregate `ok` (a forged statement with a
     #        valid structure would read ok): killed by TestEmitVerify.test_forged_signature_fails_and_no_trust_fields.
