@@ -10,10 +10,17 @@ adopted. A name settles because citing it is easier than renaming it, not becaus
 
 This profile is **a profile to a standard, not a format beside one.** IETF
 [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) is the published SCITT architecture, and
-`draft-mih-sokolov-scitt-payload-binding-02` (24 Aug 2026, individual submission, no standing in the
-IETF process) sits on top of it. R1 to R4 are stated **against** that draft, by reference. R5 and R6
-are our addition, and they exist because the draft says in its own section 1.1 that it does not
-cover them.
+`draft-mih-sokolov-scitt-payload-binding-02` ("Canonical Payload Binding: A Signed Statement
+Construction Profile", revision 02 of 24 Aug 2026, individual submission, no stream and no intended
+RFC status — verified at the IETF datatracker on 2026-08-30) sits on top of it. R1 to R4 are stated
+**against** that draft, by reference. R5 and R6 are our addition.
+
+**Precisely why, because the weaker wording is the true one.** An earlier draft of this page said the
+draft "says in its own section 1.1 that it does not cover them". Read against the draft itself, that
+is not what section 1.1 says: it excludes payload content formats, artifact types, application
+meaning, registration policy and transports, and it does **not** name evaluation coverage or key
+trust at all. So those two are **absent from the draft**, not deliberately excluded by it — a
+different and smaller claim, and the one the text supports.
 
 ## The one sentence everything follows from
 

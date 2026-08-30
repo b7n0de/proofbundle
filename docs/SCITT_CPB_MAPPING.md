@@ -6,7 +6,10 @@ and contains no judgement about one — a divergence recorded here is a fact abo
 not about anyone's intent.
 
 **Measured 2026-08-30** against tag `v5.0.0` (commit `840a0a6bf4`) and the working branch head
-`bd0161ab0ce6` (`pyproject` 5.0.0). **Re-measured the same day** after G3 and G4 were closed
+`bd0161ab0ce6` (`pyproject` 5.0.0). The draft side was read the same day **from the draft itself**
+(`https://www.ietf.org/archive/id/draft-mih-sokolov-scitt-payload-binding-02.txt`), not from a
+summary: every section number below (4.1, 7.1, 8, 1.1) was checked against it, and one claim did not
+survive that check — see G4. **Re-measured the same day** after G3 and G4 were closed
 additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
 in the IETF process, sitting on top of the published [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943).
@@ -50,8 +53,8 @@ the migration itself. It is owner-gated and tracked as its own item, not done he
 | | |
 |---|---|
 | **Our side** | `src/proofbundle/merkle.py:34` computes RFC 6962 correctly, leaf hash `SHA-256(0x00 ‖ data)`. `src/proofbundle/bundle.py:770` passes the **payload** as leaf data: `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT. |
-| **Draft** | section 7.1 requires, for a derived identifier `D` given as 64-character hex, `leaf_input = bytes.fromhex(D)` — the **raw 32 bytes**, not the text form. |
-| **Verdict** | **Two different constructions.** We bind the log to the payload; the draft binds it to the content-addressed identifier. A verifier following the draft computes a different leaf over our bundle. Neither is wrong; without a declaration neither is interoperable. |
+| **Draft** | section 7.1 requires, for a derived identifier `D` given as 64-character hex, `leaf_input = bytes.fromhex(D)` — the **raw 32 bytes** — and explicitly names `D.encode("utf-8")` (64 ASCII bytes) as the wrong alternative. |
+| **Verdict** | **Two different constructions, and ours is a THIRD thing rather than the draft's named error.** We bind the log to the payload itself, not to the identifier in either of its forms — so the hex-as-text mistake the draft warns about is not the one we make. A verifier following the draft still computes a different leaf over our bundle. Neither is wrong; without a declaration neither is interoperable. |
 
 **Declared, not rebuilt.** A rebuild would void every receipt already issued. The draft's own
 requirement is that a class declares its choice and a verifier does not guess — this page is that
@@ -88,7 +91,7 @@ the argument for it, and used it in one place out of several.
 | | |
 |---|---|
 | **Our side, as first measured** | across **all nine** schemas under `schemas/`: **no `population_size`, no `evaluated_count`, no `unresolved_count`** — zero occurrences. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined. Same spirit, different level, and it does not answer the question about the examined set. |
-| **Draft** | coverage does not appear. Its section 1.1 lists what it does not cover. |
+| **Draft** | coverage does not appear anywhere in the draft. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. So this is absence, not an explicit exclusion; the two are different and only the first is supported by the text. |
 | **Verdict** | **Was absent on both sides.** R5 of our profile was the second rule we asked of others while not carrying it ourselves. The first is R6. |
 | **Closed 2026-08-30, additively** | optional `coverage` on the eval claim: optional as a whole, **complete when present** — a missing denominator invites the reader to assume the ratio is 1. |
 
