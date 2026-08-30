@@ -24,7 +24,7 @@ Where a fact was not measured, this page says **NOT MEASURED** and does not fill
 | | Subject | Verdict |
 |---|---|---|
 | **G1** | canonicalization | behaviour congruent, **token differs**, one exception open |
-| **G2** | Merkle leaf input | **hard divergence**, declared here, not rebuilt |
+| **G2** | Merkle leaf input | **out of scope of 7.1** (its `MUST` is conditional and the condition does not hold here); the 5.1 duty to declare is discharged on this page |
 | **G3** | typed digest reference | was **internally inconsistent**; conformant shape now available additively |
 | **G4** | coverage | **absent on our side, and staying absent** — the field form was withdrawn on 2026-08-30 after CAP-1 was measured to rule it out |
 
@@ -57,16 +57,21 @@ the migration itself. It is owner-gated and tracked as its own item, not done he
 | | |
 |---|---|
 | **Our side** | `src/proofbundle/merkle.py:34` computes RFC 6962 correctly, leaf hash `SHA-256(0x00 ‖ data)`. `src/proofbundle/bundle.py:770` passes the **payload** as leaf data: `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT. |
-| **Draft** | section 7.1 requires, for a derived identifier `D` given as 64-character hex, `leaf_input = bytes.fromhex(D)` — the **raw 32 bytes** — and explicitly names `D.encode("utf-8")` (64 ASCII bytes) as the wrong alternative. |
-| **Verdict** | **Not interoperable, and that is the operative fact.** A verifier following the draft computes a different leaf over our bundle and will not confirm it. Everything after this sentence is precision, not mitigation. The precision: section 7.1 governs how a derived identifier `D` is fed to the tree, and we do not feed an identifier at all -- we bind the payload. So the hex-as-text mistake the draft names is not the one we make, and the rule's precondition does not hold for our construction. **That distinction changes the diagnosis, not the consequence.** For a consumer the result is the same: without a declaration, the two do not verify each other. |
+| **Draft** | section 7.1 opens *"This profile imposes no leaf construction on a Verifiable Data Structure"*, then makes one conditional requirement: **where a Transparency Service's VDS keys its log on the derived identifier**, a 64-character hex `D` MUST enter the tree as `bytes.fromhex(D)` (raw 32 bytes) and never as `D.encode("utf-8")` (64 ASCII bytes). Section 5.1 separately makes representation normative: a payload class **MUST specify which representation it uses** for each field containing or referencing a derived identifier, and a verifier **MUST NOT silently coerce** between them. |
+| **Verdict** | **Section 7.1 does not reach our construction, and saying it does was my own overcorrection.** Read at source on 2026-08-30 (`draft-mih-sokolov-scitt-payload-binding-02.txt`, 92428 B, sha256 `47ab6757...`), the section opens: *"This profile imposes no leaf construction on a Verifiable Data Structure."* The `MUST` that follows is **conditional** -- *"Where a Transparency Service's VDS keys its log on the derived identifier"* -- and names the hex-as-text mistake as the failure that requirement exists to prevent. **We do not key on the derived identifier; we bind the payload.** So we are neither conformant with 7.1 nor in violation of it: the conditional does not reach us, and there is no defect here to declare. |
 
-**Declared, not rebuilt -- and the reason is measured, not asserted.** "A rebuild would void every
-receipt already issued" stood here as a justification while the count behind it had never been taken.
-Measured 2026-08-30: **91 bundles carrying both `merkle` and `payload_b64` in this tree** (of 3000 JSON
+**What does reach us is section 5.1, and it is an obligation to declare rather than to change.** 5.1 makes
+representation *normative*: a payload class **MUST specify which representation it uses for each field
+containing or referencing a derived identifier**, and a verifier **MUST NOT silently coerce** among the three
+listed forms. That duty applies to us whether or not 7.1 does, and this page is where we discharge it: our
+log leaf is the payload, not the derived identifier in any of its representations.
+
+**A rebuild is still not proposed, and now the reason is measured rather than asserted.** "A rebuild would
+void every receipt already issued" stood here as a justification while the count behind it had never been
+taken. Measured 2026-08-30: **91 bundles carrying both `merkle` and `payload_b64` in this tree** (of 3000 JSON
 files examined), across **44 released versions on PyPI**, 0.3.0 through 5.0.0. Receipts issued by third
-parties using this library are **NICHT MESSBAR** from here -- we cannot see them, so the true total is a
-lower bound and not a figure. The draft's own requirement is that a class declares its choice and a
-verifier does not guess -- this page is that declaration.
+parties using this library are **NICHT MESSBAR** from here -- we cannot see them, so the true total is a lower
+bound and not a figure.
 
 ## G3 — typed digest reference
 
@@ -139,14 +144,22 @@ whether SCITT already carries work on coverage that we have missed.
 
 ## Honest limit of this page
 
-**Review round 2026-08-30.** An adversarial reading rejected the G1 and G2 verdicts as too favourable.
-Two of its three reasons did not survive contact with the source: it read `intoto.py:178` as *using* a
-`sort_keys` body under the `jcs` token when that function **rejects** exactly that, and it treated the G2
-distinction as sophistry when the draft rule's precondition genuinely does not hold here. Its third point
-landed: a justification ("a rebuild would void every receipt") was resting on a number nobody had counted.
-Both verdicts were rewritten so the operative fact leads and the scope of each claim is stated before the
-claim, and the count was taken. Recording this because a page about not overclaiming should show where it
-was itself overclaiming.
+**Review round 2026-08-30, and it went wrong twice in opposite directions.**
+An adversarial reading rejected the G1 and G2 verdicts as too favourable. Two of its three reasons did
+not survive contact with the source: it read `intoto.py:178` as *using* a `sort_keys` body under the `jcs`
+token when that function **rejects** exactly that, and it called the G2 distinction sophistry. Its third
+point landed: a justification ("a rebuild would void every receipt") rested on a number nobody had counted.
+
+**Then I made the mirror-image mistake.** Having rejected two of the three reasons, I still accepted the
+*framing* -- that G2 was too soft -- and rewrote the verdict to "not interoperable" **without re-reading
+section 7.1**. Reading it afterwards: its first sentence is *"This profile imposes no leaf construction on
+a Verifiable Data Structure"* and its `MUST` is conditional on a VDS keying its log on the derived
+identifier, which ours does not. There was no defect to state. Overclaiming a fault in our own artefact is
+the same failure as concealing one, and it is the harder of the two to notice, because it feels like rigour.
+
+Both verdicts now quote the draft text they rest on, the scope of each claim precedes the claim, the count
+was taken, and the obligation that *does* reach us -- section 5.1, declare your representation -- is named
+and discharged. Recorded here because a page about not overclaiming should show where it overclaimed.
 
 This is a measurement record of **our** artefacts against a **published** text. It confers nothing,
 certifies nothing, and appoints no one to judge anyone's conformance. Whoever claims the profile runs
