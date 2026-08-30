@@ -26,9 +26,12 @@ receipt names. What was not checked is not reported, not even in a weakened form
 RFC 8785, one serializer, pinned in the schema. Both sides compute the same `content_id` before any
 signature is checked. The serializer is reached through a public interface, not a private module.
 
-**Counter-proof.** The three divergence vectors from the issue thread: UTF-16 key ordering over the
-pair U+1F600 and U+FFFF, `1e-7`, and the integer `2`. Each must produce a differing `content_id`
-under a non-conformant canonicalization and must turn the check red.
+**Counter-proof.** The three divergence vectors from the issue thread: UTF-16 key ordering over a
+pair where the code-unit order and the code-point order disagree, `1e-7`, and the integer `2`. Each
+must produce a differing `content_id` under a non-conformant canonicalization and must turn the check
+red. The shipped vector uses U+1F600 with U+FF3A; the thread's U+FFFF was measured 2026-08-30 and
+diverges identically, so either pair carries the axis — a surrogate pair sorts BEFORE any BMP
+character by code units and AFTER most of them by code points.
 
 **Two of those three cannot arise in this format, and saying so is part of the rule.** Measured
 2026-08-30: the claim profile refuses Python floats outright (`_reject_non_jcs`) and requires decimal
@@ -138,13 +141,25 @@ A profile without shipped counter-proofs is a statement of intent.
 
 **Shipped since 2026-08-30.** `conformance/envelope_profile/` — twelve vectors, at least one
 counter-proof and one positive control per rule R1 to R5, all running through our own emit and verify
-path rather than a purpose-built mock. Detection rate is MEASURED, not asserted: eight planted
-defects, eight caught. THREE of them initially escaped, and each escape bought a vector that had been
-missing — the authenticity ordering under R2, a hand-signed coverage block under R5, and R1's second
-and third divergence axes, which the shipped counter-proof did not cover although this document
-claimed all three. A fourth planted defect turned out to be ineffective rather than escaped (removing
-the float branch left the value refused by the next clause anyway); it was replaced with one that
-mutates the property instead of the message. **An escaped defect is worth more than a caught one
+path rather than a purpose-built mock.
+
+Detection rate is MEASURED, not asserted. Final state: **eight planted defects, eight caught.** The
+path there matters more than the number, so it is written out rather than summarised.
+
+- **Two escaped on the first attempt**, and each escape bought a vector that was missing: the
+  authenticity ordering under R2 (no vector was both unverifiable *and* foreign-schema, so removing
+  the ordering changed no verdict), and a hand-signed coverage block under R5 (the unit tests caught
+  it, the corpus did not — and the corpus is the outward authority).
+- **Two attempted mutations were ineffective rather than escaped**, which looks identical in the
+  output and is not the same thing at all. One replaced a branch whose neighbour carried the same
+  effect; one removed the float branch, after which the value was still refused by the next clause —
+  the mutation changed the *message*, not the property. Both were replaced with mutations that change
+  the property. A mutation that changes nothing proves nothing about the test.
+- **One gap was NOT found by a planted defect at all**, and the distinction is worth keeping: R1's
+  second and third divergence axes were missing from the shipped counter-proof although this document
+  claimed all three. That came from reading the document against the corpus, not from the meta-test.
+  A meta-test measures whether a shipped check can fail; it cannot notice a check that was never
+  shipped. **An escaped defect is worth more than a caught one
 here** — the caught ones confirm what was already believed, the escaped ones name what was not. R6 has no vector of its
 own on purpose: a case asserting "the cases exist" would be the tautology this rule warns about.
 

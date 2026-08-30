@@ -82,5 +82,7 @@ score perfectly on the counter-proofs, and the corpus would call that conformanc
 
 R6 (every rule ships its counter-proof) deliberately has NO vector: a case asserting that the cases
 exist is the tautology the rule warns about. R6 is satisfied by the family existing and by its
-detection rate being measured — eight planted defects, eight caught, with three of them buying
-vectors that were missing.
+detection rate being measured — eight planted defects, eight caught, two of which escaped on the
+first attempt and each bought a missing vector. A third gap came from reading the profile against the
+corpus rather than from the meta-test: a meta-test measures whether a shipped check can fail, it
+cannot notice a check that was never shipped.
