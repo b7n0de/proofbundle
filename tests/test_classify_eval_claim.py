@@ -113,3 +113,42 @@ class TestKorpusDeckung(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNeverRaiseUnterTiefe(unittest.TestCase):
+    """Die never-raise-Zusage unter PATHOLOGISCHER Verschachtelung (CWE-674).
+
+    Eine Gegenlesung am 30.08.2026 meldete, RecursionError entkomme dem except-Block von
+    classify_eval_claim. Gemessen ist der Fund WIDERLEGT: load_claim_text delegiert an den
+    budget-begrenzten strikten Parser, der Tiefe auf ein typisiertes EvalClaimError abbildet
+    ('JSON nesting is too deep'). Der Test steht trotzdem hier — die Eigenschaft war vorher nur
+    an flachem Unsinn geprueft, und genau die interessante Eingabe fehlte.
+    """
+
+    def _bundle_mit_nutzlast(self, roh: bytes):
+        from proofbundle.emit import emit_bundle
+        return emit_bundle(roh, generate_signer())
+
+    def test_tiefe_liste_wirft_nicht(self):
+        roh = (b"[" * 20000) + (b"]" * 20000)
+        outcome, claim = classify_eval_claim(self._bundle_mit_nutzlast(roh))
+        self.assertEqual(outcome, CLAIM_INVALID)
+        self.assertIsNone(claim)
+
+    def test_tiefes_objekt_wirft_nicht(self):
+        roh = (b"{" + b'"a":{' * 5000 + b"}" * 5001)
+        outcome, claim = classify_eval_claim(self._bundle_mit_nutzlast(roh))
+        self.assertEqual(outcome, CLAIM_INVALID)
+        self.assertIsNone(claim)
+
+    def test_decode_eval_claim_wirft_ebenfalls_nicht(self):
+        # Derselbe Vertrag eine Ebene tiefer — classify ruft decode, also muss auch das halten.
+        for roh in ((b"[" * 20000) + (b"]" * 20000), b"{" + b'"a":{' * 5000 + b"}" * 5001):
+            self.assertIsNone(decode_eval_claim(self._bundle_mit_nutzlast(roh)))
+
+    def test_die_tiefe_wird_typisiert_abgewiesen_nicht_als_recursionerror(self):
+        # Der Kern: eine SAUBERE Fehlermeldung statt eines rohen RecursionError.
+        from proofbundle.evalclaim import EvalClaimError, load_claim_text
+        with self.assertRaises(EvalClaimError) as ctx:
+            load_claim_text("[" * 20000 + "]" * 20000)
+        self.assertNotIsInstance(ctx.exception, RecursionError)
