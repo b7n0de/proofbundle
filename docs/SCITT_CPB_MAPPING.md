@@ -38,7 +38,7 @@ added and was withdrawn hours later, see G4.
 |---|---|
 | **Our side** | `src/proofbundle/canonical.py:43` — `CONTENT_ROOT_ALG = "jcs-sha256-v1"`. The real canonicalizer is called (`rfc8785.dumps`), imported lazily from the `[eval]` extra; `statement_content_root` returns 32 raw SHA-256 bytes, `.hex()` gives the 64-character identifier. |
 | **Draft** | section 4.1 registers `jcs` as *plain RFC 8785 JCS, no normalization pass; SHA-256; lowercase hex output*. |
-| **Verdict** | **The behaviour is identical. The token differs**, `jcs-sha256-v1` here against `jcs` in the registry. That is a mapping question, not a contradiction. The token is **mapped, not renamed** — renaming it would invalidate every receipt that carries it. |
+| **Verdict** | **Scope first, because the claim is narrower than it reads.** For statements canonicalized under the declared `jcs-sha256-v1` -- the path `canonicalize_statement` takes -- the behaviour is identical to the registry entry and only the token differs, which is a mapping question and not a contradiction. It is **mapped, not renamed**; renaming would invalidate every receipt carrying it. **It is not a statement about the whole library.** Released `intoto` export paths run a different serialization; they are declared under their own token and are the open exception below, not a silent part of this verdict. |
 
 **The open exception, and it stands in our own source.** `canonical.py:27` states verbatim that
 migrating the released `intoto` export paths off `json.dumps(sort_keys=True)` is *a separate T3 /
@@ -58,11 +58,15 @@ the migration itself. It is owner-gated and tracked as its own item, not done he
 |---|---|
 | **Our side** | `src/proofbundle/merkle.py:34` computes RFC 6962 correctly, leaf hash `SHA-256(0x00 ‖ data)`. `src/proofbundle/bundle.py:770` passes the **payload** as leaf data: `merkle.leaf_hash(payload)`, where the payload is the base64url part of the issuer JWT. |
 | **Draft** | section 7.1 requires, for a derived identifier `D` given as 64-character hex, `leaf_input = bytes.fromhex(D)` — the **raw 32 bytes** — and explicitly names `D.encode("utf-8")` (64 ASCII bytes) as the wrong alternative. |
-| **Verdict** | **Two different constructions, and ours is a THIRD thing rather than the draft's named error.** We bind the log to the payload itself, not to the identifier in either of its forms — so the hex-as-text mistake the draft warns about is not the one we make. A verifier following the draft still computes a different leaf over our bundle. Neither is wrong; without a declaration neither is interoperable. |
+| **Verdict** | **Not interoperable, and that is the operative fact.** A verifier following the draft computes a different leaf over our bundle and will not confirm it. Everything after this sentence is precision, not mitigation. The precision: section 7.1 governs how a derived identifier `D` is fed to the tree, and we do not feed an identifier at all -- we bind the payload. So the hex-as-text mistake the draft names is not the one we make, and the rule's precondition does not hold for our construction. **That distinction changes the diagnosis, not the consequence.** For a consumer the result is the same: without a declaration, the two do not verify each other. |
 
-**Declared, not rebuilt.** A rebuild would void every receipt already issued. The draft's own
-requirement is that a class declares its choice and a verifier does not guess — this page is that
-declaration.
+**Declared, not rebuilt -- and the reason is measured, not asserted.** "A rebuild would void every
+receipt already issued" stood here as a justification while the count behind it had never been taken.
+Measured 2026-08-30: **91 bundles carrying both `merkle` and `payload_b64` in this tree** (of 3000 JSON
+files examined), across **44 released versions on PyPI**, 0.3.0 through 5.0.0. Receipts issued by third
+parties using this library are **NICHT MESSBAR** from here -- we cannot see them, so the true total is a
+lower bound and not a figure. The draft's own requirement is that a class declares its choice and a
+verifier does not guess -- this page is that declaration.
 
 ## G3 — typed digest reference
 
@@ -128,11 +132,21 @@ it and wonder.
 ## What is NOT measured
 
 Whether the `intoto` export paths are reachable from outside or only internally. How many receipts
-are already out there with today's leaf construction. Whether the draft is adopted by the working
+exist **outside this tree** with today's leaf construction -- the in-tree count is now measured under G2
+and is a lower bound; the total is not knowable from here. Whether the draft is adopted by the working
 group — it is an individual submission. Whether RFC 9943 considers evaluation receipts in scope. And
 whether SCITT already carries work on coverage that we have missed.
 
 ## Honest limit of this page
+
+**Review round 2026-08-30.** An adversarial reading rejected the G1 and G2 verdicts as too favourable.
+Two of its three reasons did not survive contact with the source: it read `intoto.py:178` as *using* a
+`sort_keys` body under the `jcs` token when that function **rejects** exactly that, and it treated the G2
+distinction as sophistry when the draft rule's precondition genuinely does not hold here. Its third point
+landed: a justification ("a rebuild would void every receipt") was resting on a number nobody had counted.
+Both verdicts were rewritten so the operative fact leads and the scope of each claim is stated before the
+claim, and the count was taken. Recording this because a page about not overclaiming should show where it
+was itself overclaiming.
 
 This is a measurement record of **our** artefacts against a **published** text. It confers nothing,
 certifies nothing, and appoints no one to judge anyone's conformance. Whoever claims the profile runs
