@@ -224,52 +224,14 @@ def main() -> int:
                      "claim: a key that travels with the receipt authenticates nothing on its own.",
     }, {"bundle.json": mismatched})
 
-    # ── R5 coverage does not follow from integrity ─────────────────────────────────────────────
-    voll = _base(s, n=500, coverage={"population_size": 500, "evaluated_count": 500, "unresolved_count": 0})
-    leer = _base(s, n=0, coverage={"population_size": 500, "evaluated_count": 0, "unresolved_count": 500})
-    _write("r5-positive-control-full-and-empty-are-distinguishable", {
-        "caseId": "envelope-profile-r5-positive-control-full-and-empty-are-distinguishable",
-        "kind": "envelope_profile_rule", "rule": "R5", "role": "positive_control",
-        "inputs": ["full.json", "empty.json"],
-        "attribution": "receipt-envelope-profile v0.1 R5 — carried since 2026-08-30",
-        "expected": {"bothValid": True, "coverageDistinguishable": True},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "docs/SCITT_CPB_MAPPING.md"],
-        "rationale": "Two receipts, BOTH cryptographically clean and both classifying `valid`. One "
-                     "examined the whole population, the other examined none of it. A consumer must be "
-                     "able to tell them apart WITHOUT opening the subject.",
-    }, {"full.json": emit_eval_receipt(voll, s), "empty.json": emit_eval_receipt(leer, s)})
-
-    voll_o = _base(s, n=500)
-    leer_o = _base(s, n=0)
-    _write("r5-counter-proof-without-coverage-they-are-indistinguishable", {
-        "caseId": "envelope-profile-r5-counter-proof-without-coverage-they-are-indistinguishable",
-        "kind": "envelope_profile_rule", "rule": "R5", "role": "counter_proof",
-        "inputs": ["full.json", "empty.json"],
-        "attribution": "receipt-envelope-profile v0.1 R5 — the failure mode the rule exists against",
-        "expected": {"bothValid": True, "coverageDistinguishable": False},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md"],
-        "rationale": "The same two situations WITHOUT the coverage block. Both receipts still verify "
-                     "cleanly, and the coverage question is now unanswerable from the envelope. This "
-                     "case asserts the ABSENCE deliberately: it is the state the corpus was in until "
-                     "2026-08-30, and a corpus that only showed the fixed state would not record why "
-                     "the rule is needed.",
-    }, {"full.json": emit_eval_receipt(voll_o, s), "empty.json": emit_eval_receipt(leer_o, s)})
-    luegende_cov = dict(decode_eval_claim(emit_eval_receipt(voll, s)) or {})
-    luegende_cov["coverage"] = dict(luegende_cov["coverage"], evaluated_count=1)
-    _write("r5-counter-proof-hand-signed-coverage-contradicts-n", {
-        "caseId": "envelope-profile-r5-counter-proof-hand-signed-coverage-contradicts-n",
-        "kind": "envelope_profile_rule", "rule": "R5", "role": "counter_proof",
-        "input": "bundle.json",
-        "attribution": "receipt-envelope-profile v0.1 R5 x R3 — added after a planted defect survived (2026-08-30)",
-        "expected": {"classification": "invalid"},
-        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md"],
-        "rationale": "Coverage numbers are only worth carrying if they are CHECKED where they are "
-                     "consumed. This claim was hand-built and signed, bypassing the blessed emitter, "
-                     "and its evaluated_count contradicts the claim's own n. R5 without R3 would be a "
-                     "field that can say anything. This case exists because a planted defect that "
-                     "disarmed the coverage check on the verify path left the whole corpus green — the "
-                     "unit tests caught it, the corpus did not, and the corpus is the outward authority.",
-    }, {"bundle.json": emit_bundle(canonicalize(luegende_cov), s)})
+    # ── R5 — KEINE Vektoren, und das ist eine Entscheidung, keine Luecke ────────────────────────
+    # Owner-Berichtigung Fassung 8 vom 30.08.2026: draft-hillier-coverage-attestation-00 (CAP-1,
+    # 20.08.2026) verlangt je nicht gepruefter Einheit einen eigenen begruendeten Eintrag und weist
+    # einen Rest, der sich nur durch Subtraktion ausgleicht, ausdruecklich zurueck. Genau so ein Rest
+    # waren unsere drei Zahlen. Die Feldform ist damit OFFEN, und eine Gegenprobe gegen eine Form,
+    # die gerade zurueckgezogen wurde, waere wertlos. Die R5-Probe entsteht, nachdem CAP-1 gelesen
+    # ist — der Entwurf selbst ist bisher NICHT GELESEN, und aus einer Zusammenfassung nachgebaute
+    # Felder waeren geraten.
     return 0
 
 

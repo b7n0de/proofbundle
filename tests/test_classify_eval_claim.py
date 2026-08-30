@@ -99,16 +99,24 @@ class TestKorpusDeckung(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         cases = json.loads((root / "conformance" / "manifest.json").read_text())["cases"]
         eigene = [c for c in cases if c.startswith("envelope_profile/")]
-        self.assertGreaterEqual(len(eigene), 10)
+        self.assertGreaterEqual(len(eigene), 9)
         rollen: dict = {}
         for rel in eigene:
             case = json.loads((root / "conformance" / rel / "case.json").read_text())
             self.assertEqual(case["kind"], "envelope_profile_rule", rel)
             rollen.setdefault(case["rule"], set()).add(case["role"])
-        for regel in ("R1", "R2", "R3", "R4", "R5"):
+        for regel in ("R1", "R2", "R3", "R4"):
             self.assertIn(regel, rollen, f"{regel} hat keinen Vektor")
             self.assertIn("counter_proof", rollen[regel], f"{regel} ohne Gegenprobe")
             self.assertIn("positive_control", rollen[regel], f"{regel} ohne Positivkontrolle")
+        # R5 traegt in dieser Runde ABSICHTLICH keine Vektoren, Owner-Berichtigung Fassung 8:
+        # die Feldform ist offen, seit CAP-1 (draft-hillier-coverage-attestation-00, 20.08.2026)
+        # gemessen einen nur durch Subtraktion ausgeglichenen Rest zurueckweist. Eine Gegenprobe
+        # gegen eine zurueckgezogene Form waere wertlos. Der Test HAELT das fest, statt es
+        # wegzulassen — eine stillschweigend fehlende Regel sieht aus wie eine vergessene.
+        self.assertNotIn("R5", rollen,
+                         "R5 soll in dieser Runde KEINE Vektoren haben (Fassung 8); "
+                         "taucht wieder einer auf, ist die Entscheidung unbemerkt zurueckgenommen")
 
     def test_die_zahl_im_text_ist_die_gemessene_zahl(self):
         """Die Prosa nennt eine Vektorzahl. Sie muss die GEZAEHLTE sein.

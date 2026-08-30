@@ -112,34 +112,31 @@ All three must come out invalid.
 
 ## R5 — coverage does not follow from integrity
 
-The envelope carries what the receipt examined, not only that it is unaltered. Three numbers are
-enough and they are machine-readable.
+**The requirement, unchanged.** A consumer must be able to tell *we looked and found nothing* from
+*we never looked*. A receipt that verifies cleanly and whose scope never contained the operation in
+question is otherwise indistinguishable from one that contained it and found nothing. That is a real
+gap and it is why this rule is in the list.
 
-```
-population_size    how large was the set that should have been examined
-evaluated_count    how many of them were examined
-unresolved_count   how many remained open
-```
+**The field form is NOT ours to state, and this profile no longer states one.** An earlier draft of
+this page proposed three numbers and presented them as our contribution. Measured 2026-08-30 in the
+`scitt@ietf.org` list archive: **`draft-hillier-coverage-attestation-00`**, *The Coverage Attestation
+Profile* (CAP-1), Joel David Hillier, Certisyn Inc., **20 August 2026** — ten days older than that
+draft of this page — specifies exactly this question, and its normative line rules out the shape we
+had proposed: for each stratum the number of eligible units must equal the checked units plus the
+**individually justified** unchecked ones, and **a remainder that only balances by subtraction must
+be rejected**. Three numbers whose third follows from the other two are such a remainder.
 
-Without these three, a receipt that verifies cleanly and whose scope never contained the operation
-in question is indistinguishable from one that contained it and found nothing.
+**So R5 states the requirement and points at the work that specifies it.** It does not propose a
+field form, and it is not our contribution. **The form proofbundle will carry is not yet decided.**
 
-**Counter-proof.** Two receipts, both cryptographically clean, one with
-`evaluated_count == population_size`, one with `population_size == 0`. A consumer must be able to
-tell them apart without opening the subject.
+**No counter-proof ships for R5 in this revision**, and that is a decision rather than an omission:
+a counter-proof against a shape we have just withdrawn would test nothing. It follows once CAP-1 has
+been read.
 
-**Provenance.** The idea is not ours. It surfaced 2026-08-26 in the OpenTelemetry thread on
-`semantic-conventions-genai` issue 470, as a proposed non-goal "No coverage claim". We measured the
-same failure class in our own gates on the same day, one level down. `draft-mih-sokolov-scitt-payload-binding-02`
-likewise does not cover coverage, which is why R5 is stated here rather than by reference.
-
-**Carried since 2026-08-30.** Until that date R5 was a rule we asked of others and did not carry
-ourselves: measured across all nine schemas, none of the three fields appeared. The optional
-`coverage` block on the eval claim now carries them — optional as a whole, complete when present,
-with `evaluated_count` bound to the claim's existing `n` so the same quantity does not acquire a
-second, free-floating number. Enforced on build, emit **and** verify from one definition;
-`tests/test_eval_claim_coverage.py`. **Honest limit:** these are issuer-DECLARED counts. The
-signature makes them tamper-evident and attributable; it does not make them correct.
+**Honest limit on this very paragraph.** What has been read so far is CAP-1's summary and two of the
+thread's 129 messages. **The draft itself is unread.** Rebuilding a CAP-1-shaped field set from a
+summary would be guesswork, and guesswork is not a state this profile is allowed to ship in — which
+is the same standard R5 exists to hold others to.
 
 ## R6 — every rule brings its own counter-proof
 
@@ -148,9 +145,9 @@ control each. Detection rate 100 percent, otherwise the profile counts as unmet.
 
 A profile without shipped counter-proofs is a statement of intent.
 
-**Shipped since 2026-08-30.** `conformance/envelope_profile/` — thirteen vectors (R1 three, R2 three, R3 two, R4 two, R5 three), at least one
-counter-proof and one positive control per rule R1 to R5, all running through our own emit and verify
-path rather than a purpose-built mock.
+**Shipped since 2026-08-30.** `conformance/envelope_profile/` — ten vectors (R1 three, R2 three, R3 two, R4 two), at least one
+counter-proof and one positive control per rule **R1 to R4**, all running through our own emit and
+verify path rather than a purpose-built mock. **R5 carries none**, deliberately: see R5 above.
 
 Detection rate is MEASURED, not asserted. Final state: **nine effective planted defects, nine
 caught** — seven in the full round over the corpus, two more for the R1 vectors added afterwards. The
@@ -212,7 +209,7 @@ that is not measured there:
 | R2 | **congruent** — the draft requires a verifier to distinguish "type in no registry" from "not in my copy"; that is R2's separate outcome. |
 | R3 | **congruent since 2026-08-30, additively** — the draft requires `type`, `digest_alg`, `digest` as mandatory and `purpose` conditionally. The optional `typedDigest` on `evidenceRefs[]` carries that shape (`digestAlgorithm` for `digest_alg`, see the mapping). It adds to the existing `digest`, which stays required and unchanged. Correction to this table's first pass: the conformant shape already existed in the same schema as `relationDigest`; the gap was internal inconsistency, not absence. |
 | R4 | **addition** — the draft requires only that the protected header carry `kid` or `x5chain`. Resolution, trust anchors and fail-closed do not appear in it. |
-| R5 | **addition** — coverage does not appear in the draft at all. |
+| R5 | **stated, not specified here** — the CPB draft does not cover coverage, but `draft-hillier-coverage-attestation-00` (20 Aug 2026) does, and it rules out the shape this page once proposed. R5 names the requirement and points there; proofbundle's field form is undecided. |
 | R6 | **addition** — a governance rule; it appears in neither document. |
 
 **One divergence is declared here rather than changed.** Our bundle passes the *payload* as Merkle

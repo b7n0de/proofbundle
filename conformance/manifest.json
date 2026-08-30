@@ -78,9 +78,6 @@
     "envelope_profile/r3-positive-control-coherent-sample-binding",
     "envelope_profile/r3-counter-proof-hand-signed-binding-lies-about-tree-size",
     "envelope_profile/r4-positive-control-issuer-is-the-signing-key",
-    "envelope_profile/r4-counter-proof-issuer-is-not-the-signing-key",
-    "envelope_profile/r5-positive-control-full-and-empty-are-distinguishable",
-    "envelope_profile/r5-counter-proof-without-coverage-they-are-indistinguishable",
-    "envelope_profile/r5-counter-proof-hand-signed-coverage-contradicts-n"
+    "envelope_profile/r4-counter-proof-issuer-is-not-the-signing-key"
   ]
 }

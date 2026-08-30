@@ -357,7 +357,7 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
     # went green on the first. Measured 2026-08-30: a case carrying a correct `contentRootHex` and a
     # nonsense `classification` passed. (Raised by the cross-read; confirmed at source before fixing.)
     _ACHSEN = ("contentRootHex", "nonConformantDiffers", "canonicalizeRefuses",
-               "classification", "coverageDistinguishable")
+               "classification")
     genannt = [a for a in _ACHSEN if a in exp]
     if len(genannt) != 1:
         return _fail(cid, f"envelope_profile_rule case must declare EXACTLY ONE expectation axis "
@@ -421,32 +421,9 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
             return _fail(cid, f"classification {got!r} != expected {exp['classification']!r}")
         return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
 
-    # R5 — coverage does not follow from integrity.
-    if "coverageDistinguishable" in exp:
-        names = case.get("inputs") or []
-        if len(names) != 2:
-            return _fail(cid, "coverage case needs exactly two inputs")
-        klass, claims = [], []
-        for n in names:
-            k, c = classify_eval_claim(_read(n))
-            klass.append(k)
-            claims.append(c)
-        if "bothValid" in exp and (all(k == "valid" for k in klass) is not bool(exp["bothValid"])):
-            return _fail(cid, f"classifications {klass!r} contradict bothValid={exp['bothValid']}")
-        covs = [(c or {}).get("coverage") for c in claims]
-        # Distinguishable means BOTH carry the block AND the blocks differ. One-sided presence is not
-        # a distinction a consumer can rely on; it is an accident of one issuer being diligent.
-        distinguishable = all(c is not None for c in covs) and covs[0] != covs[1]
-        if distinguishable is not bool(exp["coverageDistinguishable"]):
-            return _fail(cid, f"distinguishable={distinguishable} != expected "
-                              f"{exp['coverageDistinguishable']} (coverage {covs!r})")
-        return {"caseId": cid, "ok": True,
-                "detail": ("full and empty are distinguishable from the envelope" if distinguishable
-                           else "indistinguishable without coverage, as the counter-proof asserts")}
-
     return _fail(cid, "envelope_profile_rule case under-declares its expectations (fail-closed): "
-                      "none of contentRootHex / nonConformantDiffers / classification / "
-                      "coverageDistinguishable")
+                      "none of contentRootHex / nonConformantDiffers / "
+                      "canonicalizeRefuses / classification")
 
 
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,

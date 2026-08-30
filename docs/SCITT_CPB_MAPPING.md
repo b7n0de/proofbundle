@@ -26,10 +26,11 @@ Where a fact was not measured, this page says **NOT MEASURED** and does not fill
 | **G1** | canonicalization | behaviour congruent, **token differs**, one exception open |
 | **G2** | Merkle leaf input | **hard divergence**, declared here, not rebuilt |
 | **G3** | typed digest reference | was **internally inconsistent**; conformant shape now available additively |
-| **G4** | coverage | was **absent on our side** in all nine schemas; now carried, optionally |
+| **G4** | coverage | **absent on our side, and staying absent** — the field form was withdrawn on 2026-08-30 after CAP-1 was measured to rule it out |
 
-G1 and G2 stand as measured. G3 and G4 were closed additively on 2026-08-30 — nothing existing
-became mandatory, and no version was forced.
+G1 and G2 stand as measured. G3 was closed additively on 2026-08-30 — nothing existing became
+mandatory, and no version was forced. G4 was **opened again on the same day**: a field form had been
+added and was withdrawn hours later, see G4.
 
 ## G1 — canonicalization
 
@@ -93,30 +94,36 @@ the argument for it, and used it in one place out of several.
 
 | | |
 |---|---|
-| **Our side, as first measured** | across **all nine** schemas under `schemas/`: **no `population_size`, no `evaluated_count`, no `unresolved_count`** — zero occurrences. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined. Same spirit, different level, and it does not answer the question about the examined set. |
-| **Draft** | coverage does not appear anywhere in the draft. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. So this is absence, not an explicit exclusion; the two are different and only the first is supported by the text. |
-| **Verdict** | **Was absent on both sides.** R5 of our profile was the second rule we asked of others while not carrying it ourselves. The first is R6. |
-| **Closed 2026-08-30, additively** | optional `coverage` on the eval claim: optional as a whole, **complete when present** — a missing denominator invites the reader to assume the ratio is 1. |
+| **Our side** | measured across all nine schemas under `schemas/`: no `population_size`, no `evaluated_count`, no `unresolved_count`. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined — same spirit, different level, and it does not answer the question about the examined set. |
+| **CPB draft** | coverage does not appear anywhere in it. Its section 1.1 lists what is out of scope — payload content formats, artifact types, application meaning, registration policy, transports — and does **not** name evaluation coverage. Absence, not an explicit exclusion. |
+| **Verdict** | **Absent on both sides — and it stays absent on ours for now.** |
 
-**Two design decisions worth stating, because both could have gone the lazy way.**
+**This entry was rewritten on 2026-08-30, and the reason matters more than the conclusion.** An
+earlier version of it recorded that we had closed the gap additively with three fields
+(`population_size`, `evaluated_count`, `unresolved_count`) and treated that as our contribution.
 
-`evaluated_count` MUST equal the claim's `n`. `n` is already the size the aggregate was computed
-over (`intoto.py:426` exports it as `sampleSize`), so a second free-floating number would have been
-a second truth about one quantity. The binding mirrors the existing `samples.n == n` rule and its
-stated reason. The three counts are **disjoint** subsets: `evaluated + unresolved <= population`,
-and the remainder is the deliberately excluded set.
+Measured the same day in the `scitt@ietf.org` archive: **`draft-hillier-coverage-attestation-00`**,
+*The Coverage Attestation Profile* (CAP-1), 20 August 2026 — **older than our proposal** — specifies
+this exact question. Its normative line requires, per stratum, that eligible units equal checked
+units plus **individually justified** unchecked ones, and that **a remainder which only balances by
+subtraction be rejected**. Three numbers whose third follows from the other two are precisely such a
+remainder.
 
-Enforced on **all three** paths — build, emit and verify — from one definition. A rule enforced only
-at emit is bypassed by a hand-signed claim, which is the emit-vs-verify asymmetry class
-`evalclaim.py` already guards for `samples` and `assurance_level`.
-`tests/test_eval_claim_coverage.py` (14 tests) covers it, and six planted defects were each caught.
+**So the fields were removed again rather than left standing.** Shipping a shape we had measured a
+live draft to reject would be the overclaim this whole exercise exists against — and it would sit in
+a document whose subject is not overclaiming. The removal is in the branch; the fields were never on
+a remote (the branch had not been pushed when the correction arrived).
 
-**A measured limit that belongs here, not in a footnote.** These schemas run
-`additionalProperties: false`, so "additive" holds in **one direction only**. Measured: an old
-receipt validates under the new schema; a new receipt carrying `coverage` **fails** under the old
-one — and fails as *invalid*, not as *unknown*. That is exactly the distinction R2 of our own
-profile demands of a verifier, and our schema form does not make it. Recorded as an executable fact
-in `test_gemessene_grenze_additiv_ist_nur_eine_richtung`, not as a claim.
+**Not replaced by a guess.** No CAP-1-shaped field set was rebuilt here: what has been read is CAP-1's
+summary and two of the thread's 129 messages, and **the draft itself is unread**. The field form
+proofbundle will carry is **undecided**, and deciding it is scheduled work, not something to infer
+from an abstract.
+
+**Untouched by any of this:** the RT-10 triple our own gates already emit
+(`scripts/findings_register.py`, `scripts/audit_candidate_matrix.py`) carries `population_size` and
+`evaluated_count` in exactly the shape discussed above. It is pre-existing, internal, and outside the
+scope of this correction — noted here because it is the same shape and a reader will otherwise find
+it and wonder.
 
 ## What is NOT measured
 
