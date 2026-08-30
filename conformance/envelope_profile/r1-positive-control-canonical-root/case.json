@@ -1,0 +1,17 @@
+{
+  "caseId": "envelope-profile-r1-positive-control-canonical-root",
+  "kind": "envelope_profile_rule",
+  "rule": "R1",
+  "role": "positive_control",
+  "input": "object.json",
+  "attribution": "receipt-envelope-profile v0.1 R1 — one normative canonicalization (RFC 8785)",
+  "expected": {
+    "contentRootHex": "bff73ab6442f6d95ac2e800c954db5b3e2391e31c87457a23edf33a3682aa037"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "docs/SCITT_CPB_MAPPING.md",
+    "RFC 8785"
+  ],
+  "rationale": "Our emit path canonicalizes with the real RFC 8785 serializer and must reproduce this content root byte for byte. An implementation that produces a different root for this object is not running one normative canonicalization."
+}

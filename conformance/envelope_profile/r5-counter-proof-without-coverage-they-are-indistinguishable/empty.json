@@ -1,0 +1,16 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY29tbWl0X2FsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJjb21wYXJhdG9yIjoiPj0iLCJkYXRhc2V0X2lkX2NvbW1pdCI6InNoYTI1NjoxYjYwZTZjMWM0MTA4ODc2NzEwMTIwNWY3YzBiMTA1ZDUyYTA4OTZjZTUxOTEyM2ZlZDQyY2Y1ZWNjMzJlZDE4IiwiaXNzdWVyIjoiZWQyNTUxOTpOb21NY3E2eEp0d1NySWpJd0RWWDRDc0F2NkVwbUdJN3hPVmRlRWxtNG1zPSIsIm1ldHJpYyI6InJlZnVzYWxfcmF0ZSIsIm1vZGVsX2lkX2NvbW1pdCI6InNoYTI1NjphMjQwMDA0NWMzMDlkZTNiYjhhZDgxMTY1ODcyYzA1ZWU4NGExZTdmOTVjMmNhYmI1ZDU2YTkwNDdjODE2NTUxIiwibiI6MCwicGFzc2VkIjp0cnVlLCJzY2hlbWEiOiJwcm9vZmJ1bmRsZS9ldmFsLWNsYWltL3YwLjEiLCJzdWl0ZSI6InNhZmV0eS1yZWZ1c2FsIiwic3VpdGVfdmVyc2lvbiI6InYxIiwidGhyZXNob2xkIjoiMC44MCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMzBUMDA6MDA6MDBaIn0=",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "NomMcq6xJtwSrIjIwDVX4CsAv6EpmGI7xOVdeElm4ms=",
+    "sig_b64": "z9reg8nPvukL4eSqS85nNqNWN20iU4TswDLu5ePK0LnhyCf2R195bIT9UOSjm0MWhdWONZrz2T/OD/sDeFSJDg=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 1,
+    "inclusion_proof_b64": [],
+    "root_b64": "5XWT7sKVexMeVIPcY53Ug2C90L9/jStGltekkX/8p0Y="
+  }
+}

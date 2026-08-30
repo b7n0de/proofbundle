@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r5-counter-proof-hand-signed-coverage-contradicts-n",
+  "kind": "envelope_profile_rule",
+  "rule": "R5",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R5 x R3 — added after a planted defect survived (2026-08-30)",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "Coverage numbers are only worth carrying if they are CHECKED where they are consumed. This claim was hand-built and signed, bypassing the blessed emitter, and its evaluated_count contradicts the claim's own n. R5 without R3 would be a field that can say anything. This case exists because a planted defect that disarmed the coverage check on the verify path left the whole corpus green — the unit tests caught it, the corpus did not, and the corpus is the outward authority."
+}

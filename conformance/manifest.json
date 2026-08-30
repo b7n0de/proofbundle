@@ -68,6 +68,18 @@
     "provenance/version-status-unknown-literal",
     "provenance/version-status-unrelated-status-field",
     "provenance/version-status-absent-legacy-receipt",
-    "provenance/version-status-lookalike-version-field"
+    "provenance/version-status-lookalike-version-field",
+    "envelope_profile/r1-positive-control-canonical-root",
+    "envelope_profile/r1-counter-proof-nonconformant-serializer-diverges",
+    "envelope_profile/r2-positive-control-known-schema-classifies-valid",
+    "envelope_profile/r2-counter-proof-foreign-schema-id-is-refused-not-invalid",
+    "envelope_profile/r2-counter-proof-unverifiable-is-invalid-not-refused",
+    "envelope_profile/r3-positive-control-coherent-sample-binding",
+    "envelope_profile/r3-counter-proof-hand-signed-binding-lies-about-tree-size",
+    "envelope_profile/r4-positive-control-issuer-is-the-signing-key",
+    "envelope_profile/r4-counter-proof-issuer-is-not-the-signing-key",
+    "envelope_profile/r5-positive-control-full-and-empty-are-distinguishable",
+    "envelope_profile/r5-counter-proof-without-coverage-they-are-indistinguishable",
+    "envelope_profile/r5-counter-proof-hand-signed-coverage-contradicts-n"
   ]
 }

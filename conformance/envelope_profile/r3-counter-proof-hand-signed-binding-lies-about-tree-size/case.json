@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r3-counter-proof-hand-signed-binding-lies-about-tree-size",
+  "kind": "envelope_profile_rule",
+  "rule": "R3",
+  "role": "counter_proof",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R3 — the emit-vs-verify asymmetry class",
+  "expected": {
+    "classification": "invalid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "The signature is VALID and the bundle verifies — this claim was hand-built and signed, bypassing the blessed emitter. Its reported sample binding contradicts the claim's own n. A guarantee enforced only at emit would accept this; the rule must hold where it is CONSUMED, not only where it is produced."
+}

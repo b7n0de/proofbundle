@@ -1,0 +1,16 @@
+{
+  "schema": "proofbundle/v0.1",
+  "payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzZWxmX2F0dGVzdGVkIiwiY29tbWl0X2FsZyI6InNoYTI1Ni1zYWx0ZWQtdjEiLCJjb21wYXJhdG9yIjoiPj0iLCJkYXRhc2V0X2lkX2NvbW1pdCI6InNoYTI1NjoyZWQ2ODQ0ZjZjNjllN2NmNjkzYmI0ZDkyOTljYWNlOGQ5NTg5NDFkNWQxYTEyNTYyNDlhMzMxMDhjMWFhYzRhIiwiaXNzdWVyIjoiZWQyNTUxOTpOb21NY3E2eEp0d1NySWpJd0RWWDRDc0F2NkVwbUdJN3hPVmRlRWxtNG1zPSIsIm1ldHJpYyI6InJlZnVzYWxfcmF0ZSIsIm1vZGVsX2lkX2NvbW1pdCI6InNoYTI1Njo5MTQxYjA3NWFiYzFlMzNiZDgzN2FkZmYxZjBiYzc3Mzg0MDNkNThlMDBiNjk1NGVlMjAyZDhjYzZjYmM4ZThhIiwibiI6NTAwLCJwYXNzZWQiOnRydWUsInNhbXBsZXMiOnsibGVhZl9hbGciOiJzaGEyNTYtcmZjNjk2Mi1zZGp3dC12MSIsIm4iOjUwMCwicm9vdF9iNjQiOiJFUkVSRVJFUkVSRVJFUkVSRVJFUkVSRVJFUkVSRVJFUkVSRVJFUkVSRVJFPSJ9LCJzY2hlbWEiOiJwcm9vZmJ1bmRsZS9ldmFsLWNsYWltL3YwLjEiLCJzdWl0ZSI6InNhZmV0eS1yZWZ1c2FsIiwic3VpdGVfdmVyc2lvbiI6InYxIiwidGhyZXNob2xkIjoiMC44MCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMzBUMDA6MDA6MDBaIn0=",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "NomMcq6xJtwSrIjIwDVX4CsAv6EpmGI7xOVdeElm4ms=",
+    "sig_b64": "Ls1qqjf/ECa5z9ob7h+f0Ky4VXh0g+s/BCIxTlLKybNk6xCQvhmwhIloT93hBGddKHffQQI4yS3s2xI65gAVCQ=="
+  },
+  "merkle": {
+    "hash_alg": "sha256-rfc6962",
+    "leaf_index": 0,
+    "tree_size": 1,
+    "inclusion_proof_b64": [],
+    "root_b64": "hqwaYtqmTeyoGsbxb+2jkdKeCeQfVrI4uiJBYyfn9EM="
+  }
+}

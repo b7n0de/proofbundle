@@ -59,7 +59,17 @@ __all__ = [
     "eval_evidence_class", "SCORE_EVIDENCE_CLASSES", "EXACT_SCORE_VERIFIED",
     "THRESHOLD_VERDICT_VERIFIED", "SCORE_COMMITMENT_PRESENT", "SCORE_WITHHELD",
     "METHODOLOGY_NOT_EVALUATED", "enclave_assurance_proven",
+    "classify_eval_claim", "CLAIM_VALID", "CLAIM_REFUSED_UNKNOWN_SCHEMA", "CLAIM_INVALID",
 ]
+
+# R2 of the receipt-envelope profile: a refusal is a SEPARATE outcome, not `invalid`. A consumer must
+# be able to tell "this receipt is invalid" from "I cannot judge this receipt". `decode_eval_claim`
+# returns None for BOTH — its documented contract, relied on by callers, and changing it would be a
+# breaking SemVer step. `classify_eval_claim` is the ADDITIVE way to get the distinction: new
+# function, no existing caller affected, released contract untouched.
+CLAIM_VALID = "valid"
+CLAIM_REFUSED_UNKNOWN_SCHEMA = "refused_unknown_schema"
+CLAIM_INVALID = "invalid"
 
 
 class EvalClaimError(ValueError):
@@ -400,6 +410,42 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
         # inside the guard and the except covers the malformed-input family, so decode_eval_claim on
         # {'not':'a bundle'} / [1,2,3] / a bad path all return None as documented.
         return None
+
+
+def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tuple:
+    """Three-outcome classification of a bundle: (outcome, claim-or-None).
+
+    ``CLAIM_VALID`` — verified, and the claim is a sound eval claim (the claim is returned).
+    ``CLAIM_REFUSED_UNKNOWN_SCHEMA`` — the bundle VERIFIES, but its payload declares a schema this
+    verifier does not know. That is not a defect of the receipt; it is the limit of this verifier,
+    and reporting it as `invalid` would put a wrong verdict on someone else's sound artifact.
+    ``CLAIM_INVALID`` — everything genuinely judgeable and wrong: a broken signature, a payload that
+    is not JSON, a known schema carrying a malformed claim.
+
+    ORDER MATTERS AND IS DELIBERATE. Authenticity is decided FIRST: a bundle whose signature does not
+    verify is `invalid` no matter what schema it names, because a broken signature IS judgeable and
+    "I cannot judge this" would be the weaker, wrong answer. Only an AUTHENTIC payload can earn a
+    refusal.
+
+    Never raises — same never-raise contract as ``decode_eval_claim``.
+    """
+    try:
+        if isinstance(bundle, str):
+            bundle = load_bundle(bundle)
+        if not verify_bundle(bundle).ok:
+            return (CLAIM_INVALID, None)
+        payload = decode_b64(bundle["payload_b64"])
+        claim = load_claim_text(payload.decode("utf-8"))
+    except (ProofBundleError, KeyError, ValueError, TypeError, EvalClaimError, OSError):
+        return (CLAIM_INVALID, None)
+    if not isinstance(claim, dict):
+        return (CLAIM_INVALID, None)
+    if claim.get("schema") != EVAL_CLAIM_SCHEMA:
+        return (CLAIM_REFUSED_UNKNOWN_SCHEMA, None)
+    decoded = decode_eval_claim(bundle, expected_context=expected_context)
+    if decoded is None:
+        return (CLAIM_INVALID, None)
+    return (CLAIM_VALID, decoded)
 
 
 def claim_warnings(claim: dict) -> list:

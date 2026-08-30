@@ -53,6 +53,16 @@ receipt is invalid* from *I cannot judge this receipt.*
 **Provenance.** Measured 2026-08-26 against `inspect-receipts@397ae3ad`: the same probe returns
 `valid=True`.
 
+**Carried since 2026-08-30, and it was the third one.** Measured on our own path first:
+`decode_eval_claim` returned `None` for a foreign schema id AND for a broken receipt — the same
+collapse of the two outcomes that this rule exists against. That contract is released and callers
+depend on it, so it is unchanged; `classify_eval_claim` adds the distinction as a new function.
+**The ordering is part of the rule:** authenticity is decided FIRST, because a broken signature *is*
+judgeable and answering "I cannot judge this" would let a forger buy silence by renaming the schema
+field. That ordering was documented and unproven until a planted defect removing it left the whole
+corpus green; the vector that discriminates it exists because the meta-test found the hole, not
+because writing the vectors found it.
+
 ## R3 — a reported binding is a binding that was performed
 
 `binding_checked` is set only when the binding was complete. A binding of type content-hash without
@@ -114,6 +124,13 @@ Whoever claims this profile ships the executable counter-proofs for R1 to R5, pl
 control each. Detection rate 100 percent, otherwise the profile counts as unmet.
 
 A profile without shipped counter-proofs is a statement of intent.
+
+**Shipped since 2026-08-30.** `conformance/envelope_profile/` — eleven vectors, one counter-proof and
+one positive control per rule R1 to R5, all running through our own emit and verify path rather than
+a purpose-built mock. Detection rate is MEASURED, not asserted: seven planted defects, seven caught.
+Two of those seven initially escaped and each one bought a vector that had been missing — the
+authenticity ordering under R2, and a hand-signed coverage block under R5. R6 has no vector of its
+own on purpose: a case asserting "the cases exist" would be the tautology this rule warns about.
 
 **Provenance.** House governance rule, first written in the 2026-08-26 draft. It has **no external
 source**, and we do not claim one. Its standing against us is recorded: at the time of writing this

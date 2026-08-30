@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r3-positive-control-coherent-sample-binding",
+  "kind": "envelope_profile_rule",
+  "rule": "R3",
+  "role": "positive_control",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R3 — a reported binding is a performed binding",
+  "expected": {
+    "classification": "valid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "The committed tree covers exactly the samples the aggregate was computed over."
+}

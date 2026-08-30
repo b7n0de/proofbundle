@@ -67,3 +67,18 @@ contradict each other in either direction.
 The corpus carries one vector per status value and one per rejection class under
 `conformance/provenance/`. A rule with no rejection vector is not conformance-testable: an
 implementation could satisfy every positive case and still accept anything.
+
+## Receipt-envelope profile (5.1)
+
+`conformance/envelope_profile/` holds eleven vectors for the profile in
+`docs/RECEIPT_ENVELOPE_PROFILE.md`: one counter-proof and one positive control for each of R1 to R5.
+They run through the library's own emit and verify path — a vector family checked by a purpose-built
+mock would prove something about the mock.
+
+The positive controls are not decoration. Without them a verifier that rejected every input would
+score perfectly on the counter-proofs, and the corpus would call that conformance.
+
+R6 (every rule ships its counter-proof) deliberately has NO vector: a case asserting that the cases
+exist is the tautology the rule warns about. R6 is satisfied by the family existing and by its
+detection rate being measured — seven planted defects, seven caught, with two of them buying vectors
+that were missing.

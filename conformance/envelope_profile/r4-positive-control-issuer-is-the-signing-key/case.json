@@ -1,0 +1,15 @@
+{
+  "caseId": "envelope-profile-r4-positive-control-issuer-is-the-signing-key",
+  "kind": "envelope_profile_rule",
+  "rule": "R4",
+  "role": "positive_control",
+  "input": "bundle.json",
+  "attribution": "receipt-envelope-profile v0.1 R4 — key resolution fails closed",
+  "expected": {
+    "classification": "valid"
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md"
+  ],
+  "rationale": "The claim's issuer fingerprint IS the key that signed the bundle."
+}
