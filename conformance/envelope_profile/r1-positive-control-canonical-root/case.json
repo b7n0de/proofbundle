@@ -6,7 +6,7 @@
   "input": "object.json",
   "attribution": "receipt-envelope-profile v0.1 R1 — one normative canonicalization (RFC 8785)",
   "expected": {
-    "contentRootHex": "bff73ab6442f6d95ac2e800c954db5b3e2391e31c87457a23edf33a3682aa037"
+    "contentRootHex": "cbb19685ce376c7f1fb6be7985472de6b63d05e49f5cca0bb26e02491b17e41c"
   },
   "specRefs": [
     "docs/RECEIPT_ENVELOPE_PROFILE.md",

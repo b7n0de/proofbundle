@@ -375,6 +375,25 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
         return {"caseId": cid, "ok": True,
                 "detail": f"serializations differ as expected ({konform[:12]} vs {legacy[:12]})"}
 
+    if "canonicalizeRefuses" in exp:
+        from proofbundle.evalclaim import EvalClaimError  # noqa: PLC0415
+        objs = _read(case.get("input") or "objects.json")
+        if not isinstance(objs, list) or not objs:
+            return _fail(cid, "canonicalizeRefuses case needs a non-empty list of objects")
+        durchgelassen = []
+        for o in objs:
+            try:
+                canonicalize(o)
+                durchgelassen.append(o)
+            except EvalClaimError:
+                pass
+        refuses_all = not durchgelassen
+        if refuses_all is not bool(exp["canonicalizeRefuses"]):
+            return _fail(cid, f"refused_all={refuses_all} != expected {exp['canonicalizeRefuses']} "
+                              f"(serialized instead of refusing: {durchgelassen!r})")
+        return {"caseId": cid, "ok": True,
+                "detail": f"all {len(objs)} object(s) refused, as the counter-proof asserts"}
+
     # R2/R3/R4 — the three-outcome classification.
     if "classification" in exp:
         got, _claim = classify_eval_claim(_read(case.get("input") or "bundle.json"))

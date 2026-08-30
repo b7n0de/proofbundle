@@ -1,0 +1,16 @@
+{
+  "caseId": "envelope-profile-r1-counter-proof-float-is-refused-so-two-axes-cannot-arise",
+  "kind": "envelope_profile_rule",
+  "rule": "R1",
+  "role": "counter_proof",
+  "input": "objects.json",
+  "attribution": "receipt-envelope-profile v0.1 R1 — the two axes this format removes rather than resolves",
+  "expected": {
+    "canonicalizeRefuses": true
+  },
+  "specRefs": [
+    "docs/RECEIPT_ENVELOPE_PROFILE.md",
+    "RFC 8785"
+  ],
+  "rationale": "Both objects carry a Python float: 1e-7 (divergence vector 2) and 2.0 (vector 3). Our canonicalizer must REFUSE both rather than serialize them, because the profile requires decimal strings. That refusal is why the two axes cannot produce a divergent content root here — not because we resolved them, but because the format removes the shape they need. A verifier that quietly serialized a float would reopen both axes at once."
+}

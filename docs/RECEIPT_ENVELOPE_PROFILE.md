@@ -30,6 +30,17 @@ signature is checked. The serializer is reached through a public interface, not 
 pair U+1F600 and U+FFFF, `1e-7`, and the integer `2`. Each must produce a differing `content_id`
 under a non-conformant canonicalization and must turn the check red.
 
+**Two of those three cannot arise in this format, and saying so is part of the rule.** Measured
+2026-08-30: the claim profile refuses Python floats outright (`_reject_non_jcs`) and requires decimal
+STRINGS, so `1e-7` and `2.0` never reach a serializer here. A byte-comparison vector for them would
+be theatre — it would compare two renderings of a value this format does not accept. **The honest
+counter-proof for those two axes is the refusal itself**, and it ships as one: both objects must be
+refused, and a planted defect that accepts a float turns the case red with the serialized value
+printed. So R1 is carried by three vectors, not one: the ordering-and-escaping divergence (a single
+object that gets *both* wrong under a non-conformant serializer), the refusal, and a positive
+control. The two axes are **removed rather than resolved**, which is a weaker claim than resolving
+them and the true one.
+
 **Provenance.** Measured 2026-08-26 and corrected 2026-08-28 against `inspect-receipts@397ae3ad`;
 basis `office/handoff_journal/20260828T104501Z`. The first pass reported "no finding" and was wrong
 because it measured `jcs.canonicalize` and `rfc8785.dumps` rather than the alias that signing and
@@ -125,11 +136,16 @@ control each. Detection rate 100 percent, otherwise the profile counts as unmet.
 
 A profile without shipped counter-proofs is a statement of intent.
 
-**Shipped since 2026-08-30.** `conformance/envelope_profile/` — eleven vectors, one counter-proof and
-one positive control per rule R1 to R5, all running through our own emit and verify path rather than
-a purpose-built mock. Detection rate is MEASURED, not asserted: seven planted defects, seven caught.
-Two of those seven initially escaped and each one bought a vector that had been missing — the
-authenticity ordering under R2, and a hand-signed coverage block under R5. R6 has no vector of its
+**Shipped since 2026-08-30.** `conformance/envelope_profile/` — twelve vectors, at least one
+counter-proof and one positive control per rule R1 to R5, all running through our own emit and verify
+path rather than a purpose-built mock. Detection rate is MEASURED, not asserted: eight planted
+defects, eight caught. THREE of them initially escaped, and each escape bought a vector that had been
+missing — the authenticity ordering under R2, a hand-signed coverage block under R5, and R1's second
+and third divergence axes, which the shipped counter-proof did not cover although this document
+claimed all three. A fourth planted defect turned out to be ineffective rather than escaped (removing
+the float branch left the value refused by the next clause anyway); it was replaced with one that
+mutates the property instead of the message. **An escaped defect is worth more than a caught one
+here** — the caught ones confirm what was already believed, the escaped ones name what was not. R6 has no vector of its
 own on purpose: a case asserting "the cases exist" would be the tautology this rule warns about.
 
 **Provenance.** House governance rule, first written in the 2026-08-26 draft. It has **no external

@@ -58,7 +58,10 @@ def main() -> int:
     # The object is deliberately non-ASCII: that is the ONLY axis on which the two serializations
     # diverge. Ordering and numbers are RFC-8785-correct in both, which is exactly why a corpus of
     # ASCII-only vectors cannot see this and an earlier pass of ours reported "no finding".
-    obj = {"café": 1, "b": 2, "a": [1, 2, 3]}
+    # Covers BOTH axes that can arise in this format at once: the UTF-16 key ordering (the emoji
+    # sorts FIRST by code units, LAST by code points) and non-ASCII escaping. Measured: the legacy
+    # serialization gets both wrong on this one object.
+    obj = {"\U0001F600": 2, "\uFF3A": 1, "café": 3, "b": 4, "a": [1, 2, 3]}
     _write("r1-positive-control-canonical-root", {
         "caseId": "envelope-profile-r1-positive-control-canonical-root",
         "kind": "envelope_profile_rule", "rule": "R1", "role": "positive_control",
@@ -84,6 +87,25 @@ def main() -> int:
                      "is string escaping alone — \\uXXXX against raw UTF-8 — which is why three "
                      "ASCII-only vectors did not isolate it.",
     }, {"object.json": obj})
+
+    # Divergence vectors 2 and 3 from the issue thread — the small exponent (1e-7) and the
+    # integer-valued float (2.0) — CANNOT ARISE in this format: the claim profile refuses Python
+    # floats outright and requires decimal STRINGS. Shipping a byte-comparison vector for them would
+    # be theatre. The honest counter-proof for those two axes is the refusal itself, so it gets one.
+    _write("r1-counter-proof-float-is-refused-so-two-axes-cannot-arise", {
+        "caseId": "envelope-profile-r1-counter-proof-float-is-refused-so-two-axes-cannot-arise",
+        "kind": "envelope_profile_rule", "rule": "R1", "role": "counter_proof",
+        "input": "objects.json",
+        "attribution": "receipt-envelope-profile v0.1 R1 — the two axes this format removes rather than resolves",
+        "expected": {"canonicalizeRefuses": True},
+        "specRefs": ["docs/RECEIPT_ENVELOPE_PROFILE.md", "RFC 8785"],
+        "rationale": "Both objects carry a Python float: 1e-7 (divergence vector 2) and 2.0 (vector "
+                     "3). Our canonicalizer must REFUSE both rather than serialize them, because the "
+                     "profile requires decimal strings. That refusal is why the two axes cannot "
+                     "produce a divergent content root here — not because we resolved them, but "
+                     "because the format removes the shape they need. A verifier that quietly "
+                     "serialized a float would reopen both axes at once.",
+    }, {"objects.json": [{"x": 1e-7}, {"x": 2.0}]})
 
     # ── R2 the schema-id is read; refusal is a SEPARATE outcome ────────────────────────────────
     good_claim = _base(s)
