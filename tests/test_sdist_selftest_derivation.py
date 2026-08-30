@@ -193,3 +193,98 @@ class BauartefakteZaehlenNicht(unittest.TestCase):
             self.assertFalse(cf._ist_bauartefakt(pathlib.Path(d), "irgendwas/target/x"),
                              "ohne git wird etwas als Bauartefakt entschuldigt — das entschaerft "
                              "die Ableitung genau dort, wo sie gebraucht wird")
+
+
+class LokaleWurzelUndSchleifenwerte(unittest.TestCase):
+    """Die Ableitung erkennt eine Wurzel an ihrer HERKUNFT, nicht an ihrem NAMEN.
+
+    ANLASS (2026-08-30, hermetic-cleanroom auf PR #159): ein Test las
+    ``docs/RECEIPT_ENVELOPE_PROFILE.md`` und fiel im sdist mit FileNotFoundError. Die Ableitung sah
+    in dem Modul NULL Pfade — zwei Ursachen, gemessen. (1) ``_ROOT_NAMEN`` ist eine
+    grossgeschriebene Allowlist, die lokale Variable hiess ``root``: damit war das GANZE Modul
+    unsichtbar. (2) Der Pfad stand hinter einer Schleifenvariable, und ``_kette`` verwirft ein
+    variables Segment.
+
+    WARUM NICHT EINFACH DIE NAMENSLISTE OEFFNEN: die Grossschreibung ist der UNTERSCHEIDER zwischen
+    einer modulweiten Konstante (meint konventionell die Wurzel) und einer lokalen Variable (meint
+    meist etwas anderes). Gemessen kostet das Oeffnen 14 Falsch-Positiv-Pfade in zwei Modulen, deren
+    lokale Variable ein kopiertes Korpus- bzw. ein Temp-Verzeichnis ist — die wuerden ausserhalb
+    eines Checkouts still uebersprungen. Deshalb wird die HERKUNFT geprueft: nur was nachweislich
+    aus ``__file__`` abgeleitet ist und dabei die richtige ZAHL VON SCHRITTEN nimmt, ist die Wurzel.
+    """
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "tests").mkdir()
+        (self.tmp / "vorhanden.md").write_text("da", encoding="utf-8")
+
+    def _modul(self, name: str, quelle: str) -> pathlib.Path:
+        p = self.tmp / "tests" / name
+        p.write_text(quelle, encoding="utf-8")
+        return p
+
+    def test_eine_lokale_kleingeschriebene_wurzel_wird_erkannt(self):
+        p = self._modul("test_lokal.py",
+                        'from pathlib import Path\n'
+                        'def test_x():\n'
+                        '    root = Path(__file__).resolve().parent.parent\n'
+                        '    (root / "docs/FEHLT.md").read_text()\n')
+        self.assertTrue(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                        "eine lokale Wurzel darf nicht am Namen scheitern")
+
+    def test_ein_pfad_hinter_einer_schleife_ueber_konstanten_wird_erkannt(self):
+        p = self._modul("test_schleife.py",
+                        'from pathlib import Path\n'
+                        'def test_x():\n'
+                        '    root = Path(__file__).resolve().parent.parent\n'
+                        '    for rel in ("docs/FEHLT.md", "vorhanden.md"):\n'
+                        '        (root / rel).read_text()\n')
+        self.assertTrue(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                        "der entscheidbare Schleifenfall wurde nicht aufgeloest")
+
+    def test_ein_schritt_zu_wenig_ist_NICHT_die_wurzel(self):
+        """``Path(__file__).parent`` ist das tests-Verzeichnis. 29 Stellen im Baum schreiben das."""
+        p = self._modul("test_flach.py",
+                        'from pathlib import Path\n'
+                        'def test_x():\n'
+                        '    hier = Path(__file__).resolve().parent\n'
+                        '    (hier / "fixtures").iterdir()\n')
+        self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                         "ein tests-relativer Pfad wurde als wurzelrelativ gelesen")
+
+    def test_eine_lokale_variable_ohne_dateiherkunft_ist_keine_wurzel(self):
+        """``root = self._copy_corpus()`` und ``repo = tmp_path / 'r'`` sind KEINE Repo-Wurzeln."""
+        for form in ('    root = irgendwas()\n    (root / "docs/FEHLT.md").read_text()\n',
+                     '    repo = tmp / "r"\n    (repo / "docs/FEHLT.md").read_text()\n'):
+            with self.subTest(form=form.strip().splitlines()[0][:40]):
+                p = self._modul("test_fremd.py",
+                                'from pathlib import Path\ndef test_x(tmp, irgendwas):\n' + form)
+                self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                                 "eine fremde lokale Variable wurde als Wurzel gelesen")
+
+    def test_eine_im_koerper_neu_zugewiesene_schleifenvariable_bindet_nicht(self):
+        """Die Kopfbindung gilt im Koerper nicht mehr — dann lieber nichts binden."""
+        p = self._modul("test_neuzuweisung.py",
+                        'from pathlib import Path\n'
+                        'def test_x():\n'
+                        '    root = Path(__file__).resolve().parent.parent\n'
+                        '    for rel in ("docs/FEHLT.md",):\n'
+                        '        rel = "vorhanden.md"\n'
+                        '        (root / rel).read_text()\n')
+        self.assertFalse(cf.modul_ist_repo_kontext(p, wurzel=self.tmp),
+                         "eine ueberschriebene Schleifenvariable wurde weiter gebunden")
+
+    def test_zwei_schleifen_mit_demselben_namen_lecken_nicht(self):
+        """Gemeint ist nie 'der Name', immer 'diese Schleife'."""
+        p = self._modul("test_zwei.py",
+                        'from pathlib import Path\n'
+                        'def test_x(faelle):\n'
+                        '    root = Path(__file__).resolve().parent.parent\n'
+                        '    for rel in faelle:\n'
+                        '        (root / "unter" / rel / "case.json").read_text()\n'
+                        '    for rel in ("vorhanden.md",):\n'
+                        '        (root / rel).read_text()\n')
+        gefunden = cf._wurzel_relative_pfade(p.read_text(encoding="utf-8"), 2)
+        self.assertNotIn("unter/vorhanden.md", gefunden,
+                         "die Werte der einen Schleife erschienen in der Kette der anderen")

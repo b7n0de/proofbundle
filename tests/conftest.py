@@ -84,8 +84,16 @@ def running_in_repo_checkout() -> bool:
 _ROOT_NAMEN = {"REPO", "ROOT", "REPO_ROOT", "_REPO_ROOT", "PROJECT_ROOT"}
 
 
-def _wurzel_relative_pfade(quelle: str) -> set[str]:
-    """String literals used as ``<repo-root-ish> / "literal"`` in this module's source."""
+def _wurzel_relative_pfade(quelle: str, tiefe: int | None = None) -> set[str]:
+    """String literals used as ``<repo-root-ish> / "literal"`` in this module's source.
+
+    ``tiefe`` = wie viele ``.parent``-Schritte von DIESEM Modul aus die Repo-Wurzel treffen. Ohne
+    Angabe wird eine aus ``__file__`` abgeleitete Wurzel NICHT gebunden — lieber nichts sehen als
+    das Falsche sehen (Gegenlesung 2026-08-30, Fund C: ``Path(__file__).parent`` ist das
+    tests-Verzeichnis, nicht die Wurzel; 29 Stellen im Baum schreiben genau das, und ein
+    ``fixtures`` daraus als wurzelrelativ zu lesen wuerde diese Module ausserhalb eines Checkouts
+    still ueberspringen).
+    """
     import ast  # noqa: PLC0415 - only needed on the from-sdist path
 
     try:
@@ -93,10 +101,123 @@ def _wurzel_relative_pfade(quelle: str) -> set[str]:
     except SyntaxError:
         return set()
 
+    def _ist_dateiabgeleitet(knoten) -> bool:
+        """``Path(__file__)`` mit mindestens einem ``.parent``/``.parents[...]`` darauf.
+
+        WARUM DAS EINE EIGENE PRUEFUNG IST (Fix 2026-08-30): `_ist_wurzel` erkannte eine Wurzel am
+        NAMEN aus `_ROOT_NAMEN` — alles gross geschrieben. Ein Modul, das seine Wurzel in eine LOKALE
+        Variable legt (`root = Path(__file__).resolve().parent.parent`), war damit VOLLSTAENDIG
+        unsichtbar: nicht nur der eine Pfad, das ganze Modul. Live gefallen ist daran
+        `test_classify_eval_claim` im hermetic-cleanroom-Lauf, weil es `docs/…` liest und `docs/`
+        vom sdist geprunt wird.
+
+        DIE NAMENSLISTE ZU OEFFNEN WAERE DER FALSCHE FIX, gemessen: sie ist der UNTERSCHEIDER
+        zwischen einer modulweiten Konstante (meint konventionell die Repo-Wurzel) und einer lokalen
+        Variable (meint meist etwas anderes). Nimmt man Kleinschreibung einfach dazu, gelten
+        `root = self._copy_corpus()` (kopiertes Korpusverzeichnis) und `repo = tmp_path / "r"`
+        (Temp-Verzeichnis) als Wurzeln, und ihre relativen Fragmente werden als fehlende Repo-Pfade
+        gelesen — 14 Falsch-Positiv-Pfade in zwei Modulen, die dann ausserhalb eines Checkouts still
+        uebersprungen wuerden.
+
+        DESHALB SEMANTISCH STATT NAMENSBASIERT: gebunden wird nur, was NACHWEISLICH aus `__file__`
+        abgeleitet ist. Der Name spielt keine Rolle mehr, die Herkunft schon.
+        """
+        return _schritte(knoten) == tiefe if tiefe is not None else False
+
+    def _schritte(knoten):
+        """Zahl der parent-Schritte auf einer __file__-Kette, sonst None.
+
+        GEZAEHLT STATT GERATEN. `.parent` und `.parents[n]` ohne Tiefenpruefung zu akzeptieren war
+        eine Ueberdehnung: `Path(__file__).parent` ist das tests-Verzeichnis. Erst wenn die Zahl der
+        Schritte genau der Entfernung DIESES Moduls zur Repo-Wurzel entspricht, ist es die Wurzel.
+        """
+        if isinstance(knoten, ast.Subscript):                       # …parents[n] -> n+1 Schritte
+            n = _schritte(knoten.value)
+            if n is None:
+                return None
+            idx = knoten.slice
+            if isinstance(idx, ast.Constant) and isinstance(idx.value, int):
+                return n + idx.value + 1
+            return None                                             # variabler Index: unbestimmbar
+        if isinstance(knoten, ast.Attribute):
+            if knoten.attr == "parent":
+                n = _schritte(knoten.value)
+                return None if n is None else n + 1
+            if knoten.attr == "parents":
+                return _schritte(knoten.value)                      # zaehlt erst mit dem Subscript
+            return _schritte(knoten.value)                          # .resolve() usw. durchreichen
+        if isinstance(knoten, ast.Call):
+            if _ist_dateiquelle(knoten):
+                return 0
+            return _schritte(knoten.func)
+        return None
+
+    def _ist_dateiquelle(knoten) -> bool:
+        """``Path(__file__)`` bzw. eine Kette darauf, OHNE dass schon ein parent genommen wurde."""
+        if isinstance(knoten, ast.Call):
+            if (isinstance(knoten.func, ast.Name) and knoten.func.id in ("Path", "PosixPath")
+                    and any(isinstance(a, ast.Name) and a.id == "__file__" for a in knoten.args)):
+                return True
+            return _ist_dateiquelle(knoten.func)
+        if isinstance(knoten, ast.Attribute):
+            return _ist_dateiquelle(knoten.value)
+        return False
+
+    # Lokale Namen, die NACHWEISLICH eine aus __file__ abgeleitete Wurzel tragen. Ermittelt aus den
+    # Zuweisungen des Moduls — eine Zuweisung ist der Beleg, den der blosse Name nicht liefert.
+    _gebunden: set[str] = set()
+    for _z in ast.walk(baum):
+        if isinstance(_z, ast.Assign) and _ist_dateiabgeleitet(_z.value):
+            for _ziel in _z.targets:
+                if isinstance(_ziel, ast.Name):
+                    _gebunden.add(_ziel.id)
+
+    # SCHLEIFENVARIABLEN UEBER EINEM LITERAL-TUPEL, und ausdruecklich NUR darueber.
+    #
+    # `_kette` verwirft ein variables Segment mit der Begruendung "macht den Rest unbestimmbar", und
+    # das ist im allgemeinen richtig. EIN Fall ist aber vollstaendig entscheidbar: laeuft die Schleife
+    # ueber ein Tupel oder eine Liste aus lauter String-KONSTANTEN, nimmt die Variable genau diese
+    # Werte an — mehr Aufloesung braucht es nicht, und es ist keine Variablenverfolgung im
+    # allgemeinen Sinn.
+    #
+    # ANLASS (2026-08-30): `for rel in ("docs/…", "CONFORMANCE.md"): (root / rel)` blieb unsichtbar,
+    # obwohl beide Werte woertlich im Modul stehen. Zusammen mit der Namensblindheit oben machte das
+    # den hermetic-cleanroom-Fehlschlag aus. Eine Schleife ueber etwas anderes als Konstanten bleibt
+    # unbestimmbar und wird weiterhin verworfen.
+    # DIE BINDUNG IST AUF DEN SCHLEIFENKOERPER BESCHRAENKT, und das ist kein Detail.
+    # Eine erste Fassung band modulweit NACH NAMEN — und leckte prompt: dasselbe Modul hat zwei
+    # Schleifen ueber `rel`, eine ueber Manifest-Faelle (nicht konstant) und eine ueber ein
+    # Literal-Tupel. Die Werte der zweiten landeten in der Kette der ersten und erzeugten Pfade, die
+    # es nirgends gibt (`conformance/CONFORMANCE.md`). Gemeint ist nie "der Name", immer "diese
+    # Schleife".
+    _schleifen: list[tuple[str, tuple[str, ...], list]] = []
+    for _f in ast.walk(baum):
+        if not isinstance(_f, ast.For) or not isinstance(_f.target, ast.Name):
+            continue
+        if not isinstance(_f.iter, (ast.Tuple, ast.List)):
+            continue
+        werte = [e.value for e in _f.iter.elts
+                 if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        if not (werte and len(werte) == len(_f.iter.elts)):   # ALLE Elemente konstant, sonst unbestimmbar
+            continue
+        # Wird die Variable im Koerper NEU zugewiesen, gilt die Kopfbindung dort nicht mehr —
+        # dann lieber nichts binden (Gegenlesung 2026-08-30, Fund A; live 0 Vorkommen, aber die
+        # Ueberdehnung zeigt in die schaedliche Richtung: ein erfundener Pfad laesst ein Modul
+        # ausserhalb eines Checkouts still ausfallen).
+        if any(isinstance(_x, ast.Assign)
+               and any(isinstance(_t, ast.Name) and _t.id == _f.target.id for _t in _x.targets)
+               for _st in _f.body for _x in ast.walk(_st)):
+            continue
+        _schleifen.append((_f.target.id, tuple(werte), _f.body))
+
+    _schleifenwerte: dict[str, tuple[str, ...]] = {}       # je Durchgang gesetzt, s.u.
+
     def _ist_wurzel(knoten) -> bool:
         # REPO / "x"  ·  _REPO_ROOT / "x"  ·  (Path(__file__).resolve().parents[1]) / "x"  ·  REPO / "a" / "b"
+        # dazu seit 2026-08-30: ein LOKALER Name, dem im selben Modul eine aus __file__ abgeleitete
+        # Wurzel zugewiesen wurde (siehe _ist_dateiabgeleitet).
         if isinstance(knoten, ast.Name):
-            return knoten.id in _ROOT_NAMEN
+            return knoten.id in _ROOT_NAMEN or knoten.id in _gebunden
         if isinstance(knoten, ast.Subscript):
             return _ist_wurzel(knoten.value)
         if isinstance(knoten, ast.Attribute):
@@ -116,21 +237,40 @@ def _wurzel_relative_pfade(quelle: str) -> set[str]:
         selbst in einem vollstaendigen Checkout. Ein zerlegter Pfad ist ein anderer Pfad.
         """
         if isinstance(knoten, ast.BinOp) and isinstance(knoten.op, ast.Div):
-            links_ok, teile = _kette(knoten.left)
+            links_ok, linke = _kette(knoten.left)
             if not links_ok:
                 return (False, [])
+            teile = linke[0] if len(linke) == 1 else None
+            if teile is None:            # mehrere linke Ketten: je Kette weiterfuehren
+                if isinstance(knoten.right, ast.Constant) and isinstance(knoten.right.value, str):
+                    return (True, [t + [knoten.right.value] for t in linke])
+                return (False, [])
             if isinstance(knoten.right, ast.Constant) and isinstance(knoten.right.value, str):
-                return (True, teile + [knoten.right.value])
+                return (True, [teile + [knoten.right.value]])
+            if (isinstance(knoten.right, ast.Name)
+                    and knoten.right.id in _schleifenwerte):   # entscheidbarer Sonderfall, s.o.
+                return (True, [teile + [w] for w in _schleifenwerte[knoten.right.id]])
             return (False, [])          # ein variables Segment macht den Rest unbestimmbar
-        return (_ist_wurzel(knoten), [])
+        return (_ist_wurzel(knoten), [[]])
+
+    def _sammle(knoten_menge) -> None:
+        for x in knoten_menge:
+            if not (isinstance(x, ast.BinOp) and isinstance(x.op, ast.Div)):
+                continue
+            ok, ketten = _kette(x)
+            if not ok:
+                continue
+            for teile in ketten:
+                if teile:
+                    gefunden.add("/".join(teile))
 
     gefunden: set[str] = set()
-    for x in ast.walk(baum):
-        if not (isinstance(x, ast.BinOp) and isinstance(x.op, ast.Div)):
-            continue
-        ok, teile = _kette(x)
-        if ok and teile:
-            gefunden.add("/".join(teile))
+    _sammle(ast.walk(baum))                                # Durchgang 1: nur konstante Ketten
+    for _name, _werte, _koerper in _schleifen:             # Durchgang 2: je Schleife, NUR ihr Koerper
+        _schleifenwerte = {_name: _werte}
+        for _stmt in _koerper:
+            _sammle(ast.walk(_stmt))
+    _schleifenwerte = {}
     return gefunden
 
 
@@ -184,8 +324,19 @@ def modul_ist_repo_kontext(pfad: pathlib.Path, wurzel: pathlib.Path = _REPO_ROOT
     # fault: the path CHAINS were being decomposed (see _kette), so ``src`` / ``proofbundle`` was read as
     # a root-level ``proofbundle``. With the chain joined correctly the full-path rule is precise, and the
     # narrowing would have traded a real defect for a comfortable green.
+    try:
+        # parts fuer tests/test_x.py = ('tests','test_x.py') -> ZWEI parent-Schritte treffen die
+        # Wurzel. Die erste Fassung zog eins ab und akzeptierte damit genau das tests-Verzeichnis
+        # als Wurzel — die Ueberdehnung, die dieser Fix schliessen soll.
+        # GEGEN `wurzel`, nicht gegen die globale _REPO_ROOT: der Parameter existiert, damit
+        # gegen einen anderen Baum geprueft werden kann (Tests, entpacktes sdist). Die erste Fassung
+        # nahm die Konstante — dann liegt ein Testmodul nicht unter ihr, relative_to wirft, und die
+        # Bindung faellt still aus. Gefangen von den neuen Tests, nicht von meiner Durchsicht.
+        tiefe = len(pfad.resolve().relative_to(pathlib.Path(wurzel).resolve()).parts)
+    except (ValueError, OSError):
+        tiefe = None                       # Modul liegt nicht unter der Wurzel: nicht binden
     return any(not (wurzel / rel).exists() and not _ist_bauartefakt(wurzel, rel)
-               for rel in _wurzel_relative_pfade(quelle))
+               for rel in _wurzel_relative_pfade(quelle, tiefe))
 
 
 def pytest_collection_modifyitems(config, items):
