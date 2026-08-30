@@ -50,7 +50,7 @@ _REQUIRED = {"schema", "suite", "suite_version", "metric", "comparator", "thresh
              "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp",
              "assurance_level"}
 _OPTIONAL = {"context_binding", "ci95", "multiple_testing", "prereg_sha256", "provenance", "samples",
-             "evaluation_card_sha256"}
+             "evaluation_card_sha256", "coverage"}
 
 __all__ = [
     "EVAL_CLAIM_SCHEMA", "COMMIT_ALG", "ASSURANCE_LEVELS", "canonicalize", "build_eval_claim",
@@ -111,6 +111,45 @@ def _reject_non_jcs(value) -> None:
     raise EvalClaimError(f"unsupported value type {type(value).__name__}")
 
 
+def _coverage_error(coverage, n) -> Optional[str]:
+    """The coverage invariant — ONE definition, used by build, emit AND verify.
+
+    A guarantee enforced only on the emit path is bypassed by a hand-signed claim: that is the
+    emit-vs-verify asymmetry class this module already guards for `samples` and `assurance_level`.
+    A second copy of the rule would be the next drift, so all three call sites share this one.
+
+    Coverage answers what the evaluation EXAMINED, not merely that the receipt is intact — a clean
+    receipt over an empty check set must not be indistinguishable from a clean one over a full set.
+    Optional as a WHOLE, COMPLETE when present: a missing denominator invites the reader to assume
+    the ratio is 1.
+
+    Returns an error string, or None when the block is sound.
+    """
+    if not isinstance(coverage, dict):
+        return "coverage must be an object"
+    want = {"population_size", "evaluated_count", "unresolved_count"}
+    if set(coverage) != want:
+        return (f"coverage must carry exactly {sorted(want)} — it is optional as a whole but complete "
+                f"when present, got {sorted(coverage)}")
+    vals = {}
+    for k in sorted(want):
+        v = coverage[k]
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0 or v > _MAX_SAFE_INT:
+            return f"coverage.{k} must be a non-negative integer <= 2**53-1, got {v!r}"
+        vals[k] = v
+    if isinstance(n, bool) or not isinstance(n, int):
+        return "the claim's n must be an integer for coverage to bind to it"
+    if vals["evaluated_count"] != n:
+        return (f"coverage.evaluated_count ({vals['evaluated_count']}) must equal the claim's n ({n}) — "
+                "n is ALREADY the size the aggregate was computed over, so a second free-floating "
+                "number would be a second truth about the same quantity")
+    if vals["evaluated_count"] + vals["unresolved_count"] > vals["population_size"]:
+        return (f"coverage: evaluated_count + unresolved_count ({vals['evaluated_count']} + "
+                f"{vals['unresolved_count']}) exceeds population_size ({vals['population_size']}) — "
+                "evaluated, unresolved and excluded are DISJOINT subsets of the population")
+    return None
+
+
 def canonicalize(claim: dict) -> bytes:
     """RFC 8785 JCS canonical bytes of a claim — EMIT PATH ONLY.
 
@@ -164,6 +203,7 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
                      assurance_level: str = DEFAULT_ASSURANCE,
                      samples: Optional[dict] = None,
                      evaluation_card_sha256: Optional[str] = None,
+                     coverage: Optional[dict] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None):
     """Build a valid eval claim from raw values. Computes `passed` ITSELF from the comparator
     (never trusts the caller), creates salted commitments, and returns (claim, salts) with the
@@ -234,6 +274,12 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
             raise EvalClaimError("samples.leaf_alg must be 'sha256-rfc6962-sdjwt-v1'")
         claim["samples"] = {"root_b64": samples["root_b64"], "n": s_n,
                             "leaf_alg": samples["leaf_alg"]}
+    if coverage is not None:
+        err = _coverage_error(coverage, n)
+        if err:
+            raise EvalClaimError(err)
+        claim["coverage"] = {k: coverage[k] for k in
+                             ("population_size", "evaluated_count", "unresolved_count")}
     _reject_non_jcs(claim)
     return claim, {"model_salt": m_salt, "dataset_salt": d_salt}
 
@@ -258,6 +304,12 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     extra = set(claim) - _REQUIRED - _OPTIONAL
     if extra:
         raise EvalClaimError(f"claim has unknown fields: {sorted(extra)}")
+    if "coverage" in claim:
+        # Shape-check at EMIT too, not only at decode: emitting a receipt that our OWN verifier
+        # will reject is a footgun, and the caller finds out at the worst possible moment.
+        err = _coverage_error(claim["coverage"], claim.get("n"))
+        if err:
+            raise EvalClaimError(err)
     payload = canonicalize(claim)
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 
@@ -333,6 +385,10 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
                 return None
             if len(base64.b64decode(samples["root_b64"], validate=True)) != 32:
                 return None
+        if "coverage" in claim and _coverage_error(claim["coverage"], claim.get("n")) is not None:
+            # Verify-path invariant (same reason as samples above): a hand-signed claim must not
+            # be able to carry an incoherent coverage block past the blessed emitter.
+            return None
         if expected_context is not None and claim.get("context_binding") != expected_context:
             return None
         return claim

@@ -133,6 +133,33 @@
           ]
         }
       }
+    },
+    "coverage": {
+      "type": "object",
+      "description": "Optional coverage block (5.1, additive, backward-compatible): what the evaluation EXAMINED, not merely that the receipt is intact. Without it, a cryptographically clean receipt over an empty check set is indistinguishable from a clean receipt over a full one — integrity does not imply coverage. Optional as a WHOLE, but COMPLETE when present: partial coverage numbers are worse than none, because a missing denominator invites the reader to assume the ratio is 1. Definitions are disjoint: population_size is the set that SHOULD have been examined; evaluated_count is how many of them produced a verdict; unresolved_count is how many did not (attempted or not). The remainder (population_size - evaluated_count - unresolved_count) is the deliberately EXCLUDED set. evaluated_count MUST equal the claim's n, mirroring the samples.n == n rule: n is already the size the aggregate was computed over, so a second, free-floating number would be a second truth about the same quantity. HONEST LIMIT: these are issuer-DECLARED counts. The signature binds them to the issuer and makes them tamper-evident; it does not make them correct.",
+      "required": [
+        "population_size",
+        "evaluated_count",
+        "unresolved_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "population_size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "size of the set that should have been examined"
+        },
+        "evaluated_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "how many of the population produced a verdict; MUST equal the claim's n"
+        },
+        "unresolved_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "how many of the population did not produce a verdict"
+        }
+      }
     }
   }
 }

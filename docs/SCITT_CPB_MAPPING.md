@@ -6,7 +6,8 @@ and contains no judgement about one — a divergence recorded here is a fact abo
 not about anyone's intent.
 
 **Measured 2026-08-30** against tag `v5.0.0` (commit `840a0a6bf4`) and the working branch head
-`bd0161ab0ce6` (`pyproject` 5.0.0). Subject on the other side:
+`bd0161ab0ce6` (`pyproject` 5.0.0). **Re-measured the same day** after G3 and G4 were closed
+additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
 in the IETF process, sitting on top of the published [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943).
 
@@ -18,11 +19,11 @@ Where a fact was not measured, this page says **NOT MEASURED** and does not fill
 |---|---|---|
 | **G1** | canonicalization | behaviour congruent, **token differs**, one exception open |
 | **G2** | Merkle leaf input | **hard divergence**, declared here, not rebuilt |
-| **G3** | typed digest reference | **partial** — the information is there, the shape is not |
-| **G4** | coverage | **absent on our side**, in all nine schemas |
+| **G3** | typed digest reference | was **internally inconsistent**; conformant shape now available additively |
+| **G4** | coverage | was **absent on our side** in all nine schemas; now carried, optionally |
 
-Two of four match. The two that do not are exactly the two where we would have something to
-contribute.
+G1 and G2 stand as measured. G3 and G4 were closed additively on 2026-08-30 — nothing existing
+became mandatory, and no version was forced.
 
 ## G1 — canonicalization
 
@@ -58,25 +59,58 @@ declaration.
 
 ## G3 — typed digest reference
 
+**Correction to this document's first pass.** The first version of this entry measured
+`schemas/eval_claim_v0_1.schema.json:105` and generalized from it. That was one site, not the
+picture. `schemas/decision-receipt-v0.1.schema.json` carries **both** shapes at once:
+
+| Definition | Shape | Used by |
+|---|---|---|
+| `sha256Digest` (line 13) | algorithm in the KEY NAME: `{"sha256": "<hex>"}` | `evidenceRefs[].digest`, `inputSnapshot[].digest`, … |
+| `relationDigest` (line 20) | algorithm in a FIELD: `{"digestAlgorithm": "jcs-sha256-v1", "digest": "<hex>"}` | `relationships[]` |
+
+`relationDigest` is the draft-conformant construction, and it carries the draft's own reasoning
+verbatim in its description: *"digestAlgorithm is EXPLICIT and REQUIRED — never defaulted (a missing
+value is exactly where algorithm confusion hides)."* Two of the draft's four fields also already
+existed on the `evidenceRefs[]` entry itself: `predicateType` and `relation`.
+
+**So the gap was never absence. It was internal inconsistency** — we had the conformant shape and
+the argument for it, and used it in one place out of several.
+
 | | |
 |---|---|
-| **Our side** | `evidenceRefs[].digest.sha256`, and in the in-toto statement `subject[0].digest.sha256` (e.g. `schemas/eval_claim_v0_1.schema.json:105`). |
 | **Draft** | section 8 requires four fields: `type`, `digest_alg`, `digest` mandatory, `purpose` conditional. |
-| **Verdict** | **Partial.** The algorithm sits inside the key name rather than in a field of its own; `type` and `purpose` are absent. The information is partly present, the shape is a different one. |
-
-Additive resolution: carry the draft's shape as an **additional** form beside today's
-`digest.sha256`, which stays valid. Nothing existing becomes mandatory.
+| **Closed 2026-08-30, additively** | `$defs/typedDigest` plus an optional `typedDigest` on `evidenceRefs[]`. Required `type`, `digestAlgorithm`, `digest`; optional `purpose`. It replaces nothing: an entry may carry `digest` alone, `typedDigest` alone, or both, and `digest` stays required. |
+| **Naming** | the draft writes `digest_alg`; we write `digestAlgorithm`, because that field already exists in `relationDigest` with the same meaning and these schemas are lowerCamelCase throughout (ITE-9). Two names for one quantity inside one file would be the next drift, so the correspondence is recorded here instead — the same mapping question as G1. `type` and `purpose` are the draft's names unchanged. |
+| **Enforced** | `src/proofbundle/decision.py::_typed_digest_error`, one definition, mirrored by the docs schema and held together by `tests/test_evidence_typed_digest.py` (16 tests, incl. 8 parity cases). |
 
 ## G4 — coverage
 
 | | |
 |---|---|
-| **Our side** | Measured across **all nine** schemas under `schemas/`: **no `population_size`, no `evaluated_count`, no `unresolved_count`** — zero occurrences. The nearest relative is `notChecked` in the decision receipt, which records what was not examined. Same spirit, different level, and it does not answer the question about the examined set. |
+| **Our side, as first measured** | across **all nine** schemas under `schemas/`: **no `population_size`, no `evaluated_count`, no `unresolved_count`** — zero occurrences. The nearest relative is `notChecked` in the decision receipt, which records what was *not* examined. Same spirit, different level, and it does not answer the question about the examined set. |
 | **Draft** | coverage does not appear. Its section 1.1 lists what it does not cover. |
-| **Verdict** | **Absent on both sides.** This is R5 of our profile, and it is the second rule we ask of others while not carrying it ourselves. The first is R6. |
+| **Verdict** | **Was absent on both sides.** R5 of our profile was the second rule we asked of others while not carrying it ourselves. The first is R6. |
+| **Closed 2026-08-30, additively** | optional `coverage` on the eval claim: optional as a whole, **complete when present** — a missing denominator invites the reader to assume the ratio is 1. |
 
-Additive resolution: take the three fields as **optional** fields. Nothing existing becomes
-mandatory, no version bump is forced.
+**Two design decisions worth stating, because both could have gone the lazy way.**
+
+`evaluated_count` MUST equal the claim's `n`. `n` is already the size the aggregate was computed
+over (`intoto.py:426` exports it as `sampleSize`), so a second free-floating number would have been
+a second truth about one quantity. The binding mirrors the existing `samples.n == n` rule and its
+stated reason. The three counts are **disjoint** subsets: `evaluated + unresolved <= population`,
+and the remainder is the deliberately excluded set.
+
+Enforced on **all three** paths — build, emit and verify — from one definition. A rule enforced only
+at emit is bypassed by a hand-signed claim, which is the emit-vs-verify asymmetry class
+`evalclaim.py` already guards for `samples` and `assurance_level`.
+`tests/test_eval_claim_coverage.py` (14 tests) covers it, and six planted defects were each caught.
+
+**A measured limit that belongs here, not in a footnote.** These schemas run
+`additionalProperties: false`, so "additive" holds in **one direction only**. Measured: an old
+receipt validates under the new schema; a new receipt carrying `coverage` **fails** under the old
+one — and fails as *invalid*, not as *unknown*. That is exactly the distinction R2 of our own
+profile demands of a verifier, and our schema form does not make it. Recorded as an executable fact
+in `test_gemessene_grenze_additiv_ist_nur_eine_richtung`, not as a claim.
 
 ## What is NOT measured
 

@@ -100,6 +100,14 @@ tell them apart without opening the subject.
 same failure class in our own gates on the same day, one level down. `draft-mih-sokolov-scitt-payload-binding-02`
 likewise does not cover coverage, which is why R5 is stated here rather than by reference.
 
+**Carried since 2026-08-30.** Until that date R5 was a rule we asked of others and did not carry
+ourselves: measured across all nine schemas, none of the three fields appeared. The optional
+`coverage` block on the eval claim now carries them — optional as a whole, complete when present,
+with `evaluated_count` bound to the claim's existing `n` so the same quantity does not acquire a
+second, free-floating number. Enforced on build, emit **and** verify from one definition;
+`tests/test_eval_claim_coverage.py`. **Honest limit:** these are issuer-DECLARED counts. The
+signature makes them tamper-evident and attributable; it does not make them correct.
+
 ## R6 — every rule brings its own counter-proof
 
 Whoever claims this profile ships the executable counter-proofs for R1 to R5, plus one positive
@@ -141,7 +149,7 @@ that is not measured there:
 |---|---|
 | R1 | **congruent** — the draft's canonicalization registry entry `jcs` is plain RFC 8785 JCS, SHA-256, lowercase hex. Our behaviour matches; our token is `jcs-sha256-v1`. A mapping question, not a contradiction. |
 | R2 | **congruent** — the draft requires a verifier to distinguish "type in no registry" from "not in my copy"; that is R2's separate outcome. |
-| R3 | **partial** — the draft requires `type`, `digest_alg`, `digest` as mandatory and `purpose` conditionally. We carry the algorithm inside the key name and do not carry `type` or `purpose`. |
+| R3 | **congruent since 2026-08-30, additively** — the draft requires `type`, `digest_alg`, `digest` as mandatory and `purpose` conditionally. The optional `typedDigest` on `evidenceRefs[]` carries that shape (`digestAlgorithm` for `digest_alg`, see the mapping). It adds to the existing `digest`, which stays required and unchanged. Correction to this table's first pass: the conformant shape already existed in the same schema as `relationDigest`; the gap was internal inconsistency, not absence. |
 | R4 | **addition** — the draft requires only that the protected header carry `kid` or `x5chain`. Resolution, trust anchors and fail-closed do not appear in it. |
 | R5 | **addition** — coverage does not appear in the draft at all. |
 | R6 | **addition** — a governance rule; it appears in neither document. |
