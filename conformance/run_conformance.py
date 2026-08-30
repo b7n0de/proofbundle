@@ -351,6 +351,19 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
     sys.path.insert(0, str(ROOT.parent / "src"))
     from proofbundle.evalclaim import canonicalize, classify_eval_claim  # noqa: PLC0415
 
+    # EXACTLY one axis, checked BEFORE any of them runs. Under-declaration was fail-closed from the
+    # start; OVER-declaration was not, and that is the same hole seen from the other side: the
+    # if-chain returns on the FIRST axis, so a case naming two had its second silently ignored and
+    # went green on the first. Measured 2026-08-30: a case carrying a correct `contentRootHex` and a
+    # nonsense `classification` passed. (Raised by the cross-read; confirmed at source before fixing.)
+    _ACHSEN = ("contentRootHex", "nonConformantDiffers", "canonicalizeRefuses",
+               "classification", "coverageDistinguishable")
+    genannt = [a for a in _ACHSEN if a in exp]
+    if len(genannt) != 1:
+        return _fail(cid, f"envelope_profile_rule case must declare EXACTLY ONE expectation axis "
+                          f"(fail-closed), got {genannt or 'none'} — an under-declared case cannot "
+                          f"fail, an over-declared one hides everything after the first")
+
     def _read(name):
         if pathlib.Path(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts:
             raise ValueError(f"input {name!r} escapes the case directory")
@@ -380,19 +393,26 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
         objs = _read(case.get("input") or "objects.json")
         if not isinstance(objs, list) or not objs:
             return _fail(cid, "canonicalizeRefuses case needs a non-empty list of objects")
-        durchgelassen = []
+        durchgelassen, hart = [], []
         for o in objs:
             try:
                 canonicalize(o)
                 durchgelassen.append(o)
             except EvalClaimError:
-                pass
+                pass                       # the principled refusal this axis is about
+            except RecursionError:
+                # A crash is ALSO a refusal to produce bytes, so it does not fake a pass. But it is
+                # NOT the same thing as a typed rejection, and collapsing the two would hide a
+                # robustness defect behind a green case. Measured: canonicalize lets RecursionError
+                # escape on a deeply nested object. Counted as refused, reported separately.
+                hart.append(type(o).__name__)
         refuses_all = not durchgelassen
         if refuses_all is not bool(exp["canonicalizeRefuses"]):
             return _fail(cid, f"refused_all={refuses_all} != expected {exp['canonicalizeRefuses']} "
                               f"(serialized instead of refusing: {durchgelassen!r})")
+        zusatz = f", {len(hart)} of them by an UNTYPED crash (RecursionError), not a typed rejection" if hart else ""
         return {"caseId": cid, "ok": True,
-                "detail": f"all {len(objs)} object(s) refused, as the counter-proof asserts"}
+                "detail": f"all {len(objs)} object(s) refused, as the counter-proof asserts{zusatz}"}
 
     # R2/R3/R4 — the three-outcome classification.
     if "classification" in exp:

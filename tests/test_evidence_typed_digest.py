@@ -139,3 +139,41 @@ class TestHelferTraegtAllein(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestKonformitaetsHandlerFailClosed(unittest.TestCase):
+    """Der envelope_profile_rule-Handler muss in BEIDE Richtungen fail-closed sein: ein Fall ohne
+    Erwartungsachse kann nicht fehlschlagen, ein Fall mit ZWEI verbirgt alles nach der ersten.
+    Beide Funde kamen aus der Gegenlesung am 30.08.2026 und wurden vor dem Fix am Quelltext
+    bestaetigt."""
+
+    def _handler(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "conformance"))
+        import run_conformance  # noqa: PLC0415
+        return run_conformance._check_envelope_profile_rule
+
+    def _fall(self):
+        d = ROOT / "conformance" / "envelope_profile" / "r1-positive-control-canonical-root"
+        return json.loads((d / "case.json").read_text()), d
+
+    def test_ein_fall_ohne_achse_faellt_durch(self):
+        case, d = self._fall()
+        case = dict(case, expected={})
+        r = self._handler()(case, d)
+        self.assertFalse(r["ok"])
+        self.assertIn("EXACTLY ONE", r["detail"])
+
+    def test_ein_fall_mit_zwei_achsen_faellt_durch(self):
+        # Vor dem Fix wurde dieser Fall GRUEN: die erste Achse stimmte, die zweite war Unsinn
+        # und wurde nie geprueft.
+        case, d = self._fall()
+        case = dict(case, expected=dict(case["expected"], classification="voelliger_unsinn"))
+        r = self._handler()(case, d)
+        self.assertFalse(r["ok"], "eine zweite Achse darf nicht still ignoriert werden")
+        self.assertIn("EXACTLY ONE", r["detail"])
+
+    def test_genau_eine_achse_geht_durch(self):
+        # Positivkontrolle: ohne sie wuerde ein Handler, der ALLES ablehnt, diese Klasse bestehen.
+        case, d = self._fall()
+        self.assertTrue(self._handler()(case, d)["ok"])
