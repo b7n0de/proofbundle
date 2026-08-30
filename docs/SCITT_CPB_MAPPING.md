@@ -12,7 +12,10 @@ summary: every section number below (4.1, 7.1, 8, 1.1) was checked against it, a
 survive that check — see G4. **Re-measured the same day** after G3 and G4 were closed
 additively; the G3 entry below carries a correction to this document's own first pass. Subject on the other side:
 `draft-mih-sokolov-scitt-payload-binding-02`, 24 Aug 2026, an individual submission with no standing
-in the IETF process, sitting on top of the published [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943).
+in the IETF process, sitting on top of [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) — the
+published SCITT architecture, Standards Track, IETF stream, SCITT working group, June 2026. Both were
+checked at their source on 2026-08-30; the asymmetry between them (a Standards-Track RFC and an
+unaffiliated individual draft) is stated because it changes what a divergence from each one means.
 
 Where a fact was not measured, this page says **NOT MEASURED** and does not fill the gap.
 

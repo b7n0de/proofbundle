@@ -9,7 +9,9 @@ The identifier is an **Owner decision** and is deliberately marked as such: it i
 adopted. A name settles because citing it is easier than renaming it, not because it exists.
 
 This profile is **a profile to a standard, not a format beside one.** IETF
-[RFC 9943](https://www.rfc-editor.org/rfc/rfc9943) is the published SCITT architecture, and
+[RFC 9943](https://www.rfc-editor.org/rfc/rfc9943), *An Architecture for Trustworthy and Transparent
+Digital Supply Chains*, is the published SCITT architecture — **Standards Track, IETF stream, SCITT
+working group, June 2026**, verified at the RFC Editor on 2026-08-30 — and
 `draft-mih-sokolov-scitt-payload-binding-02` ("Canonical Payload Binding: A Signed Statement
 Construction Profile", revision 02 of 24 Aug 2026, individual submission, no stream and no intended
 RFC status — verified at the IETF datatracker on 2026-08-30) sits on top of it. R1 to R4 are stated
