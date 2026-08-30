@@ -37,7 +37,7 @@ added and was withdrawn hours later, see G4.
 | | |
 |---|---|
 | **Our side** | `src/proofbundle/canonical.py:43` — `CONTENT_ROOT_ALG = "jcs-sha256-v1"`. The real canonicalizer is called (`rfc8785.dumps`), imported lazily from the `[eval]` extra; `statement_content_root` returns 32 raw SHA-256 bytes, `.hex()` gives the 64-character identifier. |
-| **Draft** | section 4.1 registers `jcs` as *plain RFC 8785 JCS, no normalization pass; SHA-256; lowercase hex output*. |
+| **Draft** | section 4.1 defines algorithm `jcs` as RFC 8785 JCS applied directly to the payload, **with no normalization pass** (no member removed for being `null`, `[]` or `{}`), then SHA-256, then lowercase hex -- a 64-character ASCII string. Paraphrase, not a quotation. Two details that matter here: exclusion-set removal is **not part of the algorithm** (section 5's derived-identifier construction strips the payload class's declared exclusion set *before* invoking it), and `jcs` places no restriction on JSON numbers beyond RFC 8785 itself. |
 | **Verdict** | **Scope first, because the claim is narrower than it reads.** For statements canonicalized under the declared `jcs-sha256-v1` -- the path `canonicalize_statement` takes -- the behaviour is identical to the registry entry and only the token differs, which is a mapping question and not a contradiction. It is **mapped, not renamed**; renaming would invalidate every receipt carrying it. **It is not a statement about the whole library.** Released `intoto` export paths run a different serialization; they are declared under their own token and are the open exception below, not a silent part of this verdict. |
 
 **The open exception, and it stands in our own source.** `canonical.py:27` states verbatim that
@@ -46,6 +46,14 @@ SemVer owner-gated step*. Measured on the working branch: 11 occurrences of `sor
 `src/proofbundle/*.py`, among them `intoto.py:126` and `:284` and `hf_evals.py:57`. So paths on a
 different serialization remain, and that is the same divergence class we measured elsewhere on
 2026-08-20.
+
+**One consequence of 4.1 that was not connected before.** The draft's derived identifier is
+`CANONICAL-DIGEST(A, payload minus exclusion_set)`; ours is the digest over the **whole** statement --
+`statement_content_root` removes nothing, and `canonical.py` carries no exclusion-set concept at all
+(measured: zero occurrences). The two agree exactly when the payload class declares an **empty**
+exclusion set. We do not declare one either way, so this is the same duty section 5.1 imposes: state it
+rather than leave it to be inferred. Named here; the declaration itself is a profile decision, not a code
+change.
 
 **What is already in place, and it belongs in the record:** `intoto.py:145` carries the token
 `legacy-sortkeys-json-v0` as an algorithm in its own right, and `intoto.py:178` **rejects** a
@@ -133,6 +141,25 @@ from an abstract.
 `evaluated_count` in exactly the shape discussed above. It is pre-existing, internal, and outside the
 scope of this correction — noted here because it is the same shape and a reader will otherwise find
 it and wonder.
+
+## Which draft claims were checked at source
+
+The draft side of this page was originally written from a reading that was not retained. On 2026-08-30
+the draft was fetched and every claim this page makes about it was re-checked against the text:
+`draft-mih-sokolov-scitt-payload-binding-02.txt`, **92428 bytes**, sha256
+`47ab675797d7edfe...`, from `ietf.org/archive/id`.
+
+| Claim | Section | Result |
+|---|---|---|
+| `jcs` = RFC 8785, no normalization pass, SHA-256, lowercase hex | 4.1 | **holds**; was set in italics as if quoted -- now marked as paraphrase, and two omitted details added |
+| exclusion-set removal happens outside the algorithm | 4.1 / 5 | **new**, not previously connected; we carry no exclusion-set concept |
+| representation is normative and must be declared | 5.1 | **holds**; this is the duty that actually reaches us |
+| leaf construction rule | 7.1 | **did NOT hold as stated** -- the section imposes no leaf construction, its `MUST` is conditional, and the condition does not apply to us |
+| typed digest reference: `type`, `purpose`, `digest_alg`, `digest` | 8 | **holds exactly**, including which are REQUIRED and which CONDITIONAL |
+| coverage does not appear | whole draft | **holds, and stronger than stated**: `coverage`, `population`, `evaluated_count`, `unresolved` and `sample` have **0 occurrences in the entire document**, not merely in 1.1 |
+
+One of six did not survive. That is the reason this table exists: a claim about someone else's normative
+text, carried forward from our own earlier summary, is not a measurement.
 
 ## What is NOT measured
 
