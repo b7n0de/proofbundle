@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://b7n0de.com/proofbundle/conformance/vector_schema.v1.json",
   "title": "proofbundle conformance vector (case.json)",
-  "description": "Fundament F1 — the ONE machine-readable vector format for the whole conformance corpus. The offline runner (run_conformance.py), the cross-format comparator (cross_format.py) and the Python<->Rust differential (crosscheck.py) all consume THIS format; there is no second vector format in the repo. A case declares what it proves (expected) AND, optionally, its cross-format identity (crossFormatId) so the SAME logical scenario expressed in different encodings can be held to ONE common-vocabulary verdict (conformance/common_vocabulary.py). Additive: 3.4.0/3.5.0/3.6.0 add new expected axes and kinds here, never a parallel schema.",
+  "description": "Fundament F1 \u2014 the ONE machine-readable vector format for the whole conformance corpus. The offline runner (run_conformance.py), the cross-format comparator (cross_format.py) and the Python<->Rust differential (crosscheck.py) all consume THIS format; there is no second vector format in the repo. A case declares what it proves (expected) AND, optionally, its cross-format identity (crossFormatId) so the SAME logical scenario expressed in different encodings can be held to ONE common-vocabulary verdict (conformance/common_vocabulary.py). Additive: 3.4.0/3.5.0/3.6.0 add new expected axes and kinds here, never a parallel schema.",
   "type": "object",
   "required": [
     "caseId",
@@ -25,7 +25,8 @@
         "outcome_relation",
         "relation_statement",
         "provenance_version_status",
-        "envelope_profile_rule"
+        "envelope_profile_rule",
+        "agent_review_predicate"
       ],
       "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`). provenance_version_status (5.0.0) checks a provenance block against the reported-version status rule: every harness-reported version field carries an explicit three-value status, a mandatory reason when it is not `reported`, and the pair may not contradict itself. envelope_profile_rule (5.1) checks one rule of the receipt-envelope profile (docs/RECEIPT_ENVELOPE_PROFILE.md) through OUR OWN emit/verify path; each rule R1-R5 carries one counter-proof and one positive control, and the case declares WHICH expectation axis it asserts (contentRootHex / nonConformantDiffers / canonicalizeRefuses / classification) - a case declaring none is a fail-closed FAIL, never a silent pass."
     },
@@ -129,7 +130,7 @@
     "crossFormatId": {
       "type": "string",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-      "description": "Cross-format identity. Cases sharing a crossFormatId are the SAME logical scenario in different encodings/levels and MUST agree on the F1 common-vocabulary verdict (cross_format.py enforces this — structurally closing the 3.4.0 F3 'circular' finding)."
+      "description": "Cross-format identity. Cases sharing a crossFormatId are the SAME logical scenario in different encodings/levels and MUST agree on the F1 common-vocabulary verdict (cross_format.py enforces this \u2014 structurally closing the 3.4.0 F3 'circular' finding)."
     },
     "specRefs": {
       "type": "array",

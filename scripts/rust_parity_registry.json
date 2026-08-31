@@ -380,6 +380,18 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "DSSE-signed Verification Summary: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
+    },
+    "proofbundle.agent_review.verify_agent_review": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Verify a DSSE-signed agent-review receipt: crypto first, then structure over the EXACT signed bytes, then separate axes — subject binding, findings root, assurance rung. `ok` requires an expectation supplied from outside; without one the run reports internal consistency only. `currentness` is always CURRENTNESS_UNKNOWN offline, by design. No Rust counterpart exists yet."
+    },
+    "proofbundle.agent_review.validate_agent_review_predicate": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed structural validation of an agent-review/v0.1 predicate. Refuses at EMIT what a second implementation would otherwise have to catch at verify: an assurance rung above selfDeclared, a non-null anchoredAt, a COMPLETE coverage without a stated expectation, a PARTIAL without a named gap. No Rust counterpart exists yet — a second implementation of THIS is the first place parity would pay."
     }
   }
 }

@@ -1,0 +1,19 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-receipt-does-not-travel-between-subjects",
+  "expected": {
+    "classification": "invalid"
+  },
+  "input": "envelope.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "expectedSubjectDigest": "f2fca8ac146b3236c8f37533890f42350a8562a6426ec7d96c129e04de3c662a"
+  },
+  "rationale": "A valid signature on the wrong object is the failure mode this binding exists for. Verified against the original subject digest, this receipt must fail \u2014 it is cryptographically sound and bound to something else.",
+  "role": "counter_proof",
+  "rule": "F02",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

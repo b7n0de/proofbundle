@@ -1,0 +1,62 @@
+{
+  "coverage": {
+    "observedRuns": 2,
+    "status": "COMPLETE"
+  },
+  "declaration": {
+    "authoring": [
+      {
+        "assertedBy": "an agent",
+        "assurance": "selfDeclared"
+      }
+    ],
+    "findings": [
+      {
+        "disposition": "fixed",
+        "fixCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "id": "F1",
+        "severity": "high",
+        "title": "unbalanced marker accepted"
+      },
+      {
+        "disposition": "dismissed",
+        "id": "F2",
+        "reason": "covered by the limitations block",
+        "severity": "low",
+        "title": "wording too broad"
+      }
+    ],
+    "findingsRoot": "f763c3864fda0dc695e03006ec9a6573465f546cc0c316c4511267da80c1af06",
+    "findingsTotal": 2,
+    "nonClaims": [
+      "does not prove the named agent was involved"
+    ],
+    "reviewRuns": [
+      {
+        "assertedBy": "an agent, second pass",
+        "assurance": "selfDeclared"
+      }
+    ]
+  },
+  "limitations": [
+    "offline verification cannot establish currency"
+  ],
+  "reviewId": "agent-review-conformance-01",
+  "schemaVersion": "0.1.0",
+  "subjectContext": {
+    "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "bodyCoreDigest": "ad3dd98c8782995d4665fa0bfeb2e4bf17d78cf6df392da0878d2052cdaa5a9a",
+    "forge": "github.com",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "kind": "githubPullRequest",
+    "pullRequestNodeId": "PR_kwDOAbCdEf",
+    "repositoryId": "R_kgDOAbCdEf",
+    "reviewedDiffDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "times": {
+    "anchoredAt": null,
+    "declaredAt": "2026-08-31T17:00:00Z",
+    "observedAt": null,
+    "signedAt": "2026-08-31T17:00:01Z"
+  }
+}

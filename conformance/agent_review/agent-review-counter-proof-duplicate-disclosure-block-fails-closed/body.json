@@ -1,0 +1,3 @@
+{
+  "body": "# Title\n\nSome PR text.\n\n<!-- proofbundle:agent-review:begin -->\n- **X:** y\n<!-- proofbundle:agent-review:end -->\n\nTail.\n<!-- proofbundle:agent-review:begin -->\n- **Involvement:** an agent\n- **Review:** 1 run(s), coverage PARTIAL\n- **Findings:** 2 total (1 dismissed, 1 fixed)\n- **Assurance:** selfDeclared \u2014 not independently witnessed\n- **Limits:** offline verification cannot establish currency\n<!-- proofbundle:agent-review:end -->"
+}

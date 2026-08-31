@@ -426,11 +426,113 @@ def _check_envelope_profile_rule(case: dict, case_dir: pathlib.Path, *,
                       "canonicalizeRefuses / classification")
 
 
+
+def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
+                                  require_anchors: bool = False) -> dict:
+    """One rule of the agent-review predicate, checked through OUR OWN emit/verify path.
+
+    WHY THIS KIND EXISTS. The predicate's whole claim is that a signature must not harden a weak
+    self-report. That is a claim about what the code REFUSES, and a refusal is only real if some
+    input actually hits it. So every rule brings a counter-proof (the thing that must fail) and the
+    corpus carries positive controls — without which a verifier that rejected everything would score
+    perfectly.
+
+    Same fail-closed axis discipline as `_check_envelope_profile_rule`: EXACTLY one expectation axis,
+    checked before any of them runs. Under-declaration is how a corpus grows cases that cannot fail;
+    over-declaration is how the second axis gets silently ignored.
+
+    Four classifications, and the difference between the last two is the point:
+      valid    — emitted and verified
+      invalid  — produced (or producible) but rejected by the verifier
+      refused  — the producer would not build it at all (rejected at emit)
+      (a case may reach `refused` from either the emit path or a digest helper that raises)
+    """
+    cid = case.get("caseId", str(case_dir))
+    exp = case.get("expected") or {}
+    params = case.get("params") or {}
+    sys.path.insert(0, str(ROOT.parent / "src"))
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    _ACHSEN = ("classification", "bodyCoreStable", "subjectExpectation")
+    genannt = [a for a in _ACHSEN if a in exp]
+    if len(genannt) != 1:
+        return _fail(cid, f"agent_review_predicate case must declare EXACTLY ONE expectation axis "
+                          f"(fail-closed), got {genannt or 'none'}")
+
+    def _read(name):
+        if pathlib.Path(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts:
+            raise ValueError(f"input {name!r} escapes the case directory")
+        return json.loads((case_dir / name).read_text())
+
+    if "bodyCoreStable" in exp:
+        bodies = _read(case.get("input") or "bodies.json")
+        vorher = ar.body_core_digest(bodies["bodyBefore"])
+        nachher = ar.body_core_digest(bodies["bodyAfter"])
+        stable = vorher == nachher
+        if stable is not bool(exp["bodyCoreStable"]):
+            return _fail(cid, f"bodyCoreStable={stable} != expected {exp['bodyCoreStable']} "
+                              f"({vorher[:12]} vs {nachher[:12]})")
+        # DIE MELDUNG MUSS DAS GEMESSENE SAGEN, nicht den haeufigeren Fall. Die erste Fassung
+        # schrieb immer "stable across re-render" — auch fuer die Gegenprobe, die INSTABILITAET
+        # behauptet und bei der genau das der Befund ist. Ein Protokoll, aus dem der Leser das
+        # Gegenteil des Gemessenen schliesst, ist schlimmer als keines.
+        return {"caseId": cid, "ok": True,
+                "detail": (f"body core digest stable across re-render ({vorher[:12]})" if stable
+                           else f"body core digest MOVED, as this case asserts "
+                                f"({vorher[:12]} -> {nachher[:12]})")}
+
+    if "subjectExpectation" in exp:
+        # Ob eine Erwartung von aussen gesetzt war, ist eine EIGENE Aussage — und dass ihre
+        # Abwesenheit gemeldet wird, ist der Punkt: ohne sie prueft der Verifier nur die innere
+        # Konsistenz, nicht die Bindung an das Objekt, das der Leser ansieht.
+        doc = _read(case.get("input") or "envelope.json")
+        key_hex = (case_dir.parent / "publickey.hex").read_text().strip()
+        r = ar.verify_agent_review(doc, bytes.fromhex(key_hex))
+        got = r.get("subject_expectation")
+        if got != exp["subjectExpectation"]:
+            return _fail(cid, f"subject_expectation {got!r} != expected {exp['subjectExpectation']!r}")
+        if got == "not_supplied" and not any("expected_subject_digest" in w for w in r.get("warnings", [])):
+            return _fail(cid, "absent expectation was not reported as a warning — a silent limit is "
+                              "exactly what this case exists to prevent")
+        return {"caseId": cid, "ok": True,
+                "detail": f"subject expectation {got}, and the limit is stated"}
+
+    want = exp["classification"]
+    name = case.get("input") or "envelope.json"
+    doc = _read(name)
+
+    # A body case: the digest helper itself is the subject under test.
+    if name == "body.json":
+        try:
+            ar.body_core_digest(doc["body"])
+            got = "valid"
+        except ar.AgentReviewError:
+            got = "refused"
+    # A bare predicate: the emit path is the subject — can this even be produced?
+    elif name == "predicate.json":
+        try:
+            ar.require_valid_agent_review_predicate(doc)
+            got = "valid"
+        except ar.AgentReviewError:
+            got = "refused"
+    # A signed envelope: the verify path is the subject.
+    else:
+        key_hex = (case_dir.parent / "publickey.hex").read_text().strip()
+        r = ar.verify_agent_review(doc, bytes.fromhex(key_hex),
+                                   expected_subject_digest=params.get("expectedSubjectDigest"))
+        got = "valid" if r.get("ok") else "invalid"
+
+    if got != want:
+        return _fail(cid, f"classification {got!r} != expected {want!r}")
+    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
              "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
              "relation_statement": _check_relation_statement,
              "provenance_version_status": _check_provenance_version_status,
-             "envelope_profile_rule": _check_envelope_profile_rule}
+             "envelope_profile_rule": _check_envelope_profile_rule,
+             "agent_review_predicate": _check_agent_review_predicate}
 
 
 def run(*, require_anchors: bool = False) -> int:

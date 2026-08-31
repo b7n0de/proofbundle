@@ -1,0 +1,4 @@
+{
+  "bodyAfter": "# Title\n\nSome PR text.\n\n### Agent review\n\n<!-- proofbundle:agent-review:begin -->\n- **Receipt:** sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n<!-- proofbundle:agent-review:end -->\n\n- Passes: 2\n",
+  "bodyBefore": "# Title\n\nSome PR text.\n\n### Agent review\n\n<!-- proofbundle:agent-review:begin -->\n\n<!-- proofbundle:agent-review:end -->\n\n- Passes: 2\n"
+}

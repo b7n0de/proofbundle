@@ -8,6 +8,60 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Added — `agent-review/v0.1`, a signed self-declaration that says so
+
+A pull request often carries "an AI agent helped here, and it was reviewed". Today a reader has to
+believe that sentence. `src/proofbundle/agent_review.py` lets a reader check, offline, that a stated
+key signed exactly those bytes and that they have not changed since. It does not make the sentence
+true, and every receipt it produces says so in its own `limitations` and `nonClaims` blocks — both
+structurally mandatory.
+
+Built against an external adversarial read (18 findings). Its core sentence is adopted: **a strong
+signature must not optically harden a weak self-report.** Everything below follows from that.
+
+- **Field provenance.** Every declared item carries an `assurance` rung, and v0.1 emits only
+  `selfDeclared`. The higher rungs are refused AT EMIT, not merely reported at verify: a receipt
+  that cannot be produced cannot be shown to anyone. `observations` must be empty for the same
+  reason — Tier 2 and Tier 3 need a witness outside the agent's own workspace, and that is a
+  separate step, deliberately not half-built here.
+- **Exact subject binding.** Repository id, PR node id, `headSha`, `baseSha`, reviewed diff digest,
+  and `bodyCoreDigest` — taken over the body after the machine-managed disclosure block is replaced
+  by a fixed token, because a digest cannot cover bytes containing its own value. Two blocks or an
+  unbalanced marker raise instead of picking a winner. Issues get their own profile.
+- **`ok` means "usable as proof for the object in front of you".** A receipt that is internally
+  sound may still belong to something else, so `internal_consistency_ok` and `ok` are separate
+  fields and the second one requires an expectation supplied from outside. A warning beside a green
+  verdict does not carry.
+- **Validity is not currency.** The offline verifier always reports `CURRENTNESS_UNKNOWN`, and that
+  is the point. `anchoredAt` must be null: a signature proves the bytes contain a time value, not
+  that the value is externally true.
+- **Coverage and findings.** `COMPLETE` requires a stated expectation, `PARTIAL` requires a named
+  gap — "incomplete, but I will not say in what" is as unfalsifiable as an unqualified "complete".
+  `findingsTotal` separates listed from recorded and may never undercount its own list.
+- **Ordering.** `prepare_body_for_disclosure` and `replace_disclosure_block` make the wrong order
+  hard to take: introducing the first block moves the body core digest, so a receipt emitted before
+  the block exists binds a body that stops existing the moment its own disclosure line is added.
+
+Thirteen conformance vectors under `conformance/agent_review/`, run by the real runner, one
+expectation axis each. Three classifications, and the difference between the last two is the
+substance: `valid`, `invalid` (produced, then rejected), `refused` (the producer would not build it).
+
+### Added — our own entry in a third-party transparency log
+
+`tests/fixtures/anchors/markovian_log/submit_7727` covers the half its neighbour said it could not:
+`proof_7271` verifies a proof the log issued about its own stream statement and names the gap in its
+own words — the public `POST /submit` path is not exercised there. It is now, with an entry we
+submitted. The inclusion path recomputes with standalone RFC 6962 (plain hashlib, written from the
+spec, not `proofbundle.merkle`), and the recomputed root is byte-identical to the root in the signed
+checkpoint that first covered it.
+
+### Fixed — `_http` had half a fallback
+
+`_http` returned on the first `HTTPError` instead of falling back to GET, while its own docstring
+described exactly that case. Measured live: a health endpoint answering HEAD with 501 and GET with
+200 counted as dead.
+
+
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
 ### Added — receipt envelope profile and its conformance vectors

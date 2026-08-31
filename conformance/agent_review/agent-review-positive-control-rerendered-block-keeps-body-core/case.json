@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-positive-control-rerendered-block-keeps-body-core",
+  "expected": {
+    "bodyCoreStable": true
+  },
+  "input": "bodies.json",
+  "kind": "agent_review_predicate",
+  "rationale": "Re-rendering the machine-managed block from the same canonical receipt must not move the body core digest. If it did, every disclosure update would look like body tampering and the binding would be unusable in practice.",
+  "role": "positive_control",
+  "rule": "F03",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

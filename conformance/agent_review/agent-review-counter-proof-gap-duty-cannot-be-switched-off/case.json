@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-gap-duty-cannot-be-switched-off",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "rationale": "THE ATTACK AN EXTERNAL REVIEW ACTUALLY RAN (31.08.2026) AND THAT SUCCEEDED. While findingsTotal was optional, a producer could list one finding of eight, omit the field, leave knownGaps empty \u2014 and the validator reported ZERO errors. A duty that switches off by omitting a field is not a duty. The field is now required.",
+  "role": "counter_proof",
+  "rule": "F07",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

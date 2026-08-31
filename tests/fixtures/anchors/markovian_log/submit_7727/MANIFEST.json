@@ -1,0 +1,45 @@
+{
+  "namespace": "markovian_log/submit_7727",
+  "kind": "vendored-own-submission-to-third-party-log",
+  "purpose": "The half its neighbour could not cover. The proof_7271 fixture verifies a third-party log proof, and says so in its own no-overclaim block: 'leaf 7271 is the log's own stream statement, not an entry we submitted, so the public POST /submit path is NOT exercised here'. This fixture exercises it. On 2026-08-31 we submitted the sha256 of an agent-review receipt to markovianprotocol.com/log via POST /submit and vendored what came back: the leaf bytes, the inclusion path, the checkpoint at submission time, and the log's own response.",
+  "submitted": {
+    "endpoint": "https://log.markovianprotocol.com/submit",
+    "body": "sha256:12e38b492205597285ec50ef1e2282e2c7f5056bf7d7331da0271af129c97fbc",
+    "what_the_digest_covers": "receipts/agent_review/inspect_ai_5141.r2.receipt.json at commit 6e06a92fa87f744c78fce1a339191d0929aeb055",
+    "leaf_index": 7727,
+    "tree_size_after": 7728,
+    "submitted_at": "2026-08-31T17:29:27Z"
+  },
+  "measured_2026_08_31": {
+    "leaf_hash_b64": "grsCQ1KGPJzYDi3kCB0J9Oh8tcb0Nfvlfz056Xet8A0=",
+    "inclusion_path_nodes": 9,
+    "inclusion_path_nodes_required_by_rfc6962": 9,
+    "recomputed_root_b64": "N9rmdtCUMVkId/T5rLPe2g49K70hh4dKkps8ZnBqjr4=",
+    "recomputation": "standalone RFC 6962, plain hashlib, written from the spec — proofbundle was not consulted, so the two derivations cannot silently agree by sharing an implementation"
+  },
+  "witness_coverage": {
+    "state": "WITNESSED",
+    "checkpoint_size_at_submission": 7727,
+    "checkpoint_size_required": 7728,
+    "checkpoint_size_witnessed": 7728,
+    "witnessed_root_b64": "N9rmdtCUMVkId/T5rLPe2g49K70hh4dKkps8ZnBqjr4=",
+    "recomputed_root_matches_signed_checkpoint": true,
+    "measured_via": "GET /checkpoint reported size 7728 with that root; the root recomputed here from the vendored leaf and inclusion path with plain hashlib is BYTE-IDENTICAL to it. GET /proof/7727 now answers 200 and its bundle is vendored.",
+    "what_this_means": "The entry is in the tree AND covered by a signed checkpoint. The Bitcoin anchor is a further step and is NOT claimed here."
+  },
+  "no_overclaim": [
+    "The recomputed root now MATCHES a signed checkpoint of sufficient size — that is the statement the first version of this fixture could not make and deliberately refused to fake.",
+    "This still does not show a BITCOIN anchor. Witnessed and anchored are two facts, and only the first is measured here.",
+    "The log stores only the hash. That the hash covers the receipt file is OUR claim, backed by the commit-pinned URL named above, not by the log.",
+    "The signature lines of the vendored bundle are NOT verified by this fixture; that is what the neighbouring proof_7271 fixture does with operator-published witness keys."
+  ],
+  "files": {
+    "leaf.txt": "the exact leaf bytes as returned by GET /leaf/7727",
+    "inclusion_path.txt": "base64 path nodes as returned by GET /inclusion?leaf=7727&size=7728",
+    "checkpoint_at_submit.txt": "GET /checkpoint immediately after submission (size 7727)",
+    "checkpoint_latest.txt": "GET /checkpoint at vendoring time (size 7727, unchanged)",
+    "submit_response.json": "the log's own response to the POST",
+    "proof_bundle.json": "GET /proof/7727, the c2sp.org/tlog-proof offline bundle (available once witnessed)",
+    "checkpoint_witnessed.txt": "GET /checkpoint at size 7728, the first that covers this leaf"
+  }
+}

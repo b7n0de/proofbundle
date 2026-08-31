@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-positive-control-prepare-then-fill-keeps-the-digest",
+  "expected": {
+    "bodyCoreStable": true
+  },
+  "input": "bodies.json",
+  "kind": "agent_review_predicate",
+  "rationale": "The correct order, pinned as a control. Prepare the body, take the digest over THAT, emit, then fill the prepared position. The last step cannot move the digest because the block's content is replaced by the token either way \u2014 which is the entire reason the markers exist. Without this control the counter-proof above could be satisfied by a verifier that simply reports instability for everything.",
+  "role": "positive_control",
+  "rule": "F03",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}
