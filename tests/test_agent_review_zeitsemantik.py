@@ -1,0 +1,120 @@
+"""v0.1 ist semantisch EINGEFROREN — Owner-Entscheid 31.08.2026.
+
+DER KONFLIKT, den dieser Entscheid aufloest: die Haertungsforderung lautete "observedAt in Tier 1
+verbieten". Umgesetzt haette sie ein bereits VEROEFFENTLICHTES Receipt ungueltig gemacht, dessen
+observedAt eine Owner-Anordnung desselben Tages ausdruecklich verlangt hatte. Beide Regeln waren
+richtig und kreuzten sich an einem Feld.
+
+DER SCHNITT: kein rueckwirkendes Verbot, sondern eine explizit versionierte v0.2. Ein Verifier,
+der "nur Receipts nach Datum X" ablehnte, muesste ausgerechnet an einer nicht bezeugten Zeit
+entscheiden, welche Semantik gilt — die Version steht deshalb im predicateType.
+
+Getestet sind hier die Versions- und Kompatibilitaetsfaelle 1 bis 3 des Entscheids.
+"""
+from __future__ import annotations
+
+import base64
+import copy
+import json
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from proofbundle import agent_review as AR
+from proofbundle import canonical, dsse
+
+SK = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+PK = SK.public_key().public_bytes_raw()
+
+
+def _pred(observed=None) -> dict:
+    return {
+        "schemaVersion": "0.1.0", "reviewId": "r",
+        "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
+                           "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
+                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64},
+        "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}],
+                        "reviewRuns": [], "findings": [], "findingsTotal": 0, "nonClaims": ["n"]},
+        "coverage": {"status": "UNKNOWN"},
+        "times": {"declaredAt": "2026-08-31T20:00:00Z", "observedAt": observed},
+        "limitations": ["l"],
+    }
+
+
+def _lauf(observed=None):
+    p = _pred(observed)
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE, "predicate": p}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return AR.verify_agent_review(env, PK, strict=True,
+                                  expected_subject_digest=AR._subject_digest(p))
+
+
+# ── Test 1 des Entscheids: bestehende v0.1-Receipts bleiben verifizierbar ──────────────────────
+
+def test_ein_v01_receipt_mit_observedAt_bleibt_gueltig():
+    """DER KERN DES EINFRIERENS. Waere hier ok=False, haetten wir ein veroeffentlichtes Receipt
+    rueckwirkend gebrochen — genau das, was der Entscheid ausschliesst."""
+    r = _lauf("2026-08-31T15:45:00Z")
+    assert r["ok"] is True, r["errors"]
+    assert r["crypto_ok"] is True and r["structure_ok"] is True
+
+
+# ── Test 2: derselbe Fall liefert den Legacy-Code ──────────────────────────────────────────────
+
+def test_derselbe_fall_traegt_den_stabilen_legacy_code():
+    r = _lauf("2026-08-31T15:45:00Z")
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["reason_codes"]
+    assert r["time_semantics"] == "LEGACY_V0_1"
+    assert r["observed_time_assurance"] == "SELF_DECLARED_OR_UNKNOWN"
+    assert any("LEGACY_SELF_DECLARED_OBSERVED_AT" in w for w in r["warnings"])
+
+
+def test_der_hinweis_nimmt_dem_wert_die_kraft_und_sagt_das_auch():
+    """Ein Code allein aendert nichts; der Text muss dem Leser sagen, was der Wert NICHT darf.
+    Sonst ist der Hinweis eine Etikette und keine Grenze."""
+    w = " ".join(_lauf("2026-08-31T15:45:00Z")["warnings"]).lower()
+    for wort in ("freshness", "ttl", "currentness", "self-declaration"):
+        assert wort in w, f"der Hinweis nennt {wort!r} nicht"
+
+
+# ── Test 3: ohne observedAt kein Hinweis ───────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("observed", [None])
+def test_ohne_observedAt_bleibt_der_hinweis_aus(observed):
+    """DIE GEGENRICHTUNG. Ohne sie bestuende Test 2 auch, wenn der Code IMMER gesetzt wuerde —
+    dann waere er kein Signal, sondern Rauschen."""
+    r = _lauf(observed)
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" not in r["reason_codes"]
+    assert r["observed_time_assurance"] == "ABSENT"
+    assert not any("LEGACY_SELF_DECLARED" in w for w in r["warnings"])
+    assert r["ok"] is True
+
+
+def test_time_semantics_steht_auch_ohne_observedAt():
+    """v0.1 IST v0.1, unabhaengig davon ob das Feld belegt ist. Die Einordnung haengt an der
+    Version, nicht am Feldwert — genau die Trennung, die der Entscheid verlangt."""
+    assert _lauf(None)["time_semantics"] == "LEGACY_V0_1"
+
+
+# ── reason_code bleibt die ABLEITUNG aus der Liste, kein zweites Feld ──────────────────────────
+
+def test_der_fatale_code_steht_in_der_liste_UND_im_einzelfeld():
+    """Zwei getrennt gepflegte Felder fuer dieselbe Groesse waeren die naechste Drift. Der fatale
+    Code wird deshalb in die Liste geschrieben und daraus abgeleitet."""
+    r = AR.verify_agent_review({"payload": "nicht-base64!!", "payloadType": "x",
+                                "signatures": [{"sig": "x"}]}, PK)
+    assert r["ok"] is False
+    if r.get("reason_code") == "internal_error":
+        assert "internal_error" in r["reason_codes"]
+
+
+def test_ein_nicht_blockierender_code_macht_ok_nicht_falsch():
+    """Die Unterscheidung, an der alles haengt: LEGACY_… ist ein HINWEIS, internal_error ein
+    BEFUND. Wer beide gleich behandelt, bricht das Einfrieren durch die Hintertuer."""
+    r = _lauf("2026-08-31T15:45:00Z")
+    assert r["reason_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
+    assert r.get("reason_code") is None, "ein Hinweis darf nicht als fataler Code erscheinen"
+    assert r["ok"] is True

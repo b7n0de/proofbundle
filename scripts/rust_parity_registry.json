@@ -392,6 +392,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "Fail-closed structural validation of an agent-review/v0.1 predicate. Refuses at EMIT what a second implementation would otherwise have to catch at verify: an assurance rung above selfDeclared, a non-null anchoredAt, a COMPLETE coverage without a stated expectation, a PARTIAL without a named gap. No Rust counterpart exists yet — a second implementation of THIS is the first place parity would pay."
+    },
+    "proofbundle.agent_review.validate_statement_shape": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Types the whole in-toto Statement BEFORE any semantics are computed: exact _type, exactly one subject, subject as object, digest carrying exactly sha256 in 64 lowercase hex, and a subject name DERIVED from the signed subjectContext rather than typed by the producer. No extra statement-level fields. Measured on 2026-08-31 against our own r2 receipt: before this, a statement with a wrong _type, TWO subjects, or a name pointing at a foreign repository was accepted with ok=True when a valid signature and the correct expected subject digest were supplied. The subject array is the binding statement layer in the in-toto spec; leaving it unchecked means a signature authenticates bytes whose shape nobody agreed on. A second implementation would have to re-derive the same name from the same context, which is exactly where parity would pay. No Rust counterpart exists yet."
     }
   }
 }

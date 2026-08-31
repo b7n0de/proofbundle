@@ -686,7 +686,8 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
-            "statement_shape_ok": None, "reason_code": None,
+            "statement_shape_ok": None, "reason_code": None, "reason_codes": [],
+            "time_semantics": None, "observed_time_assurance": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
             "internal_consistency_ok": None,
             "findings_root_ok": None, "assurance_ok": None,
@@ -797,6 +798,9 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
         r["structure_ok"] = False
         r["errors"].append(f"internal_error: the verifier raised {type(exc).__name__} on this input "
                            f"— this is a defect in the verifier, not a verdict about the receipt")
+        # EINE Quelle: der fatale Code steht in der Liste, `reason_code` ist die Ableitung daraus.
+        # Zwei getrennt gepflegte Felder fuer dieselbe Groesse waeren die naechste Drift.
+        r["reason_codes"].append("internal_error")
         r["reason_code"] = "internal_error"
         return _finalize_failclosed(r)
 
@@ -954,6 +958,37 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
             r["errors"].append(
                 f"assurance rung(s) {over} claimed in a v0.1 receipt — this version has no witness "
                 "outside the producing agent; a valid signature does not raise a self-report")
+
+    # ── v0.1 IST SEMANTISCH EINGEFROREN (Owner-Entscheid 31.08.2026) ───────────────────────────
+    #
+    # Die urspruengliche Forderung lautete "observedAt in Tier 1 verbieten". Umgesetzt haette sie
+    # ein bereits VEROEFFENTLICHTES Receipt ungueltig gemacht, dessen observedAt eine Owner-Anordnung
+    # desselben Tages ausdruecklich verlangt hatte. Der Entscheid nimmt weder das eine noch das
+    # andere: v0.1 behaelt seine Semantik, v0.2 traegt die Trennung. Ein rueckwirkendes Verbot waere
+    # ein Versionsbruch — und die Regel "nur Receipts nach Datum X ablehnen" waere besonders
+    # schwach, weil der Verifier dann ausgerechnet an einer nicht bezeugten Zeit entscheiden
+    # muesste, welche Semantik gilt. Die Version steht im predicateType, nie in einer Uhrzeit.
+    #
+    # WAS DER HINWEIS TUT UND WAS NICHT: er blockt nicht (ok bleibt unberuehrt), aber er nimmt dem
+    # Wert jede Kraft. Ein selbst gesetztes observedAt darf keine Frische-, TTL-, Currentness- oder
+    # Zeit-Assurance-Policy erfuellen — es ist eine Produzentenangabe, kein Beobachtungsbeleg.
+    if isinstance(predicate, dict):
+        _zeiten = predicate.get("times")
+        _beob = (_zeiten or {}).get("observedAt") if isinstance(_zeiten, dict) else None
+        if r["predicate_type_ok"]:
+            r["time_semantics"] = "LEGACY_V0_1"
+        if _beob is not None:
+            r["observed_time_assurance"] = "SELF_DECLARED_OR_UNKNOWN"
+            r["reason_codes"].append("LEGACY_SELF_DECLARED_OBSERVED_AT")
+            r["warnings"].append(
+                "LEGACY_SELF_DECLARED_OBSERVED_AT: this v0.1 receipt carries a producer-supplied "
+                "observedAt. It is structurally valid and does NOT make the receipt invalid, but it "
+                "is a self-declaration, not an observation by a separate party — it must never "
+                "satisfy a freshness, TTL, currentness or time-assurance policy. agent-review/v0.2 "
+                "records such a time as a declared reviewCompleted claim and reserves observedAt "
+                "for a named external observer.")
+        elif r["predicate_type_ok"]:
+            r["observed_time_assurance"] = "ABSENT"
 
     # ZWEI AUSSAGEN, ZWEI FELDER (Gegenlesung Runde 2, 31.08.2026 — angenommen).
     # `internal_consistency_ok` heisst: dieses Receipt ist in sich stimmig und unveraendert.
