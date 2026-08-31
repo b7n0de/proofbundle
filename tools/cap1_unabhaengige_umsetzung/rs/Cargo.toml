@@ -1,0 +1,13 @@
+[package]
+name = "cap1_verify_rs"
+version = "0.1.0"
+edition = "2021"
+
+# KEINE Abhaengigkeiten. Der JSON-Parser ist Teil dieser Umsetzung, damit sie mit der
+# Python-Seite keinen Parserpfad teilt. Genau dort koennen sich zwei Leser desselben
+# Entwurfs unterscheiden.
+[dependencies]
+
+[[bin]]
+name = "cap1_verify_rs"
+path = "src/main.rs"
