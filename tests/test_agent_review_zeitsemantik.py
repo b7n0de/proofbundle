@@ -13,10 +13,6 @@ Getestet sind hier die Versions- und Kompatibilitaetsfaelle 1 bis 3 des Entschei
 """
 from __future__ import annotations
 
-import base64
-import copy
-import json
-
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -215,7 +211,8 @@ def test_eine_deklarierte_zeit_darf_keine_hoehere_sprosse_behaupten():
 
 @pytest.mark.parametrize("fehlt", ["kind", "value", "assertedBy", "assurance"])
 def test_eine_zeitaussage_ohne_quelle_ist_keine(fehlt):
-    tc = dict(REVIEW_CLAIM[0]); tc.pop(fehlt)
+    tc = dict(REVIEW_CLAIM[0])
+    tc.pop(fehlt)
     fehler = AR.validate_agent_review_v02_predicate(_pred_v02(timeClaims=[tc]))
     assert any(fehlt in f for f in fehler), fehler
 

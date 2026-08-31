@@ -879,10 +879,18 @@ def _zeitachsen(predicate: dict) -> dict:
     Jede Achse sagt, WORAUS ihr Wert stammt, nicht ob er stimmt. Eine relying party entscheidet
     danach, welche Quelle ihrer Policy genuegt; der Verifier entscheidet das nicht fuer sie.
     """
-    dec = predicate.get("declaration") if isinstance(predicate.get("declaration"), dict) else {}
-    tcs = dec.get("timeClaims") if isinstance(dec.get("timeClaims"), list) else []
-    beob = predicate.get("observations") if isinstance(predicate.get("observations"), list) else []
-    zeiten = predicate.get("times") if isinstance(predicate.get("times"), dict) else {}
+    # EXPLIZITE VERENGUNG statt eines Ternaers: mypy kann `x if isinstance(x, dict) else {}` nicht
+    # narrowen, weil `dict.get` Optional[Any] liefert. Ein type:ignore haette die Pruefung
+    # stillgelegt statt sie zu erfuellen — und genau diese Stellen sind die, an denen heute rohe
+    # AttributeError aus dem Verifier fielen.
+    _d = predicate.get("declaration")
+    dec: dict = _d if isinstance(_d, dict) else {}
+    _t = dec.get("timeClaims")
+    tcs: list = _t if isinstance(_t, list) else []
+    _b = predicate.get("observations")
+    beob: list = _b if isinstance(_b, list) else []
+    _z = predicate.get("times")
+    zeiten: dict = _z if isinstance(_z, dict) else {}
 
     fach = [tc for tc in tcs if isinstance(tc, dict) and tc.get("kind") == "reviewCompleted"]
     event = "ABSENT" if not fach else (
@@ -1050,13 +1058,13 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         # `internal_error`, und das ist die Meldung eines VERIFIER-Defekts, nicht ein Urteil ueber
         # das Receipt. Eine bekannte Eingabeklasse gehoert getypt, sonst verdeckt der Notausgang
         # genau die Faelle, fuer die er gebaut wurde.
-        dec = predicate.get("declaration")
-        dec_getypt = isinstance(dec, dict)
+        _dec_roh = predicate.get("declaration")
+        dec_getypt = isinstance(_dec_roh, dict)
+        dec: dict = _dec_roh if isinstance(_dec_roh, dict) else {}
         if not dec_getypt:
             r["errors"].append(
-                f"declaration must be an object, got {type(dec).__name__} — findingsRoot and "
-                "assurance cannot be evaluated, so both fail closed rather than staying unknown")
-            dec = {}
+                f"declaration must be an object, got {type(_dec_roh).__name__} — findingsRoot "
+                "and assurance cannot be evaluated, so both fail closed rather than staying unknown")
         if not dec_getypt:
             # BEIDE Achsen fail-closed, und die Folgebloecke werden UEBERSPRUNGEN. Mein erster
             # Entwurf setzte die Werte hier und liess die Bloecke laufen — sie ueberschrieben
@@ -1258,17 +1266,18 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             r["subject_binding_ok"] = False
             r["errors"].append(f"subject binding not computable: {exc}")
 
-        dec = predicate.get("declaration") if isinstance(predicate.get("declaration"), dict) else {}
-        if isinstance(dec.get("findingsRoot"), str):
+        _dv = predicate.get("declaration")
+        dec_v2: dict = _dv if isinstance(_dv, dict) else {}
+        if isinstance(dec_v2.get("findingsRoot"), str):
             try:
-                r["findings_root_ok"] = findings_root(dec.get("findings") or []) == dec["findingsRoot"]
+                r["findings_root_ok"] = findings_root(dec_v2.get("findings") or []) == dec_v2["findingsRoot"]
                 if not r["findings_root_ok"]:
                     r["errors"].append("findingsRoot does not cover the published findings list")
             except AgentReviewError as exc:
                 r["findings_root_ok"] = False
                 r["errors"].append(f"findingsRoot not computable: {exc}")
         rungs = [i.get("assurance")
-                 for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
+                 for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
                  if isinstance(i, dict)]
         over = sorted({repr(x) for x in rungs
                        if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
