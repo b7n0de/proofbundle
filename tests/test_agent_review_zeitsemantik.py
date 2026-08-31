@@ -123,10 +123,16 @@ def _pred_v02(*, observedAt=None, timeClaims=None, observations=None) -> dict:
         "schemaVersion": "0.1.0", "reviewId": "r",
         "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
                            "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
-                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64},
+                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64,
+                           # v0.2 verlangt disclosureCoreDigest (P0.2). Der Wert ist hier ein
+                           # Platzhalter — diese Datei prueft Zeitsemantik, nicht Digest-Bindung.
+                           "disclosureCoreDigest": "e" * 64},
         "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}],
                         "reviewRuns": [], "findings": [], "findingsTotal": 0, "nonClaims": ["n"]},
         "coverage": {"status": "UNKNOWN"},
+        # v0.2 verlangt limitationCodes (P0.4.6) — abgeleitet, nicht getippt.
+        "limitationCodes": ["CURRENTNESS_UNKNOWN", "IDENTITY_UNBOUND", "NOT_QUALITY_ATTESTATION",
+                            "TIME_SELF_DECLARED"],
         "times": {"declaredAt": "2026-08-31T20:00:00Z", "observedAt": observedAt,
                   "signedAt": "2026-08-31T20:00:00Z"},
         "limitations": ["l"],

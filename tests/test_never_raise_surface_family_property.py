@@ -176,6 +176,16 @@ _OUT_OF_SCOPE = frozenset({
     # KOENNEN von einem Konsumenten ueber einen fremden PR-Rumpf gerufen werden. Sie werfen dann
     # `AgentReviewError` bei einem mehrdeutigen Block — fail-closed und dokumentiert. Wer sie so
     # benutzt, faengt diese Ausnahme; `verify_agent_review` selbst ruft sie NICHT.
+    #
+    # NACHTRAG 01.09.2026, P0.2 und P0.4: drei weitere Funktionen, dieselbe Entscheidung aus
+    # demselben Grund. `disclosure_core_bytes`/`disclosure_core_digest` sind die Schwestern von
+    # `body_core_*` und teilen deren Grenze woertlich — sie werfen fail-closed bei einem
+    # mehrdeutigen Block, und `verify_agent_review` ruft sie nicht direkt, sondern ueber
+    # `_pruefe_sichtbaren_block`, das die `AgentReviewError` faengt und in NOT_MEASURABLE
+    # uebersetzt. Der never-raise-Vertrag der oeffentlichen Flaeche ist damit gewahrt, ohne dass
+    # die Bausteine still werden. `derive_limitation_codes` ist reiner Erzeuger: es LIEST ein
+    # Predicate, das wir selbst bauen, und wirft ueberhaupt nicht.
+    "disclosure_core_bytes", "disclosure_core_digest", "derive_limitation_codes",
     "body_core_bytes", "body_core_digest", "build_agent_review_statement", "emit_agent_review",
     "findings_root", "prepare_body_for_disclosure", "render_disclosure_block",
     "render_disclosure_line", "replace_disclosure_block",
