@@ -13,9 +13,21 @@ collapsed into one, and each of them is a different fact:
   3. the entry is ANCHORED               — that checkpoint reached the Bitcoin anchor
 
 At vendoring time only (1) held. The log said so itself: `GET /proof/7727` returned 404 with
-"leaf not yet in a witnessed checkpoint; retry after the next witness round". So this module asserts
-(1) and asserts that (2) is still PENDING — the second assertion is the load-bearing one. It fails
-the moment someone upgrades the manifest's claim without vendoring a checkpoint that supports it.
+"leaf not yet in a witnessed checkpoint; retry after the next witness round". The module therefore
+asserted (1) and asserted that (2) was PENDING.
+
+ABOUT AN HOUR LATER (2026-08-31, same session) the witness round completed, the checkpoint advanced
+to size 7728, and the PENDING assertion went RED — exactly as it was built to. That is the half of
+the design that mattered: a gate catching only overclaim would have left this fixture quietly stale,
+still saying "pending" about something long since witnessed.
+
+The load-bearing assertion therefore MOVED rather than being deleted. It now reads: WITNESSED may be
+claimed only if the root recomputed here from the vendored leaf and path is BYTE-IDENTICAL to the
+root in a vendored signed checkpoint of sufficient size. Measured: it is
+(`N9rmdtCUMVkId/T5rLPe2g49K70hh4dKkps8ZnBqjr4=`, computed with plain hashlib before the log's own
+bundle was fetched). A state word is cheap; a matching root is not.
+
+(3) is still NOT claimed. Witnessed and anchored are two facts.
 
 Everything here is offline: vendored bytes only, no network at test time.
 """
@@ -114,34 +126,69 @@ def test_a_flipped_bit_in_the_leaf_changes_the_root():
 
 # ── (2) the entry is NOT yet witnessed, and that must stay checkable ───────────────────────────
 
-def test_witness_coverage_is_declared_pending():
-    """THE LOAD-BEARING ASSERTION. As long as no checkpoint of sufficient size is vendored, the
-    manifest may not claim coverage. This fails the moment someone upgrades the wording without
-    the data — which is the only way this fixture could start lying."""
+def test_a_witnessed_claim_is_backed_by_a_matching_root():
+    """THE LOAD-BEARING ASSERTION, and it MOVED — which is the point.
+
+    Its first form said: as long as no sufficient checkpoint is vendored, the manifest may not claim
+    coverage. On 2026-08-31 at 17:5x the witness round completed, the log's checkpoint advanced to
+    size 7728, and that assertion went RED — exactly as designed. A gate that only catches overclaim
+    lets a fixture go quietly stale; this one demanded completion instead.
+
+    Its second form is the harder one: WITNESSED may be claimed only if the root recomputed from the
+    vendored leaf and path is BYTE-IDENTICAL to the root in the vendored signed checkpoint. A state
+    word is cheap; a matching root is not."""
     w = _manifest()["witness_coverage"]
-    assert w["state"] == "PENDING"
-    assert w["checkpoint_size_required"] > w["checkpoint_size_at_submission"]
+    assert w["state"] in ("PENDING", "WITNESSED")
+    if w["state"] == "PENDING":
+        assert w["checkpoint_size_required"] > w["checkpoint_size_at_submission"]
+        return
+
+    zeilen = (FIX / "checkpoint_witnessed.txt").read_text(encoding="utf-8").splitlines()
+    groesse, wurzel = int(zeilen[1].strip()), zeilen[2].strip()
+    assert groesse >= TREE_SIZE, (
+        f"claims WITNESSED but the vendored checkpoint has size {groesse} < {TREE_SIZE}")
+    leaf = (FIX / "leaf.txt").read_bytes()
+    errechnet = base64.b64encode(_rfc6962_root(leaf, _path_nodes(), LEAF_INDEX, TREE_SIZE)).decode()
+    assert errechnet == wurzel, (
+        f"recomputed root {errechnet} does not match the signed checkpoint root {wurzel} — a "
+        "WITNESSED claim without a matching root is exactly the lie this fixture exists to prevent")
+    assert w["witnessed_root_b64"] == wurzel
 
 
-def test_the_vendored_checkpoints_really_are_too_small():
-    """And the declaration is checked against the bytes, not taken on faith. A manifest that says
-    PENDING while carrying a sufficient checkpoint would be just as wrong as the other direction."""
-    for name in ("checkpoint_at_submit.txt", "checkpoint_latest.txt"):
-        zeilen = (FIX / name).read_text(encoding="utf-8").splitlines()
-        groesse = int(zeilen[1].strip())
-        assert groesse < TREE_SIZE, (
-            f"{name} reports size {groesse}, which would cover leaf {LEAF_INDEX} — the manifest's "
-            "PENDING state is then stale and must be completed, not left standing")
+def test_the_manifest_may_not_claim_a_root_it_did_not_measure():
+    """Die Gegenrichtung. Ein Manifest, das eine Wurzel NENNT, muss dieselbe meinen, die in den
+    Bytes steht — sonst waere die Angabe Dekoration."""
+    w = _manifest()["witness_coverage"]
+    if w["state"] != "WITNESSED":
+        pytest.skip("noch nicht bezeugt")
+    zeilen = (FIX / "checkpoint_witnessed.txt").read_text(encoding="utf-8").splitlines()
+    assert w["witnessed_root_b64"] == zeilen[2].strip()
 
 
-def test_no_overclaim_block_is_present_and_says_what_is_missing():
+def test_the_submission_time_checkpoint_stays_as_evidence_of_the_earlier_state():
+    """Der Checkpoint VOM Einreichungszeitpunkt bleibt liegen, auch nachdem die Zeugenrunde durch
+    ist. Er belegt, dass die Deckung NICHT sofort da war — eine Historie, die man nicht loeschen
+    darf, weil sonst 'sofort bezeugt' und 'nach einer Runde bezeugt' ununterscheidbar werden."""
+    zeilen = (FIX / "checkpoint_at_submit.txt").read_text(encoding="utf-8").splitlines()
+    assert int(zeilen[1].strip()) < TREE_SIZE
+
+
+def test_no_overclaim_block_names_the_next_unproven_step():
+    """Der Block muss die naechste NICHT belegte Stufe benennen. Solange nicht bezeugt war, war das
+    die Zeugendeckung; jetzt, wo sie belegt ist, ist es der Bitcoin-Anker. Ein No-Overclaim-Block,
+    der nach jedem Fortschritt derselbe bleibt, hoert auf, eine Grenze zu sein."""
     m = _manifest()
     assert m["no_overclaim"], "a fixture without a stated limit claims more than it shows"
     verbunden = " ".join(m["no_overclaim"]).lower()
-    assert "witnessed" in verbunden and "bitcoin" not in verbunden.split("witnessed")[0]
+    if m["witness_coverage"]["state"] == "WITNESSED":
+        assert "bitcoin" in verbunden, (
+            "witnessed is claimed, so the next unproven step is the anchor — and it must be named")
+    else:
+        assert "witnessed" in verbunden
 
 
 @pytest.mark.parametrize("datei", ["leaf.txt", "inclusion_path.txt", "checkpoint_at_submit.txt",
-                                   "checkpoint_latest.txt", "submit_response.json", "MANIFEST.json"])
+                                   "checkpoint_latest.txt", "submit_response.json", "MANIFEST.json",
+                                   "checkpoint_witnessed.txt", "proof_bundle.json"])
 def test_every_declared_file_exists(datei):
     assert (FIX / datei).is_file(), f"{datei} is declared in the fixture but absent"
