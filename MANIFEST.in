@@ -25,6 +25,21 @@ graft conformance
 graft formal
 graft docs/readiness_pack
 include docs/adr/renewal_policy.example.json
+
+# PB-2026-0831-01: the receipt-envelope profile and its vectors landed on main in #159, but the
+# profile document itself was NOT in the sdist and NOT in the wheel — measured, 0 hits in both.
+# NO prune or exclude rule removed it. MANIFEST.in is an allowlist and the file was simply not on
+# any line; it was missing by absence, not by exclusion. That distinction matters: looking for the
+# offending prune rule would have found nothing and left the file out.
+#
+# The vectors under conformance/envelope_profile/ were already shipped by `graft conformance`
+# (21 of 21 files, 10 of 10 case.json, measured). Only the prose document was missing, and it is
+# the half a reader needs to know what the vectors prove.
+#
+# Named by exact path rather than `graft docs`, for the same reason the ADR example above is: a
+# blanket graft would also ship documents whose internal links point at pruned repo files, which
+# breaks test_docs_truth from the sdist.
+include docs/RECEIPT_ENVELOPE_PROFILE.md
 graft scripts
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.

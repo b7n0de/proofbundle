@@ -8,6 +8,50 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
+
+### Added — receipt envelope profile and its conformance vectors
+
+`docs/RECEIPT_ENVELOPE_PROFILE.md` and the ten vectors under `conformance/envelope_profile/`
+landed on `main` in #159. This release is what makes them reachable for anyone who is not
+reading the repository directly.
+
+### Fixed — the profile was not in the distribution, and no rule had removed it
+
+**Measured before the fix:** `docs/RECEIPT_ENVELOPE_PROFILE.md` appeared **0 times** in the
+sdist and **0 times** in the wheel built from `main` at `27a84db3c6dc`. The vectors were
+already complete — 21 of 21 files, 10 of 10 `case.json` — because `graft conformance` covers
+them.
+
+**The cause is worth stating precisely, because the obvious explanation was wrong.** No
+`prune` and no `exclude` rule matched the file. `MANIFEST.in` is an allowlist, and the file
+was simply not on any line: it was missing **by absence, not by exclusion**. Looking for the
+offending prune rule would have found nothing and left the document out.
+
+One `include docs/RECEIPT_ENVELOPE_PROFILE.md` line fixes it. **Measured after the fix:** 1
+occurrence in the sdist, the file readable from the archive at its full 240 lines, `docs`
+entries in the sdist 19 → 20 — exactly one more. The wheel still carries 0, and that is
+correct: the wheel is the import package and prose does not belong in it.
+
+Why this matters beyond packaging: the profile says a stranger can recompute the result. A
+profile that ships its vectors without the document explaining what they prove asks the
+stranger to take the explanation on trust.
+
+### Added — mutation operator freshness
+
+`scripts/mutation_operators_fresh.py`. **It is a script, not a gate.** It reports whether the
+mutation operator set has gone stale against the code it is meant to mutate; nothing blocks
+on its output.
+
+### Why MINOR and not PATCH or MAJOR
+
+Measured against tag `v5.0.0`: 23 commits, 41 files, 2071 insertions, 32 deletions, **0 files
+removed**. Across all of `src/`: **0 removed public names, 0 removed or changed signatures**
+(`-def`/`-class` lines in the diff: zero). One new public function, `classify_eval_claim`, and
+one private helper. New shipped material (the profile document, ten vectors) rules out PATCH;
+nothing removed and no signature changed rules out MAJOR.
+
+
 ## [5.0.0] - 2026-08-25 (the cap runs before the work it bounds · MAJOR)
 
 ### Added — reported-version status (additive; no further major bump)
