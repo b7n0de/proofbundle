@@ -197,8 +197,8 @@ a post-quantum *payload* signature is on the roadmap. Detail: [docs/ANCHORS.md](
 If proofbundle helped your evaluation pipeline, please cite it. Machine-readable metadata is in
 [`CITATION.cff`](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff). The archival software record is on Zenodo under concept
 DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642); the Technical Note (design write-up) under concept DOI
-[10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466) — version 4.0.0 of the Note is
-[10.5281/zenodo.22004295](https://doi.org/10.5281/zenodo.22004295) — also linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
+[10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466) — version 5.0.0 of the Note is
+[10.5281/zenodo.22209091](https://doi.org/10.5281/zenodo.22209091) — also linked from [b7n0de.com/proofbundle](https://b7n0de.com/proofbundle).
 
 ## Docs
 
