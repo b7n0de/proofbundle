@@ -392,6 +392,30 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "Fail-closed structural validation of an agent-review/v0.1 predicate. Refuses at EMIT what a second implementation would otherwise have to catch at verify: an assurance rung above selfDeclared, a non-null anchoredAt, a COMPLETE coverage without a stated expectation, a PARTIAL without a named gap. No Rust counterpart exists yet — a second implementation of THIS is the first place parity would pay."
+    },
+    "proofbundle.agent_review.validate_statement_shape": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Types the whole in-toto Statement BEFORE any semantics are computed: exact _type, exactly one subject, subject as object, digest carrying exactly sha256 in 64 lowercase hex, and a subject name DERIVED from the signed subjectContext rather than typed by the producer. No extra statement-level fields. Measured on 2026-08-31 against our own r2 receipt: before this, a statement with a wrong _type, TWO subjects, or a name pointing at a foreign repository was accepted with ok=True when a valid signature and the correct expected subject digest were supplied. The subject array is the binding statement layer in the in-toto spec; leaving it unchecked means a signature authenticates bytes whose shape nobody agreed on. A second implementation would have to re-derive the same name from the same context, which is exactly where parity would pay. No Rust counterpart exists yet."
+    },
+    "proofbundle.agent_review.verify_agent_review_v02": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "The v0.2 verifier. Separate time axes — event, observation, signature, external — each saying WHERE its value came from, never whether it is true; a relying party decides which source its policy accepts, and this verifier deliberately does not decide that for it (policy_decision stays None). It REFUSES a v0.1 envelope rather than reinterpreting: in v0.1 a producer-supplied observedAt was allowed, and judging it by v0.2 rules would rewrite what that receipt meant when it was signed. A second implementation would have to reproduce that refusal, not just the happy path — which is exactly where parity would pay. No Rust counterpart exists yet."
+    },
+    "proofbundle.agent_review.validate_agent_review_v02_predicate": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Fail-closed structural validation for agent-review/v0.2. On top of everything v0.1 requires: business event times live under declaration.timeClaims, and times.observedAt is REFUSED on a Tier 1 predicate — an observation time needs a separately named observer with its own evidence, not a producer-supplied value. Measured cause (2026-08-31): three receipts of the same day carried three different meanings in that one field — the review time, the creation time, and nothing. No Rust counterpart exists yet."
+    },
+    "proofbundle.agent_review.validate_time_claim": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "A declared business time always carries its source and its assurance. The load-bearing rule: a declaration cannot be more than selfDeclared — anything above that means an observation, and an observation belongs in `observations` with a named observer and its own evidence. A field named observedAt does not make a producer-supplied value observed. No Rust counterpart exists yet."
     }
   }
 }

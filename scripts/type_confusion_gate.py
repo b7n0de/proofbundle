@@ -123,6 +123,12 @@ def _benign_fixtures() -> dict[str, object]:
         "classical_sig": b"\x00" * 64, "pq_sig": b"\x00" * 64, "leaf_data": b"leaf",
         "second_size": 1, "leaf_index": 0, "tree_size": 1, "index": 0,
         "claim": {}, "digests": {}, "proof": [], "witness_vkeys": [],
+        # `predicate` als SEKUNDAERER Parameter (31.08.2026): agent_review.validate_statement_shape
+        # nimmt (statement, predicate) — `statement` ist der gefuzzte Primaerparameter, `predicate`
+        # nur der Kontext, aus dem der erwartete Subject-Name abgeleitet wird. Ohne benignen Wert
+        # fiel die Flaeche als NEEDS_FIXTURE aus der Auswertung, und population_complete wurde
+        # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
+        "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
     }
 

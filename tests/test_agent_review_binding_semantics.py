@@ -112,11 +112,7 @@ def _handgebaut(assurance_wert):
     Angreifer benutzt den Emitter nicht."""
     from proofbundle import canonical, dsse
     sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
-    stmt = {
-        "_type": AR.STATEMENT_TYPE,
-        "subject": [{"name": "x", "digest": {"sha256": "a" * 64}}],
-        "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE,
-        "predicate": {
+    praedikat = {
             "schemaVersion": "0.1.0", "reviewId": "r",
             "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
                                "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
@@ -126,7 +122,18 @@ def _handgebaut(assurance_wert):
                             "nonClaims": ["n"]},
             "coverage": {"status": "UNKNOWN"},
             "times": {"declaredAt": "2026-08-31T17:00:00Z"},
-            "limitations": ["l"]},
+            "limitations": ["l"]}
+    # DER NAME WIRD ABGELEITET, NICHT GETIPPT (nachgezogen 31.08.2026). Vorher stand hier `"x"`.
+    # Seit der Statement-Typisierung (P0.1/P0.3) faellt ein Name, der nicht aus dem signierten
+    # subjectContext folgt, schon in der Formpruefung — und dann liefe die Assurance-Pruefung, die
+    # dieser Test eigentlich meint, gar nicht mehr. Der Schutz bestuende weiter, der Test bewiese
+    # ihn nicht: genau die Klasse "der Fix wurde zwei Stellen weiter verworfen".
+    stmt = {
+        "_type": AR.STATEMENT_TYPE,
+        "subject": [{"name": AR._subject_name(praedikat),
+                     "digest": {"sha256": AR._subject_digest(praedikat)}}],
+        "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE,
+        "predicate": praedikat,
     }
     env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), sk,
                              payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)

@@ -82,6 +82,14 @@ _COVERAGE_STATUS = {"COMPLETE", "PARTIAL", "UNKNOWN"}
 _DISPOSITION = {"fixed", "dismissed", "deferred", "open"}
 _SEVERITY = {"critical", "high", "medium", "low", "info"}
 
+_DECLARATION_FIELDS = frozenset(
+    ("authoring", "reviewRuns", "findings", "findingsTotal", "findingsRoot", "nonClaims"))
+# v0.2 ERWEITERT diese Menge um `timeClaims`, statt sie in v0.1 zu lockern. Eine gemeinsame
+# Konstante mit einem Zusatz-Parameter ist EINE Wahrheit mit einer Ausnahme; zwei kopierte Listen
+# waeren zwei Wahrheiten, die auseinanderlaufen.
+_DECLARATION_FIELDS_V02 = frozenset(("timeClaims",))
+
+
 _REQUIRED_ALWAYS = ("schemaVersion", "reviewId", "subjectContext", "declaration",
                     "coverage", "times", "limitations")
 _OPTIONAL = ("producer", "observations", "supersession", "planRef")
@@ -217,7 +225,8 @@ def findings_root(findings: list[dict]) -> str:
 
 
 # ── Validation ──────────────────────────────────────────────────────────────────────────────────
-def validate_agent_review_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
+def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
+                                    decl_zusatz: frozenset = frozenset()) -> list[str]:
     """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid)."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
@@ -241,7 +250,8 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False) -> 
     if "subjectContext" in predicate:
         errors.extend(f"subjectContext: {e}" for e in _validate_subject(predicate.get("subjectContext")))
     if "declaration" in predicate:
-        errors.extend(f"declaration: {e}" for e in _validate_declaration(predicate.get("declaration")))
+        errors.extend(f"declaration: {e}" for e in
+                      _validate_declaration(predicate.get("declaration"), zusatz=decl_zusatz))
     if "coverage" in predicate:
         errors.extend(f"coverage: {e}" for e in _validate_coverage(predicate.get("coverage")))
     if "times" in predicate:
@@ -326,13 +336,12 @@ def _validate_subject(sc: Any) -> list[str]:
     return errs
 
 
-def _validate_declaration(dec: Any) -> list[str]:
+def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[str]:
     errs: list[str] = []
     if not isinstance(dec, dict):
         return ["must be an object"]
     for k in dec:
-        if k not in ("authoring", "reviewRuns", "findings", "findingsTotal",
-                     "findingsRoot", "nonClaims"):
+        if k not in _DECLARATION_FIELDS | zusatz:
             errs.append(f"unknown field {k!r}")
     for req in ("authoring", "reviewRuns", "findings", "findingsTotal", "nonClaims"):
         if req not in dec:
@@ -686,6 +695,8 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
+            "statement_shape_ok": None, "reason_code": None, "reason_codes": [],
+            "time_semantics": None, "observed_time_assurance": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
             "internal_consistency_ok": None,
             "findings_root_ok": None, "assurance_ok": None,
@@ -702,9 +713,237 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+_HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+def validate_statement_shape(statement: object, predicate: object) -> list[str]:
+    """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
+
+    WHY THIS EXISTS, measured on 2026-08-31 against our own r2 receipt. With a valid signature AND
+    the correct expected subject digest, the verifier accepted a statement with a wrong ``_type``,
+    with TWO subjects, and with a subject name pointing at a foreign repository — ``ok=True`` in all
+    three cases. The subject array is the binding statement layer in the in-toto spec; leaving it
+    unchecked means a signature authenticates bytes whose shape nobody agreed on.
+
+    THE MEASUREMENT THAT NEARLY WENT WRONG, recorded because it is the reusable part: without an
+    expected digest those same three mutations came back ``ok=False``, and that looked like the
+    checks already existed. They did not. The red came from a different axis entirely — the missing
+    target comparison. A verdict is not a reason; only reading the reason showed which was which.
+
+    Returns a list of errors. Empty means the statement is shaped as this profile requires.
+    """
+    errs: list[str] = []
+    if not isinstance(statement, dict):
+        return [f"statement must be a JSON object, got {type(statement).__name__}"]
+
+    t = statement.get("_type")
+    if t != INTOTO_STATEMENT_TYPE:
+        errs.append(f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                    "(the in-toto spec requires it; an unread _type is an unagreed shape)")
+
+    subj = statement.get("subject")
+    if not isinstance(subj, list):
+        errs.append(f"subject must be an array, got {type(subj).__name__} "
+                    "(the subject array is the binding statement layer)")
+        return errs
+    if len(subj) != 1:
+        errs.append(f"this profile binds exactly one subject, got {len(subj)} "
+                    "(more than one leaves it open which object the receipt speaks about)")
+        return errs
+    s0 = subj[0]
+    if not isinstance(s0, dict):
+        errs.append(f"subject[0] must be an object, got {type(s0).__name__}")
+        return errs
+
+    dig = s0.get("digest")
+    if not isinstance(dig, dict):
+        errs.append(f"subject[0].digest must be an object, got {type(dig).__name__}")
+    elif set(dig) != {"sha256"}:
+        errs.append(f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
+                    "(an extra algorithm lets a producer choose which one a verifier reads)")
+    elif not (isinstance(dig["sha256"], str) and _HEX64.match(dig["sha256"])):
+        errs.append("subject[0].digest.sha256 must be 64 lowercase hex characters")
+
+    name = s0.get("name")
+    if not (isinstance(name, str) and name):
+        errs.append("subject[0].name must be a non-empty string")
+    elif isinstance(predicate, dict):
+        # The name is DERIVED from the signed subjectContext. A name that disagrees with it points
+        # the reader at a different object than the signature covers.
+        try:
+            erwartet = _subject_name(predicate)
+        except Exception:                                        # noqa: BLE001
+            erwartet = None
+        if erwartet is not None and name != erwartet:
+            errs.append(f"subject[0].name is {name!r} but the signed subjectContext derives "
+                        f"{erwartet!r} — the visible name and the signed object disagree")
+
+    for k in statement:
+        if k not in ("_type", "subject", "predicateType", "predicate"):
+            errs.append(f"unknown statement field {k!r} — this profile allows no extras")
+    return errs
+
+
+# ── agent-review/v0.2 · Zeitaussagen nach Quelle und Assurance getrennt ────────────────────────
+#
+# WARUM ES DIESE VERSION GIBT (Owner-Entscheid 31.08.2026). Das `times`-Objekt von v0.1 mischt vier
+# Aussagen VERSCHIEDENER AUTORITAET in einer flachen Struktur: eine vom Produzenten deklarierte
+# Zeit, eine behauptete Beobachtungszeit, eine behauptete Signaturzeit und eine extern verankerte.
+# Das widerspricht der eigenen Dreiteilung aus `declaration`, `observations` und `policy` — Zeiten
+# muessen denselben Schichten folgen wie jede andere Aussage.
+#
+# DER KONKRETE ANLASS war messbar: drei Receipts desselben Tages trugen im selben Feld `observedAt`
+# drei verschiedene Bedeutungen — die Reviewzeit (15:45Z), den Erzeugungszeitpunkt (19:59Z) und
+# nichts (null). Kein Leser kann daraus ableiten, was gemeint war.
+#
+# WAS v0.2 AENDERT, in einem Satz: ein vom Agenten gesetzter Wert wird nicht dadurch BEOBACHTET,
+# dass das Feld `observedAt` heisst. Beobachtung beginnt bei einem getrennt benannten Beobachter,
+# externe Zeit bei ueberpruefbarer Ankerevidenz.
+AGENT_REVIEW_PREDICATE_TYPE_V02 = "https://b7n0de.com/proofbundle/predicates/agent-review/v0.2"
+
+_TIME_CLAIM_KINDS = {"reviewCompleted", "receiptCreated", "reviewStarted", "evidenceCollected"}
+_TIME_ASSURANCE = {"selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"}
+_V02_ASSURANCE_ALLOWED_FOR_CLAIMS = {"selfDeclared"}
+# Die sieben Zustaende je Zeitachse. NOT_EVALUATED ist ausdruecklich KEINE Freigabe, CONFLICT
+# ausdruecklich kein Fehler des Lesers — beides sind Befunde, die genannt und nicht geglaettet werden.
+TIME_AXIS_STATES = ("ABSENT", "SELF_DECLARED", "RUNNER_OBSERVED", "PLATFORM_ATTESTED",
+                    "EXTERNALLY_ANCHORED", "CONFLICT", "NOT_EVALUATED")
+
+
+def validate_time_claim(tc: object) -> list[str]:
+    """Eine fachliche Zeitaussage traegt IMMER ihre Quelle und ihre Assurance."""
+    errs: list[str] = []
+    if not isinstance(tc, dict):
+        return [f"timeClaim must be an object, got {type(tc).__name__}"]
+    for k in tc:
+        if k not in ("kind", "value", "assertedBy", "assurance", "evidenceRef"):
+            errs.append(f"unknown timeClaim field {k!r}")
+    for req in ("kind", "value", "assertedBy", "assurance"):
+        if req not in tc:
+            errs.append(f"timeClaim is missing {req!r} — a time without a source is not a claim, "
+                        "it is a number")
+    if "kind" in tc and not is_member(tc.get("kind"), _TIME_CLAIM_KINDS):
+        errs.append(f"timeClaim.kind must be one of {sorted(_TIME_CLAIM_KINDS)}")
+    if "assurance" in tc and not is_member(tc.get("assurance"), _TIME_ASSURANCE):
+        errs.append(f"timeClaim.assurance must be one of {sorted(_TIME_ASSURANCE)}")
+    # DIE TRAGENDE REGEL: eine DEKLARIERTE Zeit kann nicht mehr als selbst deklariert sein. Wer
+    # eine hoehere Sprosse behauptet, meint eine Beobachtung — und die gehoert in `observations`,
+    # mit Beobachter-Identitaet und Beleg.
+    if tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS):
+        errs.append(f"timeClaim.assurance {tc.get('assurance')!r} claims more than a declaration "
+                    "can carry — a time above selfDeclared belongs in observations, with a named "
+                    "observer and its own evidence")
+    if "value" in tc and not (isinstance(tc["value"], str) and tc["value"]):
+        errs.append("timeClaim.value must be a non-empty string")
+    if "assertedBy" in tc and not (isinstance(tc["assertedBy"], str) and tc["assertedBy"]):
+        errs.append("timeClaim.assertedBy must be a non-empty string")
+    if "evidenceRef" in tc and tc["evidenceRef"] is not None and not _is_digest(tc["evidenceRef"]):
+        errs.append("timeClaim.evidenceRef must be a sha256 digest object or null")
+    return errs
+
+
+def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = False) -> list[str]:
+    """v0.2 zusaetzlich zu allem, was v0.1 schon verlangt.
+
+    Der Kern in drei Saetzen: fachliche Zeiten stehen unter `declaration.timeClaims`. `observedAt`
+    ist in einem reinen Tier-1-Predicate UNZULAESSIG — es ist einer getrennten Observation
+    vorbehalten. Und eine Observation ohne benannten Beobachter ist keine.
+    """
+    errs = validate_agent_review_predicate(predicate, strict=strict,
+                                          decl_zusatz=_DECLARATION_FIELDS_V02)
+    if not isinstance(predicate, dict):
+        return errs
+    zeiten = predicate.get("times")
+    if isinstance(zeiten, dict) and zeiten.get("observedAt") is not None:
+        beob = predicate.get("observations")
+        if not (isinstance(beob, list) and beob):
+            errs.append(
+                "v0.2: times.observedAt is set on a Tier 1 predicate — an observation time needs a "
+                "separately named observer with its own evidence, not a producer-supplied value. "
+                "Record the business time as declaration.timeClaims[kind=reviewCompleted] instead")
+    dec = predicate.get("declaration")
+    if isinstance(dec, dict) and "timeClaims" in dec:
+        tcs = dec.get("timeClaims")
+        if not isinstance(tcs, list):
+            errs.append(f"declaration.timeClaims must be an array, got {type(tcs).__name__}")
+        else:
+            for i, tc in enumerate(tcs):
+                errs.extend(f"timeClaims[{i}]: {e}" for e in validate_time_claim(tc))
+    return errs
+
+
+def _zeitachsen(predicate: dict) -> dict:
+    """Die getrennten Achsen. KEIN Gesamturteil ueber Zeit — das ist der ganze Punkt.
+
+    Jede Achse sagt, WORAUS ihr Wert stammt, nicht ob er stimmt. Eine relying party entscheidet
+    danach, welche Quelle ihrer Policy genuegt; der Verifier entscheidet das nicht fuer sie.
+    """
+    # EXPLIZITE VERENGUNG statt eines Ternaers: mypy kann `x if isinstance(x, dict) else {}` nicht
+    # narrowen, weil `dict.get` Optional[Any] liefert. Ein type:ignore haette die Pruefung
+    # stillgelegt statt sie zu erfuellen — und genau diese Stellen sind die, an denen heute rohe
+    # AttributeError aus dem Verifier fielen.
+    _d = predicate.get("declaration")
+    dec: dict = _d if isinstance(_d, dict) else {}
+    _t = dec.get("timeClaims")
+    tcs: list = _t if isinstance(_t, list) else []
+    _b = predicate.get("observations")
+    beob: list = _b if isinstance(_b, list) else []
+    _z = predicate.get("times")
+    zeiten: dict = _z if isinstance(_z, dict) else {}
+
+    fach = [tc for tc in tcs if isinstance(tc, dict) and tc.get("kind") == "reviewCompleted"]
+    event = "ABSENT" if not fach else (
+        "CONFLICT" if len({tc.get("value") for tc in fach}) > 1 else "SELF_DECLARED")
+
+    obs = "ABSENT"
+    if beob:
+        mit_id = [b for b in beob if isinstance(b, dict) and (b.get("observer") or {}).get("id")]
+        # Eine Beobachtung ohne benannten Beobachter hebt nichts an — sie bleibt Selbstauskunft.
+        obs = "RUNNER_OBSERVED" if mit_id else "SELF_DECLARED"
+    elif zeiten.get("observedAt") is not None:
+        obs = "SELF_DECLARED"
+
+    sig = "SELF_DECLARED" if zeiten.get("signedAt") else "ABSENT"
+    # externalTime wird NIE aus einem Payloadfeld gesetzt. Ohne geprueften Anker heisst es
+    # NOT_EVALUATED — nicht ABSENT, denn wir haben nicht nachgesehen, ob es einen gibt.
+    ext = "NOT_EVALUATED"
+    return {"event_time_status": event, "observation_time_status": obs,
+            "signature_time_status": sig, "external_time_status": ext}
+
+
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None) -> dict:
-    """Verify a DSSE-signed agent-review receipt. Separate axes, never one collapsed PASS (F12).
+    """Verify a DSSE-signed agent-review receipt — the PUBLIC surface, which never raises.
+
+    THE GUARANTEE, and why it is a guarantee and not a nicety (measured 2026-08-31): a signed
+    statement with ``subject`` or ``declaration`` in the wrong type left this function with a raw
+    ``AttributeError`` instead of a typed fail-closed result. A verifier that crashes on malformed
+    input is blind exactly where an attacker aims — the caller sees a stack trace, not ``ok=False``,
+    and a pipeline that catches broadly cannot tell "invalid receipt" from "verifier broke".
+
+    Anything unexpected becomes ``ok=False`` with the stable reason code ``internal_error``. That
+    code is deliberately distinguishable from a normal rejection: it means the verifier itself hit
+    something it did not model, which is a defect to report, not a verdict about the receipt.
+    """
+    try:
+        return _verify_agent_review_inner(envelope, public_key, strict=strict,
+                                          expected_subject_digest=expected_subject_digest)
+    except Exception as exc:                                     # noqa: BLE001 — that is the point
+        r = _empty_result()
+        r["structure_ok"] = False
+        r["errors"].append(f"internal_error: the verifier raised {type(exc).__name__} on this input "
+                           f"— this is a defect in the verifier, not a verdict about the receipt")
+        # EINE Quelle: der fatale Code steht in der Liste, `reason_code` ist die Ableitung daraus.
+        # Zwei getrennt gepflegte Felder fuer dieselbe Groesse waeren die naechste Drift.
+        r["reason_codes"].append("internal_error")
+        r["reason_code"] = "internal_error"
+        return _finalize_failclosed(r)
+
+
+def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
+                               expected_subject_digest: str | None = None) -> dict:
+    """Separate axes, never one collapsed PASS (F12).
 
     ``currentness`` is ALWAYS ``CURRENTNESS_UNKNOWN`` here and that is not a defect: this verifier is
     offline, and whether the PR still looks like the reviewed state is a question only a live lookup
@@ -731,9 +970,27 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == AGENT_REVIEW_PREDICATE_TYPE
     if not r["predicate_type_ok"]:
-        r["errors"].append(f"predicateType is {ptype!r}, expected agent-review/v0.1 (confusion attack?)")
+        if ptype == AGENT_REVIEW_PREDICATE_TYPE_V02:
+            # KEIN RATEN UEBER VERSIONSGRENZEN (Owner-Entscheid 31.08.2026). Ein v0.1-Verifier
+            # kennt die Zeitsemantik von v0.2 nicht; wuerde er sie nach v0.1-Regeln deuten, waere
+            # eine Beobachtungszeit ploetzlich wieder eine Produzentenangabe. Ablehnen ist hier
+            # die STAERKERE Antwort, nicht die bequemere.
+            r["reason_codes"].append("UNKNOWN_PREDICATE_VERSION")
+            r["errors"].append(
+                "predicateType is agent-review/v0.2 — this is the v0.1 verifier and it refuses "
+                "rather than guessing. Use verify_agent_review_v02; the two versions differ in "
+                "what a time field MEANS, and a wrong guess would silently upgrade a declaration "
+                "into an observation")
+        else:
+            r["errors"].append(
+                f"predicateType is {ptype!r}, expected agent-review/v0.1 (confusion attack?)")
 
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    # DIE TYPISIERUNG KOMMT VOR DER SEMANTIK (P0.1). Solange die Statement-Form nicht steht, ist
+    # jede Achse darunter eine Rechnung auf Sand — und genau dort fielen die rohen AttributeError.
+    shape_errs = validate_statement_shape(statement, predicate)
+    r["errors"].extend(shape_errs)
+    r["statement_shape_ok"] = not shape_errs
     struct_errs = validate_agent_review_predicate(predicate, strict=strict)
     r["errors"].extend(struct_errs)
 
@@ -750,9 +1007,12 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
             "hash_binding fail-closed, cannot verify canonicality")
 
-    r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonical_ok is True
+    r["structure_ok"] = ((not struct_errs) and (not shape_errs)
+                         and bool(r["predicate_type_ok"]) and canonical_ok is True)
 
-    if isinstance(predicate, dict) and r["crypto_ok"]:
+    # Semantik NUR bei getypter Statement-Form: ein String in `subject` oder `declaration`
+    # darf hier nicht mehr ankommen, sonst waere die Huelle oben die einzige Verteidigung.
+    if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs:
         # Subject binding: the statement's subject digest must be the one derivable from the
         # signed subjectContext. A receipt copied onto another PR carries the old context and fails.
         try:
@@ -791,8 +1051,28 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             r["errors"].append(f"subject binding not computable: {exc}")
 
         # findingsRoot, when present, must actually cover the published list (P0 test 11).
-        dec = predicate.get("declaration") or {}
-        if isinstance(dec.get("findingsRoot"), str):
+        #
+        # `or {}` FAENGT NUR FALSY, NICHT FALSCH GETYPT (gemessen 31.08.2026). Ein String im Feld
+        # `declaration` ist wahrheitswertig, ueberlebt das `or` und laesst zwei Zeilen spaeter eine
+        # rohe AttributeError fallen. Die Never-Raise-Huelle oben faengt sie — aber als
+        # `internal_error`, und das ist die Meldung eines VERIFIER-Defekts, nicht ein Urteil ueber
+        # das Receipt. Eine bekannte Eingabeklasse gehoert getypt, sonst verdeckt der Notausgang
+        # genau die Faelle, fuer die er gebaut wurde.
+        _dec_roh = predicate.get("declaration")
+        dec_getypt = isinstance(_dec_roh, dict)
+        dec: dict = _dec_roh if isinstance(_dec_roh, dict) else {}
+        if not dec_getypt:
+            r["errors"].append(
+                f"declaration must be an object, got {type(_dec_roh).__name__} — findingsRoot "
+                "and assurance cannot be evaluated, so both fail closed rather than staying unknown")
+        if not dec_getypt:
+            # BEIDE Achsen fail-closed, und die Folgebloecke werden UEBERSPRUNGEN. Mein erster
+            # Entwurf setzte die Werte hier und liess die Bloecke laufen — sie ueberschrieben
+            # beide zwei Zeilen spaeter, und `assurance_ok` stand wieder auf True. Ein Fix, der
+            # danach verworfen wird, sieht im Quelltext richtig aus und wirkt nicht.
+            r["findings_root_ok"] = False
+            r["assurance_ok"] = False
+        elif isinstance(dec.get("findingsRoot"), str):
             try:
                 r["findings_root_ok"] = findings_root(dec.get("findings") or []) == dec["findingsRoot"]
                 if not r["findings_root_ok"]:
@@ -815,16 +1095,49 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
         # Der Linter meldete nur den `in`-Test eine Zeile darunter; der schwerere Defekt war die
         # Menge selbst, und ohne den ausgefuehrten Gegenversuch haette ich nur den kleineren
         # gefixt und mich fuer fertig gehalten.
-        rungs = [i.get("assurance")
-                 for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
-                 if isinstance(i, dict)]
+        rungs = [] if not dec_getypt else [
+            i.get("assurance")
+            for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
+            if isinstance(i, dict)]
         over = sorted({repr(x) for x in rungs
                        if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
-        r["assurance_ok"] = not over
+        if dec_getypt:
+            r["assurance_ok"] = not over
         if over:
             r["errors"].append(
                 f"assurance rung(s) {over} claimed in a v0.1 receipt — this version has no witness "
                 "outside the producing agent; a valid signature does not raise a self-report")
+
+    # ── v0.1 IST SEMANTISCH EINGEFROREN (Owner-Entscheid 31.08.2026) ───────────────────────────
+    #
+    # Die urspruengliche Forderung lautete "observedAt in Tier 1 verbieten". Umgesetzt haette sie
+    # ein bereits VEROEFFENTLICHTES Receipt ungueltig gemacht, dessen observedAt eine Owner-Anordnung
+    # desselben Tages ausdruecklich verlangt hatte. Der Entscheid nimmt weder das eine noch das
+    # andere: v0.1 behaelt seine Semantik, v0.2 traegt die Trennung. Ein rueckwirkendes Verbot waere
+    # ein Versionsbruch — und die Regel "nur Receipts nach Datum X ablehnen" waere besonders
+    # schwach, weil der Verifier dann ausgerechnet an einer nicht bezeugten Zeit entscheiden
+    # muesste, welche Semantik gilt. Die Version steht im predicateType, nie in einer Uhrzeit.
+    #
+    # WAS DER HINWEIS TUT UND WAS NICHT: er blockt nicht (ok bleibt unberuehrt), aber er nimmt dem
+    # Wert jede Kraft. Ein selbst gesetztes observedAt darf keine Frische-, TTL-, Currentness- oder
+    # Zeit-Assurance-Policy erfuellen — es ist eine Produzentenangabe, kein Beobachtungsbeleg.
+    if isinstance(predicate, dict):
+        _zeiten = predicate.get("times")
+        _beob = (_zeiten or {}).get("observedAt") if isinstance(_zeiten, dict) else None
+        if r["predicate_type_ok"]:
+            r["time_semantics"] = "LEGACY_V0_1"
+        if _beob is not None:
+            r["observed_time_assurance"] = "SELF_DECLARED_OR_UNKNOWN"
+            r["reason_codes"].append("LEGACY_SELF_DECLARED_OBSERVED_AT")
+            r["warnings"].append(
+                "LEGACY_SELF_DECLARED_OBSERVED_AT: this v0.1 receipt carries a producer-supplied "
+                "observedAt. It is structurally valid and does NOT make the receipt invalid, but it "
+                "is a self-declaration, not an observation by a separate party — it must never "
+                "satisfy a freshness, TTL, currentness or time-assurance policy. agent-review/v0.2 "
+                "records such a time as a declared reviewCompleted claim and reserves observedAt "
+                "for a named external observer.")
+        elif r["predicate_type_ok"]:
+            r["observed_time_assurance"] = "ABSENT"
 
     # ZWEI AUSSAGEN, ZWEI FELDER (Gegenlesung Runde 2, 31.08.2026 — angenommen).
     # `internal_consistency_ok` heisst: dieses Receipt ist in sich stimmig und unveraendert.
@@ -844,6 +1157,142 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             "ok=False because no expected subject digest was supplied: the receipt is internally "
             "consistent (see internal_consistency_ok) but nothing here establishes that it belongs "
             "to the object you are looking at")
+
+    from .automation_verdict import automation_summary  # noqa: PLC0415
+    r["automation"] = automation_summary(r, required_checks={
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
+        "references": ["subject_binding_ok", "findings_root_ok", "assurance_ok"],
+    })
+    return r
+
+
+def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
+                            expected_subject_digest: str | None = None) -> dict:
+    """Der v0.2-Verifier — getrennte Zeitachsen, kein Gesamturteil ueber Zeit.
+
+    ER DEUTET v0.1 NIE STILLSCHWEIGEND NACH v0.2-REGELN. Ein v0.1-Receipt hat sein `observedAt`
+    unter einer anderen Bedeutung erhalten; es hier als fehlende Observation zu werten waere eine
+    rueckwirkende Umdeutung. Also: ablehnen, mit Verweis auf den richtigen Verifier.
+
+    Er liefert dieselben Achsen wie v0.1 PLUS event_time_status, observation_time_status,
+    signature_time_status und external_time_status. `policy_decision` bleibt None: ohne benannte
+    relying-party-Policy gibt es keine Zeitfreigabe, und ein Verifier, der eine erfindet, nimmt
+    dem Leser die Entscheidung ab, die ihm gehoert.
+    """
+    try:
+        return _verify_v02_inner(envelope, public_key, strict=strict,
+                                 expected_subject_digest=expected_subject_digest)
+    except Exception as exc:                                     # noqa: BLE001 — dieselbe Huelle
+        r = _empty_result()
+        r["structure_ok"] = False
+        r["reason_codes"].append("internal_error")
+        r["reason_code"] = "internal_error"
+        r["errors"].append(f"internal_error: the v0.2 verifier raised {type(exc).__name__} on this "
+                           "input — this is a defect in the verifier, not a verdict about the receipt")
+        return _finalize_failclosed(r)
+
+
+def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
+                      expected_subject_digest: str | None = None) -> dict:
+    from . import dsse  # noqa: PLC0415
+    from ._strict_json import loads_strict  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    r = _empty_result()
+    r.update({"event_time_status": "NOT_EVALUATED", "observation_time_status": "NOT_EVALUATED",
+              "signature_time_status": "NOT_EVALUATED", "external_time_status": "NOT_EVALUATED",
+              "policy_decision": None})
+    try:
+        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
+                                                   payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        if not r["crypto_ok"]:
+            r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        body = dsse.load_payload(envelope)
+        DEFAULT_BUDGET.check("input_bytes", len(body))
+        statement = loads_strict(body.decode("utf-8"))
+    except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
+        r["structure_ok"] = False
+        r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
+        return _finalize_failclosed(r)
+
+    ptype = statement.get("predicateType") if isinstance(statement, dict) else None
+    r["predicate_type_ok"] = ptype == AGENT_REVIEW_PREDICATE_TYPE_V02
+    if not r["predicate_type_ok"]:
+        if ptype == AGENT_REVIEW_PREDICATE_TYPE:
+            r["reason_codes"].append("UNKNOWN_PREDICATE_VERSION")
+            r["errors"].append(
+                "predicateType is agent-review/v0.1 — this is the v0.2 verifier and it refuses "
+                "rather than reinterpreting. In v0.1 a producer-supplied observedAt was allowed; "
+                "judging it by v0.2 rules would rewrite what that receipt meant when it was signed")
+        else:
+            r["errors"].append(f"predicateType is {ptype!r}, expected agent-review/v0.2")
+
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    shape_errs = validate_statement_shape(statement, predicate)
+    r["errors"].extend(shape_errs)
+    r["statement_shape_ok"] = not shape_errs
+    struct_errs = validate_agent_review_v02_predicate(predicate, strict=strict)
+    r["errors"].extend(struct_errs)
+
+    canonical_ok = None
+    if _rfc8785_available():
+        try:
+            canonical_ok = _rfc8785_bytes(statement) == body
+        except Exception:                                        # noqa: BLE001
+            canonical_ok = False
+        if canonical_ok is False:
+            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+    else:
+        r["errors"].append("RFC-8785 (JCS) canonicalizer unavailable — hash_binding fail-closed")
+
+    r["structure_ok"] = ((not struct_errs) and (not shape_errs)
+                         and bool(r["predicate_type_ok"]) and canonical_ok is True)
+    r["time_semantics"] = "V0_2" if r["predicate_type_ok"] else None
+
+    if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
+        r.update(_zeitachsen(predicate))
+        try:
+            derived = _subject_digest(predicate)
+            claimed = ((statement["subject"][0].get("digest") or {}).get("sha256") or "")
+            r["subject_binding_ok"] = derived == claimed
+            if expected_subject_digest is None:
+                r["warnings"].append(
+                    "no expected_subject_digest was supplied: internal consistency only")
+            else:
+                r["subject_expectation"] = "checked"
+                if derived != expected_subject_digest:
+                    r["subject_binding_ok"] = False
+                    r["errors"].append("subjectContext digest is not the expected one")
+        except (AgentReviewError, KeyError, TypeError, IndexError) as exc:
+            r["subject_binding_ok"] = False
+            r["errors"].append(f"subject binding not computable: {exc}")
+
+        _dv = predicate.get("declaration")
+        dec_v2: dict = _dv if isinstance(_dv, dict) else {}
+        if isinstance(dec_v2.get("findingsRoot"), str):
+            try:
+                r["findings_root_ok"] = findings_root(dec_v2.get("findings") or []) == dec_v2["findingsRoot"]
+                if not r["findings_root_ok"]:
+                    r["errors"].append("findingsRoot does not cover the published findings list")
+            except AgentReviewError as exc:
+                r["findings_root_ok"] = False
+                r["errors"].append(f"findingsRoot not computable: {exc}")
+        rungs = [i.get("assurance")
+                 for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
+                 if isinstance(i, dict)]
+        over = sorted({repr(x) for x in rungs
+                       if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
+        r["assurance_ok"] = not over
+        if over:
+            r["errors"].append(f"assurance rung(s) {over} claimed in a Tier 1 receipt")
+
+    r["internal_consistency_ok"] = bool(
+        r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
+        and r["subject_binding_ok"] is not False
+        and r["findings_root_ok"] is not False
+        and r["assurance_ok"] is not False)
+    r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
+    if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
+        r["errors"].append("ok=False because no expected subject digest was supplied")
 
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={
