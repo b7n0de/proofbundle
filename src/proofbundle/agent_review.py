@@ -579,6 +579,38 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     return f"{DISCLOSURE_BEGIN}\n{body}{tail}\n{DISCLOSURE_END}"
 
 
+def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url: str,
+                           leaf_url: str | None = None, leaf_witnessed: bool = False) -> str:
+    """The COMPACT form: one line, derived from the same predicate the receipt is signed over.
+
+    WHY DERIVED AND NOT HAND-WRITTEN. A hand-written disclosure line drifts from the receipt without
+    any cryptographic error — the visible text and the signed object simply stop agreeing, and the
+    signature keeps verifying. The five-line block and this one line therefore come from the same
+    place; only the density differs.
+
+    NEVER STRONGER THAN THE VERIFIER. The line names the weakest assurance rung present, and when a
+    transparency-log leaf is referenced it states whether that leaf is WITNESSED yet. An entry can be
+    in the tree, witnessed, and anchored, and those are three different facts — a line that says
+    "notarised" while the witness round is still pending claims the second from the first.
+    """
+    require_valid_agent_review_predicate(predicate)
+    dec = predicate["declaration"]
+    rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
+    weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
+                                "independentlyWitnessed") if r in rungs), "selfDeclared")
+    fnd, total = dec.get("findings") or [], dec.get("findingsTotal")
+    zahl = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
+            else f"{len(fnd)}")
+    teile = [f"Agent review receipt: [{receipt_digest[:12]}]({receipt_url})",
+             f"`sha256:{receipt_digest}`",
+             f"{zahl} findings",
+             f"assurance {weakest}, not independently witnessed"]
+    if leaf_url:
+        teile.append(f"[transparency log entry]({leaf_url})"
+                     + ("" if leaf_witnessed else ", not yet in a witnessed checkpoint"))
+    return "- " + " · ".join(teile)
+
+
 # ── Emit / verify ───────────────────────────────────────────────────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
     from . import canonical  # noqa: PLC0415
