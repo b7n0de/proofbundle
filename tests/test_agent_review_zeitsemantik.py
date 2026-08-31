@@ -118,3 +118,130 @@ def test_ein_nicht_blockierender_code_macht_ok_nicht_falsch():
     assert r["reason_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
     assert r.get("reason_code") is None, "ein Hinweis darf nicht als fataler Code erscheinen"
     assert r["ok"] is True
+
+
+# ══ agent-review/v0.2 · Tests 4 bis 8 des Entscheids ═══════════════════════════════════════════
+
+def _pred_v02(*, observedAt=None, timeClaims=None, observations=None) -> dict:
+    p = {
+        "schemaVersion": "0.1.0", "reviewId": "r",
+        "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
+                           "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
+                           "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64},
+        "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}],
+                        "reviewRuns": [], "findings": [], "findingsTotal": 0, "nonClaims": ["n"]},
+        "coverage": {"status": "UNKNOWN"},
+        "times": {"declaredAt": "2026-08-31T20:00:00Z", "observedAt": observedAt,
+                  "signedAt": "2026-08-31T20:00:00Z"},
+        "limitations": ["l"],
+    }
+    if timeClaims is not None:
+        p["declaration"]["timeClaims"] = timeClaims
+    if observations is not None:
+        p["observations"] = observations
+    return p
+
+
+REVIEW_CLAIM = [{"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z",
+                 "assertedBy": "ownerOrder", "assurance": "selfDeclared"}]
+
+
+def _lauf_v02(p, *, typ=None):
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": typ or AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": p}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return env, AR.verify_agent_review_v02(env, PK, strict=True,
+                                           expected_subject_digest=AR._subject_digest(p))
+
+
+# Test 6 zuerst — die Kontrolle. Ohne sie belegt jedes Rot darunter nichts.
+def test_v02_mit_reviewCompleted_selfDeclared_wird_akzeptiert():
+    _, r = _lauf_v02(_pred_v02(timeClaims=REVIEW_CLAIM))
+    assert r["ok"] is True, r["errors"]
+    assert r["event_time_status"] == "SELF_DECLARED"
+    assert r["observation_time_status"] == "ABSENT"
+    assert r["signature_time_status"] == "SELF_DECLARED"
+    assert r["external_time_status"] == "NOT_EVALUATED", "externe Zeit nie aus einem Payloadfeld"
+    assert r["policy_decision"] is None, "ohne benannte Policy darf es keine Zeitfreigabe geben"
+
+
+# Test 4 — beim EMIT verweigert
+def test_v02_tier1_mit_observedAt_wird_beim_emit_verweigert():
+    fehler = AR.validate_agent_review_v02_predicate(_pred_v02(observedAt="2026-08-31T15:45:00Z"))
+    assert any("observedAt" in f for f in fehler), fehler
+    assert any("separately named observer" in f for f in fehler), fehler
+
+
+# Test 5 — beim VERIFY abgelehnt, auch fremd signiert
+def test_v02_tier1_mit_observedAt_wird_beim_verify_abgelehnt():
+    """Ein fremder Emitter benutzt unseren Validator nicht. Die Sperre muss im Verifier stehen."""
+    _, r = _lauf_v02(_pred_v02(observedAt="2026-08-31T15:45:00Z", timeClaims=REVIEW_CLAIM))
+    assert r["ok"] is False and r["structure_ok"] is False
+    assert any("observedAt" in e for e in r["errors"])
+
+
+def test_v02_observedAt_MIT_benanntem_beobachter_ist_zulaessig():
+    """Die Gegenrichtung: die Sperre gilt der TIER-1-Selbstauskunft, nicht der Beobachtung."""
+    beob = [{"kind": "reviewEvidenceReceived", "observedAt": "2026-08-31T20:33:08Z",
+             "observer": {"id": "https://example.invalid/witness/gha"},
+             "assurance": "runnerObserved"}]
+    fehler = AR.validate_agent_review_v02_predicate(
+        _pred_v02(observedAt="2026-08-31T20:33:08Z", observations=beob, timeClaims=REVIEW_CLAIM))
+    assert not any("observedAt" in f for f in fehler), fehler
+
+
+def test_eine_beobachtung_ohne_benannten_beobachter_hebt_nichts_an():
+    """Sonst waere `observations` nur ein anderes Wort fuer dieselbe Selbstauskunft."""
+    achsen = AR._zeitachsen(_pred_v02(observations=[{"kind": "x", "observedAt": "2026-08-31T20:00:00Z"}],
+                                      timeClaims=REVIEW_CLAIM))
+    assert achsen["observation_time_status"] == "SELF_DECLARED"
+
+
+def test_zwei_widersprechende_reviewzeiten_ergeben_CONFLICT():
+    zwei = REVIEW_CLAIM + [{"kind": "reviewCompleted", "value": "2026-08-31T09:00:00Z",
+                            "assertedBy": "ownerOrder", "assurance": "selfDeclared"}]
+    assert AR._zeitachsen(_pred_v02(timeClaims=zwei))["event_time_status"] == "CONFLICT"
+
+
+def test_eine_deklarierte_zeit_darf_keine_hoehere_sprosse_behaupten():
+    """Wer mehr als selfDeclared behauptet, meint eine Beobachtung — und die gehoert woanders hin."""
+    hoch = [{"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z",
+             "assertedBy": "ownerOrder", "assurance": "independentlyWitnessed"}]
+    fehler = AR.validate_agent_review_v02_predicate(_pred_v02(timeClaims=hoch))
+    assert any("belongs in observations" in f for f in fehler), fehler
+
+
+@pytest.mark.parametrize("fehlt", ["kind", "value", "assertedBy", "assurance"])
+def test_eine_zeitaussage_ohne_quelle_ist_keine(fehlt):
+    tc = dict(REVIEW_CLAIM[0]); tc.pop(fehlt)
+    fehler = AR.validate_agent_review_v02_predicate(_pred_v02(timeClaims=[tc]))
+    assert any(fehlt in f for f in fehler), fehler
+
+
+# Test 7 — der v0.1-Verifier verweigert v0.2, statt zu raten
+def test_v01_verifier_verweigert_v02_statt_zu_raten():
+    p = _pred_v02(timeClaims=REVIEW_CLAIM)
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": p}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    r = AR.verify_agent_review(env, PK, strict=True, expected_subject_digest=AR._subject_digest(p))
+    assert r["ok"] is False and r["predicate_type_ok"] is False
+    assert "UNKNOWN_PREDICATE_VERSION" in r["reason_codes"]
+    assert any("refuses" in e and "guessing" in e for e in r["errors"]), r["errors"]
+
+
+# Test 8 — der v0.2-Verifier deutet v0.1 nicht still um
+def test_v02_verifier_deutet_v01_nicht_still_um():
+    p = _pred(observed="2026-08-31T15:45:00Z")
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE, "predicate": p}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    r = AR.verify_agent_review_v02(env, PK, strict=True, expected_subject_digest=AR._subject_digest(p))
+    assert r["ok"] is False and "UNKNOWN_PREDICATE_VERSION" in r["reason_codes"]
+    assert any("rewrite what that receipt meant" in e for e in r["errors"]), r["errors"]
