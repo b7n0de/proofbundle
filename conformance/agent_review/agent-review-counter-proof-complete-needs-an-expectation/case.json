@@ -6,7 +6,7 @@
   },
   "input": "predicate.json",
   "kind": "agent_review_predicate",
-  "rationale": "Without a stated expectation, 'complete' means 'I saw everything I happened to see' and cannot be falsified. Unobserved work must appear as a gap, never as a zero count. Classified `refused`, not `invalid`, and the difference is the substance: the producer will not build this receipt at all, so it never reaches a reader. A receipt that cannot be emitted cannot be shown to anyone.",
+  "rationale": "Without a stated expectation, 'complete' means 'I saw everything I happened to see' and cannot be falsified. Unobserved work must appear as a gap, never as a zero count.",
   "role": "counter_proof",
   "rule": "F07",
   "specRefs": [

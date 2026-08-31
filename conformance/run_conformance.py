@@ -453,7 +453,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
     sys.path.insert(0, str(ROOT.parent / "src"))
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
-    _ACHSEN = ("classification", "bodyCoreStable")
+    _ACHSEN = ("classification", "bodyCoreStable", "subjectExpectation")
     genannt = [a for a in _ACHSEN if a in exp]
     if len(genannt) != 1:
         return _fail(cid, f"agent_review_predicate case must declare EXACTLY ONE expectation axis "
@@ -474,6 +474,22 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                               f"({vorher[:12]} vs {nachher[:12]})")
         return {"caseId": cid, "ok": True,
                 "detail": f"body core digest stable across re-render ({vorher[:12]})"}
+
+    if "subjectExpectation" in exp:
+        # Ob eine Erwartung von aussen gesetzt war, ist eine EIGENE Aussage — und dass ihre
+        # Abwesenheit gemeldet wird, ist der Punkt: ohne sie prueft der Verifier nur die innere
+        # Konsistenz, nicht die Bindung an das Objekt, das der Leser ansieht.
+        doc = _read(case.get("input") or "envelope.json")
+        key_hex = (case_dir.parent / "publickey.hex").read_text().strip()
+        r = ar.verify_agent_review(doc, bytes.fromhex(key_hex))
+        got = r.get("subject_expectation")
+        if got != exp["subjectExpectation"]:
+            return _fail(cid, f"subject_expectation {got!r} != expected {exp['subjectExpectation']!r}")
+        if got == "not_supplied" and not any("expected_subject_digest" in w for w in r.get("warnings", [])):
+            return _fail(cid, "absent expectation was not reported as a warning — a silent limit is "
+                              "exactly what this case exists to prevent")
+        return {"caseId": cid, "ok": True,
+                "detail": f"subject expectation {got}, and the limit is stated"}
 
     want = exp["classification"]
     name = case.get("input") or "envelope.json"

@@ -86,6 +86,9 @@
     "agent_review/agent-review-counter-proof-findings-root-covers-the-list",
     "agent_review/agent-review-counter-proof-receipt-does-not-travel-between-subjects",
     "agent_review/agent-review-positive-control-rerendered-block-keeps-body-core",
-    "agent_review/agent-review-positive-control-valid-self-declared"
+    "agent_review/agent-review-positive-control-valid-self-declared",
+    "agent_review/agent-review-counter-proof-gap-duty-cannot-be-switched-off",
+    "agent_review/agent-review-counter-proof-partial-must-name-its-gap",
+    "agent_review/agent-review-positive-control-absent-expectation-is-reported"
   ]
 }

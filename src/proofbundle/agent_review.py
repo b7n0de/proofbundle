@@ -22,6 +22,13 @@ REFUSES the stronger values rather than letting a producer paint them on. Tier 2
 and Tier 3 (independently witnessed) need a witness outside the agent's own workspace; that is a
 separate product step and is deliberately NOT half-built here.
 
+WHAT THAT REFUSAL IS AND IS NOT (external review, 31.08.2026). It is a SEMANTIC validator, not an
+anti-forgery mechanism. Whoever controls the emitter bypasses it in a minute by building a DSSE
+envelope by hand. It stops a careless producer from claiming a rung this version cannot support; it
+does not stop a dishonest one from lying about the facts. The verifier re-checks the same condition,
+so a receipt that reached a reader through some other path is still caught — but nothing here
+authenticates the claim itself.
+
 SUBJECT BINDING IS EXACT (F02, F03, F14). A PR number, a branch name or a URL points at something
 that can still change. The subject therefore carries repository id, PR node id, headSha, baseSha, a
 digest of the reviewed diff, and ``bodyCoreDigest`` — the digest of the human-visible body AFTER the
@@ -268,7 +275,7 @@ def _validate_declaration(dec: Any) -> list[str]:
         if k not in ("authoring", "reviewRuns", "findings", "findingsTotal",
                      "findingsRoot", "nonClaims"):
             errs.append(f"unknown field {k!r}")
-    for req in ("authoring", "reviewRuns", "findings", "nonClaims"):
+    for req in ("authoring", "reviewRuns", "findings", "findingsTotal", "nonClaims"):
         if req not in dec:
             errs.append(f"missing {req!r}")
 
@@ -308,6 +315,11 @@ def _validate_declaration(dec: Any) -> list[str]:
     # not a lie, but a receipt that silently reports the smaller number lets an aggregate claim
     # disappear. So the aggregate gets its own field, it may never be SMALLER than the list, and a
     # shortfall without an explanation in coverage.knownGaps is rejected.
+    # PFLICHT, nicht optional — und der Grund steht in einer Gegenlesung vom 31.08.2026, die den
+    # Angriff ausgefuehrt hat: solange das Feld weggelassen werden durfte, lief die ganze
+    # Luecken-Pflicht ins Leere. Ein Produzent listete einen von acht Funden, liess `findingsTotal`
+    # weg, setzte `knownGaps` auf leer — und der Validator meldete NULL Fehler. Eine Pflicht, die
+    # sich durch Weglassen eines Feldes abschalten laesst, ist keine.
     tot = dec.get("findingsTotal")
     if "findingsTotal" in dec:
         if not isinstance(tot, int) or isinstance(tot, bool) or tot < 0:
@@ -401,6 +413,12 @@ def _validate_coverage(cov: Any) -> list[str]:
             errs.append(f"status COMPLETE but observedRuns {obs} < expectedRuns {exp}")
         if cov.get("knownGaps"):
             errs.append("status COMPLETE cannot list knownGaps")
+    # NACHBAR DERSELBEN KLASSE, im selben Durchgang geschlossen. COMPLETE musste seine Erwartung
+    # nennen; PARTIAL musste gar nichts nennen und war damit genauso unwiderlegbar — "unvollstaendig,
+    # aber ich sage nicht worin" ist keine Angabe. Wer eine Luecke behauptet, benennt sie.
+    if cov.get("status") == "PARTIAL" and not cov.get("knownGaps"):
+        errs.append("status PARTIAL requires a non-empty knownGaps — an incomplete coverage that "
+                    "names no gap cannot be checked against anything")
     return errs
 
 
@@ -568,7 +586,8 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
-            "subject_binding_ok": None, "findings_root_ok": None, "assurance_ok": None,
+            "subject_binding_ok": None, "subject_expectation": "not_supplied",
+            "findings_root_ok": None, "assurance_ok": None,
             "currentness": "CURRENTNESS_UNKNOWN", "automation": None,
             "warnings": [], "errors": []}
 
@@ -644,11 +663,28 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
                 r["errors"].append(
                     "subject digest does not match the signed subjectContext — this receipt does not "
                     "bind the object it names")
-            if expected_subject_digest is not None and derived != expected_subject_digest:
-                r["subject_binding_ok"] = False
-                r["errors"].append(
-                    f"subjectContext digest {derived[:16]}… is not the expected {expected_subject_digest[:16]}… "
-                    "(receipt belongs to a different pull request or issue)")
+            if expected_subject_digest is None:
+                # DIE KORREKTUR AN EINER FALSCHEN BEHAUPTUNG VON MIR (31.08.2026, Gegenlesung).
+                # Ich hatte geschrieben, ein auf einen fremden PR kopiertes Receipt falle durch die
+                # Subject-Pruefung. Das ist FALSCH. `derived` und `claimed` stammen beide aus
+                # demselben signierten subjectContext, also stimmen sie ueberein, solange niemand
+                # das Statement von Hand baut. Wer ein gueltiges Receipt kopiert und behauptet, es
+                # gehoere zu einem anderen PR, aendert am Envelope nichts — er luegt daneben.
+                # Ohne eine von aussen gesetzte Erwartung ist das hier eine KONSISTENZ-Pruefung,
+                # keine Bindung an das Objekt, das der Leser gerade ansieht. Das wird jetzt
+                # ausgewiesen statt verschwiegen.
+                r["warnings"].append(
+                    "no expected_subject_digest was supplied: this run checked only that the receipt "
+                    "is internally consistent, NOT that it belongs to the object you are looking at. "
+                    "A valid receipt for a different pull request passes this check.")
+            else:
+                r["subject_expectation"] = "checked"
+                if derived != expected_subject_digest:
+                    r["subject_binding_ok"] = False
+                    r["errors"].append(
+                        f"subjectContext digest {derived[:16]}… is not the expected "
+                        f"{expected_subject_digest[:16]}… (receipt belongs to a different pull "
+                        "request or issue)")
         except (AgentReviewError, KeyError, TypeError, IndexError) as exc:
             r["subject_binding_ok"] = False
             r["errors"].append(f"subject binding not computable: {exc}")

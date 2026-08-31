@@ -1,7 +1,11 @@
 {
   "coverage": {
+    "expectedRuns": null,
+    "knownGaps": [
+      "runs outside this session are not visible"
+    ],
     "observedRuns": 2,
-    "status": "COMPLETE"
+    "status": "PARTIAL"
   },
   "declaration": {
     "authoring": [
@@ -17,17 +21,9 @@
         "id": "F1",
         "severity": "high",
         "title": "unbalanced marker accepted"
-      },
-      {
-        "disposition": "dismissed",
-        "id": "F2",
-        "reason": "covered by the limitations block",
-        "severity": "low",
-        "title": "wording too broad"
       }
     ],
     "findingsRoot": "f763c3864fda0dc695e03006ec9a6573465f546cc0c316c4511267da80c1af06",
-    "findingsTotal": 2,
     "nonClaims": [
       "does not prove the named agent was involved"
     ],

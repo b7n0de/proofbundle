@@ -1,7 +1,8 @@
 {
   "coverage": {
+    "knownGaps": [],
     "observedRuns": 2,
-    "status": "COMPLETE"
+    "status": "PARTIAL"
   },
   "declaration": {
     "authoring": [

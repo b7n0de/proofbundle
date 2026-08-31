@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-positive-control-absent-expectation-is-reported",
+  "expected": {
+    "subjectExpectation": "not_supplied"
+  },
+  "input": "envelope.json",
+  "kind": "agent_review_predicate",
+  "rationale": "A CORRECTION TO A CLAIM WE MADE OURSELVES. We wrote that a receipt copied onto another pull request fails the subject check. It does not: derived and claimed both come from the same signed subjectContext, so they always agree unless someone hand-builds the statement. Without an expectation supplied from outside, this is a CONSISTENCY check, not a binding to the object the reader is looking at. The absence is now reported instead of passing silently.",
+  "role": "positive_control",
+  "rule": "F02",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

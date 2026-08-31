@@ -1,14 +1,14 @@
 {
   "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
-  "caseId": "agent-review-counter-proof-assurance-cannot-be-self-raised",
+  "caseId": "agent-review-counter-proof-partial-must-name-its-gap",
   "expected": {
     "classification": "refused"
   },
   "input": "predicate.json",
   "kind": "agent_review_predicate",
-  "rationale": "The whole point of the predicate: a producer must not be able to label its own claim as independently witnessed. This is rejected at EMIT time, not merely reported at verify \u2014 a receipt that cannot be produced cannot be shown to anyone.",
+  "rationale": "The neighbour of the case above, closed in the same pass. COMPLETE had to state its expectation; PARTIAL had to state nothing at all and was therefore just as unfalsifiable \u2014 'incomplete, but I will not say in what' is not a statement about coverage.",
   "role": "counter_proof",
-  "rule": "F01",
+  "rule": "F07",
   "specRefs": [
     "docs/AGENT_REVIEW_PREDICATE.md",
     "src/proofbundle/agent_review.py"
