@@ -686,6 +686,7 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
+            "statement_shape_ok": None, "reason_code": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
             "internal_consistency_ok": None,
             "findings_root_ok": None, "assurance_ok": None,
@@ -702,9 +703,107 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+_HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+def validate_statement_shape(statement: object, predicate: object) -> list[str]:
+    """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
+
+    WHY THIS EXISTS, measured on 2026-08-31 against our own r2 receipt. With a valid signature AND
+    the correct expected subject digest, the verifier accepted a statement with a wrong ``_type``,
+    with TWO subjects, and with a subject name pointing at a foreign repository — ``ok=True`` in all
+    three cases. The subject array is the binding statement layer in the in-toto spec; leaving it
+    unchecked means a signature authenticates bytes whose shape nobody agreed on.
+
+    THE MEASUREMENT THAT NEARLY WENT WRONG, recorded because it is the reusable part: without an
+    expected digest those same three mutations came back ``ok=False``, and that looked like the
+    checks already existed. They did not. The red came from a different axis entirely — the missing
+    target comparison. A verdict is not a reason; only reading the reason showed which was which.
+
+    Returns a list of errors. Empty means the statement is shaped as this profile requires.
+    """
+    errs: list[str] = []
+    if not isinstance(statement, dict):
+        return [f"statement must be a JSON object, got {type(statement).__name__}"]
+
+    t = statement.get("_type")
+    if t != INTOTO_STATEMENT_TYPE:
+        errs.append(f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                    "(the in-toto spec requires it; an unread _type is an unagreed shape)")
+
+    subj = statement.get("subject")
+    if not isinstance(subj, list):
+        errs.append(f"subject must be an array, got {type(subj).__name__} "
+                    "(the subject array is the binding statement layer)")
+        return errs
+    if len(subj) != 1:
+        errs.append(f"this profile binds exactly one subject, got {len(subj)} "
+                    "(more than one leaves it open which object the receipt speaks about)")
+        return errs
+    s0 = subj[0]
+    if not isinstance(s0, dict):
+        errs.append(f"subject[0] must be an object, got {type(s0).__name__}")
+        return errs
+
+    dig = s0.get("digest")
+    if not isinstance(dig, dict):
+        errs.append(f"subject[0].digest must be an object, got {type(dig).__name__}")
+    elif set(dig) != {"sha256"}:
+        errs.append(f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
+                    "(an extra algorithm lets a producer choose which one a verifier reads)")
+    elif not (isinstance(dig["sha256"], str) and _HEX64.match(dig["sha256"])):
+        errs.append("subject[0].digest.sha256 must be 64 lowercase hex characters")
+
+    name = s0.get("name")
+    if not (isinstance(name, str) and name):
+        errs.append("subject[0].name must be a non-empty string")
+    elif isinstance(predicate, dict):
+        # The name is DERIVED from the signed subjectContext. A name that disagrees with it points
+        # the reader at a different object than the signature covers.
+        try:
+            erwartet = _subject_name(predicate)
+        except Exception:                                        # noqa: BLE001
+            erwartet = None
+        if erwartet is not None and name != erwartet:
+            errs.append(f"subject[0].name is {name!r} but the signed subjectContext derives "
+                        f"{erwartet!r} — the visible name and the signed object disagree")
+
+    for k in statement:
+        if k not in ("_type", "subject", "predicateType", "predicate"):
+            errs.append(f"unknown statement field {k!r} — this profile allows no extras")
+    return errs
+
+
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None) -> dict:
-    """Verify a DSSE-signed agent-review receipt. Separate axes, never one collapsed PASS (F12).
+    """Verify a DSSE-signed agent-review receipt — the PUBLIC surface, which never raises.
+
+    THE GUARANTEE, and why it is a guarantee and not a nicety (measured 2026-08-31): a signed
+    statement with ``subject`` or ``declaration`` in the wrong type left this function with a raw
+    ``AttributeError`` instead of a typed fail-closed result. A verifier that crashes on malformed
+    input is blind exactly where an attacker aims — the caller sees a stack trace, not ``ok=False``,
+    and a pipeline that catches broadly cannot tell "invalid receipt" from "verifier broke".
+
+    Anything unexpected becomes ``ok=False`` with the stable reason code ``internal_error``. That
+    code is deliberately distinguishable from a normal rejection: it means the verifier itself hit
+    something it did not model, which is a defect to report, not a verdict about the receipt.
+    """
+    try:
+        return _verify_agent_review_inner(envelope, public_key, strict=strict,
+                                          expected_subject_digest=expected_subject_digest)
+    except Exception as exc:                                     # noqa: BLE001 — that is the point
+        r = _empty_result()
+        r["structure_ok"] = False
+        r["errors"].append(f"internal_error: the verifier raised {type(exc).__name__} on this input "
+                           f"— this is a defect in the verifier, not a verdict about the receipt")
+        r["reason_code"] = "internal_error"
+        return _finalize_failclosed(r)
+
+
+def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
+                               expected_subject_digest: str | None = None) -> dict:
+    """Separate axes, never one collapsed PASS (F12).
 
     ``currentness`` is ALWAYS ``CURRENTNESS_UNKNOWN`` here and that is not a defect: this verifier is
     offline, and whether the PR still looks like the reviewed state is a question only a live lookup
@@ -734,6 +833,11 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
         r["errors"].append(f"predicateType is {ptype!r}, expected agent-review/v0.1 (confusion attack?)")
 
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    # DIE TYPISIERUNG KOMMT VOR DER SEMANTIK (P0.1). Solange die Statement-Form nicht steht, ist
+    # jede Achse darunter eine Rechnung auf Sand — und genau dort fielen die rohen AttributeError.
+    shape_errs = validate_statement_shape(statement, predicate)
+    r["errors"].extend(shape_errs)
+    r["statement_shape_ok"] = not shape_errs
     struct_errs = validate_agent_review_predicate(predicate, strict=strict)
     r["errors"].extend(struct_errs)
 
@@ -750,9 +854,12 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
             "hash_binding fail-closed, cannot verify canonicality")
 
-    r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonical_ok is True
+    r["structure_ok"] = ((not struct_errs) and (not shape_errs)
+                         and bool(r["predicate_type_ok"]) and canonical_ok is True)
 
-    if isinstance(predicate, dict) and r["crypto_ok"]:
+    # Semantik NUR bei getypter Statement-Form: ein String in `subject` oder `declaration`
+    # darf hier nicht mehr ankommen, sonst waere die Huelle oben die einzige Verteidigung.
+    if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs:
         # Subject binding: the statement's subject digest must be the one derivable from the
         # signed subjectContext. A receipt copied onto another PR carries the old context and fails.
         try:
@@ -791,8 +898,28 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             r["errors"].append(f"subject binding not computable: {exc}")
 
         # findingsRoot, when present, must actually cover the published list (P0 test 11).
-        dec = predicate.get("declaration") or {}
-        if isinstance(dec.get("findingsRoot"), str):
+        #
+        # `or {}` FAENGT NUR FALSY, NICHT FALSCH GETYPT (gemessen 31.08.2026). Ein String im Feld
+        # `declaration` ist wahrheitswertig, ueberlebt das `or` und laesst zwei Zeilen spaeter eine
+        # rohe AttributeError fallen. Die Never-Raise-Huelle oben faengt sie — aber als
+        # `internal_error`, und das ist die Meldung eines VERIFIER-Defekts, nicht ein Urteil ueber
+        # das Receipt. Eine bekannte Eingabeklasse gehoert getypt, sonst verdeckt der Notausgang
+        # genau die Faelle, fuer die er gebaut wurde.
+        dec = predicate.get("declaration")
+        dec_getypt = isinstance(dec, dict)
+        if not dec_getypt:
+            r["errors"].append(
+                f"declaration must be an object, got {type(dec).__name__} — findingsRoot and "
+                "assurance cannot be evaluated, so both fail closed rather than staying unknown")
+            dec = {}
+        if not dec_getypt:
+            # BEIDE Achsen fail-closed, und die Folgebloecke werden UEBERSPRUNGEN. Mein erster
+            # Entwurf setzte die Werte hier und liess die Bloecke laufen — sie ueberschrieben
+            # beide zwei Zeilen spaeter, und `assurance_ok` stand wieder auf True. Ein Fix, der
+            # danach verworfen wird, sieht im Quelltext richtig aus und wirkt nicht.
+            r["findings_root_ok"] = False
+            r["assurance_ok"] = False
+        elif isinstance(dec.get("findingsRoot"), str):
             try:
                 r["findings_root_ok"] = findings_root(dec.get("findings") or []) == dec["findingsRoot"]
                 if not r["findings_root_ok"]:
@@ -815,12 +942,14 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
         # Der Linter meldete nur den `in`-Test eine Zeile darunter; der schwerere Defekt war die
         # Menge selbst, und ohne den ausgefuehrten Gegenversuch haette ich nur den kleineren
         # gefixt und mich fuer fertig gehalten.
-        rungs = [i.get("assurance")
-                 for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
-                 if isinstance(i, dict)]
+        rungs = [] if not dec_getypt else [
+            i.get("assurance")
+            for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
+            if isinstance(i, dict)]
         over = sorted({repr(x) for x in rungs
                        if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
-        r["assurance_ok"] = not over
+        if dec_getypt:
+            r["assurance_ok"] = not over
         if over:
             r["errors"].append(
                 f"assurance rung(s) {over} claimed in a v0.1 receipt — this version has no witness "
