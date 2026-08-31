@@ -69,8 +69,13 @@ env = AR.emit_agent_review(BASE, sk)
 schreibe("agent-review-positive-control-valid-self-declared", "positive_control", "F01",
          {"classification": "valid"},
          "A well-formed v0.1 receipt verifies and reports selfDeclared. If this vector ever fails, the "
-         "emit or verify path changed shape and every counter-proof below becomes unreadable.",
-         envelope=env, input_name="envelope.json")
+         "emit or verify path changed shape and every counter-proof below becomes unreadable. It "
+         "SUPPLIES the expected subject digest, because that is what a real relying party does: it "
+         "knows which pull request it is looking at. Since the second review round, `ok` is only true "
+         "when that question was actually asked — a receipt can be internally sound and still belong "
+         "to something else, and a control that never asks would pass on the weaker statement.",
+         envelope=env, input_name="envelope.json",
+         params={"expectedSubjectDigest": AR._subject_digest(BASE)})
 
 # 2 — Gegenprobe: Assurance hochgestuft
 p = copy.deepcopy(BASE)

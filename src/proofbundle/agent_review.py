@@ -580,7 +580,8 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
 
 
 def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url: str,
-                           leaf_url: str | None = None, leaf_witnessed: bool = False) -> str:
+                           leaf_url: str | None = None, leaf_witnessed: bool = False,
+                           pruefweg: str | None = None) -> str:
     """The COMPACT form: one line, derived from the same predicate the receipt is signed over.
 
     WHY DERIVED AND NOT HAND-WRITTEN. A hand-written disclosure line drifts from the receipt without
@@ -608,6 +609,14 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     if leaf_url:
         teile.append(f"[transparency log entry]({leaf_url})"
                      + ("" if leaf_witnessed else ", not yet in a witnessed checkpoint"))
+    if pruefweg:
+        # DER BEZUGSORT, und warum er nicht "pip install" heisst (Owner-Entscheid 31.08.2026).
+        # Eine Zeile, die zum Nachrechnen auffordert, muss sagen WOMIT. Solange das
+        # veroeffentlichte Release dieses Predicate nicht traegt, waere `pip install` eine
+        # Anleitung, die beim Leser fehlschlaegt — und eine fehlschlagende Anleitung ist schlimmer
+        # als keine, weil sie den Beleg als kaputt erscheinen laesst statt als noch nicht
+        # ausgeliefert. Der Bezugsort wechselt auf den Paketnamen, sobald ein Release ihn traegt.
+        teile.append(pruefweg)
     return "- " + " · ".join(teile)
 
 
@@ -678,6 +687,7 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
+            "internal_consistency_ok": None,
             "findings_root_ok": None, "assurance_ok": None,
             "currentness": "CURRENTNESS_UNKNOWN", "automation": None,
             "warnings": [], "errors": []}
@@ -806,11 +816,24 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
                 f"assurance rung(s) {over} claimed in a v0.1 receipt — this version has no witness "
                 "outside the producing agent; a valid signature does not raise a self-report")
 
-    r["ok"] = bool(
+    # ZWEI AUSSAGEN, ZWEI FELDER (Gegenlesung Runde 2, 31.08.2026 — angenommen).
+    # `internal_consistency_ok` heisst: dieses Receipt ist in sich stimmig und unveraendert.
+    # `ok` heisst: du darfst es als Beleg FUER DAS OBJEKT VOR DIR benutzen. Die zweite Aussage
+    # kann ohne eine von aussen gesetzte Erwartung nicht getroffen werden, und eine Warnung daneben
+    # traegt sie nicht: ein Aufrufer, der nur `ok` liest — etwa eine Pipeline, die prueft "gibt es
+    # ein gueltiges Receipt" — bekaeme sonst gruen fuer ein Receipt, das zu einem anderen Vorgang
+    # gehoert. Genau dieser Angriff wurde vorgelegt, und er traegt.
+    r["internal_consistency_ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["subject_binding_ok"] is not False
         and r["findings_root_ok"] is not False
         and r["assurance_ok"] is not False)
+    r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
+    if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
+        r["errors"].append(
+            "ok=False because no expected subject digest was supplied: the receipt is internally "
+            "consistent (see internal_consistency_ok) but nothing here establishes that it belongs "
+            "to the object you are looking at")
 
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={

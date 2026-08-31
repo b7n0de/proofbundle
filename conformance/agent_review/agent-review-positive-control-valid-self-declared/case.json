@@ -6,7 +6,10 @@
   },
   "input": "envelope.json",
   "kind": "agent_review_predicate",
-  "rationale": "A well-formed v0.1 receipt verifies and reports selfDeclared. If this vector ever fails, the emit or verify path changed shape and every counter-proof below becomes unreadable.",
+  "params": {
+    "expectedSubjectDigest": "f2fca8ac146b3236c8f37533890f42350a8562a6426ec7d96c129e04de3c662a"
+  },
+  "rationale": "A well-formed v0.1 receipt verifies and reports selfDeclared. If this vector ever fails, the emit or verify path changed shape and every counter-proof below becomes unreadable. It SUPPLIES the expected subject digest, because that is what a real relying party does: it knows which pull request it is looking at. Since the second review round, `ok` is only true when that question was actually asked \u2014 a receipt can be internally sound and still belong to something else, and a control that never asks would pass on the weaker statement.",
   "role": "positive_control",
   "rule": "F01",
   "specRefs": [
