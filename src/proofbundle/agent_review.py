@@ -133,6 +133,65 @@ def body_core_bytes(body: str) -> bytes:
     return (body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:]).encode("utf-8")
 
 
+def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
+    """The body as it will look ONCE it carries a disclosure block — call this BEFORE emitting.
+
+    THE ORDERING DEFECT THIS EXISTS TO PREVENT, found on 2026-08-31 while adding the first real
+    disclosure line to a live pull request. `bodyCoreDigest` is stable when a block is CHANGED (the
+    token replaces whatever is between the markers, so the content does not matter). It is NOT
+    stable when the first block is INTRODUCED: a body without a block and the same body with an
+    empty one differ by the token's own bytes. Measured: 8c482139… -> 87c6288a…
+
+    The consequence is not academic. A receipt emitted over the pre-block body binds a body that
+    stops existing the moment its own disclosure line is added — the receipt would be provably
+    unrelated to the pull request it describes, and a reader recomputing the digest would rightly
+    see a mismatch.
+
+    So the order is: prepare the body, take the digest over THAT, emit, then render the real block
+    into the prepared position. The last step cannot move the digest, because the block's content is
+    replaced by the token either way — that is the whole reason the markers exist.
+
+    `anchor` names a marker line to place the block AFTER (for example a section heading). Absent,
+    the block goes at the end. A named anchor that is not found RAISES rather than silently falling
+    back to the end: a block that lands somewhere else changes nothing about the digest, but it
+    changes what a human reads, and quietly relocating it is how a disclosure ends up where nobody
+    looks.
+    """
+    if not isinstance(body, str):
+        raise AgentReviewError("body must be a string")
+    if DISCLOSURE_BEGIN in body:
+        raise AgentReviewError(
+            "the body already carries a disclosure block — preparing it again would create a second "
+            "one, and two blocks have no single canonical core (use render_disclosure_block to "
+            "replace the existing one instead)")
+    platzhalter = f"{DISCLOSURE_BEGIN}\n\n{DISCLOSURE_END}"
+    if anchor is None:
+        return body.rstrip("\n") + "\n\n" + platzhalter + "\n"
+    if anchor not in body:
+        raise AgentReviewError(
+            f"anchor {anchor!r} not found in the body — refusing to place the disclosure block "
+            "somewhere else, because a human reads the position even though the digest does not")
+    i = body.index(anchor) + len(anchor)
+    return body[:i] + "\n\n" + platzhalter + body[i:]
+
+
+def replace_disclosure_block(body: str, block: str) -> str:
+    """Swap the block for a rendered one. The core digest MUST survive this — that is the contract."""
+    if body.count(DISCLOSURE_BEGIN) != 1 or body.count(DISCLOSURE_END) != 1:
+        raise AgentReviewError("the body must carry exactly one disclosure block to replace")
+    vorher = body_core_digest(body)
+    start = body.index(DISCLOSURE_BEGIN)
+    ende = body.index(DISCLOSURE_END) + len(DISCLOSURE_END)
+    neu = body[:start] + block.strip("\n") + body[ende:]
+    if body_core_digest(neu) != vorher:
+        # Not reachable through the normal path; kept because a silent digest move here would
+        # invalidate a receipt that was already signed, and that failure must be loud.
+        raise AgentReviewError(
+            "replacing the block moved the body core digest — the receipt would no longer bind this "
+            "body (this means the replacement escaped the markers)")
+    return neu
+
+
 def body_core_digest(body: str) -> str:
     """sha256 hex over :func:`body_core_bytes`. Stable across re-renders of the block (P0 test 7)."""
     return hashlib.sha256(body_core_bytes(body)).hexdigest()

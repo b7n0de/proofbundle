@@ -175,5 +175,33 @@ schreibe("agent-review-positive-control-absent-expectation-is-reported", "positi
          "silently.",
          envelope=env11, input_name="envelope.json")
 
+
+# 12 — Gegenprobe: die EINFUEHRUNG des ersten Blocks bewegt den Digest sehr wohl
+roh = "# Title\n\nSome PR text.\n\n### Agent review\n\n- Passes: 2\n"
+schreibe("agent-review-counter-proof-introducing-the-first-block-moves-the-digest", "counter_proof",
+         "F03", {"bodyCoreStable": False},
+         "THE ORDERING DEFECT, FOUND WHILE ADDING A REAL DISCLOSURE LINE TO A LIVE PULL REQUEST "
+         "(31.08.2026). Changing a block leaves the core digest alone; INTRODUCING the first one "
+         "does not, because a body without a block and the same body with an empty one differ by "
+         "the token's own bytes. A receipt emitted over the pre-block body binds a body that stops "
+         "existing the moment its own disclosure line is added. This case pins the difference so "
+         "nobody assumes the stable case covers both.",
+         obj={"bodyBefore": roh,
+              "bodyAfter": AR.prepare_body_for_disclosure(roh, anchor="### Agent review")},
+         input_name="bodies.json")
+
+# 13 — Positivkontrolle: prepare, dann replace — der Digest darf sich NICHT bewegen
+vorbereitet = AR.prepare_body_for_disclosure(roh, anchor="### Agent review")
+gefuellt = AR.replace_disclosure_block(
+    vorbereitet, AR.DISCLOSURE_BEGIN + "\n- **Receipt:** sha256:" + "f" * 64 + "\n" + AR.DISCLOSURE_END)
+schreibe("agent-review-positive-control-prepare-then-fill-keeps-the-digest", "positive_control",
+         "F03", {"bodyCoreStable": True},
+         "The correct order, pinned as a control. Prepare the body, take the digest over THAT, emit, "
+         "then fill the prepared position. The last step cannot move the digest because the block's "
+         "content is replaced by the token either way — which is the entire reason the markers "
+         "exist. Without this control the counter-proof above could be satisfied by a verifier that "
+         "simply reports instability for everything.",
+         obj={"bodyBefore": vorbereitet, "bodyAfter": gefuellt}, input_name="bodies.json")
+
 (ROOT / "publickey.hex").write_text(pk.hex() + "\n", encoding="utf-8")
 print(f"{len(list(ROOT.glob('*/case.json')))} Vektoren geschrieben nach {ROOT}")

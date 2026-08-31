@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-introducing-the-first-block-moves-the-digest",
+  "expected": {
+    "bodyCoreStable": false
+  },
+  "input": "bodies.json",
+  "kind": "agent_review_predicate",
+  "rationale": "THE ORDERING DEFECT, FOUND WHILE ADDING A REAL DISCLOSURE LINE TO A LIVE PULL REQUEST (31.08.2026). Changing a block leaves the core digest alone; INTRODUCING the first one does not, because a body without a block and the same body with an empty one differ by the token's own bytes. A receipt emitted over the pre-block body binds a body that stops existing the moment its own disclosure line is added. This case pins the difference so nobody assumes the stable case covers both.",
+  "role": "counter_proof",
+  "rule": "F03",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

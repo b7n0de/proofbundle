@@ -472,8 +472,14 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         if stable is not bool(exp["bodyCoreStable"]):
             return _fail(cid, f"bodyCoreStable={stable} != expected {exp['bodyCoreStable']} "
                               f"({vorher[:12]} vs {nachher[:12]})")
+        # DIE MELDUNG MUSS DAS GEMESSENE SAGEN, nicht den haeufigeren Fall. Die erste Fassung
+        # schrieb immer "stable across re-render" — auch fuer die Gegenprobe, die INSTABILITAET
+        # behauptet und bei der genau das der Befund ist. Ein Protokoll, aus dem der Leser das
+        # Gegenteil des Gemessenen schliesst, ist schlimmer als keines.
         return {"caseId": cid, "ok": True,
-                "detail": f"body core digest stable across re-render ({vorher[:12]})"}
+                "detail": (f"body core digest stable across re-render ({vorher[:12]})" if stable
+                           else f"body core digest MOVED, as this case asserts "
+                                f"({vorher[:12]} -> {nachher[:12]})")}
 
     if "subjectExpectation" in exp:
         # Ob eine Erwartung von aussen gesetzt war, ist eine EIGENE Aussage — und dass ihre
