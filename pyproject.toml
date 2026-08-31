@@ -102,7 +102,19 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # decode_eval_claim, and the no-EMIT-no-receipt guard all pass; the fixture (recorded 0.3.217, log v2)
 # still reads and 0.3.260 still writes log v2. Trade-off (owner-directed): a new inspect_ai release now
 # needs a MEASURED bump here, not a silent widen — an optional extra, so the blast radius is opt-in only.
-inspect = ['inspect_ai>=0.3.112,<=0.3.260']
+#
+# 2026-08-31, THE MEASURED BUMP the line above demands — 0.3.260 -> 0.3.261, not a silent widen.
+# Measured in a FRESH env (own venv, `inspect_ai==0.3.261` + this package built from the branch):
+#   * entry-point discovery finds `proofbundle`; `ProofbundleHooks` is a real `Hooks` subclass and
+#     carries all 17 `on_*` methods of the 0.3.261 API — no method went missing, none was added that
+#     we fail to implement
+#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 19 of 19 — against the REAL
+#     package, no mocks
+#   * the fixture recorded under 0.3.217 still reads (`version=2`, `status=success`), so the log
+#     format did not move under us
+# The ceiling stays a ceiling: 0.3.262 and later remain UNMEASURED and therefore excluded. What was
+# measured is what is admitted, and the next release needs the same work again.
+inspect = ['inspect_ai>=0.3.112,<=0.3.261']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -143,7 +155,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.260']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.260']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.261']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
