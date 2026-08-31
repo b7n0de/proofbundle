@@ -57,7 +57,7 @@ _INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3
 _KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
 
-VERSION_UNDER_TEST = "5.0.0"
+VERSION_UNDER_TEST = "5.1.0"
 
 
 def version_pin_binding(pinned: str) -> dict:
