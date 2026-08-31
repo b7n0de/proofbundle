@@ -42,6 +42,12 @@ _MODULES = [
     # ones exactly this one carries a matching surface. It ships, it has a documented import path,
     # and it is its own CLI subcommand (`verify-enclave`).
     "experimental.enclave",
+    # 2026-08-31: agent-review/v0.1. Der Populations-Riegel meldete drei Flaechen ausserhalb der
+    # Eigenschaft, und er hatte recht — von Hand gemessen fiel eine ROHE TypeError aus
+    # `verify_agent_review`, wenn ein Produzent einen unhashbaren Wert im Feld `assurance`
+    # liefert (`unhashable type: 'list'` statt ok=False). Der Defekt ist behoben; die Fläche
+    # gehoert jetzt in die Population, damit die Frage nicht wieder nur von Hand gestellt wird.
+    "agent_review",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -158,6 +164,21 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-08-31, agent-review/v0.1 — NEUN Funktionen, EINE Entscheidung, und sie ist inhaltlich.
+    # Der never-raise-Vertrag gilt der Seite, die FREMDE Bytes konsumiert: `verify_agent_review`
+    # faengt ihn ueber `_NAME_PATTERN` und gehoert dort hin. Die neun hier sind ERZEUGER-seitig —
+    # sie bekommen UNSERE Daten und muessen bei Unfug LAUT werfen, weil das die Kernentscheidung
+    # des Predicates ist: eine zu hohe Assurance-Stufe, eine externe Zeitbehauptung ohne Beleg
+    # oder ein doppelter Offenlegungsblock werden BEIM ERZEUGEN verweigert, nicht beim Pruefen
+    # gemeldet. Ein Receipt, das nicht gebaut werden kann, erreicht keinen Leser.
+    #
+    # EHRLICHE GRENZE, die zu dieser Einstufung gehoert: `body_core_bytes` und `body_core_digest`
+    # KOENNEN von einem Konsumenten ueber einen fremden PR-Rumpf gerufen werden. Sie werfen dann
+    # `AgentReviewError` bei einem mehrdeutigen Block — fail-closed und dokumentiert. Wer sie so
+    # benutzt, faengt diese Ausnahme; `verify_agent_review` selbst ruft sie NICHT.
+    "body_core_bytes", "body_core_digest", "build_agent_review_statement", "emit_agent_review",
+    "findings_root", "prepare_body_for_disclosure", "render_disclosure_block",
+    "render_disclosure_line", "replace_disclosure_block",
     "action_outcome_proven",  "anchor_proof_digest",  "build_preimage",  "beacon_audit_challenge",  "beacon_nonce",
     "build_decision_statement",  "build_eval_claim",  "build_evidence_pack",
     "build_initial_sequence",  "build_outcome_statement",  

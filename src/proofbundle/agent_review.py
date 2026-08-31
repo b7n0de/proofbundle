@@ -806,10 +806,20 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
             r["findings_root_ok"] = None
 
         # No rung above selfDeclared may appear in a v0.1 receipt, whatever the producer wrote.
-        rungs = {i.get("assurance")
+        #
+        # KEINE MENGE UEBER FREMDE DATEN, und der Grund ist nicht Stil (gemessen 31.08.2026, von
+        # CI gefunden). Die erste Fassung baute `rungs` als set-Comprehension ueber Werte, die der
+        # Produzent bestimmt. Ein unhashbarer Wert — eine Liste im Feld `assurance` — liess dort
+        # eine ROHE TypeError aus einem Verify-Pfad fallen, der vertraglich immer ein typisiertes
+        # Ergebnis liefert. Ausgefuehrt bestaetigt: `unhashable type: 'list'` statt ok=False.
+        # Der Linter meldete nur den `in`-Test eine Zeile darunter; der schwerere Defekt war die
+        # Menge selbst, und ohne den ausgefuehrten Gegenversuch haette ich nur den kleineren
+        # gefixt und mich fuer fertig gehalten.
+        rungs = [i.get("assurance")
                  for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
-                 if isinstance(i, dict)}
-        over = sorted(x for x in rungs if x not in _ASSURANCE_ALLOWED_V0_1 and x is not None)
+                 if isinstance(i, dict)]
+        over = sorted({repr(x) for x in rungs
+                       if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
         r["assurance_ok"] = not over
         if over:
             r["errors"].append(

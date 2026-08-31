@@ -12,6 +12,7 @@ import base64
 import copy
 import json
 import sys
+import unittest
 from pathlib import Path
 
 import pytest
@@ -102,3 +103,93 @@ def test_das_statement_traegt_die_erwartete_form(paar):
     stmt = json.loads(base64.b64decode(env["payload"]))
     assert stmt["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE
     assert stmt["subject"][0]["digest"]["sha256"] == AR._subject_digest(_pred())
+
+
+# ── never-raise: der Verify-Pfad liefert IMMER ein typisiertes Ergebnis ────────────────────────
+
+def _handgebaut(assurance_wert):
+    """Ein Statement, das der Emitter ABLEHNEN wuerde — genau deshalb von Hand gebaut. Ein
+    Angreifer benutzt den Emitter nicht."""
+    from proofbundle import canonical, dsse
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    stmt = {
+        "_type": AR.STATEMENT_TYPE,
+        "subject": [{"name": "x", "digest": {"sha256": "a" * 64}}],
+        "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE,
+        "predicate": {
+            "schemaVersion": "0.1.0", "reviewId": "r",
+            "subjectContext": {"kind": "githubPullRequest", "forge": "g", "repositoryId": "R",
+                               "pullRequestNodeId": "P", "headSha": "a" * 40, "baseSha": "b" * 40,
+                               "reviewedDiffDigest": "c" * 64, "bodyCoreDigest": "d" * 64},
+            "declaration": {"authoring": [{"assurance": assurance_wert, "assertedBy": "x"}],
+                            "reviewRuns": [], "findings": [], "findingsTotal": 0,
+                            "nonClaims": ["n"]},
+            "coverage": {"status": "UNKNOWN"},
+            "times": {"declaredAt": "2026-08-31T17:00:00Z"},
+            "limitations": ["l"]},
+    }
+    env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), sk,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return env, sk.public_key().public_bytes_raw()
+
+
+@pytest.mark.parametrize("wert,beschreibung", [
+    (["unhashbar"], "eine Liste"),
+    ({"a": 1}, "ein Dict"),
+    (42, "eine Zahl"),
+])
+def test_ein_unhashbarer_assurance_wert_wirft_nicht(wert, beschreibung):
+    """DER DEFEKT, DEN CI GEFUNDEN HAT — und der schwerere lag eine Zeile ueber dem gemeldeten.
+
+    Der Linter monierte einen ungeschuetzten `in`-Test auf einer hashenden Menge. Die eigentliche
+    Gefahr war die MENGE selbst: `rungs` war eine set-Comprehension ueber produzentenbestimmte
+    Werte, und ein unhashbarer Wert liess dort eine ROHE TypeError aus einem Verify-Pfad fallen,
+    der vertraglich immer ein typisiertes Ergebnis liefert. Ausgefuehrt gemessen, bevor der Fix
+    kam: `unhashable type: 'list'`.
+
+    Haette ich nur den gemeldeten Punkt gefixt, waere der schwerere geblieben und die Suite
+    gruen geworden."""
+    env, pk = _handgebaut(wert)
+    r = AR.verify_agent_review(env, pk)          # darf NICHT werfen
+    assert r["ok"] is False and r["assurance_ok"] is False, beschreibung
+
+
+def test_ein_zulaessiger_wert_bleibt_zulaessig():
+    """Die Gegenrichtung: die Haertung darf den Normalfall nicht miterschlagen."""
+    env, pk = _handgebaut("selfDeclared")
+    assert AR.verify_agent_review(env, pk)["assurance_ok"] is True
+
+
+# ── der Erwartungsvergleich wird EXAKT gefuehrt ────────────────────────────────────────────────
+
+class ErwartungsvergleichIstExakt(unittest.TestCase):
+    """`expected_subject_digest` wird exakt verglichen — nicht per startswith, casefold oder strip.
+
+    WARUM DAS EIN EIGENER TEST IST. Der Vergleich ist die einzige Stelle, an der ein Leser sagen
+    kann "dieses Receipt gehoert zu DEM Vorgang vor mir". Waere er lockerbar, koennte ein Receipt
+    mit einem Digest durchgehen, der dem erwarteten nur AEHNELT — und Aehnlichkeit ist bei einem
+    Hash keine Naehe, sondern ein anderer Gegenstand. Ein Riegel des Hauses meldete diesen
+    Vergleich als einzigen ohne Beinahe-Treffer-Korpus; er hatte recht.
+
+    Korpus aus `tests/_beinahe_treffer.py` — dieselbe Quelle wie kbjwt, statuslist und intoto.
+    """
+
+    def test_expected_subject_digest_wird_EXAKT_verglichen(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _beinahe_treffer import pruefe_exakt
+
+        sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+        pk = sk.public_key().public_bytes_raw()
+        p = _pred()
+        env = AR.emit_agent_review(p, sk)
+        erwartet = AR._subject_digest(p)
+
+        # Gegenprobe des Aufbaus: mit dem RICHTIGEN Digest ist es gueltig. Ohne diese Zeile misst
+        # der Korpus unten nichts — jede Abwandlung waere schon deshalb falsch, weil alles falsch ist.
+        self.assertTrue(
+            AR.verify_agent_review(env, pk, expected_subject_digest=erwartet)["ok"],
+            "der selbstgebaute Beleg verifiziert nicht — die Pruefung unten misst dann nichts")
+
+        pruefe_exakt(
+            lambda v: AR.verify_agent_review(env, pk, expected_subject_digest=v)["ok"],
+            erwartet, self)
