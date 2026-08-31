@@ -78,6 +78,14 @@
     "envelope_profile/r3-positive-control-coherent-sample-binding",
     "envelope_profile/r3-counter-proof-hand-signed-binding-lies-about-tree-size",
     "envelope_profile/r4-positive-control-issuer-is-the-signing-key",
-    "envelope_profile/r4-counter-proof-issuer-is-not-the-signing-key"
+    "envelope_profile/r4-counter-proof-issuer-is-not-the-signing-key",
+    "agent_review/agent-review-counter-proof-anchored-time-needs-evidence",
+    "agent_review/agent-review-counter-proof-assurance-cannot-be-self-raised",
+    "agent_review/agent-review-counter-proof-complete-needs-an-expectation",
+    "agent_review/agent-review-counter-proof-duplicate-disclosure-block-fails-closed",
+    "agent_review/agent-review-counter-proof-findings-root-covers-the-list",
+    "agent_review/agent-review-counter-proof-receipt-does-not-travel-between-subjects",
+    "agent_review/agent-review-positive-control-rerendered-block-keeps-body-core",
+    "agent_review/agent-review-positive-control-valid-self-declared"
   ]
 }

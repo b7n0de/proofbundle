@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-anchored-time-needs-evidence",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "rationale": "A signature proves the signed bytes contain a time value, not that the value is externally true. v0.1 carries no anchor evidence, so it refuses the claim instead of passing it through. Classified `refused`, not `invalid`, and the difference is the substance: the producer will not build this receipt at all, so it never reaches a reader. A receipt that cannot be emitted cannot be shown to anyone.",
+  "role": "counter_proof",
+  "rule": "F06",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

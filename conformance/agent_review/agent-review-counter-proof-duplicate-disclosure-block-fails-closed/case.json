@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-duplicate-disclosure-block-fails-closed",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "body.json",
+  "kind": "agent_review_predicate",
+  "rationale": "An attacker who may append a second block could otherwise choose which one defines the digest. Two blocks is not a body we can reduce to one canonical form, so the digest is refused rather than guessed.",
+  "role": "counter_proof",
+  "rule": "F03",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

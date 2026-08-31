@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-findings-root-covers-the-list",
+  "expected": {
+    "classification": "invalid"
+  },
+  "input": "envelope.json",
+  "kind": "agent_review_predicate",
+  "rationale": "Removing a finding after the root was taken must be detectable. A receipt that reports '3 findings, 2 fixed' without a root binding is an aggregate anyone can rewrite.",
+  "role": "counter_proof",
+  "rule": "F09",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}
