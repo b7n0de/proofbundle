@@ -46,7 +46,9 @@ validator; the JSON schema is docs.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import re
 from typing import Any
 
@@ -693,6 +695,77 @@ def _validate_supersession(sup: Any) -> list[str]:
     return errs
 
 
+def receipt_digest(envelope: dict) -> str:
+    """Der sha256 ueber die kanonischen Bytes des Statements — die Groesse, die supersession bindet.
+
+    ES IST AUSDRUECKLICH NICHT der Digest der DATEI. Eine Datei laesst sich neu einruecken, anders
+    sortieren oder mit einem anderen Zeilenende speichern, ohne dass sich am signierten Objekt
+    etwas aendert; ein Datei-Digest wuerde dann Faelschung melden, wo keine ist. Gebunden wird das
+    Objekt, nicht seine Verpackung.
+    """
+    roh = envelope.get("payload")
+    if not isinstance(roh, str):
+        raise AgentReviewError("envelope carries no base64 payload")
+    return hashlib.sha256(base64.b64decode(roh)).hexdigest()
+
+
+def resolve_receipt_chain(envelopes: list[dict]) -> dict:
+    """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
+
+    DREI AUSSAGEN, die oft verwechselt werden und hier getrennt bleiben (Supersessionstests 15
+    bis 20):
+
+    * `current` — worauf ein oeffentlicher Verweis zeigen SOLL. Genau eines, oder die Kette ist
+      mehrdeutig und das wird gesagt statt geraten.
+    * `corrected` — Vorgaenger, die weiterhin KRYPTOGRAFISCH GUELTIG sind und trotzdem nicht mehr
+      der aktuelle Stand. Beides gilt gleichzeitig, und der Resolver behauptet nie das Gegenteil:
+      ein korrigiertes Receipt wird nicht ungueltig, es wird ueberholt.
+    * `integrity_ok` — ob jeder referenzierte Vorgaenger auch VORLIEGT. Verschwindet das alte
+      Receipt, ist die Korrektur nicht mehr nachvollziehbar, und dann ist die Kette kaputt, auch
+      wenn jedes einzelne Stueck fuer sich gueltig bleibt.
+
+    Der Resolver prueft KEINE Signaturen — das tut `verify_agent_review`. Er ordnet nur, und er
+    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt.
+    """
+    vorhanden: dict[str, dict] = {}
+    korrigiert: dict[str, list[str]] = {}
+    fehlend: list[str] = []
+    for env in envelopes:
+        try:
+            d = receipt_digest(env)
+        except (AgentReviewError, ValueError):
+            continue
+        vorhanden[d] = env
+
+    for d, env in vorhanden.items():
+        try:
+            st = json.loads(base64.b64decode(env["payload"]))
+            sup = (st.get("predicate") or {}).get("supersession") or {}
+        except (ValueError, KeyError, TypeError):
+            continue
+        for feld in ("corrects", "supersedes", "withdraws"):
+            for rel in (sup.get(feld) or []):
+                if not isinstance(rel, dict):
+                    continue
+                prior = (rel.get("priorDigest") or {}).get("sha256")
+                if not isinstance(prior, str):
+                    continue
+                korrigiert.setdefault(prior, []).append(d)
+                if prior not in vorhanden:
+                    fehlend.append(prior)
+
+    aktuell = [d for d in vorhanden if d not in korrigiert]
+    return {"current": aktuell[0] if len(aktuell) == 1 else None,
+            "current_candidates": sorted(aktuell),
+            "ambiguous": len(aktuell) != 1,
+            "corrected": sorted(korrigiert),
+            "corrected_by": {k: sorted(v) for k, v in korrigiert.items()},
+            "missing_predecessors": sorted(set(fehlend)),
+            "integrity_ok": not fehlend,
+            "note": ("this resolver orders receipts; it verifies no signatures — integrity_ok is "
+                     "about the chain being complete, never about cryptographic validity")}
+
+
 def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_agent_review_predicate(predicate, strict=strict)
     if errs:
@@ -825,27 +898,42 @@ def _subject_digest(predicate: dict) -> str:
 
 
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
-                                 subject_sha256: str | None = None) -> dict:
-    require_valid_agent_review_predicate(predicate)
+                                 subject_sha256: str | None = None,
+                                 v02: bool = False) -> dict:
+    """Das Statement. `v02` waehlt den v0.2-predicateType UND den strengeren Validator.
+
+    BEIDES ZUSAMMEN, NIE EINZELN. Ein v0.2-Typ mit v0.1-Validierung waere die schlimmste der drei
+    Moeglichkeiten: der Leser sieht die staerkere Version im predicateType und bekommt die
+    schwaechere Pruefung. Die Version steht deshalb nicht als freier Parameter da, sondern zieht
+    ihren Validator mit.
+    """
+    if v02:
+        errs = validate_agent_review_v02_predicate(predicate, strict=True)
+        if errs:
+            raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
+    else:
+        require_valid_agent_review_predicate(predicate)
     return {
         "_type": STATEMENT_TYPE,
         "subject": [{"name": subject_name or _subject_name(predicate),
                      "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
-        "predicateType": AGENT_REVIEW_PREDICATE_TYPE,
+        "predicateType": AGENT_REVIEW_PREDICATE_TYPE_V02 if v02 else AGENT_REVIEW_PREDICATE_TYPE,
         "predicate": predicate,
     }
 
 
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
-                      strict: bool = True) -> dict:
+                      strict: bool = True, v02: bool = False) -> dict:
     """Sign an agent-review statement. Uses the existing DSSE path — no new crypto."""
     from . import dsse  # noqa: PLC0415
-    errs = validate_agent_review_predicate(predicate, strict=strict)
+    pruefer = validate_agent_review_v02_predicate if v02 else validate_agent_review_predicate
+    errs = pruefer(predicate, strict=strict)
     if errs:
-        raise AgentReviewError("invalid agent-review predicate: " + "; ".join(errs))
+        raise AgentReviewError(
+            f"invalid agent-review{'/v0.2' if v02 else ''} predicate: " + "; ".join(errs))
     statement = build_agent_review_statement(predicate, subject_name=subject_name,
-                                             subject_sha256=subject_sha256)
+                                             subject_sha256=subject_sha256, v02=v02)
     return dsse.sign_envelope(_rfc8785_bytes(statement), signer,
                               payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
@@ -1122,12 +1210,29 @@ def _zeitachsen(predicate: dict) -> dict:
         "CONFLICT" if len({tc.get("value") for tc in fach}) > 1 else "SELF_DECLARED")
 
     obs = "ABSENT"
+    mit_id: list = []
     if beob:
-        mit_id = [b for b in beob if isinstance(b, dict) and (b.get("observer") or {}).get("id")]
-        # Eine Beobachtung ohne benannten Beobachter hebt nichts an — sie bleibt Selbstauskunft.
+        mit_id = [b for b in beob if isinstance(b, dict)
+                  and isinstance(b.get("observer"), dict) and b["observer"].get("id")]
+        # Eine Beobachtung ohne benannten Beobachter hebt nichts an — sie bleibt Selbstauskunft
+        # (Policytest 13). Eine Identitaet, die niemand nachschlagen kann, ist keine.
         obs = "RUNNER_OBSERVED" if mit_id else "SELF_DECLARED"
     elif zeiten.get("observedAt") is not None:
         obs = "SELF_DECLARED"
+
+    # WIDERSPRUCH ZWISCHEN DEKLARIERTER EREIGNISZEIT UND BEOBACHTUNG (Policytest 14).
+    #
+    # Ein Zeuge kann nicht beobachten, was noch nicht geschehen ist. Liegt die Beobachtung eines
+    # BENANNTEN Beobachters VOR der deklarierten Ereigniszeit, widersprechen sich beide Aussagen
+    # unzulaessig — und dann ist der richtige Zustand CONFLICT, nicht "die staerkere gewinnt".
+    # Eine Rangfolge waere hier der Fehler: sie wuerde einen kaputten Beleg in einen schwachen
+    # verwandeln, und ein schwacher Beleg wird benutzt.
+    if event == "SELF_DECLARED" and mit_id:
+        ereignis = next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None)
+        beobachtet = [b.get("observedAt") for b in mit_id if isinstance(b.get("observedAt"), str)]
+        if ereignis and any(bo < ereignis for bo in beobachtet):
+            event = "CONFLICT"
+            obs = "CONFLICT"
 
     sig = "SELF_DECLARED" if zeiten.get("signedAt") else "ABSENT"
     # externalTime wird NIE aus einem Payloadfeld gesetzt. Ohne geprueften Anker heisst es
@@ -1135,6 +1240,84 @@ def _zeitachsen(predicate: dict) -> dict:
     ext = "NOT_EVALUATED"
     return {"event_time_status": event, "observation_time_status": obs,
             "signature_time_status": sig, "external_time_status": ext}
+
+
+#: Was eine Policy verlangen kann, und welche ACHSE sie dafuer ansieht. Die Zuordnung ist der
+#: eigentliche Inhalt der Policytests 9 bis 12: eine Frische-Policy fragt die EREIGNIS-Achse, eine
+#: TTL-Policy die SIGNATUR-Achse. Wer sie verwechselt, laesst einen RFC-3161-Zeitstempel eine
+#: fachliche Reviewzeit belegen — und das tut er nicht, er belegt nur, dass das Receipt existierte.
+_POLICY_ACHSE = {"freshness": "event_time_status", "ttl": "signature_time_status",
+                 "certificate_validity": "signature_time_status",
+                 "currentness": "observation_time_status",
+                 "existence": "external_time_status"}
+
+#: Stufen, die eine Policy als BELEG gelten laesst. `SELF_DECLARED` steht bewusst NICHT darin:
+#: eine Selbstauskunft ueber die eigene Zeit ist genau die Aussage, die eine Zeitpolicy pruefen
+#: soll, und sie kann sich nicht selbst erfuellen.
+_POLICY_GENUEGT = frozenset(("RUNNER_OBSERVED", "PLATFORM_ATTESTED", "EXTERNALLY_ANCHORED"))
+
+
+def evaluate_time_policy(axes: dict, policy: dict) -> dict:
+    """Die Entscheidung einer RELYING PARTY, nicht des Verifiers (Policytests 9 bis 14).
+
+    WARUM SIE GETRENNT IST. Der Verifier meldet, WORAUS ein Zeitwert stammt; er entscheidet nicht,
+    ob das jemandem genuegt. Diese Funktion entscheidet — aber nur, wenn ihr jemand eine BENANNTE
+    Policy uebergibt. Ohne Policy gibt es keine Zeitfreigabe, und ein Verifier, der eine erfindet,
+    nimmt dem Leser die Entscheidung ab, die ihm gehoert.
+
+    DREI ERGEBNISSE, nie zwei: `accept` · `reject` · `insufficient_evidence`. Der dritte ist der
+    haeufigste und der wichtigste — er heisst "die Achse traegt deine Anforderung nicht", nicht
+    "das Receipt ist schlecht".
+
+    CONFLICT wird IMMER zu `reject`, egal was die Policy verlangt: zwei einander widersprechende
+    Zeitaussagen sind kein schwacher Beleg, sondern ein kaputter.
+    """
+    art = policy.get("kind") if isinstance(policy, dict) else None
+    if art not in _POLICY_ACHSE:
+        return {"decision": "insufficient_evidence", "policy_kind": art,
+                "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
+    achse = _POLICY_ACHSE[art]
+    zustand = axes.get(achse, "NOT_EVALUATED")
+    if zustand == "CONFLICT":
+        return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
+                "reason": "the axis reports CONFLICT — two time statements contradict each other, "
+                          "which is a broken claim, not a weak one"}
+    if zustand in _POLICY_GENUEGT:
+        return {"decision": "accept", "policy_kind": art, "axis": achse, "axis_state": zustand,
+                "reason": f"{achse} is {zustand}, which comes from a named source outside the "
+                          f"producer"}
+    return {"decision": "insufficient_evidence", "policy_kind": art, "axis": achse,
+            "axis_state": zustand,
+            "reason": (f"{achse} is {zustand} — a producer's own statement about its own time "
+                       f"cannot satisfy a {art} policy, because that is precisely the statement "
+                       f"the policy exists to check")}
+
+
+def apply_time_evidence(axes: dict, evidence: dict) -> dict:
+    """Geprüfte externe Zeitevidenz auf die Achsen anwenden — und NUR auf die richtige.
+
+    DIE GRENZE IST DER GANZE PUNKT (Policytests 11 und 12). Ein RFC-3161-Zeitstempel und ein
+    OpenTimestamps-Beleg sagen beide dasselbe: dieses Byte-Objekt existierte vor diesem Zeitpunkt.
+    Sie sagen NICHTS darueber, wann ein Mensch oder ein Agent den Review tatsaechlich durchgefuehrt
+    hat. Deshalb heben sie die SIGNATUR- und EXISTENZ-Achse an und lassen die EREIGNIS-Achse
+    unberuehrt — auch dann, wenn das im Einzelfall unbequem ist.
+
+    `verified` MUSS ausdruecklich True sein. Eine mitgelieferte, ungepruefte Evidenz hebt nichts
+    an; sonst waere die Anhebung eine Behauptung der Gegenseite.
+    """
+    aus = dict(axes)
+    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+        return aus
+    art = evidence.get("kind")
+    if art == "rfc3161":
+        aus["signature_time_status"] = "PLATFORM_ATTESTED"
+        aus["external_time_status"] = "EXTERNALLY_ANCHORED"
+    elif art == "opentimestamps":
+        # OTS belegt eine EXISTENZGRENZE, keine Signaturzeit eines benannten Dienstes.
+        aus["external_time_status"] = "EXTERNALLY_ANCHORED"
+    else:
+        return aus
+    return aus
 
 
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
