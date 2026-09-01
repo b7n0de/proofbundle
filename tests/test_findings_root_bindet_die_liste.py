@@ -103,3 +103,41 @@ def test_kein_eigenes_veroeffentlichtes_receipt_bricht(pfad):
 def test_es_gibt_ueberhaupt_receipts_zu_pruefen():
     """DRITTER ZUSTAND. Ohne diese Zeile waere der Test darueber gruen, wenn der Ordner leer ist."""
     assert len(_RECEIPTS) >= 3, f"nur {len(_RECEIPTS)} Receipts — die Messung traegt nicht"
+
+
+# ── Der Ablehnungspfad muss kopierbar bleiben ──────────────────────────────────────────────────
+
+def test_ein_abgelehntes_ergebnis_laesst_sich_kopieren_und_einfrieren():
+    """DER FIX, DER KEINE REGRESSION HATTE — gemessen vom Tiefen-Gate am 02.09.2026.
+
+    `ShapeError` erbt von `str` und nimmt in `__new__` ZWEI Argumente (code, message). `str`
+    liefert ein einargumentiges `__getnewargs__`, also warf `copy.deepcopy(ergebnis)` auf jedem
+    Ergebnis, das einen ShapeError fuehrt:
+
+        TypeError: ShapeError.__new__() missing 1 required positional argument
+
+    Nur der ABLEHNUNGSPFAD war betroffen — ein gueltiges Receipt fuehrt keinen ShapeError und
+    kopiert einwandfrei. `__getnewargs__` behebt das. Die Gegenlesung hat dann gemessen, dass der
+    Fix NULL Regressionstests hatte: entfernt man ihn, bleiben 2920 Tests gruen. Ein Fix ohne
+    Test ist ein Fix, den der naechste Umbau still zuruecknimmt.
+
+    Geprueft werden alle drei Wege, die dieselbe Maschinerie benutzen — flach, tief, und der
+    Serialisierungsweg, den ein Cache oder eine Warteschlange nimmt.
+    """
+    import copy  # noqa: PLC0415
+    import pickle  # noqa: PLC0415
+
+    fehler = ar._shape_err("PROBE_CODE", "eine Meldung mit Code")
+    assert copy.copy(fehler).code == "PROBE_CODE"
+    assert copy.deepcopy(fehler).code == "PROBE_CODE"
+    assert pickle.loads(pickle.dumps(fehler)).code == "PROBE_CODE"
+    assert str(copy.deepcopy(fehler)) == "eine Meldung mit Code"
+
+    # UND AN EINER ECHTEN FEHLERLISTE, nicht nur am Einzelobjekt: genau dort trat der Fehler auf.
+    errs = _fehler({**BASIS, "findings": [BEFUND], "findingsTotal": 1})
+    assert errs, "die Vorbedingung traegt nicht — diese Liste haette fallen muessen"
+    assert any(getattr(e, "code", None) for e in errs), (
+        "kein ShapeError in der Liste — dann prueft der Kopiertest die Klasse nicht")
+    kopie = copy.deepcopy(errs)
+    assert [str(e) for e in kopie] == [str(e) for e in errs]
+    assert [getattr(e, "code", None) for e in kopie] == [getattr(e, "code", None) for e in errs]

@@ -1213,6 +1213,7 @@ def _zielbindung(r: dict, predicate: dict, statement: dict,
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
             "statement_shape_ok": None, "reason_code": None, "reason_codes": [],
+            "advisory_codes": [],
             "time_semantics": None, "observed_time_assurance": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
             "internal_subject_consistency_ok": None,
@@ -1327,10 +1328,22 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
                     "(the subject array is the binding statement layer)"))
         return errs
     if len(subj) != 1:
-        errs.append(_shape_err(
-            "SUBJECT_CARDINALITY",
-            f"this profile binds exactly one subject, got {len(subj)} "
-                    "(more than one leaves it open which object the receipt speaks about)"))
+        # ZWEI LAGEN, ZWEI CODES — dieselbe Klasse wie beim digest eine Ebene tiefer, und hier war
+        # der Satz genauso aktiv falsch: fuer `got 0` gab er "more than one leaves it open which
+        # object the receipt speaks about" aus. Null ist nicht mehr als eins. Ein Receipt ohne
+        # Subjekt spricht ueber NICHTS; eines mit mehreren laesst offen, ueber WELCHES. Das sind
+        # verschiedene Defekte mit verschiedenen Ursachen (kaputtes Statement gegen
+        # Verwechslungsangriff), und ein Verbraucher muss sie trennen koennen.
+        if not subj:
+            errs.append(_shape_err(
+                "SUBJECT_ABSENT",
+                "the subject array is empty — the receipt binds no object at all, so there is "
+                "nothing a verifier could hold the signature against"))
+        else:
+            errs.append(_shape_err(
+                "SUBJECT_CARDINALITY",
+                f"this profile binds exactly one subject, got {len(subj)} "
+                "(more than one leaves it open which object the receipt speaks about)"))
         return errs
     s0 = subj[0]
     if not isinstance(s0, dict):
@@ -1345,10 +1358,41 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
             "SUBJECT_DIGEST_NOT_OBJECT",
             f"subject[0].digest must be an object, got {type(dig).__name__}"))
     elif set(dig) != {"sha256"}:
-        errs.append(_shape_err(
-            "SUBJECT_DIGEST_ALGORITHMS",
-            f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
-                    "(an extra algorithm lets a producer choose which one a verifier reads)"))
+        # DREI ZUSTAENDE, DREI CODES — und jeder Satz beschreibt seinen eigenen Fall.
+        #
+        # ZWEIMAL AN EINEM TAG DIESELBE KLASSE. Erst deckte EIN Code (`SUBJECT_DIGEST_ALGORITHMS`)
+        # "gar kein Digest" und "zu viele" ab, mit einem Satz, der nur den zweiten Fall erklaerte —
+        # gemessen gab er fuer `digest={}` woertlich "got [] (an extra algorithm ...)" aus. Der Fix
+        # dagegen teilte in fehlend/ueberzaehlig — und liess dabei WIEDER einen Code ueber zwei
+        # Zustaende stehen: `digest={}` und `digest={sha512}` bekamen beide "carries no sha256".
+        # Das sind verschiedene Lagen, und die zweite ist die gefaehrlichere: dort ist das Subjekt
+        # SEHR WOHL gebunden, nur an etwas, das dieser Verifier nicht liest. Gefunden von der
+        # Pflicht-Gegenlesung, nicht von mir.
+        #
+        # Die Vorfassung deckte beides mit EINEM Code und EINEM Satz. Eine adversariale
+        # Gegenlesung hat am 02.09.2026 die Ausgabe fuer `digest={}` gemessen:
+        #
+        #     subject[0].digest must carry exactly sha256, got []
+        #     (an extra algorithm lets a producer choose which one a verifier reads)
+        #
+        # Es gibt keinen "extra algorithm". Ein Verbraucher konnte "Digest fehlt" nicht von
+        # "Digest hat zu viele" unterscheiden, und der Satz erklaerte ihm den falschen Fall —
+        # zwei entgegengesetzte Zustaende unter einem Namen.
+        if not dig:
+            errs.append(_shape_err(
+                "SUBJECT_DIGEST_EMPTY",
+                "subject[0].digest is an empty object — the subject is bound to nothing at all"))
+        elif "sha256" not in dig:
+            errs.append(_shape_err(
+                "SUBJECT_DIGEST_SHA256_ABSENT",
+                f"subject[0].digest carries {sorted(dig)} but no sha256 — the subject is bound "
+                "by an algorithm this verifier does not read, which is not the same as being "
+                "unbound: a producer can point the two at different objects"))
+        else:
+            errs.append(_shape_err(
+                "SUBJECT_DIGEST_EXTRA_ALGORITHMS",
+                f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
+                "(an extra algorithm lets a producer choose which one a verifier reads)"))
     elif not (isinstance(dig["sha256"], str) and _HEX64.match(dig["sha256"])):
         errs.append(_shape_err(
             "SUBJECT_DIGEST_FORM",
@@ -1792,13 +1836,28 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     # DER VERTRAG ZWISCHEN DEN BEIDEN FELDERN, praezise (eine fruehere Fassung dieses
     # Kommentars sagte "`reason_code` ist die ABLEITUNG aus der Liste" — das war FALSCH und
     # eine adversariale Gegenlesung hat es am 01.09.2026 gemessen):
-    #   `reason_codes` traegt ALLE Codes, fatale wie informatorische.
-    #   `reason_code`  traegt den ERSTEN FATALEN, sonst None.
-    # Ein informatorischer Code wird NIE zum `reason_code`. Gemessen: ein GUELTIGES Receipt mit
-    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`
-    # und `reason_code=None` — und das ist richtig. Waere es die schlichte Ableitung, truege ein
-    # bestandenes Receipt einen Fehlgrund, und jeder Verbraucher, der auf `reason_code is not None`
-    # verzweigt, lehnte es ab.
+    #   `reason_codes`  traegt NUR FATALE Codes — Gruende, aus denen `ok` False wurde.
+    #   `reason_code`   traegt den ERSTEN daraus, sonst None.
+    #   `advisory_codes` traegt Hinweise, die den Ausgang NICHT bestimmen.
+    #
+    # DIE TRENNUNG IST AM 02.09.2026 ENTSTANDEN, weil eine adversariale Gegenlesung die Falle
+    # gemessen hat, die die Vorfassung offen liess. Damals trug `reason_codes` ALLE Codes. Eine
+    # fehlgeschlagene SIGNATURPRUEFUNG an einem Receipt mit `times.observedAt` kam so zurueck:
+    #
+    #     ok = False
+    #     errors = ['DSSE signature verification failed — payload is unauthenticated']
+    #     reason_code  = None
+    #     reason_codes = ['LEGACY_SELF_DECLARED_OBSERVED_AT']
+    #
+    # Eine LEERE Liste sagt ehrlich "kein maschineller Grund". Eine Liste mit genau einem
+    # Zeit-Hinweis laedt dazu ein, `reason_codes[0]` als Grund zu lesen — und der Grund war die
+    # Signatur. Die Falle wurde fuer den SKALAR ausdruecklich geschlossen und fuer die LISTE offen
+    # gelassen: ein Fix, der eine Haelfte schliesst. Jetzt kann ein Hinweis dort strukturell nicht
+    # mehr stehen, statt dass ein Kommentar davor warnt.
+    #
+    # Ein informatorischer Code wird NIE zum `reason_code`. Ein GUELTIGES Receipt mit
+    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[]`, `reason_code=None` und
+    # `advisory_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`.
     def _codes_sammeln(fehler) -> None:
         """Traegt die Codes einer Fehlerliste ein — EINE Stelle fuer beide Quellen."""
         for _e in fehler:
@@ -1916,7 +1975,7 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
             r["time_semantics"] = "LEGACY_V0_1"
         if _beob is not None:
             r["observed_time_assurance"] = "SELF_DECLARED_OR_UNKNOWN"
-            r["reason_codes"].append("LEGACY_SELF_DECLARED_OBSERVED_AT")
+            r["advisory_codes"].append("LEGACY_SELF_DECLARED_OBSERVED_AT")
             r["warnings"].append(
                 "LEGACY_SELF_DECLARED_OBSERVED_AT: this v0.1 receipt carries a producer-supplied "
                 "observedAt. It is structurally valid and does NOT make the receipt invalid, but it "
@@ -2034,13 +2093,28 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # DER VERTRAG ZWISCHEN DEN BEIDEN FELDERN, praezise (eine fruehere Fassung dieses
     # Kommentars sagte "`reason_code` ist die ABLEITUNG aus der Liste" — das war FALSCH und
     # eine adversariale Gegenlesung hat es am 01.09.2026 gemessen):
-    #   `reason_codes` traegt ALLE Codes, fatale wie informatorische.
-    #   `reason_code`  traegt den ERSTEN FATALEN, sonst None.
-    # Ein informatorischer Code wird NIE zum `reason_code`. Gemessen: ein GUELTIGES Receipt mit
-    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`
-    # und `reason_code=None` — und das ist richtig. Waere es die schlichte Ableitung, truege ein
-    # bestandenes Receipt einen Fehlgrund, und jeder Verbraucher, der auf `reason_code is not None`
-    # verzweigt, lehnte es ab.
+    #   `reason_codes`  traegt NUR FATALE Codes — Gruende, aus denen `ok` False wurde.
+    #   `reason_code`   traegt den ERSTEN daraus, sonst None.
+    #   `advisory_codes` traegt Hinweise, die den Ausgang NICHT bestimmen.
+    #
+    # DIE TRENNUNG IST AM 02.09.2026 ENTSTANDEN, weil eine adversariale Gegenlesung die Falle
+    # gemessen hat, die die Vorfassung offen liess. Damals trug `reason_codes` ALLE Codes. Eine
+    # fehlgeschlagene SIGNATURPRUEFUNG an einem Receipt mit `times.observedAt` kam so zurueck:
+    #
+    #     ok = False
+    #     errors = ['DSSE signature verification failed — payload is unauthenticated']
+    #     reason_code  = None
+    #     reason_codes = ['LEGACY_SELF_DECLARED_OBSERVED_AT']
+    #
+    # Eine LEERE Liste sagt ehrlich "kein maschineller Grund". Eine Liste mit genau einem
+    # Zeit-Hinweis laedt dazu ein, `reason_codes[0]` als Grund zu lesen — und der Grund war die
+    # Signatur. Die Falle wurde fuer den SKALAR ausdruecklich geschlossen und fuer die LISTE offen
+    # gelassen: ein Fix, der eine Haelfte schliesst. Jetzt kann ein Hinweis dort strukturell nicht
+    # mehr stehen, statt dass ein Kommentar davor warnt.
+    #
+    # Ein informatorischer Code wird NIE zum `reason_code`. Ein GUELTIGES Receipt mit
+    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[]`, `reason_code=None` und
+    # `advisory_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`.
     def _codes_sammeln(fehler) -> None:
         """Traegt die Codes einer Fehlerliste ein — EINE Stelle fuer beide Quellen."""
         for _e in fehler:

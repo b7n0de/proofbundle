@@ -62,7 +62,8 @@ def test_ein_v01_receipt_mit_observedAt_bleibt_gueltig():
 
 def test_derselbe_fall_traegt_den_stabilen_legacy_code():
     r = _lauf("2026-08-31T15:45:00Z")
-    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["reason_codes"]
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["advisory_codes"]
+    assert r["reason_codes"] == [], "ein Hinweis gehoert nicht unter die Fehlgruende"
     assert r["time_semantics"] == "LEGACY_V0_1"
     assert r["observed_time_assurance"] == "SELF_DECLARED_OR_UNKNOWN"
     assert any("LEGACY_SELF_DECLARED_OBSERVED_AT" in w for w in r["warnings"])
@@ -83,6 +84,7 @@ def test_ohne_observedAt_bleibt_der_hinweis_aus(observed):
     """DIE GEGENRICHTUNG. Ohne sie bestuende Test 2 auch, wenn der Code IMMER gesetzt wuerde —
     dann waere er kein Signal, sondern Rauschen."""
     r = _lauf(observed)
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" not in r["advisory_codes"]
     assert "LEGACY_SELF_DECLARED_OBSERVED_AT" not in r["reason_codes"]
     assert r["observed_time_assurance"] == "ABSENT"
     assert not any("LEGACY_SELF_DECLARED" in w for w in r["warnings"])
@@ -111,7 +113,8 @@ def test_ein_nicht_blockierender_code_macht_ok_nicht_falsch():
     """Die Unterscheidung, an der alles haengt: LEGACY_… ist ein HINWEIS, internal_error ein
     BEFUND. Wer beide gleich behandelt, bricht das Einfrieren durch die Hintertuer."""
     r = _lauf("2026-08-31T15:45:00Z")
-    assert r["reason_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
+    assert r["advisory_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
+    assert r["reason_codes"] == [], "ein Hinweis darf nicht unter den Fehlgruenden stehen"
     assert r.get("reason_code") is None, "ein Hinweis darf nicht als fataler Code erscheinen"
     assert r["ok"] is True
 

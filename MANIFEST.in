@@ -45,6 +45,12 @@ include docs/RECEIPT_ENVELOPE_PROFILE.md
 # document the installed package did not contain. It carries no local links, so it cannot
 # break test_docs_truth the way a `graft docs` would.
 include docs/AGENT_REVIEW_PREDICATE.md
+# PB-2026-0902-01: der sdist enthielt `conformance/` (94 Faelle, `graft conformance`), aber NICHT
+# das Makefile, ueber das die Doku den Korpus fahren laesst. Wer den sdist auspackt und
+# `make conformance` ruft, bekommt "No rule to make target" — der Korpus ist da und
+# unerreichbar. Gefunden von der as-shipped-Linse des Tiefen-Gates am 02.09.2026. Wie schon bei
+# `RECEIPT_ENVELOPE_PROFILE.md`: keine prune-Regel entfernte es, es stand auf keiner Zeile.
+include Makefile
 graft scripts
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
