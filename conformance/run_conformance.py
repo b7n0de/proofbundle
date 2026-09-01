@@ -449,7 +449,6 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
     """
     cid = case.get("caseId", str(case_dir))
     exp = case.get("expected") or {}
-    params = case.get("params") or {}
     sys.path.insert(0, str(ROOT.parent / "src"))
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
@@ -498,6 +497,37 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                 "detail": f"subject expectation {got}, and the limit is stated"}
 
     want = exp["classification"]
+    got = klassifiziere_agent_review(case, case_dir)
+    if got != want:
+        return _fail(cid, f"classification {got!r} != expected {want!r}")
+    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+
+
+def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
+    """WIE der Korpus einen Praedikat-Fall einstuft — die EINE Weiche, oeffentlich rufbar.
+
+    WARUM SIE HERAUSGEHOBEN IST (01.09.2026). Diese Entscheidung existierte ZWEIMAL: hier und
+    noch einmal in `tests/test_agent_review_conformance_runner.py::_urteil`. Als die Strecke in
+    derselben Runde auf den Erzeuger umgestellt wurde (N06/P0.5), wanderte nur DIESE Fassung
+    mit. Der Positiv-Kontroll-Fall `emit-verify-roundtrip` traegt ein rohes Dokument, keinen
+    Umschlag — der Test warf ihn in den Verifier und meldete "payload must be a base64 string".
+    Richtige Meldung, falscher Pfad. Zwei Fassungen derselben Entscheidung sind zwei Wahrheiten,
+    und die ungerufene altert still.
+
+    Sie gibt die KLASSIFIKATION zurueck, nicht PASS/FAIL. Das ist der Unterschied, an dem ein
+    erster Zusammenfuehrungs-Versuch scheiterte: `_check_...` vergleicht bereits mit der
+    Erwartung des Falls, und wer das als Messwert nimmt, dreht bei `invalid`-Faellen das
+    Vorzeichen um (acht rote Tests, gemessen). Die Erwartung gehoert zum Pruefer, nicht zur
+    Messung.
+    """
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    def _read(nm: str):
+        if "/" in nm or nm.startswith("."):
+            raise ValueError(f"input {nm!r} escapes the case directory")
+        return json.loads((case_dir / nm).read_text())
+
+    params = case.get("params") or {}
     name = case.get("input") or "envelope.json"
     doc = _read(name)
 
@@ -547,9 +577,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                                    expected_subject_digest=params.get("expectedSubjectDigest"))
         got = "valid" if r.get("ok") else "invalid"
 
-    if got != want:
-        return _fail(cid, f"classification {got!r} != expected {want!r}")
-    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+    return got
 
 
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
