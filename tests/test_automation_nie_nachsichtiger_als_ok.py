@@ -109,3 +109,80 @@ def test_der_kontrollfall_bleibt_gruen():
     r = _fahre("gesetzt", "passend")
     assert r.get("ok") is True
     assert (r.get("automation") or {}).get("safeForAutomation") is True
+
+
+#: Achsen, die diese Aufruf-Matrix NICHT bewegt — je mit dem Grund, warum das in Ordnung ist.
+#: Diese Liste ist der EINZIGE erlaubte Rest. Waechst das Modul um eine Achse, die hier nicht
+#: steht und die die Matrix nicht bewegt, faellt `test_die_menge_ist_vollstaendig` — genau das,
+#: was der Kopf dieser Datei zusagt.
+UNBEWEGT_BEGRUENDET = {
+    "assurance_ok": "haengt an der Sprossen-Erklaerung im Dokument, nicht am Aufruf",
+    "crypto_ok": "haengt am Schluessel, nicht am Aufruf — eine falsche Signatur ist eine andere Klasse",
+    "findings_root_ok": "haengt an der Befundliste im Dokument, nicht am Aufruf",
+    "internal_consistency_ok": "Sammelachse ueber die Dokumentpruefung, vom Aufruf unabhaengig",
+    "internal_subject_consistency_ok": "haengt am subjectContext im Dokument",
+    "predicate_type_ok": "haengt am Umschlag, nicht am Aufruf",
+    "statement_shape_ok": "haengt am Umschlag, nicht am Aufruf",
+    "structure_ok": "haengt am Dokument, nicht am Aufruf",
+    "disclosure_core_digest_match": "braucht einen Offenlegungsblock; dieses Dokument fuehrt keinen",
+    "currentness": "braucht eine Kette; dieser Aufruf uebergibt keine",
+    "observed_time_assurance": "braucht eine beobachtete Zeit; v0.1 verbietet anchoredAt",
+    "time_semantics": "v0.1-Konstante, kann in diesem Pfad nur einen Wert annehmen",
+}
+
+#: Werte, die NICHT als Urteil zaehlen: Sammelbehaelter und das Urteil selbst.
+_KEINE_ACHSE = ("ok", "errors", "warnings", "reason_code", "reason_codes", "automation")
+
+
+def _achsen_und_werte():
+    """Welche Achse nahm ueber die volle Matrix welche Werte an? GEMESSEN, nicht aufgezaehlt."""
+    gesehen: dict[str, set] = {}
+    for ziel, text in itertools.product(*VARIANTEN.values()):
+        r = _fahre(ziel, text)
+        for k, v in r.items():
+            if k in _KEINE_ACHSE or isinstance(v, (list, dict)):
+                continue
+            gesehen.setdefault(k, set()).add(v)
+    return gesehen
+
+
+def test_die_menge_ist_vollstaendig():
+    """DIE ZUSAGE AUS DEM DATEIKOPF, eingeloest.
+
+    Bis zum 01.09.2026 versprach der Kopf dieser Datei einen 'Vollstaendigkeits-Test darunter' —
+    und es gab keinen. Das Deep-Gate hat es an seinem eigenen praeregistrierten Ziel FZ-07
+    gefunden: der Test zaehlte ueber eine handgepflegte Liste, und die Zusage darueber machte
+    das unsichtbar. Eine Zusage, die keine Mechanik traegt, ist schlimmer als keine — sie laesst
+    den Leser glauben, die Familie sei gedeckt.
+
+    DIE EIGENSCHAFT: jede Achse des Ergebnisses ist entweder von dieser Matrix BEWEGT (nimmt
+    ueber die Kombinationen mehr als einen Wert an) oder ausdruecklich als unbewegt BEGRUENDET.
+    Ein drittes gibt es nicht. Waechst das Modul um eine Achse, faellt dieser Test.
+    """
+    gesehen = _achsen_und_werte()
+    bewegt = {k for k, v in gesehen.items() if len(v) > 1}
+    unerklaert = sorted(set(gesehen) - bewegt - set(UNBEWEGT_BEGRUENDET))
+    assert not unerklaert, (
+        f"neue Achse(n) ohne Deckung: {unerklaert}. Entweder eine Variante ergaenzen, die sie "
+        f"bewegt, oder sie in UNBEWEGT_BEGRUENDET mit Grund eintragen — stillschweigend "
+        f"durchlaufen darf sie nicht.")
+
+
+def test_die_begruendete_liste_verrottet_nicht():
+    """GEGENRICHTUNG. Eine Ausnahmeliste, die Namen fuehrt, die es nicht mehr gibt, waechst
+    stumm zu und deckt irgendwann etwas, das niemand mehr prueft."""
+    gesehen = _achsen_und_werte()
+    verwaist = sorted(set(UNBEWEGT_BEGRUENDET) - set(gesehen))
+    assert not verwaist, (
+        f"UNBEWEGT_BEGRUENDET nennt Achsen, die das Ergebnis nicht mehr fuehrt: {verwaist}")
+
+
+def test_meta_eine_neue_achse_wird_gefangen():
+    """META. Beweist, dass der Vollstaendigkeits-Test ueberhaupt fallen KANN — sonst misst er
+    nichts. Eine kuenstliche Achse wird eingeschleust; der Test muss sie melden."""
+    gesehen = _achsen_und_werte()
+    gesehen["eine_neue_achse_die_niemand_erklaert_hat"] = {"NUR_EIN_WERT"}
+    bewegt = {k for k, v in gesehen.items() if len(v) > 1}
+    unerklaert = sorted(set(gesehen) - bewegt - set(UNBEWEGT_BEGRUENDET))
+    assert unerklaert == ["eine_neue_achse_die_niemand_erklaert_hat"], (
+        f"der Vollstaendigkeits-Test faengt eine neue Achse NICHT — er misst nichts: {unerklaert}")

@@ -292,6 +292,41 @@ def findings_root(findings: list[dict]) -> str:
 
 
 # ── Validation ──────────────────────────────────────────────────────────────────────────────────
+def _mit_abschnitt(abschnitt: str, fehler: object, *, code_teil: str | None = None) -> str:
+    """Stellt den Abschnittsnamen voran UND behaelt einen vorhandenen Reason Code.
+
+    WARUM NICHT `f"{abschnitt}: {e}"`. Ein f-String auf einer `ShapeError` erzeugt ein nacktes
+    `str` — der Code faellt lautlos weg, genau an der Stelle, an der er gebraucht wird. Gemessen
+    am 01.09.2026: die Abnahme der Gegenlese nennt `String Declaration` ausdruecklich, und dieser
+    Fall lief durch die Praefix-Zeile. Der Code wird dabei mit dem Abschnitt QUALIFIZIERT
+    (`DECLARATION_SECTION_NOT_OBJECT`), damit zwei Abschnitte mit derselben Fehlerart
+    unterscheidbar bleiben — sonst waere der Code weniger wert als der Satz.
+    """
+    text = f"{abschnitt}: {fehler}"
+    code = getattr(fehler, "code", None)
+    if not code:
+        return text
+    return _shape_err(f"{_code_segment(code_teil or abschnitt)}_{code}", text)
+
+
+#: Only these characters may reach a reason code. Everything else is dropped rather than
+#: transliterated, so a surprising input yields a SHORTER code, never a new one.
+_CODE_ERLAUBT = re.compile(r"[^A-Z0-9_]+")
+
+
+def _code_segment(roh: str) -> str:
+    """Turn a caller-supplied section name into a STABLE code segment.
+
+    WHY THIS EXISTS. ``_mit_abschnitt`` lifted its ``abschnitt`` argument straight into the code
+    namespace. The obvious next repair — routing ``f"findings[{i}]: {e}"`` through it — would then
+    have produced ``FINDINGS[7]_SECTION_NOT_OBJECT``: the ARRAY INDEX travelling into the code, so
+    ``findings[0]`` and ``findings[7]`` would carry different codes for the same defect. That
+    destroys the one property a reason code has, and it sat exactly on the path of the obvious fix.
+    Measured by adversarial review on 2026-09-01 before it was written, not after.
+    """
+    return _CODE_ERLAUBT.sub("", roh.upper()).strip("_") or "UNBENANNT"
+
+
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                     decl_zusatz: frozenset = frozenset()) -> list[str]:
     """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid)."""
@@ -315,16 +350,16 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
         errors.append("reviewId must be a non-empty string")
 
     if "subjectContext" in predicate:
-        errors.extend(f"subjectContext: {e}" for e in _validate_subject(predicate.get("subjectContext")))
+        errors.extend(_mit_abschnitt("subjectContext", e) for e in _validate_subject(predicate.get("subjectContext")))
     if "declaration" in predicate:
-        errors.extend(f"declaration: {e}" for e in
+        errors.extend(_mit_abschnitt("declaration", e) for e in
                       _validate_declaration(predicate.get("declaration"), zusatz=decl_zusatz))
     if "coverage" in predicate:
-        errors.extend(f"coverage: {e}" for e in _validate_coverage(predicate.get("coverage")))
+        errors.extend(_mit_abschnitt("coverage", e) for e in _validate_coverage(predicate.get("coverage")))
     if "limitationCodes" in predicate:
         errors.extend(_validate_limitation_codes(predicate.get("limitationCodes")))
     if "times" in predicate:
-        errors.extend(f"times: {e}" for e in _validate_times(predicate.get("times")))
+        errors.extend(_mit_abschnitt("times", e) for e in _validate_times(predicate.get("times")))
 
     lim = predicate.get("limitations")
     if "limitations" in predicate and not (isinstance(lim, list) and lim
@@ -344,7 +379,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
 
     sup = predicate.get("supersession")
     if "supersession" in predicate:
-        errors.extend(f"supersession: {e}" for e in _validate_supersession(sup))
+        errors.extend(_mit_abschnitt("supersession", e) for e in _validate_supersession(sup))
 
     if "planRef" in predicate and not _is_digest(predicate.get("planRef")):
         errors.append("planRef, when present, must be a sha256 digest object")
@@ -377,7 +412,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
 def _validate_subject(sc: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(sc, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     kind = sc.get("kind")
     if not is_member(kind, _SUBJECT_KINDS):
         return [f"kind must be one of {sorted(_SUBJECT_KINDS)}"]
@@ -408,7 +443,7 @@ def _validate_subject(sc: Any) -> list[str]:
 def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[str]:
     errs: list[str] = []
     if not isinstance(dec, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in dec:
         if k not in _DECLARATION_FIELDS | zusatz:
             errs.append(f"unknown field {k!r}")
@@ -423,7 +458,14 @@ def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[
                 errs.append(f"{listf} must be an array")
             else:
                 for i, item in enumerate(v):
-                    errs.extend(f"{listf}[{i}]: {e}" for e in _validate_assured(item))
+                    # DER CODE UEBERLEBT (Gegenlesung 01.09.2026, Fund B3): diese Zeile war
+                    # die f-String-Form, die `_mit_abschnitt` ausdruecklich als Fehler
+                    # beschreibt — zwei Ebenen tiefer und deshalb uebersehen. Der
+                    # Code-Teil traegt den Listennamen OHNE Index (`AUTHORING_ENTRY`),
+                    # damit Eintrag 0 und Eintrag 7 denselben Defekt gleich benennen.
+                    errs.extend(_mit_abschnitt(f"{listf}[{i}]", e,
+                                               code_teil=f"{listf}_ENTRY")
+                                for e in _validate_assured(item))
 
     fnd = dec.get("findings")
     if "findings" in dec:
@@ -432,14 +474,33 @@ def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[
         else:
             seen: set[str] = set()
             for i, f in enumerate(fnd):
-                errs.extend(f"findings[{i}]: {e}" for e in _validate_finding(f))
+                errs.extend(_mit_abschnitt(f"findings[{i}]", e,
+                                           code_teil="FINDINGS_ENTRY")
+                            for e in _validate_finding(f))
                 if isinstance(f, dict) and isinstance(f.get("id"), str):
                     if f["id"] in seen:
                         errs.append(f"findings[{i}]: duplicate id {f['id']!r}")
                     seen.add(f["id"])
     if "findingsRoot" in dec and not (isinstance(dec["findingsRoot"], str)
                                       and _SHA256_HEX.match(dec["findingsRoot"])):
-        errs.append("findingsRoot must be a sha256 hex digest")
+        errs.append(_shape_err("FINDINGS_ROOT_MALFORMED",
+                               "findingsRoot must be a sha256 hex digest"))
+    # A PUBLISHED LIST WITHOUT ITS ROOT CANNOT BE CHECKED AT ALL (P1.2 of round-2 review).
+    #
+    # ``findingsRoot`` was optional, and the verifier only checks it ``elif isinstance(...,
+    # str)`` — so a producer could simply omit it and the strongest binding in this predicate,
+    # the one that catches a finding added or removed after signing, silently did not apply.
+    # Test 11 passed the whole time: it plants a STALE root, and a stale root is present.
+    #
+    # MEASURED BEFORE ENFORCING, against every receipt we ourselves published (6 files under
+    # ``receipts/agent_review/``): all six carry a root. Nothing already public breaks. The rule
+    # is deliberately narrow — an EMPTY findings list needs no root, because there is nothing a
+    # root could bind.
+    if isinstance(dec.get("findings"), list) and dec["findings"] and "findingsRoot" not in dec:
+        errs.append(_shape_err(
+            "FINDINGS_ROOT_MISSING",
+            "findingsRoot is required once findings are listed — without it nothing binds the "
+            "published list, and a finding can be added or dropped after signing"))
 
     nc = dec.get("nonClaims")
     if "nonClaims" in dec and not (isinstance(nc, list) and nc and all(isinstance(x, str) and x for x in nc)):
@@ -471,7 +532,7 @@ def _validate_assured(item: Any) -> list[str]:
     """Every declared item names WHO says it and at WHAT assurance — F01, and v0.1 allows one rung."""
     errs: list[str] = []
     if not isinstance(item, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     if "assurance" not in item:
         errs.append("missing 'assurance' — an unlabelled field silently reads as observed fact")
     else:
@@ -496,7 +557,7 @@ def _validate_assured(item: Any) -> list[str]:
 def _validate_finding(f: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(f, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in f:
         if k not in ("id", "severity", "title", "disposition", "fixCommit", "reason", "evidenceRef"):
             errs.append(f"unknown field {k!r}")
@@ -592,7 +653,7 @@ def _validate_limitation_codes(v: Any) -> list[str]:
 def _validate_coverage(cov: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(cov, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in cov:
         if k not in ("status", "window", "sources", "observedRuns", "expectedRuns",
                      "knownGaps", "collectionMethod"):
@@ -652,7 +713,7 @@ def _validate_coverage(cov: Any) -> list[str]:
 def _validate_times(t: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(t, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in t:
         if k not in _TIME_FIELDS:
             errs.append(f"unknown field {k!r}")
@@ -673,7 +734,7 @@ def _validate_times(t: Any) -> list[str]:
 def _validate_supersession(sup: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(sup, dict):
-        return ["must be an object"]
+        return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in sup:
         if k not in ("supersedes", "corrects", "withdraws"):
             errs.append(f"unknown field {k!r}")
@@ -1177,7 +1238,60 @@ INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 _HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
 
 
-def validate_statement_shape(statement: object, predicate: object) -> list[str]:
+class ShapeError(str):
+    """A shape error that carries a STABLE machine-readable code alongside its human sentence.
+
+    WHY A ``str`` SUBCLASS AND NOT A TUPLE. Both callers already do
+    ``r["errors"].extend(shape_errs)`` and ``not shape_errs``; the result is serialised to JSON and
+    read by people. A tuple would have broken every one of those. A ``str`` subclass keeps each of
+    them working byte-for-byte while adding ``.code`` for machines — the reason code is an ADDITION
+    to the evidence, never a replacement for the sentence.
+
+    WHY CODES AT ALL (Gegenlese Runde 2, acceptance criterion for P0.1, 2026-08-31): *"Falsches
+    ``_type``, String Subject, String Declaration, leere oder mehrfache Subjects und falsche
+    Digestformen ergeben stabile Reason Codes."* Before this, ``verify_agent_review`` returned
+    ``ok=False`` with a good sentence and an EMPTY ``reason_codes`` — a consumer could see THAT it
+    failed but had nothing stable to branch on, and a reworded sentence would silently break any
+    consumer that matched on the text.
+
+    The code is deliberately part of the raising site, not derived from the message: a mapping from
+    text to code is a change-detector on the wording, which is the defect one layer over.
+    """
+
+    code: str
+    __slots__ = ("code",)
+
+    def __new__(cls, code: str, message: str) -> "ShapeError":
+        selbst = super().__new__(cls, message)
+        selbst.code = code
+        return selbst
+
+    def __getnewargs__(self) -> tuple[str, str]:  # type: ignore[override]
+        # THE OVERRIDE WIDENS ON PURPOSE, and mypy is right to say so: ``str`` promises
+        # ``tuple[str]``, we return two. That is the whole point — ``__new__`` here takes
+        # (code, message), so a one-element tuple cannot rebuild the object. The ignore is
+        # narrow (this line, this rule) and documented rather than blanket: a bare
+        # ``# type: ignore`` would also swallow the next, real error on this line.
+        """Both arguments, so copy/deepcopy/pickle can rebuild this.
+
+        WITHOUT THIS, THE REJECTION PATH THROWS — and only the rejection path. ``str`` supplies a
+        one-argument ``__getnewargs__``; ``__new__`` here takes two, so ``copy.deepcopy(result)``
+        raised ``TypeError: ShapeError.__new__() missing 1 required positional argument``. A valid
+        receipt carries no ShapeError and copies fine, so every happy-path test stayed green while
+        every consumer that logs, copies or hands off a REJECTED result broke. For a public
+        library that is the worst possible distribution of a defect: invisible where it is tested,
+        live where it is used.
+
+        Measured by adversarial review on 2026-09-01, not by us.
+        """
+        return (self.code, str(self))
+
+
+def _shape_err(code: str, message: str) -> ShapeError:
+    return ShapeError(code, message)
+
+
+def validate_statement_shape(statement: object, predicate: object) -> list[ShapeError]:
     """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
 
     WHY THIS EXISTS, measured on 2026-08-31 against our own r2 receipt. With a valid signature AND
@@ -1193,41 +1307,58 @@ def validate_statement_shape(statement: object, predicate: object) -> list[str]:
 
     Returns a list of errors. Empty means the statement is shaped as this profile requires.
     """
-    errs: list[str] = []
+    errs: list[ShapeError] = []
     if not isinstance(statement, dict):
-        return [f"statement must be a JSON object, got {type(statement).__name__}"]
+        return [_shape_err("STATEMENT_NOT_OBJECT",
+                           f"statement must be a JSON object, got {type(statement).__name__}")]
 
     t = statement.get("_type")
     if t != INTOTO_STATEMENT_TYPE:
-        errs.append(f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
-                    "(the in-toto spec requires it; an unread _type is an unagreed shape)")
+        errs.append(_shape_err(
+            "STATEMENT_TYPE_MISMATCH",
+            f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                    "(the in-toto spec requires it; an unread _type is an unagreed shape)"))
 
     subj = statement.get("subject")
     if not isinstance(subj, list):
-        errs.append(f"subject must be an array, got {type(subj).__name__} "
-                    "(the subject array is the binding statement layer)")
+        errs.append(_shape_err(
+            "SUBJECT_NOT_ARRAY",
+            f"subject must be an array, got {type(subj).__name__} "
+                    "(the subject array is the binding statement layer)"))
         return errs
     if len(subj) != 1:
-        errs.append(f"this profile binds exactly one subject, got {len(subj)} "
-                    "(more than one leaves it open which object the receipt speaks about)")
+        errs.append(_shape_err(
+            "SUBJECT_CARDINALITY",
+            f"this profile binds exactly one subject, got {len(subj)} "
+                    "(more than one leaves it open which object the receipt speaks about)"))
         return errs
     s0 = subj[0]
     if not isinstance(s0, dict):
-        errs.append(f"subject[0] must be an object, got {type(s0).__name__}")
+        errs.append(_shape_err(
+            "SUBJECT_ENTRY_NOT_OBJECT",
+            f"subject[0] must be an object, got {type(s0).__name__}"))
         return errs
 
     dig = s0.get("digest")
     if not isinstance(dig, dict):
-        errs.append(f"subject[0].digest must be an object, got {type(dig).__name__}")
+        errs.append(_shape_err(
+            "SUBJECT_DIGEST_NOT_OBJECT",
+            f"subject[0].digest must be an object, got {type(dig).__name__}"))
     elif set(dig) != {"sha256"}:
-        errs.append(f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
-                    "(an extra algorithm lets a producer choose which one a verifier reads)")
+        errs.append(_shape_err(
+            "SUBJECT_DIGEST_ALGORITHMS",
+            f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
+                    "(an extra algorithm lets a producer choose which one a verifier reads)"))
     elif not (isinstance(dig["sha256"], str) and _HEX64.match(dig["sha256"])):
-        errs.append("subject[0].digest.sha256 must be 64 lowercase hex characters")
+        errs.append(_shape_err(
+            "SUBJECT_DIGEST_FORM",
+            "subject[0].digest.sha256 must be 64 lowercase hex characters"))
 
     name = s0.get("name")
     if not (isinstance(name, str) and name):
-        errs.append("subject[0].name must be a non-empty string")
+        errs.append(_shape_err(
+            "SUBJECT_NAME_EMPTY",
+            "subject[0].name must be a non-empty string"))
     elif isinstance(predicate, dict):
         # The name is DERIVED from the signed subjectContext. A name that disagrees with it points
         # the reader at a different object than the signature covers.
@@ -1236,12 +1367,16 @@ def validate_statement_shape(statement: object, predicate: object) -> list[str]:
         except Exception:                                        # noqa: BLE001
             erwartet = None
         if erwartet is not None and name != erwartet:
-            errs.append(f"subject[0].name is {name!r} but the signed subjectContext derives "
-                        f"{erwartet!r} — the visible name and the signed object disagree")
+            errs.append(_shape_err(
+                "SUBJECT_NAME_DISAGREES",
+                f"subject[0].name is {name!r} but the signed subjectContext derives "
+                        f"{erwartet!r} — the visible name and the signed object disagree"))
 
     for k in statement:
         if k not in ("_type", "subject", "predicateType", "predicate"):
-            errs.append(f"unknown statement field {k!r} — this profile allows no extras")
+            errs.append(_shape_err(
+                "UNKNOWN_STATEMENT_FIELD",
+                f"unknown statement field {k!r} — this profile allows no extras"))
     return errs
 
 
@@ -1649,8 +1784,33 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     shape_errs = validate_statement_shape(statement, predicate)
     r["errors"].extend(shape_errs)
     r["statement_shape_ok"] = not shape_errs
+    # DIE CODES REISEN MIT (P0.1-Abnahme der Gegenlese Runde 2). Der Satz bleibt fuer
+    # Menschen, der Code ist das, worauf eine Maschine sich verlassen darf: eine
+    # umformulierte Fehlermeldung bricht sonst still jeden Verbraucher, der auf den Text
+    # gematcht hat.
+    #
+    # DER VERTRAG ZWISCHEN DEN BEIDEN FELDERN, praezise (eine fruehere Fassung dieses
+    # Kommentars sagte "`reason_code` ist die ABLEITUNG aus der Liste" — das war FALSCH und
+    # eine adversariale Gegenlesung hat es am 01.09.2026 gemessen):
+    #   `reason_codes` traegt ALLE Codes, fatale wie informatorische.
+    #   `reason_code`  traegt den ERSTEN FATALEN, sonst None.
+    # Ein informatorischer Code wird NIE zum `reason_code`. Gemessen: ein GUELTIGES Receipt mit
+    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`
+    # und `reason_code=None` — und das ist richtig. Waere es die schlichte Ableitung, truege ein
+    # bestandenes Receipt einen Fehlgrund, und jeder Verbraucher, der auf `reason_code is not None`
+    # verzweigt, lehnte es ab.
+    def _codes_sammeln(fehler) -> None:
+        """Traegt die Codes einer Fehlerliste ein — EINE Stelle fuer beide Quellen."""
+        for _e in fehler:
+            _c = getattr(_e, "code", None)
+            if _c and _c not in r["reason_codes"]:
+                r["reason_codes"].append(_c)
+        if r["reason_code"] is None and r["reason_codes"]:
+            r["reason_code"] = r["reason_codes"][0]
+    _codes_sammeln(shape_errs)
     struct_errs = validate_agent_review_predicate(predicate, strict=strict)
     r["errors"].extend(struct_errs)
+    _codes_sammeln(struct_errs)
 
     canonical_ok = None
     if _rfc8785_available():
@@ -1866,8 +2026,33 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     shape_errs = validate_statement_shape(statement, predicate)
     r["errors"].extend(shape_errs)
     r["statement_shape_ok"] = not shape_errs
+    # DIE CODES REISEN MIT (P0.1-Abnahme der Gegenlese Runde 2). Der Satz bleibt fuer
+    # Menschen, der Code ist das, worauf eine Maschine sich verlassen darf: eine
+    # umformulierte Fehlermeldung bricht sonst still jeden Verbraucher, der auf den Text
+    # gematcht hat.
+    #
+    # DER VERTRAG ZWISCHEN DEN BEIDEN FELDERN, praezise (eine fruehere Fassung dieses
+    # Kommentars sagte "`reason_code` ist die ABLEITUNG aus der Liste" — das war FALSCH und
+    # eine adversariale Gegenlesung hat es am 01.09.2026 gemessen):
+    #   `reason_codes` traegt ALLE Codes, fatale wie informatorische.
+    #   `reason_code`  traegt den ERSTEN FATALEN, sonst None.
+    # Ein informatorischer Code wird NIE zum `reason_code`. Gemessen: ein GUELTIGES Receipt mit
+    # `times.observedAt` hat ok=True, null Fehler, `reason_codes=[LEGACY_SELF_DECLARED_OBSERVED_AT]`
+    # und `reason_code=None` — und das ist richtig. Waere es die schlichte Ableitung, truege ein
+    # bestandenes Receipt einen Fehlgrund, und jeder Verbraucher, der auf `reason_code is not None`
+    # verzweigt, lehnte es ab.
+    def _codes_sammeln(fehler) -> None:
+        """Traegt die Codes einer Fehlerliste ein — EINE Stelle fuer beide Quellen."""
+        for _e in fehler:
+            _c = getattr(_e, "code", None)
+            if _c and _c not in r["reason_codes"]:
+                r["reason_codes"].append(_c)
+        if r["reason_code"] is None and r["reason_codes"]:
+            r["reason_code"] = r["reason_codes"][0]
+    _codes_sammeln(shape_errs)
     struct_errs = validate_agent_review_v02_predicate(predicate, strict=strict)
     r["errors"].extend(struct_errs)
+    _codes_sammeln(struct_errs)
 
     canonical_ok = None
     if _rfc8785_available():
