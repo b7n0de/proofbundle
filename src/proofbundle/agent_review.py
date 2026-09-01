@@ -716,7 +716,7 @@ def receipt_digest(envelope: dict) -> str:
     return hashlib.sha256(bytes_).hexdigest()
 
 
-def resolve_receipt_chain(envelopes: list[dict]) -> dict:
+def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -> dict:
     """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
 
     DREI AUSSAGEN, die oft verwechselt werden und hier getrennt bleiben (Supersessionstests 15
@@ -731,8 +731,23 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
       Receipt, ist die Korrektur nicht mehr nachvollziehbar, und dann ist die Kette kaputt, auch
       wenn jedes einzelne Stueck fuer sich gueltig bleibt.
 
+    `verified` IST PFLICHT und nimmt keinen Vorgabewert. Es enthaelt die Digests, die der Aufrufer
+    selbst kryptografisch geprueft hat.
+
+    WARUM PFLICHT, gemessen am 01.09.2026 durch eine Jury-Linse des Deep-Gates und mit einem
+    gebauten Angriff bestaetigt: die erste Fassung liess JEDEN Umschlag der Menge einen anderen als
+    korrigiert markieren. Ein Angreifer mit EIGENEM Schluessel legte einen Umschlag dazu, der den
+    Digest unseres echten Belegs nannte — danach zeigte `current` auf SEIN Receipt, unseres stand
+    unter `corrected`, und `integrity_ok` war True. Signaturpruefung an anderer Stelle half nicht:
+    die Ordnung entstand VOR ihr und war bereits vergiftet.
+
+    Ein Vorgabewert waere hier die falsche Freundlichkeit. Wer die Menge nicht nennt, bekommt kein
+    stilles Vertrauen, sondern `None` — und dann darf KEIN Umschlag einen anderen korrigieren, alles
+    bleibt Kandidat, und das Ergebnis ist laut mehrdeutig statt leise falsch.
+
     Der Resolver prueft KEINE Signaturen — das tut `verify_agent_review`. Er ordnet nur, und er
-    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt.
+    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt. Was er jetzt zusaetzlich
+    tut: er ordnet nur nach dem, was der Aufrufer als geprueft BENANNT hat.
     """
     vorhanden: dict[str, dict] = {}
     korrigiert: dict[str, list[str]] = {}
@@ -744,11 +759,18 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
             continue
         vorhanden[d] = env
 
+    ungeprueft_mit_anspruch: list[str] = []
     for d, env in vorhanden.items():
         try:
             st = json.loads(base64.b64decode(env["payload"], validate=True))
             sup = (st.get("predicate") or {}).get("supersession") or {}
         except (ValueError, KeyError, TypeError):
+            continue
+        if sup and (verified is None or d not in verified):
+            # Ein Umschlag, den der Aufrufer nicht geprueft hat, darf die Ordnung nicht bestimmen.
+            # Er wird nicht still ignoriert — sein Anspruch wird GEMELDET, sonst saehe ein
+            # abgewehrter Uebernahmeversuch aus wie ein leerer Eingang.
+            ungeprueft_mit_anspruch.append(d)
             continue
         for feld in ("corrects", "supersedes", "withdraws"):
             for rel in (sup.get(feld) or []):
@@ -762,7 +784,8 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
                     fehlend.append(prior)
 
     aktuell = [d for d in vorhanden if d not in korrigiert]
-    return {"current": aktuell[0] if len(aktuell) == 1 else None,
+    return {"unverified_supersession_claims": sorted(ungeprueft_mit_anspruch),
+            "current": aktuell[0] if len(aktuell) == 1 else None,
             "current_candidates": sorted(aktuell),
             "ambiguous": len(aktuell) != 1,
             "corrected": sorted(korrigiert),
@@ -1206,6 +1229,38 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     return errs
 
 
+def _als_zeitpunkt(wert: object) -> float | None:
+    """RFC 3339 zu einem vergleichbaren Zeitpunkt — oder None, wenn nicht bestimmbar.
+
+    WARUM NICHT DIE ZEICHENKETTEN VERGLEICHEN (Jury-Linse 2, 01.09.2026). Ein lexikografischer
+    Vergleich stimmt nur, solange alle Werte denselben Offset tragen. Konkret vorgelegt und
+    nachgemessen: `2026-08-31T15:00:00+02:00` ist 13:00 UTC und liegt damit VOR
+    `2026-08-31T14:00:00Z` — als Zeichenkette ist es groesser, und der Widerspruchs-Test
+    schwieg.
+
+    HEUTE NICHT AUSLOESBAR, und das ist genau der Grund, es JETZT zu reparieren: die Validierung
+    verweigert nicht-leere `observations` noch vollstaendig, ein solcher Wert kommt also nicht
+    durch. Er kommt durch, sobald Tier 2 die Beobachtungen oeffnet — und dann repariert das
+    niemand mehr, weil dann alles andere dringend ist.
+
+    None heisst NICHT BESTIMMBAR und nie "gleich": ein unparsbarer Wert darf keinen Widerspruch
+    behaupten und ihn auch nicht ausschliessen.
+    """
+    if not isinstance(wert, str) or not wert:
+        return None
+    from datetime import datetime  # noqa: PLC0415
+    roh = wert[:-1] + "+00:00" if wert.endswith("Z") else wert
+    try:
+        dt = datetime.fromisoformat(roh)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        # Ohne Zone ist der Zeitpunkt nicht bestimmt. Ihn als UTC zu lesen waere eine Annahme,
+        # und eine Annahme ueber eine Zeit ist genau das, was dieses Modul nicht tut.
+        return None
+    return dt.timestamp()
+
+
 def _zeitachsen(predicate: dict) -> dict:
     """Die getrennten Achsen. KEIN Gesamturteil ueber Zeit — das ist der ganze Punkt.
 
@@ -1248,9 +1303,11 @@ def _zeitachsen(predicate: dict) -> dict:
     # Eine Rangfolge waere hier der Fehler: sie wuerde einen kaputten Beleg in einen schwachen
     # verwandeln, und ein schwacher Beleg wird benutzt.
     if event == "SELF_DECLARED" and mit_id:
-        ereignis = next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None)
-        beobachtet = [b.get("observedAt") for b in mit_id if isinstance(b.get("observedAt"), str)]
-        if ereignis and any(bo < ereignis for bo in beobachtet):
+        ereignis = _als_zeitpunkt(
+            next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None))
+        beobachtet = [t for t in (_als_zeitpunkt(b.get("observedAt")) for b in mit_id)
+                      if t is not None]
+        if ereignis is not None and any(bo < ereignis for bo in beobachtet):
             event = "CONFLICT"
             obs = "CONFLICT"
 

@@ -46,6 +46,50 @@ Thirteen conformance vectors under `conformance/agent_review/`, run by the real 
 expectation axis each. Three classifications, and the difference between the last two is the
 substance: `valid`, `invalid` (produced, then rejected), `refused` (the producer would not build it).
 
+### Added — the visible block is bound, and the chain cannot be taken over
+
+An external counter-reading returned eleven findings against `agent-review/v0.1`. Four of them are
+closed here, and two were exploitable rather than theoretical.
+
+- **`disclosureCoreDigest`.** `bodyCoreDigest` replaces the entire disclosure block with a token,
+  which is right for its own job and wrong as a statement about the block's content. **Measured:**
+  editing the visible `selfDeclared` into `independentlyWitnessed` left every digest unchanged and
+  verification green — a reader was told something the signed object does not say. The new digest
+  covers the block and excludes only what cannot appear inside its own preimage. Required in v0.2,
+  optional in v0.1, because requiring it there would invalidate receipts that already exist.
+- **The receipt chain cannot be taken over by a stranger.** `resolve_receipt_chain` let any envelope
+  in the given set mark another as corrected. **Measured attack:** an outsider signing with their own
+  key added one envelope naming our receipt's digest; afterwards `current` pointed at theirs, ours
+  was listed as corrected, and `integrity_ok` was true. Verifying signatures elsewhere did not help,
+  because the ordering happened first and was already poisoned. `verified` is now a required
+  keyword argument with no default; a rejected takeover attempt is reported rather than dropped.
+- **Coverage rejects three shapes it used to accept.** A boolean run count (`isinstance(True, int)`
+  is true in Python, so the check was correctly written and still blind), a negative count, and
+  `COMPLETE` over zero expected runs. `COMPLETE` now also has to name its sources, its window and
+  its collection method.
+- **Time is separated by source and by assurance.** `agent-review/v0.2` moves business times into
+  `declaration.timeClaims` and reserves `observedAt` for an observation by a separately named
+  witness. A self-declared review time cannot satisfy a freshness policy; a verified RFC 3161
+  timestamp raises the signature axis and leaves the event axis untouched, because it proves that
+  bytes existed, not when a review happened. The two verifiers refuse each other's version rather
+  than guessing.
+- **`limitationCodes`.** Free-text limitations cannot be held against a policy without being read,
+  and what a relying party cannot evaluate it does not evaluate. The codes are derived from the
+  predicate rather than typed, because a hand-set code drifts from the content without moving any
+  digest.
+
+### Fixed — the conformance corpus had no runner
+
+The entry above under `agent-review/v0.1` says the thirteen vectors are "run by the real runner".
+That was written before the runner existed: the corpus held thirteen cases in twenty-six files and
+**no test executed them**. There was a generator that writes them and nobody who reads them. It is
+true now, and the sentence stays as written rather than being quietly repaired, because a changelog
+that edits its own past claims is worth less than one that corrects them in the open.
+
+The runner fails on an unknown expectation shape instead of skipping it, and for every counter-proof
+that can be defused it checks that the verdict FLIPS once the defect is removed — without that, a
+corpus can consist of cases any validator passes.
+
 ### Added — our own entry in a third-party transparency log
 
 `tests/fixtures/anchors/markovian_log/submit_7727` covers the half its neighbour said it could not:
