@@ -203,3 +203,71 @@ def test_der_verifier_faellt_bei_kaputtem_rumpf_nicht_roh_um():
                                observed_body=json.dumps({"kein": "string-rumpf"}))
     assert r["ok"] is False
     assert "internal_error" not in (r["reason_codes"] or [])
+
+
+def test_NICHT_MESSBAR_blockt_auf_BEIDEN_achsen_und_ABSENT_auf_keiner():
+    """Meine erste Fassung dieses Tests behauptete eine Asymmetrie — und war falsch.
+
+    Sie lautete: die Disclosure-Achse duerfe bei NOT_MEASURABLE nicht blocken, weil ein Rumpf ohne
+    Block der Normalzustand vor dem Rendern sei. Ein Mutationslauf hat das widerlegt: die
+    Gegenmutation machte NICHTS rot, also deckte kein Test das Argument. Nachgesehen landet jener
+    Normalzustand gar nicht auf NOT_MEASURABLE, sondern auf ABSENT_IN_RECEIPT.
+
+    NOT_MEASURABLE entsteht auf der Disclosure-Achse AUSSCHLIESSLICH, wenn das Receipt einen
+    Disclosure-Digest BEHAUPTET und der vorgelegte Rumpf keinen Block traegt — ein Widerspruch
+    zwischen Beleg und Gegenstand, kein Normalzustand. Beide Achsen blocken deshalb gleich, und
+    ABSENT_IN_RECEIPT blockt auf keiner.
+    """
+    body = _rumpf()
+
+    # (a) missgebildeter Rumpf -> beide nicht messbar, Urteil rot
+    p = _predicate(body)
+    r = _verify(_receipt(p), p, body + "\n" + _block())
+    assert r["body_core_digest_match"] == "NOT_MEASURABLE"
+    assert r["ok"] is False
+
+    # (b) das Receipt behauptet einen Disclosure-Digest, der Rumpf traegt keinen Block -> rot
+    r2 = _verify(_receipt(p), p, "Ein Vorgang ganz ohne Offenlegungsblock.\n")
+    assert r2["disclosure_core_digest_match"] == "NOT_MEASURABLE"
+    assert r2["ok"] is False, "Beleg und Gegenstand widersprechen sich und es blieb gruen"
+
+    # (c) das Receipt behauptet gar keinen -> ABSENT, und das blockt zu Recht NICHT
+    ohne = "Ein Vorgang ganz ohne Offenlegungsblock.\n"
+    p3 = _predicate(ohne, mit_disclosure=False)
+    r3 = _verify(_receipt(p3), p3, ohne)
+    assert r3["disclosure_core_digest_match"] == "ABSENT_IN_RECEIPT"
+    assert r3["ok"] is True, r3["errors"]
+
+
+def test_die_body_achse_blockt_ALLEIN():
+    """ISOLIERT, weil ein Mutationslauf zeigte, dass sich die Achsen gegenseitig verdecken.
+
+    Der Test darueber prueft beide Achsen, aber in seinen Faellen ist IMMER auch die andere rot —
+    nimmt man einer das Blocken weg, bleibt das Urteil trotzdem rot, und die Mutation sieht wie
+    ein Erfolg aus. Zwei Waechter, die einander decken, sind gemessen EIN Waechter.
+
+    Hier ist die Body-Achse allein zustaendig: doppelter Block (Body nicht messbar) bei einem
+    Receipt OHNE `disclosureCoreDigest` (Disclosure = ABSENT und damit stumm).
+    """
+    body = _rumpf()
+    p = _predicate(body, mit_disclosure=False)
+    r = _verify(_receipt(p), p, body + "\n" + _block())
+    assert r["body_core_digest_match"] == "NOT_MEASURABLE"
+    assert r["disclosure_core_digest_match"] == "ABSENT_IN_RECEIPT"
+    assert r["ok"] is False, "die Body-Achse allein hat nicht geblockt"
+
+
+def test_die_disclosure_achse_blockt_ALLEIN():
+    """Die Gegenrichtung derselben Isolierung: Body MATCH, Disclosure nicht messbar.
+
+    Gebaut wird ein Receipt, dessen `bodyCoreDigest` ueber einen Rumpf OHNE Block gebildet ist,
+    das aber trotzdem einen `disclosureCoreDigest` behauptet. Das ist genau der Widerspruch, den
+    die Achse fangen soll: der Beleg spricht von einer Offenlegung, die der Gegenstand nicht hat.
+    """
+    ohne_block = "Ein Vorgang ganz ohne Offenlegungsblock.\n"
+    p = _predicate(ohne_block, mit_disclosure=False)
+    p["subjectContext"]["disclosureCoreDigest"] = "e" * 64
+    r = _verify(_receipt(p), p, ohne_block)
+    assert r["body_core_digest_match"] == "MATCH"
+    assert r["disclosure_core_digest_match"] == "NOT_MEASURABLE"
+    assert r["ok"] is False, "die Disclosure-Achse allein hat nicht geblockt"

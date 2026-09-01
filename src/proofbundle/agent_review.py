@@ -958,6 +958,19 @@ def _pruefe_sichtbaren_block(r: dict, predicate: Any, observed_body: str | None)
     eines liegt in einem bezeugten Checkpoint. Das Feld in v0.1 zur Pflicht zu machen wuerde sie
     ungueltig machen — das ist eine Owner-Entscheidung, kein Fix.
     """
+    # NOT_MEASURABLE BLOCKT AUF BEIDEN ACHSEN — und der Weg dorthin gehoert hierher, weil meine
+    # erste Begruendung falsch war (01.09.2026, beim Nachbau von P0-Test 8).
+    #
+    # Zuerst blockte nur die BODY-Achse, mit dem Argument: `disclosure_core_digest` sei auch dann
+    # nicht messbar, wenn der Rumpf noch gar keinen Block traegt, und das sei der normale Zustand
+    # vor dem Rendern. Ein Mutationslauf hat das widerlegt — die Gegenmutation (auch die
+    # Disclosure-Achse blocken lassen) machte NICHTS rot, also deckte kein Test das Argument.
+    #
+    # Nachgesehen: dieser "normale Zustand" landet gar nicht auf NOT_MEASURABLE. Traegt das
+    # Receipt kein `disclosureCoreDigest`, ist das Ergebnis ABSENT_IN_RECEIPT und blockt zu Recht
+    # nicht. NOT_MEASURABLE entsteht dort AUSSCHLIESSLICH, wenn das Receipt einen Disclosure-Digest
+    # BEHAUPTET und der vorgelegte Rumpf keinen Block hat — und das ist kein Normalzustand, sondern
+    # ein Widerspruch zwischen Beleg und Gegenstand. Beide Achsen blocken deshalb gleich.
     if observed_body is None:
         return
     ziel = (predicate or {}).get("subjectContext") if isinstance(predicate, dict) else None
@@ -1574,8 +1587,8 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         and r["subject_binding_ok"] is not False
         and r["findings_root_ok"] is not False
         and r["assurance_ok"] is not False
-        and r["body_core_digest_match"] != "MISMATCH"
-        and r["disclosure_core_digest_match"] != "MISMATCH")
+        and r["body_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE")
+        and r["disclosure_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE"))
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append(
@@ -1720,8 +1733,8 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         and r["subject_binding_ok"] is not False
         and r["findings_root_ok"] is not False
         and r["assurance_ok"] is not False
-        and r["body_core_digest_match"] != "MISMATCH"
-        and r["disclosure_core_digest_match"] != "MISMATCH")
+        and r["body_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE")
+        and r["disclosure_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE"))
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
