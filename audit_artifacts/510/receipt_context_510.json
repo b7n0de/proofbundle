@@ -1,0 +1,11 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "5.1.0",
+  "subject_tree_digest": "88831cd5f5232ebd555eeafb19985570ce84d71bfc8509fa3cdb3d93b9e99d26",
+  "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
+  "audit_command": "six-lens pre-tag audit per docs/PRE_TAG_AUDIT.md (L1-L6), recorded in audit_artifacts/510/PRE_TAG_AUDIT_510.md",
+  "audit_exit_code": 0,
+  "audit_output_digest": "3322d6f91a35c9df595f088d381600b4ab6f480b8c3d11106b9157a46333a485",
+  "runner_identity": "owner-mac-cowork-custody",
+  "produced_at": "2026-09-01T06:44:58Z"
+}
