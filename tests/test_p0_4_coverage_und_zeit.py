@@ -174,3 +174,23 @@ def test_externe_zeit_bleibt_NOT_EVALUATED_denn_wir_haben_nicht_nachgesehen():
     achsen = AR._zeitachsen({"times": {"anchoredAt": "2026-08-31T20:00:00Z"},
                              "declaration": {}, "coverage": {"status": "UNKNOWN"}})
     assert achsen["external_time_status"] == "NOT_EVALUATED"
+
+
+def test_die_ganzzahl_pruefung_an_allen_randfaellen():
+    """Eine Jury-Linse (qwen2.5-coder:32b) hielt `isinstance(v, bool) or not isinstance(v, int)` fuer
+    zu streng und meinte, sie lehne auch echte Ganzzahlen ab. Gemessen an acht Faellen trifft das
+    NICHT zu — aber die genannte Risikoklasse ist echt, und ein widerlegter Einwand ist ein guter
+    Grund, die Eigenschaft festzuschreiben statt sie nur einmal nachzurechnen.
+
+    Besonders `IntEnum`: es IST ein int und kein bool, wird also zu Recht angenommen. Genau dort
+    haette eine zu grobe Pruefung zugeschlagen.
+    """
+    import enum
+
+    class Stufe(enum.IntEnum):
+        DREI = 3
+
+    for wert in (5, 0, Stufe.DREI, None):
+        assert AR._validate_coverage(_cov(status="UNKNOWN", observedRuns=wert)) == [], wert
+    for wert in (True, False, "5", 5.0, [], {}):
+        assert AR._validate_coverage(_cov(status="UNKNOWN", observedRuns=wert)), wert
