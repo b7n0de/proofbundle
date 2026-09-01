@@ -1206,6 +1206,38 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     return errs
 
 
+def _als_zeitpunkt(wert: object) -> float | None:
+    """RFC 3339 zu einem vergleichbaren Zeitpunkt — oder None, wenn nicht bestimmbar.
+
+    WARUM NICHT DIE ZEICHENKETTEN VERGLEICHEN (Jury-Linse 2, 01.09.2026). Ein lexikografischer
+    Vergleich stimmt nur, solange alle Werte denselben Offset tragen. Konkret vorgelegt und
+    nachgemessen: `2026-08-31T15:00:00+02:00` ist 13:00 UTC und liegt damit VOR
+    `2026-08-31T14:00:00Z` — als Zeichenkette ist es groesser, und der Widerspruchs-Test
+    schwieg.
+
+    HEUTE NICHT AUSLOESBAR, und das ist genau der Grund, es JETZT zu reparieren: die Validierung
+    verweigert nicht-leere `observations` noch vollstaendig, ein solcher Wert kommt also nicht
+    durch. Er kommt durch, sobald Tier 2 die Beobachtungen oeffnet — und dann repariert das
+    niemand mehr, weil dann alles andere dringend ist.
+
+    None heisst NICHT BESTIMMBAR und nie "gleich": ein unparsbarer Wert darf keinen Widerspruch
+    behaupten und ihn auch nicht ausschliessen.
+    """
+    if not isinstance(wert, str) or not wert:
+        return None
+    from datetime import datetime  # noqa: PLC0415
+    roh = wert[:-1] + "+00:00" if wert.endswith("Z") else wert
+    try:
+        dt = datetime.fromisoformat(roh)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        # Ohne Zone ist der Zeitpunkt nicht bestimmt. Ihn als UTC zu lesen waere eine Annahme,
+        # und eine Annahme ueber eine Zeit ist genau das, was dieses Modul nicht tut.
+        return None
+    return dt.timestamp()
+
+
 def _zeitachsen(predicate: dict) -> dict:
     """Die getrennten Achsen. KEIN Gesamturteil ueber Zeit — das ist der ganze Punkt.
 
@@ -1248,9 +1280,11 @@ def _zeitachsen(predicate: dict) -> dict:
     # Eine Rangfolge waere hier der Fehler: sie wuerde einen kaputten Beleg in einen schwachen
     # verwandeln, und ein schwacher Beleg wird benutzt.
     if event == "SELF_DECLARED" and mit_id:
-        ereignis = next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None)
-        beobachtet = [b.get("observedAt") for b in mit_id if isinstance(b.get("observedAt"), str)]
-        if ereignis and any(bo < ereignis for bo in beobachtet):
+        ereignis = _als_zeitpunkt(
+            next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None))
+        beobachtet = [t for t in (_als_zeitpunkt(b.get("observedAt")) for b in mit_id)
+                      if t is not None]
+        if ereignis is not None and any(bo < ereignis for bo in beobachtet):
             event = "CONFLICT"
             obs = "CONFLICT"
 

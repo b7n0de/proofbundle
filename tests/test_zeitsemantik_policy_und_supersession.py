@@ -268,3 +268,45 @@ def test_ein_v02_receipt_laesst_sich_emittieren_und_verifizieren():
                                    expected_subject_digest=AR._subject_digest(p))
     assert r["crypto_ok"] is True, r["errors"]
     assert r["event_time_status"] == "SELF_DECLARED"
+
+
+# ══ Jury-Fund vom 01.09.2026: der Zeitvergleich war lexikografisch ═════════════════════════════
+
+def test_ein_zonen_offset_umgeht_den_widerspruchs_test_NICHT_mehr():
+    """Vorgelegt von der zweiten Jury-Linse, am Quelltext nachgemessen und bestaetigt.
+
+    `2026-08-31T15:00:00+02:00` ist 13:00 UTC und liegt VOR `2026-08-31T14:00:00Z`. Als Zeichenkette
+    ist es groesser — der Widerspruchs-Test schwieg also genau dann, wenn ein Angreifer die Zone
+    waehlen darf.
+
+    HEUTE NICHT AUSLOESBAR, und das steht hier, damit niemand den Fix fuer Panik haelt: die
+    Validierung verweigert nicht-leere `observations` noch vollstaendig. Auslösbar wird er in dem
+    Moment, in dem Tier 2 die Beobachtungen oeffnet — und dann repariert ihn niemand mehr.
+    """
+    def achsen(ereignis: str, beobachtet: str) -> str:
+        return AR._zeitachsen({
+            "declaration": {"timeClaims": [{"kind": "reviewCompleted", "value": ereignis}]},
+            "observations": [{"observer": {"id": "r"}, "observedAt": beobachtet}],
+            "times": {}})["event_time_status"]
+
+    assert achsen("2026-08-31T14:00:00Z", "2026-08-31T15:00:00+02:00") == "CONFLICT"
+    assert achsen("2026-08-31T14:00:00Z", "2026-08-31T17:00:00+02:00") == "SELF_DECLARED"
+    assert achsen("2026-08-31T14:00:00Z", "2026-08-31T10:00:00Z") == "CONFLICT"
+    assert achsen("2026-08-31T14:00:00Z", "2026-08-31T16:00:00Z") == "SELF_DECLARED"
+
+
+def test_ein_unbestimmbarer_zeitwert_behauptet_keinen_widerspruch_und_schliesst_keinen_aus():
+    """NICHT BESTIMMBAR ist der dritte Zustand, und er ist weder ein Ja noch ein Nein."""
+    assert AR._als_zeitpunkt("gestern") is None
+    assert AR._als_zeitpunkt("2026-08-31T14:00:00") is None, (
+        "ein Wert ohne Zone wurde als UTC gelesen — das ist eine Annahme ueber eine Zeit")
+    assert AR._als_zeitpunkt(None) is None
+    assert AR._als_zeitpunkt("2026-08-31T14:00:00Z") is not None
+    assert AR._als_zeitpunkt("2026-08-31T16:00:00+02:00") == AR._als_zeitpunkt("2026-08-31T14:00:00Z")
+
+
+def test_der_lexikografische_vergleich_waere_hier_falsch_gewesen():
+    """Die Gegenprobe zum Fund: sie belegt, dass der Test nicht ohnehin gruen waere."""
+    ereignis, beobachtet = "2026-08-31T14:00:00Z", "2026-08-31T15:00:00+02:00"
+    assert beobachtet > ereignis, "als Zeichenkette NICHT groesser — dann ist der Test veraltet"
+    assert AR._als_zeitpunkt(beobachtet) < AR._als_zeitpunkt(ereignis), "zeitlich NICHT davor"

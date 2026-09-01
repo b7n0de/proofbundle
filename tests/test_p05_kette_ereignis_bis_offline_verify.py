@@ -101,3 +101,33 @@ def test_das_receipt_behauptet_KEINEN_zeugen_und_das_ist_die_ehrliche_lage():
     assert AR._zeitachsen(PRED)["external_time_status"] == "NOT_EVALUATED"
     assert any("transparency-log" in x or "timestamp anchor" in x
                for x in PRED["limitations"]), PRED["limitations"]
+
+
+def test_die_beschriftung_der_kanonischen_form_ist_GEBUNDEN():
+    """Ein Restrisiko, das die Jury-Linse NICHT fand und das ich beim Nachlesen selbst gemessen habe.
+
+    `_SELFREF_SHORT` tokenisiert JEDE zwoelfstellige Hex-Beschriftung, nicht nur die echte. Gemessen:
+    `[abc123def456]` gegen `[0000deadbeef]` ergibt DENSELBEN `disclosureCoreDigest`. Ein sichtbarer
+    Kurzverweis in dieser Form waere also ungebunden — ein Leser saehe eine Receipt-Kennung, die
+    nicht die verlinkte ist.
+
+    WARUM DIE TOKENISIERUNG TROTZDEM GENERISCH SEIN MUSS: beim Ausstellen steht der echte Digest
+    noch nicht fest (er entsteht erst durch das Signieren ueber genau dieses Urbild), beim Pruefen
+    schon. Wuerde nur der ECHTE Digest ersetzt, waeren Aussteller- und Pruefersicht verschieden, und
+    jedes Receipt schluege bei sich selbst fehl.
+
+    DIE AUFLOESUNG liegt deshalb in der FORM, nicht im Regex: unsere kanonische Drei-Zeilen-Fassung
+    benutzt den NAMEN des Receipts als Beschriftung, und ein Name ist keine zwoelfstellige Hexfolge —
+    er liegt im Urbild und ist gebunden. Dieser Test haelt genau das fest, damit die Luecke nicht
+    durch eine spaetere Formaenderung erst entsteht.
+    """
+    innen = AR.disclosure_core_bytes(BODY).decode("utf-8")
+    assert "proofbundle_147_comment.r2" in innen, (
+        "die Beschriftung liegt nicht mehr im Urbild — wurde die Form auf eine Hex-Kennung "
+        "umgestellt? Dann ist der sichtbare Kurzverweis ungebunden")
+    assert "<selfref>" in innen, "die Selbstreferenz wird nicht mehr ersetzt"
+    # Die Gegenprobe: eine Hex-Beschriftung WAERE ungebunden.
+    hexform = BODY.replace("[proofbundle_147_comment.r2]", "[abc123def456]")
+    andere = hexform.replace("[abc123def456]", "[0000deadbeef]")
+    assert AR.disclosure_core_digest(hexform) == AR.disclosure_core_digest(andere), (
+        "die Gegenprobe traegt nicht mehr — dann ist dieser Test veraltet, nicht die Regel")
