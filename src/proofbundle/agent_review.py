@@ -46,7 +46,9 @@ validator; the JSON schema is docs.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import re
 from typing import Any
 
@@ -67,6 +69,23 @@ INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 DISCLOSURE_BLOCK_TOKEN = "<!-- proofbundle:agent-review:disclosure -->"
 DISCLOSURE_BEGIN = "<!-- proofbundle:agent-review:begin -->"
 DISCLOSURE_END = "<!-- proofbundle:agent-review:end -->"
+
+#: The token that replaces a receipt digest INSIDE the block before `disclosureCoreDigest` is taken.
+#:
+#: WHY ONLY THE DIGEST AND NOT THE WHOLE LINE. The block states, in prose a human actually reads,
+#: how strong the claim is — "assurance selfDeclared, not independently witnessed". `bodyCoreDigest`
+#: replaces the ENTIRE block by one token, which is exactly right for its job (an edit to the block
+#: must not invalidate a receipt that was signed before the block existed) and exactly wrong as a
+#: guarantee about the block's own content: a hand-edit from `selfDeclared` to
+#: `independentlyWitnessed` moves nothing, and verification stays green while the visible text now
+#: claims more than the signed object supports. `disclosureCoreDigest` closes that, and it can cover
+#: everything EXCEPT the receipt digest itself, which cannot be inside its own preimage.
+DISCLOSURE_SELFREF_TOKEN = "<selfref>"
+
+#: The two self-referential shapes a rendered block can carry: the full digest, and the short link
+#: label. Both are substituted; everything else in the block is hashed.
+_SELFREF_FULL = re.compile(r"sha256:[0-9a-f]{64}")
+_SELFREF_SHORT = re.compile(r"\[[0-9a-f]{12}\]\(")
 
 _RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -92,14 +111,14 @@ _DECLARATION_FIELDS_V02 = frozenset(("timeClaims",))
 
 _REQUIRED_ALWAYS = ("schemaVersion", "reviewId", "subjectContext", "declaration",
                     "coverage", "times", "limitations")
-_OPTIONAL = ("producer", "observations", "supersession", "planRef")
+_OPTIONAL = ("producer", "observations", "supersession", "planRef", "limitationCodes")
 _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 
 _PR_REQUIRED = ("kind", "forge", "repositoryId", "pullRequestNodeId", "headSha", "baseSha",
                 "reviewedDiffDigest", "bodyCoreDigest")
-_PR_ALLOWED = set(_PR_REQUIRED) | {"renderedDisclosureDigest", "humanRef"}
+_PR_ALLOWED = set(_PR_REQUIRED) | {"renderedDisclosureDigest", "humanRef", "disclosureCoreDigest"}
 _ISSUE_REQUIRED = ("kind", "forge", "repositoryId", "issueNodeId", "bodyCoreDigest", "revisedAt")
-_ISSUE_ALLOWED = set(_ISSUE_REQUIRED) | {"commentNodeId", "renderedDisclosureDigest", "humanRef"}
+_ISSUE_ALLOWED = set(_ISSUE_REQUIRED) | {"commentNodeId", "renderedDisclosureDigest", "humanRef", "disclosureCoreDigest"}
 
 _TIME_FIELDS = ("declaredAt", "observedAt", "signedAt", "anchoredAt")
 
@@ -205,6 +224,54 @@ def body_core_digest(body: str) -> str:
     return hashlib.sha256(body_core_bytes(body)).hexdigest()
 
 
+# ── disclosureCoreDigest ────────────────────────────────────────────────────────────────────────
+def disclosure_core_bytes(body: str) -> bytes:
+    """The bytes of the disclosure block itself, with only the receipt digest substituted.
+
+    THE HOLE THIS CLOSES (P0.2 of the round-2 counter-reading, 2026-08-31). `bodyCoreDigest` binds
+    everything AROUND the block and deliberately nothing inside it. That is the right contract for
+    what it does — a receipt signed before the block existed must survive the block being rendered —
+    but on its own it leaves the block unbound in both directions. Measured: changing the visible
+    `assurance selfDeclared` to `independentlyWitnessed` leaves `bodyCoreDigest` byte-identical, the
+    signature keeps verifying, and a reader is now told something the signed object does not say.
+
+    RAISES when there is no block. A caller asking for the digest of a block that is not there is
+    asking the wrong question, and returning the digest of the empty string would answer it with a
+    number that looks like a fact.
+
+    THE SUBSTITUTION IS THE NARROWEST ONE THAT TERMINATES. Only `sha256:<64 hex>` and the twelve-hex
+    link label are replaced — those are the parts that would have to contain their own hash. The
+    assurance rung, the finding counts, the limitations and the witnessed-or-not statement are all
+    inside the preimage, which is the entire point.
+    """
+    if not isinstance(body, str):
+        raise AgentReviewError("body must be a string")
+    n_begin, n_end = body.count(DISCLOSURE_BEGIN), body.count(DISCLOSURE_END)
+    if n_begin != n_end:
+        raise AgentReviewError(
+            f"disclosure block markers are unbalanced ({n_begin} begin, {n_end} end) — fail-closed")
+    if n_begin > 1:
+        raise AgentReviewError(
+            f"{n_begin} disclosure blocks found — no single canonical block, fail-closed")
+    if n_begin == 0:
+        raise AgentReviewError(
+            "the body carries no disclosure block — there is nothing to take a disclosure digest "
+            "over, and answering with the digest of an empty string would look like a fact")
+    start = body.index(DISCLOSURE_BEGIN) + len(DISCLOSURE_BEGIN)
+    end = body.index(DISCLOSURE_END)
+    if end < start:
+        raise AgentReviewError("disclosure end marker precedes its begin marker — fail-closed")
+    innen = body[start:end].strip("\n")
+    innen = _SELFREF_FULL.sub(f"sha256:{DISCLOSURE_SELFREF_TOKEN}", innen)
+    innen = _SELFREF_SHORT.sub(f"[{DISCLOSURE_SELFREF_TOKEN}](", innen)
+    return innen.encode("utf-8")
+
+
+def disclosure_core_digest(body: str) -> str:
+    """sha256 hex over :func:`disclosure_core_bytes`."""
+    return hashlib.sha256(disclosure_core_bytes(body)).hexdigest()
+
+
 # ── findingsRoot ────────────────────────────────────────────────────────────────────────────────
 def findings_root(findings: list[dict]) -> str:
     """A digest over the canonical findings list — removing one finding must change it (P0 test 11).
@@ -254,6 +321,8 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                       _validate_declaration(predicate.get("declaration"), zusatz=decl_zusatz))
     if "coverage" in predicate:
         errors.extend(f"coverage: {e}" for e in _validate_coverage(predicate.get("coverage")))
+    if "limitationCodes" in predicate:
+        errors.extend(_validate_limitation_codes(predicate.get("limitationCodes")))
     if "times" in predicate:
         errors.extend(f"times: {e}" for e in _validate_times(predicate.get("times")))
 
@@ -452,6 +521,74 @@ def _validate_finding(f: Any) -> list[str]:
     return errs
 
 
+#: Die standardisierten Einschraenkungs-Codes (P0.4.6 der Gegenlesung Runde 2).
+#:
+#: WARUM CODES UND NICHT NUR FREITEXT. `limitations` ist eine Liste von Saetzen. Ein Satz ist fuer
+#: einen Leser gut und fuer eine relying party wertlos: sie kann ihn nicht gegen eine Policy halten,
+#: ohne ihn zu LESEN, und was sie nicht maschinell auswerten kann, wertet sie in der Praxis gar
+#: nicht aus. Der Freitext bleibt — als Erlaeuterung, nicht als einzige Schutzschicht.
+LIMITATION_CODES = frozenset((
+    "IDENTITY_UNBOUND",          # kein gebundener Urheber
+    "TIME_SELF_DECLARED",        # keine Zeit stammt von einem benannten Beobachter
+    "CURRENTNESS_UNKNOWN",       # unbekannt, ob das Objekt seither bewegt wurde
+    "COVERAGE_PARTIAL",          # die Abdeckung nennt selbst Luecken
+    "NOT_QUALITY_ATTESTATION",   # sagt NICHTS ueber die Guete der Arbeit
+))
+
+
+def derive_limitation_codes(predicate: dict) -> list[str]:
+    """Die Codes aus dem Predicate ABLEITEN statt sie tippen zu lassen.
+
+    Ein von Hand gesetzter Code driftet vom Inhalt weg, ohne dass irgendein Digest sich bewegt —
+    dieselbe Klasse wie die handgeschriebene Offenlegungszeile. Deshalb erzeugt diese Funktion sie,
+    und ein Emitter, der sie benutzt, kann gar nicht erst etwas Falsches behaupten.
+
+    `NOT_QUALITY_ATTESTATION` steht IMMER drin: kein agent-review-Receipt sagt jemals etwas ueber
+    die Guete der geprueften Arbeit, und das ist keine Eigenschaft des Einzelfalls, sondern des
+    Belegtyps.
+    """
+    codes = {"NOT_QUALITY_ATTESTATION"}
+    if not isinstance(predicate, dict):
+        return sorted(codes)
+    dec = predicate.get("declaration")
+    dec = dec if isinstance(dec, dict) else {}
+    rungs = {i.get("assurance") for i in
+             (dec.get("authoring") or []) + (dec.get("reviewRuns") or []) if isinstance(i, dict)}
+    if not rungs or rungs <= {"selfDeclared"}:
+        codes.add("IDENTITY_UNBOUND")
+    beob = predicate.get("observations")
+    if not (isinstance(beob, list) and beob):
+        codes.add("TIME_SELF_DECLARED")
+    cov = predicate.get("coverage")
+    cov = cov if isinstance(cov, dict) else {}
+    if cov.get("status") in ("PARTIAL", "UNKNOWN"):
+        codes.add("COVERAGE_PARTIAL")
+    # CURRENTNESS ist keine Eigenschaft des Predicates, sondern des Abrufzeitpunkts — es kann hier
+    # nur UNKNOWN heissen, und das ist die ehrliche Angabe, nicht die faule.
+    codes.add("CURRENTNESS_UNKNOWN")
+    return sorted(codes)
+
+
+def _validate_limitation_codes(v: Any) -> list[str]:
+    if not isinstance(v, list):
+        return [f"limitationCodes must be an array, got {type(v).__name__}"]
+    errs = []
+    for i, c in enumerate(v):
+        if not isinstance(c, str):
+            errs.append(f"limitationCodes[{i}] must be a string")
+        elif not is_member(c, LIMITATION_CODES):
+            errs.append(f"limitationCodes[{i}]: unknown code {c!r} — allowed: "
+                        f"{sorted(LIMITATION_CODES)}")
+    # `set(v)` WIRFT auf einer Liste, die ein dict enthaelt (unhashable). Der Typkonfusions-Fuzzer
+    # hat genau diese Zeile getroffen — die harmlos aussehende, nicht den Mitgliedschaftstest
+    # daneben, den ich vorher abgesichert hatte. Nur die Zeichenketten zaehlen; alles andere ist
+    # oben schon als Befund vermerkt und braucht hier keine zweite Meldung.
+    nur_str = [x for x in v if isinstance(x, str)]
+    if len(set(nur_str)) != len(nur_str):
+        errs.append("limitationCodes contains duplicates")
+    return errs
+
+
 def _validate_coverage(cov: Any) -> list[str]:
     errs: list[str] = []
     if not isinstance(cov, dict):
@@ -467,9 +604,19 @@ def _validate_coverage(cov: Any) -> list[str]:
     for listf in ("sources", "knownGaps"):
         if listf in cov and not (isinstance(cov[listf], list) and all(isinstance(x, str) for x in cov[listf])):
             errs.append(f"{listf} must be an array of strings")
+    # EIN BOOLEAN IST IN PYTHON EIN int (P0.4.1). `isinstance(True, int)` ist wahr, also nahm die
+    # erste Fassung `observedRuns: true` klaglos an — live gemessen. Der Reviewer hat genau das
+    # vorgelegt, und es ist keine Spitzfindigkeit: `true` als Laufzahl wuerde spaeter in jeder
+    # Rechnung als 1 auftreten und nie als der Unsinn, der es ist.
     for numf in ("observedRuns", "expectedRuns"):
-        if numf in cov and cov[numf] is not None and not isinstance(cov[numf], int):
-            errs.append(f"{numf} must be an integer or null")
+        if numf in cov and cov[numf] is not None:
+            v = cov[numf]
+            if isinstance(v, bool) or not isinstance(v, int):
+                errs.append(f"{numf} must be an integer or null, not {type(v).__name__} "
+                            f"(a boolean is an int in Python and is rejected explicitly)")
+            elif v < 0:
+                errs.append(f"{numf} must not be negative, got {v} — a negative run count describes "
+                            f"nothing that can have happened")
     # COMPLETE is a strong word. It needs a stated expectation that the observation actually met —
     # otherwise 'complete' means 'I saw everything I happened to see' (F07).
     if cov.get("status") == "COMPLETE":
@@ -479,8 +626,20 @@ def _validate_coverage(cov: Any) -> list[str]:
                         "stated expectation, 'complete' is unfalsifiable")
         elif obs < exp:
             errs.append(f"status COMPLETE but observedRuns {obs} < expectedRuns {exp}")
+        # COMPLETE UEBER NULL LAEUFEN (P0.4.2). 0 von 0 erfuellt `obs >= exp` und war damit
+        # gueltig — "vollstaendig" ueber eine leere Menge. Formal wahr, als Aussage wertlos, und
+        # als Anzeige irrefuehrend: ein Leser sieht COMPLETE und schliesst auf gepruefte Laeufe.
+        if isinstance(exp, int) and not isinstance(exp, bool) and exp == 0:
+            errs.append("status COMPLETE with expectedRuns 0 — 'complete' over an empty expectation "
+                        "says nothing; use UNKNOWN or NONE instead")
         if cov.get("knownGaps"):
             errs.append("status COMPLETE cannot list knownGaps")
+        # COMPLETE MUSS SAGEN, WORUEBER (P0.4.3). Ohne Quellen, Fenster und Methode ist
+        # "vollstaendig" gegen nichts pruefbar — dieselbe Klasse wie die fehlende Erwartung.
+        fehlend = [f for f in ("sources", "window", "collectionMethod") if not cov.get(f)]
+        if fehlend:
+            errs.append(f"status COMPLETE requires {fehlend} — without them 'complete' names no "
+                        f"universe it is complete over")
     # NACHBAR DERSELBEN KLASSE, im selben Durchgang geschlossen. COMPLETE musste seine Erwartung
     # nennen; PARTIAL musste gar nichts nennen und war damit genauso unwiderlegbar — "unvollstaendig,
     # aber ich sage nicht worin" ist keine Angabe. Wer eine Luecke behauptet, benennt sie.
@@ -534,6 +693,84 @@ def _validate_supersession(sup: Any) -> list[str]:
                         errs.append(f"{k}[{i}].reason must be a non-empty string — a silent "
                                     "replacement is exactly what supersession exists to prevent")
     return errs
+
+
+def receipt_digest(envelope: dict) -> str:
+    """Der sha256 ueber die kanonischen Bytes des Statements — die Groesse, die supersession bindet.
+
+    ES IST AUSDRUECKLICH NICHT der Digest der DATEI. Eine Datei laesst sich neu einruecken, anders
+    sortieren oder mit einem anderen Zeilenende speichern, ohne dass sich am signierten Objekt
+    etwas aendert; ein Datei-Digest wuerde dann Faelschung melden, wo keine ist. Gebunden wird das
+    Objekt, nicht seine Verpackung.
+    """
+    roh = envelope.get("payload")
+    if not isinstance(roh, str):
+        raise AgentReviewError("envelope carries no base64 payload")
+    # validate=True ist hier NICHT kosmetisch: ohne es verwirft CPython stillschweigend jedes
+    # Zeichen ausserhalb des Alphabets, und dann haette dasselbe Artefakt viele akzeptierte
+    # Drahtformen — ein Angreifer koennte den Digest waehlen, indem er Muell einstreut.
+    try:
+        bytes_ = base64.b64decode(roh, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise AgentReviewError(f"payload is not strict base64: {exc}") from exc
+    return hashlib.sha256(bytes_).hexdigest()
+
+
+def resolve_receipt_chain(envelopes: list[dict]) -> dict:
+    """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
+
+    DREI AUSSAGEN, die oft verwechselt werden und hier getrennt bleiben (Supersessionstests 15
+    bis 20):
+
+    * `current` — worauf ein oeffentlicher Verweis zeigen SOLL. Genau eines, oder die Kette ist
+      mehrdeutig und das wird gesagt statt geraten.
+    * `corrected` — Vorgaenger, die weiterhin KRYPTOGRAFISCH GUELTIG sind und trotzdem nicht mehr
+      der aktuelle Stand. Beides gilt gleichzeitig, und der Resolver behauptet nie das Gegenteil:
+      ein korrigiertes Receipt wird nicht ungueltig, es wird ueberholt.
+    * `integrity_ok` — ob jeder referenzierte Vorgaenger auch VORLIEGT. Verschwindet das alte
+      Receipt, ist die Korrektur nicht mehr nachvollziehbar, und dann ist die Kette kaputt, auch
+      wenn jedes einzelne Stueck fuer sich gueltig bleibt.
+
+    Der Resolver prueft KEINE Signaturen — das tut `verify_agent_review`. Er ordnet nur, und er
+    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt.
+    """
+    vorhanden: dict[str, dict] = {}
+    korrigiert: dict[str, list[str]] = {}
+    fehlend: list[str] = []
+    for env in envelopes:
+        try:
+            d = receipt_digest(env)
+        except (AgentReviewError, ValueError):
+            continue
+        vorhanden[d] = env
+
+    for d, env in vorhanden.items():
+        try:
+            st = json.loads(base64.b64decode(env["payload"], validate=True))
+            sup = (st.get("predicate") or {}).get("supersession") or {}
+        except (ValueError, KeyError, TypeError):
+            continue
+        for feld in ("corrects", "supersedes", "withdraws"):
+            for rel in (sup.get(feld) or []):
+                if not isinstance(rel, dict):
+                    continue
+                prior = (rel.get("priorDigest") or {}).get("sha256")
+                if not isinstance(prior, str):
+                    continue
+                korrigiert.setdefault(prior, []).append(d)
+                if prior not in vorhanden:
+                    fehlend.append(prior)
+
+    aktuell = [d for d in vorhanden if d not in korrigiert]
+    return {"current": aktuell[0] if len(aktuell) == 1 else None,
+            "current_candidates": sorted(aktuell),
+            "ambiguous": len(aktuell) != 1,
+            "corrected": sorted(korrigiert),
+            "corrected_by": {k: sorted(v) for k, v in korrigiert.items()},
+            "missing_predecessors": sorted(set(fehlend)),
+            "integrity_ok": not fehlend,
+            "note": ("this resolver orders receipts; it verifies no signatures — integrity_ok is "
+                     "about the chain being complete, never about cryptographic validity")}
 
 
 def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False) -> None:
@@ -668,29 +905,100 @@ def _subject_digest(predicate: dict) -> str:
 
 
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
-                                 subject_sha256: str | None = None) -> dict:
-    require_valid_agent_review_predicate(predicate)
+                                 subject_sha256: str | None = None,
+                                 v02: bool = False) -> dict:
+    """Das Statement. `v02` waehlt den v0.2-predicateType UND den strengeren Validator.
+
+    BEIDES ZUSAMMEN, NIE EINZELN. Ein v0.2-Typ mit v0.1-Validierung waere die schlimmste der drei
+    Moeglichkeiten: der Leser sieht die staerkere Version im predicateType und bekommt die
+    schwaechere Pruefung. Die Version steht deshalb nicht als freier Parameter da, sondern zieht
+    ihren Validator mit.
+    """
+    if v02:
+        errs = validate_agent_review_v02_predicate(predicate, strict=True)
+        if errs:
+            raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
+    else:
+        require_valid_agent_review_predicate(predicate)
     return {
         "_type": STATEMENT_TYPE,
         "subject": [{"name": subject_name or _subject_name(predicate),
                      "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
-        "predicateType": AGENT_REVIEW_PREDICATE_TYPE,
+        "predicateType": AGENT_REVIEW_PREDICATE_TYPE_V02 if v02 else AGENT_REVIEW_PREDICATE_TYPE,
         "predicate": predicate,
     }
 
 
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
-                      strict: bool = True) -> dict:
+                      strict: bool = True, v02: bool = False) -> dict:
     """Sign an agent-review statement. Uses the existing DSSE path — no new crypto."""
     from . import dsse  # noqa: PLC0415
-    errs = validate_agent_review_predicate(predicate, strict=strict)
+    pruefer = validate_agent_review_v02_predicate if v02 else validate_agent_review_predicate
+    errs = pruefer(predicate, strict=strict)
     if errs:
-        raise AgentReviewError("invalid agent-review predicate: " + "; ".join(errs))
+        raise AgentReviewError(
+            f"invalid agent-review{'/v0.2' if v02 else ''} predicate: " + "; ".join(errs))
     statement = build_agent_review_statement(predicate, subject_name=subject_name,
-                                             subject_sha256=subject_sha256)
+                                             subject_sha256=subject_sha256, v02=v02)
     return dsse.sign_envelope(_rfc8785_bytes(statement), signer,
                               payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def _pruefe_sichtbaren_block(r: dict, predicate: Any, observed_body: str | None) -> None:
+    """Der sichtbare Block gegen das signierte Objekt (P0.2 der Gegenlesung Runde 2).
+
+    DREI ZUSTAENDE, und der haeufigste ist der erste: ohne `observed_body` bleibt hier
+    NOT_EVALUATED stehen, nie MATCH. Wer keinen Rumpf uebergibt, hat nicht nachgesehen, und
+    "nicht nachgesehen" darf nicht aussehen wie "stimmt". Derselbe Schnitt wie bei
+    `subject_expectation`, und aus demselben Grund.
+
+    ABSENT_IN_RECEIPT ist ebenfalls kein Vorwurf: die sechs Receipts, die vor dieser Haertung
+    ausgestellt wurden, tragen `disclosureCoreDigest` nicht, zwei davon sind veroeffentlicht und
+    eines liegt in einem bezeugten Checkpoint. Das Feld in v0.1 zur Pflicht zu machen wuerde sie
+    ungueltig machen — das ist eine Owner-Entscheidung, kein Fix.
+    """
+    # NOT_MEASURABLE BLOCKT AUF BEIDEN ACHSEN — und der Weg dorthin gehoert hierher, weil meine
+    # erste Begruendung falsch war (01.09.2026, beim Nachbau von P0-Test 8).
+    #
+    # Zuerst blockte nur die BODY-Achse, mit dem Argument: `disclosure_core_digest` sei auch dann
+    # nicht messbar, wenn der Rumpf noch gar keinen Block traegt, und das sei der normale Zustand
+    # vor dem Rendern. Ein Mutationslauf hat das widerlegt — die Gegenmutation (auch die
+    # Disclosure-Achse blocken lassen) machte NICHTS rot, also deckte kein Test das Argument.
+    #
+    # Nachgesehen: dieser "normale Zustand" landet gar nicht auf NOT_MEASURABLE. Traegt das
+    # Receipt kein `disclosureCoreDigest`, ist das Ergebnis ABSENT_IN_RECEIPT und blockt zu Recht
+    # nicht. NOT_MEASURABLE entsteht dort AUSSCHLIESSLICH, wenn das Receipt einen Disclosure-Digest
+    # BEHAUPTET und der vorgelegte Rumpf keinen Block hat — und das ist kein Normalzustand, sondern
+    # ein Widerspruch zwischen Beleg und Gegenstand. Beide Achsen blocken deshalb gleich.
+    if observed_body is None:
+        return
+    ziel = (predicate or {}).get("subjectContext") if isinstance(predicate, dict) else None
+    if not isinstance(ziel, dict):
+        r["body_core_digest_match"] = "NOT_MEASURABLE"
+        r["disclosure_core_digest_match"] = "NOT_MEASURABLE"
+        return
+    for feld, fn, key in (("bodyCoreDigest", body_core_digest, "body_core_digest_match"),
+                          ("disclosureCoreDigest", disclosure_core_digest,
+                           "disclosure_core_digest_match")):
+        behauptet = ziel.get(feld)
+        if not isinstance(behauptet, str):
+            r[key] = "ABSENT_IN_RECEIPT"
+            continue
+        try:
+            gemessen = fn(observed_body)
+        except AgentReviewError as exc:
+            r[key] = "NOT_MEASURABLE"
+            r["warnings"].append(f"{feld}: not measurable over the supplied body ({exc})")
+            continue
+        if gemessen == behauptet:
+            r[key] = "MATCH"
+        else:
+            r[key] = "MISMATCH"
+            r["errors"].append(
+                f"{feld} mismatch: the receipt binds {behauptet[:16]}... but the body in front of "
+                f"you hashes to {gemessen[:16]}... — the visible text is not the text that was "
+                f"signed")
 
 
 def _empty_result() -> dict:
@@ -699,6 +1007,8 @@ def _empty_result() -> dict:
             "time_semantics": None, "observed_time_assurance": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
             "internal_consistency_ok": None,
+            "body_core_digest_match": "NOT_EVALUATED",
+            "disclosure_core_digest_match": "NOT_EVALUATED",
             "findings_root_ok": None, "assurance_ok": None,
             "currentness": "CURRENTNESS_UNKNOWN", "automation": None,
             "warnings": [], "errors": []}
@@ -862,6 +1172,29 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
                 "v0.2: times.observedAt is set on a Tier 1 predicate — an observation time needs a "
                 "separately named observer with its own evidence, not a producer-supplied value. "
                 "Record the business time as declaration.timeClaims[kind=reviewCompleted] instead")
+    # disclosureCoreDigest ist in v0.2 PFLICHT (P0.2 der Gegenlesung Runde 2).
+    #
+    # WARUM HIER UND NICHT IN v0.1. Sechs bereits ausgestellte v0.1-Receipts tragen das Feld nicht,
+    # zwei davon sind veroeffentlicht und eines liegt in einem bezeugten Checkpoint. Es dort
+    # nachtraeglich zu verlangen wuerde sie ungueltig machen — eine Schnittstelle brechen, statt
+    # sie zu haerten. v0.2 ist noch nicht ausgestellt worden, hier kostet die Pflicht nichts und
+    # traegt alles: ohne sie ist der sichtbare Block in einem v0.2-Receipt unverbindlich, und
+    # genau das war der Befund.
+    sc = predicate.get("subjectContext")
+    if isinstance(sc, dict) and not isinstance(sc.get("disclosureCoreDigest"), str):
+        errs.append(
+            "v0.2: subjectContext.disclosureCoreDigest is required — without it the visible "
+            "disclosure block is unbound, and an edit from 'selfDeclared' to "
+            "'independentlyWitnessed' would leave every digest unchanged")
+
+    # limitationCodes sind in v0.2 PFLICHT (P0.4.6) — aus demselben Grund wie
+    # disclosureCoreDigest, und mit derselben Ruecksicht auf v0.1.
+    if not isinstance(predicate.get("limitationCodes"), list):
+        errs.append(
+            "v0.2: limitationCodes is required — a free-text limitation cannot be held against a "
+            "policy without being read, and what a relying party cannot evaluate it does not "
+            "evaluate (use derive_limitation_codes)")
+
     dec = predicate.get("declaration")
     if isinstance(dec, dict) and "timeClaims" in dec:
         tcs = dec.get("timeClaims")
@@ -897,12 +1230,29 @@ def _zeitachsen(predicate: dict) -> dict:
         "CONFLICT" if len({tc.get("value") for tc in fach}) > 1 else "SELF_DECLARED")
 
     obs = "ABSENT"
+    mit_id: list = []
     if beob:
-        mit_id = [b for b in beob if isinstance(b, dict) and (b.get("observer") or {}).get("id")]
-        # Eine Beobachtung ohne benannten Beobachter hebt nichts an — sie bleibt Selbstauskunft.
+        mit_id = [b for b in beob if isinstance(b, dict)
+                  and isinstance(b.get("observer"), dict) and b["observer"].get("id")]
+        # Eine Beobachtung ohne benannten Beobachter hebt nichts an — sie bleibt Selbstauskunft
+        # (Policytest 13). Eine Identitaet, die niemand nachschlagen kann, ist keine.
         obs = "RUNNER_OBSERVED" if mit_id else "SELF_DECLARED"
     elif zeiten.get("observedAt") is not None:
         obs = "SELF_DECLARED"
+
+    # WIDERSPRUCH ZWISCHEN DEKLARIERTER EREIGNISZEIT UND BEOBACHTUNG (Policytest 14).
+    #
+    # Ein Zeuge kann nicht beobachten, was noch nicht geschehen ist. Liegt die Beobachtung eines
+    # BENANNTEN Beobachters VOR der deklarierten Ereigniszeit, widersprechen sich beide Aussagen
+    # unzulaessig — und dann ist der richtige Zustand CONFLICT, nicht "die staerkere gewinnt".
+    # Eine Rangfolge waere hier der Fehler: sie wuerde einen kaputten Beleg in einen schwachen
+    # verwandeln, und ein schwacher Beleg wird benutzt.
+    if event == "SELF_DECLARED" and mit_id:
+        ereignis = next((tc.get("value") for tc in fach if isinstance(tc.get("value"), str)), None)
+        beobachtet = [b.get("observedAt") for b in mit_id if isinstance(b.get("observedAt"), str)]
+        if ereignis and any(bo < ereignis for bo in beobachtet):
+            event = "CONFLICT"
+            obs = "CONFLICT"
 
     sig = "SELF_DECLARED" if zeiten.get("signedAt") else "ABSENT"
     # externalTime wird NIE aus einem Payloadfeld gesetzt. Ohne geprueften Anker heisst es
@@ -912,8 +1262,90 @@ def _zeitachsen(predicate: dict) -> dict:
             "signature_time_status": sig, "external_time_status": ext}
 
 
+#: Was eine Policy verlangen kann, und welche ACHSE sie dafuer ansieht. Die Zuordnung ist der
+#: eigentliche Inhalt der Policytests 9 bis 12: eine Frische-Policy fragt die EREIGNIS-Achse, eine
+#: TTL-Policy die SIGNATUR-Achse. Wer sie verwechselt, laesst einen RFC-3161-Zeitstempel eine
+#: fachliche Reviewzeit belegen — und das tut er nicht, er belegt nur, dass das Receipt existierte.
+_POLICY_ACHSE = {"freshness": "event_time_status", "ttl": "signature_time_status",
+                 "certificate_validity": "signature_time_status",
+                 "currentness": "observation_time_status",
+                 "existence": "external_time_status"}
+
+#: Stufen, die eine Policy als BELEG gelten laesst. `SELF_DECLARED` steht bewusst NICHT darin:
+#: eine Selbstauskunft ueber die eigene Zeit ist genau die Aussage, die eine Zeitpolicy pruefen
+#: soll, und sie kann sich nicht selbst erfuellen.
+_POLICY_GENUEGT = frozenset(("RUNNER_OBSERVED", "PLATFORM_ATTESTED", "EXTERNALLY_ANCHORED"))
+
+
+def evaluate_time_policy(axes: dict, policy: dict) -> dict:
+    """Die Entscheidung einer RELYING PARTY, nicht des Verifiers (Policytests 9 bis 14).
+
+    WARUM SIE GETRENNT IST. Der Verifier meldet, WORAUS ein Zeitwert stammt; er entscheidet nicht,
+    ob das jemandem genuegt. Diese Funktion entscheidet — aber nur, wenn ihr jemand eine BENANNTE
+    Policy uebergibt. Ohne Policy gibt es keine Zeitfreigabe, und ein Verifier, der eine erfindet,
+    nimmt dem Leser die Entscheidung ab, die ihm gehoert.
+
+    DREI ERGEBNISSE, nie zwei: `accept` · `reject` · `insufficient_evidence`. Der dritte ist der
+    haeufigste und der wichtigste — er heisst "die Achse traegt deine Anforderung nicht", nicht
+    "das Receipt ist schlecht".
+
+    CONFLICT wird IMMER zu `reject`, egal was die Policy verlangt: zwei einander widersprechende
+    Zeitaussagen sind kein schwacher Beleg, sondern ein kaputter.
+    """
+    art = policy.get("kind") if isinstance(policy, dict) else None
+    # EXPLIZITE VERENGUNG statt eines type:ignore — dieselbe Hausregel wie in `_zeitachsen`.
+    # `is_member` schuetzt gegen unhashbare Eingaben, es verengt aber keinen Typ; der
+    # isinstance-Test daneben tut beides sichtbar.
+    if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
+        return {"decision": "insufficient_evidence", "policy_kind": art,
+                "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
+    achse = _POLICY_ACHSE[art]
+    zustand = axes.get(achse, "NOT_EVALUATED")
+    if zustand == "CONFLICT":
+        return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
+                "reason": "the axis reports CONFLICT — two time statements contradict each other, "
+                          "which is a broken claim, not a weak one"}
+    if is_member(zustand, _POLICY_GENUEGT):
+        return {"decision": "accept", "policy_kind": art, "axis": achse, "axis_state": zustand,
+                "reason": f"{achse} is {zustand}, which comes from a named source outside the "
+                          f"producer"}
+    return {"decision": "insufficient_evidence", "policy_kind": art, "axis": achse,
+            "axis_state": zustand,
+            "reason": (f"{achse} is {zustand} — a producer's own statement about its own time "
+                       f"cannot satisfy a {art} policy, because that is precisely the statement "
+                       f"the policy exists to check")}
+
+
+def apply_time_evidence(axes: dict, evidence: dict) -> dict:
+    """Geprüfte externe Zeitevidenz auf die Achsen anwenden — und NUR auf die richtige.
+
+    DIE GRENZE IST DER GANZE PUNKT (Policytests 11 und 12). Ein RFC-3161-Zeitstempel und ein
+    OpenTimestamps-Beleg sagen beide dasselbe: dieses Byte-Objekt existierte vor diesem Zeitpunkt.
+    Sie sagen NICHTS darueber, wann ein Mensch oder ein Agent den Review tatsaechlich durchgefuehrt
+    hat. Deshalb heben sie die SIGNATUR- und EXISTENZ-Achse an und lassen die EREIGNIS-Achse
+    unberuehrt — auch dann, wenn das im Einzelfall unbequem ist.
+
+    `verified` MUSS ausdruecklich True sein. Eine mitgelieferte, ungepruefte Evidenz hebt nichts
+    an; sonst waere die Anhebung eine Behauptung der Gegenseite.
+    """
+    aus = dict(axes)
+    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+        return aus
+    art = evidence.get("kind")
+    if art == "rfc3161":
+        aus["signature_time_status"] = "PLATFORM_ATTESTED"
+        aus["external_time_status"] = "EXTERNALLY_ANCHORED"
+    elif art == "opentimestamps":
+        # OTS belegt eine EXISTENZGRENZE, keine Signaturzeit eines benannten Dienstes.
+        aus["external_time_status"] = "EXTERNALLY_ANCHORED"
+    else:
+        return aus
+    return aus
+
+
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
-                        expected_subject_digest: str | None = None) -> dict:
+                        expected_subject_digest: str | None = None,
+                        observed_body: str | None = None) -> dict:
     """Verify a DSSE-signed agent-review receipt — the PUBLIC surface, which never raises.
 
     THE GUARANTEE, and why it is a guarantee and not a nicety (measured 2026-08-31): a signed
@@ -928,7 +1360,8 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
     """
     try:
         return _verify_agent_review_inner(envelope, public_key, strict=strict,
-                                          expected_subject_digest=expected_subject_digest)
+                                          expected_subject_digest=expected_subject_digest,
+                                          observed_body=observed_body)
     except Exception as exc:                                     # noqa: BLE001 — that is the point
         r = _empty_result()
         r["structure_ok"] = False
@@ -942,7 +1375,8 @@ def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = Fal
 
 
 def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
-                               expected_subject_digest: str | None = None) -> dict:
+                               expected_subject_digest: str | None = None,
+                               observed_body: str | None = None) -> dict:
     """Separate axes, never one collapsed PASS (F12).
 
     ``currentness`` is ALWAYS ``CURRENTNESS_UNKNOWN`` here and that is not a defect: this verifier is
@@ -1146,11 +1580,15 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     # traegt sie nicht: ein Aufrufer, der nur `ok` liest — etwa eine Pipeline, die prueft "gibt es
     # ein gueltiges Receipt" — bekaeme sonst gruen fuer ein Receipt, das zu einem anderen Vorgang
     # gehoert. Genau dieser Angriff wurde vorgelegt, und er traegt.
+    _pruefe_sichtbaren_block(r, predicate, observed_body)
+
     r["internal_consistency_ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["subject_binding_ok"] is not False
         and r["findings_root_ok"] is not False
-        and r["assurance_ok"] is not False)
+        and r["assurance_ok"] is not False
+        and r["body_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE")
+        and r["disclosure_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE"))
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append(
@@ -1167,7 +1605,8 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
 
 
 def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
-                            expected_subject_digest: str | None = None) -> dict:
+                            expected_subject_digest: str | None = None,
+                            observed_body: str | None = None) -> dict:
     """Der v0.2-Verifier — getrennte Zeitachsen, kein Gesamturteil ueber Zeit.
 
     ER DEUTET v0.1 NIE STILLSCHWEIGEND NACH v0.2-REGELN. Ein v0.1-Receipt hat sein `observedAt`
@@ -1181,7 +1620,8 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
     """
     try:
         return _verify_v02_inner(envelope, public_key, strict=strict,
-                                 expected_subject_digest=expected_subject_digest)
+                                 expected_subject_digest=expected_subject_digest,
+                                 observed_body=observed_body)
     except Exception as exc:                                     # noqa: BLE001 — dieselbe Huelle
         r = _empty_result()
         r["structure_ok"] = False
@@ -1193,7 +1633,8 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
 
 
 def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
-                      expected_subject_digest: str | None = None) -> dict:
+                      expected_subject_digest: str | None = None,
+                      observed_body: str | None = None) -> dict:
     from . import dsse  # noqa: PLC0415
     from ._strict_json import loads_strict  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
@@ -1285,11 +1726,15 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         if over:
             r["errors"].append(f"assurance rung(s) {over} claimed in a Tier 1 receipt")
 
+    _pruefe_sichtbaren_block(r, predicate, observed_body)
+
     r["internal_consistency_ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["subject_binding_ok"] is not False
         and r["findings_root_ok"] is not False
-        and r["assurance_ok"] is not False)
+        and r["assurance_ok"] is not False
+        and r["body_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE")
+        and r["disclosure_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE"))
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
