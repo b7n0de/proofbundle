@@ -91,6 +91,7 @@
     "agent_review/agent-review-counter-proof-partial-must-name-its-gap",
     "agent_review/agent-review-positive-control-absent-expectation-is-reported",
     "agent_review/agent-review-counter-proof-introducing-the-first-block-moves-the-digest",
-    "agent_review/agent-review-positive-control-prepare-then-fill-keeps-the-digest"
+    "agent_review/agent-review-positive-control-prepare-then-fill-keeps-the-digest",
+    "agent_review/agent-review-positive-control-emit-verify-roundtrip"
   ]
 }

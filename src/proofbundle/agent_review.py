@@ -1024,11 +1024,84 @@ def _pruefe_sichtbaren_block(r: dict, predicate: Any, observed_body: str | None)
                 f"signed")
 
 
+def _zielbindung(r: dict, predicate: dict, statement: dict,
+                 expected_subject_digest: str | None) -> None:
+    """Setzt die ZWEI Achsen der Zielbindung — sie beantworten verschiedene Fragen.
+
+    DER FUND (Gegenlese Runde 2, N04/P0.3, 31.08.2026): `subject_binding_ok` hiess wie eine
+    Bindung an das angezeigte Objekt und war ohne extern gesetzte Erwartung nur eine
+    Selbstkonsistenz-Pruefung — `derived` und `claimed` stammen BEIDE aus demselben signierten
+    `subjectContext`, stimmen also ueberein, solange niemand das Statement von Hand baut. Wer ein
+    gueltiges Receipt kopiert und behauptet, es gehoere zu einem anderen PR, aendert am Envelope
+    nichts; er luegt daneben. Die Achse stand dabei auf `True`, und ein Verbraucher, der sie liest
+    (`automation_summary` tut das), sah ein gruenes Bindungs-Signal fuer eine Bindung, die nicht
+    geprueft wurde.
+
+    ZWEI ACHSEN STATT EINER, weil zwei Fragen gestellt sind:
+
+      internal_subject_consistency_ok  — passt der Statement-Digest zum signierten Kontext?
+                                         Immer beantwortbar, immer nur INTERNE Konsistenz.
+      expected_subject_match           — ist das der Kontext, den der Leser gerade ansieht?
+                                         Nur beantwortbar mit unabhaengig erfassten Zielbytes.
+
+    DREI ZUSTAENDE fuer die zweite Achse, nie zwei: `MATCH` · `MISMATCH` · `NOT_EVALUATED`. Der
+    dritte ist ausdruecklich KEINE Freigabe — er sagt, dass niemand gefragt hat.
+
+    `subject_binding_ok` BLEIBT als zusammengefuehrte Achse erhalten (Verbraucher lesen sie), aber
+    sie ist ab jetzt NUR `True`, wenn beide Fragen positiv beantwortet sind. Ohne Zielkontext ist
+    sie `None` — nicht `True` und nicht `False`, denn beides waere eine Aussage, die hier niemand
+    treffen kann. Die Richtung ist einseitig: die Aenderung kann ein Ergebnis nur von gruen
+    wegnehmen, nie hinzufuegen.
+
+    EIN HELFER, ZWEI AUFRUFER. Die Bindungslogik stand bis hierher zweimal im Modul (v0.1 und
+    v0.2). Zwei Kopien sind zwei Wahrheiten, die auseinanderlaufen — die Datei fuehrt dieselbe
+    Begruendung schon fuer `_DECLARATION_FIELDS`. Ein Fix, der nur eine Kopie erreicht, ist genau
+    der Fehlermodus, gegen den dieser Auftrag gebaut ist."""
+    try:
+        derived = _subject_digest(predicate)
+        subj = (statement.get("subject") or [{}])[0]
+        claimed = ((subj.get("digest") or {}).get("sha256") or "")
+        intern = derived == claimed
+        r["internal_subject_consistency_ok"] = intern
+        if not intern:
+            r["errors"].append(
+                "subject digest does not match the signed subjectContext — this receipt does not "
+                "bind the object it names")
+
+        if expected_subject_digest is None:
+            r["expected_subject_match"] = "NOT_EVALUATED"
+            r["subject_binding_ok"] = False if not intern else None
+            r["warnings"].append(
+                "no expected_subject_digest was supplied: this run checked only that the receipt "
+                "is internally consistent, NOT that it belongs to the object you are looking at. "
+                "A valid receipt for a different pull request passes that check.")
+            return
+
+        r["subject_expectation"] = "checked"
+        if derived != expected_subject_digest:
+            r["expected_subject_match"] = "MISMATCH"
+            r["subject_binding_ok"] = False
+            r["errors"].append(
+                f"subjectContext digest {derived[:16]}… is not the expected "
+                f"{expected_subject_digest[:16]}… (receipt belongs to a different pull "
+                "request or issue)")
+            return
+        r["expected_subject_match"] = "MATCH"
+        r["subject_binding_ok"] = intern
+    except (AgentReviewError, KeyError, TypeError, IndexError) as exc:
+        r["internal_subject_consistency_ok"] = False
+        r["expected_subject_match"] = "NOT_EVALUATED"
+        r["subject_binding_ok"] = False
+        r["errors"].append(f"subject binding not computable: {exc}")
+
+
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "crypto_ok": None, "predicate_type_ok": None,
             "statement_shape_ok": None, "reason_code": None, "reason_codes": [],
             "time_semantics": None, "observed_time_assurance": None,
             "subject_binding_ok": None, "subject_expectation": "not_supplied",
+            "internal_subject_consistency_ok": None,
+            "expected_subject_match": "NOT_EVALUATED",
             "internal_consistency_ok": None,
             "body_core_digest_match": "NOT_EVALUATED",
             "disclosure_core_digest_match": "NOT_EVALUATED",
@@ -1042,7 +1115,7 @@ def _finalize_failclosed(r: dict) -> dict:
     r["ok"] = False
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
-        "references": ["subject_binding_ok", "findings_root_ok", "assurance_ok"]})
+        "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"]})
     return r
 
 
@@ -1506,40 +1579,10 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs:
         # Subject binding: the statement's subject digest must be the one derivable from the
         # signed subjectContext. A receipt copied onto another PR carries the old context and fails.
-        try:
-            derived = _subject_digest(predicate)
-            subj = (statement.get("subject") or [{}])[0]
-            claimed = ((subj.get("digest") or {}).get("sha256") or "")
-            r["subject_binding_ok"] = derived == claimed
-            if not r["subject_binding_ok"]:
-                r["errors"].append(
-                    "subject digest does not match the signed subjectContext — this receipt does not "
-                    "bind the object it names")
-            if expected_subject_digest is None:
-                # DIE KORREKTUR AN EINER FALSCHEN BEHAUPTUNG VON MIR (31.08.2026, Gegenlesung).
-                # Ich hatte geschrieben, ein auf einen fremden PR kopiertes Receipt falle durch die
-                # Subject-Pruefung. Das ist FALSCH. `derived` und `claimed` stammen beide aus
-                # demselben signierten subjectContext, also stimmen sie ueberein, solange niemand
-                # das Statement von Hand baut. Wer ein gueltiges Receipt kopiert und behauptet, es
-                # gehoere zu einem anderen PR, aendert am Envelope nichts — er luegt daneben.
-                # Ohne eine von aussen gesetzte Erwartung ist das hier eine KONSISTENZ-Pruefung,
-                # keine Bindung an das Objekt, das der Leser gerade ansieht. Das wird jetzt
-                # ausgewiesen statt verschwiegen.
-                r["warnings"].append(
-                    "no expected_subject_digest was supplied: this run checked only that the receipt "
-                    "is internally consistent, NOT that it belongs to the object you are looking at. "
-                    "A valid receipt for a different pull request passes this check.")
-            else:
-                r["subject_expectation"] = "checked"
-                if derived != expected_subject_digest:
-                    r["subject_binding_ok"] = False
-                    r["errors"].append(
-                        f"subjectContext digest {derived[:16]}… is not the expected "
-                        f"{expected_subject_digest[:16]}… (receipt belongs to a different pull "
-                        "request or issue)")
-        except (AgentReviewError, KeyError, TypeError, IndexError) as exc:
-            r["subject_binding_ok"] = False
-            r["errors"].append(f"subject binding not computable: {exc}")
+        # ZWEI ACHSEN, EIN HELFER — siehe `_zielbindung`. Bis zum 01.09.2026 stand die Logik
+        # hier UND in v0.2, und die Achse hiess wie eine Bindung, war aber ohne Zielkontext eine
+        # Selbstkonsistenz-Pruefung, die auf `True` stand.
+        _zielbindung(r, predicate, statement, expected_subject_digest)
 
         # findingsRoot, when present, must actually cover the published list (P0 test 11).
         #
@@ -1656,7 +1699,7 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
-        "references": ["subject_binding_ok", "findings_root_ok", "assurance_ok"],
+        "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
     return r
 
@@ -1748,21 +1791,9 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
         r.update(_zeitachsen(predicate))
-        try:
-            derived = _subject_digest(predicate)
-            claimed = ((statement["subject"][0].get("digest") or {}).get("sha256") or "")
-            r["subject_binding_ok"] = derived == claimed
-            if expected_subject_digest is None:
-                r["warnings"].append(
-                    "no expected_subject_digest was supplied: internal consistency only")
-            else:
-                r["subject_expectation"] = "checked"
-                if derived != expected_subject_digest:
-                    r["subject_binding_ok"] = False
-                    r["errors"].append("subjectContext digest is not the expected one")
-        except (AgentReviewError, KeyError, TypeError, IndexError) as exc:
-            r["subject_binding_ok"] = False
-            r["errors"].append(f"subject binding not computable: {exc}")
+        # DERSELBE Helfer wie in v0.1 — ein Fix, der nur eine Kopie erreicht, ist der
+        # Fehlermodus, gegen den dieser Auftrag gebaut ist.
+        _zielbindung(r, predicate, statement, expected_subject_digest)
 
         _dv = predicate.get("declaration")
         dec_v2: dict = _dv if isinstance(_dv, dict) else {}
@@ -1799,6 +1830,6 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
-        "references": ["subject_binding_ok", "findings_root_ok", "assurance_ok"],
+        "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
     return r

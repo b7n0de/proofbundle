@@ -1,0 +1,109 @@
+"""Ein Gegenbeweis muss aus SEINEM erklaerten Grund fallen, nicht nebenbei.
+
+DIE KLASSE, und ich bin ihr am 01.09.2026 zweimal an einem Vormittag selbst aufgesessen:
+
+  1. Ein v0.2-Test schickte ein v0.1-Envelope in `verify_agent_review_v02`. Dort ist
+     `predicate_type_ok` dann `False`, der gepruefte Block wird NIE BETRETEN, und die Zusicherungen
+     hielten gegen die Vorbelegung aus `_empty_result` statt gegen eine Messung. Der eingepflanzte
+     Defekt liess den Test gruen.
+  2. Eine Gate-Meta-Mutation setzte einen Kommentar in ein mehrzeiliges Dict-Literal und erzeugte
+     einen `SyntaxError`. Der Lauf war rot — aber aus dem falschen Grund, und ein roter Lauf aus
+     dem falschen Grund belegt ueber die Tests genau nichts.
+
+Beides ist dieselbe Klasse: die Pruefung zeigt ins Leere und sieht trotzdem aus wie eine Pruefung.
+Auf Korpus-Ebene hat sie eine praezise Form. Ein `counter_proof`, der `classification: invalid`
+erwartet, behauptet: „dieses Receipt ist kryptografisch einwandfrei und faellt trotzdem, weil die
+benannte Regel greift." Traegt sein Umschlag eine kaputte Signatur oder unparsbare Bytes, faellt er
+schon vorher — die benannte Regel wird nie erreicht, und der Fall belegt sie nicht.
+
+GEMESSEN am 01.09.2026 gegen den lebenden Korpus: beide `invalid`-Faelle erfuellen die Eigenschaft
+bereits. Dieser Test aendert also heute nichts am Ergebnis — er haelt fest, dass es so bleibt.
+Genau das ist der Punkt: eine Eigenschaft, die nur zufaellig gilt, ist keine Eigenschaft.
+
+ABGRENZUNG, damit der Test nicht mehr behauptet als er misst: `refused`-Faelle tragen bewusst KEIN
+Envelope (sie werden vom Validator vor jeder Signaturfrage abgewiesen), und `bodyCoreStable`-Faelle
+pruefen eine Digest-Eigenschaft ohne Envelope. Beide sind hier ausdruecklich nicht betroffen.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "src"))
+
+from proofbundle import dsse  # noqa: E402
+
+KORPUS = REPO / "conformance" / "agent_review"
+
+
+def _faelle():
+    if not KORPUS.is_dir():
+        return []
+    aus = []
+    for d in sorted(KORPUS.iterdir()):
+        cj = d / "case.json"
+        if cj.is_file():
+            aus.append((d, json.loads(cj.read_text(encoding="utf-8"))))
+    return aus
+
+
+def test_der_korpus_wird_ueberhaupt_gefunden():
+    """OHNE DIESE ZUSICHERUNG WAERE ALLES DARUNTER WERTLOS. Ein leerer Korpus laesst jede
+    Schleife darunter still durchlaufen — und ein Test, der ueber nichts iteriert, ist gruen."""
+    faelle = _faelle()
+    assert len(faelle) >= 10, f"nur {len(faelle)} Faelle gefunden — der Test misst fast nichts"
+    rollen = {c.get("role") for _, c in faelle}
+    assert "counter_proof" in rollen and "positive_control" in rollen, rollen
+
+
+def test_ein_invalid_gegenbeweis_traegt_einen_gueltigen_umschlag():
+    """DIE EIGENSCHAFT. `invalid` heisst: die Signatur traegt, die REGEL faellt."""
+    pk_datei = KORPUS / "publickey.hex"
+    if not pk_datei.is_file():
+        pytest.skip("kein publickey.hex im Korpus — nicht messbar, ausdruecklich keine Freigabe")
+    pk = bytes.fromhex(pk_datei.read_text(encoding="utf-8").strip())
+
+    geprueft = 0
+    for d, c in _faelle():
+        if c.get("role") != "counter_proof":
+            continue
+        if (c.get("expected") or {}).get("classification") != "invalid":
+            continue
+        env_p = d / c.get("input", "envelope.json")
+        assert env_p.is_file(), f"{d.name}: nennt {env_p.name}, die Datei fehlt"
+        env = json.loads(env_p.read_text(encoding="utf-8"))
+        assert "payload" in env, f"{d.name}: erwartet invalid, traegt aber gar kein DSSE-Envelope"
+
+        # 1. Die Signatur MUSS tragen — sonst faellt der Fall vor der benannten Regel.
+        dsse.verify_envelope(env, pk)
+        # 2. Die Nutzlast MUSS parsen — sonst erreicht die Regel die Daten nie.
+        json.loads(base64.b64decode(env["payload"]))
+        # 3. Der Fall MUSS die Regel benennen, gegen die er zeigt.
+        assert str(c.get("rule") or "").strip(), f"{d.name}: kein `rule` — der Fall zeigt auf nichts"
+        assert len(str(c.get("rationale") or "")) > 40, (
+            f"{d.name}: `rationale` zu duenn, um den erklaerten Grund zu pruefen")
+        geprueft += 1
+
+    assert geprueft >= 2, (
+        f"nur {geprueft} invalid-Gegenbeweise geprueft — bei weniger als zwei misst dieser Test "
+        "eine Einzelfall-Eigenschaft und keine Korpus-Eigenschaft")
+
+
+def test_jeder_gegenbeweis_unterscheidet_sich_von_der_positiven_kontrolle():
+    """Ein Gegenbeweis, dessen Eingabe mit einer positiven Kontrolle IDENTISCH ist, kann nicht aus
+    einem anderen Grund fallen als sie — er misst dann die Regel nicht, sondern den Zufall."""
+    inhalte: dict[str, list[str]] = {}
+    for d, c in _faelle():
+        env_p = d / c.get("input", "envelope.json")
+        if not env_p.is_file():
+            continue
+        inhalte.setdefault(env_p.read_text(encoding="utf-8"), []).append(f"{c.get('role')}:{d.name}")
+    for _, namen in inhalte.items():
+        rollen = {n.split(":", 1)[0] for n in namen}
+        assert not ({"counter_proof", "positive_control"} <= rollen), (
+            f"dieselbe Eingabe wird als Gegenbeweis UND als positive Kontrolle gefuehrt: {namen}")

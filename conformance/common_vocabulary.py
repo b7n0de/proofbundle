@@ -66,6 +66,24 @@ LINEAGE_STATES = frozenset({
 # --- axis 3: decision predicate verdicts (mirrors proofbundle.policy._VERDICTS) ---
 POLICY_VERDICTS = frozenset({"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"})
 
+#: DIE ARTEN VON KORPUS-FAELLEN — EINE Quelle, zwei Leser.
+#:
+#: DER GEMESSENE ANLASS (01.09.2026, gefunden beim Bau des reproduzierbaren Reviewerpakets):
+#: `cross_format._structural_validate` ist der Notpfad OHNE `jsonschema` und trug eine EIGENE,
+#: fest eingetragene Liste mit VIER Arten. Der Laeufer unterstuetzt ACHT. Im Entwicklungs-venv ist
+#: `jsonschema` installiert, der Notpfad laeuft dort NIE — und genau deshalb konnte die Liste
+#: veralten, ohne dass es je auffiel. In einem frischen venv mit nur dem Wheel (also exakt der
+#: Umgebung, die N09/P1.3 der Gegenlese verlangt) lief er, und ALLE 14 agent-review-Faelle fielen
+#: mit `unknown kind 'agent_review_predicate'` aus der Korpus-Integritaet.
+#:
+#: Zwei Listen ueber dieselbe Groesse sind zwei Wahrheiten, die auseinanderlaufen — und die
+#: zweite ist die, die niemand mitpflegt, weil sie im Alltag nicht ausgefuehrt wird.
+CASE_KINDS = frozenset({
+    "decision_crossimpl", "native_bundle", "decision_relation", "outcome_relation",
+    "relation_statement", "provenance_version_status", "envelope_profile_rule",
+    "agent_review_predicate",
+})
+
 AXES = ("exitClass", "lineage", "policyVerdict")
 
 

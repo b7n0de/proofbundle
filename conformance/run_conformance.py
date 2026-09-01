@@ -509,12 +509,37 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         except ar.AgentReviewError:
             got = "refused"
     # A bare predicate: the emit path is the subject — can this even be produced?
+    #
+    # DER ECHTE EINTRITTSPUNKT, seit 01.09.2026 (Gegenlese Runde 2, N06 / P0.5.4). Bis hierher rief
+    # dieser Zweig `require_valid_agent_review_predicate` — den VALIDATOR, nicht den Erzeuger. Die
+    # Docstring dieser Funktion sagte gleichzeitig „checked through OUR OWN emit/verify path" und
+    # „rejected at emit". Die Flaeche lehrte damit etwas, das die Mechanik nicht tat, und ein
+    # Mutant, der nur den Emitter umgeht (Statement von Hand bauen, Validierung ueberspringen),
+    # waere von dieser Strecke nie gefangen worden.
+    #
+    # `emit_agent_review` ist ein ECHTER Obermenge-Pfad: es validiert mit demselben Pruefer UND
+    # signiert. Ein `refused` bleibt also ein `refused`, und ein `valid` heisst ab jetzt zusaetzlich
+    # „liess sich wirklich erzeugen und danach verifizieren" statt nur „bestand die Validierung".
+    #
+    # DER SCHLUESSEL IST DER DES KORPUS-GENERATORS (`_generator/build_vectors.py`, bytes(range(32))),
+    # und seine oeffentliche Haelfte liegt als publickey.hex daneben. Ein zweiter Schluessel waere
+    # eine zweite Wahrheit ueber dieselbe Groesse; ein zufaelliger machte den Lauf undeterministisch.
+    # Er ist ein TESTSCHLUESSEL und darf nie etwas signieren, das ein Leser als Beleg nimmt.
     elif name == "predicate.json":
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
+            Ed25519PrivateKey)
+        _sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
         try:
-            ar.require_valid_agent_review_predicate(doc)
-            got = "valid"
+            _env = ar.emit_agent_review(doc, _sk)
         except ar.AgentReviewError:
             got = "refused"
+        else:
+            # ROUNDTRIP: erzeugt UND wieder gelesen. Ein Emitter, dessen Ausgabe der eigene
+            # Verifier nicht annimmt, ist kein bestandener Fall, auch wenn das Signieren gelang.
+            _r = ar.verify_agent_review(
+                _env, _sk.public_key().public_bytes_raw(),
+                expected_subject_digest=ar._subject_digest(doc))
+            got = "valid" if _r.get("ok") else "invalid"
     # A signed envelope: the verify path is the subject.
     else:
         key_hex = (case_dir.parent / "publickey.hex").read_text().strip()

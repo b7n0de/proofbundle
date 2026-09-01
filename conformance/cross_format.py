@@ -57,8 +57,11 @@ def _structural_validate(case: dict) -> list[str]:
     for key in ("caseId", "kind", "expected"):
         if key not in case:
             errs.append(f"missing required key {key!r}")
-    if case.get("kind") not in {"decision_crossimpl", "native_bundle", "decision_relation",
-                                 "outcome_relation"}:
+    # DIE ARTEN KOMMEN AUS EINER QUELLE, nicht aus einer zweiten Liste hier — siehe
+    # `common_vocabulary.CASE_KINDS`. Die frueher hier stehende Liste kannte vier von acht Arten
+    # und fiel nie auf, weil dieser Notpfad nur ohne `jsonschema` laeuft.
+    from common_vocabulary import CASE_KINDS  # noqa: PLC0415
+    if case.get("kind") not in CASE_KINDS:
         errs.append(f"unknown kind {case.get('kind')!r}")
     exp = case.get("expected")
     if not isinstance(exp, dict) or not exp:
