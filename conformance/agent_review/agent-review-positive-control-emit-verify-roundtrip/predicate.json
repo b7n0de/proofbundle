@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "0.1.0",
+  "reviewId": "roundtrip-positive-control",
+  "subjectContext": {
+    "kind": "githubPullRequest",
+    "forge": "github.com",
+    "repositoryId": "R_kgDOroundtrip",
+    "pullRequestNodeId": "PR_kwDOroundtrip",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "bodyCoreDigest": "2de5900a45b84d021dfb8cf9850be84c0c848f92bf780516ce9edf74383f7365"
+  },
+  "declaration": {
+    "authoring": [
+      {
+        "assurance": "selfDeclared",
+        "assertedBy": "agent"
+      }
+    ],
+    "reviewRuns": [],
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "low",
+        "title": "ein Fund",
+        "disposition": "dismissed",
+        "reason": "im Kontext nicht anwendbar"
+      }
+    ],
+    "findingsTotal": 1,
+    "findingsRoot": "a9315babdef60590b291d47617a6dade99f407e3d66d5edf8e98a2d851e876e2",
+    "nonClaims": [
+      "kein Nachweis von Unabhaengigkeit"
+    ]
+  },
+  "coverage": {
+    "status": "PARTIAL",
+    "knownGaps": [
+      "nur ein Lauf erfasst"
+    ]
+  },
+  "times": {
+    "declaredAt": "2026-09-01T09:00:00Z"
+  },
+  "limitations": [
+    "Tier 1, selbst deklariert, kein externer Zeuge"
+  ]
+}

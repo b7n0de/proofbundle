@@ -449,7 +449,6 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
     """
     cid = case.get("caseId", str(case_dir))
     exp = case.get("expected") or {}
-    params = case.get("params") or {}
     sys.path.insert(0, str(ROOT.parent / "src"))
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
@@ -498,6 +497,37 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                 "detail": f"subject expectation {got}, and the limit is stated"}
 
     want = exp["classification"]
+    got = klassifiziere_agent_review(case, case_dir)
+    if got != want:
+        return _fail(cid, f"classification {got!r} != expected {want!r}")
+    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+
+
+def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
+    """WIE der Korpus einen Praedikat-Fall einstuft — die EINE Weiche, oeffentlich rufbar.
+
+    WARUM SIE HERAUSGEHOBEN IST (01.09.2026). Diese Entscheidung existierte ZWEIMAL: hier und
+    noch einmal in `tests/test_agent_review_conformance_runner.py::_urteil`. Als die Strecke in
+    derselben Runde auf den Erzeuger umgestellt wurde (N06/P0.5), wanderte nur DIESE Fassung
+    mit. Der Positiv-Kontroll-Fall `emit-verify-roundtrip` traegt ein rohes Dokument, keinen
+    Umschlag — der Test warf ihn in den Verifier und meldete "payload must be a base64 string".
+    Richtige Meldung, falscher Pfad. Zwei Fassungen derselben Entscheidung sind zwei Wahrheiten,
+    und die ungerufene altert still.
+
+    Sie gibt die KLASSIFIKATION zurueck, nicht PASS/FAIL. Das ist der Unterschied, an dem ein
+    erster Zusammenfuehrungs-Versuch scheiterte: `_check_...` vergleicht bereits mit der
+    Erwartung des Falls, und wer das als Messwert nimmt, dreht bei `invalid`-Faellen das
+    Vorzeichen um (acht rote Tests, gemessen). Die Erwartung gehoert zum Pruefer, nicht zur
+    Messung.
+    """
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    def _read(nm: str):
+        if "/" in nm or nm.startswith("."):
+            raise ValueError(f"input {nm!r} escapes the case directory")
+        return json.loads((case_dir / nm).read_text())
+
+    params = case.get("params") or {}
     name = case.get("input") or "envelope.json"
     doc = _read(name)
 
@@ -509,12 +539,37 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         except ar.AgentReviewError:
             got = "refused"
     # A bare predicate: the emit path is the subject — can this even be produced?
+    #
+    # DER ECHTE EINTRITTSPUNKT, seit 01.09.2026 (Gegenlese Runde 2, N06 / P0.5.4). Bis hierher rief
+    # dieser Zweig `require_valid_agent_review_predicate` — den VALIDATOR, nicht den Erzeuger. Die
+    # Docstring dieser Funktion sagte gleichzeitig „checked through OUR OWN emit/verify path" und
+    # „rejected at emit". Die Flaeche lehrte damit etwas, das die Mechanik nicht tat, und ein
+    # Mutant, der nur den Emitter umgeht (Statement von Hand bauen, Validierung ueberspringen),
+    # waere von dieser Strecke nie gefangen worden.
+    #
+    # `emit_agent_review` ist ein ECHTER Obermenge-Pfad: es validiert mit demselben Pruefer UND
+    # signiert. Ein `refused` bleibt also ein `refused`, und ein `valid` heisst ab jetzt zusaetzlich
+    # „liess sich wirklich erzeugen und danach verifizieren" statt nur „bestand die Validierung".
+    #
+    # DER SCHLUESSEL IST DER DES KORPUS-GENERATORS (`_generator/build_vectors.py`, bytes(range(32))),
+    # und seine oeffentliche Haelfte liegt als publickey.hex daneben. Ein zweiter Schluessel waere
+    # eine zweite Wahrheit ueber dieselbe Groesse; ein zufaelliger machte den Lauf undeterministisch.
+    # Er ist ein TESTSCHLUESSEL und darf nie etwas signieren, das ein Leser als Beleg nimmt.
     elif name == "predicate.json":
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
+            Ed25519PrivateKey)
+        _sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
         try:
-            ar.require_valid_agent_review_predicate(doc)
-            got = "valid"
+            _env = ar.emit_agent_review(doc, _sk)
         except ar.AgentReviewError:
             got = "refused"
+        else:
+            # ROUNDTRIP: erzeugt UND wieder gelesen. Ein Emitter, dessen Ausgabe der eigene
+            # Verifier nicht annimmt, ist kein bestandener Fall, auch wenn das Signieren gelang.
+            _r = ar.verify_agent_review(
+                _env, _sk.public_key().public_bytes_raw(),
+                expected_subject_digest=ar._subject_digest(doc))
+            got = "valid" if _r.get("ok") else "invalid"
     # A signed envelope: the verify path is the subject.
     else:
         key_hex = (case_dir.parent / "publickey.hex").read_text().strip()
@@ -522,9 +577,7 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                                    expected_subject_digest=params.get("expectedSubjectDigest"))
         got = "valid" if r.get("ok") else "invalid"
 
-    if got != want:
-        return _fail(cid, f"classification {got!r} != expected {want!r}")
-    return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+    return got
 
 
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,

@@ -200,3 +200,168 @@ class ErwartungsvergleichIstExakt(unittest.TestCase):
         pruefe_exakt(
             lambda v: AR.verify_agent_review(env, pk, expected_subject_digest=v)["ok"],
             erwartet, self)
+
+
+# ═══ P0.3 · ZWEI ACHSEN STATT EINER (Gegenlese Runde 2, N04) ═══════════════════════════════════
+#
+# DIE LUECKE, DIE DIESE TESTS SCHLIESSEN, und sie ist selbst gemessen: als die Achse am 01.09.2026
+# von `True` auf `None` umgestellt wurde, blieben 84 bestehende Tests gruen. KEINER pinnte, was
+# `subject_binding_ok` ohne Zielkontext bedeutet — genau die Stelle, an der die Gegenlese ein
+# gruenes Bindungs-Signal fuer eine ungepruefte Bindung fand. Ein Feld, dessen Bedeutung kein Test
+# haelt, kann sich in beide Richtungen bewegen, ohne dass es auffaellt.
+
+
+def test_ohne_zielkontext_ist_die_bindungsachse_NIE_wahr(paar):
+    """DER WORTLAUT DER ABNAHME: „Ohne Zielkontext lautet der Zustand NOT_EVALUATED, niemals
+    subject_binding_ok=True." Vorher stand die Achse hier auf `True`."""
+    sk, pk = paar
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    assert r["internal_subject_consistency_ok"] is True, "die interne Konsistenz IST gegeben"
+    assert r["expected_subject_match"] == "NOT_EVALUATED"
+    assert r["subject_binding_ok"] is not True, (
+        "ohne unabhaengig erfasste Zielbytes darf die Bindungsachse nie gruen sein — "
+        f"war {r['subject_binding_ok']!r}")
+    assert r["subject_binding_ok"] is None, "und auch nicht False: niemand hat gefragt"
+
+
+def test_mit_passendem_zielkontext_wird_die_achse_wahr(paar):
+    """DIE GEGENRICHTUNG. Ohne sie waere die Haertung keine Praezisierung, sondern eine
+    Abschaffung — die Achse duerfte einfach nie mehr gruen werden und niemand saehe es."""
+    sk, pk = paar
+    pred = _pred()
+    r = AR.verify_agent_review(AR.emit_agent_review(pred, sk), pk,
+                               expected_subject_digest=AR._subject_digest(pred))
+    assert r["internal_subject_consistency_ok"] is True
+    assert r["expected_subject_match"] == "MATCH"
+    assert r["subject_binding_ok"] is True
+    assert r["ok"] is True, r["errors"]
+
+
+def test_fremder_zielkontext_macht_beide_achsen_eindeutig(paar):
+    """DASSELBE RECEIPT AUF FREMDEM PR — die Abnahme aus dem Auftrag. Intern konsistent bleibt es,
+    die Zielachse faellt, und die zusammengefuehrte Achse faellt mit."""
+    sk, pk = paar
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+                               expected_subject_digest="f" * 64)
+    assert r["internal_subject_consistency_ok"] is True
+    assert r["expected_subject_match"] == "MISMATCH"
+    assert r["subject_binding_ok"] is False
+    assert r["ok"] is False
+
+
+def test_die_zwei_achsen_gelten_in_v02_GENAUSO(paar):
+    """DER NACHBAR. Die Bindungslogik stand zweimal im Modul; ein Fix, der nur v0.1 erreicht, ist
+    der Fehlermodus, gegen den dieser Auftrag gebaut ist.
+
+    DIE ERSTE FASSUNG DIESES TESTS WAR TAUTOLOGISCH, und sie ist genau deshalb hier
+    dokumentiert: sie schickte ein v0.1-Envelope in `verify_agent_review_v02`. Dort ist
+    `predicate_type_ok` dann `False`, der Bindungsblock wird NIE BETRETEN, und die Zusicherungen
+    hielten gegen die Vorbelegung aus `_empty_result` statt gegen eine Messung — gemessen: der
+    eingepflanzte v0.2-Defekt liess den Test gruen. Der Test baut jetzt ein echtes
+    v0.2-Statement, und die Zusicherung unten prueft ZUERST, dass der Pfad ueberhaupt lief."""
+    from proofbundle import canonical, dsse                       # noqa: PLC0415
+    sk, pk = paar
+    pred = _pred()
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(pred),
+                       "digest": {"sha256": AR._subject_digest(pred)}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": pred}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), sk,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+
+    ohne = AR.verify_agent_review_v02(env, pk)
+    assert ohne["predicate_type_ok"] is True, (
+        "der v0.2-Pfad wurde nicht betreten — dann misst dieser Test nichts")
+    assert ohne["internal_subject_consistency_ok"] is True, ohne["errors"]
+    assert ohne["expected_subject_match"] == "NOT_EVALUATED"
+    assert ohne["subject_binding_ok"] is not True, (
+        f"auch in v0.2 nie gruen ohne Zielkontext — war {ohne['subject_binding_ok']!r}")
+
+    mit = AR.verify_agent_review_v02(env, pk,
+                                     expected_subject_digest=AR._subject_digest(pred))
+    assert mit["expected_subject_match"] == "MATCH"
+    assert mit["subject_binding_ok"] is True, mit["errors"]
+
+
+def test_die_bindungslogik_steht_nur_EINMAL_im_modul():
+    """DER KLASSEN-FIX, strukturell festgehalten. Zwei Kopien sind zwei Wahrheiten, die
+    auseinanderlaufen — und die zweite ist die, die niemand mitfixt."""
+    quelle = (Path(__file__).resolve().parents[1] / "src" / "proofbundle"
+              / "agent_review.py").read_text(encoding="utf-8")
+    assert quelle.count("def _zielbindung(") == 1, "der Helfer existiert nicht genau einmal"
+    assert quelle.count("_zielbindung(r, predicate, statement") == 2, (
+        "beide Verify-Pfade muessen denselben Helfer rufen")
+    assert 'r["subject_binding_ok"] = derived == claimed' not in quelle, (
+        "eine der alten Kopien der Bindungsrechnung steht noch im Modul")
+
+
+def test_ein_MISMATCH_blockt_das_automations_urteil(paar):
+    """DER DEFEKT, DEN ICH SELBST EINGEBAUT HABE (01.09.2026), festgenagelt.
+
+    Die erste Fassung von P0.3 setzte `expected_subject_match` in die `references`-Liste von
+    `automation_summary`. Deren Vertrag lautet woertlich: Feldnamen, deren Wert AUSDRUECKLICH
+    `False` ist, bedeuten eine nicht aufgeloeste Referenz — gefiltert wird mit `is False`. Eine
+    Zeichenkette ist nie `is False`. `"MISMATCH"` waere also durchgerutscht, und schlimmer: die
+    Aenderung ERSETZTE die funktionierende Boolean-Achse durch die wirkungslose. Ein Riegel, der
+    die eigene Verschaerfung blind macht, ist schlechter als keiner.
+
+    Gefunden, weil die volle Suite ein `F` warf — nicht, weil ich es beim Schreiben gesehen haette."""
+    sk, pk = paar
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+                               expected_subject_digest="f" * 64)
+    assert r["expected_subject_match"] == "MISMATCH"
+    assert r["subject_binding_ok"] is False
+    a = r["automation"]
+    assert a["safeForAutomation"] is False, a
+    assert "REFERENCES_NOT_RESOLVED" in a["automationBlockers"], a
+
+
+def test_keine_stringwertige_achse_in_IRGENDEINER_references_liste():
+    """DIE KLASSE, nicht die Instanz. `automation_summary` filtert seine `references` mit
+    `is False` — ein stringwertiges Feld dort ist per Bauart wirkungslos und sieht trotzdem aus wie
+    eine Pruefung.
+
+    ERST NUR `agent_review` GEPRUEFT, DANN GEMESSEN, dass fuenf weitere Module denselben Vertrag
+    tragen: decision, outcome, run_ledger, trust_pack, verification_summary. Ein Test, der nur den
+    Traeger prueft, an dem der Fehler auffiel, ist ein Instanz-Test fuer eine Klasse mit sechs
+    Traegern — genau der Fehlermodus, den dieses Haus als „fix the instance, not the class" fuehrt.
+
+    GEMESSEN wird am LAUFZEITWERT aus dem Ergebnis-Geruest des jeweiligen Moduls, nicht am
+    Quelltext: eine Textsuche nach Grossbuchstaben-Zuweisungen fand in allen sechs Modulen nichts
+    und haette den echten Fall in `agent_review` ebenfalls nicht gefunden."""
+    import importlib
+    import re
+
+    TRAEGER = ("decision", "outcome", "run_ledger", "trust_pack", "verification_summary",
+               "agent_review")
+    src = Path(__file__).resolve().parents[1] / "src" / "proofbundle"
+    geprueft = 0
+    for name in TRAEGER:
+        datei = src / f"{name}.py"
+        if not datei.is_file():
+            continue
+        quelle = datei.read_text(encoding="utf-8")
+        listen = re.findall(r'"references": \[([^\]]+)\]', quelle, re.S)
+        felder = sorted({x.strip().strip('"')
+                         for roh in listen
+                         for x in roh.replace("\n", " ").split(",") if x.strip().strip('"')})
+        if not felder:
+            continue
+        modul = importlib.import_module(f"proofbundle.{name}")
+        leer = None
+        for kandidat in ("_empty_result", "_leeres_ergebnis", "_result_skeleton"):
+            if hasattr(modul, kandidat):
+                leer = getattr(modul, kandidat)()
+                break
+        if leer is None:
+            continue                      # nicht messbar — ausdruecklich keine Freigabe, kein Alarm
+        for feld in felder:
+            assert feld in leer, f"{name}: {feld} steht in references, aber nicht im Ergebnis"
+            assert not isinstance(leer[feld], str), (
+                f"{name}: {feld} ist stringwertig — `is False` trifft es nie, die Achse ist "
+                "wirkungslos und verdraengt womoeglich eine, die wirkt")
+        geprueft += 1
+
+    assert geprueft >= 4, (
+        f"nur {geprueft} Traeger geprueft — bei weniger als vier misst dieser Test wieder nur "
+        "eine Instanz")

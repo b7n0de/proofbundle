@@ -29,6 +29,29 @@ from proofbundle import agent_review as AR
 KORPUS = Path(__file__).resolve().parents[1] / "conformance" / "agent_review"
 
 
+def _laeufer():
+    """Der Konformitaets-Laeufer als Modul. Er liegt nicht im Paket, sondern im Repo-Baum — in
+    der ausgelieferten sdist ebenso, das ist gemessen (`conformance/` faehrt im Paket mit)."""
+    import importlib.util  # noqa: PLC0415
+    import sys as _sys  # noqa: PLC0415
+    if "_rc_fuer_test" in _sys.modules:
+        return _sys.modules["_rc_fuer_test"]
+    # DER VOLLE WURZEL-RELATIVE PFAD ALS EIN LITERAL, nicht zusammengesetzt. Die
+    # Skip-Ableitung in `tests/conftest.py::modul_ist_repo_kontext` liest Pfad-Literale und
+    # fragt, ob sie im Baum existieren; ein blosses "run_conformance.py" las sie als Datei IM
+    # WURZELVERZEICHNIS, fand sie dort nicht und stufte dieses ganze Modul als repo-kontext-
+    # abhaengig ein — es waere in der sdist stillschweigend UEBERSPRUNGEN worden. Genau die
+    # skip-fake-green-Klasse, vor der conftest.py selbst warnt, und gefangen hat sie
+    # `test_im_echten_checkout_ist_die_ableitung_ein_no_op`, nicht meine Durchsicht.
+    # Nicht die Heuristik wurde aufgeweicht, sondern das Literal richtig geschrieben.
+    pfad = KORPUS.parents[1] / "conformance/run_conformance.py"
+    spec = importlib.util.spec_from_file_location("_rc_fuer_test", pfad)
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules["_rc_fuer_test"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _faelle() -> list[Path]:
     return sorted(d for d in KORPUS.iterdir() if (d / "case.json").is_file())
 
@@ -64,6 +87,36 @@ def _urteil(d: Path, fall: dict) -> dict:
     Erwartungsform nicht, wirft er — Ueberspringen waere hier die falsche Antwort."""
     erw = fall["expected"]
     eingabe = _eingabe(d, fall)
+
+    # ═══ EINE WEICHE, NICHT ZWEI ═══════════════════════════════════════════════════════════
+    #
+    # GEMESSEN am 01.09.2026, im hermetic-cleanroom UND im Repo: der Positiv-Kontroll-Fall
+    # `emit-verify-roundtrip` fiel mit "DSSE envelope.payload must be a base64 string". Die
+    # Meldung war richtig, der PFAD falsch — der Fall traegt ein rohes agent-review DOKUMENT,
+    # keinen fertigen Umschlag, und dieser Ausfuehrer warf ihn in den Verifier.
+    #
+    # DIE URSACHE WAR NICHT DER FALL, sondern dass es die Weiche ZWEIMAL gab: einmal in
+    # `run_conformance` und einmal hier daneben nachgebaut. Als die Strecke in derselben Runde
+    # auf den Erzeuger umgestellt wurde (N06/P0.5), wanderte nur die dortige Fassung mit. Zwei
+    # Fassungen derselben Entscheidung sind zwei Wahrheiten, und die ungerufene altert still.
+    #
+    # Der Laeufer gibt die KLASSIFIKATION zurueck, nicht sein eigenes Urteil — die Erwartung
+    # wird weiterhin HIER geprueft. Ein erster Versuch delegierte das Urteil mit und drehte bei
+    # `invalid`-Faellen das Vorzeichen: acht rote Tests, gemessen, zurueckgenommen.
+    # ENG VERENGT auf den ERZEUGER-Pfad. Beim Zusammenfuehren fiel eine ZWEITE Abweichung
+    # zwischen den beiden Fassungen auf, und dort ist die hiesige die sorgfaeltigere: fuer
+    # fertige UMSCHLAEGE misst der Laeufer immer `ok`, dieser Ausfuehrer dagegen
+    # `internal_consistency_ok`, wenn der Fall keine Erwartung mitbringt — gemessen liefert der
+    # Laeufer fuer den Zielbindungs-Fall `invalid` AUCH ohne Erwartung, kann die Zielbindung also
+    # nicht mehr von "irgendetwas davor" trennen. Heute faellt das nicht auf, weil kein
+    # Umschlag-Fall `valid` ohne Erwartung erwartet; ein kuenftiger wuerde es. Die Delegation
+    # nimmt deshalb nur den Pfad, um den es ging.
+    if (fall.get("kind") == "agent_review_predicate"
+            and fall.get("input") == "predicate.json" and "classification" in erw):
+        got = _laeufer().klassifiziere_agent_review(fall, d)
+        return {"ok": got == "valid", "refused": got == "refused",
+                "result": {"errors": [f"klassifiziert als {got}"]},
+                "gemessen_an": "run_conformance.klassifiziere_agent_review"}
 
     if "classification" in erw:
         art = erw["classification"]
@@ -229,6 +282,10 @@ def test_der_zielbindungs_fall_faellt_NUR_weil_die_erwartung_uebergeben_wird():
     assert ohne["internal_consistency_ok"] is True, (
         "ohne Erwartung faellt das Receipt schon aus einem anderen Grund — dann belegt der Fall "
         "nicht mehr die Zielbindung, sondern irgendetwas davor")
+    # Der Fall traegt einen fertigen UMSCHLAEG und geht damit NICHT ueber die delegierte
+    # Erzeuger-Weiche, sondern weiter ueber die Messung hier. `gemessen_an` ist deshalb
+    # unveraendert `ok` — und genau das ist die Eigenschaft, die der Test haelt: bei einem Fall
+    # MIT Erwartung wird `ok` gemessen und nicht `internal_consistency_ok`.
     assert _urteil(d, fall)["gemessen_an"] == "ok"
 
 

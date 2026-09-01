@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.1 — ergaenzt 01.09.2026 nach der Gegenlese Runde 2 (N06 / P0.5): die Strecke rief fuer Praedikat-Faelle den VALIDATOR, nicht den Erzeuger.",
+  "caseId": "agent-review-positive-control-emit-verify-roundtrip",
+  "expected": {
+    "classification": "valid"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "params": {},
+  "rationale": "OHNE DIESEN FALL MISST DIE UMSTELLUNG NICHTS, und das ist gemessen: alle fuenf bisherigen predicate.json-Faelle erwarten `refused`, also wurde der `valid`-Zweig nie erreicht. Ein eingepflanzter Defekt, der die Validierung besteht und erst im Verifier faellt (Statement mit falschem Subject-Digest), liess die Strecke gruen — mit der Umstellung UND ohne sie. Dieser Fall fuehrt den positiven Roundtrip: das Praedikat wird mit dem deterministischen Korpus-Schluessel wirklich EMITTIERT und das erzeugte Envelope danach verifiziert. `valid` heisst hier also 'erzeugt und wieder gelesen', nicht 'bestand die Validierung'.",
+  "role": "positive_control",
+  "rule": "PBF08",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py",
+    "conformance/run_conformance.py"
+  ]
+}
