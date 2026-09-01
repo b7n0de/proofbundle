@@ -706,7 +706,14 @@ def receipt_digest(envelope: dict) -> str:
     roh = envelope.get("payload")
     if not isinstance(roh, str):
         raise AgentReviewError("envelope carries no base64 payload")
-    return hashlib.sha256(base64.b64decode(roh)).hexdigest()
+    # validate=True ist hier NICHT kosmetisch: ohne es verwirft CPython stillschweigend jedes
+    # Zeichen ausserhalb des Alphabets, und dann haette dasselbe Artefakt viele akzeptierte
+    # Drahtformen — ein Angreifer koennte den Digest waehlen, indem er Muell einstreut.
+    try:
+        bytes_ = base64.b64decode(roh, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise AgentReviewError(f"payload is not strict base64: {exc}") from exc
+    return hashlib.sha256(bytes_).hexdigest()
 
 
 def resolve_receipt_chain(envelopes: list[dict]) -> dict:
@@ -739,7 +746,7 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
 
     for d, env in vorhanden.items():
         try:
-            st = json.loads(base64.b64decode(env["payload"]))
+            st = json.loads(base64.b64decode(env["payload"], validate=True))
             sup = (st.get("predicate") or {}).get("supersession") or {}
         except (ValueError, KeyError, TypeError):
             continue
@@ -1273,7 +1280,10 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
     Zeitaussagen sind kein schwacher Beleg, sondern ein kaputter.
     """
     art = policy.get("kind") if isinstance(policy, dict) else None
-    if art not in _POLICY_ACHSE:
+    # EXPLIZITE VERENGUNG statt eines type:ignore — dieselbe Hausregel wie in `_zeitachsen`.
+    # `is_member` schuetzt gegen unhashbare Eingaben, es verengt aber keinen Typ; der
+    # isinstance-Test daneben tut beides sichtbar.
+    if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
         return {"decision": "insufficient_evidence", "policy_kind": art,
                 "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
@@ -1282,7 +1292,7 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
         return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
                 "reason": "the axis reports CONFLICT — two time statements contradict each other, "
                           "which is a broken claim, not a weak one"}
-    if zustand in _POLICY_GENUEGT:
+    if is_member(zustand, _POLICY_GENUEGT):
         return {"decision": "accept", "policy_kind": art, "axis": achse, "axis_state": zustand,
                 "reason": f"{achse} is {zustand}, which comes from a named source outside the "
                           f"producer"}
