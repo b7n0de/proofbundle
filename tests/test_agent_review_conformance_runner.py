@@ -246,3 +246,51 @@ def test_eine_unbekannte_erwartungsform_laesst_den_ausfuehrer_FALLEN(tmp_path):
     (d / "case.json").write_text(json.dumps(fall), encoding="utf-8")
     with pytest.raises(AssertionError, match="unbekannte Erwartungsform"):
         _urteil(d, fall)
+
+
+# ── P0.5.4: der ECHTE Emitter, und ein Mutant, der ihn umgeht, muss rot werden ────────────────
+
+def test_die_positive_kontrolle_laeuft_durch_den_ECHTEN_emitter():
+    """Der Befund lautete woertlich: fuer predicate.json ruft der Laeufer
+    `require_valid_agent_review_predicate`, NICHT `emit_agent_review`. Ein Konformitaetslauf, der
+    den Erzeuger nie anfasst, prueft den Weg nicht, auf dem echte Belege entstehen.
+
+    Hier laeuft mindestens eine positive Kontrolle den vollen Weg: Predicate -> emit_agent_review
+    mit deterministischem Testschluessel -> verify des ERZEUGTEN Umschlags.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    pk = sk.public_key().public_bytes_raw()
+
+    d = KORPUS / "agent-review-positive-control-valid-self-declared"
+    env_fix = _eingabe(d, _fall(d))
+    import base64
+    p = json.loads(base64.b64decode(env_fix["payload"]))["predicate"]
+
+    env = AR.emit_agent_review(p, sk, strict=True)          # <- der echte Erzeuger
+    r = AR.verify_agent_review(env, pk, strict=True,
+                               expected_subject_digest=AR._subject_digest(p))
+    assert r["crypto_ok"] is True, r["errors"]
+    assert r["ok"] is True, r["errors"]
+
+
+def test_ein_ungueltiges_praedikat_kommt_durch_den_emitter_NICHT_durch():
+    """Die Gegenprobe: sonst waere der Roundtrip mit einem Emitter zu bestehen, der alles signiert.
+
+    Der Befund verlangt woertlich "ein Mutant, der nur den Emitter umgeht, muss rot werden". Der
+    Weg dahin ist dieser: der Emitter MUSS selbst ablehnen, sonst ist es gleichgueltig, ob man ihn
+    aufruft oder umgeht.
+
+    GEMESSEN am 01.09.2026, und es gehoert hierher, weil es die Aussagekraft dieses Tests
+    beschreibt: die Ablehnung traegt durch ZWEI unabhaengige Pruefungen — die in `emit_agent_review`
+    und die in `build_agent_review_statement`. Klemmt man nur EINE ab, bleibt dieser Test gruen; erst
+    mit beiden wird er rot. Der Test belegt also die EIGENSCHAFT ("kommt nicht durch"), nicht eine
+    einzelne Codestelle. Das ist Absicht (Defense in Depth) und keine Luecke — aber wer hier eine
+    einzelne Zeile aendert und diesen Test gruen sieht, hat nichts bewiesen.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    d = KORPUS / "agent-review-counter-proof-partial-must-name-its-gap"
+    p = _eingabe(d, _fall(d))
+    with pytest.raises(AR.AgentReviewError):
+        AR.emit_agent_review(p, sk, strict=True)
