@@ -716,7 +716,7 @@ def receipt_digest(envelope: dict) -> str:
     return hashlib.sha256(bytes_).hexdigest()
 
 
-def resolve_receipt_chain(envelopes: list[dict]) -> dict:
+def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -> dict:
     """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
 
     DREI AUSSAGEN, die oft verwechselt werden und hier getrennt bleiben (Supersessionstests 15
@@ -731,8 +731,23 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
       Receipt, ist die Korrektur nicht mehr nachvollziehbar, und dann ist die Kette kaputt, auch
       wenn jedes einzelne Stueck fuer sich gueltig bleibt.
 
+    `verified` IST PFLICHT und nimmt keinen Vorgabewert. Es enthaelt die Digests, die der Aufrufer
+    selbst kryptografisch geprueft hat.
+
+    WARUM PFLICHT, gemessen am 01.09.2026 durch eine Jury-Linse des Deep-Gates und mit einem
+    gebauten Angriff bestaetigt: die erste Fassung liess JEDEN Umschlag der Menge einen anderen als
+    korrigiert markieren. Ein Angreifer mit EIGENEM Schluessel legte einen Umschlag dazu, der den
+    Digest unseres echten Belegs nannte — danach zeigte `current` auf SEIN Receipt, unseres stand
+    unter `corrected`, und `integrity_ok` war True. Signaturpruefung an anderer Stelle half nicht:
+    die Ordnung entstand VOR ihr und war bereits vergiftet.
+
+    Ein Vorgabewert waere hier die falsche Freundlichkeit. Wer die Menge nicht nennt, bekommt kein
+    stilles Vertrauen, sondern `None` — und dann darf KEIN Umschlag einen anderen korrigieren, alles
+    bleibt Kandidat, und das Ergebnis ist laut mehrdeutig statt leise falsch.
+
     Der Resolver prueft KEINE Signaturen — das tut `verify_agent_review`. Er ordnet nur, und er
-    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt.
+    sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt. Was er jetzt zusaetzlich
+    tut: er ordnet nur nach dem, was der Aufrufer als geprueft BENANNT hat.
     """
     vorhanden: dict[str, dict] = {}
     korrigiert: dict[str, list[str]] = {}
@@ -744,11 +759,18 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
             continue
         vorhanden[d] = env
 
+    ungeprueft_mit_anspruch: list[str] = []
     for d, env in vorhanden.items():
         try:
             st = json.loads(base64.b64decode(env["payload"], validate=True))
             sup = (st.get("predicate") or {}).get("supersession") or {}
         except (ValueError, KeyError, TypeError):
+            continue
+        if sup and (verified is None or d not in verified):
+            # Ein Umschlag, den der Aufrufer nicht geprueft hat, darf die Ordnung nicht bestimmen.
+            # Er wird nicht still ignoriert — sein Anspruch wird GEMELDET, sonst saehe ein
+            # abgewehrter Uebernahmeversuch aus wie ein leerer Eingang.
+            ungeprueft_mit_anspruch.append(d)
             continue
         for feld in ("corrects", "supersedes", "withdraws"):
             for rel in (sup.get(feld) or []):
@@ -762,7 +784,8 @@ def resolve_receipt_chain(envelopes: list[dict]) -> dict:
                     fehlend.append(prior)
 
     aktuell = [d for d in vorhanden if d not in korrigiert]
-    return {"current": aktuell[0] if len(aktuell) == 1 else None,
+    return {"unverified_supersession_claims": sorted(ungeprueft_mit_anspruch),
+            "current": aktuell[0] if len(aktuell) == 1 else None,
             "current_candidates": sorted(aktuell),
             "ambiguous": len(aktuell) != 1,
             "corrected": sorted(korrigiert),

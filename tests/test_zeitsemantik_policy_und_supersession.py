@@ -136,7 +136,7 @@ def test_15_das_korrektur_receipt_bindet_exakt_den_digest_des_vorgaengers():
     d_alt = AR.receipt_digest(alt)
     neu = _env(_pred("r2", supersession={"corrects": [
         {"priorDigest": {"sha256": d_alt}, "reason": "Zeitsemantik praezisiert"}]}))
-    kette = AR.resolve_receipt_chain([alt, neu])
+    kette = AR.resolve_receipt_chain([alt, neu], verified={AR.receipt_digest(e) for e in [alt, neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["current"] == AR.receipt_digest(neu)
     assert kette["corrected"] == [d_alt]
     assert kette["integrity_ok"] is True
@@ -146,7 +146,7 @@ def test_16_ein_falscher_vorgaengerdigest_faellt():
     alt = _env(_pred("r1"))
     neu = _env(_pred("r2", supersession={"corrects": [
         {"priorDigest": {"sha256": "f" * 64}, "reason": "zeigt ins Leere"}]}))
-    kette = AR.resolve_receipt_chain([alt, neu])
+    kette = AR.resolve_receipt_chain([alt, neu], verified={AR.receipt_digest(e) for e in [alt, neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["integrity_ok"] is False
     assert "f" * 64 in kette["missing_predecessors"]
 
@@ -170,7 +170,7 @@ def test_18_der_vorgaenger_bleibt_kryptografisch_gueltig_und_ist_trotzdem_korrig
     r = AR.verify_agent_review(alt, PK, strict=True,
                                expected_subject_digest=AR._subject_digest(palt))
     assert r["crypto_ok"] is True and r["ok"] is True, r["errors"]
-    kette = AR.resolve_receipt_chain([alt, neu])
+    kette = AR.resolve_receipt_chain([alt, neu], verified={AR.receipt_digest(e) for e in [alt, neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert d_alt in kette["corrected"]
     assert kette["current"] != d_alt
 
@@ -179,14 +179,14 @@ def test_19_der_aktuelle_verweis_zeigt_nur_auf_das_korrektur_receipt():
     alt = _env(_pred("r1"))
     neu = _env(_pred("r2", supersession={"corrects": [
         {"priorDigest": {"sha256": AR.receipt_digest(alt)}, "reason": "praezisiert"}]}))
-    kette = AR.resolve_receipt_chain([alt, neu])
+    kette = AR.resolve_receipt_chain([alt, neu], verified={AR.receipt_digest(e) for e in [alt, neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["ambiguous"] is False
     assert kette["current_candidates"] == [AR.receipt_digest(neu)]
 
 
 def test_19b_zwei_unverbundene_receipts_sind_MEHRDEUTIG_und_das_wird_gesagt():
     """Raten waere hier der Fehler: der Resolver nennt die Mehrdeutigkeit, statt eines zu waehlen."""
-    kette = AR.resolve_receipt_chain([_env(_pred("r1")), _env(_pred("r2"))])
+    kette = AR.resolve_receipt_chain([_env(_pred("r1")), _env(_pred("r2"))], verified={AR.receipt_digest(e) for e in [_env(_pred("r1")), _env(_pred("r2"))] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["ambiguous"] is True
     assert kette["current"] is None
     assert len(kette["current_candidates"]) == 2
@@ -196,8 +196,8 @@ def test_20_das_entfernen_des_alten_receipts_macht_den_integritaetstest_rot():
     alt = _env(_pred("r1"))
     neu = _env(_pred("r2", supersession={"corrects": [
         {"priorDigest": {"sha256": AR.receipt_digest(alt)}, "reason": "praezisiert"}]}))
-    assert AR.resolve_receipt_chain([alt, neu])["integrity_ok"] is True
-    ohne_alt = AR.resolve_receipt_chain([neu])
+    assert AR.resolve_receipt_chain([alt, neu], verified={AR.receipt_digest(e) for e in [alt, neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})["integrity_ok"] is True
+    ohne_alt = AR.resolve_receipt_chain([neu], verified={AR.receipt_digest(e) for e in [neu] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert ohne_alt["integrity_ok"] is False, (
         "die Korrektur ist ohne ihren Vorgaenger nicht mehr nachvollziehbar")
     assert AR.receipt_digest(alt) in ohne_alt["missing_predecessors"]
@@ -211,12 +211,12 @@ def test_der_receipt_digest_ist_der_des_OBJEKTS_nicht_der_datei():
 
 
 def test_der_resolver_prueft_KEINE_signaturen_und_sagt_es():
-    kette = AR.resolve_receipt_chain([_env(_pred("r1"))])
+    kette = AR.resolve_receipt_chain([_env(_pred("r1"))], verified={AR.receipt_digest(e) for e in [_env(_pred("r1"))] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert "verifies no signatures" in kette["note"]
 
 
 def test_ein_kaputter_umschlag_bringt_den_resolver_nicht_um():
-    kette = AR.resolve_receipt_chain([{"kein": "payload"}, _env(_pred("r1"))])
+    kette = AR.resolve_receipt_chain([{"kein": "payload"}, _env(_pred("r1"))], verified={AR.receipt_digest(e) for e in [{"kein": "payload"}, _env(_pred("r1"))] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["integrity_ok"] is True
     assert len(kette["current_candidates"]) == 1
 
@@ -310,3 +310,61 @@ def test_der_lexikografische_vergleich_waere_hier_falsch_gewesen():
     ereignis, beobachtet = "2026-08-31T14:00:00Z", "2026-08-31T15:00:00+02:00"
     assert beobachtet > ereignis, "als Zeichenkette NICHT groesser — dann ist der Test veraltet"
     assert AR._als_zeitpunkt(beobachtet) < AR._als_zeitpunkt(ereignis), "zeitlich NICHT davor"
+
+
+# ══ Jury-Fund vom 01.09.2026: die Uebernahme durch einen fremd signierten Umschlag ═════════════
+
+_ANGREIFER = Ed25519PrivateKey.from_private_bytes(bytes([9] * 32))
+
+
+def _env_fremd(p: dict) -> dict:
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE, "predicate": p}
+    return dsse.sign_envelope(canonical.canonicalize_statement(st), _ANGREIFER,
+                              payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+
+
+def test_ein_fremd_signierter_umschlag_uebernimmt_die_kette_NICHT():
+    """Der schwerste Fund dieses Deep-Gates, von einer Jury-Linse vorgelegt und nachgebaut.
+
+    Die erste Fassung liess JEDEN Umschlag der Menge einen anderen als korrigiert markieren.
+    Gemessener Angriff: ein Angreifer mit EIGENEM Schluessel legt einen Umschlag dazu, der den
+    Digest unseres echten Belegs nennt. Danach zeigte `current` auf SEIN Receipt, unseres stand
+    unter `corrected`, und `integrity_ok` war True.
+
+    Signaturpruefung an anderer Stelle half nicht: die Ordnung entstand VOR ihr und war bereits
+    vergiftet. Deshalb ist `verified` jetzt PFLICHT ohne Vorgabewert — wer die Menge nicht nennt,
+    bekommt kein stilles Vertrauen.
+    """
+    unser = _env(_pred("echt"))
+    d_unser = AR.receipt_digest(unser)
+    boese = _env_fremd(_pred("uebernahme", supersession={"corrects": [
+        {"priorDigest": {"sha256": d_unser}, "reason": "angeblich korrigiert"}]}))
+
+    k = AR.resolve_receipt_chain([unser, boese], verified={d_unser})
+    assert k["current"] != AR.receipt_digest(boese), "der Angreifer hat die Kette uebernommen"
+    assert d_unser not in k["corrected"], "unser echter Beleg gilt als korrigiert"
+    assert AR.receipt_digest(boese) in k["unverified_supersession_claims"], (
+        "der abgewehrte Uebernahmeversuch wird nicht gemeldet — er saehe aus wie ein leerer Eingang")
+
+
+def test_ohne_benannte_pruefmenge_darf_NIEMAND_korrigieren():
+    """`verified=None` ist kein stilles Vertrauen, sondern die lauteste Antwort: alles Kandidat."""
+    alt = _env(_pred("r1"))
+    neu = _env(_pred("r2", supersession={"corrects": [
+        {"priorDigest": {"sha256": AR.receipt_digest(alt)}, "reason": "korrigiert"}]}))
+    k = AR.resolve_receipt_chain([alt, neu], verified=None)
+    assert k["corrected"] == []
+    assert k["ambiguous"] is True
+    assert AR.receipt_digest(neu) in k["unverified_supersession_claims"]
+
+
+def test_verified_hat_keinen_vorgabewert():
+    """Ein Vorgabewert waere hier die falsche Freundlichkeit — er stellt den Angriff wieder her."""
+    import inspect
+    sig = inspect.signature(AR.resolve_receipt_chain)
+    par = sig.parameters["verified"]
+    assert par.default is inspect.Parameter.empty, (
+        "`verified` hat einen Vorgabewert bekommen — damit ist die Uebernahme wieder moeglich")
+    assert par.kind is inspect.Parameter.KEYWORD_ONLY

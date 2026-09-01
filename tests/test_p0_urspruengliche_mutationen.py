@@ -193,7 +193,7 @@ def test_19_die_supersession_wird_AUFGELOEST_nicht_nur_validiert():
     neu_p["reviewId"] = "r2"
     neu_p["supersession"] = {"corrects": [
         {"priorDigest": {"sha256": d_alt}, "reason": "Zeitsemantik praezisiert"}]}
-    kette = AR.resolve_receipt_chain([alt, _env(neu_p)])
+    kette = AR.resolve_receipt_chain([alt, _env(neu_p)], verified={AR.receipt_digest(e) for e in [alt, _env(neu_p)] if isinstance(e, dict) and isinstance(e.get('payload'), str)})
     assert kette["current"] == AR.receipt_digest(_env(neu_p))
     assert kette["corrected"] == [d_alt]
     assert kette["integrity_ok"] is True
@@ -213,7 +213,7 @@ def test_19c_ein_verschwundener_vorgaenger_macht_die_kette_kaputt():
     neu_p["reviewId"] = "r2"
     neu_p["supersession"] = {"corrects": [
         {"priorDigest": {"sha256": AR.receipt_digest(alt)}, "reason": "praezisiert"}]}
-    assert AR.resolve_receipt_chain([_env(neu_p)])["integrity_ok"] is False
+    assert AR.resolve_receipt_chain([_env(neu_p)], verified={AR.receipt_digest(e) for e in [_env(neu_p)] if isinstance(e, dict) and isinstance(e.get('payload'), str)})["integrity_ok"] is False
 
 
 def test_die_fuenf_tests_sind_vollstaendig_und_benannt():
