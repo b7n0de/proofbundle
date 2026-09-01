@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-a-foreign-key-cannot-supersede-our-receipt",
+  "expected": {
+    "unverifiedSupersessionClaim": "32fc4455e730b23436216c3f98e414f564aeb63a254abe2c24183f4c07f83e2e"
+  },
+  "input": "chain.json",
+  "kind": "agent_review_predicate",
+  "rationale": "DER ANGRIFF, DEN DER RESOLVER ABWEHREN MUSS. Ein Angreifer mit EIGENEM Schluessel legt einen Umschlag dazu, der unseren Beleg als ueberholt benennt. Wuerde die Ordnung vor der Signaturpruefung entstehen, zeigte `current` danach auf SEIN Receipt und unseres stuende unter `corrected` \u2014 bei gueltiger Signatur, denn seine ist gueltig, nur nicht unsere. Der Laeufer prueft deshalb jeden Umschlag SELBST und uebergibt nur die bestandenen; der fremde faellt heraus und darf danach nichts mehr korrigieren.\n\nDIE ACHSE IST BEWUSST NICHT `current`. Gemessen 01.09.2026: nach der Abwehr sind ZWEI Belege unkorrigiert, also meldet der Resolver ehrlich `current=None` statt zu raten \u2014 und genau dasselbe kaeme heraus, wenn er Supersession gar nicht ansaehe. Ein Fall auf `current` bestuende also auch bei einem blinden Resolver. Die unterscheidende Aussage ist der GEMELDETE Anspruch: er belegt, dass der Versuch gesehen und verworfen wurde. Zusaetzlich wird geprueft, dass gar nichts korrigiert wurde.",
+  "role": "counter_proof",
+  "rule": "F15",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "proofbundle.unshipped_spec_refs_baseline.v1",
+  "gemessen_am": "2026-09-01",
+  "gemessen_gegen": "sdist proofbundle-5.1.0 aus Baum be51b54e + den fuenf Deep-Gate-Fixes",
+  "warum_es_diese_datei_gibt": "Konformitaetsfaelle nennen Dokumente normativ (specRefs), die das Paket nicht enthaelt. Gemessen sind das 143 von 168 Nennungen. Diese Datei ist KEINE Freigabe, sondern die festgeschriebene Groesse der Luecke: der Test laesst sie NICHT WACHSEN und laesst kein neues Dokument dazukommen. Sie zu schliessen heisst, die Dokumente samt der transitiven Huelle ihrer Linkziele auszuliefern — eine Verpackungsentscheidung, die MANIFEST.in bewusst einzeln per Pfad trifft und nicht per `graft docs` (dessen Begruendung dort steht). Sie gehoert dem Owner, nicht einem Tag-Vorlauf.",
+  "nicht_enthalten_weil_geschlossen": [
+    "docs/AGENT_REVIEW_PREDICATE.md — am 01.09.2026 in MANIFEST.in aufgenommen, 14 Faelle nennen sie"
+  ],
+  "anzahl_nennungen_offen": 143,
+  "anzahl_nennungen_gesamt": 168,
+  "dokumente": {
+    "docs/design/RELATION_V01_DESIGN.md": 42,
+    "docs/predicates/relation.md": 42,
+    "SPEC.md": 15,
+    "CHANGELOG.md": 11,
+    "CONFORMANCE.md": 10,
+    "EVAL_CLAIM.md": 10,
+    "THREAT_MODEL.md": 8,
+    "docs/ANCHORS.md": 2,
+    "docs/adr/0004-native-root-authenticity.md": 2,
+    "docs/SCITT_CPB_MAPPING.md": 1
+  }
+}

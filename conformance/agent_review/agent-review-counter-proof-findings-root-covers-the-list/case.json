@@ -6,7 +6,10 @@
   },
   "input": "envelope.json",
   "kind": "agent_review_predicate",
-  "rationale": "Removing a finding after the root was taken must be detectable. A receipt that reports '3 findings, 2 fixed' without a root binding is an aggregate anyone can rewrite.",
+  "params": {
+    "expectedSubjectDigest": "f2fca8ac146b3236c8f37533890f42350a8562a6426ec7d96c129e04de3c662a"
+  },
+  "rationale": "Removing a finding after the root was taken must be detectable. A receipt that reports '3 findings, 2 fixed' without a root binding is an aggregate anyone can rewrite.\n\nNACHTRAG 01.09.2026, Tiefen-Gate 5.1.0: dieser Fall KONNTE NICHT KIPPEN. Ohne params.expectedSubjectDigest ist subject_expectation=not_supplied, damit ok=False fuer JEDE Eingabe, damit ist die Klassifikation immer die erwartete 'invalid' \u2014 der Fall bestand auch mit abgeschalteter findingsRoot-Pruefung, und die ganze Strecke blieb rc=0. Zwei unabhaengige Linsen haben das mit je eigenen Mutanten gemessen. F09 war zudem die einzige Regel MIT Gegenbeweis und OHNE Positivkontrolle, es gab also keinen zweiten Faenger. Die Erwartung ist derselbe Wert, den die zwei Geschwister-Faelle bereits tragen; damit faellt der Fall wieder auf SEINER eigenen Achse.",
   "role": "counter_proof",
   "rule": "F09",
   "specRefs": [

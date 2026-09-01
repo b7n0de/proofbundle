@@ -40,6 +40,11 @@ include docs/adr/renewal_policy.example.json
 # blanket graft would also ship documents whose internal links point at pruned repo files, which
 # breaks test_docs_truth from the sdist.
 include docs/RECEIPT_ENVELOPE_PROFILE.md
+# Same reason, measured 01.09.2026: 14 conformance cases under conformance/agent_review/
+# cite this file NORMATIVELY (`specRef`), and it was not shipped — the corpus referred to a
+# document the installed package did not contain. It carries no local links, so it cannot
+# break test_docs_truth the way a `graft docs` would.
+include docs/AGENT_REVIEW_PREDICATE.md
 graft scripts
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.

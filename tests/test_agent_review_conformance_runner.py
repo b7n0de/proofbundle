@@ -19,6 +19,7 @@ DREI EIGENSCHAFTEN, die dieser Ausfuehrer zusammen halten muss — einzeln ist j
 """
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -111,6 +112,28 @@ def _urteil(d: Path, fall: dict) -> dict:
     # nicht mehr von "irgendetwas davor" trennen. Heute faellt das nicht auf, weil kein
     # Umschlag-Fall `valid` ohne Erwartung erwartet; ein kuenftiger wuerde es. Die Delegation
     # nimmt deshalb nur den Pfad, um den es ging.
+    # KETTEN-ACHSEN (Test 19, Supersession). Die MESSUNG wird delegiert, die Erwartung bleibt
+    # hier — dieselbe Trennung wie beim Erzeuger-Pfad darunter, und aus demselben Grund: einen
+    # Ausfuehrer zweimal zu schreiben heisst, ihn einmal altern zu lassen.
+    _KETTEN_ACHSEN = ("currentReceipt", "chainIntegrity", "unverifiedSupersessionClaim")
+    if any(a in erw for a in _KETTEN_ACHSEN):
+        _, _geprueft, kette = _laeufer().loese_kette(fall, d)
+        if "currentReceipt" in erw:
+            passt = kette["current"] == erw["currentReceipt"]
+            grund = f"current={kette['current']!r}"
+        elif "chainIntegrity" in erw:
+            passt = kette["integrity_ok"] is bool(erw["chainIntegrity"])
+            grund = (f"integrity_ok={kette['integrity_ok']}, "
+                     f"missing={kette['missing_predecessors']}")
+        else:
+            passt = (erw["unverifiedSupersessionClaim"]
+                     in kette["unverified_supersession_claims"]) and not kette["corrected"]
+            grund = (f"claims={kette['unverified_supersession_claims']}, "
+                     f"corrected={kette['corrected']}")
+        return {"ok": passt, "refused": False, "kette": True,
+                "result": {"errors": [grund]},
+                "gemessen_an": "run_conformance.loese_kette"}
+
     if (fall.get("kind") == "agent_review_predicate"
             and fall.get("input") == "predicate.json" and "classification" in erw):
         got = _laeufer().klassifiziere_agent_review(fall, d)
@@ -185,8 +208,19 @@ def test_der_fall_verhaelt_sich_wie_beschrieben(d):
             assert u["ok"] is True, f"{d.name}: der Pruefer sagte ok=False — {u['result']['errors']}"
     elif "bodyCoreStable" in erw:
         assert u["stable"] is erw["bodyCoreStable"], d.name
-    else:
+    elif u.get("kette"):
+        # Die Kettenachsen sind in `_urteil` schon gegen die Erwartung gemessen; hier zaehlt nur
+        # noch das Ergebnis. Der Grund faehrt in der Meldung mit, sonst stuende bei einem roten
+        # Fall nichts als der Dateiname.
+        assert u["ok"], f"{d.name}: {u['result']['errors']}"
+    elif "subjectExpectation" in erw:
         assert u["subject_expectation"] == erw["subjectExpectation"], d.name
+    else:
+        # KEIN stiller Vorgabewert. Die vorige Fassung las jede unbekannte Achse als
+        # `subjectExpectation` und fiel dann mit einem KeyError statt mit einer Aussage — ein
+        # `else`, das eine Annahme traegt, ist der haeufigste Ort fuer eine falsche.
+        raise AssertionError(f"{d.name}: unbekannte Erwartungsachse {sorted(erw)} — der Pruefer "
+                             f"muss sie kennen, sonst misst er etwas anderes als der Laeufer")
 
 
 # ── P0.5.6: die Mutationstests selbst mutieren ────────────────────────────────────────────────
@@ -232,6 +266,61 @@ def test_der_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
         f"Fall unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem")
 
 
+# ── Entschaerfung auf KETTENEBENE ───────────────────────────────────────────────────────────────
+# Die zwei Supersessions-Gegenbeweise arbeiten auf Umschlaegen, lassen sich aber sehr wohl
+# punktgenau entschaerfen — nur nicht am Praedikat, sondern an der Kette. Sie deshalb in die
+# "ohne Entschaerfung"-Liste zu schieben waere bequem und schwaecher als noetig.
+def _entschaerfe_fremden_schluessel(d):
+    """Denselben Umschlag mit UNSEREM Schluessel signieren — dann ist der Anspruch geprueft."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    kette = json.loads((d / "chain.json").read_text())["envelopes"]
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    heil = []
+    for env in kette:
+        st = json.loads(base64.b64decode(env["payload"], validate=True))
+        heil.append(AR.emit_agent_review(st["predicate"], sk))
+    return heil
+
+
+def _entschaerfe_fehlenden_vorgaenger(d):
+    """Den ueberholten Beleg wieder dazulegen — er liegt in der Positivkontrolle derselben Runde."""
+    quelle = KORPUS / "agent-review-positive-control-supersession-names-the-current-receipt"
+    voll = json.loads((quelle / "chain.json").read_text())["envelopes"]
+    return voll
+
+
+_KETTEN_ENTSCHAERFUNG = {
+    "agent-review-counter-proof-a-foreign-key-cannot-supersede-our-receipt":
+        (_entschaerfe_fremden_schluessel,
+         lambda k: not k["unverified_supersession_claims"] and bool(k["corrected"])),
+    "agent-review-counter-proof-a-superseded-predecessor-must-still-be-present":
+        (_entschaerfe_fehlenden_vorgaenger,
+         lambda k: k["integrity_ok"] is True),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_KETTEN_ENTSCHAERFUNG), ids=lambda s: s[-40:])
+def test_der_ketten_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
+    """Ohne das koennte ein Kettenfall gruen sein, ohne je etwas zu unterscheiden."""
+    d = KORPUS / name
+    entschaerfe, ist_heil = _KETTEN_ENTSCHAERFUNG[name]
+    laeufer = _laeufer()
+
+    _, _, vorher = laeufer.loese_kette(_fall(d), d)
+    assert not ist_heil(vorher), f"{name}: der Fall ist schon heil — er prueft nichts"
+
+    heile_umschlaege = entschaerfe(d)
+    geprueft = set()
+    schluessel = bytes.fromhex((KORPUS / "publickey.hex").read_text().strip())
+    for env in heile_umschlaege:
+        if AR.verify_agent_review(env, schluessel).get("crypto_ok") is True:
+            geprueft.add(AR.receipt_digest(env))
+    nachher = AR.resolve_receipt_chain(heile_umschlaege, verified=geprueft)
+    assert ist_heil(nachher), (
+        f"{name}: nach dem Wegnehmen des Defekts stimmt es immer noch nicht — der Fall "
+        f"unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem ({nachher})")
+
+
 def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
     """Ein Fall ohne Entschaerfung ist nicht verboten — aber er muss BENANNT sein.
 
@@ -245,8 +334,9 @@ def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
             "agent-review-counter-proof-receipt-does-not-travel-between-subjects",
             "agent-review-counter-proof-introducing-the-first-block-moves-the-digest"}
     alle_gegen = {d.name for d in ALLE if _fall(d)["role"] == "counter_proof"}
-    assert alle_gegen == set(_ENTSCHAERFUNG) | ohne, (
-        f"neue oder entfallene Gegenbeweis-Faelle: {alle_gegen ^ (set(_ENTSCHAERFUNG) | ohne)}")
+    assert alle_gegen == set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne, (
+        f"neue oder entfallene Gegenbeweis-Faelle: "
+        f"{alle_gegen ^ (set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne)}")
 
 
 def test_die_positiven_kontrollen_sind_wirklich_positiv():

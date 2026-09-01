@@ -452,7 +452,8 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
     sys.path.insert(0, str(ROOT.parent / "src"))
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
-    _ACHSEN = ("classification", "bodyCoreStable", "subjectExpectation")
+    _ACHSEN = ("classification", "bodyCoreStable", "subjectExpectation",
+               "currentReceipt", "chainIntegrity", "unverifiedSupersessionClaim")
     genannt = [a for a in _ACHSEN if a in exp]
     if len(genannt) != 1:
         return _fail(cid, f"agent_review_predicate case must declare EXACTLY ONE expectation axis "
@@ -496,11 +497,88 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
         return {"caseId": cid, "ok": True,
                 "detail": f"subject expectation {got}, and the limit is stated"}
 
+    if ("currentReceipt" in exp or "chainIntegrity" in exp
+            or "unverifiedSupersessionClaim" in exp):
+        # DIE SUPERSESSIONS-STRECKE (P0 Test 19). Die Gegenlese Runde 2 fuehrt Test 19 zweimal als
+        # "WIDERLEGT als gefahrene Mutation": der Erstanwendungsbericht nannte ihn gefahren, und in
+        # der vollstaendigen Fall-Liste existierte KEIN Supersessions-Fall.
+        #
+        # DER LAEUFER PRUEFT JEDEN UMSCHLAG SELBST, statt eine Liste gepruefter Digests aus dem Fall
+        # zu uebernehmen. Das ist der ganze Punkt: `resolve_receipt_chain` ordnet nur nach dem, was
+        # der Aufrufer kryptografisch geprueft HAT, und ein Fall, der sich diese Menge selbst
+        # ausdenkt, wuerde die Abwehr des Uebernahmeangriffs nie beruehren. Ein fremd signierter
+        # Umschlag faellt hier durch die Signaturpruefung und darf danach nichts mehr korrigieren.
+        umschlaege, geprueft, kette = loese_kette(case, case_dir)
+        if "currentReceipt" in exp:
+            got = kette["current"]
+            if got != exp["currentReceipt"]:
+                return _fail(cid, f"current {got!r} != expected {exp['currentReceipt']!r} "
+                                  f"(candidates {kette['current_candidates']}, "
+                                  f"unverified claims {kette['unverified_supersession_claims']})")
+            return {"caseId": cid, "ok": True,
+                    "detail": (f"current receipt {str(got)[:12]}, "
+                               f"{len(geprueft)}/{len(umschlaege)} envelope(s) verified")}
+        if "unverifiedSupersessionClaim" in exp:
+            # DIE UNTERSCHEIDENDE AUSSAGE. `current is None` allein wuerde hier NICHTS belegen:
+            # dasselbe Ergebnis entstuende, wenn der Resolver Supersession gar nicht ansaehe. Erst
+            # der GEMELDETE Anspruch zeigt, dass er ihn gesehen UND verworfen hat — ein abgewehrter
+            # Uebernahmeversuch darf nicht aussehen wie ein leerer Eingang.
+            gemeldet = kette["unverified_supersession_claims"]
+            if exp["unverifiedSupersessionClaim"] not in gemeldet:
+                return _fail(cid, f"der abgewehrte Anspruch wurde NICHT gemeldet: "
+                                  f"{gemeldet!r} enthaelt nicht "
+                                  f"{exp['unverifiedSupersessionClaim'][:12]!r}")
+            if kette["corrected"]:
+                return _fail(cid, f"ein ungepruefter Umschlag hat trotzdem korrigiert: "
+                                  f"{kette['corrected_by']!r}")
+            return {"caseId": cid, "ok": True,
+                    "detail": (f"unverified supersession claim reported "
+                               f"({exp['unverifiedSupersessionClaim'][:12]}), nothing corrected")}
+        got_i = kette["integrity_ok"]
+        if got_i is not bool(exp["chainIntegrity"]):
+            return _fail(cid, f"integrity_ok={got_i} != expected {exp['chainIntegrity']} "
+                              f"(missing {kette['missing_predecessors']}, "
+                              f"unaddressable {kette['unaddressable']})")
+        return {"caseId": cid, "ok": True,
+                "detail": (f"chain integrity {got_i}, as this case asserts"
+                           + (f" (missing predecessor {kette['missing_predecessors'][0][:12]})"
+                              if kette["missing_predecessors"] else ""))}
+
     want = exp["classification"]
     got = klassifiziere_agent_review(case, case_dir)
     if got != want:
         return _fail(cid, f"classification {got!r} != expected {want!r}")
     return {"caseId": cid, "ok": True, "detail": f"classified {got}"}
+
+
+def loese_kette(case: dict, case_dir: pathlib.Path):
+    """WIE der Korpus eine Receipt-Kette aufloest — die EINE Messung, oeffentlich rufbar.
+
+    Herausgehoben aus demselben Grund wie `klassifiziere_agent_review`: derselbe Ausfuehrer
+    existiert noch einmal in `tests/test_agent_review_conformance_runner.py`, und zwei Fassungen
+    derselben Entscheidung sind zwei Wahrheiten — die ungerufene altert still. Sie gibt die
+    MESSUNG zurueck, nie ein Urteil: die Erwartung gehoert zum Pruefer.
+
+    Jeder Umschlag wird HIER kryptografisch geprueft, statt eine Liste gepruefter Digests aus dem
+    Fall zu uebernehmen. Das ist der Kern: `resolve_receipt_chain` ordnet nur nach dem, was der
+    Aufrufer wirklich geprueft hat, und ein Fall, der sich diese Menge selbst ausdenkt, beruehrt
+    die Abwehr des Uebernahmeangriffs nie.
+    """
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    name = case.get("input") or "chain.json"
+    if "/" in name or name.startswith("."):
+        raise ValueError(f"input {name!r} escapes the case directory")
+    umschlaege = json.loads((case_dir / name).read_text())["envelopes"]
+    schluessel = bytes.fromhex((case_dir.parent / "publickey.hex").read_text().strip())
+    geprueft = set()
+    for env in umschlaege:
+        try:
+            if ar.verify_agent_review(env, schluessel).get("crypto_ok") is True:
+                geprueft.add(ar.receipt_digest(env))
+        except ar.AgentReviewError:
+            continue
+    return umschlaege, geprueft, ar.resolve_receipt_chain(umschlaege, verified=geprueft)
 
 
 def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:

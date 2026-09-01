@@ -695,6 +695,34 @@ def _validate_supersession(sup: Any) -> list[str]:
     return errs
 
 
+def _waere_fuer_dsse_ein_receipt(env: object) -> bool:
+    """Wuerde die DSSE-Schicht das ueberhaupt als Receipt annehmen?
+
+    Diese Weiche trennt zwei Dinge, die beide `receipt_digest` werfen lassen und trotzdem nichts
+    miteinander zu tun haben:
+
+    * ein ECHTES, kryptografisch gueltiges Receipt, dessen payload im urlsafe-Alphabet steht —
+      `dsse` nimmt beide Alphabete (die Spec verlangt es), `receipt_digest` nur das Standard-
+      Alphabet. Diese ASYMMETRIE war der am 01.09.2026 gemessene Defekt: so ein Receipt fiel
+      lautlos aus der Kette. Das IST ein Verlust und muss gegen die Unversehrtheit zaehlen.
+    * beliebiger Muell im Eingang (kein dict, keine payload-Zeichenkette, oder eine, die in KEINEM
+      Alphabet dekodiert). Das ist gar kein Receipt. Wuerde es die Kette `integrity_ok=False`
+      machen, koennte jeder Aufrufer sie mit einem sinnlosen Objekt als "kaputt" melden lassen —
+      und der Resolver soll robust bleiben, nicht empfindlich.
+
+    Die erste Fassung dieses Fixes machte genau diesen Fehler und fasste beides zusammen; gefangen
+    hat es `test_ein_kaputter_umschlag_bringt_den_resolver_nicht_um`."""
+    if not isinstance(env, dict) or not isinstance(env.get("payload"), str):
+        return False
+    for altchars in (None, b"-_"):
+        try:
+            base64.b64decode(env["payload"], altchars=altchars, validate=True)
+            return True
+        except (ValueError, TypeError):
+            continue
+    return False
+
+
 def receipt_digest(envelope: dict) -> str:
     """Der sha256 ueber die kanonischen Bytes des Statements — die Groesse, die supersession bindet.
 
@@ -752,10 +780,31 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
     vorhanden: dict[str, dict] = {}
     korrigiert: dict[str, list[str]] = {}
     fehlend: list[str] = []
+    # WAS DER VERIFIER ANNIMMT, MUSS DIE KETTE HALTEN KOENNEN — und wo sie es nicht kann, sagt sie
+    # es, statt das Receipt lautlos fallen zu lassen.
+    #
+    # GEMESSEN (Tiefen-Gate 5.1.0, 01.09.2026, von zwei unabhaengigen Linsen und danach von Hand):
+    # `dsse` akzeptiert BEIDE base64-Alphabete — die DSSE-Spec verlangt das, und der eigene
+    # Docstring haelt es fest. `receipt_digest` akzeptiert nur das Standard-Alphabet und WIRFT,
+    # und das ist ebenfalls richtig: ohne `validate=True` verwirft CPython stillschweigend jedes
+    # fremde Zeichen, und ein Angreifer koennte sich den Digest durch eingestreuten Muell
+    # aussuchen. BEIDE Entscheidungen sind fuer sich begruendet. Der Defekt war ihre ASYMMETRIE
+    # plus ein stilles `continue`: ein kryptografisch gueltiges Receipt fiel aus der
+    # Mitgliedschaftsmenge, und die Kette meldete trotzdem `integrity_ok=True`.
+    # Live: url-safe Umschlag -> `crypto_ok=True`, `receipt_digest` wirft,
+    # `resolve_receipt_chain([url])` -> `current=None`, `ambiguous=True`, `integrity_ok=True`.
+    #
+    # NICHT das Digest-Alphabet aufgeweicht (das waere die falsche Stelle und oeffnete genau die
+    # Wahlfreiheit, gegen die `validate=True` steht). Stattdessen wird der Verlust BENANNT und
+    # zaehlt gegen die Unversehrtheit — nicht messbar ist keine Freigabe.
+    nicht_adressierbar: list[str] = []
     for env in envelopes:
         try:
             d = receipt_digest(env)
-        except (AgentReviewError, ValueError):
+        except (AgentReviewError, ValueError) as exc:
+            # NUR die gemessene Asymmetrie zaehlt als Verlust — nicht jeder Muell im Eingang.
+            if _waere_fuer_dsse_ein_receipt(env):
+                nicht_adressierbar.append(str(exc))
             continue
         vorhanden[d] = env
 
@@ -791,7 +840,12 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
             "corrected": sorted(korrigiert),
             "corrected_by": {k: sorted(v) for k, v in korrigiert.items()},
             "missing_predecessors": sorted(set(fehlend)),
-            "integrity_ok": not fehlend,
+            # NICHT ADRESSIERBARE UMSCHLAEGE ZAEHLEN GEGEN DIE UNVERSEHRTHEIT. Sie sind keine
+            # fehlenden Vorgaenger (die kennt `missing_predecessors`), sondern vorgelegte Belege,
+            # die diese Kette nicht platzieren konnte — und solange auch nur einer davon
+            # existiert, ist "die Kette ist vollstaendig" eine Behauptung ohne Grundlage.
+            "unaddressable": sorted(nicht_adressierbar),
+            "integrity_ok": not fehlend and not nicht_adressierbar,
             "note": ("this resolver orders receipts; it verifies no signatures — integrity_ok is "
                      "about the chain being complete, never about cryptographic validity")}
 
@@ -1473,6 +1527,46 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     return aus
 
 
+def _automation_darf_nicht_nachsichtiger_sein_als_ok(r: dict) -> dict:
+    """Die Automations-Flaeche darf NIE nachsichtiger urteilen als das Urteil, das sie zusammenfasst.
+
+    DER BEFUND, gemessen am 01.09.2026 von zwei unabhaengigen Linsen des Tiefen-Gates fuer 5.1.0 und
+    danach von Hand reproduziert — ZWEI Wege in denselben Zustand:
+
+      (a) ohne ``expected_subject_digest`` steht ``subject_binding_ok`` auf ``None``. Die
+          Referenz-Auswertung in ``automation_summary`` blockt nur bei einem EXPLIZITEN ``False``
+          (so steht es in ihrem Vertrag, und fuer andere Aufrufer ist das richtig: dort heisst
+          ``None`` legitim "nicht vorhanden"). Hier heisst es "nie geprueft" — und das ist nicht
+          harmlos. Gemessen: ``ok=False``, ``safeForAutomation=True``, ``blockers=[]``.
+      (b) bei ``body_core_digest_match == "MISMATCH"`` — der sichtbare Text ist nachweislich NICHT
+          der signierte — bleibt ``safeForAutomation=True``. Die Achse ist stringwertig und steht
+          korrekt nicht in ``references``; ein blockierender boolescher Begleiter fehlte.
+
+    WARUM ALS EIGENSCHAFT UND NICHT ALS ZWEI ZUSATZ-ACHSEN. Beide Faelle sind Auspraegungen EINER
+    Invariante: die zusammenfassende Flaeche darf das zusammengefasste Urteil nicht ueberholen. Wer
+    stattdessen die zwei bekannten Achsen nachtraegt, findet beim naechsten Lauf die dritte — genau
+    der Fehlermodus, der dieses Modul heute schon zweimal gekostet hat ("ein Fix, der nur eine
+    Kopie erreicht").
+
+    NICHT in ``automation_verdict.py`` repariert: dessen Vertrag ist ausgeschrieben und fuer die
+    anderen Aufrufer richtig. ``decision.py`` und ``outcome.py`` korrigieren ihr Automations-Urteil
+    aus demselben Grund an derselben Stelle nach; ``agent_review`` tat es als einziges nicht.
+
+    EHRLICHE GRENZE: das schliesst die Luecke NACH OBEN (kein falsches Gruen). Es sagt nichts
+    darueber, ob ``ok`` selbst richtig gerechnet ist — dafuer sind die anderen Achsen da.
+    """
+    a = r.get("automation")
+    if not isinstance(a, dict):
+        return r
+    if r.get("ok") is not True and a.get("safeForAutomation") is True:
+        blocker = list(a.get("automationBlockers") or [])
+        if "RECEIPT_NOT_OK" not in blocker:
+            blocker.append("RECEIPT_NOT_OK")
+        a["automationBlockers"] = blocker
+        a["safeForAutomation"] = False
+    return r
+
+
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None,
                         observed_body: str | None = None) -> dict:
@@ -1701,6 +1795,7 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
+    _automation_darf_nicht_nachsichtiger_sein_als_ok(r)
     return r
 
 
@@ -1797,7 +1892,23 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
         _dv = predicate.get("declaration")
         dec_v2: dict = _dv if isinstance(_dv, dict) else {}
-        if isinstance(dec_v2.get("findingsRoot"), str):
+        # FAIL-CLOSED WIE IM v0.1-PFAD, und der Grund ist gemessen (Tiefen-Gate 5.1.0, 01.09.2026):
+        # ist `declaration` KEIN Objekt, faellt `dec_v2` auf `{}`, damit ist `rungs` leer, damit
+        # `over` leer, damit `assurance_ok = not [] = True` — die Achse meldet Gruen, obwohl sie
+        # nichts geprueft hat. Der v0.1-Pfad hat dafuer seit jeher einen ausdruecklichen Riegel
+        # (mit dem Kommentar, warum die Folgebloecke uebersprungen werden muessen); der v0.2-Pfad
+        # hatte ihn nicht. Gleiche Eingabe, zwei Antworten.
+        #
+        # DIE KLASSE, zum dritten Mal in diesem Modul an einem Tag: "ein Fix erreichte nur eine
+        # Kopie". Deshalb steht die Bedingung hier WOERTLICH gleich und wird von einem Test
+        # gehalten, der BEIDE Pfade gegen dieselbe Eingabe faehrt.
+        if not isinstance(_dv, dict):
+            r["assurance_ok"] = False
+            r["findings_root_ok"] = False
+            r["errors"].append(
+                "declaration must be an object — findingsRoot and assurance cannot be evaluated, "
+                "so both fail closed rather than staying unknown")
+        elif isinstance(dec_v2.get("findingsRoot"), str):
             try:
                 r["findings_root_ok"] = findings_root(dec_v2.get("findings") or []) == dec_v2["findingsRoot"]
                 if not r["findings_root_ok"]:
@@ -1805,14 +1916,19 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             except AgentReviewError as exc:
                 r["findings_root_ok"] = False
                 r["errors"].append(f"findingsRoot not computable: {exc}")
-        rungs = [i.get("assurance")
-                 for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
-                 if isinstance(i, dict)]
-        over = sorted({repr(x) for x in rungs
-                       if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
-        r["assurance_ok"] = not over
-        if over:
-            r["errors"].append(f"assurance rung(s) {over} claimed in a Tier 1 receipt")
+        if isinstance(_dv, dict):
+            # NUR wenn die Deklaration ein Objekt ist. Mein erster Entwurf setzte den Riegel oben
+            # und liess diesen Block laufen — er ueberschrieb `assurance_ok` zwei Zeilen spaeter
+            # wieder auf True. Dieselbe Falle, die der v0.1-Kommentar bereits namentlich nennt:
+            # "ein Fix, der danach verworfen wird, sieht im Quelltext richtig aus und wirkt nicht."
+            rungs = [i.get("assurance")
+                     for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
+                     if isinstance(i, dict)]
+            over = sorted({repr(x) for x in rungs
+                           if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
+            r["assurance_ok"] = not over
+            if over:
+                r["errors"].append(f"assurance rung(s) {over} claimed in a Tier 1 receipt")
 
     _pruefe_sichtbaren_block(r, predicate, observed_body)
 
@@ -1832,4 +1948,5 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
+    _automation_darf_nicht_nachsichtiger_sein_als_ok(r)
     return r
