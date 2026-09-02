@@ -84,6 +84,12 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     Returns ``{"cryptoValid", "structureValid", "policyAuthorized", "referencesResolved",
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
     the caller is responsible for stashing the return value at ``result["automation"]``.
+
+    ``result["ok"]``, when present and not ``True``, ALWAYS blocks with ``RECEIPT_NOT_OK``: a summary
+    must never read safer than the verdict it summarises. An ABSENT ``ok`` never blocks — that is "not
+    applicable", not "not passed". This was a per-caller correction until 02.09.2026; a deep gate
+    measured that a caller could simply forget it (and that the guard watching for it checked the call's
+    SPELLING, not the property).
     """
     # adversarial re-audit: both Mapping args were unguarded — a non-Mapping ``required_checks`` (None) crashed
     # ``required_checks.get(...)`` and a non-Mapping ``result`` crashed ``_tri``'s ``result.get(...)`` with a
@@ -116,6 +122,27 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
             blockers.append("POLICY_FAILED")
     if unresolved:
         blockers.append("REFERENCES_NOT_RESOLVED")
+
+    # DIE ZUSAMMENFASSUNG DARF NIE NACHSICHTIGER SEIN ALS DAS URTEIL, DAS SIE ZUSAMMENFASST.
+    #
+    # Diese Invariante stand bis zum 02.09.2026 NICHT hier, sondern als separater Aufruf bei EINEM
+    # Verbraucher (`agent_review`). Ein adversariales Tiefen-Gate hat gemessen, was das kostet: eine
+    # vierte Flaeche, deren einziger Unterschied `automation_verdict.automation_summary(...)` statt
+    # `automation_summary(...)` war, lieferte `ok=False, safeForAutomation=True, blockers=[]` — und
+    # die Suite meldete 89 passed. Der Riegel war da, aber ein Autor konnte ihn vergessen, und der
+    # Waechter darueber pruefte die SCHREIBWEISE des Aufrufs statt die Eigenschaft.
+    #
+    # Hier kann ihn niemand vergessen. Gemessen ueber die volle Suite: 2968 passed, kein anderes
+    # Modul aendert sein Verhalten; und mit ENTFERNTEN separaten Aufrufen 0 Verstoesse bei 14 echten Aufrufstellen (hier stand '18' — das waren grep-Treffer inklusive drei Kommentarzeilen und einer def-Zeile; gemessen wurde ein VORKOMMEN statt einer EIGENSCHAFT) —
+    # `ok` ist an jeder Aufrufstelle bereits endgueltig.
+    #
+    # DREI ZUSTAENDE, nie zwei: ein FEHLENDES `ok` (der Aufrufer fuehrt keins) blockt NICHT — das
+    # ist „nicht anwendbar" und nicht dasselbe wie „nicht bestanden". Nur ein VORHANDENES `ok`, das
+    # nicht `True` ist, blockt.
+    #
+    # Die Funktion bleibt PUR: sie LIEST `result["ok"]`, sie schreibt nichts.
+    if "ok" in result and result.get("ok") is not True:
+        blockers.append("RECEIPT_NOT_OK")
 
     return {
         "cryptoValid": crypto_ok,

@@ -152,14 +152,96 @@ def test_die_menge_enthaelt_ueberhaupt_einen_nicht_ok_fall():
         f"kaum: {nicht_ok}")
 
 
-def test_beide_verifier_pfade_tragen_die_nachkorrektur():
-    """STRUKTURELL, gegen die Klasse 'ein Fix erreichte nur eine Kopie'. Der urspruengliche Defekt
-    entstand genau so: der v0.1-Pfad wurde gehaertet, der v0.2-Pfad nicht."""
-    import inspect
-    quelle = inspect.getsource(ar)
-    n = quelle.count("_automation_darf_nicht_nachsichtiger_sein_als_ok(r)")
-    assert n >= 2, (
-        f"die Nachkorrektur wird nur {n}x gerufen — v0.1 UND v0.2 muessen sie tragen")
+def _alle_verifier():
+    """Jede oeffentliche `verify_*`-Funktion des Pakets — GEMESSEN, nicht aufgezaehlt."""
+    import importlib  # noqa: PLC0415
+    import pkgutil  # noqa: PLC0415
+
+    import proofbundle  # noqa: PLC0415
+    gefunden = []
+    for m in pkgutil.iter_modules(proofbundle.__path__):
+        if m.ispkg:
+            continue
+        try:
+            mod = importlib.import_module(f"proofbundle.{m.name}")
+        except Exception:                                        # noqa: BLE001
+            continue
+        for n in dir(mod):
+            if n.startswith("verify_") and callable(getattr(mod, n, None)):
+                gefunden.append((m.name, n, getattr(mod, n)))
+    return gefunden
+
+
+#: Eingaben, die JEDER Verifier ablehnen muss. Bewusst grob: es geht um die Invariante, nicht um
+#: die Diagnose.
+_MUELL = [
+    "nicht-ein-dict",
+    {"payload": "!!!keine base64!!!", "payloadType": "application/vnd.in-toto+json",
+     "signatures": [{"sig": "AA=="}]},
+    {"payload": "a2VpbiBqc29u", "payloadType": "application/vnd.in-toto+json",
+     "signatures": [{"sig": "AA=="}]},
+    {"payload": "e30=", "payloadType": "application/vnd.in-toto+json"},
+]
+
+
+def test_kein_verifier_meldet_sicher_bei_nicht_ok():
+    """DIE INVARIANTE, jetzt ueber das GANZE Paket und als VERHALTEN gemessen.
+
+    Bis zum 02.09.2026 stand hier ein Waechter, der am Syntaxbaum zaehlte, ob jede Funktion mit
+    einer `automation`-Flaeche auch die Nachkorrektur RUFT. Ein Tiefen-Gate hat gemessen, was das
+    kostet: eine vierte Flaeche mit `automation_verdict.automation_summary(...)` statt
+    `automation_summary(...)` — dieselbe Funktion, andere Schreibweise — lieferte `ok=False,
+    safe=True, blockers=[]` bei 89 gruenen Tests.
+
+    Der Waechter pruefte die SCHREIBWEISE. Die Invariante ist jetzt IN `automation_summary`
+    gefaltet, wo man sie nicht vergessen kann, und dieser Test misst sie am VERHALTEN — ueber jede
+    `verify_*`-Funktion, die das Paket fuehrt, nicht ueber eine Liste.
+    """
+    verifier = _alle_verifier()
+    assert verifier, "keine Verifier gefunden — die Erhebung misst nichts"
+    verstoesse, gefahren = [], 0
+    for modul, name, fn in verifier:
+        for env in _MUELL:
+            try:
+                r = fn(env, bytes(range(32)))
+            except TypeError:
+                continue                       # andere Signatur, nicht dieser Vertrag
+            except Exception:                  # noqa: BLE001 — hier zaehlt nur die Invariante
+                continue
+            if not isinstance(r, dict):
+                continue
+            gefahren += 1
+            a = r.get("automation") or {}
+            if r.get("ok") is not True and a.get("safeForAutomation") is True:
+                verstoesse.append(f"{modul}.{name}: blockers={a.get('automationBlockers')}")
+    assert gefahren >= 8, (
+        f"nur {gefahren} Faelle gefahren — die Vorrichtung misst zu wenig, um etwas zu belegen")
+    assert not verstoesse, (
+        f"Verifier melden sicher bei nicht-ok: {verstoesse}")
+
+
+def test_meta_die_invariante_faellt_wenn_man_sie_herausnimmt():
+    """META, und es FUEHRT die Invariante aus statt sie nachzubauen.
+
+    Ohne `RECEIPT_NOT_OK` in `automation_summary` waere die Flaeche bei `ok=False` wieder sicher.
+    """
+    from proofbundle.automation_verdict import automation_summary  # noqa: PLC0415
+    mit_ok_false = automation_summary(
+        {"ok": False, "crypto_ok": True, "structure_ok": True},
+        required_checks={"crypto": "crypto_ok", "structure": "structure_ok",
+                         "policy": None, "references": []})
+    assert mit_ok_false["safeForAutomation"] is False, (
+        "die Zusammenfassung meldet sicher, obwohl ok=False — die Invariante ist nicht gefaltet")
+    assert "RECEIPT_NOT_OK" in mit_ok_false["automationBlockers"], (
+        f"der Grund fehlt: {mit_ok_false['automationBlockers']}")
+    # GEGENRICHTUNG, sonst faengt der Test alles: ohne `ok` darf nichts blocken.
+    ohne_ok = automation_summary(
+        {"crypto_ok": True, "structure_ok": True},
+        required_checks={"crypto": "crypto_ok", "structure": "structure_ok",
+                         "policy": None, "references": []})
+    assert ohne_ok["safeForAutomation"] is True, (
+        "ein FEHLENDES ok blockt — das ist 'nicht anwendbar', nicht 'nicht bestanden'")
+
 
 
 @pytest.mark.parametrize("pfad", VARIANTEN["pfad"])
@@ -175,7 +257,21 @@ def test_der_kontrollfall_bleibt_gruen(pfad):
     """
     r = _fahre(pfad, "gesetzt", "passend")
     assert r.get("ok") is True, f"die {pfad}-Fixture ist ungueltig: {r.get('errors')[:3]}"
-    assert (r.get("automation") or {}).get("safeForAutomation") is True
+    a = r.get("automation") or {}
+    if pfad == "v0.1":
+        assert a.get("safeForAutomation") is True, (
+            f"v0.1 ohne Policy-Achse muss sicher sein: {a.get('automationBlockers')}")
+    else:
+        # v0.2 FUEHRT eine Policy-Achse. Ohne uebergebene Policy ist sie NICHT ausgewertet, und ein
+        # Receipt, dessen Policy nie ausgewertet wurde, ist nicht automatisierbar-sicher. Bis zum
+        # 02.09.2026 meldete v0.2 hier `True` — weil der Aufruf `policy=None` uebergab, was laut
+        # Vertrag "dieser Predicate-Typ hat gar keine Policy-Schicht" heisst. Das war fuer v0.1
+        # richtig und fuer v0.2 falsch, und weil BEIDE Pfade dieselbe Zeile trugen, konnte kein
+        # Pfadvergleich es sehen.
+        assert a.get("safeForAutomation") is False, (
+            "v0.2 fuehrt eine Policy-Achse; ohne Auswertung darf die Flaeche nicht sicher melden")
+        assert "POLICY_NOT_EVALUATED" in (a.get("automationBlockers") or []), (
+            f"der Grund fehlt: {a.get('automationBlockers')}")
 
 
 #: Achsen, die diese Aufruf-Matrix NICHT bewegt — je mit dem Grund, warum das in Ordnung ist.
@@ -191,10 +287,10 @@ UNBEWEGT_BEGRUENDET = {
     "statement_shape_ok": "haengt am Umschlag, nicht am Aufruf",
     "structure_ok": "haengt am Dokument, nicht am Aufruf",
     "currentness": "braucht eine Kette; dieser Aufruf uebergibt keine",
-    "observed_time_assurance": "braucht eine beobachtete Zeit; v0.1 verbietet anchoredAt",
-    "time_semantics": "v0.1-Konstante, kann in diesem Pfad nur einen Wert annehmen",
     # ── seit dem 02.09.2026, als die Pfad-Achse (v0.1 | v0.2) dazukam ──────────────────────────
-    # Die fuenf Zeit-Achsen fuehrt NUR der v0.2-Pfad. Sie bewegen sich nicht an `ziel` oder `text`,
+    # Die vier Zeit-Achsen plus `policy_decision` fuehrt NUR der v0.2-Pfad — fuenf v0.2-exklusive
+    # Schluessel, aber nur VIER davon sind Zeit-Achsen. Hier stand 'fuenf Zeit-Achsen'; die Datei
+    # selbst begruendet den fuenften zwei Zeilen spaeter anders ('braucht eine uebergebene Policy'). Sie bewegen sich nicht an `ziel` oder `text`,
     # sondern an Zeitbelegen, die `apply_time_evidence` beisteuert — das ist eine andere Klasse und
     # hat ihre eigene Testdatei. Zwei Achsen sind aus dieser Liste GEFALLEN, weil die Pfad-Achse sie
     # wirklich bewegt: `internal_consistency_ok` und `disclosure_core_digest_match`. Eine
@@ -246,12 +342,36 @@ def test_die_menge_ist_vollstaendig():
 
 
 def test_die_begruendete_liste_verrottet_nicht():
-    """GEGENRICHTUNG. Eine Ausnahmeliste, die Namen fuehrt, die es nicht mehr gibt, waechst
-    stumm zu und deckt irgendwann etwas, das niemand mehr prueft."""
+    """GEGENRICHTUNG, und sie war bis zum 02.09.2026 EINSEITIG.
+
+    Sie fand nur Namen, die es GAR NICHT MEHR gibt. Eine Achse, die es gibt und die sich BEWEGT,
+    fiel in `bewegt` und verschwand aus `unerklaert` — ihre stehengebliebene Begruendung deckte
+    also weiter etwas ab, das niemand mehr prueft. Gemessen von einer adversarialen Linse: zwei
+    Achsen (`observed_time_assurance`, `time_semantics`) trugen Begruendungen, die nachweislich
+    falsch waren, und der Kommentar daneben behauptete, genau dieser Sweep sei gemacht worden.
+
+    Zwei Richtungen, weil es zwei Arten von Verrottung gibt: ein Name ohne Achse und eine
+    Begruendung ohne Wahrheit.
+    """
     gesehen = _achsen_und_werte()
     verwaist = sorted(set(UNBEWEGT_BEGRUENDET) - set(gesehen))
     assert not verwaist, (
         f"UNBEWEGT_BEGRUENDET nennt Achsen, die das Ergebnis nicht mehr fuehrt: {verwaist}")
+    bewegt = {k for k, v in gesehen.items() if len(v) > 1}
+    falsch = sorted(bewegt & set(UNBEWEGT_BEGRUENDET))
+    assert not falsch, (
+        f"Achse(n) BEWEGEN sich, stehen aber als unbewegt begruendet: {falsch}. Die Begruendung "
+        f"stimmt nicht mehr — streichen, damit sie nicht die naechste echte Unbewegtheit deckt. "
+        f"Werte: { {k: sorted(map(str, gesehen[k])) for k in falsch} }")
+
+
+def test_meta_eine_falsch_gewordene_begruendung_wird_gefangen():
+    """META. Beweist, dass die zweite Richtung fallen KANN."""
+    gesehen = _achsen_und_werte()
+    bewegt = {k for k, v in gesehen.items() if len(v) > 1}
+    assert bewegt, "keine Achse bewegt sich — die Vorrichtung misst nichts"
+    liste = set(UNBEWEGT_BEGRUENDET) | {next(iter(sorted(bewegt)))}
+    assert sorted(bewegt & liste), "eine falsch gewordene Begruendung bliebe unbemerkt"
 
 
 def test_meta_eine_neue_achse_wird_gefangen():
@@ -263,3 +383,54 @@ def test_meta_eine_neue_achse_wird_gefangen():
     unerklaert = sorted(set(gesehen) - bewegt - set(UNBEWEGT_BEGRUENDET))
     assert unerklaert == ["eine_neue_achse_die_niemand_erklaert_hat"], (
         f"der Vollstaendigkeits-Test faengt eine neue Achse NICHT — er misst nichts: {unerklaert}")
+
+
+# ── Die Nachkorrektur in _finalize_failclosed ist dort ein No-op ───────────────────────────────
+
+@pytest.mark.parametrize("name,umschlag", [
+    ("Umschlag kein Objekt", "nicht-ein-dict"),
+    ("payload keine base64", {"payload": "!!!keine base64!!!",
+                              "payloadType": "application/vnd.in-toto+json",
+                              "signatures": [{"sig": "AA=="}]}),
+    ("payload kein JSON", {"payload": "a2VpbiBqc29u",
+                           "payloadType": "application/vnd.in-toto+json",
+                           "signatures": [{"sig": "AA=="}]}),
+    ("signatures fehlen", {"payload": "e30=",
+                           "payloadType": "application/vnd.in-toto+json"}),
+])
+@pytest.mark.parametrize("pruefer", ["v0.1", "v0.2"])
+def test_die_nachkorrektur_im_failclosed_pfad_bricht_nichts(name, umschlag, pruefer):
+    """EINE ABGEWIESENE GEGENLESUNG, ALS TEST STATT ALS SATZ.
+
+    Eine Pflicht-Gegenlesung meldete am 02.09.2026 als kritischen Fund: `_finalize_failclosed`
+    setze `ok = False` und rufe DANACH die Nachkorrektur — die sei dort „moeglicherweise nicht
+    mehr anwendbar oder fuehrt zu einem Fehler". Das war eine Vermutung, keine Messung.
+
+    Am Quelltext geprueft: die Nachkorrektur greift NUR bei `ok is not True` UND
+    `safeForAutomation is True`; sie ist idempotent und wirft nicht. Im fail-closed-Pfad steht
+    `safe` bereits auf False, sie ist dort also ein No-op.
+
+    Dieser Test haelt die Abweisung fest. Die Hausregel dazu: eine Gegenlesung ANZUNEHMEN und sie
+    ABZUWEISEN sind dieselbe Art Aussage ueber den Quelltext — fuer die Annahme galt „am Code
+    pruefen" laengst, fuer die Abweisung nicht, dabei ist sie die riskantere. Ein abgewiesener
+    echter Befund bleibt im Baum.
+    """
+    fn = ar.verify_agent_review if pruefer == "v0.1" else ar.verify_agent_review_v02
+    r = fn(umschlag, bytes(range(32)), strict=True)          # darf NICHT werfen
+    a = r.get("automation") or {}
+    assert r.get("ok") is False, f"{name}/{pruefer}: fail-closed liefert ok={r.get('ok')!r}"
+    assert a.get("safeForAutomation") is False, (
+        f"{name}/{pruefer}: die Automations-Flaeche meldet sicher auf einem fail-closed-Pfad")
+    assert "RECEIPT_NOT_OK" in (a.get("automationBlockers") or []), (
+        f"{name}/{pruefer}: der Grund fehlt. Blockers: {a.get('automationBlockers')}")
+
+
+# NACHTRAG 02.09.2026: die urspruengliche Fassung dieses Tests nagelte fest, `RECEIPT_NOT_OK` werde
+# hier NICHT angehaengt — damals stimmte das, weil die Nachkorrektur ein separater Aufruf war und
+# auf dem fail-closed-Pfad nichts zu tun fand (`safe` stand schon auf False). Seit die Invariante
+# IN `automation_summary` gefaltet ist, wird der Grund immer genannt, und das ist die bessere
+# Antwort: ein Verbraucher sieht jetzt, DASS das Receipt nicht ok ist, statt es aus der Abwesenheit
+# eines Blockers schliessen zu muessen.
+#
+# Die ABWEISUNG der Gegenlesung bleibt davon unberuehrt und ist weiterhin das, was dieser Test
+# haelt: der Aufruf wirft nicht, und die Flaeche meldet nicht sicher.

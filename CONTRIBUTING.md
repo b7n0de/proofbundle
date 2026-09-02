@@ -17,9 +17,7 @@ git clone https://github.com/b7n0de/proofbundle
 cd proofbundle
 python -m pip install -e ".[dev]"
 
-# run the tests (no pytest required, standard library works too)
-python -m unittest discover -s tests
-# or, with pytest installed
+# run the tests (pytest is REQUIRED — see the note below)
 pytest -q
 
 # regenerate the example bundle
@@ -28,6 +26,20 @@ python examples/make_example.py
 # lint
 ruff check .
 ```
+
+> **Why pytest is required, measured 02.09.2026.** This used to say *"no pytest required, standard
+> library works too"*. That is not true of this suite and had not been true for a long time:
+> **35 of 217 test modules import `pytest` at module level**, and **30 modules hold 345 test
+> functions written as plain `def test_*()`**, which `unittest discover` cannot see at all. A
+> stdlib-only run therefore does not fail loudly — it silently runs several hundred tests fewer and
+> still reports `OK`. A promise a test suite cannot keep is worse than no promise: it sends the
+> reader down a path that looks green and is not.
+>
+> The repo-context rule (tests that assert repo/CI/Rust/docs layout declare themselves N/A outside
+> a git checkout) lives in `tests/conftest.py`. It is bound to pytest — and that is correct
+> **because pytest is the only runner that can run this suite**. A rule bound to one runner is a
+> defect only when a second, documented runner exists.
+
 
 ## Branch base (fork from `main`, never from a release tag)
 

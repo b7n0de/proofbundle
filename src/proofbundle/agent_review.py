@@ -1227,6 +1227,18 @@ def _empty_result() -> dict:
 
 
 def _finalize_failclosed(r: dict) -> dict:
+    """DIE DRITTE Automations-Flaeche — und bis zum 02.09.2026 die einzige ohne Nachkorrektur.
+
+    Gemessen von einer adversarialen Linse: das Modul stellt an DREI Stellen eine
+    `automation`-Flaeche her (`_verify_agent_review_inner`, `_verify_v02_inner` und hier), aber nur
+    zwei riefen `_automation_darf_nicht_nachsichtiger_sein_als_ok`. Der strukturelle Waechter
+    verlangte `count >= 2` — eine Schwelle, die die Zahl der Kopien von GESTERN einfriert und
+    deshalb gruen meldete, waehrend genau der Fall eintrat, den sie verhindern soll.
+
+    Heute nicht ausnutzbar (alle vier Aufrufstellen setzen vorher `structure_ok = False`, also
+    blockt `STRUCTURE_NOT_OK` ohnehin) — aber eine fehlende zweite Verteidigungslinie an einer
+    Stelle, die eine Zeile von einem echten Loch entfernt ist.
+    """
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["ok"] = False
     r["automation"] = automation_summary(r, required_checks={
@@ -1292,6 +1304,54 @@ def _shape_err(code: str, message: str) -> ShapeError:
     return ShapeError(code, message)
 
 
+#: DREI LAGEN, DIE EINE MELDUNG UNTERSCHEIDEN MUSS — und die Nennung des Typs gehoert nur in eine.
+#:
+#: GEMESSEN von einer adversarialen Linse am 02.09.2026: `digest` FEHLT und `digest = null` ergaben
+#: beide "must be an object, got NoneType". Fuer den zweiten Fall stimmt das; fuer den ersten nennt
+#: die Meldung den Typ eines Wertes, DEN ES NICHT GIBT. Dieselbe Kollaps-Klasse an drei weiteren
+#: Stellen (`_type`, `subject`, `subject[0].name`). Das Modul fuehrt ABSENT sonst ueberall als
+#: eigenen Zustand (`ABSENT_IN_RECEIPT` gegen `NOT_MEASURABLE`); die Formpruefung folgte der
+#: eigenen Hausregel nicht.
+#:
+#: EINE Stelle, nicht fuenf: eine Regel, die an fuenf Orten wiederholt wird, driftet am sechsten.
+def _feldlage(behaelter: object, schluessel: str) -> str:
+    """`absent` (Schluessel fehlt) · `null` (da, aber None) · `vorhanden`.
+
+    NICHT-MAPPINGS WERFEN, statt „absent" zu antworten. Gemessen von einer adversarialen Linse am
+    02.09.2026: `_feldlage('nur ein String', 'k')` lieferte `'absent'` und
+    `_feldlage(['a','b'], 'k')` ebenso — „der Schluessel fehlt" ist fuer einen Behaelter, der gar
+    keine Schluessel haben KANN, die falsche der drei Antworten, und sie liest sich wie eine
+    Messung. `int`/`None` warfen dagegen `TypeError`, also war das Verhalten zusaetzlich
+    uneinheitlich. Alle vier heutigen Aufrufstellen garantieren ein `dict`; der Riegel steht fuer
+    die fuenfte.
+    """
+    if not isinstance(behaelter, dict):
+        raise TypeError(f"_feldlage erwartet ein dict, bekam {type(behaelter).__name__} — "
+                        f"'absent' waere hier eine Antwort ueber einen Behaelter, der keine "
+                        f"Schluessel haben kann")
+    if schluessel not in behaelter:
+        return "absent"
+    return "null" if behaelter[schluessel] is None else "vorhanden"
+
+
+def _lagen_satz(pfad: str, lage: str, wert: object, erwartet: str) -> str:
+    """Ein Satz, der die LAGE beschreibt statt einen Typ zu erfinden."""
+    if lage == "absent":
+        return f"{pfad} is missing — it must be {erwartet}"
+    if lage == "null":
+        return f"{pfad} is null — it must be {erwartet}"
+    if lage != "vorhanden":
+        # DER HELFER VERTEIDIGT SEINE EIGENE INVARIANTE. Ohne diesen Zweig fiel jede unbekannte
+        # Lage (`"abesnt"`, `"ABSENT"`, `""`, `None`) auf den Satz zurueck, der einen Typ fuer
+        # einen moeglicherweise nicht existierenden Wert nennt — also genau in den Defekt, gegen
+        # den er gebaut ist. Gemessen von einer adversarialen Linse am 02.09.2026; heute nicht
+        # erreichbar, weil `_feldlage` nur drei Werte liefert, aber der Kommentar darueber warnt
+        # selbst vor Drift „am sechsten Ort".
+        raise ValueError(f"unbekannte Feldlage {lage!r} fuer {pfad} — erlaubt sind "
+                         f"'absent', 'null', 'vorhanden'")
+    return f"{pfad} must be {erwartet}, got {type(wert).__name__}"
+
+
 def validate_statement_shape(statement: object, predicate: object) -> list[ShapeError]:
     """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
 
@@ -1315,17 +1375,25 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
 
     t = statement.get("_type")
     if t != INTOTO_STATEMENT_TYPE:
-        errs.append(_shape_err(
-            "STATEMENT_TYPE_MISMATCH",
-            f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
-                    "(the in-toto spec requires it; an unread _type is an unagreed shape)"))
+        lage = _feldlage(statement, "_type")
+        if lage == "absent":
+            errs.append(_shape_err(
+                "STATEMENT_TYPE_ABSENT",
+                "_type is missing — the in-toto spec requires it, and a statement without one "
+                "has no agreed shape at all (this is not the same as carrying the wrong one)"))
+        else:
+            errs.append(_shape_err(
+                "STATEMENT_TYPE_MISMATCH",
+                f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                "(the in-toto spec requires it; an unread _type is an unagreed shape)"))
 
     subj = statement.get("subject")
     if not isinstance(subj, list):
+        lage = _feldlage(statement, "subject")
         errs.append(_shape_err(
-            "SUBJECT_NOT_ARRAY",
-            f"subject must be an array, got {type(subj).__name__} "
-                    "(the subject array is the binding statement layer)"))
+            "SUBJECT_ABSENT_FIELD" if lage == "absent" else "SUBJECT_NOT_ARRAY",
+            _lagen_satz("subject", lage, subj,
+                        "an array (the subject array is the binding statement layer)")))
         return errs
     if len(subj) != 1:
         # ZWEI LAGEN, ZWEI CODES — dieselbe Klasse wie beim digest eine Ebene tiefer, und hier war
@@ -1354,9 +1422,11 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
 
     dig = s0.get("digest")
     if not isinstance(dig, dict):
+        lage = _feldlage(s0, "digest")
         errs.append(_shape_err(
-            "SUBJECT_DIGEST_NOT_OBJECT",
-            f"subject[0].digest must be an object, got {type(dig).__name__}"))
+            "SUBJECT_DIGEST_ABSENT" if lage == "absent" else "SUBJECT_DIGEST_NOT_OBJECT",
+            _lagen_satz("subject[0].digest", lage, dig,
+                        "an object (it is what binds the receipt to the reviewed object)")))
     elif set(dig) != {"sha256"}:
         # DREI ZUSTAENDE, DREI CODES — und jeder Satz beschreibt seinen eigenen Fall.
         #
@@ -1400,21 +1470,82 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
 
     name = s0.get("name")
     if not (isinstance(name, str) and name):
-        errs.append(_shape_err(
-            "SUBJECT_NAME_EMPTY",
-            "subject[0].name must be a non-empty string"))
+        # VIER LAGEN, VIER ANTWORTEN. Die Vorfassung nannte alle `SUBJECT_NAME_EMPTY` — auch
+        # `name = 42`, und 42 ist nicht leer, so wenig wie 0 mehr als 1 ist. Gemessen von einer
+        # adversarialen Linse am 02.09.2026 als Befund C-3; dieselbe Funktion trennte fuer
+        # `subject` und `digest` bereits, fuer `name` nicht.
+        lage = _feldlage(s0, "name")
+        if lage == "absent":
+            errs.append(_shape_err(
+                "SUBJECT_NAME_ABSENT",
+                "subject[0].name is missing — it must be a non-empty string naming the object "
+                "this receipt speaks about"))
+        elif lage == "null":
+            errs.append(_shape_err(
+                "SUBJECT_NAME_NULL",
+                "subject[0].name is null — it must be a non-empty string naming the object "
+                "this receipt speaks about"))
+        elif not isinstance(name, str):
+            errs.append(_shape_err(
+                "SUBJECT_NAME_NOT_STRING",
+                f"subject[0].name must be a string, got {type(name).__name__} — a non-string "
+                "name cannot be compared against the one derived from the signed subjectContext"))
+        else:
+            errs.append(_shape_err(
+                "SUBJECT_NAME_EMPTY",
+                "subject[0].name is the empty string — it must name the object this receipt "
+                "speaks about"))
     elif isinstance(predicate, dict):
         # The name is DERIVED from the signed subjectContext. A name that disagrees with it points
         # the reader at a different object than the signature covers.
-        try:
-            erwartet = _subject_name(predicate)
-        except Exception:                                        # noqa: BLE001
-            erwartet = None
-        if erwartet is not None and name != erwartet:
+        # ZUERST: KANN ueberhaupt ein Name abgeleitet werden?
+        #
+        # `_subject_name` faellt auf `{}` zurueck (`predicate.get("subjectContext") or {}`) und
+        # liefert dann `github-issue::` — einen Wert, den nichts im Receipt traegt. Gemessen von
+        # einer adversarialen Linse am 02.09.2026 (Befund C-1): fehlte der `subjectContext` ganz,
+        # meldete diese Stelle "the signed subjectContext derives 'github-issue::'", obwohl es
+        # keinen gab; fehlte nur `kind`, sagte sie dem Leser, das signierte Objekt sei ein ISSUE,
+        # waehrend nichts im Receipt das sagt. Vier Lagen unter einem Code, und fuer drei davon
+        # ERFAND die Meldung ihren Vergleichswert.
+        #
+        # Ein abgeleiteter Name ist nur dann eine Aussage ueber das signierte Objekt, wenn der
+        # subjectContext die Felder TRAEGT, aus denen er abgeleitet wird. Sonst ist die richtige
+        # Antwort "hier laesst sich nichts vergleichen" — nicht ein erfundener Vergleich.
+        sc = predicate.get("subjectContext") if isinstance(predicate, dict) else None
+        _hat_ref = isinstance(sc, dict) and isinstance(sc.get("humanRef"), str) and sc["humanRef"]
+        # `repositoryId` GEHOERT DAZU, und sein Fehlen war die naechste Auspraegung derselben Klasse.
+        #
+        # Die erste Fassung dieser Vorpruefung deckte VIER der FUENF Felder ab, aus denen
+        # `_subject_name` ableitet. Eine adversariale Linse hat am 02.09.2026 gemessen, was das
+        # kostet: fehlt `repositoryId`, meldet der Vergleich weiterhin „the signed subjectContext
+        # derives 'github-pr::PR_kw1'" — byte-genau die Signatur des Defekts, den diese Aenderung
+        # schliesst, nur ein Feld weiter. Bei `repositoryId: null` steht sogar ein Python-`None`
+        # im erwarteten Namen.
+        #
+        # Das Kriterium ist mechanisch und wird von einem Test gehalten:
+        # `felder(_subject_name) - felder(_ableitbar) == set()`. Wer `_subject_name` um ein Feld
+        # erweitert, ohne es hier aufzunehmen, faellt dort.
+        _ableitbar = bool(_hat_ref) or (
+            isinstance(sc, dict) and sc.get("kind") in ("githubPullRequest", "githubIssue")
+            and sc.get("repositoryId")
+            and (sc.get("pullRequestNodeId") or sc.get("issueNodeId")))
+        if not _ableitbar:
             errs.append(_shape_err(
-                "SUBJECT_NAME_DISAGREES",
-                f"subject[0].name is {name!r} but the signed subjectContext derives "
-                        f"{erwartet!r} — the visible name and the signed object disagree"))
+                "SUBJECT_NAME_UNDERIVABLE",
+                "subject[0].name cannot be checked: the predicate carries no subjectContext with "
+                "a usable kind and node id, so there is nothing to derive an expected name from. "
+                "This is NOT a disagreement about the name — it is a receipt that does not say "
+                "what object it speaks about."))
+        else:
+            try:
+                erwartet = _subject_name(predicate)
+            except Exception:                                    # noqa: BLE001
+                erwartet = None
+            if erwartet is not None and name != erwartet:
+                errs.append(_shape_err(
+                    "SUBJECT_NAME_DISAGREES",
+                    f"subject[0].name is {name!r} but the signed subjectContext derives "
+                    f"{erwartet!r} — the visible name and the signed object disagree"))
 
     for k in statement:
         if k not in ("_type", "subject", "predicateType", "predicate"):
@@ -1706,45 +1837,16 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     return aus
 
 
-def _automation_darf_nicht_nachsichtiger_sein_als_ok(r: dict) -> dict:
-    """Die Automations-Flaeche darf NIE nachsichtiger urteilen als das Urteil, das sie zusammenfasst.
-
-    DER BEFUND, gemessen am 01.09.2026 von zwei unabhaengigen Linsen des Tiefen-Gates fuer 5.1.0 und
-    danach von Hand reproduziert — ZWEI Wege in denselben Zustand:
-
-      (a) ohne ``expected_subject_digest`` steht ``subject_binding_ok`` auf ``None``. Die
-          Referenz-Auswertung in ``automation_summary`` blockt nur bei einem EXPLIZITEN ``False``
-          (so steht es in ihrem Vertrag, und fuer andere Aufrufer ist das richtig: dort heisst
-          ``None`` legitim "nicht vorhanden"). Hier heisst es "nie geprueft" — und das ist nicht
-          harmlos. Gemessen: ``ok=False``, ``safeForAutomation=True``, ``blockers=[]``.
-      (b) bei ``body_core_digest_match == "MISMATCH"`` — der sichtbare Text ist nachweislich NICHT
-          der signierte — bleibt ``safeForAutomation=True``. Die Achse ist stringwertig und steht
-          korrekt nicht in ``references``; ein blockierender boolescher Begleiter fehlte.
-
-    WARUM ALS EIGENSCHAFT UND NICHT ALS ZWEI ZUSATZ-ACHSEN. Beide Faelle sind Auspraegungen EINER
-    Invariante: die zusammenfassende Flaeche darf das zusammengefasste Urteil nicht ueberholen. Wer
-    stattdessen die zwei bekannten Achsen nachtraegt, findet beim naechsten Lauf die dritte — genau
-    der Fehlermodus, der dieses Modul heute schon zweimal gekostet hat ("ein Fix, der nur eine
-    Kopie erreicht").
-
-    NICHT in ``automation_verdict.py`` repariert: dessen Vertrag ist ausgeschrieben und fuer die
-    anderen Aufrufer richtig. ``decision.py`` und ``outcome.py`` korrigieren ihr Automations-Urteil
-    aus demselben Grund an derselben Stelle nach; ``agent_review`` tat es als einziges nicht.
-
-    EHRLICHE GRENZE: das schliesst die Luecke NACH OBEN (kein falsches Gruen). Es sagt nichts
-    darueber, ob ``ok`` selbst richtig gerechnet ist — dafuer sind die anderen Achsen da.
-    """
-    a = r.get("automation")
-    if not isinstance(a, dict):
-        return r
-    if r.get("ok") is not True and a.get("safeForAutomation") is True:
-        blocker = list(a.get("automationBlockers") or [])
-        if "RECEIPT_NOT_OK" not in blocker:
-            blocker.append("RECEIPT_NOT_OK")
-        a["automationBlockers"] = blocker
-        a["safeForAutomation"] = False
-    return r
-
+# `_automation_darf_nicht_nachsichtiger_sein_als_ok` IST WEG — die Invariante lebt jetzt IN
+# `automation_verdict.automation_summary`.
+#
+# Sie war ein separater Aufruf, den jede Flaeche selbst machen musste. Ein adversariales Tiefen-Gate
+# hat am 02.09.2026 gemessen, was das kostet: eine vierte Flaeche mit `automation_verdict.
+# automation_summary(...)` statt `automation_summary(...)` lieferte `ok=False, safe=True,
+# blockers=[]` bei 89 gruenen Tests. Der Waechter dagegen pruefte die SCHREIBWEISE des Aufrufs.
+#
+# Der Klassen-Fix ist nicht ein besserer Waechter, sondern eine Stelle, an der man es nicht mehr
+# vergessen KANN. Gemessen mit entfernten separaten Aufrufen: 0 Verstoesse bei 14 echten Aufrufstellen (hier stand '18' — das waren grep-Treffer inklusive drei Kommentarzeilen und einer def-Zeile; gemessen wurde ein VORKOMMEN statt einer EIGENSCHAFT).
 
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None,
@@ -1973,7 +2075,15 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         _beob = (_zeiten or {}).get("observedAt") if isinstance(_zeiten, dict) else None
         if r["predicate_type_ok"]:
             r["time_semantics"] = "LEGACY_V0_1"
-        if _beob is not None:
+        # AN `predicate_type_ok` GEBUNDEN wie seine zwei Nachbarn in diesem Block.
+        #
+        # Der Satz sagt woertlich "this v0.1 receipt". Gemessen von einer adversarialen Linse am
+        # 02.09.2026: er erschien auch, wenn der `predicateType` v0.2 oder voellig unbekannt war —
+        # eine versionsspezifische Aussage ueber die Versionsgrenze getragen, in einem Feld, auf
+        # das Verbraucher verzweigen sollen. `time_semantics` und der ABSENT-Zweig direkt darunter
+        # waren gegattet, dieser Append nicht. Das Modul verlangt an zwei Stellen ausdruecklich
+        # "KEIN RATEN UEBER VERSIONSGRENZEN".
+        if _beob is not None and r["predicate_type_ok"]:
             r["observed_time_assurance"] = "SELF_DECLARED_OR_UNKNOWN"
             r["advisory_codes"].append("LEGACY_SELF_DECLARED_OBSERVED_AT")
             r["warnings"].append(
@@ -2014,7 +2124,6 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
-    _automation_darf_nicht_nachsichtiger_sein_als_ok(r)
     return r
 
 
@@ -2203,9 +2312,26 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         r["errors"].append("ok=False because no expected subject digest was supplied")
 
     from .automation_verdict import automation_summary  # noqa: PLC0415
+    # v0.2 FUEHRT eine Policy-Achse, also darf der Aufruf nicht "es gibt hier keine" sagen.
+    #
+    # `automation_summary` schreibt seinen Vertrag aus: `policy=None` heisst "this predicate type
+    # carries no policy/authorization layer at all". Fuer v0.1 stimmt das. Fuer v0.2 NICHT — dessen
+    # Ergebnis fuehrt `policy_decision`. GEMESSEN von einer adversarialen Linse am 02.09.2026:
+    # `POLICY_NOT_EVALUATED` war fuer v0.2 strukturell unerreichbar, und `safeForAutomation` blieb
+    # `True` selbst bei `event_time_status=CONFLICT` — den dasselbe Modul "a broken claim, not a
+    # weak one" nennt und den `evaluate_time_policy` IMMER ablehnt.
+    #
+    # UND WARUM ES KEIN PFADVERGLEICH FAND: beide Verifier uebergaben DIESELBE Zeile. Ein
+    # Vergleich v0.1 gegen v0.2 findet Gleichheit und meldet gruen. Eine Paritaetspruefung faengt
+    # nur ASYMMETRISCHE Fehler; der geteilte Code ist der wahrscheinlichste Ort eines gemeinsamen
+    # Irrtums.
+    #
+    # DIE FOLGE IST ABSICHTLICH STRENG: ohne uebergebene Policy bleibt `policy_decision` None, der
+    # Blocker `POLICY_NOT_EVALUATED` greift, und `safeForAutomation` ist False. Ein Receipt, dessen
+    # Policy nie ausgewertet wurde, IST nicht automatisierbar-sicher. Zulaessig ist das, weil v0.2
+    # unveroeffentlicht ist: 0 Vorkommen im Tag v5.0.0, kein Aussteller, keine Receipts im Repo.
     r["automation"] = automation_summary(r, required_checks={
-        "crypto": "crypto_ok", "structure": "structure_ok", "policy": None,
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_decision",
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
-    _automation_darf_nicht_nachsichtiger_sein_als_ok(r)
     return r

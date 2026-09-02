@@ -101,12 +101,43 @@ def _formpruefung_quelle() -> str:
     return textwrap.dedent(inspect.getsource(ar.validate_statement_shape))
 
 
+#: Traeger, die IMMER einen Code erzeugen. `_mit_abschnitt` steht hier ABSICHTLICH NICHT.
+_IMMER_GECODET = ("_shape_err", "ShapeError")
+
+
 def _ist_gecodet(w: ast.AST) -> bool:
-    """Entsteht dieser Wert durch die Code-Vergabe?"""
+    """Entsteht dieser Wert durch die Code-Vergabe?
+
+    `_mit_abschnitt` IST EIN BEDINGTER TRAEGER, und die Vorgaengerfassung fuehrte ihn in einer
+    Reihe mit `_shape_err`. Gemessen von einer adversarialen Linse am 02.09.2026: es gibt den Code
+    nur weiter, WENN der uebergebene Fehler schon einen hat — sonst liefert es ein nacktes `str`
+    (`_mit_abschnitt('coverage','irgendwas').code is None`). Und es ist die IDIOMATISCHE
+    Schreibweise dieses Moduls, fuenf Aufrufstellen allein im oeffentlichen Haupteingang. Dieselbe
+    codelose Pruefung IN DER BEWACHTEN Funktion kam mit Huelle als die Suite blieb gruen durch und ohne Huelle
+    als 5 failed.
+
+    Deshalb wird die Bedingung jetzt GEPRUEFT statt angenommen: `_mit_abschnitt(x, y)` gilt nur
+    als gecodet, wenn `y` selbst gecodet ist. Das ist die Eigenschaft; die Namensliste war das
+    frei waehlbare Merkmal.
+    """
     if isinstance(w, ast.Call) and isinstance(w.func, ast.Name):
-        return w.func.id in ("_shape_err", "ShapeError", "_mit_abschnitt")
+        if w.func.id in _IMMER_GECODET:
+            return True
+        if w.func.id == "_mit_abschnitt":
+            # zweites Positionsargument ist der eingepackte Fehler; ohne ihn nichts zu tragen
+            return bool(len(w.args) >= 2 and _ist_gecodet(w.args[1]))
+        return False
     if isinstance(w, ast.Call) and isinstance(w.func, ast.Attribute):
-        return w.func.attr in ("_shape_err", "_mit_abschnitt")
+        if w.func.attr in _IMMER_GECODET:
+            return True
+        if w.func.attr == "_mit_abschnitt":
+            return bool(len(w.args) >= 2 and _ist_gecodet(w.args[1]))
+        return False
+    # Ein NAME als eingepackter Fehler (`for e in …: _mit_abschnitt("x", e)`) ist statisch nicht
+    # entscheidbar — konservativ NICHT gecodet. Ueberfangen ist hier richtig: die Alternative
+    # waere, eine unbelegte Annahme als Deckung zu zaehlen.
+    if isinstance(w, ast.Name):
+        return False
     # `f"..." for e in ...` — eine Comprehension traegt ihr Element im `elt`
     if isinstance(w, ast.GeneratorExp | ast.ListComp):
         return _ist_gecodet(w.elt)
@@ -120,27 +151,65 @@ def _fehlerlisten_namen(baum: ast.AST) -> set[str]:
     `errs`, und eine adversariale Gegenlesung hat am 02.09.2026 gemessen, was das kostet: der
     oeffentliche Haupteingang `validate_agent_review_predicate` fuellt eine Liste namens `errors`
     und hatte 13 codelose Stellen, von denen der Sweep genau EINE sah. Dieselbe Datei war zuvor
-    schon einmal ueber elf SCHREIBWEISEN verbreitert worden — aber nie ueber den VARIABLENNAMEN,
+    schon einmal ueber die SCHREIBWEISEN verbreitert worden — aber nie ueber den VARIABLENNAMEN,
     und der eigene Hauptvalidator benutzt den anderen. Das ist woertlich die Klasse, die der
     Docstring von `_fehlerstellen_ohne_code` selbst benennt.
 
-    GEMESSEN, warum genau diese Regel und nicht "jeder Name": ueber alle Namen zaehlt der Sweep
-    88 Stellen, davon 6 zu Unrecht — Merkle-Blaetter in `findings_root`, Textteile in
-    `render_disclosure_line` und die drei Ergebnislisten von `resolve_receipt_chain` sind keine
-    Fehlerlisten. Die Regel "was die Funktion zurueckgibt" trifft die 11 Validatoren und keinen
-    der sechs Fehltreffer.
+    DIE ERSTE FASSUNG DIESER REGEL KANNTE VIER RUECKGABEFORMEN, und eine adversariale Linse hat am
+    02.09.2026 gemessen, was das kostet: `return errors[:]` — eine voellig harmlose Schutzkopie mit
+    nachweislich unveraendertem Verhalten — loeschte den Namen und damit ALLE Fundstellen der
+    Funktion, 14 auf 1. Dasselbe fuer `errors or []`, `tuple(errors)`, `errors.copy()`. Die
+    Ratsche meldete daraufhin "GESUNKEN — gute Nachricht, Grundlinie nachziehen"; dem Rat gefolgt
+    und fuenf codelose Pruefungen ergaenzt, blieben die Suite blieb gruen. Der Riegel baute sich beim normalen
+    Refactoring selbst ab. Deshalb kennt die Regel jetzt ZEHN Formen (gemessen mit zehn Sonden; hier stand 'acht',
+    waehrend dieselbe Datei weiter unten korrekt 'Zehn' schrieb — dieselbe Groesse, zwei Zahlen) — UND die erkannte
+    Namensmenge wird selbst gepinnt (`GRUNDLINIE_TRAEGER`), denn eine Liste von Formen kann die
+    neunte nicht kennen.
+
+    GEMESSEN, warum genau diese Regel und nicht "jeder Name" — KORRIGIERT am 02.09.2026, weil die
+    urspruengliche Zahl zu KEINEM Zeitpunkt reproduzierte. Hier stand "88 Stellen, davon 6 zu
+    Unrecht"; eine adversariale Linse hat nachgerechnet:
+
+    ZWEITE KORREKTUR am 02.09.2026, und sie betrifft meine EIGENE erste Korrektur: die schrieb
+    "127 Stellen / 21 Funktionen" und mischte damit ZWEI Zaehlregeln, ohne eine davon zu nennen.
+    Genau die Klasse, gegen die diese Datei steht. Beide Zahlen sind richtig — fuer verschiedene
+    Fragen. Deshalb steht die Regel ab jetzt bei der Zahl:
+
+        REGEL A · die Ratsche DIESER Datei (`GRUNDLINIE_CODELOS`)
+                  17 Traegerfunktionen · 127 codelose Stellen (= die Summe der Ratsche)
+
+        REGEL B · ueber ALLE Modulebene-Funktionen, die eine Fehlerliste tragen
+                  20 Funktionen · davon 7 NICHT in der Ratsche: _finalize_failclosed,
+                  _mit_abschnitt, _subject_name, apply_time_evidence, derive_limitation_codes,
+                  replace_disclosure_block, validate_statement_shape
+
+    Die Fehltreffer der urspruenglichen Ueberlegung sind Merkle-Blaetter in `findings_root`,
+    Textteile in `render_disclosure_line` und die Ergebnislisten von `resolve_receipt_chain` —
+    keine Fehlerlisten. Eine Zahl ohne ihre Zaehlregel ist keine Messung, sondern eine Behauptung
+    mit Ziffern; die erste Korrektur ersetzte eine falsche Zahl durch eine mehrdeutige.
+
+    Die RICHTUNG der Aussage haelt und ist nachgemessen: die Regel "was die Funktion zurueckgibt"
+    trifft die 11 Validatoren und KEINE der vier Fehltreffer-Funktionen.
     """
     namen: set[str] = set()
     for k in ast.walk(baum):
         if isinstance(k, ast.Return) and k.value is not None:
             w = k.value
             if isinstance(w, ast.Name):
-                namen.add(w.id)
+                namen.add(w.id)                                    # return errs
             elif isinstance(w, ast.BinOp) and isinstance(w.left, ast.Name):
-                namen.add(w.left.id)
+                namen.add(w.left.id)                               # return errs + [...]
+            elif isinstance(w, ast.BoolOp) and isinstance(w.values[0], ast.Name):
+                namen.add(w.values[0].id)                          # return errs or []
+            elif isinstance(w, ast.Subscript) and isinstance(w.value, ast.Name) and isinstance(
+                    w.slice, ast.Slice):
+                namen.add(w.value.id)                              # return errs[:]
+            elif isinstance(w, ast.Call) and isinstance(w.func, ast.Attribute) and isinstance(
+                    w.func.value, ast.Name) and w.func.attr in ("copy",):
+                namen.add(w.func.value.id)                         # return errs.copy()
             elif isinstance(w, ast.Call) and isinstance(w.func, ast.Name) and w.func.id in (
-                    "list", "sorted"):
-                for a in w.args:
+                    "list", "sorted", "tuple", "frozenset", "set"):
+                for a in w.args:                                   # return list(errs)
                     if isinstance(a, ast.Name):
                         namen.add(a.id)
     # EIN SPRUNG DATENFLUSS: `errors.extend(hilf)` macht `hilf` zu einer Fehlerliste, auch wenn
@@ -170,7 +239,8 @@ def _fehlerstellen_ohne_code(quelle: str) -> list[int]:
 
     DIE ERSTE FASSUNG FING GENAU EINE FORM (`errs.append`), und eine adversariale Gegenlesung
     hat am 01.09.2026 gemessen, dass acht von elf realistischen Schreibweisen entkommen —
-    darunter `errs.extend(...)`, das dieses Modul an sieben Stellen SELBST benutzt. Ein Riegel,
+    darunter `errs.extend(...)`, das dieses Modul selbst benutzt (gemessen DREI
+    Stellen — hier stand einmal 'sieben', was zu keinem Zeitpunkt zutraf). Ein Riegel,
     der die haeufigste Alternative nicht kennt, prueft die Gewohnheit des Autors und nicht die
     Eigenschaft.
 
@@ -230,9 +300,27 @@ def _fehlerstellen_ohne_code(quelle: str) -> list[int]:
                     # NUR `errs = errs + [...]`: rechts eine LISTE, links dieselbe Liste. Ohne die
                     # Listen-Bedingung zaehlte `neu = body[:start] + block + body[ende:]` in
                     # `replace_disclosure_block` als Fehlerstelle — das ist Textverkettung.
+                    # ZWEI FUELL-FORMEN, NICHT EINE. Die erste Fassung verlangte `ast.BinOp` —
+                    # also die Schreibweise `errs = errs + [...]`. Eine adversariale Linse hat am
+                    # 02.09.2026 die BEDEUTUNGSGLEICHE Form `errs = [*errs, "…"]` in die bewachte
+                    # Funktion `validate_statement_shape` gepflanzt: eine codelose Pruefung, die
+                    # zur Laufzeit feuert, und die GANZE Suite blieb gruen —
+                    #
+                    #     2986 passed, 15 skipped, exit 0
+                    #
+                    # Fuenf Netze schwiegen, jedes aus gemessenem Grund. Die Eigenschaft ist
+                    # "die Zuweisung baut die Liste AUS SICH SELBST neu auf"; `+` und `[*x, …]`
+                    # sind zwei Schreibweisen derselben Eigenschaft. Wer nur eine kennt, misst
+                    # wieder die Form statt der Sache.
                     if (isinstance(w, ast.BinOp) and isinstance(w.right, ast.List)
                             and isinstance(w.left, ast.Name) and w.left.id in nur):
                         pruefe(w.right.elts, zeile)
+                    elif isinstance(w, (ast.List, ast.Tuple)) and any(
+                            isinstance(e, ast.Starred) and isinstance(e.value, ast.Name)
+                            and e.value.id in nur for e in w.elts):
+                        # `errs = [*errs, x]` — die entpackte Liste ist der alte Inhalt, die
+                        # uebrigen Elemente sind das Neue. Nur die pruefen, nie das Sternchen.
+                        pruefe([e for e in w.elts if not isinstance(e, ast.Starred)], zeile)
                 elif (isinstance(z, ast.Subscript) and isinstance(z.value, ast.Name)
                         and z.value.id in nur and isinstance(z.slice, ast.Slice)):
                     # NUR ein SCHNITT `errs[len(errs):] = [...]`. Ein Schluessel ist keine Fuellung:
@@ -461,6 +549,13 @@ def test_die_drei_digest_codes_sind_wirklich_verschieden():
         f"die drei Lagen teilen sich Codes: leer={leer} falsch={falsch} zuviel={zuviel}")
 
 _FORMEN_OHNE_CODE = (
+    # ÜBERFANGEN, ABSICHTLICH. `_mit_abschnitt("x", e)` mit einer SCHLEIFENVARIABLEN ist
+    # statisch nicht als gecodet nachweisbar — `e` kann alles sein. Die Vorgaengerfassung
+    # fuehrte diese Form als korrekt, und genau darueber lief eine codelose Pruefung in der
+    # BEWACHTEN Funktion durch. Laufzeitgemessen am 02.09.2026 liefert der oeffentliche
+    # Haupteingang an genau diesen Stellen 14 von 14 Fehlern OHNE Code — das Ueberfangen
+    # trifft hier also die Wahrheit, es ist keine blosse Vorsicht.
+    'errs.extend(_mit_abschnitt("x", e) for e in ys)',
     'errs.append("codelos")',
     'errs.extend(["codelos"])',
     'errs.insert(0, "codelos")',
@@ -479,7 +574,7 @@ _FORMEN_MIT_CODE = (
     'errs.extend([_shape_err("A", "mit")])',
     'errs += [_shape_err("A", "mit")]',
     'return [_shape_err("A", "mit")]',
-    'errs.extend(_mit_abschnitt("x", e) for e in ys)',
+    'errs.extend(_mit_abschnitt("x", _shape_err("A", "m")) for e in ys)',
 )
 
 
@@ -537,6 +632,13 @@ def test_der_code_traegt_keinen_array_index():
 #:   3. Zwei zu weite Zweige wurden verengt (jede Neuzuweisung, jeder Dict-Schluessel zaehlte),
 #:      was neun Fehltreffer entfernte, die die alte handverlesene Funktionsliste verdeckt hatte.
 #:
+#: ZWEITES WACHSTUM AM 02.09.2026, +7 Stellen (120 -> 127). Wieder hat sich am Verifier nichts
+#: geaendert: `_ist_gecodet` fuehrte `_mit_abschnitt` als Code-Traeger, obwohl es einen Code nur
+#: WEITERGIBT, wenn der eingepackte Fehler schon einen hat. Fuenf `_mit_abschnitt`-Zeilen im
+#: oeffentlichen Haupteingang galten deshalb als gruen, waehrend dieselbe Funktion zur Laufzeit
+#: 14 von 14 Fehlern OHNE Code liefert. Die Bedingung wird jetzt geprueft statt angenommen, und
+#: die sieben Stellen stehen hier, wo sie hingehoeren.
+#:
 #: DIE MENGE DER FUNKTIONEN WIRD MITGEMESSEN. Eine neue Funktion mit codelosen Stellen faellt
 #: hier, auch wenn niemand sie hier eintraegt — die Vorgaengerfassung listete fuenf Namen von Hand
 #: und war fuer alles andere blind.
@@ -544,7 +646,7 @@ GRUNDLINIE_CODELOS = {
     "_pruefe_sichtbaren_block": 2,
     "_validate_assured": 7,
     "_validate_coverage": 12,
-    "_validate_declaration": 8,
+    "_validate_declaration": 10,
     "_validate_finding": 9,
     "_validate_limitation_codes": 4,
     "_validate_subject": 8,
@@ -553,12 +655,118 @@ GRUNDLINIE_CODELOS = {
     "_verify_agent_review_inner": 14,
     "_verify_v02_inner": 13,
     "_zielbindung": 4,
-    "validate_agent_review_predicate": 14,
+    "validate_agent_review_predicate": 19,
     "validate_agent_review_v02_predicate": 5,
     "validate_time_claim": 9,
     "verify_agent_review": 1,
     "verify_agent_review_v02": 1,
 }
+
+
+#: DIE VORAUSSETZUNG DER MESSUNG, selbst gepinnt.
+#:
+#: Eine Ratsche ueber eine ERHOBENE Zahl ist nur so gut wie die Erhebung. Gemessen am 02.09.2026:
+#: `return errors` -> `return errors[:]` — Verhalten nachweislich unveraendert — liess die Zahl
+#: des oeffentlichen Haupteingangs von 14 auf 1 fallen, weil der Sweep den Traeger nicht mehr
+#: erkannte. Die Ratsche meldete „GESUNKEN — gute Nachricht, Grundlinie nachziehen". Dem Rat
+#: gefolgt und fuenf codelose Pruefungen ergaenzt: die Suite blieb gruen. Der Riegel hatte sich beim normalen
+#: Refactoring selbst abgebaut, und seine eigene Empfehlung war der Weg dorthin.
+#:
+#: Zehn Rueckgabeformen sind jetzt bekannt — aber eine Liste von Formen kann die ELFTE nicht
+#: kennen. Deshalb steht hier, WELCHE Traeger je Funktion erkannt werden. Verschwindet einer, ist
+#: das ein BEFUND und keine gute Nachricht: die Zahl faellt dann, weil das Instrument blind wurde.
+GRUNDLINIE_TRAEGER = {
+    "_pruefe_sichtbaren_block": [],
+    "_validate_assured": ["errs"],
+    "_validate_coverage": ["errs"],
+    "_validate_declaration": ["errs"],
+    "_validate_finding": ["errs"],
+    "_validate_limitation_codes": ["errs"],
+    "_validate_subject": ["errs"],
+    "_validate_supersession": ["errs"],
+    "_validate_times": ["errs"],
+    "_verify_agent_review_inner": ["r"],
+    "_verify_v02_inner": ["r"],
+    "_zielbindung": [],
+    "validate_agent_review_predicate": ["errors"],
+    "validate_agent_review_v02_predicate": ["errs"],
+    "validate_time_claim": ["errs"],
+    "verify_agent_review": [],
+    "verify_agent_review_v02": [],
+}
+
+
+def _traeger_aller_funktionen() -> dict[str, list[str]]:
+    """Welche Fehlerlisten erkennt der Sweep heute je Funktion?"""
+    lage: dict[str, list[str]] = {}
+    # ES WIRD UEBER DEN PIN ITERIERT, UND DAS IST GEPRUEFT — nicht angenommen.
+    #
+    # Eine adversariale Linse meldete am 02.09.2026, die Schleife sei EINSEITIG: sie laufe ueber
+    # `GRUNDLINIE_TRAEGER`, also koenne eine ENTFERNTE Funktion nie auffallen, und die vier
+    # Eintraege mit leerer Liste koennten ohnehin nichts melden. Der Befund klingt richtig. Er ist
+    # es nicht, und das ist mit eingepflanztem Defekt in BEIDEN Spielarten gemessen:
+    #
+    #   `_validate_times` entfernt (Pin `["errs"]`) -> `verloren` faellt, weil `lage.get(k, [])`
+    #       fuer die fehlende Funktion `[]` liefert und die Sollmenge uebrig bleibt
+    #   `_zielbindung`    entfernt (Pin `[]`)       -> faellt ebenfalls, ueber `fehlend`
+    #
+    # Beide Male rot, danach byte-genau zurueckgestellt. Der Kommentar steht hier, damit die
+    # naechste Gegenlesung nicht denselben plausiblen Fehlschluss ein zweites Mal zieht: die
+    # leere Liste traegt nichts ueber `verloren`, aber `fehlend` deckt sie ab.
+    for name in GRUNDLINIE_TRAEGER:
+        fn = getattr(ar, name, None)
+        if fn is None:
+            continue
+        try:
+            quelle = textwrap.dedent(inspect.getsource(fn))
+        except (OSError, TypeError):
+            continue
+        lage[name] = sorted(_fehlerlisten_namen(ast.parse(quelle)) - {"errs"}
+                            | ({"errs"} if "errs" in _fehlerlisten_namen(ast.parse(quelle)) else set()))
+    return lage
+
+
+def _urteile_traeger(lage: dict[str, list[str]]) -> None:
+    """DAS URTEIL, EINMAL — und beide Aufrufer FUEHREN es aus, statt es nachzubauen.
+
+    Die erste Fassung hatte den Test und seinen Meta-Test getrennt gerechnet: der Meta-Test baute
+    die Verlust-Menge selbst nach, statt das Urteil zu rufen. Ein deterministischer Pre-Sweep hat
+    das am 02.09.2026 gemessen — `assert not verloren` durch `assert True or not verloren`
+    ersetzt, und BEIDE Tests blieben gruen. Ein Meta-Test, der den Prueflig nachbaut, beweist nur,
+    dass sein eigener Nachbau funktioniert.
+    """
+    verloren = {k: (v, lage.get(k, [])) for k, v in GRUNDLINIE_TRAEGER.items()
+                if set(v) - set(lage.get(k, []))}
+    assert not verloren, (
+        f"der Sweep erkennt Fehlerlisten NICHT mehr, die er kannte (soll, ist): {verloren}. "
+        f"Das ist kein Fortschritt, sondern eine blind gewordene Messung — pruefe, ob die "
+        f"Rueckgabeform geaendert wurde (`return errs[:]`, `errs or []`, `tuple(errs)`, …).")
+    # Die Eintraege mit leerer Liste (`[]`) koennen ueber `verloren` NIE etwas melden — eine leere
+    # Sollmenge ist immer erfuellt. Ihr Wert liegt ALLEIN hier: verschwindet die Funktion, faellt es.
+    fehlend = sorted(set(GRUNDLINIE_TRAEGER) - set(lage))
+    assert not fehlend, f"Funktion(en) aus der Traeger-Grundlinie gibt es nicht mehr: {fehlend}"
+
+
+def test_der_sweep_verliert_keinen_traeger():
+    """DIE VORAUSSETZUNG DER MESSUNG. Ein verlorener Traeger ist ein BEFUND, keine gute Nachricht."""
+    _urteile_traeger(_traeger_aller_funktionen())
+
+
+def test_meta_ein_verlorener_traeger_wird_gefangen():
+    """META, und es FUEHRT das Urteil aus statt es nachzubauen.
+
+    Wird `_urteile_traeger` stumm geschaltet, faellt dieser Test — genau das konnte die erste
+    Fassung nicht.
+    """
+    lage = dict(_traeger_aller_funktionen())
+    lage["validate_agent_review_predicate"] = []          # der blendende Umbau, simuliert
+    with pytest.raises(AssertionError, match="NICHT mehr"):
+        _urteile_traeger(lage)
+
+
+def test_meta_das_urteil_ist_bei_gesunder_lage_still():
+    """GEGENRICHTUNG. Ein Urteil, das immer wirft, faengt alles und misst nichts."""
+    _urteile_traeger(_traeger_aller_funktionen())
 
 
 def _lage_aller_funktionen() -> dict[str, int]:
@@ -595,8 +803,19 @@ def test_die_ungedeckte_flaeche_waechst_nicht():
         f"oder hier bewusst eintragen. Genau diese Blindheit hatte die handverlesene Vorfassung.")
     gesunken = {k: (GRUNDLINIE_CODELOS[k], lage.get(k, 0)) for k in GRUNDLINIE_CODELOS
                 if lage.get(k, 0) < GRUNDLINIE_CODELOS[k]}
+    # ZWEI URSACHEN, ZWEI MELDUNGEN. Die Vorgaengerfassung sagte bei jedem Sinken „gute Nachricht,
+    # Grundlinie nachziehen" — auch dann, wenn der Sweep blind geworden war. Wer dem Rat folgt,
+    # baut den Riegel ab. `test_der_sweep_verliert_keinen_traeger` trennt die beiden Faelle; hier
+    # steht die Trennung nur noch im Satz.
+    traeger = _traeger_aller_funktionen()
+    blind = {k for k in gesunken if set(GRUNDLINIE_TRAEGER.get(k, [])) - set(traeger.get(k, []))}
     assert not gesunken, (
-        f"codelose Stellen sind GESUNKEN — gute Nachricht, Grundlinie nachziehen: {gesunken}")
+        f"codelose Stellen sind GESUNKEN: {gesunken}. "
+        + (f"ACHTUNG, fuer {sorted(blind)} ist das KEINE gute Nachricht — der Sweep erkennt dort "
+           f"die Fehlerliste nicht mehr, die Zahl faellt wegen Blindheit. Erst die Rueckgabeform "
+           f"pruefen." if blind else
+           "Fuer alle genannten Funktionen werden die Fehlerlisten weiterhin erkannt, es ist also "
+           "wirklich besser geworden — Grundlinie nachziehen."))
 
 
 def test_meta_der_sweep_haengt_nicht_am_bezeichner_errs():
