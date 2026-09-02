@@ -500,7 +500,53 @@ MUTATIONS = [
 ]
 
 
-def _red_count(work: Path) -> int:
+# Repositoriumsweite Pruefungen, die je Mutante NICHTS aussagen (Owner-GO 2026-09-02T12:21:21Z).
+#
+# WARUM ES DAS GIBT. Das Tor faehrt die Suite 88 Mal. Gemessen am 02.09. traegt EINE Datei
+# 174,5 s der 223,9 s langen Tor-Suite, also 78 Prozent — und sie prueft das REPOSITORIUM
+# (baut zwei sdists und vergleicht sie byteweise, sweept den Baum auf verbotene Muster), nicht
+# den mutierten Quelltext. Achtundachtzig Mal dieselbe Antwort auf dieselbe Frage.
+#
+# WAS DER AUSSCHLUSS NICHT DARF. Er gilt AUSSCHLIESSLICH fuer die Laeufe je Mutante. Baseline
+# und Schlusslauf fahren die volle Suite, damit die Leftover-Pruefung und der differentielle
+# Bezug unveraendert bleiben. Ein Ausschluss, der auch die Baseline betraefe, verschoebe den
+# Bezugspunkt und machte das Tor blind statt schnell.
+#
+# WIE ES BELEGT WIRD. Abnahme ist NICHT Zeit, sondern Verdikt: alle 88 Operatoren laufen einmal
+# mit Ausschluss und werden Operator fuer Operator gegen den kanonischen Lauf vom 30.08.
+# verglichen (87 KILLED, 1 erwarteter SURVIVED). Stirbt ein Operator NUR durch eine
+# ausgeschlossene Datei, bleibt sie fuer ihn drin oder bekommt einen Unit-Test als Ersatz.
+_AUSSCHLUSS_JE_MUTANTE: dict[str, str] = {
+    "test_audit_candidate_360": (
+        "Repositoriumsweite Kandidaten-Matrix: neun evaluate()-Aufrufe ueber 33 Pruefungen, die "
+        "den Baum, die Registry und zwei frisch gebaute sdists befragen. 174,5 s von 223,9 s der "
+        "Tor-Suite (78 Prozent), gemessen 2026-09-02. Kein Eintrag darin liest den mutierten "
+        "Quelltext, deshalb sagt sie je Mutante nichts."),
+}
+
+# Der Lauf je Mutante als Programm: `unittest discover` kennt keinen Ausschluss, und ein
+# handgebauter Modulnamen-Aufruf haette andere Fehlersemantik (ein Importfehler wuerde hart
+# abbrechen statt als _FailedTest zu zaehlen). Deshalb wird discover UNVERAENDERT gefahren und
+# erst danach gefiltert — die Population bleibt dieselbe minus der benannten Dateien.
+_FILTER_PROGRAMM = """
+import sys, unittest
+ausschluss = set(sys.argv[1:])
+lader = unittest.TestLoader()
+suite = lader.discover("tests", top_level_dir="tests")
+def sieben(s):
+    raus = unittest.TestSuite()
+    for t in s:
+        if isinstance(t, unittest.TestSuite):
+            raus.addTest(sieben(t))
+        elif t.__class__.__module__ not in ausschluss:
+            raus.addTest(t)
+    return raus
+ergebnis = unittest.TextTestRunner(verbosity=1).run(sieben(suite))
+sys.exit(0 if ergebnis.wasSuccessful() else 1)
+"""
+
+
+def _red_count(work: Path, *, ausschluss: bool = False) -> int:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -512,8 +558,16 @@ def _red_count(work: Path) -> int:
         shutil.rmtree(cache, ignore_errors=True)
     for src_file in work.glob("src/**/*.py"):
         os.utime(src_file)
+    # DER AUSDRUCK STEHT IM AUFRUF, NICHT DAVOR — und das ist kein Stilfrage.
+    # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` erkennt einen
+    # Suite-Laeufer daran, dass die Zeichenketten "unittest" und "discover" INNERHALB des
+    # subprocess-Knotens stehen. Eine Zwischenvariable macht diese Datei fuer den Waechter
+    # unsichtbar, obwohl sie die Suite unveraendert startet — beim ersten Versuch am 02.09.2026
+    # genau so gemessen: der Waechter meldete den Laeufer als VERSCHWUNDEN.
     proc = subprocess.run(
-        [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"],
+        ([sys.executable, "-B", "-c", _FILTER_PROGRAMM, *sorted(_AUSSCHLUSS_JE_MUTANTE)]
+         if ausschluss else
+         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]),
         cwd=work, capture_output=True, text=True,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -549,11 +603,39 @@ def _worktree_status(repo: Path) -> str:
     return proc.stdout if proc.returncode == 0 else "<git status unavailable>"
 
 
-def _run_operators(work: Path) -> int:
+def partition(gesamt: int, i: int, k: int) -> list[int]:
+    """Die deterministische Partition der Operatorenliste — Indizes fuer Shard i von k.
+
+    ROUND-ROBIN, nicht blockweise: die Operatoren sind nach Datei gruppiert, und ein Block wuerde
+    einem Shard alle teuren Operatoren derselben Datei geben. Round-robin verteilt sie.
+
+    Die Partition ist eine reine Funktion von (gesamt, i, k) — kein Zufall, keine Sortierung nach
+    Laufzeit, keine Datei-Reihenfolge. Zwei Laeufe mit denselben Argumenten geben dieselbe Menge,
+    und die Vereinigung ueber alle i ist LUECKENLOS die ganze Liste. Genau das prueft der
+    Sammel-Job nach.
+    """
+    if not (1 <= i <= k):
+        raise ValueError(f"shard {i}/{k}: i muss zwischen 1 und {k} liegen")
+    return list(range(i - 1, gesamt, k))
+
+
+def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     baseline = _red_count(work)
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
-    for rel, old, new, label, expect_killed in MUTATIONS:
+    if shard is None:
+        indizes = list(range(len(MUTATIONS)))
+    else:
+        i, k = shard
+        indizes = partition(len(MUTATIONS), i, k)
+        # Die Partition wird AUSGEGEBEN (Index und Label), damit der Sammel-Job und ein Mensch
+        # nachrechnen koennen, welche Operatoren dieser Shard getragen hat. Ein Shard, der seine
+        # Menge nicht nennt, laesst sich nicht gegen 88 aufaddieren.
+        print(f"shard {i}/{k}: {len(indizes)} von {len(MUTATIONS)} Operatoren")
+        for idx in indizes:
+            print(f"  shard-item {idx} [{MUTATIONS[idx][3]}]")
+    for idx in indizes:
+        rel, old, new, label, expect_killed = MUTATIONS[idx]
         path = work / rel
         src = path.read_text(encoding="utf-8")
         # AN OPERATOR MAY NAME SEVERAL SITES, and since 2026-08-17 two of them must.
@@ -580,7 +662,7 @@ def _run_operators(work: Path) -> int:
             mutated = mutated.replace(o, n, 1)
         try:
             path.write_text(mutated, encoding="utf-8")
-            red = _red_count(work)
+            red = _red_count(work, ausschluss=True)
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
@@ -597,13 +679,37 @@ def _run_operators(work: Path) -> int:
     return gaps
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse  # noqa: PLC0415
+    ap = argparse.ArgumentParser(description="mutation gate")
+    ap.add_argument("--shard", default=None, metavar="i/K",
+                    help="nur Shard i von K fahren (deterministische Round-robin-Partition)")
+    # `parse_args(None)` liest sys.argv — unter pytest also DESSEN Argumente, und argparse
+    # beendet den Prozess mit SystemExit(2). Genau das hat die CI gefangen:
+    # tests/test_mutation_isolation.py ruft `main()` ohne Argumente auf, und der Lauf starb an
+    # den pytest-Flags. `None` heisst hier deshalb KEINE Argumente, nicht "nimm sys.argv" —
+    # den Prozess-Aufruf traegt der `__main__`-Block, der sys.argv[1:] ausdruecklich uebergibt.
+    a = ap.parse_args([] if argv is None else argv)
+    shard = None
+    if a.shard:
+        try:
+            i_s, k_s = a.shard.split("/")
+            shard = (int(i_s), int(k_s))
+        except (ValueError, TypeError):
+            raise SystemExit(f"--shard erwartet die Form i/K, bekam {a.shard!r}") from None
+        if not (1 <= shard[0] <= shard[1]):
+            raise SystemExit(f"--shard {a.shard}: i muss zwischen 1 und K liegen")
     status_before = _worktree_status(ROOT)
     with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-") as tmp:
         work = Path(tmp) / "tree"
         _prepare_workdir(ROOT, work)
         print(f"isolated work tree: {work} (the real working tree is never mutated)")
-        gaps = _run_operators(work)
+        # DEN BESTEHENDEN AUFRUF UNVERAENDERT LASSEN, wenn nicht geshardet wird. Die CI hat
+        # gefangen, warum das noetig ist: tests/test_mutation_isolation.py ersetzt
+        # `_run_operators` durch eine Attrappe OHNE `shard`-Parameter, und ein bedingungslos
+        # uebergebenes Schluesselwort bricht sie. Ein neuer Parameter darf den Vertrag des alten
+        # Pfades nicht aendern - sonst passt man die Tests an den Code an statt umgekehrt.
+        gaps = _run_operators(work) if shard is None else _run_operators(work, shard=shard)
     # Fail-closed leftover check: the probe run must not have changed the REAL working tree at
     # all (v1.4 isolation makes this structurally true; this assert catches any regression).
     status_after = _worktree_status(ROOT)
@@ -615,9 +721,14 @@ def main() -> int:
         for line in sorted(before - after):
             print(f"  - {line}")
         gaps += 1
-    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({len(MUTATIONS)} operators, {gaps} gap(s))")
+    n_gefahren = len(MUTATIONS) if shard is None else len(partition(len(MUTATIONS), *shard))
+    # Die Schlusszeile nennt die GEFAHRENE Zahl, nicht die Gesamtzahl. Ein Shard, der "88
+    # operators" meldet, obwohl er elf gefahren hat, macht die Summenpruefung des Sammel-Jobs
+    # wertlos — sie wuerde jedes Mal aufgehen.
+    _shard_txt = "" if shard is None else f" shard={shard[0]}/{shard[1]}"
+    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({n_gefahren} operators, {gaps} gap(s)){_shard_txt}")
     return 0 if gaps == 0 else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
