@@ -95,3 +95,94 @@ class TheCliContractHolds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Stufe 2 Teil B: die gewichtete Partition ──────────────────────────────────────────────────
+
+class GewichtetePartition(unittest.TestCase):
+    """Die Wanduhr haengt am LAENGSTEN Shard, nicht am Mittel.
+
+    Gemessen am 02.09.2026 lagen die zehn Shards zwischen 931 s und 1232 s bei einem Mittel von
+    1116 s. Die Spanne von 301 s ist genau der Verlust, den eine gleichmaessigere Verteilung
+    zurueckholt — und mehr Shards helfen dagegen wenig, solange ein einzelner teurer Operator
+    einen Shard traegt.
+    """
+
+    LABELS = [f"op-{i:02d}" for i in range(88)]
+    # Ein realistisch schiefes Profil: wenige teure, viele billige.
+    GEWICHTE = {f"op-{i:02d}": (90.0 if i % 7 == 0 else 10.0) for i in range(88)}
+
+    def _teile(self, k=10, gewichte=None):
+        return [mc.partition_gewichtet(self.LABELS, i, k,
+                                                   self.GEWICHTE if gewichte is None else gewichte)
+                for i in range(1, k + 1)]
+
+    def _lasten(self, teile, gewichte=None):
+        g = self.GEWICHTE if gewichte is None else gewichte
+        return [sum(g.get(self.LABELS[x], 0.0) for x in t) for t in teile]
+
+    def test_die_vereinigung_ist_lueckenlos(self):
+        alle = sorted(x for t in self._teile() for x in t)
+        self.assertEqual(alle, list(range(88)))
+
+    def test_kein_operator_doppelt(self):
+        alle = [x for t in self._teile() for x in t]
+        self.assertEqual(len(alle), len(set(alle)))
+
+    def test_SIE_BALANCIERT_BESSER_ALS_ROUND_ROBIN(self):
+        """Die Gegenprobe, und ohne sie waere der ganze Einbau Schmuck: balanciert LPT nicht
+        besser, ist die zusaetzliche Gewichtsdatei reine Komplexitaet."""
+        lpt = self._lasten(self._teile())
+        rr = self._lasten([mc.partition(88, i, 10) for i in range(1, 11)])
+        self.assertLess(max(lpt) - min(lpt), max(rr) - min(rr))
+
+    def test_deterministisch(self):
+        self.assertEqual(self._teile(), self._teile())
+
+    def test_gleichstand_wird_nach_namen_gebrochen_nicht_nach_eingabereihenfolge(self):
+        """Die Eingabereihenfolge haengt an der Datei-Sortierung und aendert sich beim naechsten
+        Operator — eine Partition, die daran haengt, ist nicht reproduzierbar."""
+        gleich = {lab: 5.0 for lab in self.LABELS}
+        a = self._teile(gewichte=gleich)
+        gedreht = list(reversed(self.LABELS))
+        b = [mc.partition_gewichtet(gedreht, i, 10, gleich) for i in range(1, 11)]
+        # Dieselben LABELS je Shard, unabhaengig von der Eingabereihenfolge.
+        self.assertEqual(sorted(sorted(self.LABELS[x] for x in t) for t in a),
+                         sorted(sorted(gedreht[x] for x in t) for t in b))
+
+    def test_ein_unbekannter_operator_bekommt_das_MEDIAN_gewicht(self):
+        """Nicht 0 (er waere gratis und ueberlaedt den letzten Shard) und nicht das Maximum
+        (er blockiert einen Shard fuer sich allein)."""
+        luecke = {lab: v for lab, v in self.GEWICHTE.items() if lab != "op-05"}
+        teile = self._teile(gewichte=luecke)
+        alle = sorted(x for t in teile for x in t)
+        self.assertEqual(alle, list(range(88)))
+
+    def test_ungueltiger_shard_index_wirft(self):
+        with self.assertRaises(ValueError):
+            mc.partition_gewichtet(self.LABELS, 0, 10, self.GEWICHTE)
+        with self.assertRaises(ValueError):
+            mc.partition_gewichtet(self.LABELS, 11, 10, self.GEWICHTE)
+
+
+class DerRueckfallIstLAUT(unittest.TestCase):
+    """Ein stiller Rueckfall auf Round-Robin saehe wie eine gewichtete Partition aus."""
+
+    def test_fehlende_datei_gibt_leere_gewichte_und_einen_grund(self):
+        g, grund = mc.lade_gewichte(Path("/nirgends/gewichte.json"))
+        self.assertEqual(g, {})
+        self.assertIn("Round-Robin", grund)
+
+    def test_kaputte_datei_nennt_den_defekt_und_faellt_zurueck(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp()) / "w.json"
+        d.write_text("{kaputt")
+        g, grund = mc.lade_gewichte(d)
+        self.assertEqual(g, {})
+        self.assertIn("unbrauchbar", grund)
+
+    def test_leere_sekunden_sind_kein_gewicht(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp()) / "w.json"
+        d.write_text('{"sekunden": {}}')
+        self.assertEqual(mc.lade_gewichte(d)[0], {})
