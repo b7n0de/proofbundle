@@ -120,12 +120,32 @@ class TestNotAConstantFail:
         monkeypatch.setattr(matrix, "VERSION_UNDER_TEST", _shipping())
         result = matrix.evaluate()
         assert result["version_pin"]["state"] == "bound", result["version_pin"]
-        rows = result["checks"]
-        ohne_riegel = (result["counts"][matrix.FAIL] == 0
-                       and all(r["verdict"] in matrix._NON_FAIL for r in rows))
+        # DIE GEPRUEFTE BEDINGUNG WIRD GELESEN, NICHT NACHGEBAUT (gemessen 02.09.2026). Hier stand
+        # eine Nachbildung ueber `_NON_FAIL`, und `_NON_FAIL` enthaelt DATA_BLOCKED, waehrend die
+        # Bereitschaft es ausdruecklich ausschliesst. Die beiden Seiten stimmten nur ueberein,
+        # solange irgendeine Zeile FAILte; als ein gueltiges Pre-Tag-Receipt die letzte FAIL-Zeile
+        # entfernte, wurde die Nachbildung wahr, die echte Regel blieb falsch, und dieser Test
+        # beschuldigte den Pin — der `bound` und unbeteiligt war. Ein Anti-Paritaets-Waechter, der
+        # Paritaet braucht, um zu bestehen, prueft nichts.
+        ohne_riegel = result["ready_before_binding"]
         assert result["audit_candidate_ready"] == ohne_riegel, (
             "with a BOUND pin the guard changed the verdict -- it is behaving like a constant "
             "FAIL instead of a binding check")
+
+    def test_the_binding_rule_lowers_only_when_unbound(self, matrix):
+        """THE RULE ITSELF, over all four combinations, because the end-to-end check above cannot
+        see it on a tree that is not already ready.
+
+        MEASURED 2026-09-02: with the binding changed to lower readiness unconditionally, the
+        end-to-end assertion above still passed with 8 of 8. On this tree the readiness before the
+        binding is already False (one deciding row is DATA_BLOCKED), so both sides were False and
+        the equality held. An anti-parity guard that can only observe its rule when the world
+        happens to be favourable is silent everywhere else. The row that catches the defect is the
+        first one below: ready before AND bound must yield ready."""
+        assert matrix.gate_ready_on_binding(True, "bound") is True
+        assert matrix.gate_ready_on_binding(True, "drift") is False
+        assert matrix.gate_ready_on_binding(True, "not_determinable") is False
+        assert matrix.gate_ready_on_binding(False, "bound") is False
 
     def test_the_guard_is_reached_at_all(self, matrix):
         """A guard nobody calls is not a guard. `evaluate()` must consult it, not just define it."""
