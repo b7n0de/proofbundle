@@ -8,6 +8,27 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
+
+### Moved from `[Unreleased]` on 2026-09-02, because the release ships it
+
+The five sections below described `agent-review/v0.1` and its hardening while sitting under
+`[Unreleased]`. Measured on the frozen release artefacts: `agent_review` is **new after v5.0.0**,
+it is in the sdist and in the wheel, and it exposes 45 public names of which 28 are callables.
+A section that says "unreleased" about code the release ships is an under-claim, and an
+under-claim is the same honesty failure as an over-claim.
+
+Found by an adversarial lens of the closing gate round. The project's own guard did not catch it
+because `scripts/check_version_and_changelog.py` verifies the **heading** for the current version,
+never its content — it is structurally blind to what the section says. That blindness is recorded
+as a finding; this entry is the correction, not the fix for the guard.
+
+Note on scope: `CHANGELOG.md` is in **neither** the sdist nor the wheel (measured: 0 occurrences
+in each). Correcting it therefore leaves both release artefacts byte-identical, and the sha256
+digests pre-registered for this gate round remain valid.
+
 ### Added — `agent-review/v0.1`, a signed self-declaration that says so
 
 A pull request often carries "an AI agent helped here, and it was reviewed". Today a reader has to
@@ -106,7 +127,6 @@ described exactly that case. Measured live: a health endpoint answering HEAD wit
 200 counted as dead.
 
 
-## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
 ### Added — receipt envelope profile and its conformance vectors
 
@@ -143,11 +163,40 @@ on its output.
 
 ### Why MINOR and not PATCH or MAJOR
 
-Measured against tag `v5.0.0`: 23 commits, 41 files, 2071 insertions, 32 deletions, **0 files
-removed**. Across all of `src/`: **0 removed public names, 0 removed or changed signatures**
-(`-def`/`-class` lines in the diff: zero). One new public function, `classify_eval_claim`, and
-one private helper. New shipped material (the profile document, ten vectors) rules out PATCH;
-nothing removed and no signature changed rules out MAJOR.
+Measured against tag `v5.0.0` at the release candidate `cece0cc`: **72 commits, 162 files,
+14 498 insertions, 150 deletions, 0 files removed**. Across all of `src/`: **0 removed public
+names, 0 removed or changed signatures**. New shipped material (the profile document, ten
+vectors, and `agent_review` with 45 public names) rules out PATCH; nothing removed and no
+signature changed rules out MAJOR.
+
+**Corrected on 2026-09-02.** These figures previously read "23 commits, 41 files, 2071
+insertions" and "one new public function". Those numbers were true for `1cfb4dd` (31 August) and
+were never re-derived as 48 further commits landed. An adversarial lens of the closing gate round
+measured the difference. The *conclusion* (MINOR) was and remains correct — the reasoning behind
+it was measuring a tree that is no longer the one being released.
+
+### Changed — `automation_summary` now blocks on a receipt that is not `ok`
+
+`automation_summary` has been public since 5.0.0. It now adds `RECEIPT_NOT_OK` to `blockers` when
+the result carries `ok` and that value is not `True`, so `safeForAutomation` becomes `False`.
+Measured on this release: `ok=False` → `safe=False`; `ok=True` → `safe=True`; **`ok` absent →
+`safe=True`**, unchanged, because a caller who runs no `ok` check must not be blocked by one.
+
+The change can only ever be *stricter*: it can stop an automated action that was previously
+allowed, never allow one that was previously stopped. It exists because a fourth surface was
+measured returning `ok=False, safeForAutomation=True, blockers=[]` — a summary more lenient than
+the verdict it summarises.
+
+**Reach, measured rather than assumed.** `automation_summary` is called from **17 sites across
+seven modules**: `agent_review` (4), `automation_verdict` (2), `decision` (2), `outcome` (2),
+`run_ledger` (2), `trust_pack` (3), `verification_summary` (2). Every one of them sets `ok` on the
+result it passes in, so every one of them can now report `safeForAutomation: false` where it
+previously reported `true` for the same input. An earlier draft of this entry said the change was
+confined to `agent_review`; an adversarial lens measured that it is not, and this sentence is the
+correction.
+
+It is listed here because `RELEASE.md` requires it: the CHANGELOG entry says explicitly whether
+semantics change. This one does, and the earlier version of this section did not say so.
 
 
 ## [5.0.0] - 2026-08-25 (the cap runs before the work it bounds · MAJOR)

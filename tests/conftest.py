@@ -7,9 +7,17 @@ REPO / CI / Rust / docs LAYOUT — the contents of `.github/workflows`, the Rust
 DELIBERATELY prunes (it is not a Python-package artifact; shipping the 138M Rust tree or the CI configs
 in a Python sdist is a category error). Those tests are meaningless outside a git checkout, so they SKIP
 when the repo-only markers are absent (i.e. when running from an extracted sdist / installed wheel),
-turning 25 false runtime FAILURES into honest SKIPs — the sdist then runs clean. In a real checkout (CI)
+turning 39 false runtime FAILURES into honest SKIPs (this said 25; measured 2026-09-02 it is 39 — the number was never re-derived after the suite grew) — the sdist then runs clean. In a real checkout (CI)
 every marker is present, NOTHING is skipped, and coverage is exactly as before (this file is a pure no-op
-in the repo). This is the No-Fake honest form of "self-testable": the package-level tests run; the
+in the repo). This is the No-Fake honest form of "self-testable" — with a MEASURED limit that this sentence
+# used to hide. It said "the package-level tests run". Measured 2026-09-02 by an adversarial
+# lens: 113 of them do NOT, because the skip is decided PER MODULE. One repo-touching test drags
+# 12 to 33 package-clean tests with it (`test_fork_pr_secret_isolation`: 34 skipped, 1 needed —
+# so 33 security-scanner tests never run from the package; `test_audit_marker_line_wrap`: 9
+# skipped, 0 needed — that module had already solved it per-test, three-state, and the blanket
+# skip overrides the better solution). The trade is deliberate and documented; what was NOT
+# honest was claiming the cost away. The honest form: the repo-layout tests announce themselves
+# as N/A, and 113 package-level tests are skipped WITH them. The
 repo-layout tests announce themselves as N/A rather than failing or being silently dropped.
 """
 import pathlib

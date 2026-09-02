@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.1 \u2014 built 31.08.2026 against the external adversarial read (18 findings). Rule ids are that read's finding ids.",
+  "caseId": "agent-review-counter-proof-a-superseded-predecessor-must-still-be-present",
+  "expected": {
+    "chainIntegrity": false
+  },
+  "input": "chain.json",
+  "kind": "agent_review_predicate",
+  "rationale": "Verschwindet der ueberholte Beleg, ist die Korrektur nicht mehr nachvollziehbar: der Leser sieht nur noch die neue Fassung und kann nicht pruefen, WAS korrigiert wurde. Jedes einzelne Stueck bleibt dabei kryptografisch gueltig \u2014 die Kette ist trotzdem kaputt, und das ist die Aussage, die `integrity_ok` traegt und `crypto_ok` nicht.",
+  "role": "counter_proof",
+  "rule": "F15",
+  "specRefs": [
+    "docs/AGENT_REVIEW_PREDICATE.md",
+    "src/proofbundle/agent_review.py"
+  ]
+}

@@ -62,7 +62,8 @@ def test_ein_v01_receipt_mit_observedAt_bleibt_gueltig():
 
 def test_derselbe_fall_traegt_den_stabilen_legacy_code():
     r = _lauf("2026-08-31T15:45:00Z")
-    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["reason_codes"]
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["advisory_codes"]
+    assert r["reason_codes"] == [], "ein Hinweis gehoert nicht unter die Fehlgruende"
     assert r["time_semantics"] == "LEGACY_V0_1"
     assert r["observed_time_assurance"] == "SELF_DECLARED_OR_UNKNOWN"
     assert any("LEGACY_SELF_DECLARED_OBSERVED_AT" in w for w in r["warnings"])
@@ -83,6 +84,7 @@ def test_ohne_observedAt_bleibt_der_hinweis_aus(observed):
     """DIE GEGENRICHTUNG. Ohne sie bestuende Test 2 auch, wenn der Code IMMER gesetzt wuerde —
     dann waere er kein Signal, sondern Rauschen."""
     r = _lauf(observed)
+    assert "LEGACY_SELF_DECLARED_OBSERVED_AT" not in r["advisory_codes"]
     assert "LEGACY_SELF_DECLARED_OBSERVED_AT" not in r["reason_codes"]
     assert r["observed_time_assurance"] == "ABSENT"
     assert not any("LEGACY_SELF_DECLARED" in w for w in r["warnings"])
@@ -111,7 +113,8 @@ def test_ein_nicht_blockierender_code_macht_ok_nicht_falsch():
     """Die Unterscheidung, an der alles haengt: LEGACY_… ist ein HINWEIS, internal_error ein
     BEFUND. Wer beide gleich behandelt, bricht das Einfrieren durch die Hintertuer."""
     r = _lauf("2026-08-31T15:45:00Z")
-    assert r["reason_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
+    assert r["advisory_codes"] == ["LEGACY_SELF_DECLARED_OBSERVED_AT"]
+    assert r["reason_codes"] == [], "ein Hinweis darf nicht unter den Fehlgruenden stehen"
     assert r.get("reason_code") is None, "ein Hinweis darf nicht als fataler Code erscheinen"
     assert r["ok"] is True
 
@@ -248,3 +251,40 @@ def test_v02_verifier_deutet_v01_nicht_still_um():
     r = AR.verify_agent_review_v02(env, PK, strict=True, expected_subject_digest=AR._subject_digest(p))
     assert r["ok"] is False and "UNKNOWN_PREDICATE_VERSION" in r["reason_codes"]
     assert any("rewrite what that receipt meant" in e for e in r["errors"]), r["errors"]
+
+
+# ── Der Hinweis reist nicht ueber die Versionsgrenze ───────────────────────────────────────────
+
+@pytest.mark.parametrize("predicate_type,soll", [
+    ("v0.1", True),
+    ("v0.2", False),
+    ("unbekannt", False),
+])
+def test_der_legacy_hinweis_gilt_nur_fuer_echte_v0_1_receipts(predicate_type, soll):
+    """DER BEFUND (adversariale Linse, 02.09.2026): der Hinweis sagt woertlich „this v0.1
+    receipt" — und erschien auch, wenn der `predicateType` v0.2 oder voellig unbekannt war.
+
+    Seine ZWEI NACHBARN im selben `if isinstance(predicate, dict)`-Block waren an
+    `predicate_type_ok` gebunden, dieser Append nicht. Das Modul verlangt an zwei Stellen
+    ausdruecklich „KEIN RATEN UEBER VERSIONSGRENZEN"; hier wurde eine versionsspezifische Aussage
+    ueber die Grenze getragen, in ein Feld, auf das Verbraucher verzweigen sollen.
+
+    Ausnutzbarkeit gering (das Receipt faellt ohnehin), aber es ist eine falsche Aussage in einem
+    maschinenlesbaren Feld — und der Fix hatte bis zu diesem Test keinen Waechter.
+    """
+    typen = {"v0.1": AR.AGENT_REVIEW_PREDICATE_TYPE,
+             "v0.2": AR.AGENT_REVIEW_PREDICATE_TYPE_V02,
+             "unbekannt": "https://example/unbekannt/v1"}
+    p = _pred("2026-09-01T10:00:00Z")
+    st = {"_type": AR.STATEMENT_TYPE,
+          "subject": [{"name": AR._subject_name(p),
+                       "digest": {"sha256": AR._subject_digest(p)}}],
+          "predicateType": typen[predicate_type], "predicate": p}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    r = AR.verify_agent_review(env, PK, strict=True)
+    da = "LEGACY_SELF_DECLARED_OBSERVED_AT" in r["advisory_codes"]
+    assert da is soll, (
+        f"predicateType={predicate_type}: advisory={r['advisory_codes']}, "
+        f"predicate_type_ok={r['predicate_type_ok']} — ein v0.1-Satz ueber ein "
+        f"{predicate_type}-Receipt ist eine falsche Aussage")

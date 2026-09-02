@@ -124,6 +124,39 @@ issued by an untrusted identity, unwitnessed in time, incomplete, or superseded.
 predicate but are **not** separate verifier axes yet. A relying-party policy layer that turns these
 axes into a decision is not part of v0.1.
 
+## Machine-readable reasons
+
+Three fields, and the distinction between them is the point:
+
+| Field | Carries | Read it when |
+|---|---|---|
+| `reason_codes` | **only fatal** codes — reasons the receipt was rejected | you want to branch on *why* it failed |
+| `reason_code` | the **first** entry of `reason_codes`, else `None` | you want one label and accept that it is a sample |
+| `advisory_codes` | notes that do **not** determine the outcome (e.g. `LEGACY_SELF_DECLARED_OBSERVED_AT`) | you want context; never as a rejection reason |
+
+**Branch on `in reason_codes`, not on `reason_code ==`.** The scalar is the *first* fatal code in
+check order, so an unrelated second defect in the same receipt can displace it while the defect you
+care about is unchanged. The list does not have that property. How often the scalar moves depends
+entirely on which pair of defects you pick — we deliberately quote no rate here, because two
+independent measurements over different defect pairs produced very different ones, and a rate that
+depends on the sample is not a property a consumer can rely on. The mechanism is the thing: the
+scalar is stable enough to log, and too unstable to dispatch on.
+
+**A rejection may carry no code at all.** Codes today cover the statement-shape family. Measured on
+this release, these four reject with an English sentence in `errors` and an **empty** `reason_codes`:
+
+    signature invalid          ok=False   reason_codes=[]
+    wrong subject              ok=False   reason_codes=[]
+    visible body != signed     ok=False   reason_codes=[]
+    no subject expectation     ok=False   reason_codes=[]
+
+Every cryptographic and every binding axis is in that group. An empty list is the honest answer "no
+machine-readable reason" — it is **not** a statement that the receipt is fine. Read `ok` first,
+always, and treat `reason_codes` as an aid to routing, never as the verdict.
+
+Codes are stable across releases; the sentences beside them are not. A sentence may be reworded for
+clarity in any version, which is exactly why matching on text breaks and matching on codes does not.
+
 ## Every rule brings its own counter-proof
 
 `conformance/agent_review/` carries positive controls and counter-proofs, run by

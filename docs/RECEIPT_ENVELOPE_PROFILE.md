@@ -2,7 +2,7 @@
 
 Status: **DRAFT, house proposal.** Not standardized, not agreed with any second party, not published
 anywhere but this repository. Nothing here changes the native receipt or what it proves — see
-[NON_CLAIMS.md](NON_CLAIMS.md).
+[NON_CLAIMS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/NON_CLAIMS.md).
 
 **Proposed identifier: `proofbundle/receipt-envelope-profile/v0.1`.**
 The identifier is an **Owner decision** and is deliberately marked as such: it is proposed here, not
@@ -200,7 +200,7 @@ submitted for approval.)*
 
 ## Relationship to RFC 9943 and the SCITT payload-binding draft
 
-Read clause by clause in [SCITT_CPB_MAPPING.md](SCITT_CPB_MAPPING.md). Summary, nothing asserted here
+Read clause by clause in [SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md). Summary, nothing asserted here
 that is not measured there:
 
 | Rule | Relation to the draft |

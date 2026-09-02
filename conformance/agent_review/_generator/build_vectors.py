@@ -1,13 +1,20 @@
 """Konformitaets-Vektoren fuer agent-review/v0.1 — nach dem Hausmuster von conformance/envelope_profile."""
 import copy
 import json
+import os
 import pathlib
 import sys
 sys.path.insert(0, "src")
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from proofbundle import agent_review as AR
 
-ROOT = pathlib.Path("conformance/agent_review")
+# Das Ziel ist ueberschreibbar, damit ein Test den Korpus NEBEN den echten erzeugen und beide
+# bytegenau vergleichen kann. Ohne diesen Schalter muesste ein solcher Test in den echten Korpus
+# schreiben — und genau das hat am 01.09.2026 einen von Hand nachgetragenen Fix (K-D, die fehlende
+# expectedSubjectDigest-Erwartung) STILL GELOESCHT, weil die Aenderung am ERZEUGTEN Artefakt und
+# nicht an seiner Quelle gemacht worden war. Ein Pruefwerkzeug, das seinen Prueflig veraendert,
+# ist selbst ein Risiko.
+ROOT = pathlib.Path(os.environ.get("AGENT_REVIEW_CORPUS_ROOT") or "conformance/agent_review")
 # Deterministischer Schluessel: ein Vektorkorpus, dessen Bytes sich bei jedem Lauf aendern, ist
 # kein Korpus — er waere bei jedem Regenerieren ein Diff ohne inhaltlichen Anlass.
 sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
@@ -47,7 +54,7 @@ BASE = {
 }
 
 def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=None,
-             input_name, params=None):
+             input_name, params=None, attribution=None, spec_refs=None):
     d = ROOT / case_id
     d.mkdir(parents=True, exist_ok=True)
     payload = envelope if envelope is not None else obj
@@ -55,11 +62,13 @@ def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=Non
     (d / "case.json").write_text(json.dumps({
         "caseId": case_id, "kind": "agent_review_predicate", "rule": rule, "role": role,
         "input": input_name,
-        "attribution": "agent-review/v0.1 — built 31.08.2026 against the external adversarial read "
-                       "(18 findings). Rule ids are that read's finding ids.",
+        "attribution": attribution or (
+            "agent-review/v0.1 — built 31.08.2026 against the external adversarial read "
+            "(18 findings). Rule ids are that read's finding ids."),
         "expected": expected,
-        **({"params": params} if params else {}),
-        "specRefs": ["docs/AGENT_REVIEW_PREDICATE.md", "src/proofbundle/agent_review.py"],
+        **({"params": params} if params is not None else {}),
+        "specRefs": spec_refs or ["docs/AGENT_REVIEW_PREDICATE.md",
+                                 "src/proofbundle/agent_review.py"],
         "rationale": rationale,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return d
@@ -94,8 +103,17 @@ env3 = AR.emit_agent_review(p, sk)   # Erzeugen erlaubt: die Root ist dann schli
 schreibe("agent-review-counter-proof-findings-root-covers-the-list", "counter_proof", "F09",
          {"classification": "invalid"},
          "Removing a finding after the root was taken must be detectable. A receipt that reports "
-         "'3 findings, 2 fixed' without a root binding is an aggregate anyone can rewrite.",
-         envelope=env3, input_name="envelope.json")
+         "'3 findings, 2 fixed' without a root binding is an aggregate anyone can rewrite.\n\n"
+         "NACHTRAG 01.09.2026, Tiefen-Gate 5.1.0: dieser Fall KONNTE NICHT KIPPEN. Ohne "
+         "params.expectedSubjectDigest ist subject_expectation=not_supplied, damit ok=False fuer "
+         "JEDE Eingabe, damit ist die Klassifikation immer die erwartete 'invalid' — der Fall "
+         "bestand auch mit abgeschalteter findingsRoot-Pruefung, und die ganze Strecke blieb rc=0. "
+         "Zwei unabhaengige Linsen haben das mit je eigenen Mutanten gemessen. F09 war zudem die "
+         "einzige Regel MIT Gegenbeweis und OHNE Positivkontrolle, es gab also keinen zweiten "
+         "Faenger. Die Erwartung ist derselbe Wert, den die zwei Geschwister-Faelle bereits "
+         "tragen; damit faellt der Fall wieder auf SEINER eigenen Achse.",
+         envelope=env3, input_name="envelope.json",
+         params={"expectedSubjectDigest": AR._subject_digest(BASE)})
 
 # 4 — Gegenprobe: anchoredAt ohne Beleg
 p = copy.deepcopy(BASE)
@@ -207,6 +225,138 @@ schreibe("agent-review-positive-control-prepare-then-fill-keeps-the-digest", "po
          "exist. Without this control the counter-proof above could be satisfied by a verifier that "
          "simply reports instability for everything.",
          obj={"bodyBefore": vorbereitet, "bodyAfter": gefuellt}, input_name="bodies.json")
+
+
+# 14 — Positivkontrolle: der ECHTE Emit-Verify-Roundtrip
+#
+# NACHGETRAGEN 01.09.2026. Dieser Fall wurde am selben Tag von Hand angelegt und stand danach auf
+# der Platte UND im Manifest, aber NICHT hier — ein Neulauf des Generators haette ihn nicht
+# erzeugt, und damit waere der Korpus nicht mehr aus seiner Quelle reproduzierbar gewesen. Die
+# Gegenlese Runde 2 verlangt unter P0.5.1 ausdruecklich reproduzierbare Fixtures.
+#
+# Das Praedikat ist bewusst NICHT von BASE abgeleitet: es soll den positiven Zweig unabhaengig
+# treffen, und ein Ableger haette dieselben Werte noch einmal behauptet statt sie zu pruefen.
+ROUNDTRIP = {
+    "coverage": {
+        "knownGaps": [
+            "nur ein Lauf erfasst"
+        ],
+        "status": "PARTIAL"
+    },
+    "declaration": {
+        "authoring": [
+            {
+                "assertedBy": "agent",
+                "assurance": "selfDeclared"
+            }
+        ],
+        "findings": [
+            {
+                "disposition": "dismissed",
+                "id": "F1",
+                "reason": "im Kontext nicht anwendbar",
+                "severity": "low",
+                "title": "ein Fund"
+            }
+        ],
+        "findingsRoot": "a9315babdef60590b291d47617a6dade99f407e3d66d5edf8e98a2d851e876e2",
+        "findingsTotal": 1,
+        "nonClaims": [
+            "kein Nachweis von Unabhaengigkeit"
+        ],
+        "reviewRuns": []
+    },
+    "limitations": [
+        "Tier 1, selbst deklariert, kein externer Zeuge"
+    ],
+    "reviewId": "roundtrip-positive-control",
+    "schemaVersion": "0.1.0",
+    "subjectContext": {
+        "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bodyCoreDigest": "2de5900a45b84d021dfb8cf9850be84c0c848f92bf780516ce9edf74383f7365",
+        "forge": "github.com",
+        "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "githubPullRequest",
+        "pullRequestNodeId": "PR_kwDOroundtrip",
+        "repositoryId": "R_kgDOroundtrip",
+        "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "times": {
+        "declaredAt": "2026-09-01T09:00:00Z"
+    }
+}
+schreibe("agent-review-positive-control-emit-verify-roundtrip", "positive_control", "PBF08",
+         {"classification": "valid"},
+         "OHNE DIESEN FALL MISST DIE UMSTELLUNG NICHTS, und das ist gemessen: alle fuenf bisherigen predicate.json-Faelle erwarten `refused`, also wurde der `valid`-Zweig nie erreicht. Ein eingepflanzter Defekt, der die Validierung besteht und erst im Verifier faellt (Statement mit falschem Subject-Digest), liess die Strecke gruen — mit der Umstellung UND ohne sie. Dieser Fall fuehrt den positiven Roundtrip: das Praedikat wird mit dem deterministischen Korpus-Schluessel wirklich EMITTIERT und das erzeugte Envelope danach verifiziert. `valid` heisst hier also 'erzeugt und wieder gelesen', nicht 'bestand die Validierung'.",
+         obj=ROUNDTRIP, input_name="predicate.json", params={},
+         attribution="agent-review/v0.1 — ergaenzt 01.09.2026 nach der Gegenlese Runde 2 (N06 / P0.5): die Strecke rief fuer Praedikat-Faelle den VALIDATOR, nicht den Erzeuger.",
+         spec_refs=["docs/AGENT_REVIEW_PREDICATE.md", "src/proofbundle/agent_review.py", "conformance/run_conformance.py"])
+
+
+# ── Test 19: Supersession ───────────────────────────────────────────────────────────────────────
+# Die Gegenlese Runde 2 fuehrt Test 19 ZWEIMAL als "WIDERLEGT als gefahrene Mutation": der
+# Erstanwendungsbericht nannte ihn gefahren, und in der vollstaendigen Fall-Liste existierte
+# ueberhaupt kein Supersessions-Fall. Diese drei schliessen das.
+#
+# Der Angreiferschluessel ist ebenso deterministisch wie der Korpusschluessel und ausdruecklich
+# NICHT der unsere — ein Uebernahmeversuch, der mit unserem Schluessel signiert, waere kein
+# Uebernahmeversuch, sondern wir selbst.
+angreifer_sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
+
+alt = copy.deepcopy(BASE)
+alt["reviewId"] = "agent-review-conformance-01-erste-fassung"
+env_alt = AR.emit_agent_review(alt, sk)
+digest_alt = AR.receipt_digest(env_alt)
+
+neu_p = copy.deepcopy(BASE)
+neu_p["reviewId"] = "agent-review-conformance-01-zweite-fassung"
+neu_p["supersession"] = {"supersedes": [
+    {"priorDigest": {"sha256": digest_alt},
+     "reason": "die erste Fassung zaehlte einen Fund doppelt"}]}
+env_neu = AR.emit_agent_review(neu_p, sk)
+digest_neu = AR.receipt_digest(env_neu)
+
+# 15 — Positivkontrolle: die Kette benennt genau einen aktuellen Beleg
+schreibe("agent-review-positive-control-supersession-names-the-current-receipt", "positive_control",
+         "F15", {"currentReceipt": digest_neu},
+         "Ohne diese Kontrolle misst die Gegenprobe darunter nichts: ein Resolver, der IMMER "
+         "None liefert, bestuende jeden Fall, der nur Abwehr prueft. Zwei Belege, der zweite "
+         "benennt den ersten als ueberholt — genau einer darf danach aktuell sein, und es muss "
+         "der zweite sein. Ein ueberholtes Receipt wird dabei nicht ungueltig, es ist nur nicht "
+         "mehr der Stand, auf den ein oeffentlicher Verweis zeigen soll.",
+         obj={"envelopes": [env_alt, env_neu]}, input_name="chain.json")
+
+# 16 — Gegenprobe: ein fremd signierter Umschlag darf die Kette NICHT uebernehmen
+uebernahme = copy.deepcopy(BASE)
+uebernahme["reviewId"] = "uebernahme-versuch"
+uebernahme["supersession"] = {"supersedes": [
+    {"priorDigest": {"sha256": digest_alt},
+     "reason": "behauptet, unseren Beleg zu ersetzen"}]}
+env_fremd = AR.emit_agent_review(uebernahme, angreifer_sk)
+schreibe("agent-review-counter-proof-a-foreign-key-cannot-supersede-our-receipt", "counter_proof",
+         "F15", {"unverifiedSupersessionClaim": AR.receipt_digest(env_fremd)},
+         "DER ANGRIFF, DEN DER RESOLVER ABWEHREN MUSS. Ein Angreifer mit EIGENEM Schluessel legt "
+         "einen Umschlag dazu, der unseren Beleg als ueberholt benennt. Wuerde die Ordnung vor "
+         "der Signaturpruefung entstehen, zeigte `current` danach auf SEIN Receipt und unseres "
+         "stuende unter `corrected` — bei gueltiger Signatur, denn seine ist gueltig, nur nicht "
+         "unsere. Der Laeufer prueft deshalb jeden Umschlag SELBST und uebergibt nur die "
+         "bestandenen; der fremde faellt heraus und darf danach nichts mehr korrigieren.\n\n"
+         "DIE ACHSE IST BEWUSST NICHT `current`. Gemessen 01.09.2026: nach der Abwehr sind ZWEI "
+         "Belege unkorrigiert, also meldet der Resolver ehrlich `current=None` statt zu raten — "
+         "und genau dasselbe kaeme heraus, wenn er Supersession gar nicht ansaehe. Ein Fall auf "
+         "`current` bestuende also auch bei einem blinden Resolver. Die unterscheidende Aussage "
+         "ist der GEMELDETE Anspruch: er belegt, dass der Versuch gesehen und verworfen wurde. "
+         "Zusaetzlich wird geprueft, dass gar nichts korrigiert wurde.",
+         obj={"envelopes": [env_alt, env_fremd]}, input_name="chain.json")
+
+# 17 — Gegenprobe: ein ueberholter Vorgaenger, der nicht mehr vorliegt, bricht die Kette
+schreibe("agent-review-counter-proof-a-superseded-predecessor-must-still-be-present", "counter_proof",
+         "F15", {"chainIntegrity": False},
+         "Verschwindet der ueberholte Beleg, ist die Korrektur nicht mehr nachvollziehbar: der "
+         "Leser sieht nur noch die neue Fassung und kann nicht pruefen, WAS korrigiert wurde. "
+         "Jedes einzelne Stueck bleibt dabei kryptografisch gueltig — die Kette ist trotzdem "
+         "kaputt, und das ist die Aussage, die `integrity_ok` traegt und `crypto_ok` nicht.",
+         obj={"envelopes": [env_neu]}, input_name="chain.json")
 
 (ROOT / "publickey.hex").write_text(pk.hex() + "\n", encoding="utf-8")
 print(f"{len(list(ROOT.glob('*/case.json')))} Vektoren geschrieben nach {ROOT}")

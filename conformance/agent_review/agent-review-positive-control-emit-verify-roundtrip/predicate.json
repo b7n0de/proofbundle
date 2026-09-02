@@ -1,49 +1,49 @@
 {
-  "schemaVersion": "0.1.0",
-  "reviewId": "roundtrip-positive-control",
-  "subjectContext": {
-    "kind": "githubPullRequest",
-    "forge": "github.com",
-    "repositoryId": "R_kgDOroundtrip",
-    "pullRequestNodeId": "PR_kwDOroundtrip",
-    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "bodyCoreDigest": "2de5900a45b84d021dfb8cf9850be84c0c848f92bf780516ce9edf74383f7365"
+  "coverage": {
+    "knownGaps": [
+      "nur ein Lauf erfasst"
+    ],
+    "status": "PARTIAL"
   },
   "declaration": {
     "authoring": [
       {
-        "assurance": "selfDeclared",
-        "assertedBy": "agent"
+        "assertedBy": "agent",
+        "assurance": "selfDeclared"
       }
     ],
-    "reviewRuns": [],
     "findings": [
       {
-        "id": "F1",
-        "severity": "low",
-        "title": "ein Fund",
         "disposition": "dismissed",
-        "reason": "im Kontext nicht anwendbar"
+        "id": "F1",
+        "reason": "im Kontext nicht anwendbar",
+        "severity": "low",
+        "title": "ein Fund"
       }
     ],
-    "findingsTotal": 1,
     "findingsRoot": "a9315babdef60590b291d47617a6dade99f407e3d66d5edf8e98a2d851e876e2",
+    "findingsTotal": 1,
     "nonClaims": [
       "kein Nachweis von Unabhaengigkeit"
-    ]
-  },
-  "coverage": {
-    "status": "PARTIAL",
-    "knownGaps": [
-      "nur ein Lauf erfasst"
-    ]
-  },
-  "times": {
-    "declaredAt": "2026-09-01T09:00:00Z"
+    ],
+    "reviewRuns": []
   },
   "limitations": [
     "Tier 1, selbst deklariert, kein externer Zeuge"
-  ]
+  ],
+  "reviewId": "roundtrip-positive-control",
+  "schemaVersion": "0.1.0",
+  "subjectContext": {
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "bodyCoreDigest": "2de5900a45b84d021dfb8cf9850be84c0c848f92bf780516ce9edf74383f7365",
+    "forge": "github.com",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "githubPullRequest",
+    "pullRequestNodeId": "PR_kwDOroundtrip",
+    "repositoryId": "R_kgDOroundtrip",
+    "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "times": {
+    "declaredAt": "2026-09-01T09:00:00Z"
+  }
 }
