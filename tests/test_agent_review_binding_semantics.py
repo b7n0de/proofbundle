@@ -32,7 +32,12 @@ def _pred(**patch):
                            "repositoryId": "R", "pullRequestNodeId": "PR",
                            "headSha": "a" * 40, "baseSha": "b" * 40,
                            "reviewedDiffDigest": "c" * 64,
-                           "bodyCoreDigest": AR.body_core_digest(BODY)},
+                           "bodyCoreDigest": AR.body_core_digest(BODY),
+                           # v0.2 verlangt sie, und der Emitter stellt ab 6.0.0 v0.2 aus.
+                           # Derselbe Wert wie bodyCoreDigest: dieser Test variiert den
+                           # sichtbaren Block nicht, er prueft die BINDUNG an den
+                           # Gegenstand, nicht die Offenlegung.
+                           "disclosureCoreDigest": AR.body_core_digest(BODY)},
         "declaration": {"authoring": [{"assurance": "selfDeclared", "assertedBy": "x"}],
                         "reviewRuns": [], "findings": FINDINGS, "findingsTotal": 1,
                         "findingsRoot": AR.findings_root(FINDINGS), "nonClaims": ["n"]},
@@ -41,7 +46,40 @@ def _pred(**patch):
         "limitations": ["l"],
     }
     p.update(patch)
+    # limitationCodes sind in v0.2 Pflicht und werden ABGELEITET, nie getippt — ein
+    # handgesetzter Code driftet vom Inhalt weg, ohne dass ein Digest sich bewegt. Nach
+    # `patch`, damit ein veraendertes Praedikat die dazu passenden Codes bekommt; und nur
+    # wenn der Test sie nicht selbst gesetzt hat, denn dann prueft er genau sie.
+    p.setdefault("limitationCodes", AR.derive_limitation_codes(p))
     return p
+
+
+def _pruefe(env, pk, **kw):
+    """Der Verifier fuer die Version, die dieses Haus AUSSTELLT — plus eine Sperre.
+
+    ZWEI DINGE IN EINER STELLE, und beide sind gemessen (02.09.2026).
+
+    ERSTENS die Version. Der Emitter stellt ab 6.0.0 v0.2 aus. Wuerden diese Tests weiter mit dem
+    v0.1-Verifier pruefen, pruefte nach dem Release niemand mehr die Bindungssemantik auf der
+    Fassung, die wir wirklich ausliefern — ein Waechter fuer eine Version, die es nicht mehr gibt.
+
+    ZWEITENS die Sperre. Fuehrt man ein v0.2-Receipt durch den v0.1-Verifier, meldet er korrekt
+    `ok=False` mit `UNKNOWN_PREDICATE_VERSION` — aber `assurance_ok`, `crypto_ok` und
+    `internal_subject_consistency_ok` behalten `True`, weil sie VOR der Versionspruefung gerechnet
+    werden. Von dreizehn Aufrufstellen fielen nach der Umstellung nur fuenf Tests; die uebrigen
+    waeren teils vakuos gruen geblieben. Ein gruener Test auf einem abgelehnten Receipt meldet
+    Deckung, die es nicht gibt.
+
+    Deshalb EINE Stelle statt dreizehn Einzelfixes: eine Versionsablehnung wird hier zum
+    Testfehler mit Namen, egal welche Achse der Aufrufer danach liest.
+    """
+    r = AR.verify_agent_review_v02(env, pk, **kw)
+    if r.get("reason_code") == "UNKNOWN_PREDICATE_VERSION":
+        raise AssertionError(
+            "der Verifier hat dieses Receipt wegen der predicateType-Version ABGELEHNT — jede "
+            "Achse, die hier noch True traegt, wurde vor der Ablehnung gerechnet und sagt nichts "
+            f"ueber den geprueften Gegenstand aus (reason_codes={r.get('reason_codes')})")
+    return r
 
 
 @pytest.fixture
@@ -53,17 +91,23 @@ def paar():
 def test_ohne_erwartung_ist_ok_falsch_und_die_konsistenz_wahr(paar):
     """DER KERN. Das Receipt ist in sich stimmig — aber nichts hier sagt, dass es hierher gehoert."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = _pruefe(AR.emit_agent_review(_pred(), sk), pk)
     assert r["internal_consistency_ok"] is True
     assert r["ok"] is False
     assert r["subject_expectation"] == "not_supplied"
-    assert any("belongs to the object" in e for e in r["errors"])
+    # AN DIE EIGENSCHAFT GEBUNDEN, NICHT AN DEN WORTLAUT (nachgezogen 02.09.2026). Vorher stand
+    # hier ein Substring-Vergleich auf „belongs to the object". v0.2 sagt dasselbe mit anderen
+    # Worten („no expected subject digest was supplied"), und der Test waere rot geworden, obwohl
+    # die gepruefte Eigenschaft unveraendert haelt. Ein Test, der an einer Formulierung haengt,
+    # misst die Formulierung. Gemessen wird jetzt, dass der Grund die FEHLENDE ERWARTUNG benennt.
+    assert r["errors"], "ohne Erwartung muss ein Grund genannt werden, nicht bloss ok=False"
+    assert any("expected subject" in e for e in r["errors"]), r["errors"]
 
 
 def test_mit_richtiger_erwartung_ist_ok_wahr(paar):
     sk, pk = paar
     p = _pred()
-    r = AR.verify_agent_review(AR.emit_agent_review(p, sk), pk,
+    r = _pruefe(AR.emit_agent_review(p, sk), pk,
                                expected_subject_digest=AR._subject_digest(p))
     assert r["ok"] is True and r["subject_expectation"] == "checked"
 
@@ -74,7 +118,7 @@ def test_fremdes_receipt_faellt_gegen_die_erwartung_durch(paar):
     a = _pred()
     b = copy.deepcopy(a)
     b["subjectContext"]["pullRequestNodeId"] = "PR_ANDERER"
-    r = AR.verify_agent_review(AR.emit_agent_review(b, sk), pk,
+    r = _pruefe(AR.emit_agent_review(b, sk), pk,
                                expected_subject_digest=AR._subject_digest(a))
     assert r["ok"] is False and r["subject_binding_ok"] is False
 
@@ -83,7 +127,7 @@ def test_eine_warnung_allein_haette_nicht_getragen(paar):
     """Festgehalten, weil es die verworfene Alternative ist: die Warnung STEHT weiterhin da, aber
     sie ist nicht mehr das Einzige. Wer nur `ok` liest, ist jetzt sicher."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = _pruefe(AR.emit_agent_review(_pred(), sk), pk)
     assert any("expected_subject_digest" in w for w in r["warnings"])
     assert r["ok"] is False, "die Warnung ersetzt das Urteil nicht, sie begleitet es"
 
@@ -93,7 +137,7 @@ def test_kaputte_signatur_macht_auch_die_konsistenz_falsch(paar):
     sk, pk = paar
     env = AR.emit_agent_review(_pred(), sk)
     env["signatures"][0]["sig"] = base64.b64encode(b"\x00" * 64).decode()
-    r = AR.verify_agent_review(env, pk, expected_subject_digest="0" * 64)
+    r = _pruefe(env, pk, expected_subject_digest="0" * 64)
     assert r["internal_consistency_ok"] is False and r["ok"] is False
 
 
@@ -101,7 +145,12 @@ def test_das_statement_traegt_die_erwartete_form(paar):
     sk, _ = paar
     env = AR.emit_agent_review(_pred(), sk)
     stmt = json.loads(base64.b64decode(env["payload"]))
-    assert stmt["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE
+    # DIESER TEST IST DER WAECHTER UEBER DIE EMITTER-VORGABE (Owner-Festlegung 2, 02.09.2026).
+    # Ab 6.0.0 stellt der Emitter v0.2 aus; wer die Vorgabe still zurueckdreht, faellt hier auf.
+    # Die Gegenrichtung steht daneben: v0.1 bleibt AUSSTELLBAR, nur nicht mehr als Vorgabe.
+    assert stmt["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+    alt = json.loads(base64.b64decode(AR.emit_agent_review(_pred(), sk, v02=False)["payload"]))
+    assert alt["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE
     assert stmt["subject"][0]["digest"]["sha256"] == AR._subject_digest(_pred())
 
 
@@ -132,7 +181,13 @@ def _handgebaut(assurance_wert):
         "_type": AR.STATEMENT_TYPE,
         "subject": [{"name": AR._subject_name(praedikat),
                      "digest": {"sha256": AR._subject_digest(praedikat)}}],
-        "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE,
+        # DER TYP FOLGT DEM VERIFIER, GEGEN DEN GEPRUEFT WIRD (nachgezogen 02.09.2026). Der
+        # Emitter stellt ab 6.0.0 v0.2 aus, also prueft dieser Test mit dem v0.2-Verifier — und
+        # ein handgebautes Statement mit v0.1-Typ wuerde von ihm wegen der VERSION abgelehnt.
+        # Dann liefe die Assurance-Pruefung, die dieser Test eigentlich meint, gar nicht mehr.
+        # Genau dieselbe Klasse, die der Kommentar zum Namen oben beschreibt, nur eine Ebene
+        # hoeher: der Schutz bestuende weiter, der Test bewiese ihn nicht.
+        "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE_V02,
         "predicate": praedikat,
     }
     env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), sk,
@@ -157,14 +212,14 @@ def test_ein_unhashbarer_assurance_wert_wirft_nicht(wert, beschreibung):
     Haette ich nur den gemeldeten Punkt gefixt, waere der schwerere geblieben und die Suite
     gruen geworden."""
     env, pk = _handgebaut(wert)
-    r = AR.verify_agent_review(env, pk)          # darf NICHT werfen
+    r = _pruefe(env, pk)          # darf NICHT werfen
     assert r["ok"] is False and r["assurance_ok"] is False, beschreibung
 
 
 def test_ein_zulaessiger_wert_bleibt_zulaessig():
     """Die Gegenrichtung: die Haertung darf den Normalfall nicht miterschlagen."""
     env, pk = _handgebaut("selfDeclared")
-    assert AR.verify_agent_review(env, pk)["assurance_ok"] is True
+    assert _pruefe(env, pk)["assurance_ok"] is True
 
 
 # ── der Erwartungsvergleich wird EXAKT gefuehrt ────────────────────────────────────────────────
@@ -194,11 +249,11 @@ class ErwartungsvergleichIstExakt(unittest.TestCase):
         # Gegenprobe des Aufbaus: mit dem RICHTIGEN Digest ist es gueltig. Ohne diese Zeile misst
         # der Korpus unten nichts — jede Abwandlung waere schon deshalb falsch, weil alles falsch ist.
         self.assertTrue(
-            AR.verify_agent_review(env, pk, expected_subject_digest=erwartet)["ok"],
+            _pruefe(env, pk, expected_subject_digest=erwartet)["ok"],
             "der selbstgebaute Beleg verifiziert nicht — die Pruefung unten misst dann nichts")
 
         pruefe_exakt(
-            lambda v: AR.verify_agent_review(env, pk, expected_subject_digest=v)["ok"],
+            lambda v: _pruefe(env, pk, expected_subject_digest=v)["ok"],
             erwartet, self)
 
 
@@ -215,7 +270,7 @@ def test_ohne_zielkontext_ist_die_bindungsachse_NIE_wahr(paar):
     """DER WORTLAUT DER ABNAHME: „Ohne Zielkontext lautet der Zustand NOT_EVALUATED, niemals
     subject_binding_ok=True." Vorher stand die Achse hier auf `True`."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = _pruefe(AR.emit_agent_review(_pred(), sk), pk)
     assert r["internal_subject_consistency_ok"] is True, "die interne Konsistenz IST gegeben"
     assert r["expected_subject_match"] == "NOT_EVALUATED"
     assert r["subject_binding_ok"] is not True, (
@@ -229,7 +284,7 @@ def test_mit_passendem_zielkontext_wird_die_achse_wahr(paar):
     Abschaffung — die Achse duerfte einfach nie mehr gruen werden und niemand saehe es."""
     sk, pk = paar
     pred = _pred()
-    r = AR.verify_agent_review(AR.emit_agent_review(pred, sk), pk,
+    r = _pruefe(AR.emit_agent_review(pred, sk), pk,
                                expected_subject_digest=AR._subject_digest(pred))
     assert r["internal_subject_consistency_ok"] is True
     assert r["expected_subject_match"] == "MATCH"
@@ -241,7 +296,7 @@ def test_fremder_zielkontext_macht_beide_achsen_eindeutig(paar):
     """DASSELBE RECEIPT AUF FREMDEM PR — die Abnahme aus dem Auftrag. Intern konsistent bleibt es,
     die Zielachse faellt, und die zusammengefuehrte Achse faellt mit."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+    r = _pruefe(AR.emit_agent_review(_pred(), sk), pk,
                                expected_subject_digest="f" * 64)
     assert r["internal_subject_consistency_ok"] is True
     assert r["expected_subject_match"] == "MISMATCH"
@@ -307,7 +362,7 @@ def test_ein_MISMATCH_blockt_das_automations_urteil(paar):
 
     Gefunden, weil die volle Suite ein `F` warf — nicht, weil ich es beim Schreiben gesehen haette."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+    r = _pruefe(AR.emit_agent_review(_pred(), sk), pk,
                                expected_subject_digest="f" * 64)
     assert r["expected_subject_match"] == "MISMATCH"
     assert r["subject_binding_ok"] is False

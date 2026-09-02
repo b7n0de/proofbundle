@@ -1069,8 +1069,25 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
 
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
-                      strict: bool = True, v02: bool = False) -> dict:
-    """Sign an agent-review statement. Uses the existing DSSE path — no new crypto."""
+                      strict: bool = True, v02: bool = True) -> dict:
+    """Sign an agent-review statement. Uses the existing DSSE path — no new crypto.
+
+    ``v02`` DEFAULTS TO TRUE FROM 6.0.0, and that flip is the whole reason this release is MAJOR
+    (owner decision 2026-09-02, second determination). What breaks is the EMITTER, not the
+    verifier: from here on a caller that says nothing gets a v0.2 receipt, where
+    ``disclosureCoreDigest`` and ``limitationCodes`` are required and a ``fixCommit`` must be a
+    full commit id. A caller who was quietly relying on the looser v0.1 predicate will now see a
+    validation error instead of a signed object, and that is the point — the alternative is to
+    keep issuing receipts that claim less than they could.
+
+    The other direction is deliberately NOT broken. ``verify_agent_review`` is byte-identical to
+    5.1.0, every one of the six receipts issued so far keeps today's result, and v0.1 stays
+    verifiable without a deadline. Only ISSUING v0.1 stops; reading it does not.
+
+    ``v02=False`` remains available for a caller who must reproduce an old envelope. It is not
+    deprecated and it does not warn: a reproduction path that nags is a reproduction path people
+    work around.
+    """
     from . import dsse  # noqa: PLC0415
     pruefer = validate_agent_review_v02_predicate if v02 else validate_agent_review_predicate
     errs = pruefer(predicate, strict=strict)
@@ -1249,6 +1266,9 @@ def _finalize_failclosed(r: dict) -> dict:
 
 INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 _HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
+#: Eine volle git-SHA-1. Verkuerzte Formen sind in v0.2 nicht zulaessig — Begruendung an
+#: der Pruefstelle in `validate_agent_review_v02_predicate`.
+_VOLLE_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class ShapeError(str):
@@ -1654,6 +1674,34 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
             "v0.2: limitationCodes is required — a free-text limitation cannot be held against a "
             "policy without being read, and what a relying party cannot evaluate it does not "
             "evaluate (use derive_limitation_codes)")
+
+    # fixCommit MUSS in v0.2 die VOLLE SHA sein (Owner-Entscheidung 02.09.2026, Festlegung 4).
+    #
+    # WARUM DAS HIER NICHTS BRICHT, gemessen und nicht angenommen: keines der sechs bisher
+    # ausgestellten Receipts traegt ueberhaupt ein `fixCommit`, weder im Baum noch in der
+    # Historie (`git log --all -S` ueber `receipts/`). Der Abschlussbericht vom 01.09. fuehrte
+    # „drei unserer eigenen Receipts tragen verkuerzte SHAs (ef60500fb, 6e5b583)" — diese Werte
+    # kommen im ganzen Baum nicht vor. Die Pflicht kostet deshalb nichts; der Befund dazu liegt
+    # als BERICHT-BEHAUPTET-DREI-RECEIPTS-MIT-VERKUERZTEM-FIXCOMMIT-KEINES-TRAEGT-EINS-01 vor.
+    #
+    # WARUM VOLLE LAENGE UND NICHT NUR „vorhanden": eine verkuerzte SHA ist mehrdeutig. Sie
+    # identifiziert heute genau einen Commit und morgen womoeglich zwei — die Kollisionswahr-
+    # scheinlichkeit waechst mit dem Repository, nicht mit dem Beleg. Ein Beleg, dessen Bezug
+    # nachtraeglich mehrdeutig werden kann, bindet nicht.
+    #
+    # ENG GEHALTEN: geprueft wird NUR, was da ist. Ein Befund ohne `fixCommit` faellt hier nicht
+    # durch — dafuer gibt es die bestehende Regel „ein als 'fixed' markierter Befund muss seinen
+    # fixCommit nennen"; die beiden greifen an verschiedenen Stellen und duerfen sich nicht
+    # gegenseitig ersetzen.
+    for i, f in enumerate(predicate.get("findings") or []):
+        if not isinstance(f, dict):
+            continue
+        fc = f.get("fixCommit")
+        if fc is not None and not (isinstance(fc, str) and _VOLLE_SHA.fullmatch(fc)):
+            errs.append(
+                f"v0.2: findings[{i}].fixCommit must be a full 40-character hex commit id — a "
+                "shortened id identifies one commit today and may identify two later, so a "
+                "receipt that names one does not bind what it claims to bind")
 
     dec = predicate.get("declaration")
     if isinstance(dec, dict) and "timeClaims" in dec:
