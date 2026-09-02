@@ -2,7 +2,7 @@
 
 The badge is live, so it moves. This file is the measurement behind it, not a summary of it.
 
-**Measured 2026-09-02T11:12:23Z** against `api.scorecard.dev`, the JSON endpoint for `github.com/b7n0de/proofbundle`. Overall score **7 / 10**.
+**Measured 2026-09-02T19:56:38Z** against `api.scorecard.dev`, the JSON endpoint for `github.com/b7n0de/proofbundle`. Overall score **7.1 / 10**.
 
 Where a value differs from an earlier reading, the new value stands with its date and the old one
 is not carried forward.
@@ -20,7 +20,7 @@ is not carried forward.
 | Security-Policy | 10 |
 | Token-Permissions | 10 |
 | Vulnerabilities | 10 |
-| Signed-Releases | 6 |
+| Signed-Releases | 8 |
 | Branch-Protection | 3 |
 | Pinned-Dependencies | 3 |
 | CII-Best-Practices | 0 |
@@ -37,8 +37,10 @@ is not carried forward.
 
 ## The three in between
 
-- **Signed-Releases (6/10)** — the check reads GitHub release assets looking for a signature file.
-  It read 0 on 2026-08-10 and reads 6 today; the release signing path changed in between.
+- **Signed-Releases (8/10)** — the check reads GitHub release assets looking for a signature file.
+  It read 0 on 2026-08-10, 6 at 11:12:23Z on 2026-09-02 and 8 at 19:56:38Z the same day. The badge
+  is live and moves between two readings hours apart, which is the reason this file carries a
+  timestamp rather than a claim.
 - **Branch-Protection (3/10)** — the check cannot see every setting through the API it uses, and
   the ruleset in force is stricter than the value suggests. This is the value as measured, not as
   argued.
