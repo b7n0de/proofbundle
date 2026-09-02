@@ -67,6 +67,33 @@ candidate matrix builds two sdists and compares them byte for byte — and never
 source. Removing them shifts the mutant and the baseline by the same amount, so the difference, and
 with it the verdict, is unchanged.
 
+**That sentence describes the design. Until 2026-09-02 the code did something else, and this
+paragraph asserted a property the code did not have.** `baseline` and `final` ran *without* the
+exclusion while the per-mutant run used it — two different test sets on the two sides of one
+difference. The bias runs toward **false SURVIVED**: if an excluded test goes red, only the
+baseline rises, and a real kill is silently recorded as a survivor.
+
+It was latent, not harmless. Measured on 2026-09-02 with **one** planted failing test in
+`tests/test_audit_candidate_360.py`, shard 1/10 turned **three of nine** operators from KILLED into
+SURVIVED — `bundle: expected_aud/nonce downgrade-trap`, `renewal: R1 require_current_hash floor`,
+`dsse: pre-decode base64 payload DoS cap`. A test the gate no longer looks at decided three
+verdicts. With the same planted test and symmetric measurement, the same shard reports
+`OK (9 operators, 0 gaps)`.
+
+All three call sites now pass `ausschluss=True`, so the two numbers in `red > baseline` come from
+the same set.
+
+### Who measures the excluded module, now that the gate does not
+
+The gate never asserted the health of `tests/test_audit_candidate_360.py`; it asserted that no
+*mutant* is caught by it. That module's own health is covered elsewhere, and deliberately so:
+
+* the **binding `test` jobs** of the same CI run the full suite on every push, this module included;
+* the **canonical full run** before every tag runs the complete suite in one process.
+
+Dropping it from the gate's per-mutant suite therefore removes 78 % of the runtime and no coverage.
+What it *did* remove, until the fix above, was the symmetry of the comparison.
+
 That is an argument, and arguments are not evidence. It was therefore **measured**: the full
 88-operator run with the exclusion active reproduced the canonical result exactly — 87 KILLED,
 1 expected SURVIVED (`cosign: blob length exact -> lax (EQUIVALENT)`), 0 gaps. No operator died only

@@ -22,11 +22,13 @@ CI:     runs in the mutation job (see .github/workflows/ci.yml).
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -619,15 +621,98 @@ def partition(gesamt: int, i: int, k: int) -> list[int]:
     return list(range(i - 1, gesamt, k))
 
 
+#: Wo die Gewichte liegen. Fehlt die Datei oder ist sie unbrauchbar, faellt die Partition auf
+#: Round-Robin zurueck — laut, nicht still.
+GEWICHTE_DATEI = ROOT / "scripts" / "mutation_shard_weights.json"
+
+
+def lade_gewichte(pfad: Path | None = None) -> tuple[dict[str, float], str]:
+    """Die Gewichte je Operator lesen. Zweiter Rueckgabewert ist der GRUND, kein Statuscode.
+
+    Drei Zustaende, nie zwei: Gewichte vorhanden · Datei fehlt · Datei unbrauchbar. Die letzten
+    beiden fuehren zum selben Verhalten (Round-Robin), sind aber verschiedene Befunde — eine
+    fehlende Datei ist ein Zustand, eine kaputte ist ein Defekt.
+    """
+    q = pfad or GEWICHTE_DATEI
+    if not q.exists():
+        return {}, f"keine Gewichtsdatei unter {q.name} — Round-Robin"
+    try:
+        d = json.loads(q.read_text(encoding="utf-8"))
+        g = {str(k): float(v) for k, v in (d.get("sekunden") or {}).items()}
+    except Exception as exc:                                   # noqa: BLE001
+        return {}, f"Gewichtsdatei unbrauchbar ({type(exc).__name__}) — Round-Robin"
+    if not g:
+        return {}, "Gewichtsdatei enthaelt keine Sekunden — Round-Robin"
+    return g, f"{len(g)} Gewichte aus {q.name} (Quelle {d.get('lauf_id', '?')}, {d.get('datum', '?')})"
+
+
+def partition_gewichtet(labels: list[str], i: int, k: int,
+                        gewichte: dict[str, float]) -> list[int]:
+    """Longest-Processing-Time: der teuerste Operator zuerst, auf den bisher leichtesten Shard.
+
+    WARUM NICHT ROUND-ROBIN. Die Wanduhr der Matrix haengt am LAENGSTEN Shard, nicht am Mittel.
+    Gemessen am 02.09.2026 lagen die zehn Shards zwischen 931 s und 1232 s bei einem Mittel von
+    1116 s — die Spanne von 301 s ist genau der Verlust, den eine gleichmaessigere Verteilung
+    zurueckholt. Mehr Shards helfen dagegen wenig, solange ein einzelner teurer Operator einen
+    Shard traegt.
+
+    LPT ist deterministisch: absteigend nach Gewicht, bei Gleichstand nach Namen (nicht nach
+    Eingabereihenfolge — die haengt an der Datei-Sortierung und aendert sich beim naechsten
+    Operator). Bei gleichem Shard-Gewicht gewinnt der niedrigere Index.
+
+    Fehlt ein Operator in den Gewichten, bekommt er das MEDIAN-Gewicht. Nicht 0 (er waere gratis
+    und wuerde den letzten Shard ueberladen) und nicht das Maximum (er wuerde einen Shard fuer
+    sich allein blockieren).
+    """
+    if not (1 <= i <= k):
+        raise ValueError(f"shard {i}/{k}: i muss zwischen 1 und {k} liegen")
+    bekannt = sorted(gewichte.get(lab) for lab in labels if lab in gewichte)
+    median = bekannt[len(bekannt) // 2] if bekannt else 1.0
+    paare = sorted(((gewichte.get(lab, median), lab, n) for n, lab in enumerate(labels)),
+                   key=lambda x: (-x[0], x[1]))
+    lasten = [0.0] * k
+    koerbe: list[list[int]] = [[] for _ in range(k)]
+    for gew, _label, idx in paare:
+        ziel = min(range(k), key=lambda s: (lasten[s], s))
+        lasten[ziel] += gew
+        koerbe[ziel].append(idx)
+    return sorted(koerbe[i - 1])
+
+
 def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
-    baseline = _red_count(work)
+    dauern: dict[str, float] = {}
+    # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
+    # MUTATIONSTOR-BASELINE-UND-MUTANT-MESSEN-VERSCHIEDENE-SUITEN-01).
+    #
+    # `killed = red > baseline` vergleicht zwei Zahlen. Bis 2026-09-02 kamen sie aus
+    # VERSCHIEDENEN Testmengen: die Baseline lief ohne `ausschluss`, der Mutantenlauf mit. Traegt
+    # das ausgeschlossene Modul rot bei, steigt nur die eine Seite — und ein echter Kill wird
+    # still zu SURVIVED, also zu einem uebersehenen Defekt.
+    #
+    # GEMESSEN, nicht argumentiert: mit EINEM gepflanzten roten Test in
+    # `tests/test_audit_candidate_360.py` kippten in Shard 1/10 drei von neun Operatoren
+    # (`bundle: expected_aud/nonce downgrade-trap`, `renewal: R1 require_current_hash floor`,
+    # `dsse: pre-decode base64 payload DoS cap`) von KILLED auf SURVIVED. Ein Test, den das Tor
+    # gar nicht mehr misst, entschied ueber drei Verdikte.
+    #
+    # Die Gesundheit des ausgeschlossenen Moduls wird NICHT aufgegeben: sie haengt an den
+    # bindenden `test`-Jobs derselben CI, die die volle Suite fahren, und am kanonischen
+    # Volllauf vor jedem Tag. Siehe docs/PRE_TAG_AUDIT.md.
+    baseline = _red_count(work, ausschluss=True)
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
+    gewichte, gewicht_grund = lade_gewichte()
+    print(f"partition: {gewicht_grund}")
     if shard is None:
         indizes = list(range(len(MUTATIONS)))
     else:
         i, k = shard
-        indizes = partition(len(MUTATIONS), i, k)
+        # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
+        # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
+        # eine gewichtete Partition aus und waere keine.
+        labels = [m[3] for m in MUTATIONS]
+        indizes = (partition_gewichtet(labels, i, k, gewichte) if gewichte
+                   else partition(len(MUTATIONS), i, k))
         # Die Partition wird AUSGEGEBEN (Index und Label), damit der Sammel-Job und ein Mensch
         # nachrechnen koennen, welche Operatoren dieser Shard getragen hat. Ein Shard, der seine
         # Menge nicht nennt, laesst sich nicht gegen 88 aufaddieren.
@@ -662,17 +747,29 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             mutated = mutated.replace(o, n, 1)
         try:
             path.write_text(mutated, encoding="utf-8")
+            _t0 = time.monotonic()
             red = _red_count(work, ausschluss=True)
+            _dauer = time.monotonic() - _t0
+            dauern[label] = round(_dauer, 1)
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
             expected = "expected" if ok else "*** UNEXPECTED ***"
-            print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} (red={red}) {expected}")
+            # Die Dauer steht IN der Verdiktzeile, nicht daneben. Grund, gemessen 2026-09-02: die
+            # Zeitstempel des CI-Logs tragen sie nicht — GitHub Actions puffert stdout und schreibt
+            # alle Operatorzeilen mit DERSELBEN Marke (16:34:04.494…). Wer die Gewichte fuer die
+            # Partition aus dem Log lesen will, findet dort ohne diese Zahl nichts.
+            print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} "
+                  f"(red={red}, {_dauer:.1f}s) {expected}")
             if not ok:
                 gaps += 1
         finally:
             path.write_text(src, encoding="utf-8")  # restore the pristine bytes held in memory
-    final = _red_count(work)
+    # Die Gewichtszeile fuer die naechste Partition. Sie steht als EINE Zeile mit JSON, damit ein
+    # Leser sie ohne Parser-Heuristik aus dem Log holen kann.
+    if dauern:
+        print("MUTATION_DURATIONS " + json.dumps(dauern, sort_keys=True))
+    final = _red_count(work, ausschluss=True)   # dieselbe Menge wie Baseline und Mutant
     if final != baseline:
         print(f"GAP: baseline not restored ({final} != {baseline})")
         gaps += 1
