@@ -607,6 +607,24 @@ def _env() -> dict:
     return e
 
 
+def gate_ready_on_binding(ready_before: bool, binding_state: str) -> bool:
+    """Der Versions-Pin senkt die Bereitschaft GENAU DANN, wenn er nicht gebunden ist.
+
+    WARUM DAS EINE EIGENE FUNKTION IST (gemessen 02.09.2026). Die Regel stand als zwei Zeilen mitten
+    in `evaluate()`, und die Anti-Paritaets-Probe konnte sie nur INDIREKT beobachten: sie verglich das
+    Endergebnis mit der Bereitschaft davor. Solange die Bereitschaft davor ohnehin `False` ist -- und
+    das ist sie auf jedem Baum, der nicht vollstaendig bereit ist -- sind beide Seiten `False`, die
+    Gleichheit haelt, und ein eingepflanzter Dauer-`False`-Defekt kam mit `8 passed` durch. Gemessen,
+    nicht vermutet: genau dieser Defekt lief gruen durch, bevor es diese Funktion gab.
+
+    Als eigene Funktion ist die Regel ADRESSIERBAR: alle vier Kombinationen lassen sich hinschreiben,
+    auch die eine, die den Defekt sichtbar macht (bereit davor UND gebunden ergibt bereit). Ein
+    Riegel, der seine Bedingung nur beobachten kann, wenn die Welt gerade guenstig steht, ist auf
+    jedem anderen Baum stumm.
+    """
+    return bool(ready_before) and binding_state == "bound"
+
+
 def evaluate() -> dict:
     rows = []
     for cid, crit, title, fn in CHECKS:
@@ -625,7 +643,14 @@ def evaluate() -> dict:
     # readiness. Informative (presence-only) checks are excluded from the verdict entirely. Fail-closed.
     unknown = [r for r in rows if r["verdict"] not in _KNOWN_VERDICTS]
     deciding = [r for r in rows if r["id"] not in _INFORMATIVE_CHECKS]
-    ready = (counts[FAIL] == 0 and not unknown and all(
+    # EIN NAME FUER DIE BEREITSCHAFT VOR DER PIN-BINDUNG, und er wird auch nach aussen gereicht.
+    # Grund (gemessen 02.09.2026): die Anti-Paritaets-Probe dieser Datei bildete diese Groesse mit
+    # `_NON_FAIL` NACH, und `_NON_FAIL` enthaelt DATA_BLOCKED, das hier ausdruecklich NICHT
+    # bereitmacht. Beide Seiten stimmten nur ueberein, solange irgendeine Zeile FAILte; als ein
+    # gueltiges Pre-Tag-Receipt die letzte FAIL-Zeile entfernte, klaffte die Nachbildung auf und der
+    # Test beschuldigte den Pin, der bound und unbeteiligt war. Ein Pruefer, der die gepruefte
+    # Bedingung NACHBAUT statt sie zu lesen, misst eine zweite Groesse mit demselben Namen.
+    ready_before_binding = (counts[FAIL] == 0 and not unknown and all(
         r["verdict"] == PASS or (r["id"] == _EXTERNAL_CHECK_ID and r["verdict"] == EXTERNAL)
         for r in deciding))
     # THE BINDING GATES THE VERDICT, not just decorates it. A green matrix about another release
@@ -638,8 +663,7 @@ def evaluate() -> dict:
     # test, which set the constant and watched the guard ignore it — a binding check that reads a
     # stale copy of the thing it binds is the same class of defect it exists to catch.
     binding = version_pin_binding(VERSION_UNDER_TEST)
-    if binding["state"] != "bound":
-        ready = False
+    ready = gate_ready_on_binding(ready_before_binding, binding["state"])
     fully_here = ready and counts[DATA_BLOCKED] == 0
     # status_boundary is COMPUTED, never a static claim: it says "all internal deciding gates green" only
     # when that is actually true (reviewer F7 — the old static string claimed it unconditionally).
@@ -662,6 +686,10 @@ def evaluate() -> dict:
         "informative_count": len(rows) - len(deciding),
         "unknown_verdicts": [r["id"] for r in unknown],
         "unmet_deciding": not_pass_deciding,
+        # Die Bereitschaft OHNE die Wirkung der Pin-Bindung. Wer pruefen will, ob die Bindung
+        # das Verdikt gesenkt hat, vergleicht `audit_candidate_ready` hiermit — statt die
+        # Bedingung ein zweites Mal nachzubauen.
+        "ready_before_binding": ready_before_binding,
         "counts": counts,
         "audit_candidate_ready": ready,
         "fully_verified_here": fully_here,
