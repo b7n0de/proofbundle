@@ -99,6 +99,32 @@ That is an argument, and arguments are not evidence. It was therefore **measured
 1 expected SURVIVED (`cosign: blob length exact -> lax (EQUIVALENT)`), 0 gaps. No operator died only
 through an excluded test; had one, the count would not have reached 87.
 
+### The weighted partition is not why it got faster (2026-09-02)
+
+A reader who sees `mutation_shard_weights.json` and a shorter wall clock in the same change will
+join them. The measurement says otherwise, and the record should say so before the guess sets.
+
+| | wall clock | longest shard | shortest | span |
+|---|---|---|---|---|
+| before stage 2, round-robin | 1239 s | 1232 s | 931 s | 301 s |
+| stage 2 run 1, round-robin | 757 s | 757 s | 521 s | 236 s |
+| stage 2 run 2, weighted | 843 s | 807 s | 496 s | 311 s |
+
+The drop from 1239 s to 757 s came from the **symmetry fix**, not from weighting. Baseline and the
+closing run had been executing the full suite in every shard while each mutant ran the reduced one;
+making all three measure the same set removed two full-suite runs per shard. That fix was made for
+correctness. The speed was a side effect.
+
+The weighted run is 86 s **slower** than the round-robin run and its span is **wider**, 311 s
+against 236 s. The reason is measurable: per-operator durations move between two runs of the same
+code by −23.6 s to +26.4 s, and 61 of 88 operators were slower in run 2 than the weights predicted.
+Runner noise is larger than the imbalance the weighting corrects.
+
+The weighting stays, because it is deterministic and does no harm. What it must not become is a
+thing that is chased: **the weights file is not refreshed on every run.** Refresh it only when an
+operator is added or removed, or when a shard exceeds 1000 s. A gate that re-tunes itself against
+its own noise is measuring the runner, not the code.
+
 ### Why the canonical run stays
 
 The sharded gate answers a narrower question. It runs in K separate processes on a runner we do not
