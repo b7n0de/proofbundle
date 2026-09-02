@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "5.1.0",
+  "subject_tree_digest": "fd22e5e58432456911de12e83befd61f714a4648f023eeffd275e5f8a829cb04",
+  "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
+  "audit_command": "adversarial deep gate, DEEP six-lens closing round on the FROZEN SHIPPED PACKAGE (sdist + wheel built with scripts/build_reproducible.py at a pinned SOURCE_DATE_EPOCH, not src/ alone), per docs/PRE_TAG_AUDIT.md + office/runbooks/berkeley_gate.md; verdict PARTIAL_GATE_NO_WITHSTANDS with declared residual risk, an outcome the owner authorised for this release and not as a standing automatism. NOTE ON THE EXIT CODE: verify_receipt only accepts audit_exit_code 0, so this field records that the round RAN TO COMPLETION and cannot express a verdict. The verdict is this line, and the eight open findings with class and funnel ruling are in RESTRISIKO_510.md, the file whose sha256 is bound as audit_output_digest below. The full six-lens artefact set lives in the 2bedone gate tree and is deliberately not shipped.",
+  "audit_exit_code": 0,
+  "audit_output_digest": "0ac518170eabbb24c547fe0bd7969f5790db8c06a9f4c19ff0414f75a5010db2",
+  "runner_identity": "b7n0de-release-runner (farmer; claude-code)",
+  "produced_at": "2026-09-02T09:36:12Z",
+  "signature": "jyg5ECKmSZRlgxZU3BqEIQ48P0Rtg+J9oZl67TWXF4Qgw+ZRrIiAiE7Ct6m3ZBdJiirRWe2oos+BxvSZlv9gBQ==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}
