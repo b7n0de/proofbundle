@@ -684,7 +684,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="mutation gate")
     ap.add_argument("--shard", default=None, metavar="i/K",
                     help="nur Shard i von K fahren (deterministische Round-robin-Partition)")
-    a = ap.parse_args(argv)
+    # `parse_args(None)` liest sys.argv — unter pytest also DESSEN Argumente, und argparse
+    # beendet den Prozess mit SystemExit(2). Genau das hat die CI gefangen:
+    # tests/test_mutation_isolation.py ruft `main()` ohne Argumente auf, und der Lauf starb an
+    # den pytest-Flags. `None` heisst hier deshalb KEINE Argumente, nicht "nimm sys.argv" —
+    # den Prozess-Aufruf traegt der `__main__`-Block, der sys.argv[1:] ausdruecklich uebergibt.
+    a = ap.parse_args([] if argv is None else argv)
     shard = None
     if a.shard:
         try:
@@ -699,7 +704,12 @@ def main(argv: list[str] | None = None) -> int:
         work = Path(tmp) / "tree"
         _prepare_workdir(ROOT, work)
         print(f"isolated work tree: {work} (the real working tree is never mutated)")
-        gaps = _run_operators(work, shard=shard)
+        # DEN BESTEHENDEN AUFRUF UNVERAENDERT LASSEN, wenn nicht geshardet wird. Die CI hat
+        # gefangen, warum das noetig ist: tests/test_mutation_isolation.py ersetzt
+        # `_run_operators` durch eine Attrappe OHNE `shard`-Parameter, und ein bedingungslos
+        # uebergebenes Schluesselwort bricht sie. Ein neuer Parameter darf den Vertrag des alten
+        # Pfades nicht aendern - sonst passt man die Tests an den Code an statt umgekehrt.
+        gaps = _run_operators(work) if shard is None else _run_operators(work, shard=shard)
     # Fail-closed leftover check: the probe run must not have changed the REAL working tree at
     # all (v1.4 isolation makes this structurally true; this assert catches any regression).
     status_after = _worktree_status(ROOT)
@@ -721,4 +731,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
