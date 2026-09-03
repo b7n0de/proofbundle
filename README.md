@@ -22,7 +22,7 @@ proofbundle lets a verifier check **which key signed the exact bytes** and **whe
 
 **One file. No verification server. No network required.**
 
-[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [New in 5.1.0](#new-in-510) · [Adoption review](docs/REVIEWERS.md) · [Documentation](#documentation)
+[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [New in 5.1.0](#new-in-510) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) · [Documentation](#documentation)
 
 </div>
 
@@ -36,11 +36,11 @@ proofbundle lets a verifier check **which key signed the exact bytes** and **whe
 - **Hardened correction chains** prevent an untrusted receipt from taking over the current position in a correction or supersession chain.
 - **Executable conformance coverage** now includes the agent review predicate and the receipt envelope profile.
 
-One behaviour change deserves attention before upgrading. `automation_summary` now adds `RECEIPT_NOT_OK` to its blockers when a receipt is not `ok`. Read the [5.1.0 changelog](CHANGELOG.md#510---2026-08-31-the-profile-a-stranger-can-read--minor) before updating automation.
+One behaviour change deserves attention before upgrading. `automation_summary` now adds `RECEIPT_NOT_OK` to its blockers when a receipt is not `ok`. Read the [5.1.0 changelog](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md#510---2026-08-31-the-profile-a-stranger-can-read--minor) before updating automation.
 
 > **Release status**
 >
-> The closing audit verdict for 5.1.0 was `PARTIAL_GATE_NO_WITHSTANDS`, not `WITHSTANDS_DEEPGATE`. The declared residual risks are published in [RESTRISIKO_510.md](RESTRISIKO_510.md).
+> The closing audit verdict for 5.1.0 was `PARTIAL_GATE_NO_WITHSTANDS`, not `WITHSTANDS_DEEPGATE`. The declared residual risks are published in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md).
 
 ## Quick start
 
@@ -80,7 +80,7 @@ proofbundle demo
 
 The demo checks an honest receipt, multiple tampered variants, and a sample swap. It exits nonzero if a tamper is accepted.
 
-For a guided walkthrough, see [docs/DEMO.md](docs/DEMO.md). For Inspect, see [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md).
+For a guided walkthrough, see [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md). For Inspect, see [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md).
 
 ## What a receipt proves
 
@@ -94,19 +94,19 @@ For a guided walkthrough, see [docs/DEMO.md](docs/DEMO.md). For Inspect, see [do
 
 This boundary is the product. proofbundle makes a claim attributable and tamper evident without turning the claim into truth.
 
-Read the full [threat model](THREAT_MODEL.md) and the project wide [non claims](docs/NON_CLAIMS.md).
+Read the full [threat model](https://github.com/b7n0de/proofbundle/blob/main/THREAT_MODEL.md) and the project wide [non claims](https://github.com/b7n0de/proofbundle/blob/main/docs/NON_CLAIMS.md).
 
 ## Choose the path that matches your task
 
 | Task | Install | Start here |
 |---|---|---|
-| Verify an existing receipt offline | `proofbundle` | [Quick start](#quick-start), [SPEC.md](SPEC.md) |
-| Emit an evaluation receipt or preregistration | `proofbundle[eval]` | [docs/DEMO.md](docs/DEMO.md), [EVAL_CLAIM.md](EVAL_CLAIM.md) |
-| Integrate with Inspect AI | `proofbundle[inspect]` | [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) |
+| Verify an existing receipt offline | `proofbundle` | [Quick start](#quick-start), [SPEC.md](https://github.com/b7n0de/proofbundle/blob/main/SPEC.md) |
+| Emit an evaluation receipt or preregistration | `proofbundle[eval]` | [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md), [EVAL_CLAIM.md](https://github.com/b7n0de/proofbundle/blob/main/EVAL_CLAIM.md) |
+| Integrate with Inspect AI | `proofbundle[inspect]` | [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) |
 | Add a signed agent review disclosure to a PR or issue | `proofbundle` | [5.1.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0), [conformance/agent_review](conformance/agent_review/) |
-| Verify RFC 3161 or OpenTimestamps evidence | `proofbundle[anchors]` | [docs/ANCHORS.md](docs/ANCHORS.md) |
-| Verify ML-DSA-44 witness cosignatures | `proofbundle[pq]` | [docs/ANCHORS.md](docs/ANCHORS.md) |
-| Explore the TEE attestation bridge | `proofbundle[experimental]` | [docs/EXPERIMENTAL_ENCLAVE.md](docs/EXPERIMENTAL_ENCLAVE.md) |
+| Verify RFC 3161 or OpenTimestamps evidence | `proofbundle[anchors]` | [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md) |
+| Verify ML-DSA-44 witness cosignatures | `proofbundle[pq]` | [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md) |
+| Explore the TEE attestation bridge | `proofbundle[experimental]` | [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md) |
 
 ## How it works
 
@@ -147,47 +147,47 @@ proofbundle is a **beta project**. Shipped does not mean that every profile has 
 | Outcome, relation, run ledger, trust pack, and verification summary predicates | Typed evidence graphs and relying party policy inputs | Experimental |
 | TEE attestation bridge | RATS and EAT based enclave evidence | Preview, experimental |
 
-The full predicate inventory and maturity labels live in [docs/predicates/README.md](docs/predicates/README.md).
+The full predicate inventory and maturity labels live in [docs/predicates/README.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/README.md).
 
 ## Security and trust
 
 - The verifier uses `cryptography` for Ed25519 and `rfc8785` for canonicalization. It does not implement its own cryptographic primitives.
 - Correctness is checked against external RFC 6962 vectors and a real Sigstore Rekor proof, not only against the project's own receipts.
 - The test suite sits behind a mutation gate and property based parser fuzzing.
-- The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](docs/ANCHORS.md).
+- The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 - Releases are built once, carry SLSA build provenance, and are published through PyPI Trusted Publishing, where PyPI records PEP 740 attestations for the same bytes.
-- The conformance corpus includes positive controls and counter proofs. Read what it does and does not establish in [CONFORMANCE.md](CONFORMANCE.md).
-- The 30 minute adversarial adoption path is in [docs/REVIEWERS.md](docs/REVIEWERS.md).
-- Security reports follow [SECURITY.md](SECURITY.md).
+- The conformance corpus includes positive controls and counter proofs. Read what it does and does not establish in [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md).
+- The 30 minute adversarial adoption path is in [docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md).
+- Security reports follow [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
 - Release specific audit artefacts and residual risks remain visible rather than being folded into a single green status.
 
 ### OpenSSF Scorecard
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/b7n0de/proofbundle/badge)](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proofbundle)
 
-The aggregate score is a live heuristic, not a product verdict. Several checks score zero for reasons that are written down rather than hidden, one sentence per check, in [docs/SCORECARD.md](docs/SCORECARD.md). The [OpenSSF self assessment](docs/openssf_best_practices_self_assessment.md) walks the Best Practices criteria honestly.
+The aggregate score is a live heuristic, not a product verdict. Several checks score zero for reasons that are written down rather than hidden, one sentence per check, in [docs/SCORECARD.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCORECARD.md). The [OpenSSF self assessment](https://github.com/b7n0de/proofbundle/blob/main/docs/openssf_best_practices_self_assessment.md) walks the Best Practices criteria honestly.
 
 ## Standards and interoperability
 
 proofbundle is a small offline receipt layer that complements, rather than replaces, systems such as in-toto, Sigstore, SCITT, transparency logs, trusted execution environments, and independent reproduction.
 
-- [INTEROP.md](INTEROP.md) compares the boundaries tool by tool.
+- [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) compares the boundaries tool by tool.
 - [docs/RECEIPT_ENVELOPE_PROFILE.md](docs/RECEIPT_ENVELOPE_PROFILE.md) defines the portable envelope profile.
-- [docs/IN_TOTO_PROFILE.md](docs/IN_TOTO_PROFILE.md) describes the in-toto mapping.
-- [docs/SCITT_CPB_MAPPING.md](docs/SCITT_CPB_MAPPING.md) records the SCITT mapping.
-- [docs/RELATED_WORK.md](docs/RELATED_WORK.md) holds the research neighbourhood.
+- [docs/IN_TOTO_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/IN_TOTO_PROFILE.md) describes the in-toto mapping.
+- [docs/SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md) records the SCITT mapping.
+- [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md) holds the research neighbourhood.
 
 ## Documentation
 
 | Reader | Start here |
 |---|---|
-| New user | [docs/GLOSSARY.md](docs/GLOSSARY.md), [docs/DEMO.md](docs/DEMO.md) |
-| Adopter or security reviewer | [docs/REVIEWERS.md](docs/REVIEWERS.md), [THREAT_MODEL.md](THREAT_MODEL.md) |
-| Implementer | [SPEC.md](SPEC.md), [CONFORMANCE.md](CONFORMANCE.md) |
-| Integrator | [INTEGRATIONS.md](INTEGRATIONS.md), [docs/INSPECT_HAPPY_PATH.md](docs/INSPECT_HAPPY_PATH.md) |
-| Relying party | [docs/POLICY_PROFILES.md](docs/POLICY_PROFILES.md), [docs/TRUST_ANCHORS.md](docs/TRUST_ANCHORS.md) |
-| Standards or research reader | [INTEROP.md](INTEROP.md), [docs/RELATED_WORK.md](docs/RELATED_WORK.md) |
-| Release reviewer | [CHANGELOG.md](CHANGELOG.md), [docs/PRE_TAG_AUDIT.md](docs/PRE_TAG_AUDIT.md) |
+| New user | [docs/GLOSSARY.md](https://github.com/b7n0de/proofbundle/blob/main/docs/GLOSSARY.md), [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md) |
+| Adopter or security reviewer | [docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md), [THREAT_MODEL.md](https://github.com/b7n0de/proofbundle/blob/main/THREAT_MODEL.md) |
+| Implementer | [SPEC.md](https://github.com/b7n0de/proofbundle/blob/main/SPEC.md), [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md) |
+| Integrator | [INTEGRATIONS.md](https://github.com/b7n0de/proofbundle/blob/main/INTEGRATIONS.md), [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) |
+| Relying party | [docs/POLICY_PROFILES.md](https://github.com/b7n0de/proofbundle/blob/main/docs/POLICY_PROFILES.md), [docs/TRUST_ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/TRUST_ANCHORS.md) |
+| Standards or research reader | [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md), [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md) |
+| Release reviewer | [CHANGELOG.md](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md), [docs/PRE_TAG_AUDIT.md](https://github.com/b7n0de/proofbundle/blob/main/docs/PRE_TAG_AUDIT.md) |
 
 ## Scope
 
@@ -199,15 +199,15 @@ Roadmap, stated as not yet built. A post quantum payload signature, and a CLI fl
 
 ## Citation
 
-Machine readable citation metadata is in [CITATION.cff](CITATION.cff).
+Machine readable citation metadata is in [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff).
 
 The archival software record uses concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note uses concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466).
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+Read [CONTRIBUTING.md](https://github.com/b7n0de/proofbundle/blob/main/CONTRIBUTING.md) and the [Code of Conduct](https://github.com/b7n0de/proofbundle/blob/main/CODE_OF_CONDUCT.md).
 
-Good first issues use the [`good-first-issue`](https://github.com/b7n0de/proofbundle/labels/good-first-issue) label. Security findings follow [SECURITY.md](SECURITY.md).
+Good first issues use the [`good-first-issue`](https://github.com/b7n0de/proofbundle/labels/good-first-issue) label. Security findings follow [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).
 
 The verifier core aims to remain small, dependency light, and auditable.
 
