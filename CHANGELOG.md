@@ -10,6 +10,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Changed
 
+- **The 5.1.0 follow-up landed the parts the tag deliberately skipped.** The release ran its
+  pre-flight and was tagged without its follow-up so the tag would not wait; that was right for
+  the tag and wrong for the reader. Measured on 2026-09-02, PyPI served 5.1.0 while the site
+  still said v5.0.0. The two superseded receipts from the first attempt on 2026-09-01 moved into
+  `audit_artifacts/510/superseded/` with a README that records both the intent and the
+  measurement correcting it — the gate scans with `rglob`, so they remain rejected candidates
+  and the move is organizational, not a removal. `RESTRISIKO_510_NACHTRAG_20260903.md` adds
+  A-P0-2 to the residual risk record as a NEW file: the bound `RESTRISIKO_510.md` carries the
+  sha256 that the pre-tag receipt pins as `audit_output_digest`, so an edit there would have
+  broken the attestation for the sake of a paragraph.
+
 - **The mutation gate now compares two numbers from the same test set.** `baseline` and the
   closing run used the full suite while each mutant ran without the excluded module, so
   `red > baseline` weighed two different sets against each other. The bias ran toward false
