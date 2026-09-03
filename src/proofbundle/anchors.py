@@ -42,6 +42,23 @@ import base64
 import binascii
 import hashlib
 from collections.abc import Mapping as _Mapping
+
+
+def _nutzbares_mapping(x) -> bool:
+    """Ein Mapping, dessen `.get` auch WIRKLICH aufrufbar ist.
+
+    `isinstance(x, Mapping)` beweist `.get` NICHT: `Mapping.register(cls)` macht isinstance True,
+    ohne die Mixin-Methoden mitzubringen — und `register_anchor_type` ist eine oeffentliche
+    Erweiterungsstelle, ueber die genau so ein Objekt hereinkommen kann. Dieselbe Klasse ist in
+    `anchors_rfc3161` und `anchors_ots` bereits gefixt; hier stand sie noch offen, weil die erste
+    Fassung dieses Guards nur `isinstance` prueste.
+
+    Wirkung, wenn man es laesst: das Objekt passiert die Schwelle, und erst der Verifier stuerzt
+    beim `.get(...)`. Der aeussere Rand faengt das zwar (fail-closed), fuehrt es aber als
+    `internal_error` — obwohl es eine Aussage ueber die EVIDENZ ist. Eine Fehlklassifikation, kein
+    Absturz, und genau deshalb leicht zu uebersehen.
+    """
+    return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
 from typing import Callable, Optional
 
 from .errors import BundleFormatError
@@ -255,7 +272,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # OrderedDict mit ab; ein NICHT-Mapping (None, str, list) wird weiterhin auf {} normalisiert,
     # damit ein Verifier nie einen falschen Typ sieht.
     _frozen = anchor.get("frozen")
-    if not isinstance(_frozen, _Mapping):
+    if not _nutzbares_mapping(_frozen):
         _frozen = {}
     try:
         res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,

@@ -121,11 +121,45 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
         # policy OID pin: the RP's first listed OID takes precedence; else the producer's stricter-only frozen pin
         policy_oid = rp_policy_oids[0] if rp_policy_oids else frozen.get("policyOid")
         if policy_oid:   # pin the TSA policy OID (fail-closed on mismatch / malformed OID)
-            builder = builder.policy_id(ObjectIdentifier(policy_oid))
+            # ENG, und die Enge ist der Punkt (2026-09-03, vom eigenen Test gefunden): ein breiter
+            # `except ValueError` um den GANZEN Block faengt auch das ValueError aus dem
+            # Zertifikatsladen und meldet es dann als "policy OID ist ungueltig" — eine Ursache,
+            # die es nicht hat. Genau die Klasse, die dieser Auftrag schliessen soll: ein
+            # Sammelzweig, dessen Begruendung eine bestimmte Ursache BEHAUPTET.
+            try:
+                _oid = ObjectIdentifier(policy_oid)
+            except ValueError:
+                # Die Herkunft entscheidet die Klasse und ist hier bekannt: ein Pin der
+                # verlassenden Seite ist deren KONFIGURATION, einer aus dem frozen-Block die
+                # EVIDENZ des Produzenten.
+                _aus_rp = bool(rp_policy_oids)
+                return {"ok": False, "status": "chain_fail", "rp_trusted": True,
+                        "outcome_class": "invalid_configuration" if _aus_rp else "malformed_evidence",
+                        "reason_code": ("rfc3161.rp_policy_oid_malformed" if _aus_rp
+                                        else "rfc3161.frozen_policy_oid_malformed"),
+                        "detail": ("the pinned TSA policy OID is not a valid OID "
+                                   f"({'relying-party supplied' if _aus_rp else 'from the frozen block'}); "
+                                   "not claiming a pass")}
+            builder = builder.policy_id(_oid)
         builder.build().verify_message(response, canonical_root)
-    except Exception as exc:   # any verify failure is a FAIL, never a silent pass (fail-closed)
+    except ImportError as exc:
+        # Schritt 3-5 (2026-09-03): der Sammelfang darunter meldete AUCH das hier als `chain_fail`
+        # mit dem Text "did not verify against the relying-party TSA root". Das ist FALSCH und
+        # irrefuehrend: ein fehlendes Extra ist eine Aussage ueber die INSTALLATION, nicht ueber
+        # den Token. Wer das liest, sucht den Fehler in der Evidenz und findet ihn nie.
         return {"ok": False, "status": "chain_fail", "rp_trusted": True,
-                "detail": f"RFC 3161 token did not verify against the relying-party TSA root: {exc}"}
+                "outcome_class": "unsupported", "reason_code": "rfc3161.extra_missing",
+                "detail": f"RFC 3161 verification needs a component that is not installed "
+                          f"({type(exc).__name__}); not claiming a pass"}
+    except Exception as exc:   # any verify failure is a FAIL, never a silent pass (fail-closed)
+        # Was hier ankommt, ist der eigentliche Zweck des Blocks: die Verifikation selbst ist
+        # gescheitert. Abschnitt 7.5 des Reviews: KEIN ungefilterter Exception-Text im aeusseren
+        # Verdict — eine Bibliotheks-Exception aus der Zertifikatspruefung kann lokale Pfade und
+        # Zertifikatsdetails tragen. Der Typ benennt die Klasse ausreichend.
+        return {"ok": False, "status": "chain_fail", "rp_trusted": True,
+                "outcome_class": "invalid_evidence", "reason_code": "rfc3161.chain_verification_failed",
+                "detail": f"RFC 3161 token did not verify against the relying-party TSA root "
+                          f"({type(exc).__name__})"}
     out = {"ok": True, "rp_trusted": True,
            "detail": "RFC 3161 token verified offline against the relying-party TSA root"}
     # WP-A2: structured trusted time from the VERIFIED token's own gen_time (the TSA-asserted time
