@@ -281,6 +281,38 @@ jobs:
             exit 1
           fi
           echo "mutation-summary OK: $K Shards, $summe Operatoren, keine Luecke"
+      - name: Wanduhr der Matrix aus den Job-Zeitstempeln
+        # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
+        # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht
+        # am Mittel. Bis 2026-09-02 musste sie nachtraeglich aus der API gerechnet werden, und eine
+        # Zahl, die niemand im Lauf sieht, wird beim naechsten Mal geschaetzt.
+        # NICHT BLOCKIEREND: ein API-Fehler darf die Abnahme nicht anhalten, er macht die Zahl nur
+        # nicht messbar — und das steht dann so da.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          jobs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || {
+            echo "Wanduhr NICHT MESSBAR: jobs-API nicht erreichbar"; exit 0; }
+          python3 - <<'PYEOF' <<<"$jobs"
+          import datetime as dt, json, sys
+          j = json.load(sys.stdin).get("jobs", [])
+          m = [x for x in j if x["name"].startswith("mutation (")]
+          P = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+          fertig = [x for x in m if x.get("started_at") and x.get("completed_at")]
+          if not m or len(fertig) != len(m):
+              print(f"Wanduhr NICHT MESSBAR: {len(fertig)} von {len(m)} Shards mit beiden Marken")
+              raise SystemExit(0)
+          st = [P(x["started_at"]) for x in fertig]
+          en = [P(x["completed_at"]) for x in fertig]
+          d = [(P(x["completed_at"]) - P(x["started_at"])).total_seconds() for x in fertig]
+          w = (max(en) - min(st)).total_seconds()
+          print(f"MATRIX_WANDUHR_S={w:.0f}")
+          print(f"MATRIX_CPU_MIN={sum(d)/60:.1f}")
+          print(f"MATRIX_SHARD_MIN_S={min(d):.0f} MATRIX_SHARD_MAX_S={max(d):.0f}")
+          print(f"Schwelle 1200 s: {'UNTER' if w <= 1200 else 'UEBER'}")
+          PYEOF
   mutant-signature-guard:
     # Fail-closed guard against mutation-mutant signatures reaching main (incident 2026-07-23:
     # a probe's `if False:` planted at the SD-JWT key-binding check survived into the working
