@@ -11,9 +11,15 @@
 
 `scripts/pre_tag_audit_gate.py --strict` verifies it and exits 0.
 
-## The other receipt files here are SUPERSEDED, and deliberately kept
+## The other receipt files are SUPERSEDED, deliberately kept, and live in `superseded/`
 
-`receipt_510.json`, `receipt_context_510.json` and `receipt_payload_510.bin` are from an earlier
+They moved into the subfolder on 2026-09-03, for reading order only. The gate's candidate scan is
+`rglob`, so it descends and they are STILL rejected candidates — measured after the move, the gate
+lists three rejections with `superseded/` in the paths. See `superseded/README.md`, which records
+both the intent and the measurement that corrected it.
+
+`superseded/receipt_510.json`, `superseded/receipt_context_510.json` and
+`superseded/receipt_payload_510.bin` are from an earlier
 attempt on 2026-09-01. They are not broken and they were not faked: the signature over that payload
 verifies against the same pinned public key. They bind the tree `88831cd5...`, which was moved
 afterwards. A moved tree is a new payload, so a new signature was required.
