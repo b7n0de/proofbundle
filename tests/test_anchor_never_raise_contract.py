@@ -289,3 +289,23 @@ def test_rfc3161_verdicts_tragen_keinen_rohen_bibliothekstext():
 # der bis zum OID-Parse kommt, braucht ein ECHT ladbares DER-Wurzelzertifikat. Das zu bauen ist
 # moeglich, war aber nicht Teil dieser Runde. Der Zweig ist also GESCHRIEBEN und BEGRUENDET, aber
 # NICHT durch einen Muss-Fehlschlag belegt — wer ihn aendert, merkt es hier nicht.
+
+
+def test_die_klasse_folgt_der_HERKUNFT_nicht_dem_ausnahmetyp():
+    """Beide Faelle werfen denselben BundleFormatError — die Klasse muss trotzdem verschieden sein.
+
+    Ein Gate-Meta-Lauf deckte auf, dass mein erster Test das nicht band: er prueste nur `frozen`,
+    und eine Mutation, die BEIDE Faelle auf malformed_evidence legt, ueberlebte. `frozen` ist
+    Material des PRODUZENTEN (Evidenz), `rp_trust` kommt von der verlassenden Seite
+    (Konfiguration). Sie gleichzusetzen gaebe einen Konfigurationsfehler der lesenden Seite als
+    Evidenzmangel des Produzenten aus — und umgekehrt."""
+    from proofbundle import anchors_rfc3161 as a3
+
+    r_frozen = a3.verify_rfc3161(b"p", b"\x00" * 32, frozen=None, rp_trust={})
+    r_rp = a3.verify_rfc3161(b"p", b"\x00" * 32, frozen={}, rp_trust=123)
+    assert r_frozen.get("outcome_class") == "malformed_evidence", r_frozen
+    assert r_rp.get("outcome_class") == "invalid_configuration", r_rp
+    assert r_frozen["outcome_class"] != r_rp["outcome_class"], (
+        "die beiden Herkuenfte duerfen nie dieselbe Klasse ergeben — sonst ordnet die Klasse nichts"
+    )
+    assert r_frozen.get("reason_code") != r_rp.get("reason_code"), (r_frozen, r_rp)
