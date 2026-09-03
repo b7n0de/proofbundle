@@ -8,7 +8,17 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The mutation gate now compares two numbers from the same test set.** `baseline` and the
+  closing run used the full suite while each mutant ran without the excluded module, so
+  `red > baseline` weighed two different sets against each other. The bias ran toward false
+  SURVIVED — an excluded test going red raised only the baseline, and a real kill was recorded as a
+  survivor. Measured with one planted failing test: three of nine operators in shard 1/10 flipped;
+  with the fix and the same planted test, the shard is clean.
+- **Shard partition is weighted rather than round-robin.** The wall clock of the matrix is set by
+  its longest shard, not by the mean; on the first sharded run the shards spanned 931 s to 1232 s
+  around a mean of 1116 s. Operator durations are recorded per run and used to balance the shards.
 
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
