@@ -41,6 +41,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+from collections.abc import Mapping as _Mapping
 from typing import Callable, Optional
 
 from .errors import BundleFormatError
@@ -247,12 +248,32 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # TRUTHY non-dict from an attacker bundle ("frozen":"x" / [...]) would reach a verifier's frozen.get(...).
     # The `except Exception` below already fail-closes that, but normalize any non-dict to {} up front so the
     # verifiers never see a wrong type.
+    # I3 (2026-09-03): `isinstance(..., dict)` verwirft `MappingProxyType` STILL, obwohl der Vertrag
+    # ihn ausdruecklich akzeptiert. Gemessen: MappingProxyType({"a": 1}) ist NICHT isinstance(dict),
+    # aber sehr wohl isinstance(Mapping) — ein read-only frozen-Block waere hier also unbemerkt zu {}
+    # geworden, und der Verifier haette gueltige Evidenz nie gesehen. `Mapping` deckt dict und
+    # OrderedDict mit ab; ein NICHT-Mapping (None, str, list) wird weiterhin auf {} normalisiert,
+    # damit ein Verifier nie einen falschen Typ sieht.
     _frozen = anchor.get("frozen")
-    if not isinstance(_frozen, dict):
+    if not isinstance(_frozen, _Mapping):
         _frozen = {}
     try:
         res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
                              frozen=_frozen, now=now, rp_trust=rp_trust)
+        # I1 (2026-09-03): die Rueckgabeform gehoert INNERHALB die Schutzgrenze. Vorher stand der
+        # Aufruf im try, aber `res.get(...)` DAHINTER — ein Fremdverifier, der `None` (oder eine
+        # Liste, oder eine Zahl) zurueckgibt, erzeugte damit eine ROHE AttributeError, die
+        # verify_anchor verliess. Ausfuehrbar belegt am Stand 621b049: ein Verifier mit
+        # `return None` warf "AttributeError: 'NoneType' object has no attribute 'get'".
+        #
+        # Der Plugin-Vertrag in docs/ANCHORS.md verlangt ein Mapping mit {"ok", "detail"}. Wer das
+        # nicht liefert, ist selbst der Defekt — aber ein Defekt des Plugins darf nicht als rohe
+        # Ausnahme aus einer totalen Grenze austreten. Er wird fail-closed zu FAIL, mit einem
+        # Grund, der die FORM benennt und nicht so klingt, als waere die Evidenz schlecht.
+        if not isinstance(res, _Mapping):
+            out["detail"] = ("anchor verifier returned a non-mapping result "
+                             f"({type(res).__name__}); treated as FAIL (fail-closed)")
+            return out
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
