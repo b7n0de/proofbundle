@@ -15,12 +15,42 @@ from __future__ import annotations
 
 import base64
 from ._wire_b64 import decode_b64
+from .errors import BundleFormatError as _BundleFormatError
 from typing import Optional
 
 
 def _load_der_cert(b64: str):
     from cryptography import x509  # noqa: PLC0415
     return x509.load_der_x509_certificate(decode_b64(b64))
+
+
+def _pruefe_eingaben_strikt(frozen, rp_trust) -> None:
+    """STRIKTE interne Schicht: wirft typisiert, statt ein Verdict zu bauen.
+
+    Sie ist bewusst nicht total. Der Zweischicht-Vertrag verlangt genau EINE
+    Normalisierungsgrenze, und die liegt in `verify_rfc3161` — hier zu uebersetzen waere die
+    zweite und wuerde die Trennung wieder aufheben.
+
+    `frozen` ist ein REQUIRED Argument der Signatur; `frozen=None` ist ein Fehlaufruf, der frueher
+    den `frozen is not None`-Guard passierte und dann roh an `frozen.get("rootCertsDerB64")`
+    stuerzte (Deep-Gate iter9, reproduziert bei frozen=None plus fehlenden roots).
+
+    Geprueft wird `Mapping` UND die Aufrufbarkeit von `.get`: `Mapping.register(cls)` macht
+    isinstance True ohne die Mixin-Methoden, und die sechs `.get`-Aufrufe unten wuerden dann roh
+    stuerzen.
+    """
+    if not _nutzbares_mapping(frozen):
+        raise _BundleFormatError(
+            f"frozen must be a usable mapping (with .get), got {type(frozen).__name__} (fail-closed)")
+    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
+        raise _BundleFormatError(
+            f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
+
+
+def _nutzbares_mapping(x) -> bool:
+    """Ein Mapping, dessen `.get` auch WIRKLICH aufrufbar ist (siehe Docstring oben)."""
+    from collections.abc import Mapping as _M  # noqa: PLC0415
+    return isinstance(x, _M) and callable(getattr(x, "get", None))
 
 
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
@@ -74,25 +104,15 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     # dict-only method, no mutation. `.get` is part of the `Mapping` protocol, so `MappingProxyType`,
     # `OrderedDict` and any dict-like object work here and were being rejected for no reason. A floor that
     # refuses valid input is a defect of its own, just a quieter one than the crash it replaced.
-    from collections.abc import Mapping as _Mapping  # noqa: PLC0415
-
-    def _nutzbares_mapping(x) -> bool:
-        # isinstance(x, Mapping) beweist `.get` NICHT: `Mapping.register(cls)` macht isinstance True ohne
-        # die Mixin-Methoden (Deep-Gate iter9 Linse 3a, ueber register_anchor_type erreichbar). Die
-        # sechs .get-Aufrufe unten wuerden sonst roh stuerzen — also `.get`-Aufrufbarkeit mitpruefen.
-        # (Dasselbe Muster ist in anchors_ots gefixt; hier dieselbe Klasse, andere Konvention: raise.)
-        return isinstance(x, _Mapping) and callable(getattr(x, "get", None))
-
-    if not _nutzbares_mapping(frozen):
-        # frozen ist ein REQUIRED dict-Argument (Signatur); `frozen=None` ist ein Fehlaufruf, der bisher
-        # den `frozen is not None`-Guard passierte und dann roh an `frozen.get("rootCertsDerB64")` stuerzte
-        # (Deep-Gate iter9: reproduziert bei frozen=None + fehlenden roots). Jetzt typisiert abgewiesen,
-        # konsistent mit anchors_ots (das None ebenfalls als Nicht-Mapping ablehnt).
-        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"frozen must be a usable mapping (with .get), got {type(frozen).__name__} (fail-closed)")
-    if rp_trust is not None and not _nutzbares_mapping(rp_trust):
-        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
+    try:
+        _pruefe_eingaben_strikt(frozen, rp_trust)
+    except _BundleFormatError as exc:
+        _aus_rp = "rp_trust" in str(exc)
+        return {"ok": False, "status": "fail",
+                "outcome_class": "invalid_configuration" if _aus_rp else "malformed_evidence",
+                "reason_code": ("rfc3161.rp_trust_not_mapping" if _aus_rp
+                                else "rfc3161.frozen_not_mapping"),
+                "detail": str(exc)}
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:

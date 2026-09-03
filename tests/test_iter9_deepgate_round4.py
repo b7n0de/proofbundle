@@ -159,9 +159,28 @@ class TestRenewalTimeConsumersFailClosed:
 
 
 class TestRfc3161FrozenNoneTyped:
-    """frozen ist ein REQUIRED-Argument; frozen=None ist ein Fehlaufruf -> typisiert, nie roher Crash."""
+    """frozen ist ein REQUIRED-Argument; frozen=None ist ein Fehlaufruf -> typisiert, nie roher Crash.
+
+    VERLAGERT (2026-09-03, Schritt 8 der zwoelf). Der Fund dieses Tests gilt unveraendert, aber er
+    gehoert jetzt an die STRIKTE Schicht. `verify_rfc3161` ist seit Schritt 4 die TOTALE Grenze und
+    gibt ein Verdict zurueck, statt zu werfen — ein `pytest.raises` darauf wuerde die Trennung
+    testen, die der Zweischicht-Vertrag gerade aufhebt.
+
+    Beide Zusagen stehen deshalb hier nebeneinander: die strikte Schicht WIRFT, die totale Grenze
+    UEBERSETZT. Nur zusammen sind sie die Aussage, um die es geht — ein Test, der nur eine Haelfte
+    prueft, liesse die andere unbemerkt kippen."""
 
     @pytest.mark.parametrize("rp", [{}, {"trusted_tsa_roots": ["x"]}, None])
-    def test_frozen_none_immer_typisiert(self, rp):
+    def test_die_strikte_schicht_wirft_weiterhin_typisiert(self, rp):
+        from proofbundle.anchors_rfc3161 import _pruefe_eingaben_strikt
+
         with pytest.raises(ProofBundleError):
-            verify_rfc3161(b"garbage", b"\x00" * 32, frozen=None, rp_trust=rp)
+            _pruefe_eingaben_strikt(None, rp)
+
+    @pytest.mark.parametrize("rp", [{}, {"trusted_tsa_roots": ["x"]}, None])
+    def test_die_totale_grenze_uebersetzt_statt_zu_werfen(self, rp):
+        r = verify_rfc3161(b"garbage", b"\x00" * 32, frozen=None, rp_trust=rp)
+        assert r["ok"] is False, r
+        assert r.get("outcome_class") == "malformed_evidence", (
+            f"frozen ist Material des PRODUZENTEN, also Evidenz und nicht Konfiguration: {r}")
+        assert r.get("reason_code") == "rfc3161.frozen_not_mapping", r
