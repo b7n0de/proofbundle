@@ -174,3 +174,118 @@ def test_ein_gueltiges_ergebnis_bekommt_KEINE_fehlerklasse():
     r = _verify(_anker("klasse-gut"))
     assert r["ok"] is True, r
     assert r.get("outcome_class") in (None, "verified"), r
+
+
+def test_ein_registriertes_pseudo_mapping_ohne_get_wird_abgewiesen():
+    """`Mapping.register(cls)` macht isinstance wahr, ohne die Mixin-Methoden zu liefern. Ein reiner
+    isinstance-Guard laesst so ein Objekt durch, und erst der Verifier stuerzt beim .get(...).
+
+    Die Klasse war in anchors_rfc3161 und anchors_ots bereits gefixt (Deep-Gate iter9) und stand
+    hier noch offen — gefunden beim Lesen der Nachbardatei, nicht durch einen Fehlschlag."""
+    from collections.abc import Mapping as _M
+
+    class PseudoMapping:
+        pass
+
+    _M.register(PseudoMapping)
+    assert isinstance(PseudoMapping(), _M), "die Falle setzt voraus, dass isinstance hier True ist"
+
+    gesehen: dict = {}
+
+    def merkt(p, c, *, frozen, now):
+        gesehen["frozen"] = frozen
+        return {"ok": True, "detail": "x"}
+
+    anchors.register_anchor_type("pseudo-mapping-testtyp", merkt)
+    _verify(_anker("pseudo-mapping-testtyp", frozen=PseudoMapping()))
+    assert gesehen.get("frozen") == {}, (
+        "ein Mapping ohne aufrufbares .get muss auf {} normalisiert werden, sonst stuerzt der Verifier"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Schritte 3-5: der RFC-3161-Kern meldete JEDEN Fehler als `chain_fail` mit dem Text "did not
+# verify against the relying-party TSA root". Fuer ein fehlendes Extra und fuer ein malformed
+# Policy-OID ist dieser Satz FALSCH und schickt den Leser in die Evidenz, wo nichts zu finden ist.
+#
+# WARUM DIESE TESTS EIN SKIP-TOR HABEN, und warum das kein Feigenblatt ist: ohne das Extra
+# `[anchors]` kehrt verify_rfc3161 an der Import-Wache um und erreicht den geaenderten Block NIE.
+# Die erste Fassung dieser Tests lief deshalb GRUEN, ohne irgendetwas zu pruefen — ein Gate-Meta-Lauf
+# zeigte es: beide eingepflanzten Defekte ueberlebten mit 24 passed. Die Datei selbst warnt woertlich
+# davor ("the probe is green for a reason that has nothing to do with the defence it names").
+#
+# Ein SKIP sagt ehrlich "hier nicht gemessen". Ein stilles Bestehen behauptet das Gegenteil.
+# ---------------------------------------------------------------------------
+def _anchors_extra_da() -> bool:
+    try:
+        import rfc3161_client  # noqa: F401, PLC0415
+    except ImportError:
+        return False
+    return True
+
+
+_OHNE_EXTRA = pytest.mark.skipif(
+    not _anchors_extra_da(),
+    reason="proofbundle[anchors] (rfc3161-client) fehlt — verify_rfc3161 kehrt an der Import-Wache "
+           "um und erreicht den geprueften Block nicht. NICHT GEMESSEN, nicht bestanden.")
+
+
+def test_die_import_wache_wird_als_solche_erkannt():
+    """Gegenprobe zum Skip-Tor: wenn das Extra fehlt, MUSS die Antwort die Import-Wache sein und
+    nicht etwa ein Verdict, das wie eine Messung aussieht. Ohne diesen Test koennte das Tor
+    stillschweigend am falschen Grund haengen."""
+    from proofbundle import anchors_rfc3161 as a3
+
+    r = a3.verify_rfc3161(b"x", hashlib.sha256(b"x").digest(),
+                          frozen={"rootCertsDerB64": ["x"]}, rp_trust={"trusted_tsa_roots": ["x"]})
+    if _anchors_extra_da():
+        assert "needs proofbundle[anchors]" not in r["detail"], (
+            "das Extra ist da, aber die Antwort ist trotzdem die Import-Wache")
+    else:
+        assert "needs proofbundle[anchors]" in r["detail"], (
+            f"ohne Extra muss die Import-Wache antworten, bekommen: {r['detail']!r}")
+
+
+@_OHNE_EXTRA
+def test_rfc3161_ein_kaputtes_zertifikat_ist_invalid_evidence_und_KEIN_oid_problem():
+    """Der Fall, den mein eigener Test gefunden hat, und er ging gegen meine eigene Aenderung.
+
+    Die erste Fassung fing `ValueError` um den GANZEN Kryptoblock und meldete ihn als "die
+    gepinnte TSA policy OID ist ungueltig". Gemessen kommt der ValueError hier aber aus dem
+    ZERTIFIKATSLADEN — eine Ursache, die der Text erfindet. Genau die Klasse, die dieser Auftrag
+    schliessen soll: ein Sammelzweig, dessen Begruendung eine bestimmte Ursache BEHAUPTET.
+
+    Der OID-Parse hat jetzt seinen eigenen, engen Schutz."""
+    from proofbundle import anchors_rfc3161 as a3
+
+    r = a3.verify_rfc3161(b"kaputt", hashlib.sha256(b"cert-test").digest(),
+                          frozen={"rootCertsDerB64": ["kein-zertifikat"]},
+                          rp_trust={"trusted_tsa_roots": ["kein-zertifikat"]})
+    assert r["ok"] is False, r
+    assert r.get("outcome_class") == "invalid_evidence", r
+    assert "policy OID" not in r["detail"], (
+        f"ein Zertifikatsfehler darf nicht als OID-Problem erscheinen: {r['detail']!r}")
+
+
+@_OHNE_EXTRA
+def test_rfc3161_verdicts_tragen_keinen_rohen_bibliothekstext():
+    """7.5: Bibliotheks-Exceptions koennen Pfade und Zertifikatsdetails tragen. Geprueft wird die
+    EIGENSCHAFT (nur der Exception-TYP steht im Verdict), nicht die Abwesenheit eines zufaellig
+    gewaehlten Musters — die erste Fassung suchte nach "/home/" und haette jeden anderen Leak
+    durchgelassen."""
+    from proofbundle import anchors_rfc3161 as a3
+
+    r = a3.verify_rfc3161(b"kaputt", hashlib.sha256(b"leak-test").digest(),
+                          frozen={"rootCertsDerB64": ["x"]}, rp_trust={"trusted_tsa_roots": ["x"]})
+    assert r["ok"] is False and r.get("outcome_class") == "invalid_evidence", r
+    schwanz = r["detail"].rsplit("(", 1)[-1].rstrip(")")
+    assert schwanz.isidentifier(), (
+        f"im Verdict steht mehr als der Exception-Typ: {r['detail']!r}")
+
+
+# NICHT GEMESSEN, und das gehoert hierher statt in eine Fussnote: der enge OID-Zweig
+# (rfc3161.rp_policy_oid_malformed / rfc3161.frozen_policy_oid_malformed) wird von KEINEM Test
+# dieser Datei erreicht. Grund, gemessen: das Zertifikatsladen scheitert vorher, und ein Testfall,
+# der bis zum OID-Parse kommt, braucht ein ECHT ladbares DER-Wurzelzertifikat. Das zu bauen ist
+# moeglich, war aber nicht Teil dieser Runde. Der Zweig ist also GESCHRIEBEN und BEGRUENDET, aber
+# NICHT durch einen Muss-Fehlschlag belegt — wer ihn aendert, merkt es hier nicht.
