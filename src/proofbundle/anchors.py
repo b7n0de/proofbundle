@@ -271,11 +271,34 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         # Ausnahme aus einer totalen Grenze austreten. Er wird fail-closed zu FAIL, mit einem
         # Grund, der die FORM benennt und nicht so klingt, als waere die Evidenz schlecht.
         if not isinstance(res, _Mapping):
+            out["outcome_class"] = "internal_error"
+            out["reason_code"] = "anchor.verifier.non_mapping_result"
             out["detail"] = ("anchor verifier returned a non-mapping result "
                              f"({type(res).__name__}); treated as FAIL (fail-closed)")
             return out
+        if "ok" not in res:
+            # Abschnitt 8: "Verifier Mapping ohne `ok`" -> internal_error. Ein Mapping ohne das eine
+            # Pflichtfeld ist kein schlechtes Ergebnis, sondern ein Plugin, das den Vertrag nicht haelt.
+            out["outcome_class"] = "internal_error"
+            out["reason_code"] = "anchor.verifier.result_missing_ok"
+            out["detail"] = "anchor verifier result has no 'ok' field; treated as FAIL (fail-closed)"
+            return out
+    except BundleFormatError as exc:
+        # Abschnitt 8 unterscheidet ausdruecklich: ein BundleFormatError aus dem Verifier ist eine
+        # Aussage ueber die EVIDENZ (sie hat die falsche Form), kein interner Defekt. Ihn als
+        # internal_error zu fuehren wuerde einen Evidenzmangel als Hausfehler ausgeben — und die
+        # umgekehrte Verwechslung verdeckt einen echten Defekt. Deshalb zwei Zweige.
+        out["outcome_class"] = "malformed_evidence"
+        out["reason_code"] = "anchor.verifier.malformed_evidence"
+        out["detail"] = f"anchor evidence is malformed (fail-closed): {exc}"
+        return out
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
-        out["detail"] = f"anchor verifier error (fail-closed): {exc}"
+        # Abschnitt 7.5: KEIN ungefilterter Exception-Text im aeusseren Verdict — Bibliotheksfehler
+        # koennen Pfade und Zertifikatsdetails tragen. Der Typ allein benennt die Klasse ausreichend;
+        # die vollstaendige Diagnose gehoert ins interne Log, nicht in ein Feld, das ein Fremder liest.
+        out["outcome_class"] = "internal_error"
+        out["reason_code"] = "anchor.verifier.raised"
+        out["detail"] = f"anchor verifier raised {type(exc).__name__} (fail-closed)"
         return out
     out["ok"] = bool(res.get("ok"))
     out["warn"] = bool(res.get("warn"))
