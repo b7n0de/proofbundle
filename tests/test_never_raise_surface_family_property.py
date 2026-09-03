@@ -48,6 +48,12 @@ _MODULES = [
     # liefert (`unhashable type: 'list'` statt ok=False). Der Defekt ist behoben; die Fläche
     # gehoert jetzt in die Population, damit die Frage nicht wieder nur von Hand gestellt wird.
     "agent_review",
+    # 2026-09-03: C5 des anbieterbezeugten Inferenz-Wegs. Der Populations-Riegel meldete
+    # `check_on_receipt` als Flaeche ausserhalb der Eigenschaft, und er hatte recht — die erste
+    # Fassung warf `BundleFormatError` auf eine Nicht-Abbildung. Wer nach einem Urteil greift, muss
+    # ein Urteil bekommen; die strikte Schicht bleibt `evidence_digest`, die Grenze benennt jetzt
+    # `evidence.malformed` und faellt fail-closed auf `attestation_failure`.
+    "experimental.attested_inference",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -164,6 +170,30 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-09-03, C5 des anbieterbezeugten Inferenz-Wegs — VIER Funktionen, DREI davon hier, und
+    # die Trennung ist der Zwei-Schichten-Vertrag dieses Hauses, nicht Bequemlichkeit.
+    #
+    # `check_on_receipt` ist die GRENZE und steht deshalb NICHT hier: sie konsumiert die Evidenz
+    # eines fremden Anbieters und muss urteilen statt zu crashen. Sie faellt ueber `check_` in
+    # `_NAME_PATTERN` und hat die Eigenschaft beim ersten Lauf sofort verletzt (roher
+    # RecursionError bei tiefer Verschachtelung, behoben mit `_MAX_DEPTH`).
+    #
+    # `evidence_digest` und `normalise_provider_evidence` sind die STRIKTE Schicht darunter. Sie
+    # werfen `BundleFormatError` auf eine Nicht-Abbildung, und das soll so bleiben: genau EINE
+    # Normalisierungsgrenze liegt dazwischen, und das ist `check_on_receipt`, das den Wurf faengt
+    # und als `evidence.malformed` benennt. Zwei Grenzen waeren zwei Wahrheiten darueber, was ein
+    # Fehler ist.
+    "evidence_digest",
+    "normalise_provider_evidence",
+    # `binding_present` ist ein PRAEDIKAT und wirft schon heute nicht — es gibt bei jeder
+    # untauglichen Eingabe False zurueck. Es hier zu fuehren ist eine bewusste Entscheidung gegen
+    # die bequemere: es in `_NAME_PATTERN` aufzunehmen haette bedeutet, das Muster um seinen Namen
+    # zu erweitern, und ein Muster, das je Fund um den gefundenen Namen waechst, misst am Ende die
+    # Liste seiner Funde statt eine Eigenschaft.
+    "binding_present",
+    # `counts_as_own_domain` liest UNSER eigenes Pruefergebnis, keine fremden Bytes. Es ist die
+    # Zaehlregel eines Panels, nicht eine Pruefflaeche.
+    "counts_as_own_domain",
     # 2026-08-31, agent-review/v0.1 — NEUN Funktionen, EINE Entscheidung, und sie ist inhaltlich.
     # Der never-raise-Vertrag gilt der Seite, die FREMDE Bytes konsumiert: `verify_agent_review`
     # faengt ihn ueber `_NAME_PATTERN` und gehoert dort hin. Die neun hier sind ERZEUGER-seitig —
