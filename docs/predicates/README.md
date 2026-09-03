@@ -16,6 +16,7 @@ predicate widens the attestation surface, so each states its **non-claims** as e
 | `verification-summary/v0.1` | EXPERIMENTAL (3.2.0) | per-level (eval/decision/outcome) receiptRef + status + evidenceClass, with mandatory `nonClaims` | [verification-summary.md](verification-summary.md) |
 | `run-ledger/v0.1` | EXPERIMENTAL (3.2.0) | a monotone, prevDigest-chained run history (aborted runs kept visible) against best-of-many cherry-picking | [run-ledger.md](run-ledger.md) |
 | `relation/v0.1` | EXPERIMENTAL (3.3.0) | typed, signed lineage edges onto a predecessor's content root — change becomes a declared back-edge, never a mutation (and never a truth claim) | [relation.md](relation.md) |
+| `agent-review/v0.1` | shipped (5.1.0) | an agent declares its own involvement in a review, and a receiver signs that declaration (never that the review was *good*) | [../AGENT_REVIEW_PREDICATE.md](../AGENT_REVIEW_PREDICATE.md) |
 
 **Content-root coupling (one-directional):** an outcome references its decision, a decision references its
 evidence — never the reverse. Each `*.digest.sha256` is the SHA-256 over the referenced Statement's exact
