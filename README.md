@@ -140,7 +140,7 @@ proofbundle is a **beta project**. Shipped does not mean that every profile has 
 | Core receipt verification | Ed25519 signatures, RFC 6962 and RFC 9162 Merkle inclusion, strict parsing, offline verification | Shipped |
 | Evaluation receipts | Metric and threshold claims, provenance, salted commitments, optional per sample audit | Shipped |
 | Selective disclosure | SD-JWT with key binding for hiding selected values while preserving verifiability | Shipped |
-| Agent review receipts | Signed self declarations for AI involvement and review in PRs and issues | Shipped in 5.1.0 |
+| Agent review receipts | Signed self declarations for AI involvement and review in PRs and issues | Shipped in 5.1.0, `agent-review/v0.1`, self declared assurance only |
 | Inspect, pytest, and Hugging Face bridges | Opt in adapters for existing evaluation workflows | Shipped |
 | External time evidence | RFC 3161, OpenTimestamps, and a bring your own anchor interface | Experimental, the `[anchors]` extra |
 | Decision receipts | A gate's verdict over named evidence, bound to the receipts it judged, never a claim that the verdict was correct | Shipped |
