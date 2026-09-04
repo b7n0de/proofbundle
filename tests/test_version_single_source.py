@@ -13,9 +13,7 @@ naechste Stelle beim ersten Fehlschlag sichtbar wird statt still zu driften.
 """
 from __future__ import annotations
 
-import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
