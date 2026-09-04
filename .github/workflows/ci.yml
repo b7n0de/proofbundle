@@ -130,6 +130,35 @@ jobs:
       - name: Audit-candidate matrix (advisory; DATA_BLOCKED expected for the 24h soak in CI)
         run: PYTHONPATH=src python scripts/audit_candidate_matrix.py
 
+  gate-qualification:
+    # Qualifies the GATES, not the product: 32 pre-registered counter-proof classes against
+    # type_confusion_gate, pre_tag_audit_gate and audit_candidate_matrix, plus 5 positive controls.
+    #
+    # BLOCKING, unlike audit-candidate-matrix above, and the difference is deliberate. That one is
+    # advisory because a full run needs a soak box, so DATA_BLOCKED is its expected CI outcome. This
+    # one has no such dependency: it monkeypatches already-imported modules, runs no subprocess and
+    # touches no network, and its exit code already encodes the acceptance condition (every class
+    # detected AND every positive control green). An advisory caller for a harness whose whole
+    # purpose is to fail loudly would be the weaker half of the problem it solves.
+    #
+    # WHY IT IS WIRED AT ALL: measured 2026-09-04, nothing but its own test file called it. It
+    # detected 32 of 32 classes with 5 green positive controls and no one ran it. A mechanism
+    # without a caller is a promise, not a capability, and a harness that only runs when a human
+    # remembers protects exactly the round in which nobody remembers.
+    #
+    # A single surviving counter-proof withdraws the affected gate's release effect until it falls,
+    # so this failing is meant to stop a merge, not to be silenced.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev,eval]"
+      - name: Gate qualification (all classes detected, all positive controls green)
+        run: PYTHONPATH=src python scripts/gate_qualification_harness.py
+
   coverage:
     # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):
     # a floor that prevents a silent coverage regression. Conservative (below the current ~84%) to avoid
