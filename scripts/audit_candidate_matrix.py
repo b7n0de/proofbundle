@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -47,15 +48,45 @@ for _sub in ("src", "scripts", "formal", "conformance"):
 
 PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL = (
     "PASS", "PENDING_JUSTIFIED", "DATA_BLOCKED", "EXTERNAL_PENDING", "FAIL")
-_NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL}
+#: A release-ceremony obligation evaluated against an object it was never meant to bless.
+#:
+#: WHY THIS IS NOT ONE OF THE FOUR EXISTING STATES. PENDING means "not yet, but it will be here";
+#: DATA_BLOCKED means "this environment cannot measure it"; EXTERNAL means "a human outside must
+#: do it"; FAIL means "the obligation is BROKEN". None of them fits "the obligation does not apply
+#: to this kind of object at all". Reusing one of them would have made a fifth meaning wear a
+#: fourth name, and the reader could no longer tell which was meant.
+#:
+#: It is NOT readiness. A work branch is not audit-candidate-ready, and ``audit_candidate_ready``
+#: keeps saying so. What changes is only whether this check calls the branch BROKEN.
+NOT_APPLICABLE = "NOT_APPLICABLE_BEFORE_TAG"
+_NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, NOT_APPLICABLE}
 
 # F7 CLOSED (makellose-500 Phase 4, reviewer P8): these checks measure a keyword / a directory entry /
 # non-emptiness, not a behaviour — 7 of them passed on pure lexical decoys incl. a NEGATED sentence. A
 # presence proxy cannot GRANT release readiness, so they are INFORMATIVE (reported, never release-
 # deciding). ``audit_candidate_ready`` is computed only over the release-deciding checks.
 _INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}
-_KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL}
+_KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
+
+#: Human-readable names, first, with the id in parentheses behind them (owner directive
+#: 04.09.2026: "was ist c12.1? das muessen wir umbenennen wenn das oefter kommt in
+#: menschenlesbar"). The id stays as the stable identifier for tests and tables; the NAME is what
+#: a person reads first. For every row other than C12.1 the name IS the existing plain title —
+#: no new wording is invented, only the order changes.
+_HUMAN_NAME = {"C12.1": "Pre-tag audit receipt"}
+
+
+def _laeuft_auf_pull_request() -> bool:
+    """Runs this evaluation against a pull request?
+
+    FAIL-CLOSED BY CONSTRUCTION: only the literal string ``pull_request`` (and its ``_target``
+    sibling) answers yes. A local run, an unset variable, a tag build, a push to main — anything
+    else — is treated as NOT a pull request, and C12.1 stays sharp. The direction matters: an
+    unknown environment must not be able to switch a release gate off.
+    """
+    return os.environ.get("GITHUB_EVENT_NAME", "") in ("pull_request", "pull_request_target")
+
 
 VERSION_UNDER_TEST = "5.1.0"
 
@@ -535,8 +566,30 @@ def c12_1_pretag_audit():
     """
     import pre_tag_audit_gate as pta
     r = pta.evaluate(REPO, version=VERSION_UNDER_TEST)
-    return (PASS, f"pre-tag adversarial audit recorded for {VERSION_UNDER_TEST}") if r["ok"] \
-        else (FAIL, r["reason"])
+    if r["ok"]:
+        return (PASS, f"pre-tag adversarial audit recorded for {VERSION_UNDER_TEST}")
+    # AUF EINEM PULL REQUEST IST DIESE VERPFLICHTUNG NICHT ANWENDBAR, NICHT GEBROCHEN.
+    #
+    # Die Owner-Entscheidung vom 30.08. (Karte OA-4a8daddb55, im Docstring oben zitiert) sagt: ein
+    # Receipt fuer einen Arbeitszweig zu erzeugen waere genau der Akt, den diese Pruefung faengt.
+    # Daraus folgt aber, dass sie auf JEDEM PR rot ist — und eine Pruefung, die immer rot ist,
+    # traegt keine Information und lehrt jeden Leser, Rot zu uebergehen. Unter dem oeffentlich auf
+    # der SCITT-Liste verlinkten PR 178 sah ein Fremder ein rotes Kreuz an einem Beitrag, den wir
+    # als sauber bezeichnen.
+    #
+    # DIE ENTSCHEIDUNG VOM 30.08. BLEIBT UNBERUEHRT: es wird weiterhin kein Receipt fuer Zweige
+    # erzeugt. Es wird nur nicht mehr so getan, als koennte es eines geben.
+    #
+    # ENG GEHALTEN: nur der Fall „kein Receipt bindet diesen Baum" wird umgedeutet. Jeder ANDERE
+    # Fehlschlag des Tors — eine kaputte Signatur, ein nicht vertrauenswuerdiger Schluessel, ein
+    # unlesbares Receipt — bleibt FAIL, auch auf einem PR. Sonst waere aus einer Praezisierung
+    # eine Abschaltung geworden.
+    if _laeuft_auf_pull_request() and "no valid pre-tag audit RECEIPT" in (r.get("reason") or ""):
+        return (NOT_APPLICABLE,
+                "nicht anwendbar vor dem Tag: ein Receipt bindet einen BAUM, und der Baum eines "
+                "Zweigs hoert beim Merge auf zu existieren (Owner-Entscheid 30.08., OA-4a8daddb55). "
+                "Auf main und auf Tags bleibt diese Zeile scharf.")
+    return (FAIL, r["reason"])
 
 
 def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
@@ -635,7 +688,7 @@ def evaluate() -> dict:
         rows.append({"id": cid, "criterion": crit, "title": title,
                      "verdict": verdict, "detail": detail})
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
-              for v in (PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL)}
+              for v in (PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE)}
     # F2 + F7 CLOSED (makellose-500 Phase 4): audit_candidate_ready = every RELEASE-DECIDING check is
     # PASS, EXCEPT exactly the one explicitly-external open audit (EXT.1 == EXTERNAL_PENDING). An internal
     # PENDING_JUSTIFIED, an internal DATA_BLOCKED (a check that could NOT be measured here), an unknown
@@ -715,7 +768,7 @@ def _fmt(result: dict) -> str:
     lines += [
         f"[audit-candidate-matrix] {result['total_checks']} checks · "
         f"PASS {c[PASS]} · PENDING {c[PENDING]} · DATA_BLOCKED {c[DATA_BLOCKED]} · "
-        f"EXTERNAL {c[EXTERNAL]} · FAIL {c[FAIL]}",
+        f"EXTERNAL {c[EXTERNAL]} · NICHT ANWENDBAR {c[NOT_APPLICABLE]} · FAIL {c[FAIL]}",
         f"  audit_candidate_ready={result['audit_candidate_ready']} "
         f"fully_verified_here={result['fully_verified_here']}",
         f"  (ready = no internal obligation BROKEN; it does NOT mean all {result['total_checks']} are "
@@ -724,8 +777,11 @@ def _fmt(result: dict) -> str:
     ]
     for r in result["checks"]:
         mark = {PASS: "  ok ", PENDING: " pend", DATA_BLOCKED: " data",
-                EXTERNAL: " ext ", FAIL: "FAIL "}[r["verdict"]]
-        lines.append(f"  [{mark}] {r['id']:6} (§{r['criterion']}) {r['title']}: {r['detail']}")
+                EXTERNAL: " ext ", FAIL: "FAIL ", NOT_APPLICABLE: " n.a."}[r["verdict"]]
+        # NAME ZUERST, KUERZEL IN KLAMMERN. Das Kuerzel bleibt der stabile Bezeichner fuer Tests
+        # und Tafeln; wer liest, soll aber nicht erst nachschlagen muessen, was C12.1 ist.
+        name = _HUMAN_NAME.get(r["id"], r["title"])
+        lines.append(f"  [{mark}] {name} ({r['id']}) (§{r['criterion']}): {r['detail']}")
     return "\n".join(lines)
 
 
@@ -737,8 +793,35 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     result = evaluate()
     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else _fmt(result))
+    # DER AUSGANGSCODE SAGT „BLOCKIERT DIESE PRUEFUNG DIESES OBJEKT", NICHT „IST ES FERTIG".
+    #
+    # `audit_candidate_ready` bleibt unveraendert und sagt weiterhin die Wahrheit: ein Arbeitszweig
+    # ist nicht release-bereit, und im JSON steht das auch so. Was sich aendert, ist allein, ob
+    # dieser Lauf deswegen ROT wird. Haelt NUR eine nicht-anwendbare Zeile die Bereitschaft
+    # zurueck, ist das keine Aussage ueber einen Defekt — und ein rotes Kreuz waere eine.
+    #
+    # FAIL bleibt FAIL, auch hier: sobald irgendeine Zeile wirklich gebrochen ist, oder die
+    # Version-Pin-Bindung nicht steht, endet der Lauf rot wie bisher.
     if not result["audit_candidate_ready"]:
-        return 1
+        _na = [r for r in result["checks"] if r["verdict"] == NOT_APPLICABLE]
+        # WAS AUF EINEM PR KEIN MANGEL DES PR IST. `DATA_BLOCKED` steht hier neben
+        # `NOT_APPLICABLE`, und zwar nicht aus Bequemlichkeit: der Workflow sagt es woertlich
+        # ueber genau diesen Job — "a full run needs a soak box (24h) and the build backend, so
+        # DATA_BLOCKED is expected in CI and must not fail the build (No-Fake)". Beides heisst
+        # "hier nicht gemessen", keines heisst "gebrochen".
+        #
+        # FAIL, PENDING und ein unbekanntes Verdikt bleiben Maengel. Ein PENDING sagt "noch
+        # nicht", und das ist eine Aussage ueber die Arbeit; die anderen beiden sind Aussagen
+        # ueber die Umgebung und ueber den Gegenstand.
+        _echte_maengel = [
+            r for r in result["checks"]
+            if r["id"] not in _INFORMATIVE_CHECKS
+            and r["verdict"] not in (PASS, NOT_APPLICABLE, DATA_BLOCKED)
+            and not (r["id"] == _EXTERNAL_CHECK_ID and r["verdict"] == EXTERNAL)
+        ]
+        _pin_ok = (result.get("version_pin") or {}).get("state") == "bound"
+        if not (_na and not _echte_maengel and _pin_ok):
+            return 1
     if args.strict and not result["fully_verified_here"]:
         return 1
     return 0
