@@ -11,7 +11,7 @@
 [![demo reproducible](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml/badge.svg)](https://github.com/b7n0de/proofbundle/actions/workflows/demo-reproducible.yml)
 [![PyPI](https://img.shields.io/pypi/v/proofbundle.svg)](https://pypi.org/project/proofbundle/)
 [![Python](https://img.shields.io/pypi/pyversions/proofbundle.svg)](https://pypi.org/project/proofbundle/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-D6248A.svg)](https://github.com/b7n0de/proofbundle/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21110642.svg)](https://doi.org/10.5281/zenodo.21110642)
 
 **AI eval results need receipts.**
@@ -103,7 +103,7 @@ Read the full [threat model](https://github.com/b7n0de/proofbundle/blob/main/THR
 | Verify an existing receipt offline | `proofbundle` | [Quick start](#quick-start), [SPEC.md](https://github.com/b7n0de/proofbundle/blob/main/SPEC.md) |
 | Emit an evaluation receipt or preregistration | `proofbundle[eval]` | [docs/DEMO.md](https://github.com/b7n0de/proofbundle/blob/main/docs/DEMO.md), [EVAL_CLAIM.md](https://github.com/b7n0de/proofbundle/blob/main/EVAL_CLAIM.md) |
 | Integrate with Inspect AI | `proofbundle[inspect]` | [docs/INSPECT_HAPPY_PATH.md](https://github.com/b7n0de/proofbundle/blob/main/docs/INSPECT_HAPPY_PATH.md) |
-| Add a signed agent review disclosure to a PR or issue | `proofbundle` | [5.1.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0), [conformance/agent_review](conformance/agent_review/) |
+| Add a signed agent review disclosure to a PR or issue | `proofbundle` | [5.1.0 release notes](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0), [conformance/agent_review](https://github.com/b7n0de/proofbundle/tree/main/conformance/agent_review/) |
 | Verify RFC 3161 or OpenTimestamps evidence | `proofbundle[anchors]` | [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md) |
 | Verify ML-DSA-44 witness cosignatures | `proofbundle[pq]` | [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md) |
 | Explore the TEE attestation bridge | `proofbundle[experimental]` | [docs/EXPERIMENTAL_ENCLAVE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/EXPERIMENTAL_ENCLAVE.md) |
@@ -172,7 +172,7 @@ The aggregate score is a live heuristic, not a product verdict. Several checks s
 proofbundle is a small offline receipt layer that complements, rather than replaces, systems such as in-toto, Sigstore, SCITT, transparency logs, trusted execution environments, and independent reproduction.
 
 - [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) compares the boundaries tool by tool.
-- [docs/RECEIPT_ENVELOPE_PROFILE.md](docs/RECEIPT_ENVELOPE_PROFILE.md) defines the portable envelope profile.
+- [docs/RECEIPT_ENVELOPE_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RECEIPT_ENVELOPE_PROFILE.md) defines the portable envelope profile.
 - [docs/IN_TOTO_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/IN_TOTO_PROFILE.md) describes the in-toto mapping.
 - [docs/SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md) records the SCITT mapping.
 - [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md) holds the research neighbourhood.
@@ -213,7 +213,7 @@ The verifier core aims to remain small, dependency light, and auditable.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](https://github.com/b7n0de/proofbundle/blob/main/LICENSE).
 
 ---
 
