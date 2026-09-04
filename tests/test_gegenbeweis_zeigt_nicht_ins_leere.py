@@ -94,7 +94,9 @@ def test_ein_invalid_gegenbeweis_traegt_einen_gueltigen_umschlag():
         "eine Einzelfall-Eigenschaft und keine Korpus-Eigenschaft")
 
 
-_STANDARD_POLICY = REPO / "conformance" / "agent_review" / "policies" / "default_v1.json"
+# DIE EINE Quelle der Standard-Policy ist das Paket (siehe standard_policy_path); die Kopie im
+# Korpus ist byte-gleich und wird von tests/test_standard_policy_liegt_im_paket.py gehalten.
+_STANDARD_POLICY = Path(str(__import__("proofbundle.agent_review", fromlist=["x"]).standard_policy_path()))
 
 
 def _eingabe_schluessel(d: Path, c: dict) -> str | None:

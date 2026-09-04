@@ -211,7 +211,7 @@ What v0.2 adds, each with its conformance case:
   (`FIXCOMMIT_NOT_FULL_SHA`): seven characters are a search query, not a reference.
 - **A named policy axis.** `verify_agent_review_v02(..., policy=load_policy())` evaluates the
   derived limitation codes and the coverage status against a policy that is a file, not code. The
-  named standard policy is `conformance/agent_review/policies/default_v1.json`
+  named standard policy ships inside the package as `proofbundle/policies/agent-review-default-v1.json` (resolved with `importlib.resources`, so an installed package finds it); the copy under `conformance/agent_review/policies/default_v1.json` is byte-identical and kept for readers of the corpus
   (`agent-review/default`); its name and sha256 digest appear in the result, so a later reading can
   say what the decision was made against. Decisions are `accept`, `reject` and
   `insufficient_evidence` (a coverage that is not stated is the absence of evidence, not evidence of

@@ -31,6 +31,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `render_disclosure_block` validated with the v0.1 rules and refused the predicate with
   `unknown field 'timeClaims'`. The block and the line now choose the validator from the fields
   the predicate carries; a v0.2 predicate is checked with the v0.2 rules, which include v0.1.
+- **The standard policy ships inside the package.** Found by the published-artifact gate on
+  2026-09-04: `standard_policy_path()` walked three levels up from the module file to the repository
+  root, which exists in a checkout and not in an installed package, so `load_policy()` failed with
+  `policy not readable` from the very package a stranger installs. The file now lives at
+  `proofbundle/policies/agent-review-default-v1.json` and is resolved with `importlib.resources`
+  like the other policy profiles; the corpus copy is byte-identical and a test keeps it so.
 - **`attested_inference.check_on_receipt` no longer raises on a claimed hash without bytes.**
   Found by the type checker in CI on 2026-09-04: with `request_bytes` of the wrong type and an
   evidence record that claims `request_hash`, the comparison `None not in signed` was a

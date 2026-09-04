@@ -2613,7 +2613,25 @@ POLICY_NOT_EVALUATED = "POLICY_NOT_EVALUATED"
 
 
 def standard_policy_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "conformance" / "agent_review" / "policies" / "default_v1.json"
+    """Die Standard-Policy liegt IM PAKET, nicht im Repo-Baum.
+
+    GEMESSEN am 04.09.2026 vom Tor `published-artifact-gate` (hermetic-cleanroom, PR 185): die erste
+    Fassung rechnete `Path(__file__).resolve().parents[2] / "conformance" / …` — im Checkout ist das
+    die Repo-Wurzel, im installierten Paket ist es `…/lib/python3.12/`, und dort gibt es keinen
+    Ordner `conformance`. Jeder Aufruf von `load_policy()` aus dem veroeffentlichten Paket fiel mit
+    `policy not readable`. Der Verifizierer haette die Policy-Achse nur im Checkout gehabt, und
+    genau das Paket, das ein Fremder installiert, waere die Ausnahme gewesen.
+
+    Deshalb dasselbe Muster wie `policy_profiles.profile_path`: `importlib.resources` unter dem
+    Paketordner `policies/` (package-data `policies/*.json`). Die Kopie unter
+    `conformance/agent_review/policies/default_v1.json` bleibt fuer die Leser des Korpus und ist
+    byte-gleich — ein Test haelt das fest, damit es EINE Policy mit EINEM Digest bleibt.
+    """
+    import importlib.resources  # noqa: PLC0415
+    ref = importlib.resources.files("proofbundle") / "policies" / "agent-review-default-v1.json"
+    # as_file() waere fuer eine gezippte Installation noetig; policies/*.json liegen in jeder
+    # unterstuetzten Installationsform als echte Dateien (dieselbe Annahme wie profile_path).
+    return Path(str(ref))
 
 
 def load_policy(pfad=None) -> dict:
