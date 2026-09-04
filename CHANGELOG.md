@@ -14,11 +14,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   previous version needs an explicit `legacy_v01=True`; `v02=` is deprecated and warns. v0.2 requires
   `subjectContext.disclosureCoreDigest`, requires `limitationCodes`, separates time claims by source,
   and accepts only the full 40-character `fixCommit` (`FIXCOMMIT_NOT_FULL_SHA` otherwise).
-- **BREAKING (6.0.0): `verify_agent_review_v02` returns `ok=False` without a named policy.**
-  `policy_decision` used to be hardwired to `None` while `ok` could still be true — a green result
-  said "cryptographically and structurally sound" and was read as "usable". The named standard policy
-  lives in `conformance/agent_review/policies/default_v1.json` and its digest is reported, so a later
-  reading can say what the decision was made against. Reason code: `POLICY_NOT_EVALUATED`.
+- **A named policy axis, and it is reported rather than assumed.** Without a policy the result
+  carries `policy_decision: null`, the reason code `POLICY_NOT_EVALUATED`, and
+  `automation.safeForAutomation` is false — the axis was not evaluated and says so. `ok` itself is
+  unaffected unless a policy actively rejects (`policy_decision == "reject"`): a check that was
+  never run is "not applicable", not "failed", and inventing a rejection for it would be a claim
+  about something unmeasured. The named standard policy lives in
+  `conformance/agent_review/policies/default_v1.json` and its digest is reported, so a later
+  reading can say what the decision was made against.
 - `agent-review/v0.1` is unchanged and stays readable. Its verifier is byte-pinned to the 5.1.0
   source; the six published receipts under `receipts/agent_review/` verify as before, and a result
   from the new dispatcher `verify_agent_review_any` carries `predicateVersionStatus: legacy` plus the

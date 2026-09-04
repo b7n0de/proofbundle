@@ -2448,8 +2448,23 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # STILL BLEIBT NICHTS: ohne Policy traegt das Ergebnis `policy_decision=None` PLUS den Code
     # POLICY_NOT_EVALUATED, und `safeForAutomation` blockt darauf. Wer handeln will, sieht die
     # fehlende Achse; wer nur die Stimmigkeit wissen will, bekommt keine erfundene Ablehnung.
+    # ERLAUBNISLISTE, NICHT BLOCKLISTE — und die Unterscheidung, die hier zaehlt, ist eine
+    # ASYMMETRIE, die ich zuerst uebersehen habe (un-Gegenlesung 04.09.2026, REJECT):
+    #
+    #   None                    der Aufrufer wollte die Pruefung NICHT. Seine Entscheidung, sein
+    #                           Risiko, und der Reason Code sagt es. `ok` bleibt unberuehrt.
+    #   "accept"                gefragt und erfuellt.
+    #   "insufficient_evidence" gefragt und NICHT erfuellt. Das ist ein negatives Ergebnis ueber
+    #                           DIESEN Beleg, kein "nicht anwendbar" — und ausnutzbar: wer einen
+    #                           Beleg absichtlich so unvollstaendig baut, dass die Policy nicht
+    #                           entscheiden kann, bekaeme sonst ok=True als Freigabe geschenkt.
+    #   "reject"                gefragt und abgelehnt.
+    #
+    # Die Vorgaengerfassung schrieb `!= "reject"`. Das ist eine BLOCKLISTE: ein kuenftiger fuenfter
+    # Wert (etwa "escalate") kaeme still als ok=True durch, ohne dass jemand diese Zeile ansieht.
+    # Eine Erlaubnisliste zwingt die Entscheidung an die Stelle, an der der Wert eingefuehrt wird.
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked"
-                   and r.get("policy_decision") != "reject")
+                   and r.get("policy_decision") in ("accept", None))
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
 
@@ -2472,8 +2487,19 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # Blocker `POLICY_NOT_EVALUATED` greift, und `safeForAutomation` ist False. Ein Receipt, dessen
     # Policy nie ausgewertet wurde, IST nicht automatisierbar-sicher. Zulaessig ist das, weil v0.2
     # unveroeffentlicht ist: 0 Vorkommen im Tag v5.0.0, kein Aussteller, keine Receipts im Repo.
+    # EIN BOOLEAN, KEIN STRING — und die Vorgaengerfassung haengte hier das Enum ein.
+    # `automation_summary` prueft `policy_val is not True` (automation_verdict.py:121); ein String
+    # ist NIE `is True`, also feuerte `POLICY_FAILED` bei JEDER ausgewerteten Policy — auch bei
+    # voller Zustimmung. GEMESSEN 04.09.2026: `policy_decision="accept"` und trotzdem
+    # `safeForAutomation=False, blockers=["POLICY_FAILED"]`. Die Achse blockte damit nicht
+    # streng, sie unterschied GAR NICHTS, und der genannte Grund war schlicht falsch.
+    # Der Fehler ist aelter als diese Runde (eingefuehrt in cece0cc), wurde aber erst folgenreich,
+    # als die Policy-Achse ueberhaupt etwas zu sagen bekam. None bleibt None, damit
+    # POLICY_NOT_EVALUATED weiter greift — "nicht gefragt" ist nicht "durchgefallen".
+    _pd = r.get("policy_decision")
+    r["policy_ok"] = None if _pd is None else (_pd == "accept")
     r["automation"] = automation_summary(r, required_checks={
-        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_decision",
+        "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
     return r

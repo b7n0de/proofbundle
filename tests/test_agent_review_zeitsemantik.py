@@ -337,7 +337,12 @@ def test_v02_mit_der_standard_policy_faellt_eine_benannte_entscheidung():
     # ist keine Freigabe" gilt trotzdem, nur ist die FREIGABE hier `safeForAutomation`:
     # gemessen sperrt sie mit dem Grund POLICY_FAILED. Wer beides an `ok` haengt, macht aus einer
     # unentscheidbaren Frage einen Defekt und verliert die Unterscheidung, die das Haus fuehrt.
-    assert r["ok"] is True, f"unentscheidbar ist kein Defekt des Belegs: {r.get('errors')[:3]}"
+    # KORRIGIERT nach der un-Gegenlesung: hier stand `ok is True` mit der Begruendung
+    # "unentscheidbar ist kein Defekt des Belegs". Das trifft fuer `None` zu (nicht gefragt), NICHT
+    # fuer `insufficient_evidence` (gefragt, nicht erfuellt) — bei der zweiten Lage WOLLTE der
+    # Aufrufer die Pruefung, und sie liess sich nicht erfuellen. Meine erste Fassung hat die beiden
+    # Lagen zusammengeworfen.
+    assert r["ok"] is False, "gefragt und nicht erfuellt ist kein bestandener Beleg"
     assert ((r.get("automation") or {}).get("safeForAutomation")) is False, (
         "eine nicht-akzeptierende Entscheidung darf keine Automation freigeben")
     assert "POLICY_FAILED" in ((r.get("automation") or {}).get("automationBlockers") or []), (

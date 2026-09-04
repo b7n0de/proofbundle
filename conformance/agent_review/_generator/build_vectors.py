@@ -409,6 +409,16 @@ def _v02(**mutation):
     p = copy.deepcopy(V02_BASE)
     for pfad, wert in mutation.items():
         ziel, *rest = pfad.split("__")
+        # LAUT SCHEITERN STATT STILL FALSCH SCHREIBEN. Die erste Fassung nahm `rest[0]` und
+        # verwarf `rest[1:]` wortlos: `declaration__authoring__override="X"` ueberschrieb
+        # `declaration.authoring` KOMPLETT mit "X", und "override" tauchte im Ergebnis nirgends
+        # auf. Kein Absturz, ein falscher Vektor — die gefaehrliche Haelfte. Gefunden von einer
+        # Gegenlese-Linse 04.09.2026; heute trifft es keinen Aufrufer, morgen den ersten, der
+        # drei Ebenen braucht.
+        if len(rest) > 1:
+            raise ValueError(
+                f"_v02: {pfad!r} nennt mehr als zwei Ebenen. Der Helfer kann genau eine "
+                f"Verschachtelung; erweitere ihn auf echte Pfadaufloesung, statt still zu kappen.")
         if rest:
             if wert is None: p[ziel].pop(rest[0], None)
             else: p[ziel][rest[0]] = wert

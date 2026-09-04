@@ -169,6 +169,13 @@ REASON_ROUTE_DRIFT = "route.silent_fallback"
 REASON_EVIDENCE_TAMPERED = "evidence.digest_mismatch"
 REASON_EVIDENCE_FOREIGN = "evidence.belongs_to_another_answer"
 REASON_MALFORMED = "evidence.malformed"
+#: Die uebergebenen Bytes sind keine. Eigener Grund, NICHT `REASON_MALFORMED`: dort ist die
+#: EVIDENZ kaputt, hier die Frage des Aufrufers — zwei verschiedene naechste Schritte, und wer sie
+#: zusammenwirft, schickt den Aufrufer zum falschen Ort. Gefunden 04.09.2026 von einer
+#: Gegenlese-Linse: `check_on_receipt(..., request_bytes=None)` warf einen ROHEN TypeError, obwohl
+#: der Kommentar zwei Absaetze weiter unten die Zusage traegt, eine Flaeche, die ein Urteil
+#: verspricht, muesse ein Urteil liefern. Der Riegel fing es nicht, weil er nur Argument 0 fuzzt.
+REASON_BYTES_NOT_BYTES = "input.bytes_expected"
 
 
 def _sha256_bytes(b: bytes) -> str:
@@ -239,8 +246,16 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # 3. Do the hashes in the signed material match the bytes we actually sent and received?
     #    A mismatch means the statement is about a different exchange than ours.
     signed = json.dumps(_without_credentials(evidence), ensure_ascii=False)
-    req_h = _sha256_bytes(request_bytes)
-    res_h = _sha256_bytes(response_bytes)
+    _falsche = [n for n, v in (("request_bytes", request_bytes), ("response_bytes", response_bytes))
+                if not isinstance(v, (bytes, bytearray, memoryview))]
+    if _falsche:
+        # NICHT MESSBAR, nicht "Angriff": ohne die Bytes kann diese Achse nichts sagen, und eine
+        # Ablehnung zu erfinden waere eine Aussage ueber etwas Ungemessenes.
+        unmeasurable.append(REASON_BYTES_NOT_BYTES)
+        req_h = res_h = None
+    else:
+        req_h = _sha256_bytes(request_bytes)
+        res_h = _sha256_bytes(response_bytes)
     claims_req = "request_hash" in signed or "request_sha256" in signed
     claims_res = "response_hash" in signed or "response_sha256" in signed
     if claims_req and req_h not in signed:
@@ -262,7 +277,8 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     normalised = normalise_provider_evidence(
         evidence, provider=provider, expected_binding=nonce,
-        request_id=req_h[:16], route=str(reported_route) if reported_route else None)
+        request_id=req_h[:16] if req_h else None,
+        route=str(reported_route) if reported_route else None)
 
     if reasons:
         outcome = OUTCOME_ATTESTATION_FAILURE
