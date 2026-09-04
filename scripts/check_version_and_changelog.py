@@ -55,7 +55,22 @@ from pathlib import Path
 # Commit-subject prefixes that do NOT require a changelog entry (docs/tooling/meta).
 _TRIVIAL_PREFIX = re.compile(r"^(chore|ci|docs|test|style|build|refactor|merge)\b", re.IGNORECASE)
 
-_SEMVER = r"([0-9]+\.[0-9]+\.[0-9]+)"
+# EINE Regel fuer beide Stellen dieser Datei, und der Name sagt jetzt, was sie kann.
+#
+# WARUM SIE SICH GEAENDERT HAT: das alte Muster war reines SemVer und konnte eine
+# PEP-440-Post-Release nicht ausdruecken. Aus "5.1.0.post1" las es "5.1.0" und verglich das gegen
+# die (korrekt gelesene) volle Quellversion — FAIL in BEIDE Richtungen, gemessen 04.09.2026: die
+# Dokumente sagen 5.1.0 -> FAIL, sie sagen 5.1.0.post1 -> AUCH FAIL. Ein Tor, das eine gueltige
+# Versionsform strukturell nicht bestehen kann, ist keine Pruefung, sondern eine Sperre.
+#
+# ABGEDECKT sind die PEP-440-Formen, die dieses Projekt wirklich fuehrt: die drei Zahlen, dazu
+# optional eine Vorabversion (a/b/rc + Zahl, RELEASE.md dokumentiert 2.0.0b1), eine Post-Release
+# (.postN) und eine Entwicklungsfassung (.devN). Die ZAHL nach dem Suffix ist PFLICHT — "5.1.0.post"
+# ohne sie ist keine Version, und ein Muster, das sie optional macht, wuerde Tippfehler durchwinken.
+_SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
+           r"(?:\.?(?:a|b|rc)[0-9]+)?"
+           r"(?:\.post[0-9]+)?"
+           r"(?:\.dev[0-9]+)?)")
 
 # Check 4 — prose that states the CURRENT version and must therefore track the source.
 # Each entry: (path, anchor regex with one capture group, human description of the anchor).
@@ -161,9 +176,36 @@ def _last_release_tag(repo: Path) -> tuple[str | None, str]:
 
 
 def _semver_tuple(v: str) -> tuple:
+    """Vergleichbarer Schluessel. DIESELBE PEP-440-Luecke wie im Muster oben, zweite Stelle.
+
+    Die Vorgaengerfassung schnitt nach DREI Teilen: `_semver_tuple("5.1.0.post1")` ergab (5,1,0),
+    also GENAU DASSELBE wie `_semver_tuple("5.1.0")`. Damit hielt Check 3 eine Post-Release fuer
+    nicht ueber das Tag hinaus angehoben. Heute maskiert ein `## [Unreleased]`-Heading den Pfad —
+    das ist Zufall, kein Schutz.
+
+    VIERTES GLIED, und seine Ordnung folgt PEP 440: eine Vorabversion kommt VOR der Freigabe
+    (5.1.0rc1 < 5.1.0), eine Post-Release DANACH (5.1.0 < 5.1.0.post1). Eine Entwicklungsfassung
+    liegt noch vor der Vorabversion. Ohne diese Ordnung waere ein Vergleich zwar moeglich, aber
+    falsch — und ein falscher Vergleich ist schlechter als gar keiner, weil er wie einer aussieht.
+    """
     core = v.split("-")[0].split("+")[0]
-    parts = core.split(".")
-    return tuple(int(x) if x.isdigit() else 0 for x in (parts + ["0", "0", "0"])[:3])
+    m = re.match(r"^([0-9]+)\.([0-9]+)\.([0-9]+)"
+                 r"(?:\.?(?:(a|b|rc)([0-9]+)))?"
+                 r"(?:\.post([0-9]+))?"
+                 r"(?:\.dev([0-9]+))?$", core)
+    if not m:
+        parts = core.split(".")
+        return tuple(int(x) if x.isdigit() else 0 for x in (parts + ["0", "0", "0"])[:3]) + (0, 0)
+    haupt = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    if m.group(7) is not None and m.group(4) is None and m.group(6) is None:
+        rang, nummer = -2, int(m.group(7))          # .devN, vor allem anderen
+    elif m.group(4) is not None:
+        rang, nummer = -1, int(m.group(5))          # aN / bN / rcN, vor der Freigabe
+    elif m.group(6) is not None:
+        rang, nummer = 1, int(m.group(6))           # .postN, nach der Freigabe
+    else:
+        rang, nummer = 0, 0                         # die Freigabe selbst
+    return haupt + (rang, nummer)
 
 
 def check(repo: Path) -> list[str]:

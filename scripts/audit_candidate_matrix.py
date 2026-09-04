@@ -88,7 +88,30 @@ def _laeuft_auf_pull_request() -> bool:
     return os.environ.get("GITHUB_EVENT_NAME", "") in ("pull_request", "pull_request_target")
 
 
-VERSION_UNDER_TEST = "5.1.0"
+def _version_aus_pyproject() -> str:
+    """Die Version GELESEN, nicht getippt.
+
+    Hier stand eine feste Zeichenkette, und am 04.09.2026 stand sie auf "5.1.0", waehrend das Paket
+    5.1.0.post1 auslieferte. Das Skript meldete seine eigene Drift korrekt (`version_pin: drift`) —
+    und niemand zog nach, weil ein fester Wert nichts erzwingt. Genau diese Klasse fing dieses
+    Skript laut seinem eigenen Kopf schon einmal (Fund L6-01, schaler Pin); sie kam wieder, weil
+    der Fund die INSTANZ traf und nicht die Bauform.
+
+    DREI ZUSTAENDE, und der dritte ist ausdruecklich keine Freigabe: gelesen · Datei fehlt ·
+    Datei da, aber ohne Versionszeile. Die letzten beiden liefern einen leeren String, und der
+    Drift-Check darunter sagt dann NICHT "alles in Ordnung", sondern dass er nicht messen konnte.
+    """
+    import re as _re
+    pp = REPO / "pyproject.toml"
+    try:
+        roh = pp.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = _re.search(r'(?m)^\s*version\s*=\s*["\']([^"\']+)["\']', roh)
+    return m.group(1) if m else ""
+
+
+VERSION_UNDER_TEST = _version_aus_pyproject()
 
 
 def version_pin_binding(pinned: str) -> dict:
