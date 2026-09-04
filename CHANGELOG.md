@@ -10,6 +10,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 Nothing yet.
 
+## [5.1.0.post1] - 2026-09-04 (project description, POST-RELEASE)
+
+Project description on PyPI aligned with the README, no code change.
+
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
 ### Moved from `[Unreleased]` on 2026-09-02, because the release ships it
