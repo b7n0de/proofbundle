@@ -918,6 +918,39 @@ def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False
         raise AgentReviewError("invalid agent-review predicate: " + "; ".join(errs))
 
 
+def _traegt_v02_felder(predicate: Any) -> bool:
+    """Ob das Predicate ein Feld traegt, das es NUR in v0.2 gibt — gelesen aus dem Predicate.
+
+    Die Renderer bekommen kein Statement und damit keinen predicateType; die Fassung muss aus dem
+    Gegenstand selbst kommen. Die Menge ist `_DECLARATION_FIELDS_V02`, nicht eine zweite Liste:
+    `limitationCodes` und `disclosureCoreDigest` sind in v0.1 zulaessig (optional) und taugen
+    deshalb nicht als Kennzeichen — gemessen an den sechs veroeffentlichten v0.1-Receipts und
+    dem v0.2-Korpus am 04.09.2026.
+    """
+    if not isinstance(predicate, dict):
+        return False
+    dec = predicate.get("declaration")
+    return isinstance(dec, dict) and any(k in dec for k in _DECLARATION_FIELDS_V02)
+
+
+def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False) -> None:
+    """v0.1 oder v0.2, die Fassung aus dem Predicate gelesen — und die Strenge kommt mit ihr.
+
+    GEMESSEN am 04.09.2026 beim ERSTEN echten v0.2-Receipt (PR 185): `render_disclosure_block`
+    rief den v0.1-Pruefer und wies das Predicate mit `unknown field 'timeClaims'` ab. Ein Emitter,
+    der v0.2 ausstellt, und ein Renderer, der nur v0.1 kennt, sind dieselbe Kopplung, die Teil A5
+    schon viermal gefunden hat — diesmal in der fuenften Schicht, der Darstellung. Ein
+    v0.2-Predicate wird hier nicht nachsichtiger geprueft, sondern mit seinen strengeren Regeln;
+    der v0.2-Pruefer enthaelt den v0.1.
+    """
+    if _traegt_v02_felder(predicate):
+        errs = validate_agent_review_v02_predicate(predicate, strict=strict)
+        if errs:
+            raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
+        return
+    require_valid_agent_review_predicate(predicate, strict=strict)
+
+
 # ── Deterministic disclosure renderer (PBF03, PBF12, P0 tests 7 and 22) ─────────────────────────
 #: The five lines a maintainer actually reads. They come from the SAME canonical predicate the
 #: receipt is signed over, so the visible text and the signed object cannot drift apart without a
@@ -933,7 +966,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
     """
-    require_valid_agent_review_predicate(predicate)
+    require_valid_agent_review_predicate_any(predicate)
     dec = predicate["declaration"]
     cov = predicate["coverage"]
     runs = dec.get("reviewRuns") or []
@@ -979,7 +1012,7 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
     """
-    require_valid_agent_review_predicate(predicate)
+    require_valid_agent_review_predicate_any(predicate)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",

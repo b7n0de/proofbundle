@@ -26,6 +26,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   source; the six published receipts under `receipts/agent_review/` verify as before, and a result
   from the new dispatcher `verify_agent_review_any` carries `predicateVersionStatus: legacy` plus the
   `AGENT_REVIEW_LEGACY_V01` reason code.
+- **The disclosure renderers read the predicate version from the predicate.** Measured on
+  2026-09-04 while emitting the first real `agent-review/v0.2` receipt (PR 185):
+  `render_disclosure_block` validated with the v0.1 rules and refused the predicate with
+  `unknown field 'timeClaims'`. The block and the line now choose the validator from the fields
+  the predicate carries; a v0.2 predicate is checked with the v0.2 rules, which include v0.1.
 
 - **The 5.1.0 follow-up landed the parts the tag deliberately skipped.** The release ran its
   pre-flight and was tagged without its follow-up so the tag would not wait; that was right for
