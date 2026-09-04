@@ -47,14 +47,39 @@ def test_ausserhalb_eines_pull_request_bleibt_die_zeile_scharf(event):
     assert r.returncode == 1, (
         f"GITHUB_EVENT_NAME={event!r} hat die Pruefung entschaerft (rc={r.returncode})\n"
         + r.stdout[-600:])
-    assert "[FAIL ]" in r.stdout and "C12.1" in r.stdout
+    # DIE ZEILE SELBST, nicht irgendeine FAIL-Zeile: in einer Umgebung, in der ohnehin etwas
+    # anderes faellt, waere `"[FAIL ]" in stdout` auch dann wahr, wenn C12.1 entschaerft ist.
+    assert [z for z in r.stdout.splitlines()
+            if z.startswith("  [FAIL ]") and "C12.1" in z], (
+        f"C12.1 steht nicht unter FAIL — die Pruefung ist entschaerft\n{r.stdout[-600:]}")
+
+
+def _fail_zeilen(stdout: str) -> list[str]:
+    return [z for z in stdout.splitlines() if z.startswith("  [FAIL ]")]
 
 
 def test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen():
+    """DIE EIGENSCHAFT IST LOKAL, DER AUSGANGSCODE IST GLOBAL.
+
+    Die erste Fassung pruefte `rc == 0`, um eine Aussage ueber EINE Zeile zu belegen. Im
+    hermetischen Cleanroom faellt C12.2 (internal audit pack) aus einem ganz anderen Grund — die
+    Registerdatei liegt dort nicht —, der Lauf endet zu Recht mit 1, und der Test meldete einen
+    Defekt an einer Stelle, an der keiner ist. Gemessen am 04.09.2026 in der Cleanroom-Bahn von
+    PR 181, an keinem anderen Ort reproduzierbar.
+
+    Geprueft wird deshalb, was die Aenderung wirklich behauptet: C12.1 traegt `n.a.` und steht
+    NICHT unter den FAIL-Zeilen. Der Ausgangscode wird nur dort geprueft, wo er ueberhaupt etwas
+    ueber C12.1 sagt — naemlich wenn keine ANDERE Zeile faellt.
+    """
     r = _lauf("pull_request")
-    assert r.returncode == 0, f"rc={r.returncode}\n{r.stdout[-900:]}"
     assert "[ n.a.]" in r.stdout, r.stdout[-600:]
     assert "nicht anwendbar vor dem Tag" in r.stdout
+    fails = _fail_zeilen(r.stdout)
+    assert not [z for z in fails if "C12.1" in z], f"C12.1 steht trotzdem unter FAIL:\n{fails}"
+    if not fails:
+        assert r.returncode == 0, (
+            f"keine FAIL-Zeile, trotzdem rc={r.returncode} — dann haelt C12.1 den Lauf an\n"
+            + r.stdout[-900:])
 
 
 def test_die_wahrheit_im_bericht_bleibt_unveraendert():
