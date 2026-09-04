@@ -1,4 +1,12 @@
-"""Konformitaets-Vektoren fuer agent-review/v0.1 — nach dem Hausmuster von conformance/envelope_profile."""
+"""Konformitaets-Vektoren fuer agent-review/v0.1
+
+DIE FASSUNG STEHT HIER AUSDRUECKLICH, seit v0.2 die Vorgabe ist (6.0.0). Dieser Korpus IST der
+v0.1-Bestand; ohne `legacy_v01=True` waere er beim naechsten Lauf still auf v0.2 gekippt und
+haette zwanzig committete Falldateien geaendert — gegen die Zusage zwei Absaetze weiter unten,
+dass ein Korpus, dessen Bytes sich bei jedem Lauf aendern, keiner ist. Die v0.2-Faelle bekommen
+ihren eigenen Abschnitt, sie ersetzen diese nicht.
+
+Nach dem Hausmuster von conformance/envelope_profile."""
 import copy
 import json
 import os
@@ -74,7 +82,7 @@ def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=Non
     return d
 
 # 1 — Positivkontrolle
-env = AR.emit_agent_review(BASE, sk)
+env = AR.emit_agent_review(BASE, sk, legacy_v01=True)
 schreibe("agent-review-positive-control-valid-self-declared", "positive_control", "F01",
          {"classification": "valid"},
          "A well-formed v0.1 receipt verifies and reports selfDeclared. If this vector ever fails, the "
@@ -99,7 +107,7 @@ schreibe("agent-review-counter-proof-assurance-cannot-be-self-raised", "counter_
 # 3 — Gegenprobe: findingsRoot deckt die Liste nicht mehr
 p = copy.deepcopy(BASE)
 p["declaration"]["findings"] = FINDINGS[:1]
-env3 = AR.emit_agent_review(p, sk)   # Erzeugen erlaubt: die Root ist dann schlicht falsch
+env3 = AR.emit_agent_review(p, sk, legacy_v01=True)   # Erzeugen erlaubt: die Root ist dann schlicht falsch
 schreibe("agent-review-counter-proof-findings-root-covers-the-list", "counter_proof", "F09",
          {"classification": "invalid"},
          "Removing a finding after the root was taken must be detectable. A receipt that reports "
@@ -136,7 +144,7 @@ schreibe("agent-review-counter-proof-complete-needs-an-expectation", "counter_pr
 # 6 — Gegenprobe: Receipt auf einen anderen PR kopiert
 p = copy.deepcopy(BASE)
 p["subjectContext"]["pullRequestNodeId"] = "PR_kwDOZZZZZZ"
-env6 = AR.emit_agent_review(p, sk)
+env6 = AR.emit_agent_review(p, sk, legacy_v01=True)
 schreibe("agent-review-counter-proof-receipt-does-not-travel-between-subjects", "counter_proof", "F02",
          {"classification": "invalid"},
          "A valid signature on the wrong object is the failure mode this binding exists for. Verified "
@@ -187,7 +195,7 @@ schreibe("agent-review-counter-proof-partial-must-name-its-gap", "counter_proof"
          obj=p, input_name="predicate.json")
 
 # 11 — Positivkontrolle: ohne Erwartung wird die Grenze GEMELDET, nicht verschwiegen
-env11 = AR.emit_agent_review(BASE, sk)
+env11 = AR.emit_agent_review(BASE, sk, legacy_v01=True)
 schreibe("agent-review-positive-control-absent-expectation-is-reported", "positive_control", "F02",
          {"subjectExpectation": "not_supplied"},
          "A CORRECTION TO A CLAIM WE MADE OURSELVES. We wrote that a receipt copied onto another "
@@ -305,7 +313,7 @@ angreifer_sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
 
 alt = copy.deepcopy(BASE)
 alt["reviewId"] = "agent-review-conformance-01-erste-fassung"
-env_alt = AR.emit_agent_review(alt, sk)
+env_alt = AR.emit_agent_review(alt, sk, legacy_v01=True)
 digest_alt = AR.receipt_digest(env_alt)
 
 neu_p = copy.deepcopy(BASE)
@@ -313,7 +321,7 @@ neu_p["reviewId"] = "agent-review-conformance-01-zweite-fassung"
 neu_p["supersession"] = {"supersedes": [
     {"priorDigest": {"sha256": digest_alt},
      "reason": "die erste Fassung zaehlte einen Fund doppelt"}]}
-env_neu = AR.emit_agent_review(neu_p, sk)
+env_neu = AR.emit_agent_review(neu_p, sk, legacy_v01=True)
 digest_neu = AR.receipt_digest(env_neu)
 
 # 15 — Positivkontrolle: die Kette benennt genau einen aktuellen Beleg
@@ -332,7 +340,7 @@ uebernahme["reviewId"] = "uebernahme-versuch"
 uebernahme["supersession"] = {"supersedes": [
     {"priorDigest": {"sha256": digest_alt},
      "reason": "behauptet, unseren Beleg zu ersetzen"}]}
-env_fremd = AR.emit_agent_review(uebernahme, angreifer_sk)
+env_fremd = AR.emit_agent_review(uebernahme, angreifer_sk, legacy_v01=True)
 schreibe("agent-review-counter-proof-a-foreign-key-cannot-supersede-our-receipt", "counter_proof",
          "F15", {"unverifiedSupersessionClaim": AR.receipt_digest(env_fremd)},
          "DER ANGRIFF, DEN DER RESOLVER ABWEHREN MUSS. Ein Angreifer mit EIGENEM Schluessel legt "

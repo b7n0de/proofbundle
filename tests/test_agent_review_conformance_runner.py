@@ -27,6 +27,13 @@ import pytest
 
 from proofbundle import agent_review as AR
 
+#: DIE FASSUNG STEHT HIER AUSDRUECKLICH, seit v0.2 die Vorgabe ist (6.0.0). Diese Datei
+#: prueft die v0.1-Semantik — sie ruft den v0.1-Verifizierer und sichert den v0.1-Typ zu.
+#: Sie verliess sich bisher auf den Vorgabewert; `legacy_v01=True` erhaelt genau das, was
+#: sie prueft, statt sie an einen Vorgabewert zu haengen, den eine andere Entscheidung
+#: bewegt. KEINE Zusicherung wurde dabei geaendert — nur die Fassung benannt.
+
+
 KORPUS = Path(__file__).resolve().parents[1] / "conformance" / "agent_review"
 
 
@@ -278,7 +285,7 @@ def _entschaerfe_fremden_schluessel(d):
     heil = []
     for env in kette:
         st = json.loads(base64.b64decode(env["payload"], validate=True))
-        heil.append(AR.emit_agent_review(st["predicate"], sk))
+        heil.append(AR.emit_agent_review(st["predicate"], sk, legacy_v01=True))
     return heil
 
 
@@ -414,7 +421,7 @@ def test_die_positive_kontrolle_laeuft_durch_den_ECHTEN_emitter():
     import base64
     p = json.loads(base64.b64decode(env_fix["payload"]))["predicate"]
 
-    env = AR.emit_agent_review(p, sk, strict=True)          # <- der echte Erzeuger
+    env = AR.emit_agent_review(p, sk, strict=True, legacy_v01=True)          # <- der echte Erzeuger
     r = AR.verify_agent_review(env, pk, strict=True,
                                expected_subject_digest=AR._subject_digest(p))
     assert r["crypto_ok"] is True, r["errors"]
@@ -440,4 +447,4 @@ def test_ein_ungueltiges_praedikat_kommt_durch_den_emitter_NICHT_durch():
     d = KORPUS / "agent-review-counter-proof-partial-must-name-its-gap"
     p = _eingabe(d, _fall(d))
     with pytest.raises(AR.AgentReviewError):
-        AR.emit_agent_review(p, sk, strict=True)
+        AR.emit_agent_review(p, sk, strict=True, legacy_v01=True)

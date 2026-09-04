@@ -1042,17 +1042,57 @@ def _subject_digest(predicate: dict) -> str:
     return hashlib.sha256(_rfc8785_bytes(predicate["subjectContext"])).hexdigest()
 
 
+def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bool:
+    """EINE Stelle entscheidet, welche Fassung ausgestellt wird — nicht zwei Aufrufer je fuer sich.
+
+    Ab 6.0.0 ist v0.2 die Vorgabe. v0.1 kommt nur noch ueber ``legacy_v01=True``, ausdruecklich
+    benannt statt als abgeschaltetes Flag: ``v02=False`` sagt, was NICHT gewaehlt wird, und wer
+    das liest, weiss nicht, was stattdessen kommt.
+
+    ``v02`` bleibt als Altweg erhalten und WARNT. Ihn sofort zu entfernen waere ein zweiter Bruch
+    in derselben MAJOR fuer Aufrufer, die ihn heute korrekt benutzen; die Entfernung gehoert in
+    eine spaetere MAJOR und steht so auch in COMPATIBILITY.md.
+
+    WIDERSPRUCH IST EIN FEHLER, KEINE RANGFOLGE. ``legacy_v01=True, v02=True`` verlangt beide
+    Fassungen zugleich. Eine stille Vorfahrt haette hier eine der beiden Absichten verschluckt.
+    """
+    import warnings  # noqa: PLC0415
+    if v02 is not None:
+        warnings.warn(
+            f"{funktion}(v02=...) ist ab 6.0.0 veraltet und wird in einer spaeteren MAJOR "
+            "entfernt. v0.2 ist die Vorgabe; fuer die Altfassung legacy_v01=True benutzen.",
+            DeprecationWarning, stacklevel=3)
+        if legacy_v01 and v02:
+            raise AgentReviewError(
+                "legacy_v01=True und v02=True widersprechen sich — es gibt keine Fassung, die "
+                "beides ist")
+        if legacy_v01 or v02 is False:
+            return False
+        return True
+    return not legacy_v01
+
+
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
                                  subject_sha256: str | None = None,
-                                 v02: bool = False) -> dict:
-    """Das Statement. `v02` waehlt den v0.2-predicateType UND den strengeren Validator.
+                                 legacy_v01: bool = False, v02: bool | None = None) -> dict:
+    """Das Statement. Ohne Argument v0.2 — der predicateType UND der strengere Validator.
 
     BEIDES ZUSAMMEN, NIE EINZELN. Ein v0.2-Typ mit v0.1-Validierung waere die schlimmste der drei
     Moeglichkeiten: der Leser sieht die staerkere Version im predicateType und bekommt die
     schwaechere Pruefung. Die Version steht deshalb nicht als freier Parameter da, sondern zieht
     ihren Validator mit.
+
+    ``legacy_v01=True`` stellt die ALTFASSUNG v0.1 aus. Sie bleibt lesbar und pruefbar, aber sie
+    ist nicht mehr das, was ohne Nachdenken herauskommt: die Vorgabe ist die Fassung, die die
+    strengeren Zusicherungen traegt.
+
+    ``v02`` ist der Altweg, warnt und verschwindet in einer spaeteren MAJOR.
     """
-    if v02:
+    # EINMAL ENTSCHEIDEN, DANN DURCHREICHEN. Ein zweiter Aufruf derselben Wahl waere ein zweiter
+    # Leser derselben Groesse — er wuerde die Verwarnung doppelt ausloesen und koennte im
+    # Grenzfall etwas anderes ergeben als der erste.
+    _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="build_agent_review_statement")
+    if _ist_v02:
         errs = validate_agent_review_v02_predicate(predicate, strict=True)
         if errs:
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
@@ -1062,23 +1102,32 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
         "_type": STATEMENT_TYPE,
         "subject": [{"name": subject_name or _subject_name(predicate),
                      "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
-        "predicateType": AGENT_REVIEW_PREDICATE_TYPE_V02 if v02 else AGENT_REVIEW_PREDICATE_TYPE,
+        "predicateType": AGENT_REVIEW_PREDICATE_TYPE_V02 if _ist_v02 else AGENT_REVIEW_PREDICATE_TYPE,
         "predicate": predicate,
     }
 
 
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
-                      strict: bool = True, v02: bool = False) -> dict:
-    """Sign an agent-review statement. Uses the existing DSSE path — no new crypto."""
+                      strict: bool = True, legacy_v01: bool = False,
+                      v02: bool | None = None) -> dict:
+    """Sign an agent-review statement. Uses the existing DSSE path — no new crypto.
+
+    Ohne Argument v0.2, wie beim Statement. ``legacy_v01=True`` stellt die Altfassung aus; ``v02``
+    ist der Altweg, warnt und verschwindet in einer spaeteren MAJOR.
+    """
     from . import dsse  # noqa: PLC0415
-    pruefer = validate_agent_review_v02_predicate if v02 else validate_agent_review_predicate
+    _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="emit_agent_review")
+    pruefer = validate_agent_review_v02_predicate if _ist_v02 else validate_agent_review_predicate
     errs = pruefer(predicate, strict=strict)
     if errs:
         raise AgentReviewError(
-            f"invalid agent-review{'/v0.2' if v02 else ''} predicate: " + "; ".join(errs))
+            f"invalid agent-review{'/v0.2' if _ist_v02 else ''} predicate: " + "; ".join(errs))
+    # DIE GETROFFENE WAHL WIRD WEITERGEREICHT, NICHT DIE EINGABE. `v02=v02` haette hier `None`
+    # weitergegeben, die Entscheidung ein zweites Mal ausgeloest und ein zweites Mal verwarnt.
     statement = build_agent_review_statement(predicate, subject_name=subject_name,
-                                             subject_sha256=subject_sha256, v02=v02)
+                                             subject_sha256=subject_sha256,
+                                             legacy_v01=not _ist_v02)
     return dsse.sign_envelope(_rfc8785_bytes(statement), signer,
                               payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 

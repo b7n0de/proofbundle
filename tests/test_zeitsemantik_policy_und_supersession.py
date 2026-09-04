@@ -239,7 +239,7 @@ def test_der_v02_typ_zieht_seinen_validator_MIT():
     p = _pred_v02()
     del p["limitationCodes"]
     with pytest.raises(AR.AgentReviewError) as e:
-        AR.build_agent_review_statement(p, v02=True)
+        AR.build_agent_review_statement(p)   # v0.2 ist die Vorgabe (6.0.0)
     assert "v0.2" in str(e.value)
 
     # DER VERGLEICH, den mein erster Entwurf falsch gezogen hatte: ich hatte behauptet, DERSELBE
@@ -255,15 +255,25 @@ def test_der_v02_typ_zieht_seinen_validator_MIT():
 
 
 def test_ein_v02_statement_traegt_den_v02_predicate_type():
-    st = AR.build_agent_review_statement(_pred_v02(), v02=True)
+    """DIE VORGABE HAT SICH GEDREHT (6.0.0): ohne Argument kommt v0.2.
+
+    Die zweite Zusicherung sicherte frueher zu, dass der VORGABEWEG v0.1 liefert. Genau das ist
+    die Aenderung, also wird sie nicht entfernt, sondern umgedreht — und die alte Aussage bleibt
+    als eigene Zusicherung erhalten, nur an ihrem neuen, ausdruecklichen Weg.
+    """
+    st = AR.build_agent_review_statement(_pred_v02(), legacy_v01=False)
     assert st["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE_V02
-    assert AR.build_agent_review_statement(_pred("r1"))["predicateType"] == \
+    # ohne jedes Argument: v0.2
+    assert AR.build_agent_review_statement(_pred_v02())["predicateType"] == \
+        AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+    # die Altfassung bleibt erreichbar, aber nur ausdruecklich
+    assert AR.build_agent_review_statement(_pred("r1"), legacy_v01=True)["predicateType"] == \
         AR.AGENT_REVIEW_PREDICATE_TYPE
 
 
 def test_ein_v02_receipt_laesst_sich_emittieren_und_verifizieren():
     p = _pred_v02()
-    env = AR.emit_agent_review(p, SK, strict=True, v02=True)
+    env = AR.emit_agent_review(p, SK, strict=True)   # v0.2 ist die Vorgabe (6.0.0)
     r = AR.verify_agent_review_v02(env, PK, strict=True,
                                    expected_subject_digest=AR._subject_digest(p))
     assert r["crypto_ok"] is True, r["errors"]
@@ -368,3 +378,37 @@ def test_verified_hat_keinen_vorgabewert():
     assert par.default is inspect.Parameter.empty, (
         "`verified` hat einen Vorgabewert bekommen — damit ist die Uebernahme wieder moeglich")
     assert par.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+# ── der Altweg selbst, damit seine Verwarnung nicht ungeprueft bleibt ──────────────────────────
+
+def test_der_altweg_v02_verwarnt_und_liefert_weiter_v02():
+    """`v02=` ist ab 6.0.0 veraltet. Ihn sofort zu entfernen waere ein zweiter Bruch in derselben
+    MAJOR fuer Aufrufer, die ihn heute korrekt benutzen — also warnt er und wirkt weiter. Eine
+    Verwarnung ohne Test ist eine Absicht, kein Verhalten."""
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        st = AR.build_agent_review_statement(_pred_v02(), v02=True)
+    assert st["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+    assert any(issubclass(x.category, DeprecationWarning) for x in w), [str(x) for x in w]
+
+
+def test_der_altweg_kann_die_altfassung_weiterhin_waehlen():
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        st = AR.build_agent_review_statement(_pred("r1"), v02=False)
+    assert st["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE
+    assert any(issubclass(x.category, DeprecationWarning) for x in w)
+
+
+def test_beide_fassungen_zugleich_sind_ein_fehler_keine_rangfolge():
+    """`legacy_v01=True, v02=True` verlangt zwei Fassungen zugleich. Eine stille Vorfahrt haette
+    eine der beiden Absichten verschluckt, und der Aufrufer haette es nie erfahren."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(AR.AgentReviewError) as e:
+            AR.build_agent_review_statement(_pred_v02(), legacy_v01=True, v02=True)
+    assert "widersprechen" in str(e.value)

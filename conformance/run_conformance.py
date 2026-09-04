@@ -637,14 +637,26 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
             Ed25519PrivateKey)
         _sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+        # ERZEUGER UND PRUEFER TRAGEN DIESELBE FASSUNG, und sie steht ausdruecklich da.
+        #
+        # Seit 6.0.0 ist v0.2 die Vorgabe des Emitters. Der Verifizierer zwei Zeilen tiefer ist
+        # `verify_agent_review`, also der v0.1-Pfad — ohne die Angabe hier waere das Paar
+        # auseinandergelaufen und der Roundtrip haette `refused` gemeldet, obwohl weder der Fall
+        # noch der Emitter defekt sind. Gemessen am 04.09.2026 an genau diesem Fall.
+        #
+        # DIESER KORPUS IST HEUTE v0.1. Kommen mit A5 die v0.2-Faelle dazu, muss die Wahl AUS DEM
+        # FALL kommen und beide Zeilen zugleich umstellen — hier steht sie deshalb an EINER
+        # Stelle, nicht zweimal.
+        _legacy = True
         try:
-            _env = ar.emit_agent_review(doc, _sk)
+            _env = ar.emit_agent_review(doc, _sk, legacy_v01=_legacy)
         except ar.AgentReviewError:
             got = "refused"
         else:
             # ROUNDTRIP: erzeugt UND wieder gelesen. Ein Emitter, dessen Ausgabe der eigene
             # Verifier nicht annimmt, ist kein bestandener Fall, auch wenn das Signieren gelang.
-            _r = ar.verify_agent_review(
+            _pruefer = ar.verify_agent_review if _legacy else ar.verify_agent_review_v02
+            _r = _pruefer(
                 _env, _sk.public_key().public_bytes_raw(),
                 expected_subject_digest=ar._subject_digest(doc))
             got = "valid" if _r.get("ok") else "invalid"
