@@ -55,7 +55,29 @@ from pathlib import Path
 # Commit-subject prefixes that do NOT require a changelog entry (docs/tooling/meta).
 _TRIVIAL_PREFIX = re.compile(r"^(chore|ci|docs|test|style|build|refactor|merge)\b", re.IGNORECASE)
 
-_SEMVER = r"([0-9]+\.[0-9]+\.[0-9]+)"
+# EINE Regel fuer beide Stellen dieser Datei, und der Name sagt jetzt, was sie kann.
+#
+# WARUM SIE SICH GEAENDERT HAT: das alte Muster war reines SemVer und konnte eine
+# PEP-440-Post-Release nicht ausdruecken. Aus "5.1.0.post1" las es "5.1.0" und verglich das gegen
+# die (korrekt gelesene) volle Quellversion — FAIL in BEIDE Richtungen, gemessen 04.09.2026: die
+# Dokumente sagen 5.1.0 -> FAIL, sie sagen 5.1.0.post1 -> AUCH FAIL. Ein Tor, das eine gueltige
+# Versionsform strukturell nicht bestehen kann, ist keine Pruefung, sondern eine Sperre.
+#
+# ABGEDECKT sind die PEP-440-Formen, die dieses Projekt wirklich fuehrt: die drei Zahlen, dazu
+# optional eine Vorabversion (a/b/rc + Zahl, RELEASE.md dokumentiert 2.0.0b1), eine Post-Release
+# (.postN) und eine Entwicklungsfassung (.devN). Die ZAHL nach dem Suffix ist PFLICHT — "5.1.0.post"
+# ohne sie ist keine Version, und ein Muster, das sie optional macht, wuerde Tippfehler durchwinken.
+_SEMVER = (r"([0-9]+\.[0-9]+\.[0-9]+"
+           r"(?:\.?(?:a|b|rc)[0-9]+)?"
+           r"(?:\.post[0-9]+)?"
+           r"(?:\.dev[0-9]+)?)"
+           # KEIN alphanumerisches Zeichen danach. Ohne diese Grenze las das Muster aus
+           # "proofbundle 5.1.0b7n0de.com" die Zeichenfolge "5.1.0b7" — es hielt den ANFANG
+           # UNSERES EIGENEN Markennamens fuer eine Beta-Nummer. Gemessen 04.09.2026 von einer
+           # Gegenlese-Linse; im Bestand heute kein Vorkommen, aber ausgerechnet diese Marke
+           # beginnt mit "b" plus Ziffer. Die Grenze verwirft solche Treffer ganz, statt einen
+           # verstuemmelten zu liefern: eine halbe Version ist schlimmer als keine.
+           r"(?![0-9A-Za-z])")
 
 # Check 4 — prose that states the CURRENT version and must therefore track the source.
 # Each entry: (path, anchor regex with one capture group, human description of the anchor).
@@ -161,9 +183,48 @@ def _last_release_tag(repo: Path) -> tuple[str | None, str]:
 
 
 def _semver_tuple(v: str) -> tuple:
+    """Vergleichsschluessel nach PEP 440. Zwei Gegenlese-Linsen haben die erste Fassung widerlegt.
+
+    FUND 1, die Vorabphasen. Sie bekamen ALLE denselben Rang und wurden nur nach ihrer Nummer
+    geordnet. Gemessen: `_semver_tuple("1.0.0b1") == _semver_tuple("1.0.0rc1")` — identisch, also
+    nicht unterscheidbar — und `_semver_tuple("2.0.0a3") > _semver_tuple("2.0.0b1")`, was falsch
+    ist: JEDE Alpha liegt vor JEDER Beta. Nicht hypothetisch, RELEASE.md dokumentiert echte
+    2.0.0b1/b2/b3-Tags dieses Projekts.
+
+    FUND 2, zusammengesetzte Suffixe. `5.1.0.post1.dev2` ergab dasselbe wie `5.1.0.post1`, das
+    zweite Suffix fiel weg — die `elif`-Kette nahm das erste und verwarf den Rest.
+
+    DIE ORDNUNG, die PEP 440 verlangt, und sie ist nicht symmetrisch:
+        X.Y.Z.devN  <  X.Y.ZaN.devM  <  X.Y.ZaN  <  X.Y.ZbN  <  X.Y.ZrcN
+                    <  X.Y.Z  <  X.Y.Z.postN
+    Zwei Asymmetrien tragen das: FEHLT die Vorabversion, sortiert das NACH allen Vorabversionen
+    (die Freigabe kommt zuletzt) — ausser wenn nur eine Entwicklungsfassung da ist, dann DAVOR.
+    Und ein fehlendes `dev` sortiert NACH einem vorhandenen. Wer beide Faelle mit derselben Null
+    belegt, dreht die Ordnung an genau diesen Stellen um.
+    """
+    _VOR, _NACH = -(10 ** 9), 10 ** 9
     core = v.split("-")[0].split("+")[0]
-    parts = core.split(".")
-    return tuple(int(x) if x.isdigit() else 0 for x in (parts + ["0", "0", "0"])[:3])
+    m = re.match(r"^([0-9]+)\.([0-9]+)\.([0-9]+)"
+                 r"(?:\.?(a|b|rc)([0-9]+))?"
+                 r"(?:\.post([0-9]+))?"
+                 r"(?:\.dev([0-9]+))?$", core)
+    if not m:
+        # UNVERAENDERT fuer alles, was keine Version ist (Review-Tags etwa). Die Zahl der Glieder
+        # muss trotzdem stimmen, sonst sind Treffer und Fallback nicht vergleichbar.
+        parts = core.split(".")
+        haupt = tuple(int(x) if x.isdigit() else 0 for x in (parts + ["0", "0", "0"])[:3])
+        return haupt + (_NACH, 0, _VOR, _NACH)
+    haupt = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    vorab, post, dev = m.group(4), m.group(6), m.group(7)
+    if vorab is not None:
+        vorab_key = ({"a": 0, "b": 1, "rc": 2}[vorab], int(m.group(5)))
+    elif post is None and dev is not None:
+        vorab_key = (_VOR, 0)          # eine reine Entwicklungsfassung liegt VOR jeder Vorabversion
+    else:
+        vorab_key = (_NACH, 0)         # keine Vorabversion heisst: die Freigabe selbst, sie kommt zuletzt
+    post_key = _VOR if post is None else int(post)
+    dev_key = _NACH if dev is None else int(dev)
+    return haupt + vorab_key + (post_key, dev_key)
 
 
 def check(repo: Path) -> list[str]:
