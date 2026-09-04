@@ -81,11 +81,31 @@ def test_der_korpus_ist_nicht_leer_und_die_zahl_steht_fest():
     assert len(ALLE) >= 13, f"nur {len(ALLE)} Faelle gefunden — der Korpus ist geschrumpft"
 
 
+#: Verzeichnisse im Korpus, die KEINE Faelle sind. Der fuehrende Unterstrich war bisher die
+#: einzige Kennzeichnung (`_generator`); `policies/` kam mit Teil A3 dazu und traegt keinen, weil
+#: der Auftrag seinen Pfad woertlich nennt. Die Liste steht hier ausdruecklich, statt die
+#: Unterstrich-Regel zu dehnen: wer sie liest, sieht WELCHE Verzeichnisse gemeint sind, und ein
+#: neues faellt auf, statt von einer Namensregel stillschweigend mitgenommen zu werden.
+KEINE_FAELLE = {"policies"}
+
+
 def test_jedes_fall_verzeichnis_traegt_auch_eine_case_json():
-    """Ein Verzeichnis mit Eingaben, aber ohne Fallbeschreibung, wuerde still nicht gefahren."""
+    """Ein Verzeichnis mit Eingaben, aber ohne Fallbeschreibung, wuerde still nicht gefahren.
+
+    Die Zusicherung ist UNVERAENDERT — jeder FALL traegt seine Beschreibung. Praezisiert ist nur,
+    was ein Fall ist: `policies/` haelt die benannte Standard-Policy und ist keiner.
+    """
     ohne = [d.name for d in KORPUS.iterdir()
-            if d.is_dir() and not d.name.startswith("_") and not (d / "case.json").is_file()]
+            if d.is_dir() and not d.name.startswith("_") and d.name not in KEINE_FAELLE
+            and not (d / "case.json").is_file()]
     assert ohne == [], f"Fallverzeichnisse ohne case.json: {ohne}"
+
+
+def test_die_ausnahmeliste_nimmt_keinen_echten_fall_heraus():
+    """GEGENPROBE. Eine Ausnahmeliste ist ein Loch im Riegel, solange niemand prueft, dass sie nur
+    das enthaelt, was wirklich kein Fall ist. Ein Verzeichnis MIT case.json darf nie darin stehen."""
+    falsch = [n for n in KEINE_FAELLE if (KORPUS / n / "case.json").is_file()]
+    assert falsch == [], f"als Nicht-Fall gefuehrt, traegt aber eine case.json: {falsch}"
 
 
 # ── der Ausfuehrer ────────────────────────────────────────────────────────────────────────────

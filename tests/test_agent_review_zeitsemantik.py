@@ -151,20 +151,32 @@ REVIEW_CLAIM = [{"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z",
                  "assertedBy": "ownerOrder", "assurance": "selfDeclared"}]
 
 
-def _lauf_v02(p, *, typ=None):
+def _lauf_v02(p, *, typ=None, policy=None):
     st = {"_type": AR.STATEMENT_TYPE,
           "subject": [{"name": AR._subject_name(p), "digest": {"sha256": AR._subject_digest(p)}}],
           "predicateType": typ or AR.AGENT_REVIEW_PREDICATE_TYPE_V02, "predicate": p}
     env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
                              payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
     return env, AR.verify_agent_review_v02(env, PK, strict=True,
-                                           expected_subject_digest=AR._subject_digest(p))
+                                           expected_subject_digest=AR._subject_digest(p),
+                                           policy=policy)
 
 
 # Test 6 zuerst — die Kontrolle. Ohne sie belegt jedes Rot darunter nichts.
 def test_v02_mit_reviewCompleted_selfDeclared_wird_akzeptiert():
+    """OHNE POLICY GIBT ES KEINE FREIGABE MEHR (Teil A3, 6.0.0).
+
+    Die Zusicherung `ok is True` stand hier fuer einen Lauf OHNE benannte Policy. Genau das ist
+    die Aenderung: `policy_decision` stand fest auf None und `ok` konnte trotzdem wahr werden —
+    ein gruenes Ergebnis sagte "kryptographisch und strukturell in Ordnung" und wurde als
+    "brauchbar" gelesen. Die Zusicherung wird deshalb UMGEDREHT, nicht entfernt, und die
+    Gegenrichtung kommt als eigene dazu: MIT der Standard-Policy wird derselbe Beleg akzeptiert.
+
+    Die vier Zeitachsen unten sind von A3 unberuehrt — sie gelten in beiden Faellen.
+    """
     _, r = _lauf_v02(_pred_v02(timeClaims=REVIEW_CLAIM))
-    assert r["ok"] is True, r["errors"]
+    assert r["ok"] is False, "ohne benannte Policy darf es keine Freigabe geben"
+    assert AR.POLICY_NOT_EVALUATED in (r.get("reason_codes") or []), r.get("reason_codes")
     assert r["event_time_status"] == "SELF_DECLARED"
     assert r["observation_time_status"] == "ABSENT"
     assert r["signature_time_status"] == "SELF_DECLARED"
@@ -288,3 +300,40 @@ def test_der_legacy_hinweis_gilt_nur_fuer_echte_v0_1_receipts(predicate_type, so
         f"predicateType={predicate_type}: advisory={r['advisory_codes']}, "
         f"predicate_type_ok={r['predicate_type_ok']} — ein v0.1-Satz ueber ein "
         f"{predicate_type}-Receipt ist eine falsche Aussage")
+
+
+def test_v02_mit_der_standard_policy_faellt_eine_benannte_entscheidung():
+    """MIT Policy faellt eine Entscheidung, und ihr Digest steht im Ergebnis.
+
+    DER NAME SAGT JETZT, WAS DIE ZUSICHERUNG PRUEFT. Er hiess zuerst „wird akzeptiert" — und war
+    damit staerker als sein eigener assert: geprueft wurde `policy_decision is not None`, und das
+    ist bei `insufficient_evidence` genauso wahr. Das Praedikat hier traegt `coverage.status:
+    UNKNOWN`, das die Standard-Policy ausdruecklich NICHT als Abdeckungsangabe gelten laesst — es
+    wird also gerade nicht akzeptiert. Die Annahme steht im Test darunter, mit einem Praedikat,
+    das sie wirklich erfuellt.
+    """
+    pol = AR.load_policy()
+    assert pol["_digest"].startswith("sha256:"), pol.get("_digest")
+    _, r = _lauf_v02(_pred_v02(timeClaims=REVIEW_CLAIM), policy=pol)
+    assert r["policy_decision"] == "insufficient_evidence", (
+        "coverage.status UNKNOWN ist keine Abdeckungsangabe, sondern deren Abwesenheit — "
+        f"gemessen: {r['policy_decision']}")
+    assert r["policy_name"] == AR.STANDARD_POLICY_NAME
+    assert r["policy_digest"] == pol["_digest"], "der Digest der Policy gehoert ins Ergebnis"
+    assert AR.POLICY_NOT_EVALUATED not in (r.get("reason_codes") or [])
+    assert r["ok"] is False, "eine nicht-akzeptierende Entscheidung darf kein ok ergeben"
+
+
+def test_v02_mit_genannter_abdeckung_wird_wirklich_akzeptiert():
+    """DIE ECHTE GEGENRICHTUNG. Ohne sie waere die Verschaerfung nur eine Sperre: ein Verifizierer,
+    der NIE akzeptiert, unterscheidet so wenig wie einer, der immer akzeptiert."""
+    p = _pred_v02(timeClaims=REVIEW_CLAIM)
+    # `knownGaps` statt `note`: der Validator sagt es woertlich — „an incomplete coverage that
+    # names no gap cannot be checked against anything". Eine PARTIAL-Abdeckung ohne benannte
+    # Luecke ist keine Angabe, sondern eine Andeutung.
+    p["coverage"] = {"status": "PARTIAL", "knownGaps": ["nur eine Datei gelesen"]}
+    p["limitationCodes"] = ["COVERAGE_PARTIAL", "IDENTITY_UNBOUND", "NOT_QUALITY_ATTESTATION",
+                            "TIME_SELF_DECLARED"]
+    _, r = _lauf_v02(p, policy=AR.load_policy())
+    assert r["policy_decision"] == "accept", r.get("policy_reason")
+    assert r["ok"] is True, r["errors"]

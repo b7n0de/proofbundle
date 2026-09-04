@@ -1689,6 +1689,28 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     # sie zu haerten. v0.2 ist noch nicht ausgestellt worden, hier kostet die Pflicht nichts und
     # traegt alles: ohne sie ist der sichtbare Block in einem v0.2-Receipt unverbindlich, und
     # genau das war der Befund.
+    # fixCommit traegt in v0.2 die VOLLE 40-stellige SHA (Teil A4).
+    #
+    # WARUM DIE VOLLE. Ein gekuerzter Hash ist eine Suchanfrage, keine Angabe: er bindet nichts,
+    # solange nicht klar ist, in welchem Repo und zu welchem Zeitpunkt gesucht wird, und Kollisionen
+    # kurzer Praefixe sind in grossen Repos alltaeglich. Ein Receipt, das sagt "behoben in a1b2c3d",
+    # verlangt vom Leser genau die Arbeit, die es ihm abnehmen soll.
+    #
+    # WARUM HIER UND NICHT IN `_validate_finding`. Diese Funktion ist zwischen v0.1 und v0.2
+    # GETEILT — der v0.2-Validator ruft oben zuerst den v0.1. Die Regel dort einzubauen wuerde die
+    # Altfassung mitverschaerfen und damit sechs bereits ausgestellte Receipts nachtraeglich
+    # beurteilen. Dieselbe Ruecksicht wie bei disclosureCoreDigest unten.
+    for i, f in enumerate(predicate.get("findings") or []):
+        if not isinstance(f, dict):
+            continue
+        fc = f.get("fixCommit")
+        if fc is None:
+            continue
+        if not (isinstance(fc, str) and len(fc) == 40 and all(c in "0123456789abcdef" for c in fc)):
+            errs.append(
+                f"FIXCOMMIT_NOT_FULL_SHA: findings[{i}].fixCommit must be the full 40-character "
+                f"lowercase hex sha — got {fc!r}")
+
     sc = predicate.get("subjectContext")
     if isinstance(sc, dict) and not isinstance(sc.get("disclosureCoreDigest"), str):
         errs.append(
@@ -2178,7 +2200,8 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
 
 def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
-                            observed_body: str | None = None) -> dict:
+                            observed_body: str | None = None,
+                            policy: dict | None = None) -> dict:
     """Der v0.2-Verifier — getrennte Zeitachsen, kein Gesamturteil ueber Zeit.
 
     ER DEUTET v0.1 NIE STILLSCHWEIGEND NACH v0.2-REGELN. Ein v0.1-Receipt hat sein `observedAt`
@@ -2193,7 +2216,7 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
     try:
         return _verify_v02_inner(envelope, public_key, strict=strict,
                                  expected_subject_digest=expected_subject_digest,
-                                 observed_body=observed_body)
+                                 observed_body=observed_body, policy=policy)
     except Exception as exc:                                     # noqa: BLE001 — dieselbe Huelle
         r = _empty_result()
         r["structure_ok"] = False
@@ -2206,7 +2229,8 @@ def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool =
 
 def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False,
                       expected_subject_digest: str | None = None,
-                      observed_body: str | None = None) -> dict:
+                      observed_body: str | None = None,
+                      policy: dict | None = None) -> dict:
     from . import dsse  # noqa: PLC0415
     from ._strict_json import loads_strict  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
@@ -2349,6 +2373,44 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     _pruefe_sichtbaren_block(r, predicate, observed_body)
 
+    # DIE POLICY ENTSCHEIDET, NICHT DER VERIFIZIERER (Teil A3).
+    #
+    # Bis hierher stand `policy_decision` fest auf None und `ok` konnte trotzdem True werden. Damit
+    # sagte ein gruenes Ergebnis "kryptographisch und strukturell in Ordnung" und wurde als
+    # "brauchbar" gelesen — zwei verschiedene Aussagen unter einem Namen. Ohne benannte Policy gibt
+    # es keine Freigabe: die relying party hat nichts erklaert, gegen das entschieden werden
+    # koennte, und ein Verifizierer, der sich eine ausdenkt, entscheidet an ihrer Stelle.
+    #
+    # DER DIGEST DER POLICY STEHT IM ERGEBNIS, damit eine spaetere Lesung sagen kann, GEGEN WAS
+    # entschieden wurde. Eine Policy ohne benannte Fassung ist keine.
+    if policy is not None:
+        try:
+            # `statement` WIRD IN EINEM try GEBUNDEN und ist auf manchen Pfaden gar nicht da.
+            # Die erste Fassung las es hier direkt und riss den Verifizierer mit einem NameError
+            # ab — den er selbst korrekt als "Defekt im Verifizierer, kein Urteil ueber das
+            # Receipt" meldete. `locals()` statt einer Annahme: die Klasse verschwindet, nicht nur
+            # der eine Pfad.
+            _st = locals().get("statement")
+            _praed = _st.get("predicate") if isinstance(_st, dict) else None
+            _pe = evaluate_limitation_policy(_praed or {}, policy)
+            r["policy_decision"] = _pe["decision"]
+            r["policy_name"] = _pe.get("policy_name")
+            r["policy_digest"] = _pe.get("policy_digest")
+            r["policy_reason"] = {k: v for k, v in _pe.items() if k != "decision"}
+        except Exception as _pexc:  # noqa: BLE001 — never-raise bleibt die Zusage
+            r["policy_decision"] = "insufficient_evidence"
+            r["errors"].append(f"policy could not be evaluated: {_pexc}")
+    else:
+        r["policy_decision"] = None
+        codes = list(r.get("reason_codes") or [])
+        if POLICY_NOT_EVALUATED not in codes:
+            codes.append(POLICY_NOT_EVALUATED)
+        r["reason_codes"] = codes
+        # ANHAENGEN, NICHT ERSETZEN — dieselbe Regel wie in der Weiche, und ich habe sie hier
+        # zuerst gebrochen. `reason_code` traegt den Grund des URTEILS; ihn mit
+        # POLICY_NOT_EVALUATED zu belegen, weil er an DIESER Stelle noch None ist, verdraengt den
+        # echten Grund, der erst weiter unten gesetzt wird. Gemessen an 51 roten Tests.
+
     r["internal_consistency_ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["subject_binding_ok"] is not False
@@ -2356,7 +2418,12 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         and r["assurance_ok"] is not False
         and r["body_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE")
         and r["disclosure_core_digest_match"] not in ("MISMATCH", "NOT_MEASURABLE"))
-    r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked")
+    # OHNE POLICY KEIN `ok` (Teil A3). Die drei Bedingungen sind verschiedene Aussagen und werden
+    # hier zu einer: der Beleg ist in sich stimmig, er wurde gegen die MITGEBRACHTE Erwartung
+    # geprueft, UND eine benannte Policy hat ihn nicht abgelehnt. Faellt die dritte weg, sagt ein
+    # gruenes `ok` nur noch "die Bytes stimmen" und wird trotzdem als "brauchbar" gelesen.
+    r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked"
+                   and r.get("policy_decision") == "accept")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
 
@@ -2384,3 +2451,118 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
     })
     return r
+
+
+# ── die Weiche: beide Fassungen lesen, alles andere ablehnen (Teil A2) ─────────────────────────
+
+#: Ein v0.1-Receipt bleibt lesbar, und das Ergebnis SAGT, dass es die Altfassung ist. Ohne diesen
+#: Code muesste ein Leser den predicateType selbst auswerten, um zu wissen, unter welchen Regeln
+#: das `ok` zustande kam — und genau das ist die Arbeit, die ein Verifizierer abnehmen soll.
+AGENT_REVIEW_LEGACY_V01 = "AGENT_REVIEW_LEGACY_V01"
+
+
+def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
+    """Beide Fassungen lesen, alles andere ablehnen — und NIE werfen.
+
+    WARUM DIE KENNZEICHNUNG HIER SITZT UND NICHT IM v0.1-VERIFIZIERER. Teil A2 verlangt zweierlei,
+    das sich zu widersprechen scheint: `verify_agent_review` soll fuer v0.1 BYTE-IDENTISCH zum
+    Stand 5.1.0 bleiben, UND ein v0.1-Ergebnis soll die Altfassung ausweisen. Beides zugleich geht
+    nur, wenn die Kennzeichnung ausserhalb der byte-gepinnten Funktion entsteht. Der Preis ist
+    ehrlich benannt: wer `verify_agent_review` DIREKT ruft, bekommt die Kennzeichnung nicht — sie
+    gehoert der Weiche, und ein Aufrufer, der die Fassung nicht wissen will, hat sie schon gewaehlt.
+
+    `ok` BLEIBT, WAS ES FUER v0.1 WAR. Die Weiche fuegt Felder hinzu und entfernt keines; sie
+    urteilt nicht neu. Ein Dispatcher, der das Urteil seiner Fassung nachbessert, waere ein
+    zweiter Verifizierer mit demselben Namen.
+    """
+    import base64 as _b64  # noqa: PLC0415
+    import json as _json   # noqa: PLC0415
+    try:
+        payload = _json.loads(_b64.b64decode(envelope["payload"]))
+        typ = payload.get("predicateType")
+    except Exception:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche
+        r = _empty_result()
+        r["ok"] = False
+        r["reason_code"] = "AGENT_REVIEW_ENVELOPE_UNREADABLE"
+        r["reason_codes"] = ["AGENT_REVIEW_ENVELOPE_UNREADABLE"]
+        r["predicateVersionStatus"] = "unknown"
+        return r
+    if typ == AGENT_REVIEW_PREDICATE_TYPE_V02:
+        r = verify_agent_review_v02(envelope, public_key, **kw)
+        r["predicateVersionStatus"] = "current"
+        return r
+    if typ == AGENT_REVIEW_PREDICATE_TYPE:
+        r = verify_agent_review(envelope, public_key, **kw)
+        r["predicateVersionStatus"] = "legacy"
+        # ANHAENGEN, NICHT ERSETZEN: `reason_code` traegt den Grund des URTEILS. Ihn hier zu
+        # ueberschreiben hiesse, die Altfassung zum Grund eines Fehlschlags zu erklaeren, den sie
+        # nicht verursacht hat.
+        codes = list(r.get("reason_codes") or [])
+        if AGENT_REVIEW_LEGACY_V01 not in codes:
+            codes.append(AGENT_REVIEW_LEGACY_V01)
+        r["reason_codes"] = codes
+        return r
+    r = _empty_result()
+    r["ok"] = False
+    r["predicate_type_ok"] = False
+    r["reason_code"] = "AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN"
+    r["reason_codes"] = ["AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN"]
+    r["predicateVersionStatus"] = "unknown"
+    r["errors"] = [f"unknown predicateType: {typ!r}"]
+    return r
+
+
+# ── die benannte Policy (Teil A3) ──────────────────────────────────────────────────────────────
+
+#: EINE POLICY IST EINE DATEI, KEIN CODE.
+#:
+#: Was im Verifizierer steht, ist keine Policy einer relying party, sondern eine Annahme des
+#: Verifizierers ueber sie. Als Datei laesst sie sich zitieren, ihr Digest nennen und ersetzen,
+#: ohne den Verifizierer anzufassen — und eine spaetere Lesung kann sagen, GEGEN WAS entschieden
+#: wurde. Deshalb steht der Digest im Ergebnis.
+STANDARD_POLICY_NAME = "agent-review/default"
+POLICY_NOT_EVALUATED = "POLICY_NOT_EVALUATED"
+
+
+def standard_policy_path() -> "Path":
+    from pathlib import Path as _P  # noqa: PLC0415
+    return _P(__file__).resolve().parents[2] / "conformance" / "agent_review" / "policies" / "default_v1.json"
+
+
+def load_policy(pfad=None) -> dict:
+    """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
+    Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
+    import hashlib as _h, json as _j  # noqa: PLC0415
+    from pathlib import Path as _P    # noqa: PLC0415
+    p = _P(pfad) if pfad is not None else standard_policy_path()
+    roh = p.read_bytes()
+    d = _j.loads(roh.decode("utf-8"))
+    d["_digest"] = "sha256:" + _h.sha256(roh).hexdigest()
+    d["_path"] = str(p)
+    return d
+
+
+def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
+    """Die abgeleiteten Einschraenkungscodes gegen die Policy halten.
+
+    ABGELEITET, NICHT GELESEN: `derive_limitation_codes` erzeugt sie aus dem Predicate. Die im
+    Predicate STEHENDEN Codes waeren eine Selbstauskunft des Ausstellers — sie hier zu benutzen
+    hiesse, den Geprueften nach seinem Urteil zu fragen.
+    """
+    codes = set(derive_limitation_codes(predicate))
+    nie = set(policy.get("never_blocking") or [])
+    sperrend = set(policy.get("blocking") or []) - nie
+    getroffen = sorted(codes & sperrend)
+    cov = predicate.get("coverage") if isinstance(predicate, dict) else None
+    cov_status = (cov or {}).get("status") if isinstance(cov, dict) else None
+    erlaubt = policy.get("require_coverage_status")
+    grund = {"limitation_codes": sorted(codes), "blocking_hit": getroffen,
+             "coverage_status": cov_status,
+             "policy_name": policy.get("name"), "policy_digest": policy.get("_digest")}
+    if getroffen:
+        return {"decision": "reject", **grund}
+    if erlaubt is not None and cov_status not in erlaubt:
+        # NICHT "reject". Eine fehlende Abdeckungsangabe ist kein Nachweis eines Mangels, sondern
+        # das Fehlen eines Nachweises — die dritte Antwort gibt es genau dafuer.
+        return {"decision": "insufficient_evidence", **grund}
+    return {"decision": "accept", **grund}
