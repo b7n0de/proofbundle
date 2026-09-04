@@ -1,0 +1,76 @@
+{
+  "plattform": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.11.15",
+    "cryptography": "46.0.5",
+    "cbor_leser": "eigener, definite+indefinite (cbor_min.py)"
+  },
+  "faelle": [
+    {
+      "name": "V1 / A  as registered",
+      "size_gemessen": 165,
+      "size_erwartet": 165,
+      "size_trifft": true,
+      "sha256_gemessen": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+      "sha256_erwartet": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+      "sha256_trifft": true,
+      "cbor_tag": 18,
+      "aeusseres_array_indefinit": false,
+      "sig_structure_laenge": 109,
+      "signatur_aus_seed_reproduziert": true,
+      "signatur_laenge": 64
+    },
+    {
+      "name": "V1 / B  carrying receipt",
+      "size_gemessen": 203,
+      "size_erwartet": 203,
+      "size_trifft": true,
+      "sha256_gemessen": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+      "sha256_erwartet": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+      "sha256_trifft": true,
+      "cbor_tag": 18,
+      "aeusseres_array_indefinit": false,
+      "sig_structure_laenge": 109,
+      "signatur_aus_seed_reproduziert": true,
+      "signatur_laenge": 64
+    },
+    {
+      "name": "V2 / A  tagged (aus V1/A)",
+      "size_gemessen": 165,
+      "size_erwartet": 165,
+      "size_trifft": true,
+      "sha256_gemessen": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+      "sha256_erwartet": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+      "sha256_trifft": true,
+      "cbor_tag": 18,
+      "aeusseres_array_indefinit": false,
+      "sig_structure_laenge": 109,
+      "signatur_aus_seed_reproduziert": true,
+      "signatur_laenge": 64
+    },
+    {
+      "name": "V2 / C  untagged (A ohne 0xd2)",
+      "size_gemessen": 164,
+      "size_erwartet": 164,
+      "size_trifft": true,
+      "sha256_gemessen": "fead5e6058d01360024bcd0d539138d26053c3d7c48475dbccb32b6139e53a00",
+      "sha256_erwartet": "fead5e6058d01360024bcd0d539138d26053c3d7c48475dbccb32b6139e53a00",
+      "sha256_trifft": true,
+      "cbor_tag": null,
+      "aeusseres_array_indefinit": false,
+      "sig_structure_laenge": 109,
+      "signatur_aus_seed_reproduziert": true,
+      "signatur_laenge": 64
+    },
+    {
+      "name": "delta A gegen C",
+      "suffix_identisch": true,
+      "bytes_unterschied": 1,
+      "das_byte": "0xd2",
+      "size_trifft": true,
+      "sha256_trifft": true,
+      "signatur_aus_seed_reproduziert": true
+    }
+  ]
+}
