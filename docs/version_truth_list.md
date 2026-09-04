@@ -48,6 +48,52 @@ Die beiden Aussenstellen kennen drei Zustände. Nicht erreichbar heisst `NICHT M
 **weder grün noch rot**; `--require-external` macht daraus einen Fehlschlag und gehört in die
 Release-Checkliste, wo „wir konnten nicht nachsehen" blockieren muss.
 
+## Nachtrag 2026-09-04 — zwei Stellen fehlten, und eine Form auch
+
+Erhoben beim Bau von `5.1.0.post1`, gemessen wie oben und nicht erinnert. Die Liste vom 07.08. war
+für ihren Tag richtig; sie war **nicht vollständig**, und das fiel erst auf, als eine Versionsform
+auftrat, die es damals nicht gab.
+
+### Die zwei fehlenden Stellen
+
+| Ort | Art | warum sie hier fehlte |
+|---|---|---|
+| `scripts/audit_candidate_matrix.py::VERSION_UNDER_TEST` | **Vorschrift** | Sie war eine feste Zeichenkette. Ein Literal driftet lautlos: es hat am Tag des Schreibens recht. Gemessen am 04.09. meldete das Skript seine **eigene** Drift (`version_pin: {state: drift, pinned: 5.1.0, shipping: 5.1.0.post1}`) — und niemand musste handeln, weil ein fester Wert nichts erzwingt. Sie wird jetzt aus `pyproject.toml` gelesen. |
+| `docs/readiness_pack/index.json::release_evidence_slots` | **Nachschlag-Schlüssel** | Kein Spiegel, deshalb fiel sie durch das Raster dieser Liste: sie trägt die Zahl nicht als Aussage, sondern als **Schlüssel** einer Tabelle mit exaktem String-Vergleich. Genau dadurch brach sie, als die Version `5.1.0.post1` hiess — ein Folgefehler der Behebung oben, kein Altbestand. |
+
+Der zweite Fall ist der lehrreichere: eine Liste, die nach „Stellen, die die Zahl **nennen**"
+sucht, findet keine Stelle, die die Zahl **nachschlägt**. Die Kategorien dieser Seite (Quelle,
+abgeleitet, geprüft, historisch) hatten für ihn kein Fach.
+
+### Die fehlende Form
+
+Alle Ankerformen dieser Seite standen als `X.Y.Z`. PEP 440 kennt mehr: `.postN`, `aN`/`bN`/`rcN`,
+`.devN`. Das Muster des Riegels war reines SemVer und las aus `5.1.0.post1` die Zeichenfolge
+`5.1.0` — verglichen gegen die korrekt gelesene volle Quellversion ergab das FAIL, **und zwar in
+beide Richtungen**: die Dokumente sagten `5.1.0` → FAIL, sie sagten `5.1.0.post1` → auch FAIL. Ein
+Tor, das eine gültige Form strukturell nicht bestehen kann, ist keine Prüfung, sondern eine Sperre.
+Derselbe Defekt sass ein zweites Mal in derselben Datei, in `_semver_tuple`.
+
+### Was seither bewacht wird
+
+`tests/test_version_single_source.py` hält jede bekannte Stelle gegen die Quelle und nennt die
+Datei im Befund. Drei Bauentscheidungen darin sind gegen genau die Fehler gerichtet, die diese
+Seite beschreibt:
+
+- Die Matrix wird über die **Bauform** geprüft, nicht über den Wert — eine wieder fest
+  geschriebene Konstante hätte am Tag des Schreibens recht.
+- Die Prosa-Stellen werden gegen den **echten** Baum geprüft, nicht nur gegen einen synthetischen.
+  Eine Gegenlesung hat gemessen, dass `pytest` grün blieb, während das echte Tor eine gepflanzte
+  Drift in `RELEASE.md` meldete.
+- Die Ordnung der Versionen wird gegen ein **unabhängiges Orakel** gehalten (`packaging.version`),
+  nicht gegen eine zweite Ableitung derselben Annahme.
+
+### Was dieser Nachtrag NICHT behauptet
+
+Die Zahl steht nach dieser Messung an **sieben** Stellen. Der Test bewacht die, die er kennt — er
+kann keine achte verhindern. Er nennt sie namentlich, damit die nächste beim ersten Fehlschlag
+auffällt statt still zu driften. Das ist eine gebundene Grenze, keine Vollständigkeit.
+
 ## Historisch — darf und soll alt bleiben
 
 17 gemessene Zeilen. Sie halten fest, **wann** etwas wahr wurde. Wer sie mitzieht, macht aus einer

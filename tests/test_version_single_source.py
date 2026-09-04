@@ -202,6 +202,13 @@ def _tuple():
     return C._semver_tuple
 
 
+def test_dieser_lauf_misst_diesen_baum():
+    """DER RIEGEL SELBST, als eigene Zusicherung. Ohne sie greift er nur dort, wo zufaellig eine
+    andere Zusicherung `_matrix()` aufruft — und ein Riegel, dessen Wirkung an der Reihenfolge
+    fremder Tests haengt, ist keiner."""
+    _pruefe_richtiger_baum()
+
+
 def test_die_ordnung_stimmt_mit_packaging_ueberein():
     packaging = pytest.importorskip(
         "packaging.version",
@@ -275,7 +282,29 @@ def test_das_muster_frisst_den_eigenen_markennamen_nicht():
 def _matrix():
     sys.path.insert(0, str(REPO / "scripts"))
     import audit_candidate_matrix as M               # noqa: PLC0415
+    _pruefe_richtiger_baum()
     return M
+
+
+def _pruefe_richtiger_baum() -> None:
+    """Prueft DIESEN Baum, nicht irgendeinen.
+
+    GEMESSEN 04.09.2026 von einer Gegenlese-Linse und selbst nachgestellt: `import proofbundle`
+    loest OHNE `PYTHONPATH` ueber die installierte Fassung auf — auf dieser Maschine ist das
+    `/home/konrad/proofbundle/src/proofbundle`, ein ANDERER Worktree desselben Repos mit einem
+    anderen HEAD. Der Test lief dann durch und pruefte den falschen Checkout. Mit dem
+    vorgeschriebenen PYTHONPATH ist es richtig; die Absicherung darf aber nicht in einer
+    Anleitung stehen, sonst gilt sie nur, solange sie jemand liest.
+
+    Der Riegel MELDET und rechnet nicht um: einen sys.path zur Laufzeit zu biegen waere ein
+    zweiter Mechanismus, der die Ursache verdeckt.
+    """
+    import proofbundle                                # noqa: PLC0415
+    wo = Path(proofbundle.__file__).resolve().parent
+    if REPO not in wo.parents:
+        raise AssertionError(
+            f"`import proofbundle` loest auf {wo} auf, das liegt NICHT unter {REPO}. Dieser Lauf "
+            f"wuerde einen fremden Checkout messen. Setze PYTHONPATH={REPO / 'src'}.")
 
 
 @pytest.mark.parametrize("version,erwartet,warum", [
@@ -306,3 +335,48 @@ def test_eine_vorabversion_findet_ihn_NICHT(monkeypatch):
     monkeypatch.setattr(M, "VERSION_UNDER_TEST", "5.1.0rc1")
     zustand, _ = M.c10_2_slot_filled()
     assert zustand == M.FAIL, "eine Vorabversion borgt sich die Evidenz der Freigabe"
+
+
+# ── Der ECHTE Baum, nicht nur ein synthetischer ───────────────────────────────────────────────
+#
+# DIE LUECKE, die eine Gegenlese-Linse fand und die ich selbst nachgemessen habe: `RELEASE.md` und
+# `docs/readiness_pack/PROGRESS.md` sind in `_TRACKED_PLACES` deklariert, wurden von dieser Datei
+# aber NIE gegen den echten Repo-Zustand geprueft — nur gegen einen `tmp_path`-Baum. Belegt:
+#
+#     sed -i 's/current: 5.1.0/current: 9.9.9/' RELEASE.md
+#     pytest tests/test_version_single_source.py -q   ->  32 passed        (blind)
+#     python3 scripts/check_version_and_changelog.py --repo .
+#       -> "RELEASE.md: ... states ['9.9.9'] but the source version is 5.1.0"
+#
+# `pytest` gruen war damit NICHT gleichbedeutend mit "der echte Gate-Lauf ist gruen", und genau
+# diese Gleichsetzung ist der Zweck einer Testdatei, die sich "single source" nennt. Ein
+# synthetischer Baum prueft die REGEL; nur der echte prueft den ZUSTAND.
+
+def test_das_echte_repo_besteht_das_echte_tor():
+    """Der Gate-Lauf gegen DIESEN Baum, nicht gegen eine Nachbildung.
+
+    Bewusst der ganze `check()` und nicht nur `check_tracked_places`: eine Auswahl waere wieder
+    eine Nachbildung, nur eine feinere. Was das Tor im Betrieb sagt, sagt es hier.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_version_and_changelog as C          # noqa: PLC0415
+    probleme = C.check(REPO)
+    assert not probleme, (
+        "das echte Versions-Tor meldet auf diesem Baum Probleme:\n  " + "\n  ".join(probleme))
+
+
+@pytest.mark.parametrize("pfad,anker", [
+    ("RELEASE.md", "current:"),
+    ("docs/readiness_pack/PROGRESS.md", "current release:"),
+])
+def test_jede_prosa_stelle_nennt_die_quelle_im_echten_baum(pfad, anker):
+    """EINZELN, mit dem Dateinamen im Befund. Der Test darueber sagt nur DASS etwas klemmt; diese
+    Zusicherung sagt WO, und das ist der Unterschied zwischen einem Alarm und einem Hinweis."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_version_and_changelog as C          # noqa: PLC0415
+    txt = (REPO / pfad).read_text(encoding="utf-8")
+    gefunden = re.findall(anker.replace(":", r":\s*v?") + C._SEMVER, txt)
+    assert gefunden, f"{pfad}: der Anker {anker!r} steht nicht mehr drin — hat sich die Datei geaendert?"
+    abweichend = sorted({v for v in gefunden if v != quelle()})
+    assert not abweichend, (
+        f"{pfad} nennt {abweichend}, die Quelle sagt {quelle()!r}")
