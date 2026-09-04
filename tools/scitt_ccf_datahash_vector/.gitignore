@@ -1,0 +1,5 @@
+# Nicholas' artefacts are FETCHED, never vendored — see fetch_upstream_vectors.py and the
+# README section "The upstream vectors are referenced, not vendored". This file makes that
+# decision mechanical instead of depending on whoever runs `git add` being careful.
+data-hash-vector.json
+data-hash-tag-vector.json

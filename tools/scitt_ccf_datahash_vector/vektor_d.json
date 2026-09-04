@@ -1,0 +1,32 @@
+{
+  "schema": "b7n0de.scitt_ccf_array_framing_vector/0.1",
+  "not_a_transparency_service": "b7n0de operates no Transparency Service and issues no Receipts.",
+  "not_independently_derived": "Bytes, seed and signature are Nicholas Ashley's published artifact. Nothing here is a new key or a new statement.",
+  "not_a_claim_about_libraries_in_the_wild": "Measured only for the encoders named below, at the versions named below.",
+  "plattform": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.11.15",
+    "cryptography": "46.0.5"
+  },
+  "A_definite": {
+    "framing": "tag 18, definite 4-element array (0x84)",
+    "size_bytes": 165,
+    "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac"
+  },
+  "D_indefinite_array": {
+    "framing": "tag 18, indefinite array (0x9f ... 0xff)",
+    "size_bytes": 166,
+    "sha256": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+    "hex": "d29f5821a3012703706170706c69636174696f6e2f6a736f6e044a746573742d6b65792d31a0583b7b227375626a656374223a2263736f61693a696e7465726f703a646174612d686173682d766563746f72222c22636c61696d223a2274657374227d5840feca6d4a0e549e56f28ef8026a7b4fc34473cfcfed947d613a3a991fb49617781ee2af9ed45d97238f064e72db47ba2469ed4472d86f16b0688b196186525402ff"
+  },
+  "delta": {
+    "bytes_differing": 1,
+    "head": "0x9f replaces 0x84",
+    "tail": "0xff appended",
+    "elements_identical": true
+  },
+  "signature_verifies_over_both": true,
+  "sig_structure_len": 109,
+  "deterministic_reencode_equals_A": true
+}
