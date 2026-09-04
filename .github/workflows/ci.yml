@@ -109,6 +109,11 @@ jobs:
           proofbundle verify examples/example_bundle.json
 
   audit-candidate-matrix:
+    # The NAME is what a person reads beside the cross; the job id stays the stable handle for
+    # tables and tooling (owner directive 2026-09-04, "in menschenlesbar"). Not a required check
+    # (ruleset protect-main requires guard, coverage and the five test matrix jobs), so renaming
+    # the display name breaks no gate.
+    name: Audit candidate matrix (advisory)
     # 3.6.0 audit-candidate acceptance matrix (advisory): one machine-checkable check per §9 obligation.
     # ADVISORY like rust-parity/branch-base — it prints an honest verdict per check (PASS/PENDING/
     # DATA_BLOCKED/EXTERNAL/FAIL). It is NOT --strict here: a full run needs a soak box (24h) and the
