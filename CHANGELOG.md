@@ -8,6 +8,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+- docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
+  by a witnessed checkpoint (SPEC 7d).
+
 ### Changed
 
 - **The 5.1.0 follow-up landed the parts the tag deliberately skipped.** The release ran its
