@@ -31,6 +31,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `render_disclosure_block` validated with the v0.1 rules and refused the predicate with
   `unknown field 'timeClaims'`. The block and the line now choose the validator from the fields
   the predicate carries; a v0.2 predicate is checked with the v0.2 rules, which include v0.1.
+- **`attested_inference.check_on_receipt` no longer raises on a claimed hash without bytes.**
+  Found by the type checker in CI on 2026-09-04: with `request_bytes` of the wrong type and an
+  evidence record that claims `request_hash`, the comparison `None not in signed` was a
+  `TypeError`, not a verdict. A claimed hash that cannot be measured is now reported as not
+  measurable, never as a mismatch, and each axis is hashed on its own, so a broken response
+  byte string no longer takes the request hash's measurement with it.
 
 - **The 5.1.0 follow-up landed the parts the tag deliberately skipped.** The release ran its
   pre-flight and was tagged without its follow-up so the tag would not wait; that was right for

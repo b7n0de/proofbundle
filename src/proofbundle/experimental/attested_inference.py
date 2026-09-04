@@ -252,20 +252,35 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
         # NICHT MESSBAR, nicht "Angriff": ohne die Bytes kann diese Achse nichts sagen, und eine
         # Ablehnung zu erfinden waere eine Aussage ueber etwas Ungemessenes.
         unmeasurable.append(REASON_BYTES_NOT_BYTES)
-        req_h = res_h = None
-    else:
-        req_h = _sha256_bytes(request_bytes)
-        res_h = _sha256_bytes(response_bytes)
+    # JE ACHSE gerechnet, nicht im Paar: sind nur die Antwort-Bytes kaputt, bleibt der
+    # Anfrage-Hash messbar. Vorher setzte ein kaputter Teil beide auf None und nahm der
+    # anderen Achse die Messung, die sie haette liefern koennen.
+    req_h = (_sha256_bytes(bytes(request_bytes))
+             if isinstance(request_bytes, (bytes, bytearray, memoryview)) else None)
+    res_h = (_sha256_bytes(bytes(response_bytes))
+             if isinstance(response_bytes, (bytes, bytearray, memoryview)) else None)
     claims_req = "request_hash" in signed or "request_sha256" in signed
     claims_res = "response_hash" in signed or "response_sha256" in signed
-    if claims_req and req_h not in signed:
-        reasons.append(REASON_REQUEST_HASH)
-    elif not claims_req:
+    # DREI LAGEN JE ACHSE, nie zwei. Nicht behauptet: nicht messbar. Behauptet, aber ohne Bytes
+    # (req_h is None): ebenfalls nicht messbar — eine Ablehnung zu erfinden waere eine Aussage
+    # ueber Ungemessenes. Behauptet und mit Bytes: gemessen.
+    #
+    # GEMESSEN 04.09.2026, gefunden von mypy in der CI von PR 185 und zur Laufzeit nachgestellt:
+    # `None not in signed` ist ein TypeError, kein Urteil. Die Regressionsklammer aus 6ac2041
+    # deckte nur Belege, die KEINEN Hash behaupten; mit Behauptung und str statt bytes fiel die
+    # Flaeche weiter roh — der Typpruefer sah es, der Fuzz nicht.
+    if not claims_req:
         unmeasurable.append(REASON_REQUEST_HASH)
-    if claims_res and res_h not in signed:
-        reasons.append(REASON_RESPONSE_HASH)
-    elif not claims_res:
+    elif req_h is None:
+        unmeasurable.append(REASON_REQUEST_HASH)
+    elif req_h not in signed:
+        reasons.append(REASON_REQUEST_HASH)
+    if not claims_res:
         unmeasurable.append(REASON_RESPONSE_HASH)
+    elif res_h is None:
+        unmeasurable.append(REASON_RESPONSE_HASH)
+    elif res_h not in signed:
+        reasons.append(REASON_RESPONSE_HASH)
 
     # 4. Did the route silently move? A change of backend is an attestation failure, not a detail:
     #    the evidence describes a machine that did not serve this answer.
