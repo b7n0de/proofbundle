@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "5.1.0.post1",
+  "subject_tree_digest": "f714183861a104697e704e9304c19fcce8caa7a53f28b49e4b914d03d46a8d2f",
+  "gate_source_digest": "fa6a019b6dee2e570f7c471a2c99430e9da12a3409ac55288e583b670e02df34",
+  "audit_command": "pytest tests/ -q -p no:randomly, gefahren am 04.09.2026 gegen den post1-Baum, gebunden ueber PYTHONPATH auf /mnt/bigstore/claude_scratch/pb_post1/src (Bindung gemessen: proofbundle importiert aus pb_post1, Version 5.1.0.post1). Ergebnis 2980 passed, 16 skipped, 9 deselected, 0 failed. ABGEWAEHLT und hier BENANNT statt verschwiegen: tests/test_anchors_rfc3161_type_floor.py und tests/test_iter9_deepgate_round4.py::TestRfc3161FrozenNoneTyped brauchen die optionale rfc3161-client-Erweiterung, die in dieser Umgebung nicht installiert ist; ohne sie bricht der Code am Import-Waechter ab, bevor er die geprueften Zeilen erreicht (der Testkopf sagt das selbst), und CI faehrt sie in einem eigenen Job MIT der Erweiterung. Ein erster Lauf war unbrauchbar, weil er ohne PYTHONPATH gegen eine GEMISCHTE Umgebung lief - der Unterprozess nahm den Nebenbaum, die Importe den Hauptcheckout; aufgefallen an test_cli::test_version_end_to_end_via_process_boundary, der beide Wege vergleicht. ",
+  "audit_exit_code": 0,
+  "audit_output_digest": "6373c728dfac1d8406797dce244ef09ccb09fd427562be4242905f6552d663eb",
+  "runner_identity": "b7n0de-release-runner (farmer; claude-code)",
+  "produced_at": "2026-09-04T11:07:41Z",
+  "signature": "baCqzbQYpb5VvRjVGCW+YvEKICAsqNDJpqq4YQSV41/w6Pz29mcB47eC2uQntnNo18NZsflZfynkB07r7dh7DQ==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}
