@@ -13,10 +13,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pathlib
 import platform
 import sys
 
-sys.path.insert(0, "/mnt/bigstore/claude_scratch/scitt_vektoren")
+# Der Leser liegt NEBEN diesem Skript. Hier stand ein absoluter Pfad der Maschine, auf der
+# gemessen wurde: er verriet einen internen Ablageort UND liess die Reproduktion auf jeder
+# anderen Maschine ins Leere laufen, obwohl `cbor_min.py` direkt daneben liegt.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+#: Die Vektoren liegen NEBEN diesem Skript, nicht im Arbeitsverzeichnis des Aufrufers.
+#: Ohne diese Bindung laeuft die im README versprochene Reproduktion nur zufaellig, naemlich
+#: genau dann, wenn jemand vorher in dieses Verzeichnis gewechselt ist.
+HIER = pathlib.Path(__file__).resolve().parent
 import cbor_min as C                                                      # noqa: E402
 import cryptography                                                       # noqa: E402
 from cryptography.exceptions import InvalidSignature                      # noqa: E402
@@ -24,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (           # noqa
     Ed25519PublicKey,
 )
 
-v1 = json.load(open("data-hash-vector.json"))
+v1 = json.load(open(HIER / "data-hash-vector.json", encoding="utf-8"))
 A = bytes.fromhex(v1["A_signed_statement_as_registered"]["bytes_hex"])
 seed_pub = bytes.fromhex(v1["test_key"]["public_key_hex"])
 
