@@ -13,27 +13,35 @@ auch hier gilt.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from proofbundle import agent_review as AR
 
+REPO = Path(__file__).resolve().parents[1]
+
 VOLL = "a" * 40
 
 
+#: DIE ECHTE FORM, AUS DEM KORPUS GELESEN — nicht die, die ich im Kopf hatte.
+#:
+#: Die erste Fassung dieser Datei baute ihr Praedikat selbst, mit einem Top-Level-`findings` und
+#: erfundenen Feldnamen. Alle dreizehn Tests waren bestanden, der A4-Mutant fing zehn davon — und
+#: die REGEL griff trotzdem nie, weil die Befunde in Wirklichkeit unter `declaration.findings`
+#: liegen. Test, Mutant und Regel teilten denselben Irrtum; aufgedeckt hat ihn erst ein Fall aus
+#: dem Konformitaetskorpus. Ein selbstgebautes Fixture prueft die Form, die man im Kopf hat.
+_KORPUS = REPO / "conformance" / "agent_review"
+_VORLAGE = _KORPUS / "agent-review-v02-positive-control-fixcommit-full-sha-is-accepted" / "predicate.json"
+
+
 def _pred(fix):
-    """Ein v0.2-Praedikat mit genau EINEM Befund, dessen fixCommit variiert."""
-    return {
-        "schemaVersion": "0.2",
-        "declaration": {"reviewer": {"name": "t"}, "assurance": "selfDeclared",
-                        "timeClaims": [{"kind": "reviewCompleted", "at": "2026-09-04T00:00:00Z"}]},
-        "subjectContext": {"kind": "pullRequest", "repository": "b7n0de/proofbundle",
-                           "number": 1, "headCommit": "b" * 40,
-                           "disclosureCoreDigest": "c" * 64},
-        "coverage": {"claim": "partial", "gap": "nur ein Befund"},
-        "findings": [{"id": "F1", "severity": "low", "title": "t",
-                      "disposition": "fixed", "fixCommit": fix}],
-        "limitationCodes": ["SELF_DECLARED"],
-    }
+    """Ein v0.2-Praedikat aus dem KORPUS, dessen fixCommit variiert."""
+    import copy
+    import json as _j
+    p = copy.deepcopy(_j.loads(_VORLAGE.read_text(encoding="utf-8")))
+    p["declaration"]["findings"][0]["fixCommit"] = fix
+    return p
 
 
 def _fehler(fix) -> list[str]:
@@ -66,8 +74,8 @@ def test_ohne_fixcommit_greift_die_regel_nicht():
     jede offene Feststellung mitbeschuldigt. Ob ein GESCHLOSSENER Befund einen tragen MUSS,
     entscheidet die bestehende v0.1-Regel, und die bleibt unberuehrt."""
     p = _pred(VOLL)
-    p["findings"][0]["disposition"] = "open"
-    del p["findings"][0]["fixCommit"]
+    p["declaration"]["findings"][0]["disposition"] = "open"
+    del p["declaration"]["findings"][0]["fixCommit"]
     assert not [e for e in AR.validate_agent_review_v02_predicate(p, strict=True)
                 if "FIXCOMMIT_NOT_FULL_SHA" in e]
 
@@ -75,13 +83,7 @@ def test_ohne_fixcommit_greift_die_regel_nicht():
 def test_die_altfassung_bleibt_unberuehrt():
     """DER KERN DER ENTWURFSENTSCHEIDUNG. Sechs v0.1-Receipts stehen draussen; wuerde die Regel im
     geteilten `_validate_finding` sitzen, waeren sie nachtraeglich beurteilt worden."""
-    p = {"schemaVersion": "0.1",
-         "declaration": {"reviewer": {"name": "t"}, "assurance": "selfDeclared"},
-         "subjectContext": {"kind": "pullRequest", "repository": "b7n0de/proofbundle",
-                            "number": 1, "headCommit": "b" * 40},
-         "coverage": {"claim": "partial", "gap": "x"},
-         "findings": [{"id": "F1", "severity": "low", "title": "t",
-                       "disposition": "fixed", "fixCommit": "a1b2c3d"}]}
+    p = _pred("a1b2c3d")   # dieselbe ECHTE Form, nur gegen den v0.1-Validator gehalten
     assert not [e for e in AR.validate_agent_review_predicate(p, strict=True)
                 if "FIXCOMMIT_NOT_FULL_SHA" in e], (
         "die v0.1-Validierung hat die v0.2-Regel geerbt — genau das sollte sie nicht")

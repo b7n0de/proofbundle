@@ -647,7 +647,16 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         # DIESER KORPUS IST HEUTE v0.1. Kommen mit A5 die v0.2-Faelle dazu, muss die Wahl AUS DEM
         # FALL kommen und beide Zeilen zugleich umstellen — hier steht sie deshalb an EINER
         # Stelle, nicht zweimal.
-        _legacy = True
+        # DIE FASSUNG KOMMT AUS DEM FALL, nicht aus einem Vorgabewert (A5).
+        #
+        # Bis A5 stand hier fest `True`, mit dem Vermerk, dass die Wahl aus dem Fall kommen muss,
+        # sobald v0.2-Faelle dazukommen. Jetzt kommen sie. Ein Fall OHNE Angabe bleibt v0.1 —
+        # damit aendert sich fuer die siebzehn bestehenden Vektoren kein Byte, und ein neuer Fall
+        # muss seine Fassung NENNEN statt sie zu erben.
+        #
+        # ERZEUGER UND PRUEFER TRAGEN DIESELBE FASSUNG. Das war schon vorher der Punkt; jetzt
+        # haengen beide an derselben Variablen, und ein v0.2-Fall waehlt beide Seiten zugleich.
+        _legacy = case.get("predicateVersion", "v0.1") != "v0.2"
         try:
             _env = ar.emit_agent_review(doc, _sk, legacy_v01=_legacy)
         except ar.AgentReviewError:
@@ -655,10 +664,24 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         else:
             # ROUNDTRIP: erzeugt UND wieder gelesen. Ein Emitter, dessen Ausgabe der eigene
             # Verifier nicht annimmt, ist kein bestandener Fall, auch wenn das Signieren gelang.
-            _pruefer = ar.verify_agent_review if _legacy else ar.verify_agent_review_v02
-            _r = _pruefer(
-                _env, _sk.public_key().public_bytes_raw(),
-                expected_subject_digest=ar._subject_digest(doc))
+            # DIE STANDARD-POLICY GEHOERT ZUM v0.2-ROUNDTRIP (Folgefund aus A3).
+            #
+            # Seit A3 gibt es ohne benannte Policy kein `ok` — und dieser Laeufer verifizierte
+            # ohne. Jeder v0.2-Fall wurde damit `invalid`, auch ein vollstaendig gueltiger:
+            # gemessen 0 Validator-Fehler und trotzdem abgelehnt. Das ist kein Defekt von A3,
+            # sondern ein Aufrufer, den der Vertragswechsel nicht erreicht hat.
+            #
+            # v0.1 bekommt KEINE Policy: sein Verifizierer kennt den Parameter nicht, und die
+            # Altfassung soll sich nicht aendern.
+            if _legacy:
+                _r = ar.verify_agent_review(
+                    _env, _sk.public_key().public_bytes_raw(),
+                    expected_subject_digest=ar._subject_digest(doc))
+            else:
+                _r = ar.verify_agent_review_v02(
+                    _env, _sk.public_key().public_bytes_raw(),
+                    expected_subject_digest=ar._subject_digest(doc),
+                    policy=ar.load_policy())
             got = "valid" if _r.get("ok") else "invalid"
     # A signed envelope: the verify path is the subject.
     else:

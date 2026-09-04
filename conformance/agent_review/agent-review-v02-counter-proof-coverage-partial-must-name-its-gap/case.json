@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 gebaut 04.09.2026 zu Teil A5 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-coverage-partial-must-name-its-gap",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "PARTIAL ohne knownGaps wird ABGELEHNT: eine unvollstaendige Abdeckung, die keine Luecke nennt, ist keine Angabe, sondern eine Andeutung \u2014 sie laesst sich gegen nichts halten.",
+  "role": "counter_proof",
+  "rule": "A5/A3",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3/A5"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 gebaut 04.09.2026 zu Teil A5 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-disclosure-core-digest-is-required",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "Ohne disclosureCoreDigest ist der sichtbare Offenlegungsblock unverbindlich: eine Aenderung von selfDeclared auf independentlyWitnessed liesse jeden Digest unveraendert.",
+  "role": "counter_proof",
+  "rule": "A5/P0.2",
+  "specRefs": [
+    "Gegenlesung Runde 2, P0.2"
+  ]
+}

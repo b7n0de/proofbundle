@@ -255,6 +255,21 @@ def test_der_fall_verhaelt_sich_wie_beschrieben(d):
 #: Je Gegenbeweis-Fall der Eingriff, der seinen Defekt WEGNIMMT. Faellt danach das Urteil nicht
 #: um, prueft der Fall nichts — dann ist er ein Fall, den auch ein kaputter Validator besteht.
 _ENTSCHAERFUNG = {
+    # ── die v0.2-Gegenbeweise aus Teil A5 ─────────────────────────────────────────────────────
+    #
+    # Die Entschaerfung nimmt GENAU DEN Defekt weg, den der Fall prueft, und sonst nichts. Ein
+    # Flip, der nebenbei etwas anderes repariert, belegt nicht, dass der Fall an seinem eigenen
+    # Grund faellt — dieselbe Falle, in die ich weiter unten schon einmal gelaufen bin.
+    "agent-review-v02-counter-proof-coverage-partial-must-name-its-gap":
+        lambda p: p["coverage"].update({"knownGaps": ["eine benannte Luecke"]}),
+    "agent-review-v02-counter-proof-limitation-codes-are-required":
+        lambda p: p.update({"limitationCodes": ["COVERAGE_PARTIAL", "CURRENTNESS_UNKNOWN",
+                                                "IDENTITY_UNBOUND", "NOT_QUALITY_ATTESTATION",
+                                                "TIME_SELF_DECLARED"]}),
+    "agent-review-v02-counter-proof-fixcommit-must-be-the-full-sha":
+        lambda p: p["declaration"]["findings"][0].update({"fixCommit": "f" * 40}),
+    "agent-review-v02-counter-proof-disclosure-core-digest-is-required":
+        lambda p: p["subjectContext"].update({"disclosureCoreDigest": "e" * 64}),
     "agent-review-counter-proof-partial-must-name-its-gap":
         lambda p: p["coverage"].update({"knownGaps": ["eine benannte Luecke"]}),
     "agent-review-counter-proof-complete-needs-an-expectation":
@@ -284,10 +299,18 @@ def test_der_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
     fall = _fall(d)
     assert fall["expected"]["classification"] == "refused", f"{name} ist kein refused-Fall mehr"
     p = _eingabe(d, fall)
-    assert AR.validate_agent_review_predicate(p, strict=True), (
+    # DER PRUEFER FOLGT DER FASSUNG DES FALLS (A5). Fest verdrahtet auf v0.1 wuerde er einen
+    # v0.2-Fall an den falschen Regeln messen: der v0.1-Validator kennt weder die
+    # fixCommit-Pflicht noch disclosureCoreDigest noch limitationCodes, meldete also fuer einen
+    # entschaerften v0.2-Fall Fehler, die es nicht gibt — oder schlimmer, fuer den unentschaerften
+    # KEINE. Dieselbe Kopplung, die beim Konformitaets-Laeufer selbst schon aufgefallen ist.
+    _pruefer = (AR.validate_agent_review_v02_predicate
+                if fall.get("predicateVersion") == "v0.2"
+                else AR.validate_agent_review_predicate)
+    assert _pruefer(p, strict=True), (
         f"{name} wird gar nicht mehr verweigert — der Fall prueft nichts")
     _ENTSCHAERFUNG[name](p)
-    errs = AR.validate_agent_review_predicate(p, strict=True)
+    errs = _pruefer(p, strict=True)
     assert errs == [], (
         f"{name}: nach dem Wegnehmen des Defekts wird immer noch verweigert ({errs[:2]}) — der "
         f"Fall unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem")

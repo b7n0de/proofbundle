@@ -1700,7 +1700,19 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     # GETEILT — der v0.2-Validator ruft oben zuerst den v0.1. Die Regel dort einzubauen wuerde die
     # Altfassung mitverschaerfen und damit sechs bereits ausgestellte Receipts nachtraeglich
     # beurteilen. Dieselbe Ruecksicht wie bei disclosureCoreDigest unten.
-    for i, f in enumerate(predicate.get("findings") or []):
+    # `declaration.findings`, NICHT `predicate.findings` — die Regel griff sonst NIE.
+    #
+    # GEMESSEN am 04.09.2026 an einem Fall aus dem echten Korpus: ein `fixCommit` mit sieben
+    # Zeichen kam mit NULL Fehlern durch. Meine dreizehn A4-Tests waren dabei alle bestanden,
+    # weil sie ihr Praedikat SELBST bauten — mit einem Top-Level-`findings`, das es in der echten
+    # Form nicht gibt. Der A4-Mutant fing zehn davon und bewies damit nichts ueber die Regel: er
+    # traf dieselbe erfundene Form. Test, Mutant und Regel teilten denselben Irrtum.
+    #
+    # Ein selbstgebautes Fixture prueft die Form, die man im Kopf hat, nicht die, die es gibt —
+    # und ein Gate-Meta-Test kann eine Regel nicht retten, wenn beide dieselbe Wirklichkeit
+    # verfehlen. Deshalb steht der Fall jetzt im Konformitaetskorpus, der die echte Form erzwingt.
+    _dec = predicate.get("declaration")
+    for i, f in enumerate((_dec.get("findings") if isinstance(_dec, dict) else None) or []):
         if not isinstance(f, dict):
             continue
         fc = f.get("fixCommit")
@@ -1708,7 +1720,8 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
             continue
         if not (isinstance(fc, str) and len(fc) == 40 and all(c in "0123456789abcdef" for c in fc)):
             errs.append(
-                f"FIXCOMMIT_NOT_FULL_SHA: findings[{i}].fixCommit must be the full 40-character "
+                f"FIXCOMMIT_NOT_FULL_SHA: declaration.findings[{i}].fixCommit must be the full "
+                f"40-character "
                 f"lowercase hex sha — got {fc!r}")
 
     sc = predicate.get("subjectContext")
