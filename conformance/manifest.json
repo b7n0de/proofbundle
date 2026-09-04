@@ -101,6 +101,13 @@
     "relation/target-subject-missing",
     "relation/unauthorized-signer",
     "relation/valid-baseline",
-    "relation/wrong-payloadtype-target"
+    "relation/wrong-payloadtype-target",
+    "agent_review/agent-review-v02-positive-control-legacy-v01-is-marked-legacy",
+    "agent_review/agent-review-v02-positive-control-current-v02-is-marked-current",
+    "agent_review/agent-review-v02-counter-proof-unknown-predicate-type-is-refused",
+    "agent_review/agent-review-v02-positive-control-default-policy-decides-accept",
+    "agent_review/agent-review-v02-counter-proof-without-policy-nothing-is-decided",
+    "agent_review/agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence",
+    "agent_review/agent-review-v02-counter-proof-blocking-policy-rejects"
   ]
 }

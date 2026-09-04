@@ -453,7 +453,8 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
     from proofbundle import agent_review as ar  # noqa: PLC0415
 
     _ACHSEN = ("classification", "bodyCoreStable", "subjectExpectation",
-               "currentReceipt", "chainIntegrity", "unverifiedSupersessionClaim")
+               "currentReceipt", "chainIntegrity", "unverifiedSupersessionClaim",
+               "versionStatus", "policyDecision")
     genannt = [a for a in _ACHSEN if a in exp]
     if len(genannt) != 1:
         return _fail(cid, f"agent_review_predicate case must declare EXACTLY ONE expectation axis "
@@ -543,6 +544,54 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
                 "detail": (f"chain integrity {got_i}, as this case asserts"
                            + (f" (missing predecessor {kette['missing_predecessors'][0][:12]})"
                               if kette["missing_predecessors"] else ""))}
+
+    if "versionStatus" in exp:
+        # A2, DIE WEICHE. Gemessen wird `verify_agent_review_any` — der eine Eintrittspunkt, der beide
+        # Fassungen kennt. Ein Status ohne seinen Code ist eine halbe Auskunft, und eine Weiche, die
+        # das v0.1-Urteil nachbessert, ist ein zweiter Verifizierer mit demselben Namen — beides
+        # wird hier gegen dieselbe Eingabe gemessen, nicht angenommen.
+        m = miss_versionsstatus(case, case_dir)
+        want = exp["versionStatus"]
+        if m["status"] != want:
+            return _fail(cid, f"predicateVersionStatus {m['status']!r} != expected {want!r} "
+                              f"(codes {m['codes']})")
+        if want == "legacy":
+            if "AGENT_REVIEW_LEGACY_V01" not in m["codes"]:
+                return _fail(cid, "legacy without the AGENT_REVIEW_LEGACY_V01 reason code")
+            if m["ok"] != m["ok_v01_direct"]:
+                return _fail(cid, f"the dispatcher changed the v0.1 verdict: "
+                                  f"ok {m['ok_v01_direct']} -> {m['ok']}")
+        if want == "current" and "AGENT_REVIEW_LEGACY_V01" in m["codes"]:
+            return _fail(cid, "a current receipt carries the legacy code")
+        if want == "unknown" and (m["ok"] is not False
+                                  or "AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN" not in m["codes"]):
+            return _fail(cid, f"an unknown version must be refused with "
+                              f"AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN, got ok={m['ok']} codes={m['codes']}")
+        return {"caseId": cid, "ok": True,
+                "detail": f"predicateVersionStatus {want}, codes {m['codes']}"}
+
+    if "policyDecision" in exp:
+        # A3, DIE POLICY. Der Fall NENNT, gegen welche Policy er gemessen wird (`params.policy`:
+        # "default", "none" oder eine Datei im Fallverzeichnis). Eine Entscheidung ohne den Digest
+        # der Policy, gegen die sie fiel, ist keine — und "nicht gefahren" muss als Code im Ergebnis
+        # stehen, sonst sieht es aus wie "bestanden".
+        m = miss_policy_entscheidung(case, case_dir)
+        want = exp["policyDecision"]
+        if m["decision"] != want:
+            return _fail(cid, f"policy_decision {m['decision']!r} != expected {want!r} "
+                              f"(codes {m['codes']})")
+        if want is None:
+            if "POLICY_NOT_EVALUATED" not in m["codes"]:
+                return _fail(cid, "no policy, but POLICY_NOT_EVALUATED is missing from reason_codes")
+        else:
+            if not str(m["policy_digest"] or "").startswith("sha256:"):
+                return _fail(cid, f"a decision without the digest of its policy: {m['policy_digest']!r}")
+            if want == "accept" and m["ok"] is not True:
+                return _fail(cid, f"accept, but ok={m['ok']} (errors {m['errors'][:2]})")
+            if want in ("reject", "insufficient_evidence") and m["ok"] is not False:
+                return _fail(cid, f"{want}, but ok={m['ok']} — a negative policy answer must not verify")
+        return {"caseId": cid, "ok": True,
+                "detail": f"policy_decision {want}, policy {m['policy_name']!r} {str(m['policy_digest'])[:23]}"}
 
     want = exp["classification"]
     got = klassifiziere_agent_review(case, case_dir)
@@ -691,6 +740,65 @@ def klassifiziere_agent_review(case: dict, case_dir: pathlib.Path) -> str:
         got = "valid" if r.get("ok") else "invalid"
 
     return got
+
+
+def _fall_datei(case_dir: pathlib.Path, name: str) -> pathlib.Path:
+    """Eine Datei DES FALLS — nie eine ausserhalb. Dieselbe Regel wie `_read` in den Pruefern."""
+    if "/" in name or name.startswith("."):
+        raise ValueError(f"input {name!r} escapes the case directory")
+    return case_dir / name
+
+
+def miss_versionsstatus(case: dict, case_dir: pathlib.Path) -> dict:
+    """WIE der Korpus die Weiche misst (A2) — die EINE Messung, oeffentlich rufbar.
+
+    Gibt die MESSUNG zurueck, nie ein Urteil: Status, `ok`, Reason Codes, und fuer eine Altfassung
+    zusaetzlich das `ok` des direkt gerufenen v0.1-Verifizierers, damit der Pruefer sehen kann, ob
+    die Weiche das Urteil unveraendert durchreicht.
+    """
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    params = case.get("params") or {}
+    doc = json.loads(_fall_datei(case_dir, case.get("input") or "envelope.json").read_text())
+    key = bytes.fromhex((case_dir.parent / "publickey.hex").read_text().strip())
+    kw = {}
+    if params.get("expectedSubjectDigest"):
+        kw["expected_subject_digest"] = params["expectedSubjectDigest"]
+    r = ar.verify_agent_review_any(doc, key, **kw)
+    status = r.get("predicateVersionStatus")
+    direkt = ar.verify_agent_review(doc, key, **kw) if status == "legacy" else None
+    return {"status": status, "ok": r.get("ok"), "codes": list(r.get("reason_codes") or []),
+            "ok_v01_direct": (direkt or {}).get("ok")}
+
+
+def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
+    """WIE der Korpus die Policy-Achse misst (A3) — die EINE Messung, oeffentlich rufbar.
+
+    Der Fall traegt ein v0.2-Predicate; es wird mit dem Korpus-Schluessel WIRKLICH ausgestellt und
+    danach mit `verify_agent_review_v02(policy=...)` gelesen. `params.policy` nennt die Policy:
+    "default" (die benannte Standard-Policy), "none" (keine), oder eine Datei im Fallverzeichnis.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    from proofbundle import agent_review as ar  # noqa: PLC0415
+
+    if case.get("predicateVersion") != "v0.2":
+        raise ValueError("a policyDecision case is a v0.2 case and must say so (predicateVersion)")
+    params = case.get("params") or {}
+    doc = json.loads(_fall_datei(case_dir, case.get("input") or "predicate.json").read_text())
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    env = ar.emit_agent_review(doc, sk)
+    wahl = params.get("policy", "default")
+    if wahl == "none":
+        policy = None
+    elif wahl == "default":
+        policy = ar.load_policy()
+    else:
+        policy = ar.load_policy(_fall_datei(case_dir, str(wahl)))
+    r = ar.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
+                                   expected_subject_digest=ar._subject_digest(doc), policy=policy)
+    return {"decision": r.get("policy_decision"), "ok": r.get("ok"),
+            "codes": list(r.get("reason_codes") or []), "policy_name": r.get("policy_name"),
+            "policy_digest": r.get("policy_digest"), "errors": list(r.get("errors") or [])}
 
 
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,

@@ -161,6 +161,20 @@ def _urteil(d: Path, fall: dict) -> dict:
                 "result": {"errors": [grund]},
                 "gemessen_an": "run_conformance.loese_kette"}
 
+    # A5, ERSTE HAELFTE: die zwei neuen Achsen (Weiche, Policy). Die MESSUNG kommt aus dem
+    # Laeufer, die Erwartung bleibt hier — dieselbe Trennung wie bei den Kettenachsen, und aus
+    # demselben Grund: einen Ausfuehrer zweimal zu schreiben heisst, ihn einmal altern zu lassen.
+    if "versionStatus" in erw:
+        m = _laeufer().miss_versionsstatus(fall, d)
+        return {"ok": m["status"] == erw["versionStatus"], "achse": "versionStatus",
+                "result": {"errors": [f"status={m['status']!r} codes={m['codes']}"]},
+                "gemessen_an": "run_conformance.miss_versionsstatus"}
+    if "policyDecision" in erw:
+        m = _laeufer().miss_policy_entscheidung(fall, d)
+        return {"ok": m["decision"] == erw["policyDecision"], "achse": "policyDecision",
+                "result": {"errors": [f"decision={m['decision']!r} codes={m['codes']}"]},
+                "gemessen_an": "run_conformance.miss_policy_entscheidung"}
+
     if (fall.get("kind") == "agent_review_predicate"
             and fall.get("input") == "predicate.json" and "classification" in erw):
         got = _laeufer().klassifiziere_agent_review(fall, d)
@@ -239,6 +253,9 @@ def test_der_fall_verhaelt_sich_wie_beschrieben(d):
         # Die Kettenachsen sind in `_urteil` schon gegen die Erwartung gemessen; hier zaehlt nur
         # noch das Ergebnis. Der Grund faehrt in der Meldung mit, sonst stuende bei einem roten
         # Fall nichts als der Dateiname.
+        assert u["ok"], f"{d.name}: {u['result']['errors']}"
+    elif u.get("achse") in ("versionStatus", "policyDecision"):
+        # A5: schon in `_urteil` gegen die Erwartung gemessen, der Grund faehrt mit.
         assert u["ok"], f"{d.name}: {u['result']['errors']}"
     elif "subjectExpectation" in erw:
         assert u["subject_expectation"] == erw["subjectExpectation"], d.name
@@ -371,6 +388,81 @@ def test_der_ketten_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
         f"unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem ({nachher})")
 
 
+# ── A5, erste Haelfte: Entschaerfung der Weichen- und Policy-Gegenbeweise ────────────────────
+# Jeder Gegenbeweis nimmt GENAU seinen Defekt weg und wird danach am selben Eintrittspunkt
+# gemessen wie im Laeufer. Ein Flip, der nebenbei etwas anderes repariert, belegt nichts.
+
+def _v02_predicate_des_falls(d: Path) -> dict:
+    fall = _fall(d)
+    eingabe = _eingabe(d, fall)
+    if fall.get("input") == "envelope.json":
+        return json.loads(base64.b64decode(eingabe["payload"], validate=True))["predicate"]
+    return eingabe
+
+
+def _miss_policy(pred: dict, policy):
+    """Dieselbe Messung wie `run_conformance.miss_policy_entscheidung`, auf einem entschaerften
+    Predicate — den Umweg ueber eine Datei braucht sie nicht."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    env = AR.emit_agent_review(pred, sk)
+    return AR.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
+                                      expected_subject_digest=AR._subject_digest(pred),
+                                      policy=policy)
+
+
+def _entschaerfe_fremde_fassung(d: Path):
+    # Dasselbe Predicate als v0.2 neu ausgestellt: die Weiche muss es als `current` lesen.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    pred = _v02_predicate_des_falls(d)
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    env = AR.emit_agent_review(pred, sk)
+    r = AR.verify_agent_review_any(env, sk.public_key().public_bytes_raw(),
+                                   expected_subject_digest=AR._subject_digest(pred))
+    return r.get("predicateVersionStatus"), r
+
+
+def _entschaerfe_ohne_policy(d: Path):
+    return _miss_policy(_v02_predicate_des_falls(d), AR.load_policy())
+
+
+def _entschaerfe_unbekannte_abdeckung(d: Path):
+    pred = dict(_v02_predicate_des_falls(d))
+    pred["coverage"] = {"status": "PARTIAL", "knownGaps": ["eine benannte Luecke"]}
+    return _miss_policy(pred, AR.load_policy())
+
+
+def _entschaerfe_sperrende_policy(d: Path):
+    return _miss_policy(_v02_predicate_des_falls(d), AR.load_policy())
+
+
+_A5_ENTSCHAERFUNG = {
+    "agent-review-v02-counter-proof-unknown-predicate-type-is-refused":
+        (lambda d: _laeufer().miss_versionsstatus(_fall(d), d)["status"] == "unknown",
+         lambda d: _entschaerfe_fremde_fassung(d)[0] == "current"),
+    "agent-review-v02-counter-proof-without-policy-nothing-is-decided":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] is None,
+         lambda d: _entschaerfe_ohne_policy(d).get("policy_decision") == "accept"),
+    "agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"]
+         == "insufficient_evidence",
+         lambda d: _entschaerfe_unbekannte_abdeckung(d).get("policy_decision") == "accept"),
+    "agent-review-v02-counter-proof-blocking-policy-rejects":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] == "reject",
+         lambda d: _entschaerfe_sperrende_policy(d).get("policy_decision") == "accept"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_A5_ENTSCHAERFUNG), ids=lambda s: s[-40:])
+def test_der_a5_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
+    """Ohne diesen Test koennte ein Weichen- oder Policy-Fall gruen sein, ohne je zu unterscheiden."""
+    d = KORPUS / name
+    ist_defekt, ist_heil = _A5_ENTSCHAERFUNG[name]
+    assert ist_defekt(d), f"{name}: der Fall ist schon heil — er prueft nichts"
+    assert ist_heil(d), (f"{name}: nach dem Wegnehmen des Defekts stimmt es immer noch nicht — der "
+                         f"Fall unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem")
+
+
 def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
     """Ein Fall ohne Entschaerfung ist nicht verboten — aber er muss BENANNT sein.
 
@@ -384,9 +476,9 @@ def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
             "agent-review-counter-proof-receipt-does-not-travel-between-subjects",
             "agent-review-counter-proof-introducing-the-first-block-moves-the-digest"}
     alle_gegen = {d.name for d in ALLE if _fall(d)["role"] == "counter_proof"}
-    assert alle_gegen == set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne, (
-        f"neue oder entfallene Gegenbeweis-Faelle: "
-        f"{alle_gegen ^ (set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne)}")
+    bekannt = set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | set(_A5_ENTSCHAERFUNG) | ohne
+    assert alle_gegen == bekannt, (
+        f"neue oder entfallene Gegenbeweis-Faelle: {alle_gegen ^ bekannt}")
 
 
 def test_die_positiven_kontrollen_sind_wirklich_positiv():

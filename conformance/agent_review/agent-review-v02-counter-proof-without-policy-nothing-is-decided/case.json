@@ -1,0 +1,19 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-without-policy-nothing-is-decided",
+  "expected": {
+    "policyDecision": null
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "policy": "none"
+  },
+  "predicateVersion": "v0.2",
+  "rationale": "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Reason Code POLICY_NOT_EVALUATED (A3). Die Achse wurde nicht gefahren und sagt das; ein Verifizierer, der sich eine Policy ausdaechte, naehme dem Leser die Entscheidung ab, die ihm gehoert. Die Entschaerfung ist die Policy selbst: mit ihr wird derselbe Fall `accept`.",
+  "role": "counter_proof",
+  "rule": "A3",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"
+  ]
+}

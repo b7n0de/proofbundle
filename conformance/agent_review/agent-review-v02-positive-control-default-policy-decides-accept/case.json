@@ -1,0 +1,19 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-positive-control-default-policy-decides-accept",
+  "expected": {
+    "policyDecision": "accept"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "policy": "default"
+  },
+  "predicateVersion": "v0.2",
+  "rationale": "Mit der Standard-Policy (conformance/agent_review/policies/default_v1.json) ergibt ein vollstaendiges v0.2-Predicate `policy_decision: accept`, und das Ergebnis traegt den Namen agent-review/default und den sha256-Digest der Datei \u2014 damit eine spaetere Lesung sagen kann, GEGEN WAS entschieden wurde (A3).",
+  "role": "positive_control",
+  "rule": "A3",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"
+  ]
+}

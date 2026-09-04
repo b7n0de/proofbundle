@@ -50,6 +50,7 @@ import base64
 import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from ._membership import is_member
@@ -2578,16 +2579,16 @@ STANDARD_POLICY_NAME = "agent-review/default"
 POLICY_NOT_EVALUATED = "POLICY_NOT_EVALUATED"
 
 
-def standard_policy_path() -> "Path":
-    from pathlib import Path as _P  # noqa: PLC0415
-    return _P(__file__).resolve().parents[2] / "conformance" / "agent_review" / "policies" / "default_v1.json"
+def standard_policy_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "conformance" / "agent_review" / "policies" / "default_v1.json"
 
 
 def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
-    import hashlib as _h, json as _j  # noqa: PLC0415
-    from pathlib import Path as _P    # noqa: PLC0415
+    import hashlib as _h  # noqa: PLC0415
+    import json as _j  # noqa: PLC0415
+    from pathlib import Path as _P  # noqa: PLC0415
     # Eine oeffentliche Flaeche darf keine ROHE Ausnahme durchlassen — das ist eine Eigenschaft des
     # Projekts (tests/test_never_raise_surface_family_property.py), nicht Geschmack: wer einen
     # rohen TypeError faengt, faengt auch den aus einer ganz anderen Zeile mit. `_P(5)` wirft

@@ -1,0 +1,19 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence",
+  "expected": {
+    "policyDecision": "insufficient_evidence"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "policy": "default"
+  },
+  "predicateVersion": "v0.2",
+  "rationale": "Die Standard-Policy verlangt eine GENANNTE Abdeckung (COMPLETE oder PARTIAL). Ein Predicate mit coverage.status UNKNOWN ist gueltig und wird trotzdem nicht freigegeben: `insufficient_evidence`, nicht `reject` \u2014 das Fehlen eines Nachweises ist kein Nachweis eines Mangels, und diese dritte Antwort gibt es genau dafuer. `ok` faellt damit auf False. Entschaerfung: PARTIAL mit benannter Luecke ist `accept`.",
+  "role": "counter_proof",
+  "rule": "A3",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"
+  ]
+}

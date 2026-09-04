@@ -1,0 +1,19 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-blocking-policy-rejects",
+  "expected": {
+    "policyDecision": "reject"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "policy": "policy.json"
+  },
+  "predicateVersion": "v0.2",
+  "rationale": "Die Standard-Policy sperrt heute keinen Code; dieser Fall bringt eine eigene Policy mit, die IDENTITY_UNBOUND sperrt \u2014 den Code, den jedes selbstdeklarierte Receipt traegt. Ergebnis `reject`, ok=False, und `policy_digest` nennt DIESE Datei, nicht die Standard-Policy. Die Entschaerfung ist der Wechsel auf die Standard-Policy: dann `accept`.",
+  "role": "counter_proof",
+  "rule": "A3",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"
+  ]
+}

@@ -7,6 +7,7 @@ dass ein Korpus, dessen Bytes sich bei jedem Lauf aendern, keiner ist. Die v0.2-
 ihren eigenen Abschnitt, sie ersetzen diese nicht.
 
 Nach dem Hausmuster von conformance/envelope_profile."""
+import base64 as _b64
 import copy
 import json
 import os
@@ -63,11 +64,15 @@ BASE = {
 
 def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=None,
              input_name, params=None, attribution=None, spec_refs=None,
-             predicate_version=None):
+             predicate_version=None, extra_files=None):
     d = ROOT / case_id
     d.mkdir(parents=True, exist_ok=True)
     payload = envelope if envelope is not None else obj
     (d / input_name).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Weitere Fixtures des Falls (A5: eine fallseigene Policy). Sie entstehen HIER, aus derselben
+    # Quelle wie der Fall — eine Datei, die niemand erzeugt, faellt beim naechsten Lauf weg.
+    for name, inhalt in (extra_files or {}).items():
+        (d / name).write_text(json.dumps(inhalt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (d / "case.json").write_text(json.dumps({
         "caseId": case_id, "kind": "agent_review_predicate", "rule": rule, "role": role,
         "input": input_name,
@@ -420,10 +425,14 @@ def _v02(**mutation):
                 f"_v02: {pfad!r} nennt mehr als zwei Ebenen. Der Helfer kann genau eine "
                 f"Verschachtelung; erweitere ihn auf echte Pfadaufloesung, statt still zu kappen.")
         if rest:
-            if wert is None: p[ziel].pop(rest[0], None)
-            else: p[ziel][rest[0]] = wert
-        elif wert is None: p.pop(ziel, None)
-        else: p[ziel] = wert
+            if wert is None:
+                p[ziel].pop(rest[0], None)
+            else:
+                p[ziel][rest[0]] = wert
+        elif wert is None:
+            p.pop(ziel, None)
+        else:
+            p[ziel] = wert
     return p
 
 def _mit_fund(fix_commit):
@@ -481,3 +490,106 @@ schreibe("agent-review-v02-positive-control-fixcommit-full-sha-is-accepted", "po
          "dass die Regel die LAENGE prueft und nicht das Vorhandensein des Feldes.",
          obj=_mit_fund("f" * 40), input_name="predicate.json",
          attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])
+
+
+# ══ A5, erste Haelfte: A2 (die Weiche) und A3 (die Policy) ═════════════════════════════════════
+# Gemessen 04.09.2026 (Commit 786c321): der Korpus hatte null Faelle fuer A2 und null fuer A3. Die
+# Achsen `versionStatus` und `policyDecision` sind neu; der Laeufer misst sie ueber
+# `verify_agent_review_any` beziehungsweise `verify_agent_review_v02(policy=...)`, die Erwartung
+# steht im Fall. Jeder Gegenbeweis hat seine Entschaerfung im Runner-Test.
+_A5_ATTR = ("agent-review/v0.2 — A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags "
+            "QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.")
+
+# A2 (1) — Positivkontrolle: ein v0.1-Umschlag traegt durch die Weiche den Altfassungs-Ausweis.
+env_alt_v01 = AR.emit_agent_review(BASE, sk, legacy_v01=True)
+schreibe("agent-review-v02-positive-control-legacy-v01-is-marked-legacy", "positive_control", "A2",
+         {"versionStatus": "legacy"},
+         "Ein v0.1-Receipt bleibt lesbar (A2). Durch die Weiche `verify_agent_review_any` traegt das "
+         "Ergebnis `predicateVersionStatus: legacy` UND den Reason Code AGENT_REVIEW_LEGACY_V01 — "
+         "und `ok` ist genau das, was der byte-gepinnte v0.1-Verifizierer direkt sagt. Der Laeufer "
+         "misst beides gegen dieselbe Eingabe; eine Weiche, die das Urteil nachbessert, faellt hier.",
+         envelope=env_alt_v01, input_name="envelope.json", attribution=_A5_ATTR,
+         params={"expectedSubjectDigest": AR._subject_digest(BASE)},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A2"])
+
+# A2 (2) — Positivkontrolle: ein v0.2-Umschlag ist `current`, ohne Altfassungs-Code.
+env_v02 = AR.emit_agent_review(V02_BASE, sk)
+schreibe("agent-review-v02-positive-control-current-v02-is-marked-current", "positive_control", "A2",
+         {"versionStatus": "current"},
+         "Die Gegenrichtung zur Altfassung: ein v0.2-Umschlag traegt `predicateVersionStatus: current` "
+         "und KEINEN AGENT_REVIEW_LEGACY_V01. Ohne diese Kontrolle bestuende der Legacy-Fall auch mit "
+         "einer Weiche, die jeden Umschlag als Altfassung ausweist.",
+         envelope=env_v02, input_name="envelope.json", attribution=_A5_ATTR,
+         params={"expectedSubjectDigest": AR._subject_digest(V02_BASE)},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A2"])
+
+# A2 (3) — Gegenbeweis: eine fremde Fassung wird abgewiesen, nicht geraten.
+_st = json.loads(_b64.b64decode(env_v02["payload"]))
+_st["predicateType"] = AR.AGENT_REVIEW_PREDICATE_TYPE_V02.replace("/v0.2", "/v0.3")
+env_fremd_fassung = dict(env_v02)
+env_fremd_fassung["payload"] = _b64.b64encode(
+    json.dumps(_st, sort_keys=True, separators=(",", ":")).encode()).decode()
+schreibe("agent-review-v02-counter-proof-unknown-predicate-type-is-refused", "counter_proof", "A2",
+         {"versionStatus": "unknown"},
+         "Die Weiche kennt v0.1 und v0.2 und weist alles andere ab (A2): ein Umschlag mit "
+         "predicateType .../agent-review/v0.3 bekommt `predicateVersionStatus: unknown`, ok=False "
+         "und den Code AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN — VOR jeder Signaturpruefung, damit eine "
+         "unbekannte Fassung nie nach den Regeln einer bekannten gelesen wird. Die Signatur dieses "
+         "Umschlags ist absichtlich die alte (sie gilt fuer die v0.2-Bytes): die Abweisung darf nicht "
+         "vom Kryptourteil abhaengen. Entschaerfung: dasselbe Predicate als v0.2 neu ausgestellt "
+         "ist `current`.",
+         envelope=env_fremd_fassung, input_name="envelope.json", attribution=_A5_ATTR,
+         params={"expectedSubjectDigest": AR._subject_digest(V02_BASE)},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A2"])
+
+# A3 (1) — Positivkontrolle: die benannte Standard-Policy entscheidet, ihr Digest steht im Ergebnis.
+schreibe("agent-review-v02-positive-control-default-policy-decides-accept", "positive_control", "A3",
+         {"policyDecision": "accept"},
+         "Mit der Standard-Policy (conformance/agent_review/policies/default_v1.json) ergibt ein "
+         "vollstaendiges v0.2-Predicate `policy_decision: accept`, und das Ergebnis traegt den Namen "
+         "agent-review/default und den sha256-Digest der Datei — damit eine spaetere Lesung sagen "
+         "kann, GEGEN WAS entschieden wurde (A3).",
+         obj=V02_BASE, input_name="predicate.json", attribution=_A5_ATTR, predicate_version="v0.2",
+         params={"policy": "default"},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"])
+
+# A3 (2) — Gegenbeweis: ohne Policy wird nichts entschieden, und das steht im Ergebnis.
+schreibe("agent-review-v02-counter-proof-without-policy-nothing-is-decided", "counter_proof", "A3",
+         {"policyDecision": None},
+         "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Reason Code "
+         "POLICY_NOT_EVALUATED (A3). Die Achse wurde nicht gefahren und sagt das; ein Verifizierer, "
+         "der sich eine Policy ausdaechte, naehme dem Leser die Entscheidung ab, die ihm gehoert. Die "
+         "Entschaerfung ist die Policy selbst: mit ihr wird derselbe Fall `accept`.",
+         obj=V02_BASE, input_name="predicate.json", attribution=_A5_ATTR, predicate_version="v0.2",
+         params={"policy": "none"},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"])
+
+# A3 (3) — Gegenbeweis: eine nicht genannte Abdeckung ist kein Nachweis, also insufficient_evidence.
+schreibe("agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence", "counter_proof",
+         "A3", {"policyDecision": "insufficient_evidence"},
+         "Die Standard-Policy verlangt eine GENANNTE Abdeckung (COMPLETE oder PARTIAL). Ein Predicate "
+         "mit coverage.status UNKNOWN ist gueltig und wird trotzdem nicht freigegeben: "
+         "`insufficient_evidence`, nicht `reject` — das Fehlen eines Nachweises ist kein Nachweis "
+         "eines Mangels, und diese dritte Antwort gibt es genau dafuer. `ok` faellt damit auf False. "
+         "Entschaerfung: PARTIAL mit benannter Luecke ist `accept`.",
+         obj=_v02(coverage={"status": "UNKNOWN"}), input_name="predicate.json",
+         attribution=_A5_ATTR, predicate_version="v0.2", params={"policy": "default"},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"])
+
+# A3 (4) — Gegenbeweis: eine sperrende Policy lehnt ab, und der Digest nennt sie.
+_SPERR_POLICY = {
+    "name": "agent-review/conformance-blocking", "version": "1",
+    "summary": ("Korpus-Policy, die IDENTITY_UNBOUND sperrt — nur um zu zeigen, dass `reject` "
+                "erreichbar ist und dass der Digest im Ergebnis DIESE Datei nennt."),
+    "never_blocking": [], "blocking": ["IDENTITY_UNBOUND"],
+    "require_coverage_status": ["COMPLETE", "PARTIAL"],
+}
+schreibe("agent-review-v02-counter-proof-blocking-policy-rejects", "counter_proof", "A3",
+         {"policyDecision": "reject"},
+         "Die Standard-Policy sperrt heute keinen Code; dieser Fall bringt eine eigene Policy mit, "
+         "die IDENTITY_UNBOUND sperrt — den Code, den jedes selbstdeklarierte Receipt traegt. "
+         "Ergebnis `reject`, ok=False, und `policy_digest` nennt DIESE Datei, nicht die "
+         "Standard-Policy. Die Entschaerfung ist der Wechsel auf die Standard-Policy: dann `accept`.",
+         obj=V02_BASE, input_name="predicate.json", attribution=_A5_ATTR, predicate_version="v0.2",
+         params={"policy": "policy.json"}, extra_files={"policy.json": _SPERR_POLICY},
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3"])

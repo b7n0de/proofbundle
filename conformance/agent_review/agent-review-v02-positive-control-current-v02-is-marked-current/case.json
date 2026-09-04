@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-positive-control-current-v02-is-marked-current",
+  "expected": {
+    "versionStatus": "current"
+  },
+  "input": "envelope.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "expectedSubjectDigest": "876f39fd4f114966328e9f53a1726144a53adf41262af507863f1cdbb18200df"
+  },
+  "rationale": "Die Gegenrichtung zur Altfassung: ein v0.2-Umschlag traegt `predicateVersionStatus: current` und KEINEN AGENT_REVIEW_LEGACY_V01. Ohne diese Kontrolle bestuende der Legacy-Fall auch mit einer Weiche, die jeden Umschlag als Altfassung ausweist.",
+  "role": "positive_control",
+  "rule": "A2",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A2"
+  ]
+}
