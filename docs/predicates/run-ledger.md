@@ -5,6 +5,12 @@ without deprecation). A Run Ledger is a signed, tamper-evident history of every 
 aborted, or failed — built specifically to defeat **best-of-many cherry-picking**: you cannot silently run an
 eval twenty times and publish only the good one, because the ledger makes the dropped runs' absence detectable.
 
+**Limit.** A Run Ledger is a local chain: it makes a silently dropped run detectable to a reader who
+holds this ledger, not to a reader who was shown another one. An issuer can sign two intact ledgers
+of the same study and present each to a different reader; nothing in this predicate detects that.
+Detecting it needs a commitment to the ledger head that the issuer does not control alone, for
+example a witnessed checkpoint (SPEC.md 7d).
+
 Schema: [`schemas/run-ledger-v0.1.schema.json`](../../schemas/run-ledger-v0.1.schema.json) (docs-only; the
 executable contract is `src/proofbundle/run_ledger.py`).
 
