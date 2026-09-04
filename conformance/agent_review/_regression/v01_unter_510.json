@@ -1,0 +1,131 @@
+{
+ "commit": "06ee9ef",
+ "gemessen_unter": "proofbundle 5.1.0",
+ "grenze": "der Digest stammt aus dem geprueften Receipt; das prueft Urteils-Gleichheit bei gleicher Eingabe, NICHT die Bindung an den wirklichen Gegenstand",
+ "pubkey_sha256_16": "ac15c44aa6dcb65e",
+ "receipts": {
+  "inspect_ai_5141.r2.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": true,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "checked"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "f46ab35fe223af981fb1efa39085e80aef43ca6d8bee70a423b9892833da8a35"
+  },
+  "inspect_ai_5141.r3.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": true,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "checked"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "ac2e0f623e1cddcfc92a7346d68158d12dec12291df3a3944a7fe62332cef0fb"
+  },
+  "inspect_ai_5141.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": false,
+    "internal_consistency_ok": false,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": false,
+    "internal_consistency_ok": false,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "f46ab35fe223af981fb1efa39085e80aef43ca6d8bee70a423b9892833da8a35"
+  },
+  "proofbundle_147_comment.r2.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": true,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "checked"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "f969b4c4321f2dfda637ed66d9036b5f71505dd349bddd2718af29c9f2f6ce6b"
+  },
+  "proofbundle_147_comment.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": true,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "checked"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "3b8750fa93e146618631c61d024f3e22479eea8eb646b897e9bbefbc9030b76a"
+  },
+  "proofbundle_162.receipt.json": {
+   "mit_eigenem_digest": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": true,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "checked"
+   },
+   "ohne_erwartung": {
+    "crypto_ok": true,
+    "internal_consistency_ok": true,
+    "ok": false,
+    "reason_codes": [],
+    "structure_ok": true,
+    "subject_expectation": "not_supplied"
+   },
+   "predicateType_in_nutzlast": "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1",
+   "subject_digest_aus_nutzlast": "6588ce78072bed98c50e4fdd50e7d553cfa1944304791437ecdf988c90fdbe7a"
+  }
+ },
+ "schema": "b7n0de.agent_review_v01_regression_erwartung.v1",
+ "tag": "v5.1.0",
+ "verfahren": "verify_agent_review(envelope, pubkey) — zweimal je Receipt, ohne und mit dem Subject-Digest aus der eigenen Nutzlast"
+}
