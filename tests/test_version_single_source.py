@@ -172,3 +172,92 @@ def test_eine_versionsform_ohne_zahl_nach_dem_suffix_ist_keine(tmp_path):
     assert not PEP440.match("5.1.0.post"), "5.1.0.post ohne Zahl gilt faelschlich als Version"
     assert not PEP440.match("5.1.0.postx"), "5.1.0.postx gilt faelschlich als Version"
     assert PEP440.match("5.1.0.post1"), "5.1.0.post1 muss gelten"
+
+
+# ── `_semver_tuple`, gegen ein UNABHAENGIGES Orakel ────────────────────────────────────────────
+#
+# DER GRUND, WARUM ES DIESEN BLOCK GIBT, ist ein Befund gegen meine eigene Erfolgsmeldung. Eine
+# Gegenlese-Linse hat am 04.09.2026 gemessen: pflanzt man die ALTE Drei-Tupel-Fassung zurueck,
+# werden NULL Tests rot. Die ganze Ordnungslogik war ungeprueft — der Mutant, den ich gefahren
+# hatte, traf nur das Muster `_SEMVER`, nie diese Funktion. Ein gruener Test ueber der einen
+# Haelfte sagt nichts ueber die andere.
+#
+# DAS ORAKEL IST UNABHAENGIG. Verglichen wird gegen `packaging.version.Version`, also gegen die
+# Bibliothek, die PEP 440 definiert — nicht gegen eine zweite Ableitung derselben Annahme. Fehlt
+# sie, wird das GESAGT statt uebersprungen: ein stiller skip ist genau die Bauform, die diese
+# Datei an anderer Stelle schon einmal entwertet hat.
+
+#: Die Reihenfolge ist ABSICHTLICH gemischt — sortiert eingegeben wuerde ein kaputter Schluessel,
+#: der alles gleich bewertet, die Eingabereihenfolge behalten und der Vergleich bestuende.
+ORDNUNGSKORPUS = [
+    "2.0.0", "1.0.0a2", "1.0.0.post1", "1.0.0rc1", "5.1.0.post1", "1.0.0.dev1", "1.1.0",
+    "1.0.0b1", "1.0.0", "2.0.0b1", "1.0.1", "1.0.0a1", "5.1.0", "2.0.0a3", "1.0.0b2",
+    "1.0.0.post2", "6.0.0", "5.2.0",
+]
+
+
+def _tuple():
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_version_and_changelog as C          # noqa: PLC0415
+    return C._semver_tuple
+
+
+def test_die_ordnung_stimmt_mit_packaging_ueberein():
+    packaging = pytest.importorskip(
+        "packaging.version",
+        reason="packaging fehlt — die Ordnung ist damit NICHT gemessen, nicht 'in Ordnung'")
+    meine = sorted(ORDNUNGSKORPUS, key=_tuple())
+    orakel = sorted(ORDNUNGSKORPUS, key=packaging.Version)
+    assert meine == orakel, (
+        "die Ordnung weicht vom PEP-440-Orakel ab:\n"
+        + "\n".join(f"  {a:14s} <-> {b}" for a, b in zip(meine, orakel) if a != b))
+
+
+@pytest.mark.parametrize("kleiner,groesser,warum", [
+    ("1.0.0.dev1", "1.0.0a1", "eine Entwicklungsfassung liegt vor jeder Vorabversion"),
+    ("1.0.0a2", "1.0.0b1", "JEDE Alpha liegt vor JEDER Beta — die Nummer entscheidet erst danach"),
+    ("1.0.0b2", "1.0.0rc1", "jede Beta vor jedem Release Candidate"),
+    ("1.0.0rc1", "1.0.0", "die Vorabversion vor der Freigabe"),
+    ("1.0.0", "1.0.0.post1", "die Freigabe vor ihrer Nachbesserung"),
+    ("1.0.0.post1", "1.0.0.post2", "und die Nachbesserungen untereinander"),
+    ("5.1.0", "5.1.0.post1", "der Fall, der das Tor ueberhaupt ausgeloest hat"),
+])
+def test_jede_einzelne_stufe_der_ordnung(kleiner, groesser, warum):
+    """EINZELN, nicht nur als Sortierung. Eine Sortierung, die an einer Stelle kippt, kann durch
+    eine zweite Verdrehung wieder richtig aussehen; diese Paare koennen das nicht."""
+    f = _tuple()
+    assert f(kleiner) < f(groesser), f"{warum}: {f(kleiner)} nicht < {f(groesser)}"
+
+
+def test_zwei_vorabphasen_sind_nicht_dieselbe():
+    """Der gemessene Fund: b1 und rc1 lieferten IDENTISCHE Schluessel."""
+    f = _tuple()
+    assert f("1.0.0b1") != f("1.0.0rc1"), "b1 und rc1 sind nicht unterscheidbar"
+    assert f("1.0.0a1") != f("1.0.0b1"), "a1 und b1 sind nicht unterscheidbar"
+
+
+def test_ein_zweites_suffix_geht_nicht_verloren():
+    """Der zweite gemessene Fund: `5.1.0.post1.dev2` ergab dasselbe wie `5.1.0.post1`."""
+    f = _tuple()
+    assert f("5.1.0.post1.dev2") != f("5.1.0.post1"), "die Entwicklungsfassung verschwindet"
+    assert f("5.1.0.post1.dev2") < f("5.1.0.post1"), "und sie liegt DAVOR, nicht irgendwo"
+
+
+def test_was_keine_version_ist_bleibt_vergleichbar():
+    """GEGENRICHTUNG zum Fallback. Ein Review-Tag ist keine Version; er muss trotzdem ohne Absturz
+    gegen eine echte vergleichbar bleiben, sonst bricht Check 3 an einem fremden Tag."""
+    f = _tuple()
+    t = f("corpus-review-2026-07-25-iter10")
+    assert len(t) == len(f("5.1.0")), "Fallback und Treffer haben verschiedene Laengen"
+    assert t < f("5.1.0"), "ein Nicht-Versions-Tag darf keine echte Version ueberholen"
+
+
+def test_das_muster_frisst_den_eigenen_markennamen_nicht():
+    """`5.1.0b7n0de.com` — ohne Wortgrenze las das Muster daraus "5.1.0b7", hielt also den Anfang
+    unseres eigenen Markennamens fuer eine Beta-Nummer. Eine halbe Version ist schlimmer als
+    keine: sie sieht aus wie eine Messung."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_version_and_changelog as C          # noqa: PLC0415
+    assert re.findall(C._SEMVER, "proofbundle 5.1.0b7n0de.com") == [], "der Markenname wird gefressen"
+    assert re.findall(C._SEMVER, "(current: 5.1.0) and more") == ["5.1.0"], "die Regel ist zu eng"
+    assert re.findall(C._SEMVER, "current: 5.1.0.post1") == ["5.1.0.post1"], "post faellt durch"
