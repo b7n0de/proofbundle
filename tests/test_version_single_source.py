@@ -261,3 +261,48 @@ def test_das_muster_frisst_den_eigenen_markennamen_nicht():
     assert re.findall(C._SEMVER, "proofbundle 5.1.0b7n0de.com") == [], "der Markenname wird gefressen"
     assert re.findall(C._SEMVER, "(current: 5.1.0) and more") == ["5.1.0"], "die Regel ist zu eng"
     assert re.findall(C._SEMVER, "current: 5.1.0.post1") == ["5.1.0.post1"], "post faellt durch"
+
+
+# ── Die SIEBTE Stelle: der Schluessel in release_evidence_slots ────────────────────────────────
+#
+# Sie stand nicht in `bekannte_spiegel()`, weil sie kein Spiegel IST — sie ist ein Nachschlag-
+# Schluessel in einer handgepflegten Tabelle. Eine Gegenlese-Linse hat gemessen, was das kostet:
+# seit `VERSION_UNDER_TEST` GELESEN wird statt fest zu stehen, geht der Nachschlag bei einem
+# Post-Release ins Leere, `c10_2_slot_filled()` faellt auf FAIL, und der beratende CI-Job meldet
+# `audit_candidate_ready=False`. Der Fund ist ein FOLGEFEHLER der Aenderung dieses Zweigs, kein
+# Altbestand — genau die Nachbarschaft, die ein Klassenfix mitziehen muss.
+
+def _matrix():
+    sys.path.insert(0, str(REPO / "scripts"))
+    import audit_candidate_matrix as M               # noqa: PLC0415
+    return M
+
+
+@pytest.mark.parametrize("version,erwartet,warum", [
+    ("5.1.0", "5.1.0", "eine Freigabe zeigt auf sich selbst"),
+    ("5.1.0.post1", "5.1.0", "ein Post-Release aendert KEINEN Code — die Evidenz der Basis gilt"),
+    ("5.1.0.post7", "5.1.0", "und das unabhaengig von der Nummer"),
+    ("5.1.0rc1", "5.1.0rc1", "eine Vorabversion NICHT: ihr Code ist ein anderer"),
+    ("5.1.0.dev1", "5.1.0.dev1", "eine Entwicklungsfassung ebenso wenig"),
+    ("6.0.0", "6.0.0", "eine neue Freigabe braucht ihren eigenen Slot"),
+])
+def test_der_slot_schluessel_faellt_nur_fuer_post_zurueck(version, erwartet, warum):
+    assert _matrix()._slot_schluessel(version) == erwartet, warum
+
+
+def test_ein_post_release_findet_den_slot_seiner_basis(monkeypatch):
+    """DIE WIRKUNG, nicht nur die Regel. Ohne diesen Fall waere der Test oben gruen, auch wenn der
+    Nachschlag den Schluessel gar nicht benutzt."""
+    M = _matrix()
+    monkeypatch.setattr(M, "VERSION_UNDER_TEST", "5.1.0.post1")
+    zustand, text = M.c10_2_slot_filled()
+    assert zustand == M.PASS, f"das Post-Release findet den Slot seiner Basis nicht: {text}"
+
+
+def test_eine_vorabversion_findet_ihn_NICHT(monkeypatch):
+    """DIE GEGENRICHTUNG, und sie ist der eigentliche Inhalt der Regel. Ein Rueckfall, der ALLES
+    auf die Basis zeigen laesst, wuerde jede Vorabversion mit fremder Evidenz gruen faerben."""
+    M = _matrix()
+    monkeypatch.setattr(M, "VERSION_UNDER_TEST", "5.1.0rc1")
+    zustand, _ = M.c10_2_slot_filled()
+    assert zustand == M.FAIL, "eine Vorabversion borgt sich die Evidenz der Freigabe"

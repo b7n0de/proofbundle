@@ -114,6 +114,32 @@ def _version_aus_pyproject() -> str:
 VERSION_UNDER_TEST = _version_aus_pyproject()
 
 
+def _slot_schluessel(version: str) -> str:
+    """Der Schluessel, unter dem die Bereitschafts-Evidenz dieser Version liegt.
+
+    WARUM ES DIESE FUNKTION GIBT — ein Folgefehler, den erst eine Gegenlese-Linse fand, NICHT die
+    Aenderung selbst. `release_evidence_slots` in docs/readiness_pack/index.json ist eine
+    handgepflegte Tabelle mit EXAKTEN Schluesseln ("5.0.0", "5.1.0", ...). Solange
+    `VERSION_UNDER_TEST` fest auf "5.1.0" stand, traf der Nachschlag immer. Seit sie GELESEN wird,
+    heisst sie bei einem Post-Release "5.1.0.post1" — und der Nachschlag geht ins Leere.
+    Gemessen 04.09.2026: `c10_2_slot_filled()` -> ('FAIL', "5.1.0.post1 slot status is None").
+
+    WARUM DER RUECKFALL RICHTIG IST UND KEIN NACHGEBEN. Ein Post-Release aendert per PEP 440
+    KEINEN Code — es korrigiert die Beschreibung. Die Bereitschafts-Evidenz der Basisversion gilt
+    damit unveraendert weiter; einen zweiten Slot mit denselben Belegen anzulegen waere eine
+    Kopie derselben Wahrheit an einem zweiten Ort, also genau die Klasse, die dieser Zweig
+    schliesst.
+
+    ENG GEHALTEN: NUR `.postN` faellt zurueck. Eine Vorabversion (`rc1`) und eine
+    Entwicklungsfassung (`.devN`) tun es ausdruecklich NICHT — bei ihnen ist der Code ein anderer
+    als bei der Freigabe, und ihre Evidenz von der Freigabe zu borgen waere eine Behauptung ueber
+    ungemessenen Code. Sie fallen weiter durch, und das ist die richtige Antwort.
+    """
+    import re as _re
+    m = _re.match(r"^([0-9]+\.[0-9]+\.[0-9]+)\.post[0-9]+$", version or "")
+    return m.group(1) if m else version
+
+
 def version_pin_binding(pinned: str) -> dict:
     """Is the pinned version still the version we SHIP? Three states, never two.
 
@@ -469,7 +495,7 @@ def c8_3_pending_documented():
     # the readiness pack must acknowledge the deliberately-not-Rust-covered surface (no fake 100%)
     r = _rust_parity()
     idx = _json_artifact("docs/readiness_pack/index.json") or {}
-    slot = (idx.get("release_evidence_slots") or {}).get(VERSION_UNDER_TEST) or {}
+    slot = (idx.get("release_evidence_slots") or {}).get(_slot_schluessel(VERSION_UNDER_TEST)) or {}
     doc = _read("docs/readiness_pack/rust_parity_scope.md")
     documented = bool(doc) or "rust" in json.dumps(slot).lower()
     if r["pending"] == 0:
@@ -518,7 +544,7 @@ def c10_1_pack_ok():
 
 def c10_2_slot_filled():
     idx = _json_artifact("docs/readiness_pack/index.json") or {}
-    slot = (idx.get("release_evidence_slots") or {}).get(VERSION_UNDER_TEST) or {}
+    slot = (idx.get("release_evidence_slots") or {}).get(_slot_schluessel(VERSION_UNDER_TEST)) or {}
     return (PASS, f"{VERSION_UNDER_TEST} readiness slot is filled") if slot.get("status") == "filled" \
         else (FAIL, f"{VERSION_UNDER_TEST} slot status is {slot.get('status')!r}, expected filled")
 
