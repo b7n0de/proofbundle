@@ -7,7 +7,7 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "PARTIAL ohne knownGaps wird ABGELEHNT: eine unvollstaendige Abdeckung, die keine Luecke nennt, ist keine Angabe, sondern eine Andeutung \u2014 sie laesst sich gegen nichts halten.",
+  "rationale": "PARTIAL ohne knownGaps wird ABGELEHNT: eine unvollstaendige Abdeckung, die keine Luecke nennt, ist keine Angabe, sondern das Wort 'unvollstaendig'. Eine relying party kann daraus nicht ableiten, WAS ungeprueft blieb \u2014 und genau das ist die einzige Information, die ein PARTIAL ueberhaupt traegt.",
   "role": "counter_proof",
   "rule": "A5/A3",
   "specRefs": [

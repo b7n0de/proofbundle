@@ -68,6 +68,22 @@ breaks itself. The bound is the next MAJOR, and MAJORs happen when they happen.
 describes a rule, not a track record. It is written down precisely because a rule that only exists
 in someone's head is not one.
 
+### Deprecated in 6.0.0
+
+**`build_agent_review_statement(v02=...)` and `emit_agent_review(v02=...)`.** From 6.0.0 the emitter
+produces `agent-review/v0.2` without any argument; the previous version comes from an explicit
+`legacy_v01=True`. The `v02=` argument keeps working and raises a `DeprecationWarning`; it may be
+removed in a later MAJOR, and that removal will be named here.
+
+Why the argument goes and not just its default: `v02=False` says what is NOT chosen, and a reader
+cannot tell from it what arrives instead. `legacy_v01=True` names the thing it selects. Passing both
+at once is an error rather than a silent precedence — two versions cannot both be the answer, and a
+quiet winner would swallow one of the two intents without the caller ever learning.
+
+**What is NOT deprecated:** `agent-review/v0.1` itself. It stays readable and verifiable, its verifier
+is byte-pinned to the 5.1.0 source (a test resolves `git show v5.1.0:` and compares), and six published
+receipts depend on exactly that. Emitting it is now a deliberate act; reading it is not.
+
 ## What is EXPERIMENTAL, and what that costs you
 
 EXPERIMENTAL parts are **excluded from all of the above**. They may change or disappear in any

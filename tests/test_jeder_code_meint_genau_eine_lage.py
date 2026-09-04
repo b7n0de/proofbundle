@@ -193,6 +193,16 @@ OHNE_TAFELZEILE = {
                              "validate_statement_shape — eigene Testdatei",
     "FINDINGS_ROOT_MALFORMED": "wird von _validate_declaration vergeben, nicht von "
                                "validate_statement_shape — eigene Testdatei",
+    # 04.09.2026, Teil A des v0.2-Vorgabewechsels. BEIDE haben eine eigene Testdatei; der Grund
+    # fuer die Ausnahme ist dieselbe wie oben — sie werden nicht von `validate_statement_shape`
+    # vergeben, und eine Tafelzeile braucht eine ausloesende Eingabe FUER DIESEN Pfad.
+    "FIXCOMMIT_NOT_FULL_SHA": "wird von validate_agent_review_v02_predicate vergeben, nicht von "
+                              "validate_statement_shape — tests/test_a4_fixcommit_volle_sha.py "
+                              "(13 Faelle plus Gegenrichtung)",
+    "POLICY_NOT_EVALUABLE": "wird von _verify_v02_inner vergeben, wenn eine UEBERGEBENE Policy "
+                            "beim Auswerten wirft — tests/test_policy_nicht_auswertbar_hat_einen_"
+                            "code.py. Dieser Code hatte beim ersten vollen Lauf KEINEN Test; "
+                            "gefunden hat das genau diese Tafel, nicht ein roter Test",
 }
 
 

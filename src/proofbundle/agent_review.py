@@ -1719,10 +1719,10 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
         if fc is None:
             continue
         if not (isinstance(fc, str) and len(fc) == 40 and all(c in "0123456789abcdef" for c in fc)):
-            errs.append(
-                f"FIXCOMMIT_NOT_FULL_SHA: declaration.findings[{i}].fixCommit must be the full "
-                f"40-character "
-                f"lowercase hex sha — got {fc!r}")
+            errs.append(_shape_err(
+                "FIXCOMMIT_NOT_FULL_SHA",
+                f"declaration.findings[{i}].fixCommit must be the full 40-character "
+                f"lowercase hex sha — got {fc!r}"))
 
     sc = predicate.get("subjectContext")
     if isinstance(sc, dict) and not isinstance(sc.get("disclosureCoreDigest"), str):
@@ -2412,7 +2412,8 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             r["policy_reason"] = {k: v for k, v in _pe.items() if k != "decision"}
         except Exception as _pexc:  # noqa: BLE001 — never-raise bleibt die Zusage
             r["policy_decision"] = "insufficient_evidence"
-            r["errors"].append(f"policy could not be evaluated: {_pexc}")
+            r["errors"].append(_shape_err(
+                "POLICY_NOT_EVALUABLE", f"policy could not be evaluated: {_pexc}"))
     else:
         r["policy_decision"] = None
         codes = list(r.get("reason_codes") or [])
@@ -2435,8 +2436,20 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # hier zu einer: der Beleg ist in sich stimmig, er wurde gegen die MITGEBRACHTE Erwartung
     # geprueft, UND eine benannte Policy hat ihn nicht abgelehnt. Faellt die dritte weg, sagt ein
     # gruenes `ok` nur noch "die Bytes stimmen" und wird trotzdem als "brauchbar" gelesen.
+    # EINE ABLEHNUNG BLOCKT, EIN NICHT GEFAHRENER LAUF NICHT. Die erste Fassung verlangte
+    # `policy_decision == "accept"` und machte damit aus einer NICHT GEFAHRENEN Pruefung ein
+    # NICHTBESTEHEN — ein Beleg ohne uebergebene Policy stand auf ok=False bei leerer Fehlerliste.
+    # Das Haus fuehrt diese Unterscheidung schon: `test_automation_nie_nachsichtiger_als_ok`
+    # zeigt sie in der eigenen Zusicherung ("ein FEHLENDES ok ... ist 'nicht anwendbar', nicht
+    # 'nicht bestanden'"), und die Policy-Achse haengt bereits in `automation_summary`. Sie ein
+    # zweites Mal an `ok` zu haengen wirft die beiden Aussagen zusammen, die das Haus absichtlich
+    # trennt — und genau das wirft der Absatz oben dem ALTEN Verhalten vor.
+    #
+    # STILL BLEIBT NICHTS: ohne Policy traegt das Ergebnis `policy_decision=None` PLUS den Code
+    # POLICY_NOT_EVALUATED, und `safeForAutomation` blockt darauf. Wer handeln will, sieht die
+    # fehlende Achse; wer nur die Stimmigkeit wissen will, bekommt keine erfundene Ablehnung.
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked"
-                   and r.get("policy_decision") == "accept")
+                   and r.get("policy_decision") != "reject")
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
 
@@ -2491,7 +2504,9 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
     import base64 as _b64  # noqa: PLC0415
     import json as _json   # noqa: PLC0415
     try:
-        payload = _json.loads(_b64.b64decode(envelope["payload"]))
+        # validate=True wie ueberall sonst im Modul: CPython verwirft sonst STILL jedes Zeichen
+        # ausserhalb des Alphabets, und zwei verschiedene Nutzlasten ergeben dieselben Bytes.
+        payload = _json.loads(_b64.b64decode(envelope["payload"], validate=True))
         typ = payload.get("predicateType")
     except Exception:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche
         r = _empty_result()
@@ -2547,9 +2562,27 @@ def load_policy(pfad=None) -> dict:
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
     import hashlib as _h, json as _j  # noqa: PLC0415
     from pathlib import Path as _P    # noqa: PLC0415
-    p = _P(pfad) if pfad is not None else standard_policy_path()
-    roh = p.read_bytes()
-    d = _j.loads(roh.decode("utf-8"))
+    # Eine oeffentliche Flaeche darf keine ROHE Ausnahme durchlassen — das ist eine Eigenschaft des
+    # Projekts (tests/test_never_raise_surface_family_property.py), nicht Geschmack: wer einen
+    # rohen TypeError faengt, faengt auch den aus einer ganz anderen Zeile mit. `_P(5)` wirft
+    # TypeError, `_P(b"x")` einen anderen — beide werden hier zu EINER benannten Klasse.
+    if pfad is None:
+        p = standard_policy_path()
+    else:
+        try:
+            p = _P(pfad)
+        except TypeError as e:
+            raise AgentReviewError(f"policy path must be a path-like object, not {type(pfad).__name__}") from e
+    try:
+        roh = p.read_bytes()
+    except OSError as e:
+        raise AgentReviewError(f"policy not readable: {p}: {e}") from e
+    try:
+        d = _j.loads(roh.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e:
+        raise AgentReviewError(f"policy is not valid UTF-8 JSON: {p}: {e}") from e
+    if not isinstance(d, dict):
+        raise AgentReviewError(f"policy must be a JSON object, got {type(d).__name__}: {p}")
     d["_digest"] = "sha256:" + _h.sha256(roh).hexdigest()
     d["_path"] = str(p)
     return d
@@ -2562,6 +2595,13 @@ def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
     Predicate STEHENDEN Codes waeren eine Selbstauskunft des Ausstellers — sie hier zu benutzen
     hiesse, den Geprueften nach seinem Urteil zu fragen.
     """
+    # DIESELBE Eigenschaft wie in `load_policy`: keine rohe Ausnahme ueber eine oeffentliche
+    # Flaeche. Gefunden NICHT vom Riegel — der prueft nur einstellige Flaechen —, sondern vom
+    # Klassen-Blick nach dem Fund an `load_policy`. Ein Nachbar derselben Klasse, anderer Ort.
+    if not isinstance(predicate, dict):
+        raise AgentReviewError(f"predicate must be a dict, not {type(predicate).__name__}")
+    if not isinstance(policy, dict):
+        raise AgentReviewError(f"policy must be a dict, not {type(policy).__name__}")
     codes = set(derive_limitation_codes(predicate))
     nie = set(policy.get("never_blocking") or [])
     sperrend = set(policy.get("blocking") or []) - nie

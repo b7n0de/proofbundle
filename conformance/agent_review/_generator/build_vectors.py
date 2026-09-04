@@ -62,7 +62,8 @@ BASE = {
 }
 
 def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=None,
-             input_name, params=None, attribution=None, spec_refs=None):
+             input_name, params=None, attribution=None, spec_refs=None,
+             predicate_version=None):
     d = ROOT / case_id
     d.mkdir(parents=True, exist_ok=True)
     payload = envelope if envelope is not None else obj
@@ -70,6 +71,7 @@ def schreibe(case_id, role, rule, expected, rationale, *, envelope=None, obj=Non
     (d / "case.json").write_text(json.dumps({
         "caseId": case_id, "kind": "agent_review_predicate", "rule": rule, "role": role,
         "input": input_name,
+        **({"predicateVersion": predicate_version} if predicate_version is not None else {}),
         "attribution": attribution or (
             "agent-review/v0.1 — built 31.08.2026 against the external adversarial read "
             "(18 findings). Rule ids are that read's finding ids."),
@@ -368,3 +370,104 @@ schreibe("agent-review-counter-proof-a-superseded-predecessor-must-still-be-pres
 
 (ROOT / "publickey.hex").write_text(pk.hex() + "\n", encoding="utf-8")
 print(f"{len(list(ROOT.glob('*/case.json')))} Vektoren geschrieben nach {ROOT}")
+
+# ══ v0.2 ════════════════════════════════════════════════════════════════════════════════════════
+# Teil A5 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01. Diese sechs Vektoren waren zuerst
+# VON HAND angelegt — der Riegel `tests/test_korpus_stammt_aus_seinem_generator.py` hat das gefangen
+# und zu Recht: ein Fall, den kein Generator erzeugt, ist nicht reproduzierbar, und der Korpus
+# behauptet dann eine Herkunft, die er nicht hat. Jeder Fall unten ist die GRUNDFORM plus GENAU EINE
+# benannte Mutation; die Mutation steht sichtbar da, statt in einer abgelegten Datei zu verschwinden.
+V02_BASE = {
+    "coverage": {"knownGaps": ["nur eine Datei gelesen"], "status": "PARTIAL"},
+    "declaration": {
+        "authoring": [{"assertedBy": "x", "assurance": "selfDeclared"}],
+        "findings": [], "findingsTotal": 0, "nonClaims": ["n"], "reviewRuns": [],
+    },
+    "limitationCodes": ["COVERAGE_PARTIAL", "CURRENTNESS_UNKNOWN", "IDENTITY_UNBOUND",
+                        "NOT_QUALITY_ATTESTATION", "TIME_SELF_DECLARED"],
+    "limitations": ["selbsterklaert, nicht unabhaengig bezeugt"],
+    "reviewId": "ar-v02-konformitaet",
+    "schemaVersion": "0.1.0",
+    "subjectContext": {
+        "baseSha": "b" * 40,
+        "bodyCoreDigest": "d" * 64,
+        "disclosureCoreDigest": "e" * 64,
+        "forge": "github", "headSha": "a" * 40,
+        "kind": "githubPullRequest",
+        "pullRequestNodeId": "P", "repositoryId": "R",
+        "reviewedDiffDigest": "c" * 64,
+    },
+    "times": {"declaredAt": "2026-09-04T00:00:00Z", "observedAt": None,
+              "signedAt": "2026-09-04T00:00:00Z"},
+}
+_V02_ATTR = ("agent-review/v0.2 — gebaut 04.09.2026 zu Teil A5 des Auftrags "
+             "QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.")
+
+def _v02(**mutation):
+    """Grundform plus benannte Mutation. `None` als Wert ENTFERNT den Schluessel — ein fehlendes
+    Feld ist eine andere Aussage als ein leeres, und mehrere dieser Gegenproben pruefen genau das."""
+    p = copy.deepcopy(V02_BASE)
+    for pfad, wert in mutation.items():
+        ziel, *rest = pfad.split("__")
+        if rest:
+            if wert is None: p[ziel].pop(rest[0], None)
+            else: p[ziel][rest[0]] = wert
+        elif wert is None: p.pop(ziel, None)
+        else: p[ziel] = wert
+    return p
+
+def _mit_fund(fix_commit):
+    f = [{"disposition": "fixed", "fixCommit": fix_commit, "id": "F1", "severity": "low", "title": "t"}]
+    return _v02(declaration__findings=f, declaration__findingsTotal=1,
+                declaration__findingsRoot=AR.findings_root(f))
+
+schreibe("agent-review-v02-positive-control-emitter-default-is-v02", "positive_control", "A1",
+         {"classification": "valid"},
+         "Die Vorgabe des Emitters ist v0.2 (A1). Faellt dieser Vektor, hat sich die Vorgabe "
+         "gedreht oder die v0.2-Form geaendert — beides ist ein Bruch, den jede der vier "
+         "Gegenproben unten unlesbar machen wuerde, weil sie alle auf dieser Grundform stehen.",
+         obj=V02_BASE, input_name="predicate.json", attribution=_V02_ATTR, predicate_version="v0.2",
+         spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A1"])
+
+schreibe("agent-review-v02-counter-proof-coverage-partial-must-name-its-gap", "counter_proof",
+         "A5/A3", {"classification": "refused"},
+         "PARTIAL ohne knownGaps wird ABGELEHNT: eine unvollstaendige Abdeckung, die keine Luecke "
+         "nennt, ist keine Angabe, sondern das Wort 'unvollstaendig'. Eine relying party kann "
+         "daraus nicht ableiten, WAS ungeprueft blieb — und genau das ist die einzige Information, "
+         "die ein PARTIAL ueberhaupt traegt.",
+         obj=_v02(coverage={"status": "PARTIAL"}), input_name="predicate.json",
+         attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A3/A5"])
+
+schreibe("agent-review-v02-counter-proof-disclosure-core-digest-is-required", "counter_proof",
+         "A5/P0.2", {"classification": "refused"},
+         "Ohne disclosureCoreDigest ist der sichtbare Offenlegungsblock unverbindlich: eine "
+         "Aenderung von selfDeclared auf independent im PR-Text bliebe unbemerkt, weil der Beleg "
+         "den Text nicht bindet. Der Digest ist die Bindung — fehlt er, beweist das Receipt etwas "
+         "ueber ein Predicate und nichts ueber das, was ein Mensch liest.",
+         obj=_v02(subjectContext__disclosureCoreDigest=None), input_name="predicate.json",
+         attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Gegenlesung Runde 2, P0.2"])
+
+schreibe("agent-review-v02-counter-proof-limitation-codes-are-required", "counter_proof",
+         "A5/P0.4.6", {"classification": "refused"},
+         "v0.2 verlangt limitationCodes. Ohne sie kann eine relying party den Beleg nicht gegen "
+         "eine Policy halten, ohne ihn zu LESEN — und Prosa maschinell auszuwerten heisst, die "
+         "Einschraenkung zu raten. Die Codes sind der maschinenlesbare Teil; `limitations` bleibt "
+         "die menschenlesbare Begleitung, nie ihr Ersatz.",
+         obj=_v02(limitationCodes=None), input_name="predicate.json",
+         attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Gegenlesung Runde 2, P0.4.6"])
+
+schreibe("agent-review-v02-counter-proof-fixcommit-must-be-the-full-sha", "counter_proof", "A4",
+         {"classification": "refused"},
+         "Ein gekuerzter fixCommit wird ABGELEHNT (A4). Sieben Zeichen sind eine Suchanfrage, keine "
+         "Angabe: sie binden nichts, solange nicht feststeht, in welchem Repository und zu welchem "
+         "Zeitpunkt sie eindeutig waren. Der Beleg soll ohne Rueckfrage lesbar sein.",
+         obj=_mit_fund("a1b2c3d"), input_name="predicate.json",
+         attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])
+
+schreibe("agent-review-v02-positive-control-fixcommit-full-sha-is-accepted", "positive_control", "A4",
+         {"classification": "valid"},
+         "DIE GEGENRICHTUNG zu A4. Ohne sie waere die Regel nur eine Sperre, und ein Validator, der "
+         "JEDEN fixCommit ablehnt, bestuende die Gegenprobe daruber ebenfalls. Erst das Paar zeigt, "
+         "dass die Regel die LAENGE prueft und nicht das Vorhandensein des Feldes.",
+         obj=_mit_fund("f" * 40), input_name="predicate.json",
+         attribution=_V02_ATTR, predicate_version="v0.2", spec_refs=["Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"])

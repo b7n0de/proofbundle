@@ -170,6 +170,20 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
+    # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
+    #
+    # `standard_policy_path` nimmt GAR KEINE Eingabe entgegen. Sie kann keine unvertraute Eingabe
+    # bekommen, also kann sie die Eigenschaft nicht verletzen; ein Eintrag im Nenner waere eine
+    # Pruefung ohne Gegenstand. Sie liegt ausserhalb, weil sie NICHTS konsumiert.
+    #
+    # `load_policy` und `evaluate_limitation_policy` stehen ausdruecklich NICHT hier: beide nehmen
+    # Aufrufer-Eingabe (einen Pfad, ein Predicate, eine Policy) und muessen urteilen statt zu
+    # crashen. Beide haben die Eigenschaft beim ersten Lauf verletzt — `load_policy` mit rohem
+    # TypeError ueber sieben Typen (vom Riegel gefangen), `evaluate_limitation_policy` mit rohem
+    # AttributeError ueber 72 Kombinationen (vom Riegel NICHT gefangen, weil er nur einstellige
+    # Flaechen probiert; gefunden vom Klassen-Blick nach dem ersten Fund). Beide sind behoben.
+    "standard_policy_path",
     # 2026-09-03, C5 des anbieterbezeugten Inferenz-Wegs — VIER Funktionen, DREI davon hier, und
     # die Trennung ist der Zwei-Schichten-Vertrag dieses Hauses, nicht Bequemlichkeit.
     #

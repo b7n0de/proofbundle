@@ -164,19 +164,28 @@ def _lauf_v02(p, *, typ=None, policy=None):
 
 # Test 6 zuerst — die Kontrolle. Ohne sie belegt jedes Rot darunter nichts.
 def test_v02_mit_reviewCompleted_selfDeclared_wird_akzeptiert():
-    """OHNE POLICY GIBT ES KEINE FREIGABE MEHR (Teil A3, 6.0.0).
+    """EIN NICHT GEFAHRENER POLICY-LAUF IST KEIN NICHTBESTEHEN (Teil A3, 6.0.0, korrigiert).
 
-    Die Zusicherung `ok is True` stand hier fuer einen Lauf OHNE benannte Policy. Genau das ist
-    die Aenderung: `policy_decision` stand fest auf None und `ok` konnte trotzdem wahr werden —
-    ein gruenes Ergebnis sagte "kryptographisch und strukturell in Ordnung" und wurde als
-    "brauchbar" gelesen. Die Zusicherung wird deshalb UMGEDREHT, nicht entfernt, und die
-    Gegenrichtung kommt als eigene dazu: MIT der Standard-Policy wird derselbe Beleg akzeptiert.
+    Die erste Fassung dieses Tests drehte `ok` auf False, wenn keine Policy uebergeben wurde. Das
+    war falsch, und der Kontrollfall in `test_automation_nie_nachsichtiger_als_ok` hat es gefangen:
+    ein Beleg ohne uebergebene Policy stand auf ok=False bei LEERER Fehlerliste — eine Ablehnung
+    ohne Grund. Das Haus fuehrt die Unterscheidung ausdruecklich ("ein FEHLENDES ok ... ist 'nicht
+    anwendbar', nicht 'nicht bestanden'"), und die Policy-Achse haengt bereits in
+    `automation_summary`.
 
-    Die vier Zeitachsen unten sind von A3 unberuehrt — sie gelten in beiden Faellen.
+    WAS BLEIBT, IST DIE SICHTBARKEIT — und die ist der eigentliche Gewinn von A3: ohne Policy
+    traegt das Ergebnis den Code POLICY_NOT_EVALUATED und `policy_decision is None`. Eine relying
+    party sieht damit, dass die Achse NICHT gefahren wurde, statt sie fuer bestanden zu halten.
+    Blocken tut sie in `safeForAutomation`, nicht in `ok`.
+
+    Die vier Zeitachsen unten sind von A3 unberuehrt.
     """
     _, r = _lauf_v02(_pred_v02(timeClaims=REVIEW_CLAIM))
-    assert r["ok"] is False, "ohne benannte Policy darf es keine Freigabe geben"
-    assert AR.POLICY_NOT_EVALUATED in (r.get("reason_codes") or []), r.get("reason_codes")
+    assert r["ok"] is True, f"ohne Policy darf kein Fehler erfunden werden: {r.get('errors')[:3]}"
+    assert AR.POLICY_NOT_EVALUATED in (r.get("reason_codes") or []), (
+        "die nicht gefahrene Achse MUSS sichtbar sein — sonst liest sie sich wie bestanden")
+    assert ((r.get("automation") or {}).get("safeForAutomation")) is not True, (
+        "ohne Policy darf eine Maschine NICHT handeln duerfen — hier blockt die Achse")
     assert r["event_time_status"] == "SELF_DECLARED"
     assert r["observation_time_status"] == "ABSENT"
     assert r["signature_time_status"] == "SELF_DECLARED"
@@ -321,7 +330,18 @@ def test_v02_mit_der_standard_policy_faellt_eine_benannte_entscheidung():
     assert r["policy_name"] == AR.STANDARD_POLICY_NAME
     assert r["policy_digest"] == pol["_digest"], "der Digest der Policy gehoert ins Ergebnis"
     assert AR.POLICY_NOT_EVALUATED not in (r.get("reason_codes") or [])
-    assert r["ok"] is False, "eine nicht-akzeptierende Entscheidung darf kein ok ergeben"
+    # DIE SPERRE HAENGT AN DER AUTOMATION, NICHT AN `ok` — und diese Zeile stand zuerst falsch.
+    # `insufficient_evidence` heisst: die Policy LIEF und konnte nicht entscheiden. Das ist eine
+    # Aussage ueber die Beweislage der Policy, nicht ueber die Stimmigkeit des Belegs; ein Beleg
+    # wird nicht kaputt, weil eine fremde Erwartung an ihm nicht entscheidbar ist. „Nicht messbar
+    # ist keine Freigabe" gilt trotzdem, nur ist die FREIGABE hier `safeForAutomation`:
+    # gemessen sperrt sie mit dem Grund POLICY_FAILED. Wer beides an `ok` haengt, macht aus einer
+    # unentscheidbaren Frage einen Defekt und verliert die Unterscheidung, die das Haus fuehrt.
+    assert r["ok"] is True, f"unentscheidbar ist kein Defekt des Belegs: {r.get('errors')[:3]}"
+    assert ((r.get("automation") or {}).get("safeForAutomation")) is False, (
+        "eine nicht-akzeptierende Entscheidung darf keine Automation freigeben")
+    assert "POLICY_FAILED" in ((r.get("automation") or {}).get("automationBlockers") or []), (
+        "und der Grund muss benannt sein, sonst ist die Sperre nicht nachvollziehbar")
 
 
 def test_v02_mit_genannter_abdeckung_wird_wirklich_akzeptiert():

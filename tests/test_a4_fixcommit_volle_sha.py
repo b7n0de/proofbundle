@@ -45,8 +45,15 @@ def _pred(fix):
 
 
 def _fehler(fix) -> list[str]:
+    """AM `.code`, NICHT AM TEXT. Die erste Fassung suchte den Code als Praefix IM Satz — das las
+    sich richtig und prueft doch die schwaechere Eigenschaft: eine Umformulierung des Satzes haette
+    sie brechen koennen, ohne dass sich am maschinenlesbaren Grund etwas aendert, und umgekehrt
+    haette ein Satz, der den Code nur ERWAEHNT, sie bestanden. Das Modul traegt den Grund in
+    `ShapeError.code` (eine `str`-Unterklasse, der Satz bleibt byte-gleich lesbar); genau dort wird
+    er jetzt gelesen. Der Wechsel kam vom Riegel `test_die_ungedeckte_flaeche_waechst_nicht`, der
+    die Praefix-Form zu Recht als CODELOS zaehlte."""
     return [e for e in AR.validate_agent_review_v02_predicate(_pred(fix), strict=True)
-            if "FIXCOMMIT_NOT_FULL_SHA" in e]
+            if getattr(e, "code", None) == "FIXCOMMIT_NOT_FULL_SHA"]
 
 
 def test_die_volle_sha_ist_zulaessig():
@@ -77,7 +84,7 @@ def test_ohne_fixcommit_greift_die_regel_nicht():
     p["declaration"]["findings"][0]["disposition"] = "open"
     del p["declaration"]["findings"][0]["fixCommit"]
     assert not [e for e in AR.validate_agent_review_v02_predicate(p, strict=True)
-                if "FIXCOMMIT_NOT_FULL_SHA" in e]
+                if getattr(e, "code", None) == "FIXCOMMIT_NOT_FULL_SHA"]
 
 
 def test_die_altfassung_bleibt_unberuehrt():
@@ -85,5 +92,5 @@ def test_die_altfassung_bleibt_unberuehrt():
     geteilten `_validate_finding` sitzen, waeren sie nachtraeglich beurteilt worden."""
     p = _pred("a1b2c3d")   # dieselbe ECHTE Form, nur gegen den v0.1-Validator gehalten
     assert not [e for e in AR.validate_agent_review_predicate(p, strict=True)
-                if "FIXCOMMIT_NOT_FULL_SHA" in e], (
+                if getattr(e, "code", None) == "FIXCOMMIT_NOT_FULL_SHA"], (
         "die v0.1-Validierung hat die v0.2-Regel geerbt — genau das sollte sie nicht")

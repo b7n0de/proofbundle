@@ -7,7 +7,7 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "v0.2 verlangt limitationCodes. Ohne sie kann eine relying party den Beleg nicht gegen eine Policy halten, ohne ihn zu LESEN \u2014 und was sie nicht maschinell auswerten kann, wertet sie in der Praxis gar nicht aus.",
+  "rationale": "v0.2 verlangt limitationCodes. Ohne sie kann eine relying party den Beleg nicht gegen eine Policy halten, ohne ihn zu LESEN \u2014 und Prosa maschinell auszuwerten heisst, die Einschraenkung zu raten. Die Codes sind der maschinenlesbare Teil; `limitations` bleibt die menschenlesbare Begleitung, nie ihr Ersatz.",
   "role": "counter_proof",
   "rule": "A5/P0.4.6",
   "specRefs": [

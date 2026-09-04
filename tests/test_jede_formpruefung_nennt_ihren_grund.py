@@ -56,7 +56,7 @@ def _doc():
 
 def _neu_signiert(mutation):
     """Ein GUELTIG signierter Umschlag mit veraendertem Inhalt — der Angriff, den die Gegenlese fuhr."""
-    env = copy.deepcopy(ar.emit_agent_review(_doc(), SK))
+    env = copy.deepcopy(ar.emit_agent_review(_doc(), SK, legacy_v01=True))
     st = json.loads(base64.b64decode(env["payload"]))
     mutation(st)
     env["payload"] = base64.b64encode(json.dumps(st).encode()).decode()
@@ -90,7 +90,7 @@ def test_die_abnahme_faelle_nennen_einen_grund(name):
 def test_der_gueltige_fall_nennt_keinen_grund():
     """GEGENPROBE. Ein Riegel, der immer einen Grund nennt, nennt keinen."""
     doc = _doc()
-    r = ar.verify_agent_review(ar.emit_agent_review(doc, SK), PK, strict=True,
+    r = ar.verify_agent_review(ar.emit_agent_review(doc, SK, legacy_v01=True), PK, strict=True,
                                expected_subject_digest=ar._subject_digest(doc),
                                observed_body=KOERPER)
     assert r["ok"] is True
@@ -401,7 +401,7 @@ def test_ein_hinweis_wird_nie_zum_fehlgrund():
     """
     doc = _doc()
     doc["times"]["observedAt"] = "2026-09-01T09:00:00Z"   # in v0.1 zulaessig, aber selbstdeklariert
-    r = ar.verify_agent_review(ar.emit_agent_review(doc, SK), PK, strict=True,
+    r = ar.verify_agent_review(ar.emit_agent_review(doc, SK, legacy_v01=True), PK, strict=True,
                                expected_subject_digest=ar._subject_digest(doc),
                                observed_body=KOERPER)
     assert r["ok"] is True, f"die Fixture ist nicht gueltig: {r['errors'][:2]}"
@@ -434,7 +434,7 @@ def test_eine_ablehnung_ohne_code_traegt_keinen_hinweis_als_grund():
     """
     doc = _doc()
     doc["times"]["observedAt"] = "2026-09-01T09:00:00Z"
-    umschlag = ar.emit_agent_review(doc, SK)
+    umschlag = ar.emit_agent_review(doc, SK, legacy_v01=True)
     fremd = Ed25519PrivateKey.from_private_bytes(bytes(range(1, 33))).public_key().public_bytes_raw()
     r = ar.verify_agent_review(umschlag, fremd, strict=True,
                                expected_subject_digest=ar._subject_digest(doc),

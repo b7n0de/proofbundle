@@ -7,7 +7,7 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "Ohne disclosureCoreDigest ist der sichtbare Offenlegungsblock unverbindlich: eine Aenderung von selfDeclared auf independentlyWitnessed liesse jeden Digest unveraendert.",
+  "rationale": "Ohne disclosureCoreDigest ist der sichtbare Offenlegungsblock unverbindlich: eine Aenderung von selfDeclared auf independent im PR-Text bliebe unbemerkt, weil der Beleg den Text nicht bindet. Der Digest ist die Bindung \u2014 fehlt er, beweist das Receipt etwas ueber ein Predicate und nichts ueber das, was ein Mensch liest.",
   "role": "counter_proof",
   "rule": "A5/P0.2",
   "specRefs": [

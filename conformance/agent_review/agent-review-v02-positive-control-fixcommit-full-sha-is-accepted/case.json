@@ -7,6 +7,10 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "DIE GEGENRICHTUNG zu A4. Ohne sie waere die Regel nur eine Sperre, und ein Validator, der JEDEN fixCommit ablehnt, unterscheidet so wenig wie einer, der keinen prueft.",
-  "role": "positive_control"
+  "rationale": "DIE GEGENRICHTUNG zu A4. Ohne sie waere die Regel nur eine Sperre, und ein Validator, der JEDEN fixCommit ablehnt, bestuende die Gegenprobe daruber ebenfalls. Erst das Paar zeigt, dass die Regel die LAENGE prueft und nicht das Vorhandensein des Feldes.",
+  "role": "positive_control",
+  "rule": "A4",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"
+  ]
 }

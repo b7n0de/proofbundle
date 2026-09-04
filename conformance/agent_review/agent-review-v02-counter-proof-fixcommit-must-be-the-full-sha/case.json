@@ -7,7 +7,7 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "Ein gekuerzter fixCommit wird ABGELEHNT (A4). Sieben Zeichen sind eine Suchanfrage, keine Angabe: sie binden nichts, solange Repo und Zeitpunkt offen sind, und Praefixkollisionen sind in grossen Repos alltaeglich.",
+  "rationale": "Ein gekuerzter fixCommit wird ABGELEHNT (A4). Sieben Zeichen sind eine Suchanfrage, keine Angabe: sie binden nichts, solange nicht feststeht, in welchem Repository und zu welchem Zeitpunkt sie eindeutig waren. Der Beleg soll ohne Rueckfrage lesbar sein.",
   "role": "counter_proof",
   "rule": "A4",
   "specRefs": [

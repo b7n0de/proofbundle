@@ -85,7 +85,9 @@ def _v02_predicate(doc):
 
 
 def _v02_umschlag(doc):
-    """Baut einen v0.2-Umschlag von Hand — `emit_agent_review` kennt nur den v0.1-Typ."""
+    """Baut einen v0.2-Umschlag von Hand. HISTORISCH: bis 6.0.0 konnte `emit_agent_review` nur
+    v0.1; seit dem Vorgabewechsel kann es beides, und dieser Handbau bleibt trotzdem stehen — er
+    prueft die Form UNABHAENGIG vom Aussteller, und genau das ist sein Wert."""
     import base64  # noqa: PLC0415
     import json  # noqa: PLC0415
 
@@ -117,7 +119,7 @@ def _fahre(pfad, ziel, text):
         env, pruefer = _v02_umschlag(doc), ar.verify_agent_review_v02
         digest = ar._subject_digest(_v02_predicate(doc))
     else:
-        env, pruefer = ar.emit_agent_review(doc, SK), ar.verify_agent_review
+        env, pruefer = ar.emit_agent_review(doc, SK, legacy_v01=True), ar.verify_agent_review
         digest = ar._subject_digest(doc)
     kw = {}
     if ziel == "gesetzt":

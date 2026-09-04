@@ -7,6 +7,10 @@
   "input": "predicate.json",
   "kind": "agent_review_predicate",
   "predicateVersion": "v0.2",
-  "rationale": "Die Vorgabe des Emitters ist v0.2 (A1). Faellt dieser Vektor, hat sich die Vorgabe gedreht oder die v0.2-Form geaendert \u2014 und jeder Gegenbeweis darunter wird unlesbar.",
-  "role": "positive_control"
+  "rationale": "Die Vorgabe des Emitters ist v0.2 (A1). Faellt dieser Vektor, hat sich die Vorgabe gedreht oder die v0.2-Form geaendert \u2014 beides ist ein Bruch, den jede der vier Gegenproben unten unlesbar machen wuerde, weil sie alle auf dieser Grundform stehen.",
+  "role": "positive_control",
+  "rule": "A1",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A1"
+  ]
 }

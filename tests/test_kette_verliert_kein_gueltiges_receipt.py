@@ -49,7 +49,7 @@ def _divergierender_umschlag():
     gruen, weil der Angriff gar nicht stattfand.
     """
     for i in range(400):
-        env = ar.emit_agent_review(_doc(f"kette-{'?' * (i % 7)}{i}"), SK)
+        env = ar.emit_agent_review(_doc(f"kette-{'?' * (i % 7)}{i}"), SK, legacy_v01=True)
         if any(c in env["payload"] for c in "+/"):
             roh = base64.b64decode(env["payload"], validate=True)
             url = dict(env)
