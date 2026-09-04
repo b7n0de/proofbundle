@@ -108,8 +108,10 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 #   * entry-point discovery finds `proofbundle`; `ProofbundleHooks` is a real `Hooks` subclass and
 #     carries all 17 `on_*` methods of the 0.3.261 API — no method went missing, none was added that
 #     we fail to implement
-#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 19 of 19 — against the REAL
-#     package, no mocks
+#   * `test_inspect_hook.py` 9 of 9 and `test_adapters.py` 10 of 10 — 19 together, against the
+#     REAL package, no mocks. (Re-measured 2026-09-04 on a PyPI-reachable host: same 9 and same
+#     19 combined. The earlier wording gave `test_adapters.py` the COMBINED 19 as its own count;
+#     that file has 10 tests and has only ever grown — 8 a month ago — so nothing was dropped.)
 #   * the fixture recorded under 0.3.217 still reads (`version=2`, `status=success`), so the log
 #     format did not move under us
 # The ceiling stays a ceiling: 0.3.262 and later remain UNMEASURED and therefore excluded. What was
