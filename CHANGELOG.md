@@ -12,7 +12,7 @@ Nothing yet.
 
 ## [5.1.0.post1] - 2026-09-04 (project description, POST-RELEASE)
 
-Project description on PyPI aligned with the README, no code change.
+Project description on PyPI aligned with the README, no code change; release tooling taught PEP 440, no runtime change.
 
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
