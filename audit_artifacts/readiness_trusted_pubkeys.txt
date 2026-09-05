@@ -1,0 +1,25 @@
+# Trusted ed25519 public keys (base64, raw 32-byte) that may sign a RELEASE-EVIDENCE artifact —
+# the recorded fuzz-soak, the Python<->Rust differential matrix, and every other artifact a
+# RELEASE-DECIDING check in scripts/audit_candidate_matrix.py admits.
+#
+# The gate reads this file from the COMMITTED tree (`git show HEAD:...`), never from the working
+# tree: reading the working tree would let a dirty checkout inject a key and self-attest evidence
+# (the same reasoning as audit_artifacts/pre_tag_trusted_pubkeys.txt, Spur-2 lens A, 2026-08-27).
+#
+# The PRIVATE half of each key is a release secret held by the RUNNER (CI / owner), NEVER in this
+# repo. An EMPTY file (only comments) = NO trust anchor: every release-deciding artifact read then
+# fails closed. That is the state today, on purpose — see below.
+#
+# WHY THIS FILE IS EMPTY, and why that is the honest state rather than an oversight
+# (deep gate 2026-09-05, finding L5-G7-02, P2). Until this file existed, checks C6.2/C6.3/C8.2
+# granted PASS from UNSIGNED, version-free JSON: a 3.6.0-scoped soak artifact decided 6.0.0, a
+# two-key JSON decided "0 crash, 0 false-accept", and `{"all_agree": true}` decided "Python == Rust
+# on all" over zero vectors. Adding the mechanism without a key makes those rows RED, and red is
+# what they should have been all along. A key is added here in an owner-approved commit as part of
+# a release ceremony, together with re-run, candidate-bound evidence signed by its private half
+# (scripts/sign_readiness_artifact.py).
+#
+# Separate from pre_tag_trusted_pubkeys.txt ON PURPOSE: a key that may attest routine release
+# evidence must not thereby be able to sign a pre-tag audit receipt. Two trust anchors, two scopes.
+
+# (no keys pinned yet)

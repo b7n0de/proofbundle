@@ -39,6 +39,29 @@ _braucht_yaml = unittest.skipUnless(
     "nicht messbarer Zustand ist kein Fehlschlag")
 
 
+# ── Die Attrappe fuer das veroeffentlichte Bein ist ECHT geworden ──────────────────────────────
+#
+# GRUND (Tiefen-Gate 2026-09-05, Fund L5-G7-04, P3). Hier stand fuenfmal
+# `"jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n"` — eine Zeile, die das Wort
+# „sdist" enthaelt und sonst nichts tut. Sie genuegte, solange `c1_1_two_ci_gates` das
+# veroeffentlichte Bein als Teilzeichenkette ueber die ganze Datei las. Seit die Pruefung das
+# YAML-Dokument liest und einen NICHT abgeschalteten Schritt verlangt, der einen Bau UND eine
+# Benutzung der Distribution deklariert, muss die Attrappe das auch tun.
+#
+# Das ist kein Nachgeben gegenueber der Aenderung, sondern die Korrektur einer Attrappe, die fuer
+# eine Teilzeichenketten-Pruefung geformt war: diese Tests handeln von der ci.yml-Haelfte, und ihre
+# andere Haelfte soll dabei ECHT sein und nicht zufaellig durchrutschen.
+_PUBLISHED_GATE_YML = (
+    "name: published-artifact-gate\n"
+    "on: [push]\n"
+    "jobs:\n"
+    "  cleanroom:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - run: python -m build --sdist --outdir dist\n"
+    "      - run: pip install dist/proofbundle.tar.gz\n")
+
+
 def _load(name: str, rel: str):
     spec = importlib.util.spec_from_file_location(name, REPO / rel)
     mod = importlib.util.module_from_spec(spec)
@@ -166,8 +189,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
             self.assertIn("ci.yml", detail)
@@ -178,8 +200,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text("name: nope\njobs:\n  x:\n    steps:\n      - run: echo hi\n")
             verdict, detail = self.m.c1_1_two_ci_gates(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
@@ -313,8 +334,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "# this workflow will run pytest one day\n"
                 "name: CI\n"
@@ -342,8 +362,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "name: CI\non: [push]\n"
                 "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
@@ -357,8 +376,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             wf = Path(td) / ".github" / "workflows"
             wf.mkdir(parents=True)
-            (wf / "published-artifact-gate.yml").write_text(
-                "jobs:\n  x:\n    steps:\n      - run: build sdist cleanroom\n")
+            (wf / "published-artifact-gate.yml").write_text(_PUBLISHED_GATE_YML)
             (wf / "ci.yml").write_text(
                 "name: CI\non: [push]\n"
                 "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
