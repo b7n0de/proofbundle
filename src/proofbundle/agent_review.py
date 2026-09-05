@@ -1834,13 +1834,19 @@ def _als_zeitpunkt(wert: object) -> float | None:
     roh = wert[:-1] + "+00:00" if wert.endswith("Z") else wert
     try:
         dt = datetime.fromisoformat(roh)
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
     if dt.tzinfo is None:
         # Ohne Zone ist der Zeitpunkt nicht bestimmt. Ihn als UTC zu lesen waere eine Annahme,
         # und eine Annahme ueber eine Zeit ist genau das, was dieses Modul nicht tut.
         return None
-    return dt.timestamp()
+    # RT-06-Nachbar (Sweep aller datetime-Stellen, 2026-09-05): ``timestamp()`` einer bewussten Zeit,
+    # deren UTC-Augenblick vor dem Jahr 1 liegt (``0001-01-01T00:00:00+23:00``), wirft OverflowError —
+    # aus einem signierten Praedikat heraus, auf einer Flaeche, die nie wirft. Nicht bestimmbar ist None.
+    try:
+        return dt.timestamp()
+    except OverflowError:
+        return None
 
 
 def _zeitachsen(predicate: dict) -> dict:
