@@ -1005,21 +1005,47 @@ def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False
 
 
 def _traegt_v02_felder(predicate: Any) -> bool:
-    """Ob das Predicate ein Feld traegt, das es NUR in v0.2 gibt — gelesen aus dem Predicate.
+    """Ob das Predicate ein Feld traegt, das v0.2 VERLANGT oder nur v0.2 kennt — aus dem Predicate.
 
     Die Renderer bekommen kein Statement und damit keinen predicateType; die Fassung muss aus dem
-    Gegenstand selbst kommen. Die Menge ist `_DECLARATION_FIELDS_V02`, nicht eine zweite Liste:
-    `limitationCodes` und `disclosureCoreDigest` sind in v0.1 zulaessig (optional) und taugen
-    deshalb nicht als Kennzeichen — gemessen an den sechs veroeffentlichten v0.1-Receipts und
-    dem v0.2-Korpus am 04.09.2026.
+    Gegenstand selbst kommen, oder der Aufrufer nennt sie (`legacy_v01=`), und dann gilt seine
+    Angabe.
+
+    DREI MARKER, NICHT EINER — und der Satz, der hier zuerst stand, war falsch. Er erklaerte
+    `limitationCodes` und `disclosureCoreDigest` fuer untauglich, weil v0.1 sie optional erlaubt,
+    und berief sich auf eine Messung. Nachgemessen am 05.09.2026 (Linse 1, PR 185): die SECHS
+    veroeffentlichten v0.1-Receipts tragen KEINEN der drei Marker, und von den zehn
+    v0.2-Predicates des Konformitaetskorpus tragen ZEHN die beiden Pflichtfelder und NULL ein
+    `timeClaims`. Der einzige Marker, den die erste Fassung las, war also genau der, der im
+    Korpus nie vorkommt: `_traegt_v02_felder` erkannte 0 von 10, und die drei v0.2-Gegenbeweise
+    (`limitation-codes-are-required`, `disclosure-core-digest-is-required`,
+    `fixcommit-must-be-the-full-sha`) rendern durch beide Flaechen, weil sie unter v0.1-Regeln
+    gelesen wurden.
+
+    Ein v0.1-Predicate, das eines der beiden Pflichtfelder traegt, wird damit unter v0.2-Regeln
+    geprueft. Das ist gewollt: wer die v0.2-Felder benutzt, bekommt die v0.2-Strenge, und wer
+    ausdruecklich v0.1 meint, sagt es dem Renderer mit `legacy_v01=True`.
     """
     if not isinstance(predicate, dict):
         return False
     dec = predicate.get("declaration")
-    return isinstance(dec, dict) and any(k in dec for k in _DECLARATION_FIELDS_V02)
+    if isinstance(dec, dict) and any(k in dec for k in _DECLARATION_FIELDS_V02):
+        return True
+    if "limitationCodes" in predicate:
+        return True
+    sc = predicate.get("subjectContext")
+    return isinstance(sc, dict) and "disclosureCoreDigest" in sc
 
 
-def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False) -> None:
+def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
+    """True = v0.2. Ein ausdruecklicher Parameter gewinnt; ohne ihn entscheiden die Marker."""
+    if legacy_v01 is not None:
+        return not legacy_v01
+    return _traegt_v02_felder(predicate)
+
+
+def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False,
+                                             legacy_v01: bool | None = None) -> None:
     """v0.1 oder v0.2, die Fassung aus dem Predicate gelesen — und die Strenge kommt mit ihr.
 
     GEMESSEN am 04.09.2026 beim ERSTEN echten v0.2-Receipt (PR 185): `render_disclosure_block`
@@ -1029,7 +1055,7 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
     v0.2-Predicate wird hier nicht nachsichtiger geprueft, sondern mit seinen strengeren Regeln;
     der v0.2-Pruefer enthaelt den v0.1.
     """
-    if _traegt_v02_felder(predicate):
+    if _fassung_fuer_renderer(predicate, legacy_v01):
         errs = validate_agent_review_v02_predicate(predicate, strict=strict)
         if errs:
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
@@ -1044,7 +1070,8 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
-def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None) -> str:
+def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None,
+                            legacy_v01: bool | None = None) -> str:
     """The human-visible block, derived deterministically from the predicate.
 
     NEVER STRONGER THAN THE MACHINE STATUS (F17, P1 test 28). The `Assurance` line reports the
@@ -1052,7 +1079,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
     """
-    require_valid_agent_review_predicate_any(predicate)
+    require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     cov = predicate["coverage"]
     runs = dec.get("reviewRuns") or []
@@ -1085,7 +1112,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
 
 def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url: str,
                            leaf_url: str | None = None, leaf_witnessed: bool = False,
-                           pruefweg: str | None = None) -> str:
+                           pruefweg: str | None = None, legacy_v01: bool | None = None) -> str:
     """The COMPACT form: one line, derived from the same predicate the receipt is signed over.
 
     WHY DERIVED AND NOT HAND-WRITTEN. A hand-written disclosure line drifts from the receipt without
@@ -1098,7 +1125,7 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
     """
-    require_valid_agent_review_predicate_any(predicate)
+    require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
@@ -2371,7 +2398,8 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     r = _empty_result()
     r.update({"event_time_status": "NOT_EVALUATED", "observation_time_status": "NOT_EVALUATED",
               "signature_time_status": "NOT_EVALUATED", "external_time_status": "NOT_EVALUATED",
-              "policy_decision": None})
+              "policy_decision": None, "time_consistency_ok": None,
+              "time_policy_decision": None})
     try:
         r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
                                                    payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
@@ -2472,6 +2500,31 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             if "COVERAGE_LEGACY_FIELDS" not in _adv:
                 _adv.append("COVERAGE_LEGACY_FIELDS")
             r["advisory_codes"] = _adv
+        # CONFLICT IST FATAL, UNABHAENGIG VON JEDER POLICY (Linse 1 auf PR 185, 05.09.2026).
+        #
+        # Das Modul sagte an zwei Stellen, CONFLICT werde "IMMER zu reject" — und meinte damit
+        # `evaluate_time_policy`, die im ganzen Baum KEINEN Produktions-Aufrufer hatte. Der
+        # Verifizierer rief nur `evaluate_limitation_policy`, und die liest keine Zeitachse.
+        # Gemessen: ein Predicate mit zwei einander widersprechenden `reviewCompleted`-Zeiten ist
+        # unter der MITGELIEFERTEN Standard-Policy ok=True und safeForAutomation=True gewesen.
+        # Die Behebung von 02.09. trug nur ueber POLICY_NOT_EVALUATED, also nur OHNE Policy —
+        # genau der Pfad, den die Policy-Achse abschafft.
+        #
+        # Zwei Zeitaussagen, die einander widersprechen, sind kein schwacher Beleg, sondern ein
+        # kaputter. Das ist eine Eigenschaft des Receipts, nicht der relying party — deshalb
+        # eigene Achse `time_consistency_ok`, eigener Code, und `ok` haengt daran.
+        _konflikt = [k for k in ("event_time_status", "observation_time_status")
+                     if r.get(k) == "CONFLICT"]
+        r["time_consistency_ok"] = not _konflikt
+        if _konflikt:
+            # Der Erzeuger steht DIREKT im append — die Ratsche der codelosen Fehlerstellen liest
+            # das Argument des Aufrufs, und ein Name davor zaehlte als Fehler ohne Code.
+            r["errors"].append(_shape_err(
+                "TIME_CLAIMS_CONFLICT",
+                f"{', '.join(_konflikt)} report CONFLICT — two time statements in this receipt "
+                f"contradict each other, which is a broken claim, not a weak one; no policy can "
+                f"accept it"))
+            _codes_sammeln(r["errors"][-1:])
         # DERSELBE Helfer wie in v0.1 — ein Fix, der nur eine Kopie erreicht, ist der
         # Fehlermodus, gegen den dieser Auftrag gebaut ist.
         _zielbindung(r, predicate, statement, expected_subject_digest)
@@ -2542,16 +2595,41 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             r["policy_name"] = _pe.get("policy_name")
             r["policy_digest"] = _pe.get("policy_digest")
             r["policy_reason"] = {k: v for k, v in _pe.items() if k != "decision"}
+            # DIE ZEIT-POLICY HAT JETZT EINEN AUFRUFER. Eine Policy-Datei darf unter `time` eine
+            # Zeitanforderung fuehren (`{"kind": "freshness" | "ttl" | ...}`); dann wird sie
+            # gegen die vier Achsen gehalten, und die strengere Entscheidung gewinnt:
+            # reject > insufficient_evidence > accept. Ohne `time` bleibt die Achse ungefahren
+            # (`time_policy_decision: None`) — die Standard-Policy fuehrt keine, und das steht
+            # im Ergebnis. Ein Mechanismus ohne Aufrufer war die Luecke, nicht die Mechanik.
+            _zp = policy.get("time")
+            if _zp is not None:
+                _achsen = {k: r.get(k) for k in ("event_time_status", "observation_time_status",
+                                                 "signature_time_status", "external_time_status")}
+                _ze = evaluate_time_policy(_achsen, _zp)
+                r["time_policy_decision"] = _ze["decision"]
+                r["policy_reason"]["time"] = _ze
+                _rang = {"accept": 0, "insufficient_evidence": 1, "reject": 2}
+                if _rang.get(_ze["decision"], 2) > _rang.get(r["policy_decision"], 0):
+                    r["policy_decision"] = _ze["decision"]
         except Exception as _pexc:  # noqa: BLE001 — never-raise bleibt die Zusage
             r["policy_decision"] = "insufficient_evidence"
+            # FATAL, ALSO AUCH IN reason_codes: die Entscheidung faellt auf insufficient_evidence,
+            # `ok` wird False — und ein Code, der `ok` kippt, gehoert in die Liste der Gruende,
+            # nicht nur in den Fehlertext (Linse 1 auf PR 185, F3/F7: dieselbe Tabelle).
             r["errors"].append(_shape_err(
                 "POLICY_NOT_EVALUABLE", f"policy could not be evaluated: {_pexc}"))
+            _codes_sammeln(r["errors"][-1:])
     else:
         r["policy_decision"] = None
-        codes = list(r.get("reason_codes") or [])
-        if POLICY_NOT_EVALUATED not in codes:
-            codes.append(POLICY_NOT_EVALUATED)
-        r["reason_codes"] = codes
+        # ADVISORY, NICHT REASON (Linse 1 auf PR 185, F7). Die Doku-Tabelle sagt: `reason_codes`
+        # traegt NUR fatale Codes — Gruende, aus denen `ok` False wurde. Ohne Policy bleibt `ok`
+        # unberuehrt; der Code beschreibt eine nicht gefahrene Achse, keinen Fehlschlag. Er stand
+        # trotzdem in `reason_codes` und oeffnete fuer die LISTE genau die Falle, die der Kommentar
+        # unten fuer den SKALAR schliesst. Die Automation blockt weiter (`policy_ok` None).
+        adv = list(r.get("advisory_codes") or [])
+        if POLICY_NOT_EVALUATED not in adv:
+            adv.append(POLICY_NOT_EVALUATED)
+        r["advisory_codes"] = adv
         # ANHAENGEN, NICHT ERSETZEN — dieselbe Regel wie in der Weiche, und ich habe sie hier
         # zuerst gebrochen. `reason_code` traegt den Grund des URTEILS; ihn mit
         # POLICY_NOT_EVALUATED zu belegen, weil er an DIESER Stelle noch None ist, verdraengt den
@@ -2596,7 +2674,8 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # Wert (etwa "escalate") kaeme still als ok=True durch, ohne dass jemand diese Zeile ansieht.
     # Eine Erlaubnisliste zwingt die Entscheidung an die Stelle, an der der Wert eingefuehrt wird.
     r["ok"] = bool(r["internal_consistency_ok"] and r["subject_expectation"] == "checked"
-                   and r.get("policy_decision") in ("accept", None))
+                   and r.get("policy_decision") in ("accept", None)
+                   and r.get("time_consistency_ok") is not False)
     if r["internal_consistency_ok"] and r["subject_expectation"] != "checked":
         r["errors"].append("ok=False because no expected subject digest was supplied")
 
@@ -2630,6 +2709,13 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
     # POLICY_NOT_EVALUATED weiter greift — "nicht gefragt" ist nicht "durchgefallen".
     _pd = r.get("policy_decision")
     r["policy_ok"] = None if _pd is None else (_pd == "accept")
+    # `time_consistency_ok` steht NICHT unter den Referenzen, und das ist die zweite Fassung. Die
+    # erste trug es dort ein, damit ein CONFLICT die Automation blockt — und fiel an zwei Riegeln:
+    # ein referenziertes Feld muss im byte-gepinnten `_empty_result` stehen (sonst blockt es in
+    # v0.1 still nie), und das Skelett darf sich nicht aendern. Beides braucht es nicht:
+    # `automation_summary` blockt seit dem 02.09. mit RECEIPT_NOT_OK, sobald `ok` nicht True ist,
+    # und `ok` haengt oben an `time_consistency_ok`. Die Flaeche ist damit nie nachsichtiger als
+    # das Urteil, ohne dass die v0.1-Form angefasst wird.
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["internal_subject_consistency_ok", "subject_binding_ok", "findings_root_ok", "assurance_ok"],
@@ -2659,12 +2745,47 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
     urteilt nicht neu. Ein Dispatcher, der das Urteil seiner Fassung nachbessert, waere ein
     zweiter Verifizierer mit demselben Namen.
     """
-    import base64 as _b64  # noqa: PLC0415
-    import json as _json   # noqa: PLC0415
+    import inspect as _insp  # noqa: PLC0415
+    from . import dsse  # noqa: PLC0415
+    from ._strict_json import loads_strict  # noqa: PLC0415
+    # ARGUMENTE JE FASSUNG (Linse 1 auf PR 185, F2). `**kw` lief ungefiltert in beide Zweige;
+    # `policy=` ist v0.2-only, und welcher Zweig laeuft, entscheidet der predicateType IM
+    # UMSCHLAG — also der Absender. Derselbe Aufruf war fuer v0.2 ein Urteil und fuer v0.1 ein
+    # roher TypeError. Ein Argument, das KEINE Fassung kennt, ist ein Fehler des Aufrufers und
+    # wird VOR dem Lesen des Umschlags gemeldet, fuer beide Fassungen gleich; ein Argument, das
+    # nur die andere Fassung kennt, wird weggelassen und im Ergebnis GENANNT.
+    _p02 = set(_insp.signature(verify_agent_review_v02).parameters) - {"envelope", "public_key"}
+    _p01 = set(_insp.signature(verify_agent_review).parameters) - {"envelope", "public_key"}
+    _fremd = sorted(set(kw) - _p02 - _p01)
+    if _fremd:
+        raise TypeError(f"verify_agent_review_any() got unexpected keyword argument(s) {_fremd} — "
+                        f"unknown to both predicate versions")
+
+    def _nur(erlaubt: set) -> tuple[dict, list]:
+        return ({k: v for k, v in kw.items() if k in erlaubt},
+                sorted(k for k in kw if k not in erlaubt))
+
+    def _vermerke_weggelassen(r: dict, weg: list) -> None:
+        if not weg:
+            return
+        r.setdefault("warnings", []).append(
+            f"argument(s) {weg} do not apply to this predicate version and were not evaluated")
+        adv = list(r.get("advisory_codes") or [])
+        if "ARGUMENT_NOT_APPLICABLE_TO_VERSION" not in adv:
+            adv.append("ARGUMENT_NOT_APPLICABLE_TO_VERSION")
+        if "policy" in weg:
+            r["policy_decision"] = None
+            if POLICY_NOT_EVALUATED not in adv:
+                adv.append(POLICY_NOT_EVALUATED)
+        r["advisory_codes"] = adv
+
     try:
-        # validate=True wie ueberall sonst im Modul: CPython verwirft sonst STILL jedes Zeichen
-        # ausserhalb des Alphabets, und zwei verschiedene Nutzlasten ergeben dieselben Bytes.
-        payload = _json.loads(_b64.b64decode(envelope["payload"], validate=True))
+        # DERSELBE DEKODER WIE DSSE (F6). Die DSSE-Spezifikation verlangt, dass ein Verifizierer
+        # beide base64-Alphabete annimmt, und `dsse.verify_envelope` tut das. Die erste Fassung
+        # dieser Weiche dekodierte nur das Standard-Alphabet: ein kryptografisch gueltiger
+        # url-safe Umschlag war direkt ok=True und ueber die Weiche ENVELOPE_UNREADABLE — eine
+        # zweite Wahrheit ueber dieselben Bytes. Und derselbe strikte JSON-Leser wie im Inneren.
+        payload = loads_strict(dsse.load_payload(envelope).decode("utf-8"))
         typ = payload.get("predicateType")
     except Exception:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche
         r = _empty_result()
@@ -2674,19 +2795,23 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
         r["predicateVersionStatus"] = "unknown"
         return r
     if typ == AGENT_REVIEW_PREDICATE_TYPE_V02:
-        r = verify_agent_review_v02(envelope, public_key, **kw)
+        kw02, weg = _nur(_p02)
+        r = verify_agent_review_v02(envelope, public_key, **kw02)
         r["predicateVersionStatus"] = "current"
+        _vermerke_weggelassen(r, weg)
         return r
     if typ == AGENT_REVIEW_PREDICATE_TYPE:
-        r = verify_agent_review(envelope, public_key, **kw)
+        kw01, weg = _nur(_p01)
+        r = verify_agent_review(envelope, public_key, **kw01)
         r["predicateVersionStatus"] = "legacy"
-        # ANHAENGEN, NICHT ERSETZEN: `reason_code` traegt den Grund des URTEILS. Ihn hier zu
-        # ueberschreiben hiesse, die Altfassung zum Grund eines Fehlschlags zu erklaeren, den sie
-        # nicht verursacht hat.
-        codes = list(r.get("reason_codes") or [])
-        if AGENT_REVIEW_LEGACY_V01 not in codes:
-            codes.append(AGENT_REVIEW_LEGACY_V01)
-        r["reason_codes"] = codes
+        # HINWEIS, NICHT GRUND (F7): die Altfassung ist kein Fehlschlag, und `reason_codes`
+        # traegt laut Doku-Tabelle nur fatale Codes. Der Ausweis steht in `advisory_codes`;
+        # `ok` und `reason_code` bleiben, was der byte-gepinnte v0.1-Verifizierer sagt.
+        adv = list(r.get("advisory_codes") or [])
+        if AGENT_REVIEW_LEGACY_V01 not in adv:
+            adv.append(AGENT_REVIEW_LEGACY_V01)
+        r["advisory_codes"] = adv
+        _vermerke_weggelassen(r, weg)
         return r
     r = _empty_result()
     r["ok"] = False
@@ -2759,9 +2884,65 @@ def load_policy(pfad=None) -> dict:
         raise AgentReviewError(f"policy is not valid UTF-8 JSON: {p}: {e}") from e
     if not isinstance(d, dict):
         raise AgentReviewError(f"policy must be a JSON object, got {type(d).__name__}: {p}")
+    _pruefe_policy_form(d, quelle=str(p))
     d["_digest"] = "sha256:" + _h.sha256(roh).hexdigest()
     d["_path"] = str(p)
     return d
+
+
+_POLICY_LISTENFELDER = ("blocking", "never_blocking")
+
+
+def _pruefe_policy_form(policy: dict, *, quelle: str | None = None) -> None:
+    """Die Form einer Policy pruefen — bevor irgendetwas aus ihr entscheidet.
+
+    GEMESSEN von Linse 1 auf PR 185 (05.09.2026): `blocking: "COVERAGE_PARTIAL"` (Zeichenkette
+    statt Liste) ergab `set()` ueber die ZEICHEN, `blocking_hit=[]`, decision=accept, ok=True,
+    safeForAutomation=True — und errors, warnings, reason_codes ALLE leer. Und
+    `require_coverage_status: "XPARTIALX"` machte aus dem Mengentest einen Teilstring-Test:
+    accept, wo die Liste `["COMPLETE"]` korrekt insufficient_evidence sagt. Ein Tippfehler in der
+    Datei schaltete das Tor lautlos ab. `load_policy` prueft die Datei beim Lesen, und weil eine
+    Policy auch als dict UEBERGEBEN werden kann, prueft `evaluate_limitation_policy` noch einmal —
+    dieselbe Funktion, nicht eine zweite Regel.
+
+    Unbekannte Codes in den Listen sind ebenfalls ein Fehler: ein Code, den kein Predicate je
+    traegt, sperrt nie, und das saehe aus wie eine Entscheidung. Unbekannte SCHLUESSEL bleiben
+    erlaubt — eine Policy darf Begruendungen und Messungen neben ihren Regeln fuehren.
+    """
+    wo = f" ({quelle})" if quelle else ""
+    for feld in _POLICY_LISTENFELDER:
+        if feld not in policy or policy[feld] is None:
+            continue
+        v = policy[feld]
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            raise AgentReviewError(f"policy{wo}: {feld} must be a list of code strings, not "
+                                   f"{type(v).__name__} — a string would be read as a set of "
+                                   f"characters and match nothing")
+        fremd = sorted(x for x in v if not is_member(x, LIMITATION_CODES))
+        if fremd:
+            raise AgentReviewError(f"policy{wo}: {feld} names unknown code(s) {fremd} — allowed: "
+                                   f"{sorted(LIMITATION_CODES)}")
+        if len(set(v)) != len(v):
+            raise AgentReviewError(f"policy{wo}: {feld} contains duplicates")
+    req = policy.get("require_coverage_status")
+    if req is not None:
+        if not isinstance(req, list) or not all(isinstance(x, str) for x in req):
+            raise AgentReviewError(f"policy{wo}: require_coverage_status must be a list of status "
+                                   f"strings or null, not {type(req).__name__} — a string would "
+                                   f"turn the membership test into a substring test")
+        fremd = sorted(x for x in req if not is_member(x, _COVERAGE_STATUS))
+        if fremd:
+            raise AgentReviewError(f"policy{wo}: require_coverage_status names unknown status(es) "
+                                   f"{fremd} — allowed: {sorted(_COVERAGE_STATUS)}")
+    zeit = policy.get("time")
+    if zeit is not None:
+        art = zeit.get("kind") if isinstance(zeit, dict) else None
+        if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
+            raise AgentReviewError(f"policy{wo}: time must be an object with kind in "
+                                   f"{sorted(_POLICY_ACHSE)}, got {zeit!r}")
+    name = policy.get("name")
+    if name is not None and not isinstance(name, str):
+        raise AgentReviewError(f"policy{wo}: name must be a string, not {type(name).__name__}")
 
 
 def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
@@ -2778,6 +2959,7 @@ def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
         raise AgentReviewError(f"predicate must be a dict, not {type(predicate).__name__}")
     if not isinstance(policy, dict):
         raise AgentReviewError(f"policy must be a dict, not {type(policy).__name__}")
+    _pruefe_policy_form(policy, quelle=policy.get("_path") if isinstance(policy.get("_path"), str) else None)
     codes = set(derive_limitation_codes(predicate))
     nie = set(policy.get("never_blocking") or [])
     sperrend = set(policy.get("blocking") or []) - nie

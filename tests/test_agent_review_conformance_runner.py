@@ -436,20 +436,32 @@ def _entschaerfe_sperrende_policy(d: Path):
     return _miss_policy(_v02_predicate_des_falls(d), AR.load_policy())
 
 
+def _heil(r: dict, feld: str, wert) -> bool:
+    """Geheilt heisst: die Achse zeigt den erwarteten Wert UND das Ganze ist ok.
+
+    GEMESSEN von Linse 2 auf PR 185 (05.09.2026): das Orakel las nur EIN Feld. Ein orthogonaler,
+    wohlgeformter Fremd-Defekt (falsche, aber formkorrekte findingsRoot) neben dem Zieldefekt
+    blieb ihm unsichtbar — nach dem Flip las es "geheilt", obwohl ok und internal_consistency_ok
+    weiter False standen. Ein Flip, der "genau seinen Defekt" wegnimmt, muss ein GUELTIGES Receipt
+    hinterlassen, sonst hat er etwas anderes weggenommen.
+    """
+    return r.get(feld) == wert and r.get("ok") is True
+
+
 _A5_ENTSCHAERFUNG = {
     "agent-review-v02-counter-proof-unknown-predicate-type-is-refused":
         (lambda d: _laeufer().miss_versionsstatus(_fall(d), d)["status"] == "unknown",
-         lambda d: _entschaerfe_fremde_fassung(d)[0] == "current"),
+         lambda d: _heil(_entschaerfe_fremde_fassung(d)[1], "predicateVersionStatus", "current")),
     "agent-review-v02-counter-proof-without-policy-nothing-is-decided":
         (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] is None,
-         lambda d: _entschaerfe_ohne_policy(d).get("policy_decision") == "accept"),
+         lambda d: _heil(_entschaerfe_ohne_policy(d), "policy_decision", "accept")),
     "agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence":
         (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"]
          == "insufficient_evidence",
-         lambda d: _entschaerfe_unbekannte_abdeckung(d).get("policy_decision") == "accept"),
+         lambda d: _heil(_entschaerfe_unbekannte_abdeckung(d), "policy_decision", "accept")),
     "agent-review-v02-counter-proof-blocking-policy-rejects":
         (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] == "reject",
-         lambda d: _entschaerfe_sperrende_policy(d).get("policy_decision") == "accept"),
+         lambda d: _heil(_entschaerfe_sperrende_policy(d), "policy_decision", "accept")),
 }
 
 

@@ -208,6 +208,11 @@ OHNE_TAFELZEILE = {
     "FIXCOMMIT_NOT_FULL_SHA": "wird von validate_agent_review_v02_predicate vergeben, nicht von "
                               "validate_statement_shape — tests/test_a4_fixcommit_volle_sha.py "
                               "(13 Faelle plus Gegenrichtung)",
+    # 05.09.2026, Linse 1 auf PR 185 (F1). Vergeben von `_verify_v02_inner`, sobald eine Zeitachse
+    # CONFLICT meldet — unabhaengig von jeder Policy. Eigene Testdatei mit dem gemessenen Fall
+    # (zwei einander widersprechende reviewCompleted-Zeiten unter der Standard-Policy: ok=True).
+    "TIME_CLAIMS_CONFLICT": "wird von _verify_v02_inner vergeben, nicht von "
+                            "validate_statement_shape — tests/test_linsen_pr185_funde.py",
     "POLICY_NOT_EVALUABLE": "wird von _verify_v02_inner vergeben, wenn eine UEBERGEBENE Policy "
                             "beim Auswerten wirft — tests/test_policy_nicht_auswertbar_hat_einen_"
                             "code.py. Dieser Code hatte beim ersten vollen Lauf KEINEN Test; "
@@ -257,6 +262,7 @@ AUFRUFSTELLEN_JE_CODE = {
     "CAP1_WITHHELD_WITHOUT_DIGEST": 1, "CAP1_BASIS_MISSING": 1, "CAP1_COUNTS_MALFORMED": 1,
     "CAP1_ABSENCE_UNSCOPED": 1, "CAP1_INCOMPLETE_CLAIMED_CLEAN": 1, "CAP1_SUPPORTS_MISSING": 1,
     "CAP1_RULE_UNMAPPED": 1, "CAP1_STATUS_CONTRADICTS_STRATA": 1,
+    "TIME_CLAIMS_CONFLICT": 1,
 }
 
 

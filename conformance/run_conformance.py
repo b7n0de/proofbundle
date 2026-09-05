@@ -556,12 +556,17 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
             return _fail(cid, f"predicateVersionStatus {m['status']!r} != expected {want!r} "
                               f"(codes {m['codes']})")
         if want == "legacy":
-            if "AGENT_REVIEW_LEGACY_V01" not in m["codes"]:
-                return _fail(cid, "legacy without the AGENT_REVIEW_LEGACY_V01 reason code")
+            # Der Ausweis ist ein HINWEIS (advisory_codes), kein Grund: die Altfassung ist kein
+            # Fehlschlag. Stuende er in reason_codes, waere das der Fund F7 der Linse 1.
+            if "AGENT_REVIEW_LEGACY_V01" not in m["advisory"]:
+                return _fail(cid, "legacy without the AGENT_REVIEW_LEGACY_V01 advisory code")
+            if "AGENT_REVIEW_LEGACY_V01" in m["codes"]:
+                return _fail(cid, "AGENT_REVIEW_LEGACY_V01 in reason_codes — a non-fatal note "
+                                  "listed as a reason for rejection")
             if m["ok"] != m["ok_v01_direct"]:
                 return _fail(cid, f"the dispatcher changed the v0.1 verdict: "
                                   f"ok {m['ok_v01_direct']} -> {m['ok']}")
-        if want == "current" and "AGENT_REVIEW_LEGACY_V01" in m["codes"]:
+        if want == "current" and "AGENT_REVIEW_LEGACY_V01" in m["codes"] + m["advisory"]:
             return _fail(cid, "a current receipt carries the legacy code")
         if want == "unknown" and (m["ok"] is not False
                                   or "AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN" not in m["codes"]):
@@ -581,8 +586,11 @@ def _check_agent_review_predicate(case: dict, case_dir: pathlib.Path, *,
             return _fail(cid, f"policy_decision {m['decision']!r} != expected {want!r} "
                               f"(codes {m['codes']})")
         if want is None:
-            if "POLICY_NOT_EVALUATED" not in m["codes"]:
-                return _fail(cid, "no policy, but POLICY_NOT_EVALUATED is missing from reason_codes")
+            if "POLICY_NOT_EVALUATED" not in m["advisory"]:
+                return _fail(cid, "no policy, but POLICY_NOT_EVALUATED is missing from advisory_codes")
+            if "POLICY_NOT_EVALUATED" in m["codes"]:
+                return _fail(cid, "POLICY_NOT_EVALUATED in reason_codes — an axis that was not run "
+                                  "listed as a reason for rejection")
         else:
             if not str(m["policy_digest"] or "").startswith("sha256:"):
                 return _fail(cid, f"a decision without the digest of its policy: {m['policy_digest']!r}")
@@ -768,6 +776,7 @@ def miss_versionsstatus(case: dict, case_dir: pathlib.Path) -> dict:
     status = r.get("predicateVersionStatus")
     direkt = ar.verify_agent_review(doc, key, **kw) if status == "legacy" else None
     return {"status": status, "ok": r.get("ok"), "codes": list(r.get("reason_codes") or []),
+            "advisory": list(r.get("advisory_codes") or []),
             "ok_v01_direct": (direkt or {}).get("ok")}
 
 
@@ -797,7 +806,8 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
     r = ar.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
                                    expected_subject_digest=ar._subject_digest(doc), policy=policy)
     return {"decision": r.get("policy_decision"), "ok": r.get("ok"),
-            "codes": list(r.get("reason_codes") or []), "policy_name": r.get("policy_name"),
+            "codes": list(r.get("reason_codes") or []),
+            "advisory": list(r.get("advisory_codes") or []), "policy_name": r.get("policy_name"),
             "policy_digest": r.get("policy_digest"), "errors": list(r.get("errors") or [])}
 
 

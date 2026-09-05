@@ -10,7 +10,7 @@
     "policy": "none"
   },
   "predicateVersion": "v0.2",
-  "rationale": "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Reason Code POLICY_NOT_EVALUATED (A3). Die Achse wurde nicht gefahren und sagt das; ein Verifizierer, der sich eine Policy ausdaechte, naehme dem Leser die Entscheidung ab, die ihm gehoert. Die Entschaerfung ist die Policy selbst: mit ihr wird derselbe Fall `accept`.",
+  "rationale": "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Hinweiscode POLICY_NOT_EVALUATED in advisory_codes \u2014 nicht in reason_codes, denn die Achse ist nicht durchgefallen, sie wurde nicht gefahren (A3). Sie sagt das; ein Verifizierer, der sich eine Policy ausdaechte, naehme dem Leser die Entscheidung ab, die ihm gehoert. Die Entschaerfung ist die Policy selbst: mit ihr wird derselbe Fall `accept`.",
   "role": "counter_proof",
   "rule": "A3",
   "specRefs": [

@@ -134,6 +134,16 @@ The `Assurance` line reports the **weakest** rung present and the `Limits` line 
 predicate's own limitations verbatim: a reader who only skims the block must not come away with a
 stronger impression than a verifier would report.
 
+The renderers read the predicate version from the predicate (`timeClaims`, `limitationCodes` or
+`subjectContext.disclosureCoreDigest` select v0.2) unless the caller states it with
+`legacy_v01=`; an explicit answer always wins over the markers.
+
+**The `Receipt:` line is the sha256 of the receipt file as published** — the value a reader
+recomputes with `sha256sum` on the `.receipt.json`. It is not `receipt_digest()`, the canonical
+digest of the envelope that supersession (`priorDigest`) and `resolve_receipt_chain` key on. The two
+differ by construction; a correction must cite the canonical digest, and a block's file hash is a
+locator, not a chain key.
+
 ## Verification axes
 
 `verify_agent_review` reports separate axes and never a single collapsed verdict:
@@ -153,7 +163,7 @@ Three fields, and the distinction between them is the point:
 |---|---|---|
 | `reason_codes` | **only fatal** codes — reasons the receipt was rejected | you want to branch on *why* it failed |
 | `reason_code` | the **first** entry of `reason_codes`, else `None` | you want one label and accept that it is a sample |
-| `advisory_codes` | notes that do **not** determine the outcome (e.g. `LEGACY_SELF_DECLARED_OBSERVED_AT`) | you want context; never as a rejection reason |
+| `advisory_codes` | notes that do **not** determine the outcome (`LEGACY_SELF_DECLARED_OBSERVED_AT`, `POLICY_NOT_EVALUATED`, `AGENT_REVIEW_LEGACY_V01`, `ARGUMENT_NOT_APPLICABLE_TO_VERSION`) | you want context; never as a rejection reason |
 
 **Branch on `in reason_codes`, not on `reason_code ==`.** The scalar is the *first* fatal code in
 check order, so an unrelated second defect in the same receipt can displace it while the defect you
@@ -233,15 +243,27 @@ What v0.2 adds, each with its conformance case:
   (`agent-review/default`); its name and sha256 digest appear in the result, so a later reading can
   say what the decision was made against. Decisions are `accept`, `reject` and
   `insufficient_evidence` (a coverage that is not stated is the absence of evidence, not evidence of
-  a defect). Without a policy the result carries `policy_decision: null`, the reason code
+  a defect). Without a policy the result carries `policy_decision: null`, the advisory code
   `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false; `ok` is unaffected, because a
   check that was not run is not a failed check. A `reject` or an `insufficient_evidence` sets `ok`
-  to false.
+  to false. The policy file itself is validated before it decides: `blocking`, `never_blocking` and
+  `require_coverage_status` must be lists of known names (a string would be read as characters and
+  match nothing), and a `time` block, if present, must name a known kind. A policy that fails this
+  reaches the result as `POLICY_NOT_EVALUABLE` with `insufficient_evidence`.
+- **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
+  axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
+  `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak
+  one. A policy may additionally carry a `time` block; it is evaluated with `evaluate_time_policy`,
+  reported as `time_policy_decision`, and the stricter decision wins. The standard policy carries
+  none.
 - **One dispatcher for both versions.** `verify_agent_review_any` reads the `predicateType` and
-  reports `predicateVersionStatus`: `current` for v0.2, `legacy` for v0.1 (with the reason code
+  reports `predicateVersionStatus`: `current` for v0.2, `legacy` for v0.1 (with the advisory code
   `AGENT_REVIEW_LEGACY_V01` added and the v0.1 verdict left untouched), `unknown` for anything else
   (refused with `AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN` before any signature check, so an unknown
-  version is never read under the rules of a known one).
+  version is never read under the rules of a known one). Keyword arguments are filtered per
+  version: one that neither version knows is a `TypeError` before the envelope is read, the same
+  for both; one that only the other version knows (today `policy=` on a v0.1 envelope) is dropped,
+  named in `warnings`, and marked with the advisory code `ARGUMENT_NOT_APPLICABLE_TO_VERSION`.
 
 Every rule above has a counter-proof and a positive control in `conformance/agent_review/`, and every
 counter-proof has a flip test in `tests/test_agent_review_conformance_runner.py` that removes exactly

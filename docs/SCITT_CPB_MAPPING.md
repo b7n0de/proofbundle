@@ -191,3 +191,290 @@ and discharged. Recorded here because a page about not overclaiming should show 
 This is a measurement record of **our** artefacts against a **published** text. It confers nothing,
 certifies nothing, and appoints no one to judge anyone's conformance. Whoever claims the profile runs
 its counter-proofs and publishes the result.
+
+## Mapping 2 — draft-dawkins-scitt-ai-article50-00 against our predicates
+
+Status: **measurement record**, same rules as the page above: field by field, our source location beside
+the draft's field, no judgement about the other side.
+
+**Measured 2026-09-04** against `origin/main` at `bde6c8692ba33052acae19b0ae962032329224d1` (merge of #182,
+`pyproject` 5.1.0), working branch `docs/scitt-mapping-artikel50-permit-cedulon` on the same commit. The
+draft side was read **from the draft itself**:
+`https://www.ietf.org/archive/id/draft-dawkins-scitt-ai-article50-00.txt`, fetched 2026-09-04T20:38:30Z,
+26273 bytes, sha256 `9b00c51450441ad2…`. An individual submission by one author (LedgerProof Foundation),
+intended status Standards Track, dated May 25 2026, expiring November 25 2026. Whether the working group
+has adopted it was NOT MEASURED (the datatracker state was not queried; the draft header alone was read).
+
+Our side: `src/proofbundle/decision.py` (required fields lines 37–40, nested closure lines 65–93),
+`src/proofbundle/agent_review.py` (required fields lines 112–123, declaration fields 104–109, v0.2 time
+claims 1573–1577, the `disclosureCoreDigest` rule 1644–1648), `docs/AGENT_REVIEW_PREDICATE.md`.
+
+Vocabulary of the last column, used in Mappings 2 to 4: **same** (same meaning and construction),
+**similar** (same purpose, different construction or scope), **different** (a field of that role exists but
+means something else), **NO COUNTERPART**.
+
+### Table 1a — `ai/article-50/v1` (synthetic content receipt), REQUIRED fields (§3.1)
+
+The nearest predicate on our side is `decision-receipt/v0.1`: it is the only one that names an AI system, a
+responsible party and a digest-bound object in one signed statement. It is a decision record, not a
+content-provenance record, and the rows say so where it matters.
+
+| draft field | draft status | our counterpart | meaning |
+|---|---|---|---|
+| `ai_system_id` | REQUIRED | `agent.id` (`decision.py:66`), a string identifying the acting AI system | similar — free-form at ours; `<provider>/<model>/<version>` recommended at theirs |
+| `ai_system_version` | OPTIONAL | `agent.version`, `agent.configurationDigest` (`decision.py:66`) | similar |
+| `deployer_id` | REQUIRED, a legal-entity identifier, never a natural person | `principal.id` (`decision.py:67`) names the party on whose behalf the action is proposed; `decisionMaker.id` (`:65`) names who decided | different — neither is constrained to a legal-entity identifier, neither carries the deployer role of Article 50 |
+| `deployer_name` | REQUIRED | — | NO COUNTERPART |
+| `deployer_country` | REQUIRED, ISO 3166-1 alpha-2 | — | NO COUNTERPART |
+| `content_category` | REQUIRED enum | — | NO COUNTERPART |
+| `artifact_hash` | REQUIRED, SHA-256 of the artifact, artifact never included | the in-toto `subject[].digest.sha256` of the Statement commits to the decision (`docs/predicates/decision-receipt.md` §4, e.g. `decision:<decisionId>`); `inputSnapshot[].digest` (`decision.py:92`) digests inputs | different — our subject commits to the decision, not to a generated artifact |
+| `artifact_content_type` | REQUIRED, IANA media type | `inputSnapshot[].mediaType` (`decision.py:92`), inputs only | similar for inputs, NO COUNTERPART for the produced artifact |
+| `artifact_bytes` | REQUIRED, > 0 | — | NO COUNTERPART |
+| `generation_type` | RECOMMENDED enum | — | NO COUNTERPART |
+| `transparency_marker` | REQUIRED, default `LPR-EU-AI-ACT-50` | — | NO COUNTERPART |
+| `enforcement_date` | REQUIRED, default `2026-08-02` | — | NO COUNTERPART |
+| `profile_version` | REQUIRED, default `EU-AI-ACT-50-v1.1` | `schemaVersion` plus the version inside `predicateType` (`decision-receipt.md` §5.3) | similar — both pin a receipt to a profile revision |
+| `is_public_interest`, `supervisory_authority`, `source_content_hash`, `perceptual_hash` | OPTIONAL | — | NO COUNTERPART |
+
+Count for 1a, REQUIRED fields only (11): same 0 · similar 2 · different 2 · NO COUNTERPART 7.
+
+### Table 1b — `ai/human-review/v1` (editorial review receipt), REQUIRED fields (§3.2), against `agent-review/v0.1` and `v0.2`
+
+| draft field | draft status | our counterpart | meaning |
+|---|---|---|---|
+| `original_entry_hash` | REQUIRED, hash of the registered original `ai/article-50/v1` statement | `subjectContext.reviewedDiffDigest`, `headSha`, `bodyCoreDigest` (`agent_review.py:117-118`) bind the reviewed object; `supersession` (`:114`, optional) binds a predecessor receipt; decision-receipt `evidenceRefs[].digest` binds a cited statement's content root | similar — both bind the review to exact bytes of what was reviewed; ours binds a pull request or an issue, not a registered statement |
+| `original_sequence` | REQUIRED, log sequence number | — | NO COUNTERPART (no transparency-log position in the predicate; checkpoints live in the public-transparency layer, `docs/predicates/README.md`) |
+| `reviewer_role` | REQUIRED, a role identifier, never a name | `declaration.authoring[].assertedBy` and `declaration.reviewRuns[].assertedBy` (`agent_review.py:104-105`; free text such as `"an agent"`), each with an `assurance` rung | similar — both name who reviewed without a personal identifier; theirs a role string, ours a free-text assertion carrying its assurance |
+| `reviewer_country` | REQUIRED | — | NO COUNTERPART |
+| `review_timestamp` | REQUIRED, ISO 8601 | v0.1 `times.declaredAt` (`:123`); v0.2 `declaration.timeClaims[]` with `kind: reviewCompleted`, `assertedBy`, `assurance` (`:1575-1577`) | similar — both issuer-declared; ours states the assurance of the time claim, `selfDeclared` being the only rung emitted today |
+| `review_type` | REQUIRED enum: SUBSTANTIAL_EDIT, FACTUAL_REVIEW, APPROVAL_ONLY | `declaration.reviewRuns[]` (the runs) and `findings[].disposition` (`fixed`, `dismissed`, `deferred`, `open`, `:101`) | different — ours records what was found and what became of it, not a class of review |
+| `reviewed_artifact_hash` | REQUIRED, post-review content | `subjectContext.reviewedDiffDigest` (`:118`) | similar — digest of the reviewed diff at ours, of the post-review content at theirs |
+| `is_public_interest` | REQUIRED | — | NO COUNTERPART |
+| `review_rationale` | OPTIONAL | `findings[].title`; the one-sentence reason a `dismissed` finding must carry (`docs/AGENT_REVIEW_PREDICATE.md`, Findings) | similar |
+
+Count for 1b, REQUIRED fields only (8): same 0 · similar 4 · different 1 · NO COUNTERPART 3.
+
+### Table 1c — `ai/chatbot-session/v1` (interactive AI receipt), REQUIRED fields (§3.3)
+
+| draft field | draft status | our counterpart | meaning |
+|---|---|---|---|
+| `session_id_hash` | REQUIRED | `traceContext.traceparent` (`decision.py:81`, W3C Trace Context) | different — a trace correlation id, not a hashed session commitment |
+| `ai_system_id` | REQUIRED | `agent.id` | similar, as in 1a |
+| `deployer_id`, `deployer_name`, `deployer_country` | REQUIRED | as in 1a | different · NO COUNTERPART · NO COUNTERPART |
+| `notification_timestamp` | REQUIRED | — | NO COUNTERPART |
+| `notification_method` | REQUIRED enum | — | NO COUNTERPART |
+| `notification_text_hash` | REQUIRED | — | NO COUNTERPART |
+| `obvious_exemption_claimed` | REQUIRED | — | NO COUNTERPART |
+
+Count for 1c, REQUIRED fields (9): same 0 · similar 1 · different 2 · NO COUNTERPART 6.
+
+### What a reader could do with an agent-review receipt under Article 50, and what not
+
+Can: check offline that a named key signed a self-declaration that an agent took part in a review of exactly
+these bytes (`reviewedDiffDigest`, `bodyCoreDigest`), how many review runs were declared, which findings
+were declared with which disposition, and that the receipt has not changed since.
+
+Negation list:
+
+- It is not an `ai/article-50/v1` receipt: no `content_category`, no `transparency_marker`, no `deployer_*`,
+  no `artifact_bytes`. It cannot serve as the machine-readable marking of Article 50(2).
+- It is not an `ai/human-review/v1` receipt: no `review_type`, no `is_public_interest`, no
+  `original_entry_hash` to a registered statement, no same-deployer check (§4.1 step 6). It cannot by itself
+  support the Article 50(4) editorial-review exemption.
+- It is not registered with a Transparency Service and carries no `original_sequence`; §4.2 steps 1 and 7
+  (registration, substrate anchoring) have no object to act on.
+- It does not identify a legal entity; `assertedBy` is free text at `selfDeclared` assurance, and the
+  predicate's own text says a strong signature must not optically harden a weak self-report.
+- It says nothing about content generation: the reviewed object is a pull request or an issue, not
+  synthetic media.
+
+NOT MEASURED: the draft's Appendix A (C2PA mapping) is announced in §1.3, but the fetched -00 text ends at
+the author's address without an appendix; whether a later revision carries it was not checked.
+
+## Mapping 3 — draft-munoz-scitt-permit-profile-01 and the override thread against decision-receipt, action-outcome and relation
+
+Status: measurement record. Measured 2026-09-04 against the same commit as Mapping 2. Draft side read from
+the draft itself: `https://www.ietf.org/archive/id/draft-munoz-scitt-permit-profile-01.txt`, fetched
+2026-09-04T20:38:30Z, 72262 bytes, sha256 `1dbcbd215445b86e…`; an individual submission, Informational,
+18 July 2026, expiring 19 January 2027. Its own Section 11 states that the reference implementation emits no
+COSE_Sign1 today and that Closure Records are best-effort; those statements are the draft's, repeated here
+because they bound what the mapping below can mean.
+
+The override sentence of the list thread "Escalation and hold-window semantics" (4 September 2026) is taken
+**as relayed in our order of the same day**: an override is a subsequent attested statement with a reference
+to the subject. A search of the `scitt` list archive for `hold-window` on 2026-09-04 returned nothing
+through the archive's search page, so the thread text itself is **NOT MEASURED** here and the sentence is not
+quoted as the authors' words.
+
+Our side: `src/proofbundle/decision.py` as above; `src/proofbundle/outcome.py` (required fields lines
+41–52, `decision_bound` 608–609, `role_separation_ok` 617–618, `execution_proven` 647, aggregate `ok` 817);
+`src/proofbundle/relation.py` (vocabulary line 39, edge fields 64–66, caps 52–53); `docs/predicates/relation.md`.
+
+### Table 2a — the Permit object (§2, §3.1) against `decision-receipt/v0.1`
+
+| Permit element | our counterpart | meaning |
+|---|---|---|
+| `id` | `decisionId` (`decision.py:38`) | same |
+| `project_id`, tenancy scope | — | NO COUNTERPART |
+| `decision`: `allow` / `deny` / `challenge` | `decision.verdict`: `ALLOW` / `DENY` / `REFUSE` / `ESCALATE` / `DEFER` / `OBSERVE` (`:33`) | similar — `challenge` has no single counterpart, `ESCALATE` and `DEFER` are the nearest; ours carries three more values |
+| `subject_type` + `subject_id`, e.g. the agent's SPIFFE URI | `agent.id` (`:66`) for the acting agent; `principal.id` (`:67`) for the party on whose behalf | similar — the acting agent maps to `agent`; there is no type discriminator |
+| resource identifier and action label (`resource_provider`, `resource_model`, `action_name`) | `proposedAction.actionType`, `.target{name,uri,digest}`, `.method` (`:69-72`) | similar |
+| `policy_id` + `policy_version` | `policyBoundary.policyId`, `.bundleRevision`, `.policyDigest`, `.policyEngine`, `.decisionPath` (`:73-74`) | same for `policy_id`; similar for the version, which we pin by digest and bundle revision |
+| `request_fingerprint`, SHA-256 over stripped request semantics, for replay correlation | `proposedAction.parametersDigest` (`:69`) | similar — a digest of the parameters, without the draft's strip-and-canonicalize pipeline |
+| `binding_request_hash`, SHA-256 over the canonical wire bytes after volatile-key and credential-key stripping (§4) | `proposedAction.parametersDigest`, `inputSnapshot[].digest` (`:92`) | different — ours digests declared parameters or inputs with the algorithm in the key name; the draft commits to the canonical dispatched bytes under a documented pipeline |
+| parent Permit id plus lineage evidence for Authority Attenuation (§3.7) | `delegationRefs[]` (`:51`, optional) and a `relationships[]` edge `derivedFrom` (`relation.py:39`) | similar for the reference; NO COUNTERPART for attenuation: no Authority Representation, no Comparator Profile, no narrower-or-equal check |
+| `created_at` | `decidedAt` (`:38`) | same |
+| `decision_details`, `constraints` (optional) | `decision.reasonCodes`, `.humanReadableSummary`, `.obligations`, `.allowedScope` (`:83`) | similar |
+
+Count for 2a (11 elements): same 3 · similar 5 · different 1 · NO COUNTERPART 2, one of them the attenuation half of a shared row.
+
+### Table 2b — the Closure Record (§3.2) and the verifier duties (§3.6) against `action-outcome/v0.1`
+
+| draft element | our counterpart | meaning |
+|---|---|---|
+| Closure Record, a second Signed Statement paired to the Permit | an `action-outcome` Statement citing the decision by `decisionRef.sha256` (`outcome.py:42`) | similar — both are second signed objects; ours is signed by the executor, theirs by the Issuer (§3.5 permits Issuer and Transparency Service to be one operator) |
+| `dispatch_request_digest_v1` | `requestedActionDigest.sha256` (`:42`) | similar |
+| `provider_response_digest_v1` | `responseDigest.sha256` (`:45`) | same |
+| `client_response_digest_v1` | `effectDigest.sha256`, `actualActionDigest.sha256` (`:45`) | similar |
+| status, timing | `status` (`executed` / `refused` / `failed` / `partial`), `performedAt` (`:43`) | similar |
+| accounting fields | — | NO COUNTERPART |
+| §3.6 step 3: `dispatch_request_digest_v1` equals `binding_request_hash` | `decision_bound` (`outcome.py:608-609`): `decisionRef.sha256` equals the content root the caller expects | different — ours binds the outcome to the whole decision statement, not to request bytes; no verifier check compares `requestedActionDigest` with the decision's `proposedAction.parametersDigest` (measured: the outcome verify path never reads the decision predicate) |
+| §3.6 step 4: response digests present for `closed` | `execution_proven` (`:647`, `outcome_execution_proven` `:224`): `executed` plus an effect or actual-action digest | similar — both are digest-presence checks; ours labels the legacy boolean as attacker-choosable content and points to `evidence_levels` (`:714-730`) |
+| §3.6 step 5: Authority Attenuation | — | NO COUNTERPART |
+| executor distinct from decision maker | `role_separation_ok` (`:617-618`, when `decision_maker_id` is supplied) | the draft has no such check; recorded because it is the one axis on which our check is the stricter one |
+| Receipt: per-scope linked chain plus signed checkpoint (§3.3) | detached anchors (RFC 3161, OpenTimestamps, chia-datalayer; `decision-receipt.md` §8) and C2SP checkpoints with witness cosignatures (`SPEC.md` §7c–7d) | different construction, same purpose: inclusion and existence before a time |
+
+### Table 2c — the override against `relation/v0.1`
+
+Override semantics, as relayed: a subsequent attested statement that references the subject. At ours that
+is a **new** decision-receipt or action-outcome carrying a typed, signed back-edge in `relationships[]`
+(`relation.py:39,64-66`; `docs/predicates/relation.md` §2) to the predecessor's content root, or a standalone
+`relation-statement/v0.1` when no successor result is emitted.
+
+Real bytes from the conformance corpus, not invented:
+`conformance/relation/declared-supersedes-verified/receipt.json`, predicate `relationships[0]`:
+
+```json
+{"relation": "supersedes",
+ "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1",
+                         "digest": "12a292f7217cb61832a1080007d99a4ab0cc6c109214ec5da98ddf4c64546fa1"},
+ "reasonCode": "correction",
+ "declaredAt": "2026-07-16T00:00:00Z"}
+```
+
+Measured 2026-09-04 with proofbundle 5.1.0: `statement_content_root` over the predecessor `related_b.json`
+(subject `decision:d-predecessor`) is `12a292f7217cb61832a1080007d99a4ab0cc6c109214ec5da98ddf4c64546fa1`,
+equal to the edge digest; the corpus case expects exit 0 and lineage `VERIFIED`.
+
+| what the relayed sentence asks of an override | `relation/v0.1` | meaning |
+|---|---|---|
+| a subsequent statement | a new receipt carrying the edge, or a relation-statement | same |
+| attested | DSSE-signed; the edge sits inside the signed bytes (`relation.md` §2) | same |
+| references the subject | `targetReceiptDigest`, the content root of the exact predecessor bytes; optional `targetSubjectDigest`, binding when present (`relation.md` §5) | similar — the reference is to the predecessor statement, and optionally to its subject |
+| replaces or narrows what was permitted | `supersedes` / `corrects` / `revises` / `retracts` (`relation.py:39`); who may declare it and which parent is admissible are trust-policy pins (`relation_signer`, `require_relation_target`) | similar — the relation is typed; whether the successor's authority is narrower is NOT compared |
+| a hold window in which an override is admissible | — | NO COUNTERPART — `declaredAt` is informative only (`relation.md` §2); the format has no time window |
+
+What `relation` can: express change as a declared, signed back-edge over exact bytes; report four lineage
+states; let a relying party require resolution, reject a superseded or retracted target, pin the signer
+and the parent. What it cannot: revoke the predecessor's cryptography; show that the successor is better,
+correct or authorized; compare scopes; express a time window. The profile's own boundary, verbatim:
+*relationship declared by issuer, not a statement of correctness.*
+
+## Mapping 4 — draft-dogru-cedulon-decision-profile-00 against decision-receipt and action-outcome
+
+Status: measurement record. Measured 2026-09-04 against the same commit. Draft side read from the draft
+itself: `https://www.ietf.org/archive/id/draft-dogru-cedulon-decision-profile-00.txt`, fetched
+2026-09-04T20:38:30Z, 55082 bytes, sha256 `d44c50eaaa28101c…`; an individual submission, Informational,
+4 September 2026, expiring 8 March 2027. Its own text calls its requirement language provisional (§1) and
+reports one companion implementation with eighteen conformance cases and no independent implementation
+(§11). The companion repository (`dogrucanemek-alt/cedulon`, commit `da7bf9b` as named on the list) was
+NOT read; only the draft was.
+
+### Table 3a — the Decision Record claim set (§4.1, all twelve labels always present) against `decision-receipt/v0.1`
+
+| claim (label) | our counterpart | meaning |
+|---|---|---|
+| `decider` (-70501) | `decisionMaker.id` (`decision.py:65`) | same |
+| `subject` (-70502), opaque identifier of the requesting party | `principal.id` (`:67`); `agent.id` (`:66`) when the requester is the agent | similar |
+| `requestHash` (-70503), SHA-256 of the evaluated request in a stated canonical encoding | `proposedAction.parametersDigest` (`:69`), `inputSnapshot[].digest` (`:92`) | similar — neither format fixes the hashed encoding of the request; the draft demands a deployment statement of what is hashed (§4.1), ours offers `parametersSchemaRef` (`:69-70`) |
+| `policyHash` (-70504) | `policyBoundary.policyDigest` (`:73`, required in strict mode) | same |
+| `inputsHash` (-70505), or null | `inputSnapshot[]`, one digest per input (`:92`) | similar — one hash over further context at theirs, one per input at ours |
+| `decision` (-70506): `allow` / `deny` / `defer` | `decision.verdict` (`:33`): `ALLOW`; `DENY` or `REFUSE`; `DEFER` or `ESCALATE`; plus `OBSERVE` | similar |
+| `reasonCode` (-70507), carried not interpreted | `decision.reasonCodes[]` (`:83`) | same, a list instead of one |
+| `ref` (-70508), the channel reference under which the allowed effect will appear | `proposedAction.target.name` / `.uri` (`:70`) names the target of the action | different — ours names what is acted on, not the reference an effect will carry on a channel |
+| `effectHash` (-70509), content hash of the effect the decider allowed; null on a refusal | — on the decision side | NO COUNTERPART — the decision-receipt carries no commitment to the content of the effect; `effectDigest` exists only on the executor's `action-outcome` (`outcome.py:45`) |
+| `timestampMs` (-70510) | `decidedAt` (`:38`, RFC 3339 `Z`) | same |
+| `nonce` (-70511), identifies the record | `decisionId` (`:38`); `validity.nonce` (`:88`) is a relying-party freshness nonce | similar |
+| `prevRecordHash` (-70512), the Decider's chain | — | NO COUNTERPART — no per-decider chain; `relationships[]` edges are optional and typed (`relation.py:39`); `run-ledger` chains the runs of one study, not decisions |
+| epoch checkpoint totals per decision kind (§4.4) | — | NO COUNTERPART |
+
+Count for 3a (12 claims): same 4 · similar 4 · different 1 · NO COUNTERPART 3.
+
+### Table 3b — the Effect Extract (§5.1) against `action-outcome/v0.1` with `execution_proven`
+
+| draft element | our counterpart | meaning |
+|---|---|---|
+| extract body: `deciderId`, `channelId`, `windowStartMs`, `windowEndMs`; one decider, one channel, one window | — | NO COUNTERPART — there is no population object; a `verification-summary` lists levels, not a window (`docs/predicates/README.md`) |
+| row `ref`, the match key | `decisionRef.sha256` (`outcome.py:42`) is our match key | similar — both bind a row to a decision; theirs by channel reference, ours by the decision statement's content root |
+| row `effectHash` | `effectDigest.sha256` / `actualActionDigest.sha256` (`:45`) | same in meaning; both sides must state the hashed octets, neither format fixes them |
+| row `effectClass` | — | NO COUNTERPART (the draft names the unbound class as its own gap D6) |
+| row `timestampMs` | `performedAt` (`:43`) | same |
+| row `actor`, optional | `receiverRefs[].receiverId` (`:50`, optional) | similar |
+| extract signed by an extract root independent of the decider root, Ed25519 over the RFC 8785 body, key held out of band (§5.2, §7, MUST-DP-9) | the outcome is DSSE-signed by the **executor**; `executor_role_trusted` against a Trust Pack role when supplied (`docs/predicates/action-outcome.md` §5.8); `role_separation_ok` (`outcome.py:617-618`) | similar — both demand a key held outside the record and a party other than the decider; ours documents that a receipt about an effect is not an observation of it (`action-outcome.md` §7) |
+| binding of an `allow` to a row with equal `effectHash` (§6.1) | `execution_proven` (`:647`) | similar — ours is digest presence on the executor's own record, self-asserted unless `receiverRefs` corroborate; theirs requires an independent row |
+
+### Table 3c — the reconciliation rule (§6.1) against what our verifier checks between a decision and an outcome
+
+| draft rule | our verifier | meaning |
+|---|---|---|
+| an `allow` and a row bind when `effectHash` is equal; a difference is `effect-mismatch` | no comparison between a decision's declared parameters and an outcome's effect digest exists; the outcome verify path (`outcome.py:493-833`) reads only the outcome predicate, and `decision_bound` (`:608-609`) compares `decisionRef` with a caller-supplied root | NO COUNTERPART |
+| an `allow` with no row: `decision-without-effect` | — a decision that no outcome cites is invisible to every verify path | NO COUNTERPART |
+| a row with no record: `effect-without-decision` | an outcome whose `decisionRef` resolves to nothing: `decision_bound` stays `None` unless the caller supplies the expected root (`:608`) | similar, in the caller-supplied case only |
+| a row whose `ref` a refusal names: `effect-against-refusal` | **measured 2026-09-04 on proofbundle 5.1.0**: a decision-receipt with `verdict: DENY` and an action-outcome with `status: executed` citing it by content root verify with `ok: true`, exit 0, `decision_bound: true`, `role_separation_ok: true`, `execution_proven: true`, and no warning about the verdict; the verdict is never read on the outcome path | NO COUNTERPART |
+| conservation counts published with the population (§6.2, MUST-DP-8) | — | NO COUNTERPART (see G4 above and the CAP-1 discussion there) |
+
+Finding name `effect-against-refusal`: **no** — no finding, reason code or test with that meaning exists at
+ours (grep over `src/`, `docs/`, `README.md`, `SPEC.md` on 2026-09-04: the only `refusal` hits are
+validator refusals of malformed input).
+
+Count for 3c (5 rules): same 0 · similar 1 · different 0 · NO COUNTERPART 4.
+
+### What a reader could do with our pair of receipts under the Cedulon profile, and what not
+
+Can: verify that an executor signed an outcome that cites one specific decision statement by content root,
+that the executor is not the decision maker when both identities are supplied, and that the outcome
+carries an effect digest.
+
+Negation list:
+
+- It is not a Decision Record: no `ref`, no `effectHash` on the decision side, no `prevRecordHash`, no
+  checkpoint totals, not COSE_Sign1, not `application/cedulon-decision-record+cbor`.
+- It is not an Effect Extract: no decider, channel or window scope, no row list, no extract root.
+- It is not a reconciliation: nothing on our side pairs the population of decisions with the population of
+  effects; an effect against a refusal is not a finding here, it is a verifying pair (measured above).
+- `execution_proven` is a self-asserted digest presence, which our own verifier labels as such; it is not an
+  independent row.
+
+### Which draft claims were checked at source, Mappings 2 to 4
+
+| Claim | Draft | Section | Result |
+|---|---|---|---|
+| three content types, field lists and REQUIRED/OPTIONAL status | dawkins-00 | 3.1–3.3 | holds, read at source |
+| validation step 6 requires the same deployer for human-review | dawkins-00 | 4.1 | holds |
+| an Appendix A with a C2PA mapping exists | dawkins-00 | 1.3 | **not in the fetched text**; the document ends without an appendix |
+| Permit minimum content | munoz-01 | 2 | holds |
+| Closure digest equality is a MUST for verifiers | munoz-01 | 3.2, 3.6 | holds; the draft itself states the reference implementation copies the value rather than re-measuring (8.3) |
+| no COSE_Sign1 emitted today | munoz-01 | 5, 11 | holds |
+| twelve claims, labels -70501 to -70512 | dogru-00 | 4.1 | holds |
+| an allow needs `ref` and `effectHash`, a refusal carries `effectHash` null | dogru-00 | 4.2 | holds |
+| four new finding codes including `effect-against-refusal` | dogru-00 | 6.3 | holds |
+| override is a subsequent attested statement with a reference | list thread, 4 Sep 2026 | — | **NOT MEASURED** at source; taken from our order's wording |
+
+### Honest limit of Mappings 2 to 4
+
+These are field-level and rule-level correspondences read from three individual drafts against our code and
+docs on one day. They confer nothing and certify nothing. A "similar" is a similarity of purpose, not of
+bytes; a "NO COUNTERPART" is a fact about our artefacts on 2026-09-04, not a plan. The one measurement that
+goes beyond reading, a `DENY` decision paired with an `executed` outcome verifying cleanly, is reproducible
+with `proofbundle decision init|emit` and `proofbundle outcome init|emit|verify` on 5.1.0 and is recorded
+here so that it cannot be mistaken for a rule the verifier enforces.
