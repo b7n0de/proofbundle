@@ -18,6 +18,7 @@ technique Debian's ``strip-nondeterminism`` applies; here it is inlined with no 
 CLI:
   python scripts/build_reproducible.py [--outdir DIR] [--epoch N]   # build one normalised sdist
   python scripts/build_reproducible.py --check                      # build twice, prove byte-identical
+  python scripts/build_reproducible.py --check --json               # the same, machine-readable
 
 Exit 0 on success; ``--check`` exits non-zero if the two normalised sdists differ.
 """
@@ -112,16 +113,35 @@ def build_normalized(outdir: Path, epoch: int, *, no_isolation: bool = False) ->
     return dst, digest
 
 
-def check_reproducible(epoch: int, *, no_isolation: bool = False) -> int:
+#: Schema des maschinenlesbaren Ergebnisses. Es gibt es, weil der Aufrufer sonst PROSA lesen muss:
+#: `audit_candidate_matrix.c9_1_two_sdists_identical` leitete sein Urteil aus den Teilzeichenketten
+#: "reproducible ok" / "byte-identical" / "not reproducible" der Standardausgabe ab. Eine
+#: freigabeentscheidende Zeile, die einen Satz liest, aendert ihr Urteil, sobald jemand den Satz
+#: umformuliert (Tiefen-Gate 2026-09-05, Sweep der Klasse A).
+MEASUREMENT_SCHEMA = "proofbundle.reproducible_sdist_check.v1"
+
+
+def measure_reproducible(epoch: int, *, no_isolation: bool = False) -> dict:
+    """Zwei normalisierte sdists bauen und STRUKTURIERT berichten. Keine Prosa im Ergebnis."""
     with tempfile.TemporaryDirectory(prefix="pb_repro_a_") as a, \
          tempfile.TemporaryDirectory(prefix="pb_repro_b_") as b:
         _, da = build_normalized(Path(a), epoch, no_isolation=no_isolation)
         _, db = build_normalized(Path(b), epoch, no_isolation=no_isolation)
-    if da == db:
+    return {"schema": MEASUREMENT_SCHEMA, "reproducible": da == db,
+            "sha256_a": da, "sha256_b": db, "epoch": epoch}
+
+
+def check_reproducible(epoch: int, *, no_isolation: bool = False, as_json: bool = False) -> int:
+    r = measure_reproducible(epoch, no_isolation=no_isolation)
+    da, db = r["sha256_a"], r["sha256_b"]
+    if as_json:
+        import json as _json  # noqa: PLC0415
+        print(_json.dumps(r, sort_keys=True))
+    elif r["reproducible"]:
         print(f"REPRODUCIBLE OK: two normalised sdists are byte-identical\n  sha256={da}\n  epoch={epoch}")
-        return 0
-    print(f"NOT REPRODUCIBLE: sdist sha256 differ\n  run A={da}\n  run B={db}")
-    return 1
+    else:
+        print(f"NOT REPRODUCIBLE: sdist sha256 differ\n  run A={da}\n  run B={db}")
+    return 0 if r["reproducible"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,10 +154,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="build twice and prove the normalised sdists are byte-identical")
     p.add_argument("--no-isolation", action="store_true",
                    help="pass --no-isolation to `python -m build` (offline host with build deps present)")
+    p.add_argument("--json", action="store_true",
+                   help="with --check: print the machine-readable measurement instead of prose")
     args = p.parse_args(argv)
     epoch = args.epoch if args.epoch is not None else head_commit_epoch()
     if args.check:
-        return check_reproducible(epoch, no_isolation=args.no_isolation)
+        return check_reproducible(epoch, no_isolation=args.no_isolation, as_json=args.json)
     dst, digest = build_normalized(args.outdir, epoch, no_isolation=args.no_isolation)
     print(f"built normalised sdist: {dst}\n  sha256={digest}\n  epoch={epoch}")
     return 0
