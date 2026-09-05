@@ -380,23 +380,39 @@ and the parent. What it cannot: revoke the predecessor's cryptography; show that
 correct or authorized; compare scopes; express a time window. The profile's own boundary, verbatim:
 *relationship declared by issuer, not a statement of correctness.*
 
-## Mapping 4 — draft-dogru-cedulon-decision-profile-00 against decision-receipt and action-outcome
+## Mapping 4 — draft-dogru-cedulon-decision-profile-02 against decision-receipt and action-outcome
 
 Status: measurement record. Measured 2026-09-04 against the same commit. Draft side read from the draft
 itself: `https://www.ietf.org/archive/id/draft-dogru-cedulon-decision-profile-00.txt`, fetched
 2026-09-04T20:38:30Z, 55082 bytes, sha256 `d44c50eaaa28101c…`; an individual submission, Informational,
 4 September 2026, expiring 8 March 2027. Its own text calls its requirement language provisional (§1) and
-reports one companion implementation with eighteen conformance cases and no independent implementation
-(§11). The companion repository (`dogrucanemek-alt/cedulon`, commit `da7bf9b` as named on the list) was
-NOT read; only the draft was.
+reports one companion implementation with eighteen conformance cases in -00, twenty in -01 and -02, and no
+independent implementation (§11; -02 §11, lines 1256–1258, records the companion as published at 0.13.0 on
+4 September 2026). The companion repository (`dogrucanemek-alt/cedulon`) was NOT read; two pins the author
+named were checked by API on 2026-09-05 (see "Verifying pairs on record" below).
 
-### Table 3a — the Decision Record claim set (§4.1, all twelve labels always present) against `decision-receipt/v0.1`
+**Revision 3, 2026-09-05.** The -00 text was fetched at 2026-09-04T20:38:30Z; -01 was posted at 20:38Z the
+same day, the minute of that fetch, and -02 followed on 2026-09-05. The author read Revision 2 row by row
+against -00 and named two cells that read the draft differently from what it says (`requestHash` in 3a, the
+extract root in 3b) and three overtaken by -01 (`effectClass`, the Decider's chain, the missing media type).
+Exactly those five were re-measured against -02, read from the draft itself:
+`https://www.ietf.org/archive/id/draft-dogru-cedulon-decision-profile-02.txt`, fetched
+2026-09-05T12:07:34Z, 72041 bytes, sha256 `0051d9924b4c4e98…`, 5 September 2026, expiring 9 March 2027.
+Line numbers below for -02 refer to that text file. -01 (fetched 2026-09-05T11:55:36Z, 65797 bytes, sha256
+`555d2fe2294670d4…`) was read for comparison: of the five, -02 tightens the wording of two (`requestHash`,
+MUST-DP-9, its own "Changes from -01": "two sentences tightened after a reader's mapping") and leaves three
+unchanged. Every other row stands as measured against -00; the author's reading says the rest is as written,
+and the change logs of -01 and -02 list nothing that reaches another row except the one -02 statement noted
+under Table 3c. -02 cites this page as `[B7N0DE]` (§8.1 lines 993–1001, reference lines 1405–1409, by the
+URL of this file on `main`), which is why this file keeps its path and name.
+
+### Table 3a — the Decision Record claim set (§4.1, all thirteen labels always present since -01; a twelve-label record is refused, -02 lines 373–377) against `decision-receipt/v0.1`
 
 | claim (label) | our counterpart | meaning |
 |---|---|---|
 | `decider` (-70501) | `decisionMaker.id` (`decision.py:65`) | same |
 | `subject` (-70502), opaque identifier of the requesting party | `principal.id` (`:67`); `agent.id` (`:66`) when the requester is the agent | similar |
-| `requestHash` (-70503), SHA-256 of the evaluated request in a stated canonical encoding | `proposedAction.parametersDigest` (`:69`), `inputSnapshot[].digest` (`:92`) | similar — neither format fixes the hashed encoding of the request; the draft demands a deployment statement of what is hashed (§4.1), ours offers `parametersSchemaRef` (`:69-70`) |
+| `requestHash` (-70503), SHA-256 of the evaluated request; the encoding is fixed by the draft (§4.1, -02 lines 398–402: *"The encoding is fixed: the canonical encoding of Section 7 of [CEDULON] when the request is a JSON document, and its UTF-8 octets when it is text. The request's fields are not fixed by this document, and a deployment MUST state what it hashes."*) | `proposedAction.parametersDigest` (`:69`), `inputSnapshot[].digest` (`:92`) | similar — the fields are open on both; the draft fixes the hashed encoding and ours does not, ours offers `parametersSchemaRef` (`:69-70`) as the place to state the fields. Revision 3: the earlier cell said neither format fixes the encoding, which is true of ours only; -02 tightened the sentence after this mapping |
 | `policyHash` (-70504) | `policyBoundary.policyDigest` (`:73`, required in strict mode) | same |
 | `inputsHash` (-70505), or null | `inputSnapshot[]`, one digest per input (`:92`) | similar — one hash over further context at theirs, one per input at ours |
 | `decision` (-70506): `allow` / `deny` / `defer` | `decision.verdict` (`:33`): `ALLOW`; `DENY` or `REFUSE`; `DEFER` or `ESCALATE`; plus `OBSERVE` | similar |
@@ -406,21 +422,22 @@ NOT read; only the draft was.
 | `timestampMs` (-70510) | `decidedAt` (`:38`, RFC 3339 `Z`) | same |
 | `nonce` (-70511), identifies the record | `decisionId` (`:38`); `validity.nonce` (`:88`) is a relying-party freshness nonce | similar |
 | `prevRecordHash` (-70512), the Decider's chain | — | NO COUNTERPART — no per-decider chain; `relationships[]` edges are optional and typed (`relation.py:39`); `run-ledger` chains the runs of one study, not decisions |
+| `effectClass` (-70513), the class of the allowed effect in the channel's vocabulary, required on an `allow`, carried and not measured on a refusal (§4.1 lines 418–425, §4.2 lines 461–468; new in -01, unchanged in -02) | — | NO COUNTERPART — `proposedAction.actionType` (`:69`) classes the proposed action, not the effect that occurred on a channel, and no verifier compares it with anything on the outcome side |
 | epoch checkpoint totals per decision kind (§4.4) | — | NO COUNTERPART |
 
-Count for 3a (12 claims): same 4 · similar 4 · different 1 · NO COUNTERPART 3.
+Count for 3a (13 claims since -01): same 4 · similar 4 · different 1 · NO COUNTERPART 4.
 
 ### Table 3b — the Effect Extract (§5.1) against `action-outcome/v0.1` with `execution_proven`
 
 | draft element | our counterpart | meaning |
 |---|---|---|
-| extract body: `deciderId`, `channelId`, `windowStartMs`, `windowEndMs`; one decider, one channel, one window | — | NO COUNTERPART — there is no population object; a `verification-summary` lists levels, not a window (`docs/predicates/README.md`) |
+| extract body: `deciderId`, `channelId`, `windowStartMs`, `windowEndMs`; one decider, one channel, one window. The extract carries no media type, and since -01 the reason is restated (§5.2, -02 lines 700–706): *"which population a presented document belongs to is the verifier's call, made by the profile it applies and by the decider, channel, and window it declares (MUST-DP-1, MUST-DP-7), and never the document's. That declaration is the typed outer context a media type would otherwise supply."* The protected-header test of -00 is withdrawn as the reason | — | NO COUNTERPART — there is no population object; a `verification-summary` lists levels, not a window (`docs/predicates/README.md`). Our receipts carry their population in the predicate type and the subject, which is the document's own declaration, the opposite choice |
 | row `ref`, the match key | `decisionRef.sha256` (`outcome.py:42`) is our match key | similar — both bind a row to a decision; theirs by channel reference, ours by the decision statement's content root |
 | row `effectHash` | `effectDigest.sha256` / `actualActionDigest.sha256` (`:45`) | same in meaning; both sides must state the hashed octets, neither format fixes them |
-| row `effectClass` | — | NO COUNTERPART (the draft names the unbound class as its own gap D6) |
+| row `effectClass`, in the vocabulary the record's `effectClass` claim uses (§5.1 Table 4, -02 lines 630–632); a class that differs with the hash equal is `effect-class-mismatch` (§6.1 lines 755–762) | — | NO COUNTERPART — no class name on the outcome. Revision 3: -00 named the unbound class as its own gap D6; -01 closed D6 (§8.6, -02 lines 1072–1084) by putting the class under the Decider's signature, so the earlier note is out of date |
 | row `timestampMs` | `performedAt` (`:43`) | same |
 | row `actor`, optional | `receiverRefs[].receiverId` (`:50`, optional) | similar |
-| extract signed by an extract root independent of the decider root, Ed25519 over the RFC 8785 body, key held out of band (§5.2, §7, MUST-DP-9) | the outcome is DSSE-signed by the **executor**; `executor_role_trusted` against a Trust Pack role when supplied (`docs/predicates/action-outcome.md` §5.8); `role_separation_ok` (`outcome.py:617-618`) | similar — both demand a key held outside the record and a party other than the decider; ours documents that a receipt about an effect is not an observation of it (`action-outcome.md` §7) |
+| extract signed by the effect-extract root, Ed25519 over the RFC 8785 body, key held out of band (§5.2, §7). MUST-DP-9 does not require that root to be independent of the decider root; it requires a statement plus a downgrade (§7, -02 lines 962–969): *"The rule is not that the two roots be independent; it is that the deployment say which case it is in, and that the guarantee fall when independence is absent or unknown. A deployment MUST state which of the two it has, and a verifier MUST treat the guarantee as conditional where the extract root and the decider root are, or may be, the same party (MUST-DP-9). The companion cannot measure that from the keys alone; two keys can be held by one hand."* | the outcome is DSSE-signed by the **executor**; `executor_role_trusted` against a Trust Pack role when supplied (`docs/predicates/action-outcome.md` §5.8); `role_separation_ok` (`outcome.py:617-618`) when both identities are supplied | similar — both hold the key outside the record; ours checks that executor and decision maker are different identities when it is told both, theirs asks the deployment to state which root it has and downgrades the guarantee where they may coincide, and neither can prove independence from keys alone. Revision 3: the earlier row described the strong form as the rule; -02 added the first sentence of the quotation after this mapping. Ours documents that a receipt about an effect is not an observation of it (`action-outcome.md` §7) |
 | binding of an `allow` to a row with equal `effectHash` (§6.1) | `execution_proven` (`:647`) | similar — ours is digest presence on the executor's own record, self-asserted unless `receiverRefs` corroborate; theirs requires an independent row |
 
 ### Table 3c — the reconciliation rule (§6.1) against what our verifier checks between a decision and an outcome
@@ -428,16 +445,54 @@ Count for 3a (12 claims): same 4 · similar 4 · different 1 · NO COUNTERPART 3
 | draft rule | our verifier | meaning |
 |---|---|---|
 | an `allow` and a row bind when `effectHash` is equal; a difference is `effect-mismatch` | no comparison between a decision's declared parameters and an outcome's effect digest exists; the outcome verify path (`outcome.py:493-833`) reads only the outcome predicate, and `decision_bound` (`:608-609`) compares `decisionRef` with a caller-supplied root | NO COUNTERPART |
+| a row whose `effectClass` differs from the allow's with the hash equal: `effect-class-mismatch`, the fifth code since -01 (§6.1 -02 lines 755–762, Table 5 lines 879–882); the hash is compared first | no class on the outcome and no comparison (Table 3b) | NO COUNTERPART |
 | an `allow` with no row: `decision-without-effect` | — a decision that no outcome cites is invisible to every verify path | NO COUNTERPART |
 | a row with no record: `effect-without-decision` | an outcome whose `decisionRef` resolves to nothing: `decision_bound` stays `None` unless the caller supplies the expected root (`:608`) | similar, in the caller-supplied case only |
-| a row whose `ref` a refusal names: `effect-against-refusal` | **measured 2026-09-04 on proofbundle 5.1.0**: a decision-receipt with `verdict: DENY` and an action-outcome with `status: executed` citing it by content root verify with `ok: true`, exit 0, `decision_bound: true`, `role_separation_ok: true`, `execution_proven: true`, and no warning about the verdict; the verdict is never read on the outcome path | NO COUNTERPART |
+| a row whose `ref` a refusal names: `effect-against-refusal` (D1, §8.1). -02 cites the measurement in this cell as `[B7N0DE]` (§8.1 lines 993–1001: *"That is D1 as a verifying pair rather than a finding, recorded by the reader as a measurement of that artefact and cited here as one."*; reference lines 1405–1409) | **measured 2026-09-04 on proofbundle 5.1.0**: a decision-receipt with `verdict: DENY` and an action-outcome with `status: executed` citing it by content root verify with `ok: true`, exit 0, `decision_bound: true`, `role_separation_ok: true`, `execution_proven: true`, and no warning about the verdict; the verdict is never read on the outcome path | NO COUNTERPART |
 | conservation counts published with the population (§6.2, MUST-DP-8) | — | NO COUNTERPART (see G4 above and the CAP-1 discussion there) |
+| the Decider's chain names a break within one reader's population; a fork shown to two readers is the core's witness comparison, and a report over an unwitnessed chain claims no more (§4.4 -02 lines 543–569, §8.5 lines 1039–1070; -00 line 499 still called the chain the profile's equivocation control) | `run-ledger` is a local chain and says so since `6692561` (2026-09-04): a silently dropped run is detectable to a reader who holds this ledger, not to a reader shown another one; detecting that needs a witnessed checkpoint (`docs/predicates/run-ledger.md` lines 8–12, `SPEC.md` §7d) | similar — the same bound, stated on both sides; ours has no per-decider chain to walk (Table 3a) |
 
 Finding name `effect-against-refusal`: **no** — no finding, reason code or test with that meaning exists at
 ours (grep over `src/`, `docs/`, `README.md`, `SPEC.md` on 2026-09-04: the only `refusal` hits are
 validator refusals of malformed input).
 
-Count for 3c (5 rules): same 0 · similar 1 · different 0 · NO COUNTERPART 4.
+Count for 3c (6 rules of §6.1 and §6.2 since -01): same 0 · similar 1 · different 0 · NO COUNTERPART 5; the chain row from §4.4 is counted apart as similar. One statement new in -02 is not a row here and was not asked for: the binding does not order the two clocks (§6.1, -02 lines 807–816), a row dated before its record binds as if it had followed it; ours compares nothing between the two timestamps either, and that is recorded, not measured, in this revision.
+
+### Verifying pairs on record
+
+- Ours, measured 2026-09-04 with proofbundle 5.1.0 (Table 3c): a `decision-receipt` with `verdict: DENY` and an
+  `action-outcome` with `status: executed` citing it by content root verify with `ok: true`. In the author's
+  reading of 2026-09-05 this pair is exactly D1 of the profile (§8.1), recorded here as a verifying pair and not
+  argued about; -02 cites it as `[B7N0DE]` (lines 993–1001 and 1405–1409).
+- The author's, named for whoever writes an adapter: the frozen fixture two other readers have run,
+  `interop/mizan-ig/fixtures/leaked-refusal` at `06c3119` in `dogrucanemek-alt/cedulon` (checked by API on
+  2026-09-05: three files, `decisions.jsonl`, `policy.txt`, `sent.jsonl`; commit dated 2026-09-04T20:39:00Z),
+  and the entry it sits in, `docs/EXTERNAL_REVIEW.md` Round 10 at `e26f50f` (heading "Round 10 — one fixture,
+  two readers, 5 Sep 2026"; commit dated 2026-09-04T23:28:10Z). -02 §11 (lines 1278–1294) describes that run
+  and its limits without naming the commits; the commits are the author's, from the mail of 2026-09-05. No
+  adapter exists on our side and the fixture was not run here; the pins are recorded so that a later run has
+  something to be measured against.
+- **Kind: adapter-reproduction, measured 2026-09-05 on the frozen head `049b3195` of 6.0.0.** The pins above
+  were used: `scripts/interop/cedulon_leaked_refusal_adapter.py` reads the three fixture files, refuses any
+  bytes whose sha256 is not the pinned one, and translates the single decision line (`verdict: silent`,
+  ref `leak-1`) and the single sent line under the same ref into a `decision-receipt/v0.1` and an
+  `action-outcome/v0.1` with `execution_proven`, cell by cell after Tables 3a and 3b, with two throwaway
+  test keys so that role separation is a real check. Seven cells fall on NICHT MESSBAR because those tables
+  say NO COUNTERPART, and the adapter records them instead of inventing a value. Result: `decision verify`
+  exit 0 (`CRYPTO: OK`, `STRUCTURE: OK`), `outcome verify --strict --expected-decision-ref … --decision-maker-id …`
+  exit 0 with `ok: true`, `decision_bound: true`, `role_separation_ok: true`, `execution_proven: true`, and no
+  field or warning of the twenty-one in the JSON result naming the bound decision's verdict. The same D1
+  picture as our own pair of 2026-09-04, now on someone else's frozen bytes; the one reading the adapter adds,
+  that this channel's `silent` is a refusal, rests on the companion's own reader reporting
+  `effect-against-refusal` on this row (`EXTERNAL_REVIEW.md` Round 10 at `e26f50f`) and is recorded as an
+  assumption in the adapter's report. The two other readers' verdicts are theirs and are not re-stated here.
+- **Interop row, offered in the form used for a foreign implementation report, not sent anywhere.** Text as it
+  would read: *"b7n0de, adapter reproduction. It wrote a third adapter for the frozen `leaked-refusal` fixture
+  at `06c3119`, mapping the two lines onto its own signed decision and outcome predicates cell by cell against
+  its published mapping, and measured its own verifier on the pair on 5 September 2026: the pair verifies
+  clean, exit 0, with the bound decision carrying a refusal, because that verifier does not read the verdict on
+  the outcome path. Prior art: none claimed."* Whether this row is offered to anyone is an owner decision and
+  has not been taken.
 
 ### What a reader could do with our pair of receipts under the Cedulon profile, and what not
 
@@ -468,6 +523,11 @@ Negation list:
 | twelve claims, labels -70501 to -70512 | dogru-00 | 4.1 | holds |
 | an allow needs `ref` and `effectHash`, a refusal carries `effectHash` null | dogru-00 | 4.2 | holds |
 | four new finding codes including `effect-against-refusal` | dogru-00 | 6.3 | holds |
+| thirteen claims, labels -70501 to -70513, `effectClass` required on an allow, a twelve-label record refused | dogru-02 | 4.1, 4.2 | holds, read at source 2026-09-05 |
+| five finding codes, `effect-class-mismatch` added, D6 closed | dogru-02 | 6.3, 8.6 | holds |
+| the chain is no longer called the equivocation control; an unwitnessed chain claims no more than one reader's population | dogru-02 | 4.4, 8.5, Changes from -00 | holds |
+| the request encoding is fixed, the fields are not; MUST-DP-9 is statement plus downgrade | dogru-02 | 4.1, 7, Changes from -01 | holds; both sentences tightened in -02 after this mapping |
+| D1 cites this page as `[B7N0DE]` by the URL of this file on `main` | dogru-02 | 8.1, references | holds; the file keeps its path |
 | override is a subsequent attested statement with a reference | list thread, 4 Sep 2026 | — | **NOT MEASURED** at source; taken from our order's wording |
 
 ### Honest limit of Mappings 2 to 4
