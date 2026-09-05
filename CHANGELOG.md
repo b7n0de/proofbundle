@@ -8,8 +8,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-- docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
-  by a witnessed checkpoint (SPEC 7d).
+Nothing yet.
+
+## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
+
+**The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.
+
 
 ### Changed
 
@@ -123,6 +127,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - **Shard partition is weighted rather than round-robin.** The wall clock of the matrix is set by
   its longest shard, not by the mean; on the first sharded run the shards spanned 931 s to 1232 s
   around a mean of 1116 s. Operator durations are recorded per run and used to balance the shards.
+
+### Documentation
+
+- docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
+  by a witnessed checkpoint (SPEC 7d).
 
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
