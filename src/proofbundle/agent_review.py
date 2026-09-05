@@ -108,6 +108,13 @@ _DECLARATION_FIELDS = frozenset(
 # Konstante mit einem Zusatz-Parameter ist EINE Wahrheit mit einer Ausnahme; zwei kopierte Listen
 # waeren zwei Wahrheiten, die auseinanderlaufen.
 _DECLARATION_FIELDS_V02 = frozenset(("timeClaims",))
+# v0.2 ERWEITERT auch die Abdeckung, um die drei Felder aus CAP-1 (draft-hillier-coverage-attestation-00,
+# Profil cap/1): `strata`, `integrity`, `absenceAssertions`. Dieselbe Bauform wie bei `timeClaims` —
+# EINE gemeinsame Pruefung mit einem Zusatz je Fassung, keine zweite Liste. Die Regeln R0-R8 selbst
+# leben in `cap1.py` und werden von dort GELIEHEN, nicht nachgebaut.
+_COVERAGE_FIELDS_V02 = frozenset(("strata", "integrity", "absenceAssertions"))
+_COVERAGE_LEGACY_FIELDS = ("status", "window", "sources", "observedRuns", "expectedRuns",
+                           "knownGaps", "collectionMethod")
 
 
 _REQUIRED_ALWAYS = ("schemaVersion", "reviewId", "subjectContext", "declaration",
@@ -329,7 +336,8 @@ def _code_segment(roh: str) -> str:
 
 
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
-                                    decl_zusatz: frozenset = frozenset()) -> list[str]:
+                                    decl_zusatz: frozenset = frozenset(),
+                                    cov_zusatz: frozenset = frozenset()) -> list[str]:
     """Return fail-closed errors for an ``agent-review/v0.1`` predicate (empty = valid)."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
@@ -356,7 +364,8 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
         errors.extend(_mit_abschnitt("declaration", e) for e in
                       _validate_declaration(predicate.get("declaration"), zusatz=decl_zusatz))
     if "coverage" in predicate:
-        errors.extend(_mit_abschnitt("coverage", e) for e in _validate_coverage(predicate.get("coverage")))
+        errors.extend(_mit_abschnitt("coverage", e) for e in
+                      _validate_coverage(predicate.get("coverage"), zusatz=cov_zusatz))
     if "limitationCodes" in predicate:
         errors.extend(_validate_limitation_codes(predicate.get("limitationCodes")))
     if "times" in predicate:
@@ -651,13 +660,78 @@ def _validate_limitation_codes(v: Any) -> list[str]:
     return errs
 
 
-def _validate_coverage(cov: Any) -> list[str]:
+def _cap1_abdeckung(cov: dict) -> list:
+    """Die Abdeckung in der Sprache von CAP-1 pruefen — mit den Regeln aus `cap1.py`, nicht mit einer Kopie.
+
+    Der Block unter `coverage` traegt `strata`, `integrity` und `absenceAssertions` in der Form von
+    draft-hillier-coverage-attestation-00; nur der oberste Schluessel folgt der camelCase-Konvention
+    des Predicates, die Felder IN den Strata bleiben die des Profils (`catalogue_digest`,
+    `withheld_digest`, `enumeration_method`), weil ein Leser, der CAP-1 kennt, sie so erwartet.
+    Daraus entsteht ein cap/1-Dokument mit einem synthetischen `subject` (der Gegenstand ist der
+    `subjectContext` des Predicates), und `cap1.check_cap1_document` urteilt.
+
+    JEDE REGEL BEKOMMT IHREN EIGENEN CODE — ein Code je Lage, wie die Tafel es verlangt — und die
+    Zuordnung steht als Kette von Literalen hier, weil der Sammler der Tafel nur Literale liest.
+    Eine Regel, die morgen in `cap1.RULES` dazukommt und hier nicht steht, faellt nicht weg: sie
+    wird als CAP1_RULE_UNMAPPED gemeldet, und ein Test haelt die Zuordnung vollstaendig.
+
+    STATUS WIRD ABGELEITET, NICHT GEGLAUBT. Mit Strata ist `integrity.complete` die Wahrheit ueber
+    die Vollstaendigkeit; ein gesetzter `status`, der ihr widerspricht, ist eine Behauptung, die
+    die eigene Buchfuehrung widerlegt. Ein fehlender oder ungueltiger `status` wird von den
+    Legacy-Pruefungen weiter gemeldet.
+    """
+    from . import cap1  # noqa: PLC0415
+    doc: dict = {"profile": cap1.CAP1_PROFILE,
+                 "subject": {"kind": "agentReviewSubject", "ref": "subjectContext"}}
+    for quelle, ziel in (("strata", "strata"), ("integrity", "integrity"),
+                         ("absenceAssertions", "absence_assertions")):
+        if quelle in cov:
+            doc[ziel] = cov[quelle]
+    errs: list = []
+    for f in cap1.check_cap1_document(doc):
+        rule = f.get("rule") if isinstance(f, dict) else None
+        text = f"CAP-1 {rule}: {f.get('reason') if isinstance(f, dict) else f}"
+        if rule == "R0-shape":
+            errs.append(_shape_err("CAP1_SHAPE", text))
+        elif rule == "R1-no-silent-remainder":
+            errs.append(_shape_err("CAP1_SILENT_REMAINDER", text))
+        elif rule == "R2-closed-disposition":
+            errs.append(_shape_err("CAP1_DISPOSITION_NOT_CLOSED", text))
+        elif rule == "R3-withholding-digest-bound":
+            errs.append(_shape_err("CAP1_WITHHELD_WITHOUT_DIGEST", text))
+        elif rule == "R4-denominator-basis":
+            errs.append(_shape_err("CAP1_BASIS_MISSING", text))
+        elif rule == "R5-counts-well-formed":
+            errs.append(_shape_err("CAP1_COUNTS_MALFORMED", text))
+        elif rule == "R6-absence-is-scoped":
+            errs.append(_shape_err("CAP1_ABSENCE_UNSCOPED", text))
+        elif rule == "R7-incomplete-not-clean":
+            errs.append(_shape_err("CAP1_INCOMPLETE_CLAIMED_CLEAN", text))
+        elif rule == "R8-supports-bounds-citation":
+            errs.append(_shape_err("CAP1_SUPPORTS_MISSING", text))
+        else:
+            errs.append(_shape_err("CAP1_RULE_UNMAPPED", text))
+    strata, integ = cov.get("strata"), cov.get("integrity")
+    if isinstance(strata, list) and strata:
+        vollstaendig = isinstance(integ, dict) and integ.get("complete") is True
+        abgeleitet = "COMPLETE" if vollstaendig else "PARTIAL"
+        st = cov.get("status")
+        if is_member(st, _COVERAGE_STATUS) and st != abgeleitet:
+            errs.append(_shape_err(
+                "CAP1_STATUS_CONTRADICTS_STRATA",
+                f"status {st} contradicts the strata: integrity.complete is "
+                f"{integ.get('complete') if isinstance(integ, dict) else None!r}, which derives "
+                f"{abgeleitet} — a stated status that disagrees with its own accounting is a claim "
+                f"the accounting refutes"))
+    return errs
+
+
+def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str]:
     errs: list[str] = []
     if not isinstance(cov, dict):
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in cov:
-        if k not in ("status", "window", "sources", "observedRuns", "expectedRuns",
-                     "knownGaps", "collectionMethod"):
+        if k not in _COVERAGE_LEGACY_FIELDS and k not in zusatz:
             errs.append(f"unknown field {k!r}")
     if "status" not in cov:
         errs.append("missing 'status'")
@@ -679,6 +753,18 @@ def _validate_coverage(cov: Any) -> list[str]:
             elif v < 0:
                 errs.append(f"{numf} must not be negative, got {v} — a negative run count describes "
                             f"nothing that can have happened")
+    # MIT STRATA GILT DIE BUCHFUEHRUNG, NICHT DIE ALTEN ZAEHLER (CAP-1 Teil B, v0.2). Sobald einer
+    # der drei CAP-1-Blocks da ist, urteilen R0-R8 ueber Vollstaendigkeit und Luecken; die
+    # Legacy-Regeln unten (COMPLETE braucht observedRuns/expectedRuns, PARTIAL braucht knownGaps)
+    # fragen nach einer Erwartung, die die Strata praeziser tragen. Die Typpruefungen der alten
+    # Felder oben laufen trotzdem: ein Alias darf gelesen werden, aber nicht falsch geformt sein.
+    # In v0.1 (kein Zusatz) sind die drei Felder oben bereits als unbekannt gemeldet.
+    # Als RUECKGABE verbunden, nicht per extend: die Ratsche der codelosen Fehlerstellen liest
+    # jedes append/extend, dessen Argument kein _shape_err-Literal ist, als Fehler ohne Code —
+    # und jede Meldung aus _cap1_abdeckung TRAEGT einen. Der Ratsche einen Eintrag hinzuzufuegen,
+    # nur um eine Form zu decken, die sie nicht meint, waere die falsche Richtung.
+    if _COVERAGE_FIELDS_V02 <= zusatz and any(k in cov for k in _COVERAGE_FIELDS_V02):
+        return errs + _cap1_abdeckung(cov)
     # COMPLETE is a strong word. It needs a stated expectation that the observation actually met —
     # otherwise 'complete' means 'I saw everything I happened to see' (F07).
     if cov.get("status") == "COMPLETE":
@@ -1704,7 +1790,8 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     vorbehalten. Und eine Observation ohne benannten Beobachter ist keine.
     """
     errs = validate_agent_review_predicate(predicate, strict=strict,
-                                          decl_zusatz=_DECLARATION_FIELDS_V02)
+                                          decl_zusatz=_DECLARATION_FIELDS_V02,
+                                          cov_zusatz=_COVERAGE_FIELDS_V02)
     if not isinstance(predicate, dict):
         return errs
     zeiten = predicate.get("times")
@@ -2374,6 +2461,17 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     if isinstance(predicate, dict) and r["crypto_ok"] and not shape_errs and r["predicate_type_ok"]:
         r.update(_zeitachsen(predicate))
+        # COVERAGE_LEGACY_FIELDS ist ein HINWEIS, kein Grund (CAP-1 Teil B): ein v0.2-Predicate,
+        # dessen Abdeckung nur die alten Zaehler traegt (observedRuns/expectedRuns/knownGaps/
+        # collectionMethod) und keine Strata, ist gueltig und behaelt seine Bedeutung — aber ein
+        # Leser soll sehen, dass die Abdeckung nicht in der Sprache von CAP-1 vorliegt. Die
+        # alten Namen sind Aliasse mit Verfall (COMPATIBILITY.md), kein Verhalten in dieser Fassung.
+        _cov = predicate.get("coverage")
+        if isinstance(_cov, dict) and not any(k in _cov for k in _COVERAGE_FIELDS_V02):
+            _adv = list(r.get("advisory_codes") or [])
+            if "COVERAGE_LEGACY_FIELDS" not in _adv:
+                _adv.append("COVERAGE_LEGACY_FIELDS")
+            r["advisory_codes"] = _adv
         # DERSELBE Helfer wie in v0.1 — ein Fix, der nur eine Kopie erreicht, ist der
         # Fehlermodus, gegen den dieser Auftrag gebaut ist.
         _zielbindung(r, predicate, statement, expected_subject_digest)

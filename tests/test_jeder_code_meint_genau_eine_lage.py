@@ -183,7 +183,16 @@ def _codes_im_modul() -> set[str]:
 #: qualifiziert (`SUBJECTCONTEXT_…`, `DECLARATION_…`, …) und erscheint deshalb NIE unqualifiziert.
 #: Er steht hier statt in der Tafel, weil eine Tafelzeile eine ausloesende Eingabe braucht und es
 #: fuer den unqualifizierten Code keine gibt.
-NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT"}
+NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT",
+                    # CAP-1 Teil B (05.09.2026): vergeben in `_cap1_abdeckung`, das `_validate_coverage`
+                    # ruft — `_mit_abschnitt` qualifiziert sie zu COVERAGE_CAP1_*; unqualifiziert
+                    # erscheinen sie nie. Ein Code je Regel R0-R8, einer fuer den Statuswiderspruch,
+                    # einer fuer eine Regel, die die Zuordnung (noch) nicht kennt. Ausloesbar je Code
+                    # in tests/test_cap1_im_predicate.py ueber die Autor-Vektoren.
+                    "CAP1_SHAPE", "CAP1_SILENT_REMAINDER", "CAP1_DISPOSITION_NOT_CLOSED",
+                    "CAP1_WITHHELD_WITHOUT_DIGEST", "CAP1_BASIS_MISSING", "CAP1_COUNTS_MALFORMED",
+                    "CAP1_ABSENCE_UNSCOPED", "CAP1_INCOMPLETE_CLAIMED_CLEAN", "CAP1_SUPPORTS_MISSING",
+                    "CAP1_RULE_UNMAPPED", "CAP1_STATUS_CONTRADICTS_STRATA"}
 
 #: Codes des Moduls, die diese Tafel (noch) nicht fuehrt — mit Grund. Waechst die Menge, faellt
 #: `test_jeder_code_des_moduls_steht_in_der_tafel`: ein neuer Code ohne Eintrag ist genau der Fall,
@@ -244,6 +253,10 @@ AUFRUFSTELLEN_JE_CODE = {
     "SUBJECT_ENTRY_NOT_OBJECT": 1, "SUBJECT_NAME_ABSENT": 1, "SUBJECT_NAME_DISAGREES": 1,
     "SUBJECT_NAME_EMPTY": 1, "SUBJECT_NAME_NOT_STRING": 1, "SUBJECT_NAME_NULL": 1,
     "SUBJECT_NAME_UNDERIVABLE": 1, "SUBJECT_NOT_ARRAY": 1, "UNKNOWN_STATEMENT_FIELD": 1,
+    "CAP1_SHAPE": 1, "CAP1_SILENT_REMAINDER": 1, "CAP1_DISPOSITION_NOT_CLOSED": 1,
+    "CAP1_WITHHELD_WITHOUT_DIGEST": 1, "CAP1_BASIS_MISSING": 1, "CAP1_COUNTS_MALFORMED": 1,
+    "CAP1_ABSENCE_UNSCOPED": 1, "CAP1_INCOMPLETE_CLAIMED_CLEAN": 1, "CAP1_SUPPORTS_MISSING": 1,
+    "CAP1_RULE_UNMAPPED": 1, "CAP1_STATUS_CONTRADICTS_STRATA": 1,
 }
 
 
