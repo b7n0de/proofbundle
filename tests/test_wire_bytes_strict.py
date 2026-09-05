@@ -404,3 +404,113 @@ class TestRustAgreement(unittest.TestCase):
 
 if __name__ == "__main__":
     sys.exit(0 if unittest.main(exit=False).result.wasSuccessful() else 1)
+
+
+class TestC2SPFelderNutzenDenC2SPDecoder(unittest.TestCase):
+    """Ein Feld, ein Decoder — die andere Haelfte der Klasse, gefunden von der Gegenlesung vor dem Merge.
+
+    WAS HIER GESCHLOSSEN WIRD. Der Sweep dieser Runde stellte die Dekodierstellen von `checkpoint.py`
+    auf `decode_b64_c2sp` um, weil ein C2SP-Note-Feld nach der dokumentierten Ausnahme Pad-Bits
+    toleriert (Gos `encoding/base64` StdEncoding tut es ohne `Strict()`, und die Notes dieses
+    Oekosystems werden von diesem Decoder geprueft). Neun Stellen wurden umgestellt, die zehnte nicht:
+    `_witness_key_material` las denselben vkey-Substring wie `_parse_witness_vkey` weiter mit dem
+    inzwischen VERSCHAERFTEN `decode_b64`. Weil der Decoder in derselben Runde strenger wurde, war das
+    keine Altlast, sondern eine NEU eingefuehrte Regression: ein gueltig signierter ML-DSA-44-Witness
+    traegt 1313 Byte Schluesselmaterial, also genau ein Polsterzeichen und damit eine existierende
+    Pad-Bit-Variante — `verify_cosignature` beurteilte die Zeile mit ok=True, und der nachgelagerte
+    Dedup-Schritt hob darauf eine unabgefangene `binascii.Error` aus `verify_witnessed_checkpoint` und
+    `witness_quorum`, zwei Flaechen, deren Vertrag das Urteilen ist.
+
+    DIE INVARIANTE, ueber die hier quantifiziert wird: in `checkpoint.py` gibt es KEINE strikte
+    Dekodierung. Jedes base64-Feld dieses Moduls ist ein C2SP-Feld, also ist der strikte Decoder dort
+    nie richtig — die Regel gilt fuer jede Stelle, auch fuer eine, die es noch nicht gibt. Der Riegel
+    liest den AST, nicht den Text, aus demselben Grund wie oben in dieser Datei.
+    """
+
+    C2SP_MODUL = SRC / "checkpoint.py"
+
+    @staticmethod
+    def _strikte_aufrufe(quelle: str) -> list[int]:
+        """Zeilen, in denen der STRIKTE Decoder aufgerufen wird (Name oder Attribut), per AST."""
+        treffer: list[int] = []
+        for knoten in ast.walk(ast.parse(quelle)):
+            if not isinstance(knoten, ast.Call):
+                continue
+            f = knoten.func
+            name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+            if name == "decode_b64":
+                treffer.append(knoten.lineno)
+        return treffer
+
+    def test_kein_c2sp_feld_wird_strikt_dekodiert(self):
+        quelle = self.C2SP_MODUL.read_text(encoding="utf-8")
+        self.assertEqual(self._strikte_aufrufe(quelle), [],
+                         "checkpoint.py ruft den strikten Decoder — jedes Feld dieses Moduls ist ein "
+                         "C2SP-Feld, und zwei Decoder fuer dasselbe Feld sind eine Divergenz")
+        self.assertNotIn("import decode_b64,", quelle,
+                         "der strikte Decoder ist hier importiert und damit aufrufbar")
+
+    def test_meta_die_vor_fix_form_wird_gefangen(self):
+        """PLANT-AND-MUST-CATCH: die Zeile, wie sie vor dem Fix stand, muss den Riegel rot machen."""
+        gepflanzt = "def f(vkey):\n    return decode_b64(vkey.split('+', 2)[2])\n"
+        self.assertEqual(self._strikte_aufrufe(gepflanzt), [2],
+                         "der Riegel sieht die Vor-Fix-Form nicht — er misst dann nichts")
+
+    def _mldsa_witness(self):
+        """Ein echter, gueltig signierter ML-DSA-44-Witness plus die Pad-Bit-Schreibweise seines
+        Schluesselmaterials. ML-DSA-44 ist der Fall, in dem die Variante ueberhaupt existiert: 1313
+        Byte sind kein Vielfaches von 3, also gibt es genau ein Polsterzeichen. Ed25519 traegt 33
+        Byte und damit keine Polsterung — an ihm ist die Klasse nicht ausloesbar, und genau deshalb
+        hat sie kein bestehender Test gefangen."""
+        try:
+            from cryptography.hazmat.primitives.asymmetric import mldsa
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:  # pragma: no cover
+            self.skipTest("NOT MEASURABLE: die pq-Extra fehlt — ohne ML-DSA gibt es kein Feld mit "
+                          "Polsterung, an dem diese Klasse ausloesbar waere (env_blocked, nie gruen)")
+        from proofbundle import checkpoint as cp
+
+        log_signer = Ed25519PrivateKey.generate()
+        note = cp.sign_checkpoint("example.com/log", 5, b"R" * 32, log_signer, "logkey")
+        log_vkey = cp.vkey("logkey", log_signer.public_key().public_bytes_raw())
+        w_signer = mldsa.MLDSA44PrivateKey.generate()
+        w_pub = w_signer.public_key().public_bytes_raw()
+        signed = cp.cosign_checkpoint_mldsa(note, w_signer, "witness1", 1700000000)
+        witness_vkey = cp.cosign_vkey_mldsa("witness1", w_pub)
+        name, kid, keymat = witness_vkey.split("+", 2)
+        kern = keymat.rstrip("=")
+        npad = len(keymat) - len(kern)
+        if npad == 0:  # pragma: no cover - 1313 Byte ergeben immer genau ein Polsterzeichen
+            self.skipTest("NOT MEASURABLE: dieses Schluesselmaterial traegt keine Polsterung")
+        frei = 2 if npad == 1 else 4
+        idx = _STD.index(kern[-1])
+        if idx & ((1 << frei) - 1):  # pragma: no cover - Schluessel neu erzeugen waere Flakiness
+            self.skipTest("NOT MEASURABLE: die Pad-Bits dieses Schluessels sind bereits gesetzt")
+        variante = kern[:-1] + _STD[idx | 1] + "=" * npad
+        return cp, signed, log_vkey, witness_vkey, f"{name}+{kid}+{variante}"
+
+    def test_die_pad_bit_schreibweise_liefert_ein_verdikt_statt_eines_wurfs(self):
+        cp, signed, log_vkey, witness_vkey, variante = self._mldsa_witness()
+        # Die Vorbedingung des Fundes, gemessen statt angenommen: dieselbe Zeile ist gueltig.
+        self.assertTrue(cp.verify_cosignature(signed, variante)["ok"],
+                        "Vorbedingung verfehlt: die Variante ist gar keine gueltige Gegensignatur")
+        ergebnis = cp.verify_witnessed_checkpoint(signed, log_vkey, [variante], threshold=1)
+        self.assertTrue(ergebnis["witnesses_ok"],
+                        "dieselben Bytes unter anderer Schreibweise zaehlen nicht mehr als Zeuge")
+        quorum_ok, _ = cp.witness_quorum(signed, [variante], 1, log_key_material=None)
+        self.assertTrue(quorum_ok, "das Quorum urteilt anders als die Gesamtflaeche")
+
+    def test_anti_paritaet_die_kanonische_schreibweise_bleibt_gut(self):
+        cp, signed, log_vkey, witness_vkey, _variante = self._mldsa_witness()
+        self.assertTrue(cp.verify_witnessed_checkpoint(signed, log_vkey, [witness_vkey],
+                                                       threshold=1)["witnesses_ok"],
+                        "Kontrolle gefallen: der kanonische Zeuge zaehlt nicht mehr")
+
+    def test_dieselben_bytes_sind_derselbe_zeuge(self):
+        """Der eigentliche Zweck der Funktion, jetzt pruefbar: das Quorum zaehlt SCHLUESSELMATERIAL,
+        nicht Zeichenketten. Zwei Schreibweisen desselben Schluessels sind EIN Zeuge, nie zwei."""
+        cp, signed, log_vkey, witness_vkey, variante = self._mldsa_witness()
+        ergebnis = cp.verify_witnessed_checkpoint(signed, log_vkey, [witness_vkey, variante],
+                                                  threshold=2)
+        self.assertFalse(ergebnis["witnesses_ok"],
+                         "zwei Schreibweisen desselben Schluessels wurden als zwei Zeugen gezaehlt")
