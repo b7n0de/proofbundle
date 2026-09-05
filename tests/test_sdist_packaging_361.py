@@ -18,7 +18,14 @@ _MANIFEST = _REPO / "MANIFEST.in"
 # Every top-level directory the shipped tests import from / read at collection time. Derived from the
 # 13 v3.6.0 collection errors (tests/fixtures, schemas, examples, conformance, formal, scripts,
 # docs/readiness_pack). An explicit allowlist, NOT "graft everything" (Befund C: avoid the bloat trap).
-_REQUIRED_GRAFTS = ("tests", "schemas", "examples", "conformance", "formal", "scripts",
+# `scripts` stood in this tuple until 2026-09-06. It was removed because the Owner replaced
+# `graft scripts` with an explicit per-file include list (card OA-8b1a31cc4f, condition 1): a graft
+# is a standing permission for whatever lands in that directory later — including a signing tool
+# nobody has written yet. The guarantee this entry used to give did NOT disappear with it, it moved
+# and got sharper: `tests/test_sdist_ohne_signierwerkzeug.py` decides every file under scripts/
+# individually, in both directions, and additionally requires that a shipped script's sibling data
+# files ship with it. Deleting this entry without that replacement would have been a weakening.
+_REQUIRED_GRAFTS = ("tests", "schemas", "examples", "conformance", "formal",
                     "docs/readiness_pack")
 # The exact shipped-example file the renewal-policy test loads — included by path, not a graft
 # (PKG-2026-0718-02), so the sdist carries the example without the ADR markdowns.
@@ -38,6 +45,27 @@ class SdistManifestAllowlist(unittest.TestCase):
         grafts = {ln.split(None, 1)[1] for ln in self.lines if ln.startswith("graft ")}
         for d in _REQUIRED_GRAFTS:
             self.assertIn(d, grafts, f"MANIFEST.in must `graft {d}` so the sdist tests can collect")
+
+    def test_scripts_ship_by_an_explicit_list_not_by_a_graft(self):
+        """The replacement for the removed `graft scripts` — asserted here, not merely assumed.
+
+        This file is the deterministic MANIFEST.in guard, so the fact that scripts/ is now shipped
+        per file belongs here too. Without it, a later hand that restores `graft scripts` would
+        turn this file green again while undoing the Owner's condition.
+        """
+        grafts = {ln.split(None, 1)[1] for ln in self.lines if ln.startswith("graft ")}
+        self.assertNotIn("scripts", grafts,
+                         "`graft scripts` is back — the per-file decision (card OA-8b1a31cc4f, "
+                         "condition 1) has been undone")
+        includes = {ln.split(None, 1)[1] for ln in self.lines if ln.startswith("include ")}
+        scripts = {i.split("/", 1)[1] for i in includes if i.startswith("scripts/")}
+        self.assertTrue(scripts, "no script is shipped at all — the sdist tests cannot collect")
+        for needed in ("audit_candidate_matrix.py", "sign_readiness_artifact.py"):
+            self.assertIn(needed, scripts,
+                          f"scripts/{needed} is imported by shipped tests and must be in the sdist")
+        for excluded in ("pre_tag_receipt.py", "gen_findings_register.py"):
+            self.assertNotIn(excluded, scripts,
+                             f"scripts/{excluded} reads a private key and must not be shipped")
 
     def test_shipped_example_policy_is_included_by_path(self):
         # PKG-2026-0718-02: the renewal-policy test loads docs/adr/renewal_policy.example.json from the sdist.

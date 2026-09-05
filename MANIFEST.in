@@ -71,6 +71,19 @@ include Makefile
 # `tests/test_sdist_ohne_signierwerkzeug.py`: er misst die sdist-Dateiliste und wird rot, sobald
 # darin ein Skript einen privaten Schluessel liest — per AST, damit eine Erwaehnung im Docstring
 # nicht als Codepfad zaehlt.
+# NICHT NUR PYTHON, und das war eine Luecke dieser Liste selbst (gefunden am 06.09.2026 durch
+# den Probe-Merge der vier Lanes). `graft scripts` lieferte ALLES unter dem Ordner aus; die erste
+# Fassung dieser Liste entschied nur ueber `*.py`, und damit fielen fuenf Dateien still heraus.
+# Zwei davon liest ein AUSGELIEFERTES Skript (`rust_parity_gate.py:58` die Registry,
+# `mutation_check.py:626` die Gewichte), zwei ruft ein AUSGELIEFERTES Makefile-Ziel
+# (`make demo`, `make demo-tamper`). Ein Skript ohne seine Datendatei ist kein Skript.
+#
+# DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
+# git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
+include scripts/demo.sh
+include scripts/demo_tamper.sh
+include scripts/mutation_shard_weights.json
+include scripts/rust_parity_registry.json
 include scripts/_build_anchor_fixture.py
 include scripts/audit_candidate_matrix.py
 include scripts/audit_output_aufloesbar.py

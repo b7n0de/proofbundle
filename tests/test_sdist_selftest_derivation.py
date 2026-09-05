@@ -111,9 +111,21 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
 
         Die Gleichheit steht hier bewusst in BEIDE Richtungen: waechst die Liste, hat jemand wieder
         aufgezaehlt statt abzuleiten; schrumpft sie, faellt aus dem sdist wieder etwas durch.
+
+        EIN DRITTER GRUND FUER WACHSTUM, seit 06.09.2026, und er ist keiner der beiden oben: das
+        Paket kann ABSICHTLICH etwas verlieren. Die Owner-Auflage zur Karte OA-8b1a31cc4f nimmt
+        ``scripts/pre_tag_receipt.py`` aus dem sdist, weil es den Inline-Signierweg traegt.
+        ``test_pre_tag_receipt_commit_flow`` faehrt genau dieses Skript als Prozess und hat im
+        Paket damit keinen Gegenstand mehr. Gemessen, bevor der Eintrag gesetzt wurde: die
+        Ableitung ``modul_ist_repo_kontext`` faengt den Fall NICHT — sie sieht in dem Modul nur die
+        Verzeichnisse ``scripts`` und ``src``, und die existieren im sdist beide; die einzelne
+        fehlende Datei steht hinter einer Schleifenvariablen ueber ``SCRIPTS / s``. Der Rueckfall
+        ist hier also nicht Bequemlichkeit, sondern die Stelle, an der die Ableitung nachweislich
+        endet — und genau dafuer ist er da.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
-                     "test_roadmap_frontload_foundations", "test_rust_parity_gate"}
+                     "test_roadmap_frontload_foundations", "test_rust_parity_gate",
+                     "test_pre_tag_receipt_commit_flow"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "

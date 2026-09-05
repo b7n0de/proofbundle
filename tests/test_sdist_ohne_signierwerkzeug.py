@@ -193,18 +193,44 @@ class TestDerRiegelMisstWirklich:
         assert schluessel_lesende_stellen(q.read_text(encoding="utf-8")) == []
 
 
+#: Was ABSICHTLICH nicht ausgeliefert wird, je mit dem Grund. Eine Ausschlussmenge ohne Grund ist
+#: eine Liste, auf die man alles schiebt, was gerade rot ist.
+AUSGESCHLOSSEN = {
+    # Auflage C9 / Owner-Entscheid 2026-09-06: beide tragen einen schluessel-LESENDEN Codepfad.
+    "pre_tag_receipt.py": "liest Ed25519PrivateKey ueber --privkey-file (Owner-Signierweg am Mac)",
+    "gen_findings_register.py": "liest denselben Weg aus Umgebung oder Datei",
+    # Kein sdist-Verbraucher: der git-Hook des Checkouts und der CI-Kanal, beides gibt es dort nicht.
+    "install_git_hooks.sh": "Verbraucher sind der Checkout-Hook und CI, nicht das Paket",
+}
+
+
 def test_jede_datei_unter_scripts_ist_in_manifest_entschieden():
     """Die Liste darf nicht altern. Jede Datei unter ``scripts/`` steht entweder in MANIFEST.in oder
     in der begruendeten Ausschlussmenge — eine neue Datei muss ENTSCHIEDEN werden, statt durch ein
-    ``graft`` mitzurutschen. Genau das war der Grund, das ``graft`` zu ersetzen."""
+    ``graft`` mitzurutschen. Genau das war der Grund, das ``graft`` zu ersetzen.
+
+    NICHT NUR ``*.py``, und das ist die Nachbesserung vom 06.09.2026. Die erste Fassung dieses
+    Riegels globte ``*.py`` — und maass damit genau die Haelfte, die ohnehin niemand vergisst. Der
+    Probe-Merge der vier Lanes fuhr die Vollsuite und wurde rot; beim Nachmessen fielen FUENF
+    Nicht-Python-Dateien auf, die das ersetzte ``graft scripts`` ausgeliefert hatte und die neue
+    Liste nicht: ``rust_parity_registry.json`` (gelesen von ``scripts/rust_parity_gate.py:58``),
+    ``mutation_shard_weights.json`` (``scripts/mutation_check.py:626``), ``demo.sh`` und
+    ``demo_tamper.sh`` (gerufen vom AUSGELIEFERTEN Makefile, Ziele ``demo`` und ``demo-tamper``)
+    und ``install_git_hooks.sh``. Vier davon sind jetzt drin, die fuenfte steht mit Grund draussen.
+
+    DIE KLASSE, damit sie nicht nur hier geschlossen ist: wer ein Verzeichnis-``graft`` durch eine
+    Liste ersetzt, uebernimmt die Entscheidung fuer JEDE Datei darin — nicht fuer jede Datei der
+    Sprache, an die er gerade denkt. Ein Skript ohne seine Datendatei ist kein Skript, und die
+    Abwesenheit faellt nicht auf, weil nichts sie meldet: der Ordner ist ja da.
+    """
     manifest = REPO / "MANIFEST.in"
     if not manifest.is_file() or not (REPO / "scripts").is_dir():
         pytest.skip("kein Repo-Kontext")
     gelistet = {z.split("include scripts/", 1)[1].strip()
                 for z in manifest.read_text(encoding="utf-8").splitlines()
                 if z.startswith("include scripts/")}
-    ausgeschlossen = {"pre_tag_receipt.py", "gen_findings_register.py"}
-    vorhanden = {p.name for p in (REPO / "scripts").glob("*.py")}
+    ausgeschlossen = set(AUSGESCHLOSSEN)
+    vorhanden = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
     unentschieden = sorted(vorhanden - gelistet - ausgeschlossen)
     assert not unentschieden, (
         f"neue Datei(en) unter scripts/, die MANIFEST.in nicht entscheidet: {unentschieden} — "
@@ -279,3 +305,98 @@ class TestInlineSperre:
         i_sperre = quelle.index("_inline_erlaubt_oder_stop()\n    _need")
         i_lesen = quelle.index("args.privkey_file.read_text")
         assert i_sperre < i_lesen, "die Sperre steht hinter dem Lesen des Schluessels"
+
+
+# ---------------------------------------------------------------------------------------------
+# DIE KLASSE HINTER DEM FUND VOM 06.09.2026, als Riegel statt als vier Einzelzeilen im MANIFEST.
+
+
+def _geschwisterdateien_die_ein_skript_zusammensetzt(quelle: str, namen: set[str]) -> set[str]:
+    """Welche Dateien unter ``scripts/`` setzt dieses Modul als PFAD zusammen?
+
+    GEMESSEN WIRD DIE KOMPOSITION, NICHT DIE ERWAEHNUNG, und der Unterschied ist hier belegbar:
+    ``scripts/audit_candidate_matrix.py:1570`` nennt ``scripts/rust_parity_registry.json`` in einem
+    Meldungstext — das ist Prosa ueber eine Datei, kein Zugriff auf sie. ``rust_parity_gate.py:58``
+    schreibt dagegen ``REPO / "scripts" / "rust_parity_registry.json"``, und das IST einer. Ein
+    Detektor, der beides gleich behandelt, meldet Bedarf, wo keiner ist — und wer ihm zweimal
+    umsonst geglaubt hat, glaubt ihm beim dritten Mal nicht mehr.
+
+    Erkannt wird deshalb nur ein ``/``-Ausdruck (``ast.BinOp`` mit ``ast.Div``), in dessen Aesten
+    eine Zeichenkette steht, die eine wirklich existierende Datei unter ``scripts/`` benennt.
+    """
+    treffer: set[str] = set()
+    try:
+        baum = ast.parse(quelle)
+    except SyntaxError:
+        return treffer
+    for k in ast.walk(baum):
+        if not isinstance(k, ast.BinOp) or not isinstance(k.op, ast.Div):
+            continue
+        for teil in ast.walk(k):
+            if isinstance(teil, ast.Constant) and isinstance(teil.value, str):
+                name = teil.value.rsplit("/", 1)[-1]
+                if name in namen:
+                    treffer.add(name)
+    return treffer
+
+
+def test_ein_ausgeliefertes_skript_bekommt_seine_datendateien_mit():
+    """Ein Skript ohne seine Datendatei ist kein Skript.
+
+    DER GEMESSENE FALL: ``graft scripts`` lieferte den ganzen Ordner aus. Als die Owner-Auflage ihn
+    durch eine Liste ersetzte, blieben ``rust_parity_gate.py`` und ``mutation_check.py`` drin,
+    ihre Registry und ihre Gewichtsdatei aber draussen. Nichts wurde rot: der Ordner war ja da, die
+    Skripte waren da, und ihre Dateien fehlen erst zur Laufzeit beim Anwender.
+    """
+    manifest = REPO / "MANIFEST.in"
+    if not manifest.is_file() or not (REPO / "scripts").is_dir():
+        pytest.skip("kein Repo-Kontext")
+    gelistet = {z.split("include scripts/", 1)[1].strip()
+                for z in manifest.read_text(encoding="utf-8").splitlines()
+                if z.startswith("include scripts/")}
+    namen = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
+    fehlend: dict[str, set[str]] = {}
+    for skript in sorted(gelistet):
+        p = REPO / "scripts" / skript
+        if p.suffix != ".py" or not p.is_file():
+            continue
+        gebraucht = _geschwisterdateien_die_ein_skript_zusammensetzt(
+            p.read_text(encoding="utf-8", errors="replace"), namen)
+        fehlt = {g for g in gebraucht if g not in gelistet and g != skript}
+        if fehlt:
+            fehlend[skript] = fehlt
+    assert not fehlend, (
+        f"ausgelieferte Skripte setzen Pfade auf Dateien zusammen, die das sdist nicht traegt: "
+        f"{ {k: sorted(v) for k, v in fehlend.items()} } — aufnehmen oder den Zugriff entfernen")
+
+
+def test_meta_der_detektor_unterscheidet_zusammensetzung_von_erwaehnung():
+    """Beide Richtungen. Ohne die zweite Haelfte waere ein Detektor, der ALLES meldet, ebenso
+    gruen — und die Aussage oben waere wertlos, weil sie dann immer Bedarf faende."""
+    namen = {"registry.json"}
+    zusammengesetzt = 'from pathlib import Path\nP = Path(__file__).parent / "registry.json"\n'
+    erwaehnt = 'MSG = "siehe scripts/registry.json fuer den Grund"\n'
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(zusammengesetzt, namen) == {"registry.json"}, \
+        "eine echte Pfad-Zusammensetzung wird nicht gesehen — der Riegel ist blind"
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(erwaehnt, namen) == set(), \
+        "eine blosse Erwaehnung gilt als Zugriff — der Riegel meldet Bedarf, wo keiner ist"
+
+
+def test_meta_eine_entfernte_datendatei_wird_wirklich_gefunden():
+    """Pflanzen und fangen am ECHTEN Zustand: nimmt man die Registry aus der Liste, muss der
+    Riegel oben ihren Leser melden. Faellt er dann nicht, misst er nichts."""
+    manifest = REPO / "MANIFEST.in"
+    if not manifest.is_file() or not (REPO / "scripts").is_dir():
+        pytest.skip("kein Repo-Kontext")
+    gelistet = {z.split("include scripts/", 1)[1].strip()
+                for z in manifest.read_text(encoding="utf-8").splitlines()
+                if z.startswith("include scripts/")}
+    assert "rust_parity_registry.json" in gelistet, (
+        "die Vorbedingung dieses Meta-Tests ist weg: die Registry steht nicht mehr in der Liste")
+    ohne = gelistet - {"rust_parity_registry.json"}
+    namen = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
+    leser = REPO / "scripts" / "rust_parity_gate.py"
+    gebraucht = _geschwisterdateien_die_ein_skript_zusammensetzt(
+        leser.read_text(encoding="utf-8", errors="replace"), namen)
+    assert "rust_parity_registry.json" in gebraucht - ohne, (
+        "der gepflanzte Verlust wird nicht gefunden — der Riegel oben ist eine Zusicherung ohne Wirkung")
