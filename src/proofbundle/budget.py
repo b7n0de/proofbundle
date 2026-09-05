@@ -248,6 +248,54 @@ class VerificationBudget:
                                keeps the worst COMBINED case (``renewal_ats_chain`` x ``data_digests``, both
                                at their limit) at ~0.63s CPU — under the per-dimension ceiling with margin,
                                see ``tests/test_budget_kostenkurve.py``.
+                               WOHER DIE ZAHL 2.000 KOMMT (Owner-Auflage 2026-09-05, nachgereicht). Die
+                               erste Fassung begruendete sie mit "comfortably above any legitimate
+                               RFC-4998 archival batch this repo's examples use" — und das war unbelegt.
+                               Gemessen am 2026-09-05 ueber den ganzen Baum: 165 Aufrufstellen von
+                               ``build_initial_sequence``/``renew_hashtree``/``verify_sequence`` in 15
+                               Dateien, und KEINE EINZIGE uebergibt mehr als eine Handvoll Digests (null
+                               Stellen mit ``range(...)`` oder einer Comprehension). Die Nutzung liefert
+                               also gar keine Untergrenze — sie belegt nur, dass jede denkbare Schranke
+                               nichts Bestehendes bricht. Das ist eine Unbedenklichkeitsbescheinigung,
+                               keine Ableitung, und es waere unehrlich, sie als eine auszugeben.
+
+                               Die Ableitung kommt von der anderen Seite, aus den KOSTEN. Gemessen bei
+                               vollen ATS (10.000) und EINEM Kettenanfangs-Algorithmus, Maximum aus drei
+                               Laeufen (Farmer, 24 Kerne, CPython 3.10.12, Lastmittel 70 — pessimistisch):
+                               D=1 -> 0,087 s · D=100 -> 0,129 s · D=500 -> 0,266 s · D=1.000 -> 0,443 s ·
+                               D=2.000 -> 0,773 s · D=4.000 -> 1,468 s. Der Verlauf ist ab D~100 linear
+                               (rund 0,00036 s je Digest); die Zwei-Achsen-Latte des Kostenkurven-Tests
+                               liegt bei 2,0 s, sie waere also erst bei D~5.600 gerissen.
+
+                               2.000 sitzt damit bewusst zwischen beidem: gut zwei Groessenordnungen ueber
+                               allem, was dieses Repo tatsaechlich tut, und mit rund 2,5-facher Reserve
+                               unter der Kostenlatte — Reserve, weil eine Schranke auf einer ruhigen
+                               Maschine gesetzt und auf einer belasteten gehalten werden muss.
+    * ``renewal_work``      — das PRODUKT ``ATS x Datendigests x Kettenanfangs-Algorithmen`` fuer EINEN
+                               ``verify_sequence``-Aufruf. Die DRITTE Achse und die Klassen-Antwort auf
+                               den Fehlermodus, den dieses Modul schon zweimal getragen hat.
+
+                               WARUM DIE ACHSEN ALLEIN NICHT REICHEN. ``renewal_ats_chain`` feuerte bei
+                               10.000 korrekt und begrenzte nichts, weil der Durchlauf dahinter
+                               quadratisch war (L2-600-01). ``data_digests`` schloss die zweite Achse
+                               (Review Runde 2, B1) — und liess die dritte offen: ``_PraefixDeckung``
+                               haelt je DISTINKTEM Kettenanfangs-Algorithmus einen eigenen laufenden
+                               Hash-Zustand, und ``aufnehmen()`` fuettert JEDES ATS-Token in JEDEN
+                               dieser Zustaende. Die Kosten wachsen also LINEAR in der Zahl der
+                               Algorithmen, und keine Schranke sah sie an.
+
+                               GEMESSEN am 2026-09-05 auf dem Farmer (24 Kerne, CPython 3.10.12,
+                               Lastmittel 51 — also pessimistisch), 10.000 ATS x 2.000 Datendigests,
+                               Maximum aus 3 Laeufen: A=1 -> 0,813 s · A=2 -> 1,577 s · A=3 -> 1,944 s ·
+                               A=5 (alle aktuellen Registry-Algorithmen) -> 3,621 s. Die Latte des
+                               Kostenkurven-Tests ist ``achsen * GRENZE_S``, bei drei Achsen also 3,0 s
+                               — der A=5-Fall reisst sie. Die Achsen einzeln melden dabei nichts:
+                               10.000 <= 10.000 und 2.000 <= 2.000.
+
+                               40.000.000 laesst 10.000 x 2.000 x 2 zu (gemessen 1,577 s, mit Reserve
+                               unter der Drei-Achsen-Latte auf einer ruhigeren Maschine) und weist die
+                               Kombination aller Maxima ab. Legitime Nutzung liegt Groessenordnungen
+                               darunter: der groesste Datendigest-Satz im ganzen Repo ist EINER.
     """
 
     input_bytes: int = 8 * 1024 * 1024
@@ -261,6 +309,7 @@ class VerificationBudget:
     witnesses: int = 256
     int_bits: int = 8192
     data_digests: int = 2_000
+    renewal_work: int = 40_000_000
 
     def within(self, dimension: str, value: int) -> bool:
         """Non-raising: True iff ``value`` is within the named dimension's limit. Prefer this in a

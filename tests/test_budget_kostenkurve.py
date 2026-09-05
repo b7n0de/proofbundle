@@ -92,6 +92,7 @@ from proofbundle.budget import DEFAULT_BUDGET as B
 from proofbundle.budget import VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import ProofBundleError
+from proofbundle.hashalg import HASH_REGISTRY
 from proofbundle.renewal import ArchiveTimeStamp
 from proofbundle.trust_pack import validate_trust_pack_predicate
 
@@ -115,6 +116,10 @@ KOMBI_ERREICHT_MIN = 0.95
 SPEICHER_GRENZE_BYTES = 32 * 1024 * 1024
 
 HEX32 = "aa" * 32
+
+#: Die aktuellen Registry-Algorithmen, deterministisch geordnet — die Kennungen, die ein
+#: Kettenanfang tragen kann, ohne dass der Hash-Resolver sie ablehnt.
+_AKTUELLE_ALGS = sorted(n for n, s in HASH_REGISTRY.items() if s.status == "current")
 # So oft wird ein billiger Punkt wiederholt; genommen wird das MINIMUM. Ein teurer Punkt braucht das
 # nicht — bei 60 s Messwert aendert ein Cache-Miss nichts, und die Wiederholung kostete dort Minuten.
 WIEDERHOLUNGEN = 3
@@ -318,6 +323,36 @@ def _last_data_digests(n):
     return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), n
 
 
+def _last_renewal_work(n):
+    """Die PRODUKT-Dimension: ATS mal Datendigests mal Kettenanfangs-Algorithmen.
+
+    Eine Produktdimension hat keine eigene Eingabeachse, die man einfach hochdreht — der Zielwert
+    muss aus drei Faktoren zusammengesetzt werden, von denen JEDER seine eigene Schranke hat
+    (``renewal_ats_chain``, ``data_digests``, und die Registry begrenzt die Algorithmen). Wuerde
+    man nur die ATS hochdrehen, feuerte deren Achse zuerst und diese Kurve maesse den falschen
+    Riegel. Deshalb: Datendigests fest am eigenen Limit, ATS skaliert, und erst wenn die ATS-Achse
+    ueberliefe, kommt ein weiterer Algorithmus dazu.
+
+    Gerundet wird zur richtigen SEITE der Grenze: ein Zielwert unterhalb des Limits darf nicht
+    versehentlich darueber landen (sonst prueft der Randtest bei ``limit - 1`` eine Ablehnung, die
+    er nicht erwartet), einer oberhalb nicht darunter."""
+    D = B.data_digests
+    A = 2
+    ueber = n > B.renewal_work
+    def _n_ats(a):
+        roh = (-(-n // (D * a))) if ueber else (n // (D * a))
+        return max(1, roh)
+    N = _n_ats(A)
+    while N > B.renewal_ats_chain and A < len(_AKTUELLE_ALGS):
+        A += 1
+        N = _n_ats(A)
+    N = min(N, B.renewal_ats_chain)
+    algs = _AKTUELLE_ALGS[:A]
+    daten = ["%064x" % i for i in range(D)]
+    seq = [[ArchiveTimeStamp(algs[i % A], HEX32, i + 1)] for i in range(N)]
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), N * D * A
+
+
 def _last_witnesses(n):
     keys = {f"k-{i}": {"publicKey": base64.b64encode(
         generate_signer().public_key().public_bytes_raw()).decode()} for i in range(n)}
@@ -347,6 +382,16 @@ class Dimension:
     was: str
     baue: object
     zugelassen: object
+    #: Wie viele EINGABEACHSEN diese Dimension gleichzeitig an ihre Grenze treibt. Fuer eine
+    #: gewoehnliche Achse ist das 1, und die Obergrenze ist ``GRENZE_S``. Eine PRODUKT-Dimension
+    #: (``renewal_work`` = ATS x Datendigests x Algorithmen) treibt definitionsgemaess mehrere
+    #: zugleich; ihre Obergrenze ist deshalb ``achsen * GRENZE_S`` — dieselbe Rechnung, die
+    #: ``test_kombi_bleibt_unter_der_summe_der_obergrenzen`` fuer die Kombinationen schon macht.
+    #: Ohne dieses Feld waere eine Produktdimension entweder unmessbar oder gezwungen, ihre
+    #: Schranke unter den Wert zu druecken, bei dem die bestehende Zwei-Achsen-Kombination noch
+    #: messbar ist — das haette einen echten Kostentest entwertet, um einen Zahlenvergleich zu
+    #: retten.
+    achsen: int = 1
 
 
 DIMENSIONEN = [
@@ -365,6 +410,9 @@ DIMENSIONEN = [
     Dimension("int_bits", "merkle.verify_inclusion", _last_int_bits, lambda r: r is True),
     Dimension("data_digests", "renewal.verify_sequence", _last_data_digests,
               lambda r: not any(c.name == "renewal:budget:data_digests" for c in r.checks)),
+    Dimension("renewal_work", "renewal.verify_sequence", _last_renewal_work,
+              lambda r: not any(c.name == "renewal:budget:renewal_work" for c in r.checks),
+              achsen=3),
 ]
 
 _MESSUNGEN: dict = {}
@@ -456,9 +504,12 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         drei = " | ".join(f"n={n}: {m['rand'][n][1]:.4f} s "
                           f"({'zugelassen' if m['rand'][n][2] else 'abgewiesen'})"
                           for n in (limit - 1, limit, limit + 1))
-        assert k <= GRENZE_S, (
+        latte = dim.achsen * GRENZE_S
+        assert k <= latte, (
             f"{dim.name}: {k:.3f} s Rechenzeit (Maximum aus {MAX_WIEDERHOLUNGEN} Laeufen) am groessten "
-            f"zugelassenen Wert ({limit}), Obergrenze {GRENZE_S:.1f} s. Die Schranke laesst mehr zu, als "
+            f"zugelassenen Wert ({limit}), Obergrenze {latte:.1f} s "
+            f"({dim.achsen} Achse{'n' if dim.achsen > 1 else ''} an ihrer Grenze). Die Schranke "
+            f"laesst mehr zu, als "
             f"sie zu begrenzen behauptet — genau der Fund L2-600-01.\n  "
             f"die drei Punkte um das Limit (Minimum, nur zur Einordnung): {drei}")
 
@@ -541,6 +592,30 @@ def _kombi_renewal_x_data_digests():
     return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
 
 
+def _kombi_renewal_x_data_digests_x_algorithmen():
+    """DIE DRITTE ACHSE (Gegenlesung 2026-09-05, Linse 3 von 6). Die beiden Kombinationen darueber
+    lassen je einen Faktor auf 1 stehen: die Algorithmen-Kombi haelt D=1, die Datendigest-Kombi haelt
+    A=1. Genau dazwischen lag die Luecke — ``_PraefixDeckung`` haelt je Kettenanfangs-Algorithmus einen
+    eigenen laufenden Hash-Zustand, und jedes ATS-Token wandert in JEDEN davon.
+
+    Gemessen am 2026-09-05 (Farmer, 24 Kerne, Lastmittel 51, Maximum aus 3 Laeufen) bei vollen ATS-
+    und Datendigest-Achsen: A=1 0,813 s · A=2 1,577 s · A=3 1,944 s · A=5 3,621 s. Die Latte liegt bei
+    drei Achsen auf ``3 * GRENZE_S`` = 3,0 s, der A=5-Fall reisst sie — und keine Einzelachse meldet
+    etwas, weil jede fuer sich eingehalten ist.
+
+    Diese Kombination faehrt deshalb den GROESSTEN vom Produktbudget noch ZUGELASSENEN Fall
+    (``budget.renewal_work``), nicht den abgewiesenen: was die Schranke verbietet, kann kein
+    Kostentest mehr messen. Dass der abgewiesene Fall wirklich abgewiesen wird, prueft
+    ``TestProduktbudget`` weiter unten."""
+    algs = ["sha256", "sha512"]                      # zwei Kettenanfangs-Kennungen
+    daten = ["%064x" % i for i in range(B.data_digests)]
+    n = B.renewal_work // (len(daten) * len(algs))   # so viele ATS, wie das Produktbudget zulaesst
+    n = min(n, B.renewal_ats_chain)
+    seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)] for i in range(n)]
+    erreicht = {"renewal_work": n * len(daten) * len(algs)}
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
+
+
 def _kombi_merkle_x_int_bits():
     """POPCOUNT-Konstruktion (Review Runde 2, B2). ``root_from_inclusion``s fn/sn-Arithmetik verbraucht,
     wenn ``leaf_index == tree_size - 1`` (fn und sn bleiben dann fuer den ganzen Lauf gleich), pro
@@ -615,6 +690,8 @@ KOMBIS = [
     ("renewal_ats_chain x data_digests", 2, _kombi_renewal_x_data_digests),
     ("merkle_path x int_bits", 2, _kombi_merkle_x_int_bits),
     ("signatures x string_len", 2, _kombi_signatures_x_input_bytes),
+    ("renewal_ats_chain x data_digests x hash-algorithmen", 3,
+     _kombi_renewal_x_data_digests_x_algorithmen),
     ("input_bytes x json_depth x string_len", 3, _kombi_parser_alle_achsen),
 ]
 
@@ -706,3 +783,132 @@ class TestBericht:
         with capsys.disabled():
             print("\n".join(zeilen))
         assert len(zeilen) == len(DIMENSIONEN) + len(KOMBIS) + 4
+
+
+class TestProduktbudget:
+    """Die dritte Achse, zweiseitig geprueft (Gegenlesung 2026-09-05, Linse 3 von 6).
+
+    Ein Riegel, der nur zeigt, dass er bei absurder Eingabe feuert, hat die Haelfte bewiesen. Die
+    andere Haelfte ist, dass er bei legitimer Eingabe schweigt — und dass er wirklich am PRODUKT
+    haengt und nicht an einer Achse, die zufaellig mitlaeuft.
+    """
+
+    @staticmethod
+    def _budget_checks(r):
+        return [c for c in r.checks if c.name.startswith("renewal:budget")]
+
+    def test_die_dimension_existiert_und_ist_erreichbar(self):
+        assert isinstance(B.renewal_work, int) and B.renewal_work > 0
+        assert B.within("renewal_work", B.renewal_work)
+        assert not B.within("renewal_work", B.renewal_work + 1)
+
+    def test_alle_fuenf_aktuellen_algorithmen_an_vollen_achsen_werden_abgewiesen(self):
+        """Der gemessene Fall: 10.000 ATS x 2.000 Datendigests x 5 Kettenanfangs-Algorithmen kostete
+        3,621 s gegen eine Drei-Achsen-Latte von 3,0 s. Er muss VOR der Arbeit abgewiesen werden —
+        weshalb dieser Test in Millisekunden zurueckkommt und nicht in Sekunden."""
+        algs = [n for n, s in HASH_REGISTRY.items() if s.status == "current"]
+        assert len(algs) >= 5, f"Vorbedingung: mindestens 5 aktuelle Algorithmen, gefunden {algs}"
+        daten = ["%064x" % i for i in range(B.data_digests)]
+        seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)]
+               for i in range(B.renewal_ats_chain)]
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        treffer = self._budget_checks(r)
+        assert treffer, "kein Budget-Check auf die gemessene Kombination"
+        assert not treffer[0].ok
+        assert "renewal_work" in treffer[0].detail
+        assert not r.ok
+
+    def test_jede_einzelachse_ist_dabei_eingehalten(self):
+        """Der Beweis, dass das Produkt eine EIGENE Aussage ist: beide Achsen melden nichts."""
+        assert B.within("renewal_ats_chain", B.renewal_ats_chain)
+        assert B.within("data_digests", B.data_digests)
+        assert not B.within("renewal_work",
+                            B.renewal_ats_chain * B.data_digests * 5)
+
+    def test_eine_legitime_sequenz_kommt_am_riegel_vorbei(self):
+        """Gegenrichtung. Ein Riegel, der immer feuert, misst nichts. Der groesste Datendigest-Satz
+        im ganzen Repo ist EINER — legitime Nutzung liegt Groessenordnungen unter dem Produkt."""
+        daten = ["%064x" % i for i in range(4)]
+        seq = pb.build_initial_sequence(daten, hash_alg="sha256", time=100)
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        assert not self._budget_checks(r), "das Produktbudget feuert auf einer legitimen Sequenz"
+        assert r.ok, [(c.name, c.ok, c.detail) for c in r.checks if not c.ok]
+
+    def test_meta_ein_kuenstlich_kleines_budget_faengt_dieselbe_sequenz(self, monkeypatch):
+        """Haengt die Abweisung wirklich am Produkt? Wird die Decke auf 1 gesetzt, muss dieselbe
+        harmlose Sequenz fallen — und zwar mit der renewal_work-Meldung, nicht mit einer anderen."""
+        import proofbundle.budget as budget_mod
+        monkeypatch.setattr(budget_mod, "DEFAULT_BUDGET",
+                            budget_mod.VerificationBudget(renewal_work=1))
+        daten = ["%064x" % i for i in range(4)]
+        seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(3)]
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        treffer = self._budget_checks(r)
+        assert treffer and not treffer[0].ok
+        assert "renewal_work" in treffer[0].detail
+
+
+class TestSpeicherUeberN:
+    """B3, nachgebessert (Owner-Auflage 2026-09-05): der Beleg gehoert auf die Achse, ueber die er
+    etwas aussagt.
+
+    Die erste Fassung belegte "der Speicher waechst UNABHAENGIG von der Zahl der Kettenanfaenge" mit
+    zwei Messpunkten, die N festhielten und D variierten. Das ist die falsche Achse: wer die
+    Unabhaengigkeit von N behauptet, muss N variieren. Nachgemessen am 2026-09-05 mit festem D:
+    N=10 -> 0,27 MiB · N=100 -> 0,27 · N=1.000 -> 0,36 · N=5.000 -> 1,30 · N=10.000 -> 2,48 MiB.
+
+    Der Speicher WAECHST also mit N — nur nicht in ``_PraefixDeckung`` (deren Formel O(A)+O(D) stimmt),
+    sondern in der Check-Liste von ``VerificationResult``, die je ATS einen Eintrag bekommt. Dieser
+    Test behauptet deshalb NICHT die widerlegte Unabhaengigkeit, sondern nagelt das TATSAECHLICHE
+    Verhalten fest: monoton in N, absolut unter der Grenze, und der Zuwachs bleibt in derselben
+    Groessenordnung wie die Zahl der Eintraege. Waechst er kuenftig schneller, ist das eine
+    Regression, die hier auffaellt statt in einem Docstring zu stehen.
+    """
+
+    D_FEST = 200          # klein genug fuer einen Suitenlauf, gross genug fuer einen echten Datenschwanz
+    N_REIHE = (100, 1_000, 5_000)
+
+    @staticmethod
+    def _peak_bytes(n, d):
+        daten = ["%064x" % i for i in range(d)]
+        seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(n)]
+        gc.collect()
+        tracemalloc.start()
+        pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        _, spitze = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return spitze
+
+    def test_speicher_ist_monoton_in_n_und_bleibt_unter_der_grenze(self):
+        gemessen = {n: self._peak_bytes(n, self.D_FEST) for n in self.N_REIHE}
+        werte = [gemessen[n] for n in self.N_REIHE]
+        assert werte == sorted(werte), f"nicht monoton in N: {gemessen}"
+        for n, b in gemessen.items():
+            assert b <= SPEICHER_GRENZE_BYTES, (
+                f"N={n}, D={self.D_FEST}: {b/1024/1024:.2f} MiB Spitzenverbrauch, Grenze "
+                f"{SPEICHER_GRENZE_BYTES/1024/1024:.0f} MiB")
+
+    def test_der_zuwachs_je_ats_bleibt_in_seiner_groessenordnung(self):
+        """Die eigentliche Regressionsschranke. Der Zuwachs von der kleinsten zur groessten
+        Kettenanfangszahl geteilt durch die Zahl zusaetzlicher ATS ist der Speicher, den EIN ATS
+        kostet — bei der gemessenen Kurve rund 250 Byte je Eintrag. 4 KiB je ATS laesst reichlich
+        Luft nach oben und faengt trotzdem eine Regression, die das Wachstum um eine
+        Groessenordnung verschoebe (etwa weil wieder Tokens aufbewahrt wuerden statt nur gehasht)."""
+        klein, gross = self.N_REIHE[0], self.N_REIHE[-1]
+        zuwachs = self._peak_bytes(gross, self.D_FEST) - self._peak_bytes(klein, self.D_FEST)
+        je_ats = zuwachs / (gross - klein)
+        assert je_ats <= 4096, (
+            f"{je_ats:.0f} Byte zusaetzlicher Spitzenverbrauch je ArchiveTimeStamp (von N={klein} auf "
+            f"N={gross}, D={self.D_FEST}) — erwartet wird die Groessenordnung eines Check-Eintrags, "
+            "nicht die eines aufbewahrten Tokens oder Praefix-Bytes")
+
+    def test_die_gegenrichtung_der_datenschwanz_kostet_auch_etwas(self):
+        """Anti-Tautologie: waere der Speicher von D voellig unabhaengig, wuerde der Test oben auch
+        gruen bleiben, wenn ``_daten_bytes`` gar nicht existierte. Bei festem N muss ein groesserer
+        Datenschwanz mehr kosten — sonst misst diese Klasse nicht, was sie zu messen glaubt."""
+        n = 1_000
+        klein = self._peak_bytes(n, 1)
+        gross = self._peak_bytes(n, 2_000)
+        assert gross > klein, (
+            f"D=2000 kostet nicht mehr als D=1 (beide {klein} Byte) — der Datenschwanz taucht im "
+            "Spitzenverbrauch gar nicht auf, die Messung greift also nicht an der erwarteten Stelle")

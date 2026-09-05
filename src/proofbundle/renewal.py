@@ -470,12 +470,22 @@ class _PraefixDeckung:
     PLUS O(D) fuer ``self._daten_bytes`` (D = Bytes von ``data_digests``, sortiert und verbunden, GENAU
     EINMAL gecacht in ``_daten()``) — UNABHAENGIG von der Zahl der Kettenanfaenge: kein Token, kein
     Praefix-Byte wird je zusaetzlich zu den laufenden Hash-Zustaenden aufbewahrt. Gemessen bestaetigt:
-    10.000 Kettenanfaenge gegen einen Datendigest kosten ~2,43 MiB Spitzenverbrauch (dominiert von der
-    Check-Liste in ``VerificationResult``, ein vorbestehender, von dieser Klasse unabhaengiger
-    Mechanismus), 10.000 Kettenanfaenge gegen 2.000 Datendigests ~2,60 MiB — die Differenz waechst mit
-    D, nicht mit der Kettenanfangszahl. Zeit multipliziert sich also ueber diese beiden Achsen (siehe
-    oben), Speicher NICHT — zwei verschiedene Kostenarten mit unterschiedlichem Verhalten, keine
-    Annahme, dass eine begrenzte Zeit automatisch begrenzten Speicher bedeutet oder umgekehrt.
+    KORREKTUR AN DIESER STELLE (Owner-Auflage 2026-09-05). Die erste Fassung belegte die Formel mit
+    zwei Messpunkten, die N FESTHIELTEN und D variierten (10.000 Kettenanfaenge gegen 1 bzw. gegen 2.000
+    Datendigests, ~2,43 und ~2,60 MiB) — und schloss daraus, der Speicher wachse "UNABHAENGIG von der
+    Zahl der Kettenanfaenge". Das ist die falsche Achse fuer diese Aussage: wer die Unabhaengigkeit von N
+    behauptet, muss N variieren. Nachgemessen am 2026-09-05 mit festem D=2.000 ueber ``verify_sequence``:
+    N=10 -> 0,27 MiB · N=100 -> 0,27 · N=1.000 -> 0,36 · N=5.000 -> 1,30 · N=10.000 -> 2,48 MiB.
+
+    Der Speicher WAECHST also mit N — nur nicht in dieser Klasse. Die Formel oben gilt fuer
+    ``_PraefixDeckung`` und stimmt (kein Token, kein Praefix-Byte wird zusaetzlich zu den laufenden
+    Hash-Zustaenden aufbewahrt); der beobachtete Zuwachs kommt aus der Check-Liste in
+    ``VerificationResult``, die je ATS einen Eintrag bekommt — ein vorbestehender, von dieser Klasse
+    unabhaengiger Mechanismus, aber eben einer, den ein Leser dieses Docstrings sonst nicht erwartet.
+    Zur Einordnung dieselbe Achse anders herum, N=1.000 fest: D=1 -> 0,23 MiB · D=100 -> 0,24 ·
+    D=2.000 -> 0,36 MiB. Zeit multipliziert sich ueber ATS mal Digests mal Algorithmen (siehe oben und
+    ``budget.renewal_work``), Speicher waechst additiv in N und D — zwei verschiedene Kostenarten mit
+    verschiedenem Verhalten, keine Annahme, dass eine begrenzte Zeit begrenzten Speicher bedeutet.
     """
 
     def __init__(self, data_digests: Sequence[str], hash_algs: "Iterable[str]", *,
@@ -851,6 +861,24 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             "Review Runde 2 B1)"))
         return result
 
+    # DIE DRITTE ACHSE, und warum sie eine eigene Pruefung braucht (Gegenlesung 2026-09-05, Linse 3).
+    # _PraefixDeckung haelt je DISTINKTEM Kettenanfangs-Algorithmus einen eigenen laufenden Hash-Zustand,
+    # und aufnehmen() fuettert JEDES ATS-Token in JEDEN davon. Die Kosten wachsen linear in der Zahl der
+    # Algorithmen — und beide Achsen darueber melden dabei nichts, weil jede fuer sich eingehalten ist.
+    # Gemessen (Farmer, 24 Kerne, Lastmittel 51, 10.000 ATS x 2.000 Digests, Maximum aus 3 Laeufen):
+    # A=1 0,813 s · A=2 1,577 s · A=3 1,944 s · A=5 3,621 s. Die Latte des Kostenkurven-Tests liegt bei
+    # drei Achsen auf 3,0 s; der A=5-Fall reisst sie. Erst das PRODUKT ist hier eine Decke.
+    _start_algs = {c[0].hash_alg for c in sequence if c and isinstance(c[0].hash_alg, str)}
+    _arbeit = len(flat) * max(1, len(data_digests)) * max(1, len(_start_algs))
+    if not DEFAULT_BUDGET.within("renewal_work", _arbeit):
+        result.checks.append(Check(
+            "renewal:budget:renewal_work", False,
+            f"the covering walk would cost {_arbeit} units ({len(flat)} ATS x {len(data_digests)} data "
+            f"digests x {len(_start_algs)} chain-start hash algorithms) (> budget.renewal_work="
+            f"{DEFAULT_BUDGET.renewal_work}) — refusing the COMBINATION although every single axis is "
+            "within its own budget (DoS guard, Gegenlesung zu Review Runde 2 B1)"))
+        return result
+
     # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
     #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).
     times = [a.time for a in flat]
@@ -908,7 +936,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # Die Kennungen der Kettenanfaenge sind genau die, die eine Praefix-Deckung anfragen. Der
     # isinstance-Filter steht VOR dem Mengenaufbau: eine unhashbare hash_alg (list/dict) wuerde sonst
     # hier roh werfen, statt wie bisher als EINZELNER fail-closed Cover-Check zu erscheinen.
-    _start_algs = {c[0].hash_alg for c in sequence if c and isinstance(c[0].hash_alg, str)}
+    # _start_algs steht oben, beim Produktbudget — dieselbe Menge, einmal berechnet.
     deckung = _PraefixDeckung(data_digests, _start_algs, allow_deprecated=True)
     covering_ok = True
     for ci, chain in enumerate(sequence):
