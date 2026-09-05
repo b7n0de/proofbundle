@@ -11,6 +11,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
   by a witnessed checkpoint (SPEC 7d).
 
+### Added
+
+- **Coverage in the language of CAP-1, target 6.1.0 (not part of 6.0.0).** A `proofbundle.cap1` module
+  checks a coverage-attestation document of `draft-hillier-coverage-attestation-00` (profile `cap/1`)
+  against the draft's rules R0 to R8, never raises, and reads strictly (a duplicate JSON name is a read
+  error, not a verdict — RFC 8259 section 4 calls that behaviour unpredictable, and the draft author's
+  own probes show three equally conformant readers disagreeing). The fifteen conformance vectors of the
+  draft author (Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0) ship under `conformance/cap1/`
+  as cases of the new kind `cap1_document` with one axis, `cap1Rules`, the exact set of rules that must
+  fire; NC-05 pins R1 and R5 together, and a counter-proof that fails for the wrong reason fails the
+  case. An `agent-review/v0.2` predicate may carry `coverage.strata`, `coverage.integrity` and
+  `coverage.absenceAssertions`; the rules are borrowed from `cap1`, each reports its own reason code
+  (`COVERAGE_CAP1_SHAPE` … `COVERAGE_CAP1_SUPPORTS_MISSING`, `COVERAGE_CAP1_RULE_UNMAPPED` for a rule the
+  mapping does not know), `status` is derived from `integrity.complete` and a stated status that
+  disagrees is rejected (`COVERAGE_CAP1_STATUS_CONTRADICTS_STRATA`). The older counters stay readable as
+  aliases with a stated decay (COMPATIBILITY.md); a v0.2 receipt without strata carries the advisory
+  code `COVERAGE_LEGACY_FIELDS`. v0.1 rejects the three fields as unknown.
+
 ### Changed
 
 - **BREAKING (6.0.0): `agent-review/v0.2` is what the emitter produces without an argument.** The
