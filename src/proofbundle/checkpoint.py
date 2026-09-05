@@ -25,6 +25,7 @@ from typing import Optional
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError
 from .signature import verify_ed25519
 from ._wire_b64 import decode_b64
@@ -227,6 +228,27 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
     return name, kid, pubkey
 
 
+def _cap_signature_lines(sig_block: str, what: str) -> None:
+    """DIE KAPPE VOR DER ARBEIT, auf der C2SP-Notenfamilie (deep gate 2026-09-05, L2-BDOS-C2SP-SIGLINES-01,
+    P2). Das ``signatures``-Budget (Finding 15b) sass auf DSSE und trust_pack; die Signaturzeilen einer
+    signierten Note hatten keine Zaehlkappe. Gemessen mit kanonisch geformten Muell-Signaturen (R ein gueltiger
+    Punkt, S < L, also der TEURE Pfad, 93 us statt 10 us je Zeile): eine 8-MiB-Note mit 74234 Zeilen fuer die
+    keyID des eigenen vkey trieb ~74k Ed25519-Pruefungen, 9,9 s, x63753 gegenueber der echten Note — ueber die
+    angreifer-kontrollierte Datei ``verify-proof``, deren Checkpoint woertlich eingebettet ist.
+
+    Gezaehlt werden die Zeilen, die als Signaturzeile beginnen (EM DASH + Leerzeichen), BEVOR eine einzige
+    dekodiert oder verifiziert wird; die Zaehlung ist O(n) ueber den Textblock und braucht keine Arbeit, die
+    sie begrenzt (Owner-Ausnahme greift nicht). Eine Note ueber der Kappe ist malformed, nicht 'nicht
+    signiert' — sie faellt typisiert, damit ein Aufrufer sie von einer unsignierten Note unterscheiden kann.
+    Dieselbe Kappe fuer Log-Signaturen (verify_checkpoint) und Cosignaturen (verify_cosignature): beide
+    Schleifen tragen dieselbe Form, und zwei Kappen fuer dieselbe Groesse waeren die naechste Drift."""
+    n = sig_block.count(EM_DASH + " ")
+    if n > DEFAULT_BUDGET.signatures:
+        raise BundleFormatError(
+            f"{what} carries {n} signature lines (> signatures={DEFAULT_BUDGET.signatures}) "
+            "— refused before any signature is decoded or verified (DoS guard, cap before work)")
+
+
 def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     """Verify a signed C2SP checkpoint against a vkey. Returns {ok, origin, tree_size, root}. ``ok`` is
     True iff a signature line whose keyID matches the vkey verifies (Ed25519) over the exact note-text
@@ -285,6 +307,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     # Aussage ueber die Lage, kein Messfehler.
     signer_present = False
     kid_expected = key_id(name, pubkey)
+    _cap_signature_lines(sig_block, "checkpoint note")
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
             continue
@@ -606,6 +629,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
         mldsa_pub = mldsa.MLDSA44PublicKey.from_public_bytes(pubkey)
 
     sig_block = signed_note.split("\n\n", 1)[1]
+    _cap_signature_lines(sig_block, "cosigned checkpoint note")
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
             continue
@@ -718,6 +742,15 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
     if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
         return False, {}
+    # deep gate 2026-09-05 (L2-BDOS-C2SP-SIGLINES-01, Geschwister): der Roster ist RP-Konfiguration, aber
+    # jeder Eintrag treibt einen vollen Scan der Note (verify_cosignature). Dieselbe Budget-Dimension, die
+    # trust_pack fuer seine Schluesselmenge traegt (``witnesses``), begrenzt hier die Anzahl der Zeugen,
+    # BEVOR der erste Scan laeuft — typisiert, wie ein unparsbarer vkey in derselben Schleife.
+    witness_vkeys = list(witness_vkeys)
+    if len(witness_vkeys) > DEFAULT_BUDGET.witnesses:
+        raise BundleFormatError(
+            f"witness roster carries {len(witness_vkeys)} entries (> witnesses={DEFAULT_BUDGET.witnesses}) "
+            "— refused before any cosignature is scanned (DoS guard, cap before work)")
     # The origin is parsed LAZILY and defensively: a malformed note must keep its existing contract
     # (an empty roster returns without raising; a non-empty one raises in verify_cosignature below),
     # so a parse failure here downgrades to origin=None instead of introducing a new raise path.

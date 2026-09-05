@@ -28,6 +28,7 @@ import zlib
 from typing import Optional
 
 from ._strict_json import loads_strict
+from .budget import int_magnitude_ok, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519
 from ._wire_b64 import decode_b64url
@@ -119,6 +120,16 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
                                  and len(issuer_pubkey) == len(receipt_issuer_pubkey)
                                  and _hmac.compare_digest(bytes(issuer_pubkey),
                                                           bytes(receipt_issuer_pubkey)))
+    # deep gate 2026-09-05 (L3-600-04, RT-05 keyword_rp_expectation_arg_int_str_cap_dos): `now` is the relying
+    # party's clock and was compared raw once the token carried exp/ttl — a str/list/bytes/float/huge-int `now`
+    # raised a raw TypeError (or tripped the shift/render caps) out of a surface that declares 'never crashes'.
+    # The floor sits at ENTRY, before any signature work: a malformed clock is a caller error, and the safe
+    # direction is a fail-closed verdict that names it, never a silently unjudged freshness (fresh=None would
+    # read as 'no bound to judge against', which is a different, honest state reserved for exp/ttl absence).
+    if now is not None and (isinstance(now, bool) or not isinstance(now, int) or not int_magnitude_ok(now)):
+        result["detail"] = ("status list now (relying-party clock) must be a POSIX-seconds integer within the "
+                            f"magnitude budget, got {render_safe(now)} (fail-closed)")
+        return result
     if not isinstance(status_list_token, str):
         # RE-TCE-06 (RE-GATE never-raise): a non-str token (int / None / list) must be a fail-closed verdict,
         # not a raw AttributeError from `.count(...)`. A garbage STRING already returns ok=False (lone
@@ -149,7 +160,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = f"status list token typ must be '{TYP}'"
         return result
     if header.get("alg") != "EdDSA":
-        result["detail"] = f"status list token alg {header.get('alg')!r} not supported (EdDSA only)"
+        result["detail"] = f"status list token alg {render_safe(header.get('alg'))} not supported (EdDSA only)"
         return result
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     try:

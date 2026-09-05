@@ -49,7 +49,8 @@ def _reject_duplicate_keys(pairs: list) -> dict:
     return obj
 
 
-def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int) -> None:
+def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int,
+                               int_bits: int | None = None) -> None:
     """Bounded iterative walk (crypto-review 2026-07-15; depth added PB-2026-0718-11b): refuse a PARSED
     structure that is either too WIDE (combined dict-key + list-item count exceeds ``json_nodes`` — a
     wide-but-small-bytes document that slips under the raw ``input_bytes`` cap) or too DEEP (nesting depth
@@ -69,6 +70,18 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
         cur, depth = stack.pop()
         if depth > json_depth:
             raise BundleFormatError("JSON nesting is too deep")
+        # THE MAGNITUDE DIMENSION AT THE CHOKEPOINT (deep gate 2026-09-05, L2-BDOS-RENDER-NEIGHBOURS-01 /
+        # L3-600-01). ``loads_strict`` refuses a >4300-digit literal on the str/file path, so a parsed document
+        # never carries an implausible integer — but a DIRECT-DICT caller can hand one over in ANY field
+        # (``schema``, ``signature.alg``, ``anchors[].target``), and an enum-typed field was then interpolated
+        # into the rejection text and tripped the CVE-2020-10735 int->str cap as a raw ``ValueError``. The
+        # ``int_bits`` ceiling used to bound only the three integer-taking ARGUMENTS and ``_require_int``; now
+        # it bounds every integer in a parsed structure, exactly where ``json_nodes``/``string_len`` already
+        # bound its other axes, so the direct-dict path rejects with the same class as the file path.
+        if int_bits is not None and isinstance(cur, int) and not isinstance(cur, bool):
+            if cur.bit_length() > int_bits:
+                raise BudgetExceeded("int_bits", cur.bit_length(), int_bits)
+            continue
         if isinstance(cur, str):
             # RT-BDOS-01 / RT09-STRINGLEN-INERT: cap a single oversized string VALUE. On the direct-dict
             # path input_bytes is inert (no bytes to measure), so without this a ~13 MB payload_b64 string
@@ -83,8 +96,20 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             for key, value in cur.items():
                 if isinstance(key, str) and len(key) > string_len:
                     raise BudgetExceeded("string_len", len(key), string_len)
+                # a dict KEY is a JSON string on the file path; on the direct-dict path it can be anything —
+                # bound an integer key like a value, so a huge int key cannot reach a message either
+                if (int_bits is not None and isinstance(key, int) and not isinstance(key, bool)
+                        and key.bit_length() > int_bits):
+                    raise BudgetExceeded("int_bits", key.bit_length(), int_bits)
                 stack.append((value, depth + 1))
-        elif isinstance(cur, list):
+        elif isinstance(cur, (list, tuple)):
+            # TUPEL ZAEHLEN WIE LISTEN (Deep-Gate 6.0.0, Lauf 3, Nachbar-Fund beim Schliessen der
+            # Render-Klasse). Ein JSON-Parser erzeugt nie ein Tupel, also war der Walk auf dem FILE-Pfad
+            # vollstaendig — auf dem DIRECT-DICT-Pfad nicht: ein Aufrufer kann ein Tupel uebergeben, und es
+            # fiel weder unter `str` noch `dict` noch `list`, wurde also weder gezaehlt noch betreten.
+            # Gemessen: `{"a": tuple(range(5_000_000))}` lief ungebremst durch, waehrend die identische Liste
+            # mit 300.000 Elementen typisiert abgewiesen wurde — und ein Tupel, das einen implausiblen
+            # Integer traegt, erreichte damit die Render-Stelle, die diese Runde gerade schliesst.
             count += len(cur)
             if count > json_nodes:
                 raise BudgetExceeded("json_nodes", count, json_nodes)
@@ -101,11 +126,13 @@ def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
     ``json_depth``) would otherwise be walked unbounded and could surface as a raw ``RecursionError`` instead
     of a fail-closed budget verdict. Raises :class:`proofbundle.budget.BudgetExceeded` (over-width) or
     :class:`BundleFormatError` (over-depth) — both ``ProofBundleError`` subclasses, so existing
-    ``except (ProofBundleError, ...)`` sites treat it as fail-closed over-limit input. ``budget`` defaults to
-    ``DEFAULT_BUDGET``; pass a tighter one to test the guard."""
+    ``except (ProofBundleError, ...)`` sites treat it as fail-closed over-limit input. Since 2026-09-05 the
+    walk also refuses any integer (value or dict key) above ``budget.int_bits`` — the magnitude axis that the
+    file path bounds via the parser's digit cap and the direct-dict path did not bound at all. ``budget``
+    defaults to ``DEFAULT_BUDGET``; pass a tighter one to test the guard."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
-    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len)
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
@@ -148,5 +175,5 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         if "integer string conversion" in str(exc):
             raise BundleFormatError("JSON integer literal is implausibly long (fail-closed)") from exc
         raise
-    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len)
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
     return obj

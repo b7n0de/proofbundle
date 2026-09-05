@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_keys_safe
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -190,7 +190,7 @@ _ASSURANCE_KEYS = {"minimum_level", "reject_self_attested_without_prereg"}
 def _reject_unknown(obj: dict, allowed: set, where: str) -> None:
     extra = set(obj) - allowed
     if extra:
-        raise PolicyError(f"unknown field(s) in {where}: {sorted(extra)} (trust policy is fail-closed)")
+        raise PolicyError(f"unknown field(s) in {where}: {render_keys_safe(extra)} (trust policy is fail-closed)")
 
 
 def _require_dict(value, where: str) -> dict:

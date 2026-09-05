@@ -8,7 +8,29 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A rejection must not fail harder than the check it explains.** The messages of `verify_bundle`,
+  `recompute_merkle_root_b64`, `anchors.verify_anchor(s)`, `hashalg.verify_dual_hash` and every
+  `_reject_unknown` interpolated a caller-supplied value directly, so an implausibly large integer in an
+  enum-typed field (`schema`, `signature.alg`, `merkle.hash_alg`, `anchors[].target`) or a mixed-type key
+  set raised a raw `ValueError` / `TypeError` out of a typed-raise surface — and through
+  `decision.verify_decision_receipt(anchors=…)` out of a documented never-raise one. The class is closed at
+  two chokepoints rather than at nine sites: integer magnitude is now a dimension of the structural budget
+  (`enforce_structural_budget`, which also walks tuples), and `budget.render_safe` / `render_keys_safe` are
+  the one bounded renderer that never raises. Ordinary values render byte-identically to before.
+- **Every relying-party expectation argument is type-floored at entry.** `verify_status_snapshot(now=…)`
+  compared the caller's clock raw once the token carried `exp`/`ttl`; a string, list, float or huge integer
+  raised a raw `TypeError` on a surface that declares it never crashes. It is now a fail-closed verdict that
+  names the reason.
+- **The cap runs before the work it bounds, on the C2SP note family and the tlog-proof parser.** A signed
+  note carried no count cap on its signature lines: an 8 MiB note with 74,234 lines for the vkey's own key id
+  drove ~74k Ed25519 verifications (measured 9.9 s) through the attacker-supplied `verify-proof` file.
+  `verify_checkpoint`, `verify_cosignature` and the witness roster now refuse above the `signatures` /
+  `witnesses` budget before the first verification, and `parse_tlog_proof` refuses above `merkle_path`
+  before decoding a single step; `verify_tlog_proof` routes its inclusion check through
+  `merkle.verify_inclusion` so one oracle carries the caps.
+
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 

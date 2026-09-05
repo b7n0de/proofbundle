@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .bundle import load_bundle, verify_bundle
 from .emit import emit_bundle
+from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_member
@@ -267,7 +268,7 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
         raise EvalClaimError(f"claim missing required fields: {sorted(missing)}")
     extra = set(claim) - _REQUIRED - _OPTIONAL
     if extra:
-        raise EvalClaimError(f"claim has unknown fields: {sorted(extra)}")
+        raise EvalClaimError(f"claim has unknown fields: {render_keys_safe(extra)}")
     payload = canonicalize(claim)
     return emit_bundle(payload, signer, prior_leaves=prior_leaves, sd_jwt_vc=sd_jwt)
 

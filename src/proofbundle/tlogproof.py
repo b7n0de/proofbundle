@@ -37,10 +37,10 @@ Verification (spec steps, all offline):
 from __future__ import annotations
 
 import base64
-import hmac
 from typing import Optional, Sequence
 
 from . import merkle
+from .budget import DEFAULT_BUDGET
 from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
@@ -123,6 +123,17 @@ def parse_tlog_proof(text: str) -> dict:
     if len(index_s) > 20:
         raise BundleFormatError("tlog-proof index is implausibly large (fail-closed)")
     pos += 1
+    # DIE KAPPE VOR DER ARBEIT, vierte Geschwisterflaeche (deep gate 2026-09-05, L2-BDOS-TLOGPROOF-MERKLEPATH-
+    # INERT-01; Owner-Entscheid 2026-08-18, 2c52596-Familie): verify_bundle, recompute_merkle_root_b64 und
+    # verify_sample_opening zaehlen die Beweisschritte, BEVOR sie dekodieren — dieser Parser dekodierte jede
+    # Zeile zuerst (gemessen: 186408 Schritte bei 8 MiB, alle dekodiert, bevor root_from_inclusion 'too long'
+    # sagte). `len(lines) - pos` ist ohne das Dekodieren berechenbar und exakt die Schrittzahl, also greift
+    # die Owner-Ausnahme nicht. Ein Beweis ueber der Kappe kann per Konstruktion nie verifizieren.
+    n_steps = len(lines) - pos
+    if n_steps > DEFAULT_BUDGET.merkle_path:
+        raise BundleFormatError(
+            f"inclusion proof has {n_steps} steps (> merkle_path={DEFAULT_BUDGET.merkle_path}) "
+            "— refused before decoding (DoS guard, cap before work)")
     proof = []
     for line in lines[pos:]:
         if not line:
@@ -233,12 +244,12 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
 
         inclusion_ok = False                                     # steps 1 + 4
         if 0 <= parsed["index"] < log_res["tree_size"]:
-            try:
-                computed = merkle.root_from_inclusion(
-                    parsed["index"], log_res["tree_size"], merkle.leaf_hash(leaf_data), parsed["proof"])
-                inclusion_ok = hmac.compare_digest(computed, log_res["root"])
-            except ValueError:
-                inclusion_ok = False
+            # EIN Orakel fuer die Inklusion (deep gate 2026-09-05): `merkle.verify_inclusion` traegt die
+            # merkle_path-Kappe, die int_bits-Schranke und die Typboeden; der direkte Aufruf von
+            # root_from_inclusion umging alle drei. Die Kappe im Parser oben ist die erste Linie, diese die
+            # zweite — dieselbe Zahl aus demselben Budget, damit die zwei Flaechen nicht auseinanderdriften.
+            inclusion_ok = merkle.verify_inclusion(
+                leaf_data, parsed["index"], log_res["tree_size"], parsed["proof"], log_res["root"])
     except (ProofBundleError, ValueError, TypeError, KeyError) as exc:
         return _tlog_failclosed(f"malformed embedded checkpoint (fail-closed): {exc}", expected_origin)
 

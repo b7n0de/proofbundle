@@ -28,15 +28,50 @@ a ``verify_*`` call is willing to walk before refusing.
 """
 from __future__ import annotations
 
+import reprlib as _reprlib
 from dataclasses import dataclass
 
 from .errors import ProofBundleError
 
 __all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
-           "render_safe"]
+           "render_safe", "render_keys_safe"]
 
 
-def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
+class _BoundedRepr(_reprlib.Repr):
+    """A ``reprlib.Repr`` that also honours the integer-magnitude budget.
+
+    ``reprlib`` bounds DEPTH and WIDTH (a self-referential or 10,000-element container renders as a
+    short elided form), but its ``repr_int`` still calls ``repr()`` on the integer and would trip the
+    CVE-2020-10735 int->str cap from INSIDE the bounded walk. The magnitude rule is applied here, at
+    the one place every integer passes, so a huge int nested three levels deep is described exactly
+    like a top-level one.
+    """
+
+    def __init__(self, budget: "VerificationBudget | None"):
+        super().__init__()
+        self._budget = budget
+        self.maxlevel = 4
+        self.maxdict = 8
+        self.maxlist = self.maxtuple = self.maxset = self.maxfrozenset = self.maxarray = 8
+        self.maxstring = 256
+        self.maxlong = 64
+        self.maxother = 256
+
+    def repr_int(self, x, level):  # noqa: D401 - reprlib protocol name
+        if int_magnitude_ok(x, self._budget):
+            return _reprlib.Repr.repr_int(self, x, level)
+        return f"<int, {x.bit_length()} bits>"
+
+    def repr_bool(self, x, level):  # a bool is an int subclass; keep it literal
+        return repr(x)
+
+
+# Hard ceiling on one rendered value, applied AFTER the bounded walk: no combination of the per-type
+# widths above can produce an unbounded explanation.
+_MAX_RENDER_CHARS = 512
+
+
+def render_safe(value, budget: "VerificationBudget | None" = None, *, quote: bool = True) -> str:
     """Render ONE untrusted value for a diagnostic message without letting it raise.
 
     THE SECOND HALF OF THE MAGNITUDE CLASS, found by the pre-tag deep gate on 2026-08-25
@@ -58,20 +93,60 @@ def render_safe(value, budget: "VerificationBudget | None" = None) -> str:
     Beyond the ceiling the value is described rather than printed: ``<int, 16610 bits>``. That is
     honest (it names what it is and how big) and it is exactly what a reader needs — nobody
     diagnoses anything from 5000 decimal digits.
+
+    THE THIRD HALF, deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01, L3-600-01, L3-600-03): the
+    rejection text of ``verify_bundle``, ``anchors.verify_anchor`` and ``hashalg.verify_dual_hash``
+    rendered an enum-typed field with ``{value!r}`` directly, and ``_reject_unknown`` sorted a set of
+    untrusted dict keys to name them. A huge int in ``schema``, a tuple holding one, or a mixed-type
+    key set made the REJECTION fail harder than the check it explains — a raw ``ValueError`` /
+    ``TypeError`` out of a typed-raise or never-raise surface. The renderer is now bounded in DEPTH
+    and WIDTH too (``reprlib``), never raises for any input (a hostile ``__repr__``, a
+    self-referential container, a nested huge int), and it is the ONE renderer every message site
+    on those paths uses. For the ordinary cases — a string, a small int, a short tuple — the output
+    is byte-identical to ``repr()`` / ``str()``, so existing message assertions keep their meaning.
+
+    ``quote=True`` (default) is the bounded replacement for ``{value!r}``; ``quote=False`` is the
+    bounded replacement for a plain ``{value}`` — a ``str`` renders as itself (clipped), everything
+    else falls back to the bounded repr, because ``str()`` on a hostile object recurses exactly like
+    ``repr()`` does.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
-        # A non-int normally renders via repr. But a CONTAINER holding a giant int (or any object whose
-        # __repr__ interpolates one) re-raises the int->str cap from INSIDE repr() — the deep gate found a
-        # never-raise surface passing a whole container field here (e.g. sig_alg=[1<<100000]). The note
-        # above assumed callers pass container ELEMENTS; the never-raise surfaces pass the whole field, so
-        # the contract ("without letting it raise") is enforced here — one helper, every site.
-        try:
+    try:
+        if isinstance(value, bool):
             return repr(value)
-        except Exception:  # noqa: BLE001 — nested implausible int / hostile __repr__ must not escape
+        if isinstance(value, int):
+            if int_magnitude_ok(value, budget):
+                return str(value)
+            return f"<int, {value.bit_length()} bits>"
+        if not quote and isinstance(value, str):
+            return _clip_render(value)
+        return _clip_render(_BoundedRepr(budget).repr(value))
+    except BaseException:  # noqa: BLE001 — a renderer on a never-raise path must not raise, ever
+        try:
             return f"<unrenderable {type(value).__name__}>"
-    if int_magnitude_ok(value, budget):
-        return str(value)
-    return f"<int, {value.bit_length()} bits>"
+        except BaseException:  # noqa: BLE001 — even type(...).__name__ can be booby-trapped
+            return "<unrenderable>"
+
+
+def _clip_render(text: str) -> str:
+    if len(text) <= _MAX_RENDER_CHARS:
+        return text
+    return text[: _MAX_RENDER_CHARS - 3] + "..."
+
+
+def render_keys_safe(keys) -> "list[str]":
+    """Name a set of UNTRUSTED dict keys in a message: rendered first, sorted second, never raising.
+
+    ``sorted(set(obj) - allowed)`` was the shape at seven sites (bundle, anchors, decision, relation,
+    policy, evalclaim, hf_evals): it orders the RAW keys, and two unknown keys of incomparable types
+    (``{5: 1, "zzz": 1}``, reachable on every direct-dict surface) raise a raw ``TypeError`` before
+    the typed error that was about to name them is even built (deep gate 2026-09-05, L3-600-03).
+    Rendering each key first (bounded, see :func:`render_safe`) turns the ordering into a string
+    sort that cannot fail, and the message still names every key.
+    """
+    try:
+        return sorted(render_safe(k) for k in keys)
+    except BaseException:  # noqa: BLE001 — a hostile __iter__/__hash__ must not escape either
+        return ["<unrenderable keys>"]
 
 
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:

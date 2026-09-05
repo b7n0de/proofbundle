@@ -15,6 +15,7 @@ import re
 from typing import Any, Callable
 
 from ._strict_json import loads_strict
+from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member
@@ -101,7 +102,7 @@ def _typed_digest_error(td: Any) -> str | None:
     # Own key-set check, not only the nested closure: this helper is called directly (and tested
     # directly), so it must be sound STANDING ALONE. Relying on a caller's closure would make the
     # docstring's "ONE definition" true only in one code path.
-    unknown = sorted(set(td) - {"type", "purpose", "digestAlgorithm", "digest"})
+    unknown = render_keys_safe(set(td) - {"type", "purpose", "digestAlgorithm", "digest"})
     if unknown:
         return f"undeclared field(s) {unknown}"
     missing = [k for k in ("type", "digestAlgorithm", "digest") if k not in td]
@@ -158,7 +159,9 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         return ["predicate must be a JSON object"]
 
     # additionalProperties: false — unknown top-level fields are rejected, never ignored.
-    unknown = sorted(set(predicate) - _ALLOWED_TOP)
+    # deep gate 2026-09-05 (L3-600-03 class): rendered-then-sorted — a mixed-type key set on the direct-dict
+    # path must name its keys typed, never raise a raw TypeError from sorting the raw keys.
+    unknown = render_keys_safe(set(predicate) - _ALLOWED_TOP)
     if unknown:
         errors.append(f"unknown top-level field(s) {unknown} (decision receipt is fail-closed)")
     if "timestamp" in predicate:
@@ -172,32 +175,32 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # schemaVersion
     sv = predicate.get("schemaVersion")
     if sv is not None and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
-        errors.append(f"schemaVersion must be a 0.1.x string, got {sv!r}")
+        errors.append(f"schemaVersion must be a 0.1.x string, got {render_safe(sv)}")
 
     # decisionId (Finding 04, analogous to trustPackId in trust_pack.py): the required-field loop above only
     # checks PRESENCE — an int, a bool or an empty string previously satisfied "decisionId in predicate" and
     # passed silently.
     did = predicate.get("decisionId")
     if "decisionId" in predicate and not (isinstance(did, str) and did):
-        errors.append(f"decisionId must be a non-empty string, got {did!r}")
+        errors.append(f"decisionId must be a non-empty string, got {render_safe(did)}")
 
     # decisionType enum
     dt = predicate.get("decisionType")
     if dt is not None and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
-        errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {dt!r}")
+        errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {render_safe(dt)}")
 
     # RFC3339-Z time fields
     for path in _TIME_PATHS:
         v = predicate.get(path)
         if v is not None and (not isinstance(v, str) or not _RFC3339_Z.match(v)):
-            errors.append(f"{path} must be RFC3339 with trailing Z, got {v!r}")
+            errors.append(f"{path} must be RFC3339 with trailing Z, got {render_safe(v)}")
 
     # decision.verdict + reasonCodes
     dec = predicate.get("decision")
     if isinstance(dec, dict):
         vd = dec.get("verdict")
         if not isinstance(vd, str) or not is_member(vd, _VERDICTS):
-            errors.append(f"decision.verdict must be one of {sorted(_VERDICTS)}, got {vd!r}")
+            errors.append(f"decision.verdict must be one of {sorted(_VERDICTS)}, got {render_safe(vd)}")
         rc = dec.get("reasonCodes")
         if not isinstance(rc, list) or not rc or not all(isinstance(x, str) for x in rc):
             errors.append("decision.reasonCodes must be a non-empty list of strings")
@@ -275,7 +278,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     if isinstance(ao, dict):
         st = ao.get("status")
         if not isinstance(st, str) or not is_member(st, _OUTCOME_STATUS):
-            errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
+            errors.append(f"actionOutcome.status must be one of {sorted(_OUTCOME_STATUS)}, got {render_safe(st)}")
     elif "actionOutcome" in predicate:
         errors.append("actionOutcome must be a JSON object")
 
@@ -582,7 +585,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     ptype = statement.get("predicateType") if isinstance(statement, dict) else None
     r["predicate_type_ok"] = ptype == DECISION_RECEIPT_PREDICATE_TYPE
     if not r["predicate_type_ok"]:
-        r["errors"].append(f"predicateType is {ptype!r}, expected decision-receipt/v0.1 (confusion attack?)")
+        r["errors"].append(f"predicateType is {render_safe(ptype)}, expected decision-receipt/v0.1 (confusion attack?)")
 
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     struct_errs = validate_decision_predicate(predicate, strict=strict)
@@ -775,10 +778,16 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             try:
                 ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
                                                  rp_trust=rp_trust)
-            except ProofBundleError as exc:
+            except (ProofBundleError, ValueError, TypeError, OverflowError, RecursionError) as exc:
+                # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): this guard caught ProofBundleError
+                # only, so a render-class escape from the anchor layer (a huge int in `type`, a mixed-type
+                # key set) left this documented never-raise surface as a raw ValueError/TypeError. The anchor
+                # sites are rendered bounded now; this guard closes the family at the consumer as well, so a
+                # future render escape one layer down is still a fail-closed anchors verdict here.
                 anchor_status = "FAIL"
                 r["anchors_ok"] = False
-                r["errors"].append(f"anchor verification refused malformed anchor input (fail-closed): {exc}")
+                r["errors"].append("anchor verification refused malformed anchor input (fail-closed): "
+                                   f"{render_safe(exc, quote=False)}")
                 ar = None
             if ar is not None:
                 # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but
