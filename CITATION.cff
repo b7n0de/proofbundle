@@ -39,7 +39,7 @@ references:
         orcid: "https://orcid.org/0009-0006-8947-6065"
     version: 6.0.0
     year: 2026
-    # DRAFT for the 6.0.0 revision of the Note (docs/deposit/6.0.0/). Its version DOI exists
+    # DRAFT for the 6.0.0 revision of the Note. Its version DOI exists
     # only after the deposit, which follows the tag v6.0.0; until then this entry carries NO
     # `doi:` line rather than an invented one. The latest PUBLISHED revision is 5.0.0,
     # version DOI 10.5281/zenodo.22209091 (2026-08-31). The concept DOI (all versions) is

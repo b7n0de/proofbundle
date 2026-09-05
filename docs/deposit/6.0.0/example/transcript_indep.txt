@@ -1,2 +1,0 @@
-ed25519 signature over payload bytes: VALID
-recomputed RFC 6962 root == stated root: True

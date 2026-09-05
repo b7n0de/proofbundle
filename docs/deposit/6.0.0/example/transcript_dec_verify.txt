@@ -1,6 +1,0 @@
-CRYPTO: OK
-POLICY: NOT_EVALUATED (no decision policy supplied)
-STRUCTURE: OK
-SUBJECT: DERIVED
-
-This proves the signed decision claim has not been altered. It does not prove the decision was correct, legal, safe, or that the action was executed.

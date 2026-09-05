@@ -1,6 +1,0 @@
-{
-  "policy": "eval-publish-gate/v1",
-  "rule": "allow publish iff proofbundle verify exits 0 with --expected-root and --expected-tree-size (tree context authenticated) and claim.passed is true",
-  "engine": "opa",
-  "decisionPath": "data.b7n0de.evalpublish.allow"
-}

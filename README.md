@@ -221,7 +221,7 @@ Roadmap, stated as not yet built. A post quantum payload signature, and a CLI fl
 
 Machine readable citation metadata is in [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/main/CITATION.cff).
 
-The archival software record uses concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note uses concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466); its latest published revision is 5.0.0, version DOI [10.5281/zenodo.22209091](https://doi.org/10.5281/zenodo.22209091). The 6.0.0 revision of the Note is prepared under [docs/deposit/6.0.0](https://github.com/b7n0de/proofbundle/tree/main/docs/deposit/6.0.0) and receives its version DOI at deposit, after the tag.
+The archival software record uses concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note uses concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466); its latest published revision is 5.0.0, version DOI [10.5281/zenodo.22209091](https://doi.org/10.5281/zenodo.22209091). The 6.0.0 revision of the Note receives its version DOI at deposit, after the tag.
 
 ## Contributing
 
