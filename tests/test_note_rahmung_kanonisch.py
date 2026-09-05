@@ -67,7 +67,11 @@ EM = "—"
 # Trennlinie wird KEIN proofbundle-Symbol benutzt; das ist der ganze Sinn der Sache.
 # ======================================================================================
 
-_ORAKEL_STEUERZEICHEN = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
+# Genau note.Opens Menge: ``r < 0x20 && r != '\n'`` (note.go:524, x/mod v0.29.0). 0x7F/DEL gehoert
+# NICHT dazu. Meine erste Fassung hatte es drin — DERSELBE Fehler wie in der Implementierung, und
+# genau deshalb hat das Spezifikations-Differential ihn nicht gesehen: zwei Fehler in dieselbe
+# Richtung heben sich auf. Gefunden hat ihn erst der Lauf gegen echtes Go.
+_ORAKEL_STEUERZEICHEN = re.compile(r"[\x00-\x09\x0b-\x1f]")
 _ORAKEL_SURROGAT = re.compile(r"[\ud800-\udfff]")
 
 
@@ -101,7 +105,10 @@ def orakel_rahmung(msg):
         if " " not in rest:
             return None, f"errMalformedNote: kein Leerzeichen nach dem Namen {z[:40]!r}"
         name, b64s = rest.split(" ", 1)
-        if not name or "+" in name or not b64s:
+        # isValidName (note.go:238): nicht leer, gueltiges UTF-8, KEIN unicode.IsSpace, kein '+'.
+        # Der Schnitt am ASCII-Leerzeichen deckt nur EIN Leerzeichen ab; U+00A0/U+2003/U+3000/U+2028
+        # muessen hier fallen. Auch das stand in meiner ersten Fassung nicht drin.
+        if not name or "+" in name or not b64s or any(ch.isspace() for ch in name):
             return None, f"errMalformedNote: Name/Nutzlast ungueltig {z[:40]!r}"
         try:
             roh = base64.b64decode(b64s, validate=True)
@@ -222,6 +229,31 @@ def korpus(text, block):
         ("fremde-wohlgeformte-zeile", _bau(text, block + [gueltige_zusatzzeile])),
         ("fremde-zeile-voran", _bau(text, [gueltige_zusatzzeile] + block)),
     ]
+
+    # ZWEI NACHBARN, die eine adversariale Gegenlesung gegen ECHTES note.Open gefunden hat
+    # (NOTE-RAHMUNG-ZWEI-NACHBARN-GEGEN-ECHTES-GO-OFFEN-01, 2026-09-05). Beide waren mit lauffaehigem
+    # Gegenbeispiel belegt, beide hier nachgefahren, beide jetzt als Korpusfall.
+    #
+    # (a) UNICODE-LEERZEICHEN IM NAMEN, die gefaehrliche Richtung: der Schnitt am ASCII-Leerzeichen
+    #     laesst U+00A0/U+2003/U+3000/U+2028 im Namen durch, die Zeile galt als "unbekannter
+    #     Schluessel" und wurde still uebersprungen -> die Note verifizierte mit ok=True, waehrend
+    #     note.Open (isValidName mit unicode.IsSpace) die GANZE Note ablehnt. MUSS abgelehnt werden.
+    for kenn, zeichen in (("nbsp", "\u00a0"), ("em-space", "\u2003"),
+                          ("ideographic-space", "\u3000"), ("line-sep", "\u2028")):
+        faelle.append((f"name-mit-{kenn}",
+                       _bau(text, block + [f"{EM} ev{zeichen}il {base64.b64encode(bytes(range(68))).decode()}"])))
+    # (b) NEGATIVKONTROLLEN, die ANGENOMMEN bleiben muessen - ohne sie waere (a) auch mit einem Fix
+    #     erfuellt, der jedes nicht-ASCII im Namen ablehnt, und das waere STRENGER als die Referenz:
+    #     U+200B ist KEIN unicode.IsSpace, und 0x7F (DEL) faellt nicht unter note.Opens
+    #     ``r < 0x20 && r != '\n'`` - beides nimmt die Referenz an, also nehmen wir es auch an.
+    faelle.append(("fremde-zeile-name-zwsp",
+                   _bau(text, block + [f"{EM} ev\u200bil {base64.b64encode(bytes(range(68))).decode()}"])))
+    faelle.append(("fremde-zeile-name-del-0x7f",
+                   _bau(text, block + [f"{EM} ev\x7fil {base64.b64encode(bytes(range(68))).decode()}"])))
+    # (c) 0x7F IM NOTENTEXT: von beiden Seiten abgelehnt, aber aus verschiedenen Gruenden - die
+    #     Referenz, weil die Signatur den geaenderten Text nicht deckt; wir ebenso. Kein Steuerzeichen-
+    #     Riegel mehr, und genau das ist der Punkt.
+    faelle.append(("del-0x7f-im-notentext", text[:-1] + "\next\x7fline\n" + "\n" + blockstr))
     return faelle
 
 
@@ -341,10 +373,12 @@ class DasDifferentialGegenDasSpezifikationsOrakel(unittest.TestCase):
         self.assertEqual(orakel_rahmung(self.a.note)[0], signiert)
 
     def test_eine_note_hat_genau_eine_angenommene_drahtform(self):
+        # Ausgenommen sind die Formen, die eine ZUSAETZLICHE wohlgeformte Zeile eines unbekannten
+        # Schluessels tragen (Praefix "fremde-") und die Umordnungen: beide sind nach der Referenz
+        # gueltige Formen DESSELBEN signierten Textes und muessen angenommen bleiben.
         formen = {hashlib.sha256(b.encode()).hexdigest()
                   for k, b in self.a.faelle if _impl_nimmt_an(b, self.a.vkey)
-                  and not k.startswith("umordnung-") and k != "fremde-wohlgeformte-zeile"
-                  and k != "fremde-zeile-voran"}
+                  and not k.startswith("umordnung-") and not k.startswith("fremde-")}
         self.assertEqual(len(formen), 1,
                          f"{len(formen)} byteverschiedene Formen derselben Signatur angenommen")
 

@@ -94,11 +94,23 @@ class DasEchteGoDifferential(unittest.TestCase):
             if zeile.strip():
                 teile = zeile.split("\t")
                 aus[teile[0]] = teile[1]
+        # DIE VOLLSTAENDIGKEIT DER FREMDAUSGABE WIRD HIER ERZWUNGEN, NICHT IM EINZELNEN TEST.
+        # Befund META-TEST-BESTEHT-AUCH-WENN-DAS-FREMDE-ORAKEL-SCHWEIGT-01 (2026-09-05): der Meta-Test
+        # unten urteilte mit ``go.get(k) != "ACCEPT"`` ueber die Inhalte, ohne vorher zu verlangen, dass
+        # ueberhaupt etwas gelesen wurde. Bei leerer Go-Ausgabe ist "Schluessel fehlt" von "Go hat
+        # abgelehnt" nicht unterscheidbar, und die Aussage wird WAHR, ohne dass je ein Go-Verdikt
+        # existierte — gemessen mit einem main.go, das vor der ersten Ausgabezeile os.Exit(0) macht.
+        # Der Riegel sitzt deshalb an der EINEN Stelle, durch die jede Frage an Go laeuft: ein neuer
+        # Test kann ihn gar nicht mehr vergessen. (Klassenfix statt Instanzfix, B7_STANDING_FIX_THE_CLASS.)
+        fehlend = [k for k, _ in faelle if k not in aus]
+        if fehlend:
+            self.fail(f"die Go-Ausgabe ist unvollstaendig: {len(aus)} von {len(faelle)} Verdikten, "
+                      f"es fehlen u.a. {fehlend[:5]} — ueber eine schweigende Gegenseite wird hier "
+                      "NICHT geurteilt")
         return aus
 
     def test_python_und_go_sind_sich_ueber_den_ganzen_ed25519_korpus_einig(self):
-        go = self._go_lauf(self.a.faelle, self.a.vkey)
-        self.assertEqual(len(go), len(self.a.faelle), "Go hat nicht jeden Fall beantwortet")
+        go = self._go_lauf(self.a.faelle, self.a.vkey)   # _go_lauf erzwingt die Vollstaendigkeit
         abweichungen = []
         for kennung, text in self.a.faelle:
             py = _impl_nimmt_an(text, self.a.vkey)

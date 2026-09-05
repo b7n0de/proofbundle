@@ -43,9 +43,20 @@ __all__ = ["checkpoint_note", "key_id", "vkey", "sign_checkpoint", "verify_check
            "verify_cosignature", "verify_witnessed_checkpoint"]
 
 EM_DASH = "—"
-# note.Open lehnt jedes ASCII-Steuerzeichen ausser U+000A ab, 0x7F eingeschlossen. Einmal kompiliert,
-# damit der Scan ueber eine mehrere MiB grosse Fremddatei in C laeuft und nicht in einer Python-Schleife.
-_CTRL_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
+# Genau die Menge, die note.Open ablehnt: ``r < 0x20 && r != '\n'`` (note.go:524, x/mod v0.29.0,
+# nachgelesen statt erinnert). 0x7F (DEL) gehoert NICHT dazu und wird hier deshalb auch nicht abgelehnt.
+#
+# WARUM 0x7F NICHT: der erste Zuschnitt hatte es drin und der Docstring behauptete dazu "Zeichen fuer
+# Zeichen wie note.Open" — beides zusammen war falsch, und eine adversariale Gegenlesung hat es mit
+# einem lauffaehigen Gegenbeispiel gezeigt (Note mit ``— ev\x7fil <b64>``: note.Open ACCEPT, wir
+# REJECT). Das Argument "Terminal-Escape-Schutz" traegt fuer 0x7F nicht: der Escape-Einleiter ist ESC
+# (0x1B), und der liegt unter 0x20 und faellt auf BEIDEN Seiten. 0x7F ist DEL und leitet nichts ein.
+# Die Gegenrichtung waere teuer: eine Note, die ein echtes Log signiert hat und die die Referenz
+# annimmt, haetten wir abgelehnt — ein Interoperabilitaetsfehler, den niemand misst, bis er weh tut.
+# Der Origin bleibt davon unberuehrt strenger (``_origin_wellformed``: printable ASCII), und in einer
+# Signaturzeile ueberlebt ein 0x7F die base64-Pruefung ohnehin nur im NAMEN.
+# Einmal kompiliert, damit der Scan ueber eine mehrere MiB grosse Fremddatei in C laeuft.
+_CTRL_RE = re.compile(r"[\x00-\x09\x0b-\x1f]")
 # Ein einzelnes UTF-16-Surrogat ist der EINZIGE Weg, auf dem ein Python-`str` nicht nach UTF-8
 # kodierbar ist. Als Scan statt als `encode`-Versuch: derselbe Befund, ohne eine Kopie der ganzen
 # Fremddatei zu allozieren (die Note kann Megabytes gross sein).
@@ -269,14 +280,17 @@ def _split_signed_note(signed_note: str, what: str = "signed note", *,
     Drahtform") — hier eine Schicht hoeher, an der RAHMUNG.
 
     Der Vertrag, Zeichen fuer Zeichen wie note.Open:
-      1. Gueltiges UTF-8, und ausser dem Zeilenumbruch KEIN ASCII-Steuerzeichen (auch nicht 0x7F).
+      1. Gueltiges UTF-8, und ausser dem Zeilenumbruch kein ASCII-Steuerzeichen UNTER 0x20 — genau
+         note.Opens Menge (``r < 0x20 && r != '\n'``). 0x7F/DEL gehoert ausdruecklich NICHT dazu.
       2. Trennung am LETZTEN "\n\n", BYTEGENAU: ``rfind`` + Schnitt, NIE ``rsplit``. ``rsplit`` frisst
          BEIDE Umbrueche, und der erste davon gehoert zur SIGNIERTEN Nachricht — der Notentext endet
          per Konstruktion auf genau dem "\n", ueber das der Signierer gerechnet hat.
       3. Der Signaturblock ist nicht leer, endet auf "\n", und traegt MINDESTENS EINE Zeile (eine Note
          ohne Signaturzeile ist malformed, nicht "unsigniert").
       4. JEDE Zeile des Blocks beginnt mit EM DASH + Leerzeichen. Kein stilles Ueberspringen.
-      5. Jede Zeile traegt Name + Leerzeichen + nicht-leeres Standard-base64 mit >= 5 Nutzbytes.
+      5. Jede Zeile traegt Name + Leerzeichen + nicht-leeres Standard-base64 mit >= 5 Nutzbytes; der
+         Name ist nicht leer, traegt kein '+' und KEIN Unicode-Leerzeichen (note.Open: ``isValidName``
+         mit ``unicode.IsSpace``, nicht nur das ASCII-Leerzeichen).
 
     Alles andere ist ``BundleFormatError`` — "malformed", nicht "nicht signiert": ein Aufrufer muss eine
     kaputte Datei von einer echten unsignierten Note unterscheiden koennen.
@@ -288,6 +302,13 @@ def _split_signed_note(signed_note: str, what: str = "signed note", *,
     ``tests/test_origin_quorum_rule.py::...::test_a_valid_ascii_extension_line_note_still_verifies``
     baut genau so. Das ERGEBNIS des Emitters ist in beiden Faellen kanonisch — die Regel gehoert also
     an den Verifizierer, nicht an den Bauplatz. Dieselbe Grenze wie bei der Kappe, zweite Instanz.
+
+    BEKANNTE, SPEC-KONFORME ABWEICHUNG bei der Zeilenzahl: note.Open bricht hart bei mehr als 100
+    Signaturzeilen ab (note.go:568), ``DEFAULT_BUDGET.signatures`` steht hier auf 512. Die Spezifikation
+    ueberlaesst die Zahl ausdruecklich der Implementierung ("An implementation can reject a note with
+    too many signatures (for example, more than 100 signatures)", note.go:38-39), beide Werte sind also
+    konform — im Bereich 101..512 divergieren die beiden Implementierungen aber, und das steht hier,
+    statt still zu bleiben.
 
     ``apply_budget_cap=False`` NUR auf der EMIT-Seite. Die Zeilenkappe ist ein VERIFIKATIONS-Budget
     gegen fremde Dateien, KEINE Formatregel: C2SP begrenzt die Zahl der Signaturen nicht, und ein
@@ -353,10 +374,20 @@ def _split_signed_note(signed_note: str, what: str = "signed note", *,
     #     errMalformedNote. Kryptografie laeuft hier NICHT: geprueft wird die FORM, nicht die Gueltigkeit.
     for line in lines:
         name, sep, payload_b64 = line[len(EM_DASH) + 1:].partition(" ")
-        if not sep or not name or "+" in name or not payload_b64:
+        # ``any(ch.isspace())`` ist die Entsprechung zu ``strings.IndexFunc(name, unicode.IsSpace)``
+        # (note.go:238). Der Schnitt am ASCII-Leerzeichen allein reicht NICHT: ein Name mit U+00A0,
+        # U+2003, U+3000 oder U+2028 traegt kein ASCII-Leerzeichen, kam hier durch, wurde als Zeile
+        # eines unbekannten Schluessels still uebersprungen — und die Note verifizierte mit ok=True,
+        # waehrend die Referenz die GANZE Note ablehnt. Gemessen mit lauffaehigem Gegenbeispiel;
+        # U+200B (ZWSP) ist die Negativkontrolle: kein unicode.IsSpace, beide Seiten nehmen an.
+        # Die Mengen fallen dort auseinander, wo Python U+001C..U+001F als space zaehlt und Go nicht —
+        # die liegen unter 0x20 und sind oben in (0) auf beiden Seiten schon weg.
+        if (not sep or not name or "+" in name or not payload_b64
+                or any(ch.isspace() for ch in name)):
             raise BundleFormatError(
                 f"{what} has a malformed signature line — the canonical form is EM DASH, space, a "
-                "non-empty name without '+', space, and non-empty standard base64 (malformed)")
+                "non-empty name without '+' and without any Unicode whitespace, space, and non-empty "
+                "standard base64 (malformed)")
         try:
             payload = decode_b64_c2sp(payload_b64)
         except (ValueError, TypeError) as exc:
