@@ -1,0 +1,19 @@
+=== KILL-BEWEIS tlogproof-Operator, Commit f6ff2af7bd8d2466e2c7ee4267b5d566de4b279a ===
+Erzeugt: 2026-09-05T21:41:02Z  Konto kraxo, eigener Wegwerfbaum
+Vorlauf: die eigene Vollsuite war beendet (FERTIG 2026-09-05T21:40:42Z rc=0)
+
+Operatoren mit diesem Label: 1
+Datei: src/proofbundle/tlogproof.py
+erwartet_killed: True
+1. STALE-PRUEFUNG: Vorkommen des Zielmusters im Quelltext = 1
+   Muster eindeutig gefunden — der Operator ist NICHT stale.
+2. Wegwerfbaum gebaut in 0.2s
+3. BASELINE (unmutiert): 1 rote Tests, 523.9s
+4. Mutante gepflanzt: der Inklusionscheck ist deaktiviert (inclusion_ok = True)
+5. MUTIERT: 6 rote Tests, 469.7s
+6. byte-identisch zurueckgelegt: True
+
+URTEIL: KILLED  (mutiert 6 > baseline 1 = True)
+ERWARTET: KILLED
+UEBEREIN: True
+KILLBEWEIS_RC=0
