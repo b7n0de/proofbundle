@@ -51,7 +51,54 @@ include docs/AGENT_REVIEW_PREDICATE.md
 # unerreichbar. Gefunden von der as-shipped-Linse des Tiefen-Gates am 02.09.2026. Wie schon bei
 # `RECEIPT_ENVELOPE_PROFILE.md`: keine prune-Regel entfernte es, es stand auf keiner Zeile.
 include Makefile
-graft scripts
+# AUFLAGE des Owners 2026-09-06 zur Karte OA-8b1a31cc4f, Auflage 1: `graft scripts` ist durch eine
+# AUSDRUECKLICHE Liste ersetzt. Ein graft ist eine Vollmacht auf alles, was kuenftig in dem Ordner
+# landet — auch auf ein Signierwerkzeug, das noch niemand geschrieben hat. Eine Liste ist eine
+# Entscheidung je Datei, und eine neue Datei muss hier auftauchen, bevor sie ausgeliefert wird.
+#
+# DRAUSSEN, und warum (gemessen 2026-09-06, AST-Suche nach einem schluessel-LESENDEN Codepfad):
+#   scripts/pre_tag_receipt.py      liest `Ed25519PrivateKey.from_private_bytes` ueber --privkey-file.
+#                                   Der Modus BLEIBT im Repo — er ist der Owner-Signierweg am Mac
+#                                   (Owner-Entscheid 2026-09-06) — aber er wird nicht ausgeliefert.
+#   scripts/gen_findings_register.py liest denselben Weg aus Umgebung oder Datei.
+#
+# DRIN, obwohl der Name anderes vermuten laesst: scripts/sign_readiness_artifact.py. Gemessen traegt
+# es KEINEN Codepfad, der einen privaten Schluessel liest — nur `Ed25519PublicKey` zum PRUEFEN einer
+# extern erzeugten Signatur. Es emittiert kanonische Bytes und setzt eine fremde Signatur zusammen;
+# selbst beglaubigen kann es nichts. Es aus dem sdist zu nehmen haette ausserdem
+# `audit_candidate_matrix.py` gebrochen, das seinen `tree_digest` importiert, und mit ihm zehn
+# ausgelieferte Testdateien. Der Riegel dagegen ist nicht die Abwesenheit der Datei, sondern
+# `tests/test_sdist_ohne_signierwerkzeug.py`: er misst die sdist-Dateiliste und wird rot, sobald
+# darin ein Skript einen privaten Schluessel liest — per AST, damit eine Erwaehnung im Docstring
+# nicht als Codepfad zaehlt.
+include scripts/_build_anchor_fixture.py
+include scripts/audit_candidate_matrix.py
+include scripts/audit_output_aufloesbar.py
+include scripts/branch_base_check.py
+include scripts/build_reproducible.py
+include scripts/check_version_and_changelog.py
+include scripts/claims_hygiene_check.py
+include scripts/doc_link_check.py
+include scripts/finding_base_drift.py
+include scripts/findings_register.py
+include scripts/fork_pr_secret_isolation.py
+include scripts/fuzz_soak.py
+include scripts/gate_qualification_harness.py
+include scripts/gen_synthetic_ots_fixture.py
+include scripts/mutant_signature_guard.py
+include scripts/mutation_check.py
+include scripts/mutation_operators_fresh.py
+include scripts/pre_tag_attestation.py
+include scripts/pre_tag_audit_gate.py
+include scripts/pre_tag_receipt_lib.py
+include scripts/readiness_pack_gate.py
+include scripts/readiness_pack_manifest.py
+include scripts/render_demo.py
+include scripts/rust_parity_gate.py
+include scripts/shipped_docs_check.py
+include scripts/sign_readiness_artifact.py
+include scripts/test_manifest_gate.py
+include scripts/type_confusion_gate.py
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
 prune tools

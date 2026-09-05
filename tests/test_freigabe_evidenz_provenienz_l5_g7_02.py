@@ -841,3 +841,136 @@ def test_c9_1_leitet_sein_urteil_nicht_mehr_aus_prosa_ab():
     r = br.measure_reproducible.__doc__ or ""
     assert "STRUKTURIERT" in r or "strukturiert" in r
     assert br.MEASUREMENT_SCHEMA == "proofbundle.reproducible_sdist_check.v1"
+
+
+class TestErlaubteEvidenzRelation:
+    """C1, zweite Haelfte der Auflage: "die erlaubte Relation fuer einen spaeteren Evidenzcommit
+    ausdruecklich modellieren".
+
+    Die erste Fassung ersetzte die Relation durch exakte Gleichheit und begruendete das damit, die
+    Evidenzdatei werde nie committet. Die Gegenlesung (2026-09-05, Linse 5 von 6) hat den Ablauf
+    nachgebaut und das widerlegt: ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS`` existiert genau
+    dafuer, dass ein Lauf seine eigene Ergebnisdatei committen kann, ``tree_digest`` schliesst diese
+    Pfade deshalb aus, und beide sind getrackt. Kandidat committen, Evidenz signieren, Evidenz
+    committen — der Baumdigest passte weiter, HEAD war gewandert, und die Gleichheit verwarf genau
+    den Ablauf, den die Schwesterdatei zusagt.
+
+    Diese Klasse haelt die MODELLIERTE Relation fest, in beide Richtungen. Eigener Baum je Test:
+    die Modul-Fixture ``welt`` ist ``scope="module"``, ein Commit darin wuerde die Nachbartests
+    aendern (und wer den Zustand einer geteilten Fixture mutiert, misst danach etwas anderes, als
+    er glaubt)."""
+
+    @staticmethod
+    def _baum():
+        td = Path(tempfile.mkdtemp(prefix="relation_"))
+        start = subprocess.run(["git", "init", "-q", str(td)], capture_output=True, text=True)
+        if start.returncode != 0:
+            shutil.rmtree(td, ignore_errors=True)
+            pytest.skip(f"git ist hier nicht benutzbar: {start.stderr.strip()}")
+        (td / "audit_artifacts" / "360").mkdir(parents=True, exist_ok=True)
+        (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "kandidat")
+        return td, _git(td, "rev-parse", "HEAD").stdout.strip()
+
+    @staticmethod
+    def _committe(td, rel, inhalt, nachricht):
+        pfad = td / rel
+        pfad.parent.mkdir(parents=True, exist_ok=True)
+        pfad.write_text(inhalt, encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", nachricht)
+        return _git(td, "rev-parse", "HEAD").stdout.strip()
+
+    def test_gleichheit_bleibt_erlaubt(self):
+        """Der Normalfall aendert sich nicht: dieselbe Frage wird gar nicht erst gestellt."""
+        td, kandidat = self._baum()
+        try:
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, kandidat, kandidat)
+            assert erlaubt is True, grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ein_spaeterer_evidenzcommit_ist_erlaubt(self):
+        """DER FALL, DEN DIE GEGENLESUNG REPRODUZIERT HAT. Der Lauf committet nach dem Signieren
+        seine eigene Ergebnisdatei — genau einen Pfad aus MUTABLE_EVIDENCE_RELS — und die Bindung
+        muss das ueberleben, weil sie ihn selbst zusagt."""
+        import sign_readiness_artifact as sra
+        td, kandidat = self._baum()
+        try:
+            head = self._committe(td, sra.MUTABLE_EVIDENCE_RELS[0], '{"ok": true}\n', "evidenz")
+            assert head != kandidat, "Vorbedingung: HEAD muss gewandert sein"
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, kandidat, head)
+            assert erlaubt is True, (
+                f"der dokumentierte Evidenz-Commit wurde verworfen: {grund}")
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ein_commit_der_sonst_etwas_anfasst_ist_nicht_erlaubt(self):
+        """Die Gegenrichtung, und der eigentliche Zweck: die Relation ist KEIN Freibrief fuer
+        "HEAD ist irgendwie weiter". Wer Quelltext anfasst, ist ein anderer Baustand."""
+        td, kandidat = self._baum()
+        try:
+            head = self._committe(td, "src/heimlich.py", "x = 1\n", "quelltext")
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, kandidat, head)
+            assert erlaubt is False, f"ein Quelltext-Commit wurde durchgelassen: {grund}"
+            assert "outside the mutable evidence set" in grund
+            assert "src/heimlich.py" in grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_der_vertrauensanker_ist_kein_evidenzpfad(self):
+        """Der schaerfste Nachbar: ``audit_artifacts/`` enthaelt BEIDES — die zwei mutablen
+        Evidenzdateien und den Vertrauensanker. Ein Commit, der den ANKER aendert, darf niemals als
+        Evidenz-Commit durchgehen; das waere genau die Selbstregistrierung, gegen die C3 misst."""
+        td, kandidat = self._baum()
+        try:
+            head = self._committe(td, "audit_artifacts/readiness_trusted_pubkeys.txt",
+                                  "# neuer Schluessel\nAAAA\n", "anker")
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, kandidat, head)
+            assert erlaubt is False, f"eine Ankeraenderung wurde als Evidenz-Commit gewertet: {grund}"
+            assert "readiness_trusted_pubkeys.txt" in grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ein_fremder_commit_ist_kein_nachfahr(self):
+        """Ein Commit aus einem anderen Zweig ist kein "spaeterer" Commit, auch wenn er existiert
+        und wohlgeformt ist. Ohne die Vorfahren-Bedingung waere die Pfadpruefung allein
+        umgehbar: ein fremder Baustand, der zufaellig nur Evidenzpfade unterscheidet, kaeme durch."""
+        td, kandidat = self._baum()
+        try:
+            _git(td, "checkout", "-q", "-b", "fremd", kandidat)
+            fremd = self._committe(td, "src/fremd.py", "y = 2\n", "fremder zweig")
+            _git(td, "checkout", "-q", "-")
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, fremd, kandidat)
+            assert erlaubt is False, f"ein Nicht-Vorfahr wurde durchgelassen: {grund}"
+            assert "not an ancestor" in grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ein_git_fehler_ist_kein_urteil(self):
+        """Fail-closed in der dritten Richtung: wo git nicht antwortet, gibt es kein "erlaubt" und
+        kein "verboten", sondern ``None`` — die aufrufende Zelle macht daraus UNMEASURABLE_HERE
+        statt eines stillen Durchwinkens oder einer erfundenen Ablehnung."""
+        td = Path(tempfile.mkdtemp(prefix="kein_git_"))
+        try:
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, "a" * 40, "b" * 40)
+            assert erlaubt is None, f"ohne git-Repo kam ein Urteil heraus: {erlaubt} / {grund}"
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ein_erfundener_commit_ist_ein_befund_kein_umgebungsmangel(self):
+        """Die Trennung, die der Anti-Paritaets-Test erzwungen hat. ``merge-base --is-ancestor``
+        gibt fuer ein UNBEKANNTES Objekt exit 128 zurueck — denselben Code wie fuer ein kaputtes
+        Repo. Wer beides zusammenwirft, macht aus einem erfundenen Commit einen Umgebungsmangel und
+        meldet DATA_BLOCKED statt FAIL. DATA_BLOCKED heisst aber ausschliesslich "diese Umgebung
+        kann nicht messen"; ein Artefakt, das einen Commit nennt, den es hier nicht gibt, bindet
+        nichts, und das ist ein Befund."""
+        td, kandidat = self._baum()
+        try:
+            erlaubt, grund = _matrix_modul()._evidenz_relation_erlaubt(td, "0" * 40, kandidat)
+            assert erlaubt is False, (
+                f"ein erfundener Commit ergab {erlaubt!r} statt eines Befundes: {grund}")
+            assert "does not exist" in grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)

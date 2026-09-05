@@ -53,6 +53,13 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_audit_candidate_360::test_c12_2_fails_on_foreign_key_register",
     "test_roadmap_frontload_foundations::test_pack_is_grounded_in_real_artifacts",
     "test_roadmap_frontload_foundations::test_released_version_has_audit_record",
+    # test_pre_tag_receipt_commit_flow: faehrt scripts/pre_tag_receipt.py als PROZESS. Seit dem
+    #   Owner-Entscheid 2026-09-06 (Karte OA-8b1a31cc4f) ist genau dieses Skript aus dem sdist
+    #   ausgeschlossen — es traegt den Inline-Signierweg, der nur auf der Maschine des
+    #   Schluesselhalters laufen soll. Im sdist gibt es die Datei also nicht, und der Test kann seine
+    #   Eigenschaft dort nicht messen. Das ist kein Mangel des Pakets, sondern der Zweck des
+    #   Ausschlusses; im Checkout laeuft er unveraendert.
+    "test_pre_tag_receipt_commit_flow::test_committed_receipt_verifies_and_src_change_is_rejected",
     # test_claims_hygiene: scannt die Doku ueber scripts/claims_hygiene_check, das seine Pfadmenge selbst
     #   fuehrt.
     "test_claims_hygiene::test_real_docs_are_clean",

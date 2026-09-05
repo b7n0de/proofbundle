@@ -148,11 +148,38 @@ def test_gate_meta_eine_nachgebaute_inline_form_faellt_durch():
         "der Detektor schlaegt auf dem echten, gefixten Skript faelschlich an"
 
 
-def test_manifest_in_graft_scripts_ist_gemessen_nicht_vermutet():
-    """Auflage C9 verlangt, den `graft scripts`-Ausschluss zu pruefen — hier steht die Messung."""
+def test_manifest_in_listet_scripts_datei_fuer_datei():
+    """Auflage C9 verlangt, den Auslieferungsweg von ``scripts/`` zu pruefen — hier steht die Messung.
+
+    NEU BEWERTET AM 2026-09-06, wie es die vorherige Fassung selbst verlangt hat. Sie mass, dass
+    ``graft scripts`` in MANIFEST.in steht, und schrieb dazu: faellt das weg, "ist die Annahme dieses
+    Tests ueberholt und muss neu bewertet werden, nicht stillschweigend uebernommen werden". Genau
+    das ist eingetreten. Die Gegenlesung (Linse 6 von 6) nannte die alte Fassung eine Zementierung:
+    sie hielt einen Zustand fest, den die Auflage aendern wollte.
+
+    Der Owner hat am 2026-09-06 entschieden (Karte OA-8b1a31cc4f): ``graft scripts`` wird durch eine
+    ausdrueckliche Liste ersetzt, kein Signierskript und kein schluessel-lesender Weg im sdist. Die
+    Nachfolge-Aussage misst deshalb die LISTE, nicht das graft — und dass die beiden benannten
+    Skripte nicht darin stehen.
+
+    Die staerkere Haelfte, die Dateiliste eines wirklich gebauten sdist, steht in
+    ``tests/test_sdist_ohne_signierwerkzeug.py``. Diese hier ist die billige, immer laufende
+    Vorstufe: eine Liste, die falsch ist, faellt schon vor dem Bau auf."""
     manifest = (REPO / "MANIFEST.in").read_text(encoding="utf-8")
     zeilen = [z.strip() for z in manifest.splitlines() if z.strip() and not z.strip().startswith("#")]
-    assert "graft scripts" in zeilen, (
-        "MANIFEST.in graftet scripts/ nicht (mehr) — dann ist die Annahme dieses Tests ueberholt "
-        "und muss neu bewertet werden, nicht stillschweigend uebernommen werden")
+    assert "graft scripts" not in zeilen, (
+        "MANIFEST.in graftet scripts/ wieder als Ganzes — ein graft ist eine Vollmacht auf jede "
+        "kuenftige Datei in dem Ordner, auch auf ein Signierwerkzeug, das noch niemand geschrieben "
+        "hat (Owner-Entscheid 2026-09-06, Karte OA-8b1a31cc4f)")
+    gelistet = {z.split("include scripts/", 1)[1] for z in zeilen if z.startswith("include scripts/")}
+    assert gelistet, "MANIFEST.in listet kein einziges Skript — dann fehlen den ausgelieferten " \
+                     "Tests ihre Werkzeuge"
+    for n in ("pre_tag_receipt.py", "gen_findings_register.py"):
+        assert n not in gelistet, (
+            f"scripts/{n} steht wieder in der Liste — es traegt einen schluessel-lesenden Codepfad "
+            "und darf nicht ausgeliefert werden")
+    assert SKRIPT.name in gelistet, (
+        f"{SKRIPT.name} fehlt in der Liste — es traegt gemessen KEINEN schluessel-lesenden Codepfad "
+        "und wird von audit_candidate_matrix.py importiert; es aus dem sdist zu nehmen braeche zehn "
+        "ausgelieferte Testdateien, ohne etwas zu schuetzen")
     assert SKRIPT.is_file(), "scripts/sign_readiness_artifact.py fehlt"

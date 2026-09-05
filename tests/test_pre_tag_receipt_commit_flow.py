@@ -60,7 +60,15 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "candidate"], repo)
 
-    env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin"}
+    # PB_INLINE_SIGNING: dieser Test prueft den INLINE-Signierweg — den Weg, den der Owner an seiner
+    # eigenen Maschine geht. Seit dem Owner-Entscheid 2026-09-06 (Karte OA-8b1a31cc4f) verlangt der
+    # Weg eine ausdrueckliche Freigabe, damit er auf dem Bau- und Pruefhost NICHT erreichbar ist. Der
+    # Test setzt sie hier bewusst und ausschliesslich fuer seinen eigenen Unterprozess: er misst die
+    # Eigenschaft "ein committetes Receipt verifiziert, eine src-Aenderung wird abgelehnt", und die
+    # gibt es nur, wenn der Weg auch laufen darf. Die Sperre selbst wird getrennt geprueft
+    # (tests/test_sdist_ohne_signierwerkzeug.py::TestInlineSperre, beide Richtungen).
+    env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
+           "PB_INLINE_SIGNING": "1"}
 
     r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
               "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",

@@ -487,6 +487,76 @@ def _dist_files(repo: Path) -> tuple[Path | None, Path | None]:
     return (sdists[-1] if sdists else None), (wheels[-1] if wheels else None)
 
 
+def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[bool | None, str]:
+    """``(erlaubt, grund)`` fuer einen HEAD, der VOM gebundenen Commit abweicht. ``None`` bei einem
+    Git-Fehler — nie ein geratenes Urteil.
+
+    Erlaubt ist genau der Fall, den ``MUTABLE_EVIDENCE_RELS`` zusagt: der Lauf hat seine eigene
+    Ergebnisdatei committet, sonst nichts. Zwei Bedingungen, beide notwendig:
+
+    1. ``gebunden`` ist ein Vorfahr von ``live`` (``git merge-base --is-ancestor``). Ein fremder
+       Commit aus einem anderen Zweig faellt hier — er ist kein "spaeterer Evidenzcommit", er ist
+       ein anderer Baustand.
+    2. Die Pfadmenge von ``gebunden`` nach ``live`` liegt vollstaendig in
+       ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS``. Ein Commit, der irgendetwas anderes
+       anfasst — Quelltext, Vertrauensanker, Klassen-Ledger — faellt hier, auch wenn er ein
+       Vorfahr-Nachfahr-Verhaeltnis hat.
+
+    Die Richtung ist bewusst eng: das Tor laesst den dokumentierten Ablauf zu und sonst nichts. Es
+    ist KEIN Freibrief fuer "HEAD ist irgendwie weiter" — genau das waere die Luecke, die die
+    Gleichheitspruefung vermeiden wollte.
+    """
+    try:
+        import sign_readiness_artifact as sra            # noqa: PLC0415
+    except ImportError as exc:
+        return None, f"sign_readiness_artifact is not importable here ({type(exc).__name__})"
+    try:
+        # ZUERST: EXISTIERT der gebundene Commit hier ueberhaupt? Diese Frage muss VOR merge-base
+        # stehen, und ihre Antwort ist eine Aussage ueber die EVIDENZ, kein Umgebungsmangel.
+        # ``merge-base --is-ancestor`` beantwortet sie namlich nicht: bei einem unbekannten Objekt
+        # gibt es exit 128 zurueck, denselben Code wie bei einem kaputten Repo — und die erste
+        # Fassung machte daraus ein "nicht messbar", also DATA_BLOCKED. Der Anti-Paritaets-Test
+        # ``kandidat_falscher_commit`` (ein Kandidat, der 000000…  bindet) hat genau das gefangen:
+        # ein Artefakt, das einen Commit nennt, den es hier nicht gibt, BINDET NICHTS — das ist FAIL.
+        # DATA_BLOCKED heisst ausschliesslich "diese Umgebung kann nicht messen" (Auflage C2), und
+        # ein erfundener Commit ist kein Umgebungsmangel, sondern ein Befund.
+        # ZWEI Fehlerquellen, ZWEI Antworten. ``cat-file -e`` scheitert sowohl, wenn der Commit
+        # fehlt (Befund), als auch, wenn hier gar kein Repository liegt (Umgebungsmangel) — beide
+        # mit exit != 0. Wer sie zusammenwirft, hat den Fehler nur auf die andere Seite geschoben:
+        # erst meldete ein erfundener Commit DATA_BLOCKED, dann meldete ein fehlendes Repo einen
+        # Befund. Deshalb zuerst die Umgebungsfrage, dann die Evidenzfrage.
+        repo_da = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-dir"],
+                                 capture_output=True, text=True, timeout=10)
+        if repo_da.returncode != 0:
+            return None, "there is no git repository here to resolve the bound commit against"
+        da = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{gebunden}^{{commit}}"],
+                            capture_output=True, text=True, timeout=10)
+        if da.returncode != 0:
+            return False, "the bound commit does not exist in this repository at all"
+        vorfahr = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", gebunden, live],
+            capture_output=True, text=True, timeout=10)
+        if vorfahr.returncode not in (0, 1):
+            return None, f"git merge-base failed here (exit {vorfahr.returncode})"
+        if vorfahr.returncode == 1:
+            return False, "the bound commit is not an ancestor of HEAD"
+        geaendert = subprocess.run(
+            ["git", "-C", str(repo), "diff", "--name-only", gebunden, live],
+            capture_output=True, text=True, timeout=10)
+        if geaendert.returncode != 0:
+            return None, f"git diff --name-only failed here (exit {geaendert.returncode})"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"git is not usable here ({type(exc).__name__})"
+    pfade = {ln.strip() for ln in geaendert.stdout.splitlines() if ln.strip()}
+    fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
+    if fremd:
+        return False, ("commits after the bound one touch paths outside the mutable evidence set: "
+                       f"{', '.join(fremd[:5])}"
+                       + (f" (and {len(fremd) - 5} more)" if len(fremd) > 5 else ""))
+    return True, ("HEAD is a later evidence commit: an ancestor relation plus changes confined to "
+                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)}")
+
+
 def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
     """``(zustand, grund)`` wenn die Kandidatenbindung fehlt/nicht passt, sonst ``None``.
 
@@ -504,20 +574,42 @@ def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
     if fehlend:
         return ART_CANDIDATE_UNBOUND, ("the candidate binding is incomplete or malformed: "
                                        f"{', '.join(fehlend)}")
-    # AUFLAGE C1 (Runde 2): ein formgueltiger, aber BELIEBIGER Commitstring darf nicht genuegen —
-    # nachgerechnet gegen den tatsaechlichen, vorab durch `git rev-parse HEAD` festgelegten
-    # Quellcommit dieses Baums. ERLAUBTE RELATION: exakte Gleichheit. Die Evidenzdatei selbst wird
-    # NIE committet, bevor sie gelesen wird (sie liegt im Arbeitsbaum, `_signed_versioned_artifact`
-    # liest sie von der Platte, nicht aus git) — es gibt in diesem Mechanismus deshalb keinen
-    # spaeteren, von HEAD verschiedenen "Evidenzcommit"; der Kandidat IST der aktuelle HEAD, oder
-    # die Evidenz ist ueber einen anderen Baustand und darf diesen hier nicht entscheiden.
+    # AUFLAGE C1 (Runde 2), zweiter Anlauf. Ein formgueltiger, aber BELIEBIGER Commitstring darf
+    # nicht genuegen — und die Auflage verlangt zweierlei: gegen den vorab festgelegten Quellcommit
+    # pruefen UND "die erlaubte Relation fuer einen spaeteren Evidenzcommit ausdruecklich
+    # modellieren". Die erste Fassung erledigte nur die erste Haelfte und ersetzte die Relation
+    # durch exakte Gleichheit, mit der Begruendung, die Evidenzdatei werde nie committet.
+    #
+    # DIE GEGENLESUNG HAT DAS WIDERLEGT (2026-09-05, Linse 5 von 6, mit nachgebautem Ablauf):
+    # ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS`` existiert genau dafuer, dass ein Lauf seine
+    # EIGENE Ergebnisdatei committen kann, ohne die Bindung zu zerstoeren — deshalb schliesst
+    # ``tree_digest`` diese zwei Pfade aus, und deshalb bleibt der Baumdigest ueber einen solchen
+    # Commit hinweg gleich. Beide Pfade sind getrackt. Kandidat committen, Evidenz signieren,
+    # Evidenz committen: der Baumdigest passt weiter, HEAD ist gewandert, und die Gleichheit oben
+    # verwarf genau den Ablauf, den die Schwesterdatei zusagt. Ein Tor, das den eigenen
+    # dokumentierten Weg verbietet, ist nicht streng, sondern falsch.
+    #
+    # DIE MODELLIERTE RELATION, in zwei Bedingungen, die zusammen gelten muessen:
+    #   1. der gebundene Commit ist ein VORFAHR des heutigen HEAD (oder HEAD selbst) — ein fremder
+    #      Commit aus einem anderen Zweig ist damit draussen, auch wenn er existiert;
+    #   2. alles, was seither dazukam, liegt AUSSCHLIESSLICH in MUTABLE_EVIDENCE_RELS — ein Commit,
+    #      der Quelltext, Anker, Ledger oder sonst irgendetwas anfasst, ist damit draussen.
+    # Das ist dieselbe Trennung, die ``tree_digest`` auf der Baum-Achse schon zieht (was der Lauf
+    # selbst erzeugt, bindet ihn nicht), nur auf die Commit-Achse gezogen — kein neuer Begriff.
     live_commit, commit_grund = _live_commit(repo)
     if live_commit is None:
         return ART_UNMEASURABLE_HERE, f"the candidate commit cannot be read here: {commit_grund}"
     if kandidat["commit"] != live_commit:
-        return ART_CANDIDATE_UNBOUND, (f"the artifact binds commit {kandidat['commit'][:12]}… but "
-                                       f"HEAD here is {live_commit[:12]}… — a well-formed but "
-                                       f"arbitrary commit string is not a binding")
+        erlaubt, rel_grund = _evidenz_relation_erlaubt(repo, kandidat["commit"], live_commit)
+        if erlaubt is None:
+            return ART_UNMEASURABLE_HERE, (
+                f"the relation between the bound commit {kandidat['commit'][:12]}… and HEAD "
+                f"{live_commit[:12]}… cannot be measured here: {rel_grund}")
+        if not erlaubt:
+            return ART_CANDIDATE_UNBOUND, (
+                f"the artifact binds commit {kandidat['commit'][:12]}… and HEAD here is "
+                f"{live_commit[:12]}… — that is only allowed for a later EVIDENCE commit "
+                f"(an ancestor plus changes confined to the mutable evidence paths); {rel_grund}")
     live, grund = _live_tree_digest(repo)
     if live is None:
         return ART_UNMEASURABLE_HERE, f"the candidate tree digest cannot be recomputed here: {grund}"
