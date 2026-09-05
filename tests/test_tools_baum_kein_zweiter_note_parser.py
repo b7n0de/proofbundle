@@ -18,7 +18,24 @@ muss, ein Inventar nachzuziehen.
 DIE ALLOWLIST ist selbst eine bewusste Entscheidung, keine Ausnahme ohne Begruendung: jede Zeile nennt
 die Datei UND warum sie kein zweiter, konkurrierender Note-Parser ist. Die Gegenprobe unten
 (``MetaSicherungFaengtEinenGepflanztenNoteParser``) pflanzt einen erfundenen Note-Parser in einen
-temporaeren Baum und verlangt, dass der Scanner ihn NICHT uebersieht — sonst waere die Sicherung Zierde."""
+temporaeren Baum und verlangt, dass der Scanner ihn NICHT uebersieht — sonst waere die Sicherung Zierde.
+
+ZWEITE SCHICHT: DIE BAUFORM, NICHT DIE BENENNUNG (Gegenlesung 2026-09-05, Linse 2 von 6).
+Die erste Fassung erkannte einen Note-Parser ausschliesslich an einer festen Sechs-Wort-Vokabelliste.
+Die Gegenlesung fuhr den Pflanzversuch selbst und fand die Luecke: ein Rust-Parser mit GENAU derselben
+C2SP-Rahmung, aber neutral benannt (``split_body_and_trailer`` statt ``split_signed_note``, keine
+Herkunftskommentare), traegt keine der sechs Vokabeln — und blieb gruen. Alle drei damaligen
+Meta-Pflanzungen trugen eine Vokabel WOERTLICH, der Test prueft also nur den Fall, den sein Autor im
+Kopf hatte. Genau das ist der Fehlermodus, den die Auflage verhindern wollte: rot werden soll er beim
+Hinzukommen EINES NOTE-PARSERS, nicht beim Hinzukommen eines Note-Parsers mit passendem Wortschatz.
+
+Deshalb sucht der Scanner jetzt ZUSAETZLICH die BAUFORM: ein Doppelumbruch-Literal als Trenner UND ein
+Em-Dash-Literal in DERSELBEN Datei. Beide Merkmale einzeln waeren wertlos (``\n\n`` steht in jedem
+zweiten Stringliteral, das Em-Dash ist hier Kommentartrenner) — ihre KONJUNKTION ist die Rahmung, denn
+so und nicht anders sieht eine C2SP-Note aus: Text, Leerzeile, Signaturzeilen mit ``— `` davor. Gemessen
+am 2026-09-05 gegen den echten ``tools``-Baum: NULL zusaetzliche Treffer, also keine Falschalarme; gegen
+den neutral benannten Parser der Gegenlesung: gefunden. Die Vokabelliste bleibt daneben stehen, sie
+faengt den beschrifteten Fall frueher und nennt ihn beim Namen."""
 from __future__ import annotations
 
 import re
@@ -38,6 +55,20 @@ _NOTE_PARSER_MARKER = re.compile(
     re.IGNORECASE,
 )
 
+# DIE BAUFORM. Kein Wortschatz, sondern die Form, in der eine C2SP-Note nun einmal gerahmt ist:
+# Text, Leerzeile, Signaturzeilen mit EM-DASH davor. Ein Parser dafuer muss BEIDES im Quelltext
+# tragen — den Doppelumbruch als Trenner und das Em-Dash als Zeilenmarke. Einzeln sagt keines von
+# beiden etwas (siehe Modul-Docstring), zusammen sind sie die Rahmung.
+_STRUKTUR_DOPPELUMBRUCH = re.compile(r"\\n\\n")
+_STRUKTUR_EMDASH = re.compile(
+    "\u2014"                       # das Zeichen selbst
+    r"|\\u\{?2014\}?"              # Rust \u{2014}, Go/JS \u2014
+    r"|\\xe2\\x80\\x94"             # C/Python-Bytefolge
+    r"|U\+2014",                    # Prosa-Schreibweise in einem Kommentar
+    re.IGNORECASE,
+)
+_STRUKTUR_MARKE = "BAUFORM:doppelumbruch+emdash"
+
 _SKIP_DIRS = {".git", "target", "__pycache__", "node_modules", ".venv", "gocache", "gopath"}
 
 
@@ -56,6 +87,9 @@ def scan_for_note_parser_markers(root: Path) -> dict:
         except (UnicodeDecodeError, OSError):
             continue
         found = sorted(set(_NOTE_PARSER_MARKER.findall(text)))
+        # zweite Schicht: die BAUFORM, unabhaengig von jeder Benennung (siehe Modul-Docstring)
+        if _STRUKTUR_DOPPELUMBRUCH.search(text) and _STRUKTUR_EMDASH.search(text):
+            found = sorted(set(found) | {_STRUKTUR_MARKE})
         if found:
             hits[path.relative_to(root).as_posix()] = found
     return hits
@@ -148,6 +182,65 @@ class MetaSicherungFaengtEinenGepflanztenNoteParser(unittest.TestCase):
             (root / "blob.bin").write_bytes(bytes(range(256)))
             hits = scan_for_note_parser_markers(root)   # darf NICHT mit UnicodeDecodeError crashen
             self.assertEqual(hits, {})
+
+    # DER FALL, DEN DIE VOKABELLISTE DURCHLIESS. Wortwoertlich die Datei, mit der die Gegenlesung am
+    # 2026-09-05 die erste Fassung widerlegt hat: dieselbe Rahmung, neutral benannt, keine Vokabel.
+    # Sie steht hier als FIXTURE und nicht nur im Bericht, damit die Empfindlichkeit beim naechsten
+    # Umbau nicht still verlorengeht — ein extern einmal gefuehrter Nachweis schuetzt den naechsten
+    # Commit nicht.
+    NEUTRAL_BENANNTER_PARSER = (
+        "pub fn split_body_and_trailer(input: &str) -> Option<(&str, &str)> {\n"
+        '    let idx = input.rfind("\\n\\n")?;\n'
+        "    let (body, rest) = input.split_at(idx);\n"
+        "    if rest[2..].lines().all(|l| l.starts_with('\\u{2014} ')) "
+        "{ Some((body, &rest[2..])) } else { None }\n"
+        "}\n"
+    )
+
+    def test_neutral_benannter_note_parser_wird_trotzdem_gefunden(self):
+        """Die Auflage sagt: rot beim Hinzukommen EINES Note-Parsers — nicht eines mit passendem
+        Wortschatz. Dieser Parser traegt keine der sechs Vokabeln und muss dennoch auffallen."""
+        self.assertEqual(
+            sorted(set(_NOTE_PARSER_MARKER.findall(self.NEUTRAL_BENANNTER_PARSER))), [],
+            "Vorbedingung dieses Tests: der Parser darf KEINE Vokabel tragen, sonst prueft er die "
+            "Bauform-Schicht gar nicht")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "getarnt").mkdir()
+            (root / "getarnt" / "parser.rs").write_text(self.NEUTRAL_BENANNTER_PARSER, encoding="utf-8")
+            hits = scan_for_note_parser_markers(root)
+            self.assertIn("getarnt/parser.rs", hits,
+                          "ein neutral benannter Note-Parser blieb unentdeckt — die Sicherung faengt "
+                          "nur den beschrifteten Fall (Gegenlesung 2026-09-05, Linse 2)")
+            self.assertIn(_STRUKTUR_MARKE, hits["getarnt/parser.rs"])
+
+    def test_die_bauform_allein_reicht_nicht_je_merkmal_fuer_sich(self):
+        """Gegenrichtung: NUR ein Em-Dash (dieses Repo nutzt es als Kommentartrenner) oder NUR ein
+        Doppelumbruch-Literal darf keinen Treffer erzeugen. Sonst waere die neue Schicht ein
+        Falschalarm-Generator und wuerde die Allowlist aufblaehen, bis niemand mehr hinsieht."""
+        faelle = {
+            "nur_emdash.py": "# ein Kommentar \u2014 mit Em-Dash, ohne jede Rahmung\ndef f():\n    return 1\n",
+            "nur_doppelumbruch.py": 'text = "a\\n\\nb"\n',
+            "harmlos.go": "package main\n\nfunc add(a, b int) int { return a + b }\n",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name, inhalt in faelle.items():
+                (root / name).write_text(inhalt, encoding="utf-8")
+            self.assertEqual(scan_for_note_parser_markers(root), {},
+                             "ein einzelnes Merkmal loeste einen Treffer aus — die Bauform ist die "
+                             "KONJUNKTION beider, nicht eines davon")
+
+    def test_die_bauform_erzeugt_im_echten_baum_keinen_zusaetzlichen_treffer(self):
+        """Gemessen am 2026-09-05: die neue Schicht findet im echten tools-Baum NICHTS, was die
+        Vokabelliste nicht schon fand. Waechst hier je ein Treffer, ist das ein echter Befund und
+        keine Justierschraube — die Allowlist wird dann mit Begruendung erweitert, nicht die Regel
+        aufgeweicht."""
+        hits = scan_for_note_parser_markers(TOOLS)
+        nur_bauform = sorted(k for k, v in hits.items() if v == [_STRUKTUR_MARKE])
+        self.assertEqual(nur_bauform, [],
+                         f"neue Datei(en), die NUR ueber die Bauform auffallen: {nur_bauform} — pruefen, "
+                         "ob dort eine zweite Notenrahmung entsteht")
 
     def test_allowlist_datei_selbst_waere_ohne_begruendung_ein_treffer(self):
         # Zeigt, dass die reale Allowlist keine leere Menge maskiert: dieselbe Marker-Regex trifft
