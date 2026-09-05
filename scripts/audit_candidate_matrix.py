@@ -497,6 +497,37 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     # Feld, das der Erzeuger selbst schreibt — eine Rolle, die der Geprueft sich selbst gibt, ist
     # keine Rolle. Jetzt entscheidet der ANKER, wofuer ein Schluessel sprechen darf, und das
     # Artefakt muss dazu passen.
+    # AUFLAGE C3, DRITTER TEIL (2026-09-06): das Artefakt muss den ANKERZUSTAND binden, unter dem es
+    # entstand. Ohne diese Bindung sagt es nur, WER unterschrieben hat, nicht gegen welche
+    # Vertrauensbasis das galt — und ein spaeter erweiterter Anker (ein Schluessel mehr, eine
+    # gelockerte Rolle, eine verlaengerte Frist) waere an einem alten Artefakt nicht zu sehen.
+    # Gelesen wird derselbe committete Blob, den `_trust_anchor` liest, und derselbe Digest, den
+    # `sign_readiness_artifact.trust_anchor_digest` schreibt — EINE Funktion, importiert statt
+    # nachgebaut, aus dem Grund, aus dem `_live_tree_digest` schon so gebaut ist.
+    if repo is not None:
+        gebunden = artifact.get("trust_anchor_digest")
+        try:
+            import sign_readiness_artifact as _sra       # noqa: PLC0415
+            heute = _sra.trust_anchor_digest(repo)
+        except ImportError:
+            heute = None
+        if heute is None:
+            return ART_UNMEASURABLE_HERE, ("the trust anchor digest cannot be recomputed here "
+                                           "(sign_readiness_artifact is not importable) — not "
+                                           "measurable is not verified")
+        if not isinstance(gebunden, str) or not gebunden:
+            return ART_CANDIDATE_UNBOUND, (
+                "the artifact carries no trust_anchor_digest — it names a signer but not the trust "
+                "basis it was produced under, so a later-widened anchor would be invisible in it")
+        if not heute:
+            return ART_NO_TRUST_ANCHOR, ("the artifact binds a trust anchor, but this repository "
+                                         f"commits none at {READINESS_TRUST_ANCHOR_REL}")
+        if gebunden != heute:
+            return ART_CANDIDATE_UNBOUND, (
+                f"the artifact was produced under trust anchor {gebunden[:12]}… but the committed "
+                f"anchor here is {heute[:12]}… — the trust basis changed since the measurement, so "
+                "this evidence does not speak about the anchor in force now")
+
     erlaubt = trusted[pub_b64]
     rolle_im_artefakt = artifact.get("signer_role")
     if not isinstance(rolle_im_artefakt, str) or not rolle_im_artefakt:

@@ -314,6 +314,16 @@ def welt():
         shutil.rmtree(td, ignore_errors=True)
 
 
+def _sra_modul():
+    """``scripts/sign_readiness_artifact.py`` als Modul — derselbe Weg wie ``_matrix_modul``."""
+    spec = importlib.util.spec_from_file_location(
+        "_sra_klasse_a", str(REPO / "scripts" / "sign_readiness_artifact.py"))
+    m = importlib.util.module_from_spec(spec)
+    sys.modules["_sra_klasse_a"] = m
+    spec.loader.exec_module(m)
+    return m
+
+
 def _rumpf(welt, gut: dict) -> dict:
     b = copy.deepcopy(gut)
     b["version"] = VERSION
@@ -322,6 +332,10 @@ def _rumpf(welt, gut: dict) -> dict:
     b["producer"] = {"tool": "scripts/fuzz_soak.py", "tool_version": VERSION}
     b["input_digest"] = "c" * 64
     b["signer_role"] = "release-runner"
+    # Auflage C3, dritter Teil (2026-09-06): ein gueltiges Artefakt bindet den Ankerzustand,
+    # unter dem es entstand. Der Rumpf holt ihn ueber DIESELBE Funktion, die der Erzeuger
+    # benutzt — ein nachgebauter Digest im Test wuerde nur die Nachbildung pruefen.
+    b["trust_anchor_digest"] = _sra_modul().trust_anchor_digest(welt["repo"])
     b["produced_at"] = _z(_JETZT - timedelta(hours=1))
     return b
 
@@ -1087,3 +1101,74 @@ class TestAnkerTraegtRolleUndFrist:
         trusted, zustand = m._trust_anchor(welt["repo"])
         verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
         assert verdikt == m.ART_VERIFIED, f"legitime Evidenz wurde abgewiesen: {verdikt} / {grund}"
+
+
+class TestAnkerdigestImArtefakt:
+    """C3, dritter Teil: "den Trust Anchor samt Digest ... an das Artefakt binden".
+
+    Ohne diese Bindung sagt ein Artefakt nur, WER unterschrieben hat — nicht, gegen welche
+    Vertrauensbasis das galt. Wird der Anker spaeter erweitert (ein Schluessel mehr, eine gelockerte
+    Rolle, eine verlaengerte Frist), sieht ein altes Artefakt genauso aus wie vorher, und niemand
+    kann sagen, unter welchem Zustand es entstand. Mit dem Digest kann das Tor genau das vergleichen.
+    """
+
+    @_braucht_krypto
+    def test_ein_artefakt_ohne_ankerdigest_wird_abgewiesen(self, welt):
+        m = _matrix_modul()
+        koerper = _rumpf(welt, {})
+        koerper.pop("trust_anchor_digest", None)
+        art = _signiere(koerper, welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_CANDIDATE_UNBOUND, f"kam ohne Ankerbindung durch: {verdikt} / {grund}"
+        assert "trust_anchor_digest" in grund
+
+    @_braucht_krypto
+    def test_ein_fremder_ankerdigest_wird_abgewiesen(self, welt):
+        """Der Fall, den die Auflage meint: das Artefakt entstand unter einer ANDEREN
+        Vertrauensbasis als der, die heute gilt."""
+        m = _matrix_modul()
+        koerper = _rumpf(welt, {})
+        koerper["trust_anchor_digest"] = "f" * 64
+        art = _signiere(koerper, welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_CANDIDATE_UNBOUND, f"fremder Ankerdigest kam durch: {verdikt} / {grund}"
+        assert "trust basis changed" in grund
+
+    @_braucht_krypto
+    def test_der_passende_ankerdigest_geht_durch(self, welt):
+        """Gegenrichtung: eine Bindung, die auch den richtigen Zustand abweist, haette nichts
+        gehaertet. Und sie belegt zugleich, dass Erzeuger und Tor DENSELBEN Wert rechnen."""
+        m = _matrix_modul()
+        art = _signiere(_rumpf(welt, {}), welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_VERIFIED, f"legitime Evidenz abgewiesen: {verdikt} / {grund}"
+
+    def test_erzeuger_und_tor_rechnen_denselben_digest(self, welt):
+        """Die eigentliche Klassenaussage: eine Funktion, importiert statt nachgebaut. Zwei Seiten,
+        die getrennt entscheiden, WAS der Ankerdigest ist, koennten leise auseinanderlaufen — und
+        beide waeren gruen, ohne etwas gemeinsam zu haben."""
+        sra = _sra_modul()
+        d1 = sra.trust_anchor_digest(welt["repo"])
+        assert d1 and len(d1) == 64, d1
+        import hashlib as _h, subprocess as _s
+        roh = _s.run(["git", "-C", str(welt["repo"]), "show",
+                      f"HEAD:{sra.TRUST_ANCHOR_REL}"], capture_output=True).stdout
+        assert d1 == _h.sha256(roh).hexdigest(), "der Digest ist nicht sha256 des committeten Inhalts"
+
+    def test_ohne_committeten_anker_gibt_es_keinen_digest_sondern_einen_leeren_string(self, welt):
+        """Fail-closed: der Digest der LEEREN Zeichenkette waere ein Wert, der wie eine Bindung
+        aussieht und keine ist. Stattdessen leer — und das Tor behandelt das wie einen fehlenden
+        Anker."""
+        sra = _sra_modul()
+        leer = Path(tempfile.mkdtemp(prefix="ohne_anker_"))
+        try:
+            subprocess.run(["git", "init", "-q", str(leer)], capture_output=True)
+            (leer / "x.txt").write_text("x\n", encoding="utf-8")
+            _git(leer, "add", "-A")
+            _git(leer, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "ohne anker")
+            assert sra.trust_anchor_digest(leer) == ""
+        finally:
+            shutil.rmtree(leer, ignore_errors=True)

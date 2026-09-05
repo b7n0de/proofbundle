@@ -127,6 +127,41 @@ def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS)
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
+#: Der Vertrauensanker, dessen Digest ein Artefakt mitbringt. Derselbe Pfad, den
+#: ``scripts/audit_candidate_matrix.py`` liest — geteilt als KONSTANTE, nicht als zwei getippte
+#: Zeichenketten, weil ein Erzeuger und ein Tor, die verschiedene Dateien meinen, beide gruen
+#: waeren und nichts gemeinsam haetten.
+TRUST_ANCHOR_REL = "audit_artifacts/readiness_trusted_pubkeys.txt"
+
+
+def trust_anchor_digest(repo: Path) -> str:
+    """sha256 des COMMITTETEN Vertrauensankers (Auflage C3, dritter Teil, 2026-09-06).
+
+    WARUM DAS ARTEFAKT IHN TRAEGT. Die Auflage verlangt, den Anker "vor dem Messlauf festzulegen und
+    AN DAS ARTEFAKT ZU BINDEN". Ohne diese Bindung sagt ein Artefakt nur, WER es unterschrieben hat;
+    es sagt nicht, gegen welchen Ankerzustand das galt. Wird der Anker spaeter erweitert — ein
+    Schluessel kommt hinzu, eine Rolle wird gelockert, eine Frist verlaengert —, sieht ein spaeter
+    gelesenes Artefakt genauso aus wie vorher, und niemand kann sagen, unter welcher Vertrauensbasis
+    es entstanden ist. Mit dem Digest kann das Tor genau das: es vergleicht, was heute gilt, mit dem,
+    was zur Messzeit galt.
+
+    WARUM SHA256 DES INHALTS UND NICHT DIE GIT-BLOB-ID. Die Blob-ID ist git-intern (sie hasht einen
+    Kopf mit); der Inhaltsdigest ist ohne git nachrechenbar — von einem Leser, der nur die Datei hat.
+    Gelesen wird der COMMITTETE Stand, nie der Arbeitsbaum: aus dem Arbeitsbaum koennte ein
+    schmutziger Checkout einen Schluessel einlegen und sich selbst beglaubigen, dieselbe Begruendung
+    wie beim Anker selbst.
+
+    Fehlt die Datei im HEAD, ist der Digest der leeren Zeichenkette FALSCH — dann gaebe es einen
+    Wert, der wie eine Bindung aussieht und keine ist. Stattdessen: leerer String, und der Verifier
+    behandelt das wie einen fehlenden Anker (fail-closed).
+    """
+    r = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{TRUST_ANCHOR_REL}"],
+                       capture_output=True, timeout=10)
+    if r.returncode != 0:
+        return ""
+    return hashlib.sha256(r.stdout).hexdigest()
+
+
 def file_sha256(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
@@ -154,6 +189,8 @@ def build_body(measurement: dict, *, repo: Path, version: str, producer_tool: st
         "sdist_sha256": sdist_sha256,
         "wheel_sha256": wheel_sha256,
     }
+    # Auflage C3, dritter Teil: das Artefakt bindet den Ankerzustand, unter dem es entstand.
+    body["trust_anchor_digest"] = trust_anchor_digest(repo)
     body["producer"] = {"tool": producer_tool, "tool_version": producer_tool_version}
     body["input_digest"] = input_digest
     body["signer_role"] = signer_role
