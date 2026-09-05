@@ -59,7 +59,7 @@ One behaviour change deserves attention before upgrading. `automation_summary` n
 
 > **Release status**
 >
-> The closing audit verdict for 5.1.0 was `PARTIAL_GATE_NO_WITHSTANDS`, not `WITHSTANDS_DEEPGATE`. The declared residual risks are published in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md).
+> For 6.0.0 the residual-risk record was frozen BEFORE the closing audit round, by owner decision: [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md) lists what was known to be open when the tree was frozen, with class and funnel ruling, and its sha256 is bound inside the pre-tag receipt. The verdict of the closing round itself is recorded next to that receipt in [audit_artifacts/600/](https://github.com/b7n0de/proofbundle/tree/main/audit_artifacts/600) once the round has run; a round that had to be written down would have meant a new freeze, not an edit. The 5.1.0 verdict was `PARTIAL_GATE_NO_WITHSTANDS` with its risks in [RESTRISIKO_510.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510.md) and [RESTRISIKO_510_NACHTRAG_20260903.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_510_NACHTRAG_20260903.md).
 
 ## Quick start
 
