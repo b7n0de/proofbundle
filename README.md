@@ -43,7 +43,7 @@ rejected with `TIME_CLAIMS_CONFLICT` regardless of policy, and a malformed polic
 decides (`POLICY_NOT_EVALUABLE`), never read as a permissive one. Non-fatal notes such as
 `POLICY_NOT_EVALUATED` and `AGENT_REVIEW_LEGACY_V01` live in `advisory_codes`; `reason_codes` is empty for
 a valid receipt. The six published v0.1 receipts verify as before; the full list is in the
-[CHANGELOG](CHANGELOG.md).
+[CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md).
 
 ## New in 5.1.0
 
