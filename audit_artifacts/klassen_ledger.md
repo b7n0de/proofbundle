@@ -86,7 +86,15 @@ haben ueberhaupt keinen Produktionsaufrufer.
 
 ---
 
-## KLASSE-C-2026-0905 — Selbstbeglaubigung: derselbe Prozess baut UND signiert die Evidenz
+## KLASSE-E-2026-0905 — Selbstbeglaubigung: derselbe Prozess baut UND signiert die Evidenz
+<!-- KENNUNG GEAENDERT 2026-09-06, von C auf E. Der Probe-Merge der vier Lanes auf den Mergekopf
+     kollidierte genau hier: die framing2-Lane hatte unabhaengig ebenfalls KLASSE-C-2026-0905
+     vergeben ("Eine Zusicherung verkleinert ihre eigene Positivmenge"). Zwei verschiedene Klassen
+     unter einer Kennung machen den Ledger mehrdeutig — und ein append-only Ledger, der zwei Dinge
+     gleich nennt, verliert genau die Eigenschaft, wegen der er append-only ist. Dass zwei Lanes
+     parallel dieselbe Kennung vergeben, ist kein Zufall, sondern die Folge davon, dass die Kennung
+     aus Buchstabe plus Datum gebildet wird und keine Lane sieht, was die andere schon nahm. Der
+     Probe-Merge hat es gefunden, bevor es jemand von Hand aufloesen musste. -->
 
 **Verletzte Invariante.** Ein Skript, das im auslieferbaren Baum liegt (`MANIFEST.in: graft
 scripts`), darf keinen Codepfad tragen, der einen privaten Signierschluessel liest UND im selben
