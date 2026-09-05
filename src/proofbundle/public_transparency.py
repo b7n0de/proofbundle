@@ -187,12 +187,16 @@ def evaluate_public_transparency(
     try:
         # verify_checkpoint parses AND checks the signature; when no log_vkey is available we still want the
         # parsed origin/size/root, so parse defensively via a trivial re-parse of the note text.
-        note_text = signed_note.split("\n\n", 1)[0] + "\n"
+        # DIESELBE kanonische Rahmung wie verify_checkpoint (L1-600-NOTE-FRAMING-01). Sonst berichtet
+        # diese Flaeche Ursprung/Groesse/Wurzel aus dem ERSTEN Tripel einer Note, deren Signatur ueber
+        # einen ANDEREN Text laeuft — zwei Rahmungen an einer Note sind zwei Wahrheiten, und die
+        # Statusfelder ROOT_BYTES_AUTHENTICITY / TREE_CONTEXT_AUTHENTICITY haengen genau daran.
+        note_text = cp._split_signed_note(signed_note)[0]
         lines = note_text.split("\n")
         origin = lines[0]
         tree_size = int(lines[1])
         root = lines[2]  # base64 root as-is
-    except (ValueError, IndexError):
+    except (ProofBundleError, ValueError, IndexError):
         parsed_ok = False
         errors.append("checkpoint note is malformed (cannot parse origin/tree_size/root)")
 

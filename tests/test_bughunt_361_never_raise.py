@@ -349,10 +349,23 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
         _pub = b"\x00" * 1312
         keymat = bytes([0x06]) + _pub
         vkey = "w+" + cp.cosign_key_id_mldsa("w", _pub).hex() + "+" + base64.b64encode(keymat).decode()
+        # DER ABSCHLIESSENDE ZEILENUMBRUCH FEHLTE HIER (korrigiert 2026-09-05, L1-600-NOTE-FRAMING-01).
+        # Er war kein Teil der gemessenen Eigenschaft, sondern ein Versehen im Aufbau: seit die Rahmung
+        # kanonisch ist, sind "...SIG\n" und "...SIG" nicht mehr zwei Drahtformen derselben Signatur,
+        # und die zweite faellt typisiert. Die ZUSICHERUNG dieses Tests bleibt unveraendert und wird
+        # unten sogar erweitert — geaendert wurde nur der Aufbau, der sie traegt.
         note = ("o\n1\n" + base64.b64encode(b"\x00" * 32).decode() + "\nx\n\n— w "
-                + base64.b64encode(b"\x00" * 2432).decode())
+                + base64.b64encode(b"\x00" * 2432).decode() + "\n")
         ok, witnesses = cp.witness_quorum(note, [vkey], 1, log_key_material=None)  # must not raise out of the batch
         self.assertIsInstance(witnesses, dict)
+        # ZUSATZ statt Abschwaechung: die nicht-kanonische Fassung derselben Note darf ebenfalls nicht
+        # ROH krachen — sie faellt typisiert, und die never-raise-Eigenschaft heisst genau das.
+        from proofbundle.errors import BundleFormatError as _BFE  # noqa: PLC0415
+        with self.assertRaises(_BFE):
+            cp.witness_quorum(note[:-1], [vkey], 1, log_key_material=None)
+        # und die dokumentierte never-raise-FLAECHE darueber liefert dafuer ein Verdikt, keine Ausnahme
+        from proofbundle.tlogproof import verify_tlog_proof as _vtp  # noqa: PLC0415
+        self.assertIs(_vtp("nicht-einmal-ein-beweis", b"x", "kaputt")["ok"], False)
 
     def test_cli_verify_trusted_tsa_root_fifo_does_not_hang(self):
         import os

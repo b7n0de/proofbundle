@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from typing import Optional
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -42,6 +43,13 @@ __all__ = ["checkpoint_note", "key_id", "vkey", "sign_checkpoint", "verify_check
            "verify_cosignature", "verify_witnessed_checkpoint"]
 
 EM_DASH = "—"
+# note.Open lehnt jedes ASCII-Steuerzeichen ausser U+000A ab, 0x7F eingeschlossen. Einmal kompiliert,
+# damit der Scan ueber eine mehrere MiB grosse Fremddatei in C laeuft und nicht in einer Python-Schleife.
+_CTRL_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
+# Ein einzelnes UTF-16-Surrogat ist der EINZIGE Weg, auf dem ein Python-`str` nicht nach UTF-8
+# kodierbar ist. Als Scan statt als `encode`-Versuch: derselbe Befund, ohne eine Kopie der ganzen
+# Fremddatei zu allozieren (die Note kann Megabytes gross sein).
+_SURROGAT_RE = re.compile(r"[\ud800-\udfff]")
 _ED25519_SIG_TYPE = 0x01
 _COSIG_V1_SIG_TYPE = 0x04           # C2SP tlog-cosignature, Ed25519 cosignature/v1
 _COSIG_MLDSA_SIG_TYPE = 0x06        # C2SP tlog-cosignature, ML-DSA-44 (FIPS 204) — v1.3
@@ -234,6 +242,134 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
     return name, kid, pubkey
 
 
+def _split_signed_note(signed_note: str, what: str = "signed note", *,
+                       apply_budget_cap: bool = True,
+                       require_signature_line: bool = True) -> "tuple[str, str]":
+    """DIE EINE kanonische C2SP-Rahmung einer signierten Note -> (note_text, sig_block).
+
+    Fund L1-600-NOTE-FRAMING-01 (deep gate 6.0.0, P1). Drei Stellen dieses Moduls trennten Text und
+    Signaturblock an der ERSTEN Leerzeile und ueberSPRANGEN danach still jede Blockzeile, die nicht mit
+    EM DASH + Leerzeichen beginnt. Die Referenzimplementierung des Formats
+    (golang.org/x/mod/sumdb/note.Open) trennt an der LETZTEN Leerzeile und nennt JEDE andere Zeile im
+    Block errMalformedNote. Gemessen am Kopf 917edc69: EINE signierte Note hatte damit eine UNBEGRENZTE
+    Familie byteverschiedener Formen, die alle ok=True lieferten (24 sha256-Formen allein aus vier
+    Mustern), jede faehig, beliebigen ANGREIFERTEXT mitzufuehren, den das Verdikt nicht deckt —
+    eingespeiste Klartextzeile, ein zweites (Ursprung, Groesse, Wurzel)-Tripel, Kilobyte-Fuellmaterial —,
+    und jede vom Referenzverifizierer abgelehnt.
+
+    DIE EIGENSCHAFT, die dieser Helfer herstellt — und zwar EINGESCHRAENKT, nicht absolut (Auflage A4:
+    eine Zusicherung, die mehr behauptet, als sie prueft, ist genau der Fehler, den dieser Fix behebt):
+    fuer Eingaben INNERHALB der deklarierten Grenzen (unterstuetzte Signaturtypen 0x01/0x04/0x06,
+    Budgets ``signatures``/``witnesses``/``merkle_path`` aus ``DEFAULT_BUDGET``, ``str``-Eingabe) ist die
+    Menge der byteverschiedenen Dateien, die eine ``verify_*``-Oberflaeche dieses Moduls annimmt,
+    dieselbe wie die der kanonischen C2SP-Rahmung. AUSSERHALB dieser Grenzen — ueber der Kappe, mit
+    einem Algorithmus, den dieser Build nicht kann — lehnt proofbundle typisiert ab, wo die Referenz
+    noch parst; das ist absichtlich STRENGER und wird nicht als Gleichheit behauptet. Dieselbe
+    Invariante wie ``_wire_b64`` fuer die base64-FELDER ("ein signiertes Artefakt, EINE akzeptierte
+    Drahtform") — hier eine Schicht hoeher, an der RAHMUNG.
+
+    Der Vertrag, Zeichen fuer Zeichen wie note.Open:
+      1. Gueltiges UTF-8, und ausser dem Zeilenumbruch KEIN ASCII-Steuerzeichen (auch nicht 0x7F).
+      2. Trennung am LETZTEN "\n\n", BYTEGENAU: ``rfind`` + Schnitt, NIE ``rsplit``. ``rsplit`` frisst
+         BEIDE Umbrueche, und der erste davon gehoert zur SIGNIERTEN Nachricht — der Notentext endet
+         per Konstruktion auf genau dem "\n", ueber das der Signierer gerechnet hat.
+      3. Der Signaturblock ist nicht leer, endet auf "\n", und traegt MINDESTENS EINE Zeile (eine Note
+         ohne Signaturzeile ist malformed, nicht "unsigniert").
+      4. JEDE Zeile des Blocks beginnt mit EM DASH + Leerzeichen. Kein stilles Ueberspringen.
+      5. Jede Zeile traegt Name + Leerzeichen + nicht-leeres Standard-base64 mit >= 5 Nutzbytes.
+
+    Alles andere ist ``BundleFormatError`` — "malformed", nicht "nicht signiert": ein Aufrufer muss eine
+    kaputte Datei von einer echten unsignierten Note unterscheiden koennen.
+
+    ``require_signature_line=False`` NUR fuer die beiden Cosignatur-EMITTER. "Mindestens eine
+    Signaturzeile" ist eine Regel fuer die FERTIGE Note; ``cosign_checkpoint`` haengt die erste Zeile
+    aber gerade erst an, und der dokumentierte Selbstbezeugungs-Pfad startet mit einem blossen
+    Notenkoerper samt Leerzeile. Gefunden hat das nicht ich, sondern die Vollsuite:
+    ``tests/test_origin_quorum_rule.py::...::test_a_valid_ascii_extension_line_note_still_verifies``
+    baut genau so. Das ERGEBNIS des Emitters ist in beiden Faellen kanonisch — die Regel gehoert also
+    an den Verifizierer, nicht an den Bauplatz. Dieselbe Grenze wie bei der Kappe, zweite Instanz.
+
+    ``apply_budget_cap=False`` NUR auf der EMIT-Seite. Die Zeilenkappe ist ein VERIFIKATIONS-Budget
+    gegen fremde Dateien, KEINE Formatregel: C2SP begrenzt die Zahl der Signaturen nicht, und ein
+    Betreiber mit mehr Zeugen als ``DEFAULT_BUDGET.signatures`` muss seine eigene Note weiterhin
+    verpacken koennen. Beim ersten Zuschnitt hing die Kappe auch am Emitter — gefunden, weil
+    ``tests/test_kappe_vor_arbeit_signaturzeilen.py`` seine feindliche Note gar nicht mehr bauen konnte;
+    das war kein Testproblem, sondern ein echter Fehlgriff an der Grenze zwischen Format und Budget.
+
+    REIHENFOLGE, und sie ist Teil des Vertrags: (0) und (a) sind Scans in C ueber den Text, ohne eine
+    einzige Dekodierung; erst danach faellt die Kappe (b), und erst NACH der Kappe wird ueberhaupt etwas
+    dekodiert (c). Damit gilt die Zusage von ``_cap_signature_lines`` ("refused before any signature is
+    decoded or verified") strikt FRUEHER als vorher, nicht schwaecher.
+    """
+    if not isinstance(signed_note, str):
+        raise BundleFormatError(f"{what} must be a string (non-str is malformed, fail-closed)")
+    # (0) UTF-8 + Steuerzeichen, wie note.Open sie ueber die GANZE Nachricht prueft. Ohne diese Regel
+    #     bleibt genau eine Ecke der Klasse offen: eine zusaetzliche, sonst wohlgeformte Signaturzeile
+    #     mit einem eingebetteten Steuerzeichen haette die Regeln (2)-(5) bestanden, waere hier
+    #     angenommen und von der Referenz als errMalformedNote abgelehnt worden — also wieder zwei
+    #     Drahtformen fuer ein Artefakt. Ein Ein-Durchgang-Scan in C, keine Dekodierung.
+    if _SURROGAT_RE.search(signed_note):
+        raise BundleFormatError(
+            f"{what} is not valid UTF-8 (lone UTF-16 surrogate, malformed)")
+    if _CTRL_RE.search(signed_note):
+        raise BundleFormatError(
+            f"{what} carries an ASCII control character other than the line feed — the canonical form "
+            "is printable text separated by U+000A (malformed)")
+    split = signed_note.rfind("\n\n")
+    if split < 0:
+        raise BundleFormatError(f"{what} has no empty-line separator between text and signatures")
+    note_text, sig_block = signed_note[:split + 1], signed_note[split + 2:]
+    if sig_block and not sig_block.endswith("\n"):
+        # Eine abgeschnittene letzte Zeile ist eine ZWEITE Drahtform derselben Signatur ("...SIG\n"
+        # und "...SIG" wuerden beide dieselbe Signatur tragen) — genau die Klasse, die hier faellt.
+        raise BundleFormatError(
+            f"{what} has a truncated last signature line — the signature block must end in a newline "
+            "(malformed)")
+    lines = sig_block.split("\n")[:-1]
+    if not lines and require_signature_line:
+        # Eigener, benannter Vertragspunkt (Auflage A1) statt Nebenwirkung einer anderen Pruefung.
+        raise BundleFormatError(
+            f"{what} has no signature line at all — a signed note carries at least one (malformed)")
+    # (a) PRAEFIX-DURCHGANG. Reiner Zeichenvergleich je Zeile, keine Dekodierung — er darf deshalb vor
+    #     der Kappe stehen.
+    for line in lines:
+        if not line.startswith(EM_DASH + " "):
+            raise BundleFormatError(
+                f"{what} carries a non-signature line in its signature block — after the empty-line "
+                "separator EVERY line must begin with EM DASH + space. Skipping such a line would let "
+                "UNSIGNED attacker-chosen content ride inside a note that verifies (malformed)")
+    # (b) KAPPE VOR DER ARBEIT, jetzt an der frühestmoeglichen Stelle: nach (a) ist jede Zeile per
+    #     Konstruktion eine Signaturzeile, die Zeilenzahl IST die Signaturzahl, und (c) unten dekodiert.
+    #     Ohne diese Reihenfolge haette die neue Formpruefung die gelandete Haertung
+    #     L2-BDOS-C2SP-SIGLINES-01 aufgeweicht (74234 base64-Dekodierungen vor der Ablehnung).
+    if apply_budget_cap:
+        _cap_signature_lines(sig_block, what)
+    # (c) FORMDURCHGANG, die restliche Zeilenregel von note.Open: Name (nicht leer, ohne '+', ohne
+    #     Leerzeichen per Konstruktion des Schnitts), nicht-leeres Standard-base64, und mindestens die
+    #     5 Bytes, unter denen keyID + Signatur nicht passen. OHNE (c) bliebe der naechste Nachbar
+    #     derselben Klasse offen: ``EM DASH + Leerzeichen + BELIEBIGER ANGREIFERTEXT`` haette die
+    #     Praefixregel bestanden, waere still uebersprungen worden und haette genau die unsignierte
+    #     Fracht weitergetragen, gegen die (a) gebaut ist — die Referenz nennt auch das
+    #     errMalformedNote. Kryptografie laeuft hier NICHT: geprueft wird die FORM, nicht die Gueltigkeit.
+    for line in lines:
+        name, sep, payload_b64 = line[len(EM_DASH) + 1:].partition(" ")
+        if not sep or not name or "+" in name or not payload_b64:
+            raise BundleFormatError(
+                f"{what} has a malformed signature line — the canonical form is EM DASH, space, a "
+                "non-empty name without '+', space, and non-empty standard base64 (malformed)")
+        try:
+            payload = decode_b64_c2sp(payload_b64)
+        except (ValueError, TypeError) as exc:
+            raise BundleFormatError(
+                f"{what} has a signature line whose payload is not valid standard base64 "
+                "(malformed)") from exc
+        if len(payload) < 5:
+            raise BundleFormatError(
+                f"{what} has a signature line whose payload is shorter than the 4-byte key ID plus a "
+                "signature (malformed)")
+    return note_text, sig_block
+
+
 def _cap_signature_lines(sig_block: str, what: str) -> None:
     """DIE KAPPE VOR DER ARBEIT, auf der C2SP-Notenfamilie (deep gate 2026-09-05, L2-BDOS-C2SP-SIGLINES-01,
     P2). Das ``signatures``-Budget (Finding 15b) sass auf DSSE und trust_pack; die Signaturzeilen einer
@@ -248,6 +384,8 @@ def _cap_signature_lines(sig_block: str, what: str) -> None:
     signiert' — sie faellt typisiert, damit ein Aufrufer sie von einer unsignierten Note unterscheiden kann.
     Dieselbe Kappe fuer Log-Signaturen (verify_checkpoint) und Cosignaturen (verify_cosignature): beide
     Schleifen tragen dieselbe Form, und zwei Kappen fuer dieselbe Groesse waeren die naechste Drift."""
+    # Aufgerufen wird sie seit L1-600-NOTE-FRAMING-01 aus _split_signed_note (Schritt b), also nach dem
+    # Praefix-Durchgang und VOR jeder Dekodierung — frueher als zuvor, nicht spaeter.
     n = sig_block.count(EM_DASH + " ")
     if n > DEFAULT_BUDGET.signatures:
         raise BundleFormatError(
@@ -263,13 +401,9 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     # 6-lens DEEP gate L1-02 (never-raise): a non-str signed_note made `"\n\n" not in signed_note` raise a
     # raw TypeError out of the public verify_witnessed_checkpoint/verify_checkpoint surface — mirror the
     # isinstance(str) guard already on witness_vkey (_parse_witness_vkey, RE-GATE never-raise consistency).
-    if not isinstance(signed_note, str):
-        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
-    # note text = everything up to (and including the \n before) the separating empty line
-    if "\n\n" not in signed_note:
-        raise BundleFormatError("signed note has no empty-line separator between text and signatures")
-    note_text, sig_block = signed_note.split("\n\n", 1)
-    note_text += "\n"                       # restore the trailing newline that belongs to the note text
+    # Die RAHMUNG liegt seit L1-600-NOTE-FRAMING-01 im gemeinsamen Helfer (letzte Leerzeile, jede
+    # Blockzeile eine Signaturzeile); der Typboden steht dort mit derselben Meldung.
+    note_text, sig_block = _split_signed_note(signed_note)
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
@@ -293,9 +427,12 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     # verify_checkpoint instance the F-8/F-10 validate-before-encode re-gates missed (verify_tlog_proof
     # already wraps its call; the sibling _note_text_of already validates first). Encode AFTER the string
     # validation, and fail-closed on any residual non-UTF-8 note text (e.g. a surrogate in an extension line).
+    # Seit L1-600-NOTE-FRAMING-01 prueft _split_signed_note UTF-8 bereits ueber die GANZE Note, dieser
+    # Zweig ist also nicht mehr erreichbar. Er bleibt als zweite Lage stehen, weil er den Vertrag DIESER
+    # Funktion beschreibt (kodiere erst nach der Validierung) und nichts kostet.
     try:
         note_bytes = note_text.encode("utf-8")
-    except UnicodeEncodeError as exc:
+    except UnicodeEncodeError as exc:                                             # pragma: no cover
         raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
 
     ok = False
@@ -313,7 +450,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     # Aussage ueber die Lage, kein Messfehler.
     signer_present = False
     kid_expected = key_id(name, pubkey)
-    _cap_signature_lines(sig_block, "checkpoint note")
+    # Die Kappe lief bereits in _split_signed_note, vor der ersten Dekodierung — hier keine zweite.
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
             continue
@@ -391,15 +528,18 @@ def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
     return f"{witness_name}+{kid_hex}+{keymat}"
 
 
-def _note_text_of(signed_note: str) -> str:
-    """The note body of a signed note: everything before the empty-line separator, newline restored."""
+def _note_body_and_sigs(signed_note: str, *,
+                        require_signature_line: bool = True) -> "tuple[str, str]":
+    """Kanonisch gerahmt UND im Koerper validiert: (note_text, sig_block).
+
+    EIN Aufruf, EINE Rahmung. ``verify_cosignature`` holte sich den Signaturblock frueher mit einer
+    ZWEITEN, eigenen Trennung (``signed_note.split("\\n\\n", 1)[1]``) — genau die Doppelung, aus der
+    L1-600-NOTE-FRAMING-01 wurde: zwei Schreibweisen derselben Frage driften auseinander.
+    """
     # 6-lens DEEP gate L1-01 (never-raise): a non-str signed_note leaked a raw TypeError out of the public
-    # verify_cosignature surface — same isinstance(str) guard class as verify_checkpoint.
-    if not isinstance(signed_note, str):
-        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
-    if "\n\n" not in signed_note:
-        raise BundleFormatError("signed note has no empty-line separator between text and signatures")
-    note_text = signed_note.split("\n\n", 1)[0] + "\n"
+    # verify_cosignature surface — der isinstance(str)-Boden steht jetzt im gemeinsamen Helfer.
+    note_text, sig_block = _split_signed_note(signed_note,
+                                              require_signature_line=require_signature_line)
     lines = note_text.split("\n")
     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
@@ -434,7 +574,12 @@ def _note_text_of(signed_note: str) -> str:
         decode_b64_c2sp(root_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
-    return note_text
+    return note_text, sig_block
+
+
+def _note_text_of(signed_note: str, *, require_signature_line: bool = True) -> str:
+    """The note body of a signed note: everything before the empty-line separator, newline restored."""
+    return _note_body_and_sigs(signed_note, require_signature_line=require_signature_line)[0]
 
 
 def _cosigned_message(note_text: str, timestamp: int) -> bytes:
@@ -457,7 +602,9 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity "
                                 "without spaces, invisible characters, or '+'")
-    note_text = _note_text_of(signed_note)
+    # EMIT-Seite: der Notenkoerper darf hier noch ohne Signaturzeile ankommen (Selbstbezeugung), das
+    # Ergebnis dieser Funktion ist in jedem Fall kanonisch.
+    note_text = _note_text_of(signed_note, require_signature_line=False)
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
     pubkey = witness_signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -540,7 +687,7 @@ def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity "
                                 "without spaces, invisible characters, or '+'")
-    note_text = _note_text_of(signed_note)
+    note_text = _note_text_of(signed_note, require_signature_line=False)   # EMIT-Seite, siehe oben
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
     lines = note_text.split("\n")
@@ -612,7 +759,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
     checkpoint. Timestamp freshness is caller policy (offline verifier, no trusted clock).
     """
     name, kid_v, pubkey, sig_type = _parse_witness_vkey(witness_vkey)
-    note_text = _note_text_of(signed_note)
+    note_text, sig_block = _note_body_and_sigs(signed_note)
     lines = note_text.split("\n")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
@@ -634,8 +781,9 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
         mldsa = _mldsa_module()                  # raise BEFORE scanning lines — fail-closed
         mldsa_pub = mldsa.MLDSA44PublicKey.from_public_bytes(pubkey)
 
-    sig_block = signed_note.split("\n\n", 1)[1]
-    _cap_signature_lines(sig_block, "cosigned checkpoint note")
+    # KEIN zweiter Schnitt: der Block kommt aus derselben kanonischen Rahmung wie der Notentext oben
+    # (L1-600-NOTE-FRAMING-01) — frueher trennte diese Zeile ein zweites Mal, an der ERSTEN Leerzeile.
+    # Kappe: siehe _split_signed_note (b) — sie lief dort, vor jeder Dekodierung.
     for line in sig_block.split("\n"):
         if not line.startswith(EM_DASH + " "):
             continue

@@ -37,6 +37,8 @@ error at module load).
 from __future__ import annotations
 
 import hashlib
+from .checkpoint import _split_signed_note
+from .errors import BundleFormatError
 from ._wire_b64 import decode_b64
 from typing import Optional
 
@@ -62,8 +64,15 @@ def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
     returns None (-> the verify surfaces report a stable malformed_checkpoint verdict), never a raw exception."""
     if not isinstance(text, str):
         return None
-    parts = text.split("\n\n", 1)
-    lines = parts[0].splitlines()
+    # DIESELBE kanonische Rahmung wie die C2SP-Notenflaechen (L1-600-NOTE-FRAMING-01, Nachbar im
+    # selben Durchgang): eine nicht-kanonische Note ist hier `malformed_checkpoint`, nicht ein Kopf
+    # aus dem ERSTEN von mehreren Tripeln. Die Zusage dieser Flaeche bleibt never-raise — der
+    # typisierte Fehler des Helfers wird zu None, nicht zu einer Ausnahme.
+    try:
+        body, _sigs = _split_signed_note(text, "checkpoint")
+    except BundleFormatError:
+        return None
+    lines = body.splitlines()
     if len(lines) < 3:
         return None
     return lines[0], lines[1], lines[2]
@@ -78,11 +87,14 @@ def _iter_our_anchor_opaques(text: str, want_id: str):
     """Yield the `opaque` bytes of every well-formed anchor line under our key name whose decoded
     (keyID, sig-type, identifier) match `want_id`. Data extraction + identity only (no crypto here);
     unknown ids / grease lines are skipped (forward-compat: unknown signatures MUST be ignored)."""
-    parts = text.split("\n\n", 1)
-    if len(parts) < 2:
+    # Kanonische Rahmung, gleiche Quelle wie parse_checkpoint_head (L1-600-NOTE-FRAMING-01): der
+    # Ankerblock ist der Signaturblock NACH der LETZTEN Leerzeile, nicht alles nach der ersten.
+    try:
+        _body, sigs = _split_signed_note(text, "checkpoint")
+    except BundleFormatError:
         return
     want = want_id.encode()
-    for line in parts[1].splitlines():
+    for line in sigs.splitlines():
         if not line.startswith(_ANCHOR_PREFIX):
             continue
         try:
