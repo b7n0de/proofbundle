@@ -123,10 +123,27 @@ if given is not None and _HAS_JCS:
             st.fixed_dictionaries({"subject": st.just([{"digest": {"sha256": 5}}]),  # non-str sha
                                    "predicate": _json}),
         ))
-        def test_malformed_is_external_never_crash(self, statement):
+        def test_malformed_is_never_derived_and_never_crashes(self, statement):
+            """GESCHAERFT 2026-09-05 (Tiefen-Gate-Fund L4-02): der Test hiess
+            `test_malformed_is_external_never_crash` und verglich den Modus mit EINER Zeichenkette,
+            weil es nur zwei gab. Seit `classify_subject` den dritten Modus AMBIGUOUS kennt (ein
+            `subject` mit mehr als einem Eintrag bindet an keinen still), traf die Aufzaehlung nicht
+            mehr: `{'subject': [None, None]}` ist AMBIGUOUS, nicht EXTERNAL_ATTESTED.
+
+            Die EIGENSCHAFT, die dieser Test meint, ist unveraendert und wird jetzt genauer geprueft:
+            ein malformed Statement wird NIE als DERIVED gelesen, `matches` ist falsch, und die
+            Klassifikation stuerzt nicht ab. Zusaetzlich wird der Modus jetzt an der Zahl der Subjekte
+            festgemacht — das ist strenger als vorher, nicht weicher: eine Verwechslung von
+            'undecided which' und 'nothing to bind' faellt hier auf."""
             c = classify_subject(statement)
-            self.assertEqual(c["mode"], "EXTERNAL_ATTESTED")
+            self.assertIn(c["mode"], ("EXTERNAL_ATTESTED", "AMBIGUOUS"))
+            self.assertNotEqual(c["mode"], "DERIVED")
             self.assertFalse(c["matches"])
+            subj = statement.get("subject") if isinstance(statement, dict) else None
+            if isinstance(subj, list) and len(subj) > 1:
+                self.assertEqual(c["mode"], "AMBIGUOUS", statement)
+            else:
+                self.assertEqual(c["mode"], "EXTERNAL_ATTESTED", statement)
 
 
 if __name__ == "__main__":
