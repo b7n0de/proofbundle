@@ -1,0 +1,1520 @@
+=== EVIDENCE PUNKT 1: Vollstaendiger Diff des GESAMTEN Framing-Zweigs 917edc69..defda6a ===
+Erzeugt: 2026-09-05T21:11:41Z
+Basis:        917edc69 (Merge PR #193, vor der Framing-Lane)
+Kopf (kurz):  defda6a
+Kopf (voll):  defda6afba53f6c66bee49be1ebcb3816e2ff2c1
+Commits ueber der Basis: 3 (d453cb3 fix(c2sp): die Rahmung signierter Notizen war nicht kanonisch — ein Helfer, alle Flaechen daran;3f708ad test(c2sp): das Go-Differential gegen note.Open wirklich gefahren — und die Nachbildung war zu mild;defda6a fix(c2sp): drei Funde aus zwei Gegenlesungen gegen echtes note.Open — zwei Divergenzen, ein blinder Meta-Test;)
+Geaenderte Dateien: 12
+ src/proofbundle/anchors_rootcommit.py  |  22 +-
+ src/proofbundle/checkpoint.py          | 225 ++++++++++--
+ src/proofbundle/public_transparency.py |   8 +-
+ src/proofbundle/tlogproof.py           |  24 +-
+ tests/test_bughunt_361_never_raise.py  |  15 +-
+ tests/test_go_note_differential.py     | 156 +++++++++
+ tests/test_note_rahmung_kanonisch.py   | 624 +++++++++++++++++++++++++++++++++
+ tools/go_note_differential/README.md   |  54 +++
+ tools/go_note_differential/go.mod      |   5 +
+ tools/go_note_differential/go.sum      |   2 +
+ tools/go_note_differential/main.go     |  64 ++++
+ tools/go_note_differential/treiber.py  |  71 ++++
+ 12 files changed, 1233 insertions(+), 37 deletions(-)
+--- Ende Kopf, vollstaendiger Diff (inkl. Go-Harness) folgt ---
+
+diff --git a/src/proofbundle/anchors_rootcommit.py b/src/proofbundle/anchors_rootcommit.py
+index 81286a1..86958be 100644
+--- a/src/proofbundle/anchors_rootcommit.py
++++ b/src/proofbundle/anchors_rootcommit.py
+@@ -37,6 +37,8 @@ error at module load).
+ from __future__ import annotations
+ 
+ import hashlib
++from .checkpoint import _split_signed_note
++from .errors import BundleFormatError
+ from ._wire_b64 import decode_b64
+ from typing import Optional
+ 
+@@ -62,8 +64,15 @@ def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
+     returns None (-> the verify surfaces report a stable malformed_checkpoint verdict), never a raw exception."""
+     if not isinstance(text, str):
+         return None
+-    parts = text.split("\n\n", 1)
+-    lines = parts[0].splitlines()
++    # DIESELBE kanonische Rahmung wie die C2SP-Notenflaechen (L1-600-NOTE-FRAMING-01, Nachbar im
++    # selben Durchgang): eine nicht-kanonische Note ist hier `malformed_checkpoint`, nicht ein Kopf
++    # aus dem ERSTEN von mehreren Tripeln. Die Zusage dieser Flaeche bleibt never-raise — der
++    # typisierte Fehler des Helfers wird zu None, nicht zu einer Ausnahme.
++    try:
++        body, _sigs = _split_signed_note(text, "checkpoint")
++    except BundleFormatError:
++        return None
++    lines = body.splitlines()
+     if len(lines) < 3:
+         return None
+     return lines[0], lines[1], lines[2]
+@@ -78,11 +87,14 @@ def _iter_our_anchor_opaques(text: str, want_id: str):
+     """Yield the `opaque` bytes of every well-formed anchor line under our key name whose decoded
+     (keyID, sig-type, identifier) match `want_id`. Data extraction + identity only (no crypto here);
+     unknown ids / grease lines are skipped (forward-compat: unknown signatures MUST be ignored)."""
+-    parts = text.split("\n\n", 1)
+-    if len(parts) < 2:
++    # Kanonische Rahmung, gleiche Quelle wie parse_checkpoint_head (L1-600-NOTE-FRAMING-01): der
++    # Ankerblock ist der Signaturblock NACH der LETZTEN Leerzeile, nicht alles nach der ersten.
++    try:
++        _body, sigs = _split_signed_note(text, "checkpoint")
++    except BundleFormatError:
+         return
+     want = want_id.encode()
+-    for line in parts[1].splitlines():
++    for line in sigs.splitlines():
+         if not line.startswith(_ANCHOR_PREFIX):
+             continue
+         try:
+diff --git a/src/proofbundle/checkpoint.py b/src/proofbundle/checkpoint.py
+index 018c638..6af9575 100644
+--- a/src/proofbundle/checkpoint.py
++++ b/src/proofbundle/checkpoint.py
+@@ -21,6 +21,7 @@ from __future__ import annotations
+ 
+ import base64
+ import hashlib
++import re
+ from typing import Optional
+ 
+ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+@@ -42,6 +43,24 @@ __all__ = ["checkpoint_note", "key_id", "vkey", "sign_checkpoint", "verify_check
+            "verify_cosignature", "verify_witnessed_checkpoint"]
+ 
+ EM_DASH = "—"
++# Genau die Menge, die note.Open ablehnt: ``r < 0x20 && r != '\n'`` (note.go:524, x/mod v0.29.0,
++# nachgelesen statt erinnert). 0x7F (DEL) gehoert NICHT dazu und wird hier deshalb auch nicht abgelehnt.
++#
++# WARUM 0x7F NICHT: der erste Zuschnitt hatte es drin und der Docstring behauptete dazu "Zeichen fuer
++# Zeichen wie note.Open" — beides zusammen war falsch, und eine adversariale Gegenlesung hat es mit
++# einem lauffaehigen Gegenbeispiel gezeigt (Note mit ``— ev\x7fil <b64>``: note.Open ACCEPT, wir
++# REJECT). Das Argument "Terminal-Escape-Schutz" traegt fuer 0x7F nicht: der Escape-Einleiter ist ESC
++# (0x1B), und der liegt unter 0x20 und faellt auf BEIDEN Seiten. 0x7F ist DEL und leitet nichts ein.
++# Die Gegenrichtung waere teuer: eine Note, die ein echtes Log signiert hat und die die Referenz
++# annimmt, haetten wir abgelehnt — ein Interoperabilitaetsfehler, den niemand misst, bis er weh tut.
++# Der Origin bleibt davon unberuehrt strenger (``_origin_wellformed``: printable ASCII), und in einer
++# Signaturzeile ueberlebt ein 0x7F die base64-Pruefung ohnehin nur im NAMEN.
++# Einmal kompiliert, damit der Scan ueber eine mehrere MiB grosse Fremddatei in C laeuft.
++_CTRL_RE = re.compile(r"[\x00-\x09\x0b-\x1f]")
++# Ein einzelnes UTF-16-Surrogat ist der EINZIGE Weg, auf dem ein Python-`str` nicht nach UTF-8
++# kodierbar ist. Als Scan statt als `encode`-Versuch: derselbe Befund, ohne eine Kopie der ganzen
++# Fremddatei zu allozieren (die Note kann Megabytes gross sein).
++_SURROGAT_RE = re.compile(r"[\ud800-\udfff]")
+ _ED25519_SIG_TYPE = 0x01
+ _COSIG_V1_SIG_TYPE = 0x04           # C2SP tlog-cosignature, Ed25519 cosignature/v1
+ _COSIG_MLDSA_SIG_TYPE = 0x06        # C2SP tlog-cosignature, ML-DSA-44 (FIPS 204) — v1.3
+@@ -234,6 +253,154 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str,
+     return name, kid, pubkey
+ 
+ 
++def _split_signed_note(signed_note: str, what: str = "signed note", *,
++                       apply_budget_cap: bool = True,
++                       require_signature_line: bool = True) -> "tuple[str, str]":
++    """DIE EINE kanonische C2SP-Rahmung einer signierten Note -> (note_text, sig_block).
++
++    Fund L1-600-NOTE-FRAMING-01 (deep gate 6.0.0, P1). Drei Stellen dieses Moduls trennten Text und
++    Signaturblock an der ERSTEN Leerzeile und ueberSPRANGEN danach still jede Blockzeile, die nicht mit
++    EM DASH + Leerzeichen beginnt. Die Referenzimplementierung des Formats
++    (golang.org/x/mod/sumdb/note.Open) trennt an der LETZTEN Leerzeile und nennt JEDE andere Zeile im
++    Block errMalformedNote. Gemessen am Kopf 917edc69: EINE signierte Note hatte damit eine UNBEGRENZTE
++    Familie byteverschiedener Formen, die alle ok=True lieferten (24 sha256-Formen allein aus vier
++    Mustern), jede faehig, beliebigen ANGREIFERTEXT mitzufuehren, den das Verdikt nicht deckt —
++    eingespeiste Klartextzeile, ein zweites (Ursprung, Groesse, Wurzel)-Tripel, Kilobyte-Fuellmaterial —,
++    und jede vom Referenzverifizierer abgelehnt.
++
++    DIE EIGENSCHAFT, die dieser Helfer herstellt — und zwar EINGESCHRAENKT, nicht absolut (Auflage A4:
++    eine Zusicherung, die mehr behauptet, als sie prueft, ist genau der Fehler, den dieser Fix behebt):
++    fuer Eingaben INNERHALB der deklarierten Grenzen (unterstuetzte Signaturtypen 0x01/0x04/0x06,
++    Budgets ``signatures``/``witnesses``/``merkle_path`` aus ``DEFAULT_BUDGET``, ``str``-Eingabe) ist die
++    Menge der byteverschiedenen Dateien, die eine ``verify_*``-Oberflaeche dieses Moduls annimmt,
++    dieselbe wie die der kanonischen C2SP-Rahmung. AUSSERHALB dieser Grenzen — ueber der Kappe, mit
++    einem Algorithmus, den dieser Build nicht kann — lehnt proofbundle typisiert ab, wo die Referenz
++    noch parst; das ist absichtlich STRENGER und wird nicht als Gleichheit behauptet. Dieselbe
++    Invariante wie ``_wire_b64`` fuer die base64-FELDER ("ein signiertes Artefakt, EINE akzeptierte
++    Drahtform") — hier eine Schicht hoeher, an der RAHMUNG.
++
++    Der Vertrag, Zeichen fuer Zeichen wie note.Open:
++      1. Gueltiges UTF-8, und ausser dem Zeilenumbruch kein ASCII-Steuerzeichen UNTER 0x20 — genau
++         note.Opens Menge (``r < 0x20 && r != '\n'``). 0x7F/DEL gehoert ausdruecklich NICHT dazu.
++      2. Trennung am LETZTEN "\n\n", BYTEGENAU: ``rfind`` + Schnitt, NIE ``rsplit``. ``rsplit`` frisst
++         BEIDE Umbrueche, und der erste davon gehoert zur SIGNIERTEN Nachricht — der Notentext endet
++         per Konstruktion auf genau dem "\n", ueber das der Signierer gerechnet hat.
++      3. Der Signaturblock ist nicht leer, endet auf "\n", und traegt MINDESTENS EINE Zeile (eine Note
++         ohne Signaturzeile ist malformed, nicht "unsigniert").
++      4. JEDE Zeile des Blocks beginnt mit EM DASH + Leerzeichen. Kein stilles Ueberspringen.
++      5. Jede Zeile traegt Name + Leerzeichen + nicht-leeres Standard-base64 mit >= 5 Nutzbytes; der
++         Name ist nicht leer, traegt kein '+' und KEIN Unicode-Leerzeichen (note.Open: ``isValidName``
++         mit ``unicode.IsSpace``, nicht nur das ASCII-Leerzeichen).
++
++    Alles andere ist ``BundleFormatError`` — "malformed", nicht "nicht signiert": ein Aufrufer muss eine
++    kaputte Datei von einer echten unsignierten Note unterscheiden koennen.
++
++    ``require_signature_line=False`` NUR fuer die beiden Cosignatur-EMITTER. "Mindestens eine
++    Signaturzeile" ist eine Regel fuer die FERTIGE Note; ``cosign_checkpoint`` haengt die erste Zeile
++    aber gerade erst an, und der dokumentierte Selbstbezeugungs-Pfad startet mit einem blossen
++    Notenkoerper samt Leerzeile. Gefunden hat das nicht ich, sondern die Vollsuite:
++    ``tests/test_origin_quorum_rule.py::...::test_a_valid_ascii_extension_line_note_still_verifies``
++    baut genau so. Das ERGEBNIS des Emitters ist in beiden Faellen kanonisch — die Regel gehoert also
++    an den Verifizierer, nicht an den Bauplatz. Dieselbe Grenze wie bei der Kappe, zweite Instanz.
++
++    BEKANNTE, SPEC-KONFORME ABWEICHUNG bei der Zeilenzahl: note.Open bricht hart bei mehr als 100
++    Signaturzeilen ab (note.go:568), ``DEFAULT_BUDGET.signatures`` steht hier auf 512. Die Spezifikation
++    ueberlaesst die Zahl ausdruecklich der Implementierung ("An implementation can reject a note with
++    too many signatures (for example, more than 100 signatures)", note.go:38-39), beide Werte sind also
++    konform — im Bereich 101..512 divergieren die beiden Implementierungen aber, und das steht hier,
++    statt still zu bleiben.
++
++    ``apply_budget_cap=False`` NUR auf der EMIT-Seite. Die Zeilenkappe ist ein VERIFIKATIONS-Budget
++    gegen fremde Dateien, KEINE Formatregel: C2SP begrenzt die Zahl der Signaturen nicht, und ein
++    Betreiber mit mehr Zeugen als ``DEFAULT_BUDGET.signatures`` muss seine eigene Note weiterhin
++    verpacken koennen. Beim ersten Zuschnitt hing die Kappe auch am Emitter — gefunden, weil
++    ``tests/test_kappe_vor_arbeit_signaturzeilen.py`` seine feindliche Note gar nicht mehr bauen konnte;
++    das war kein Testproblem, sondern ein echter Fehlgriff an der Grenze zwischen Format und Budget.
++
++    REIHENFOLGE, und sie ist Teil des Vertrags: (0) und (a) sind Scans in C ueber den Text, ohne eine
++    einzige Dekodierung; erst danach faellt die Kappe (b), und erst NACH der Kappe wird ueberhaupt etwas
++    dekodiert (c). Damit gilt die Zusage von ``_cap_signature_lines`` ("refused before any signature is
++    decoded or verified") strikt FRUEHER als vorher, nicht schwaecher.
++    """
++    if not isinstance(signed_note, str):
++        raise BundleFormatError(f"{what} must be a string (non-str is malformed, fail-closed)")
++    # (0) UTF-8 + Steuerzeichen, wie note.Open sie ueber die GANZE Nachricht prueft. Ohne diese Regel
++    #     bleibt genau eine Ecke der Klasse offen: eine zusaetzliche, sonst wohlgeformte Signaturzeile
++    #     mit einem eingebetteten Steuerzeichen haette die Regeln (2)-(5) bestanden, waere hier
++    #     angenommen und von der Referenz als errMalformedNote abgelehnt worden — also wieder zwei
++    #     Drahtformen fuer ein Artefakt. Ein Ein-Durchgang-Scan in C, keine Dekodierung.
++    if _SURROGAT_RE.search(signed_note):
++        raise BundleFormatError(
++            f"{what} is not valid UTF-8 (lone UTF-16 surrogate, malformed)")
++    if _CTRL_RE.search(signed_note):
++        raise BundleFormatError(
++            f"{what} carries an ASCII control character other than the line feed — the canonical form "
++            "is printable text separated by U+000A (malformed)")
++    split = signed_note.rfind("\n\n")
++    if split < 0:
++        raise BundleFormatError(f"{what} has no empty-line separator between text and signatures")
++    note_text, sig_block = signed_note[:split + 1], signed_note[split + 2:]
++    if sig_block and not sig_block.endswith("\n"):
++        # Eine abgeschnittene letzte Zeile ist eine ZWEITE Drahtform derselben Signatur ("...SIG\n"
++        # und "...SIG" wuerden beide dieselbe Signatur tragen) — genau die Klasse, die hier faellt.
++        raise BundleFormatError(
++            f"{what} has a truncated last signature line — the signature block must end in a newline "
++            "(malformed)")
++    lines = sig_block.split("\n")[:-1]
++    if not lines and require_signature_line:
++        # Eigener, benannter Vertragspunkt (Auflage A1) statt Nebenwirkung einer anderen Pruefung.
++        raise BundleFormatError(
++            f"{what} has no signature line at all — a signed note carries at least one (malformed)")
++    # (a) PRAEFIX-DURCHGANG. Reiner Zeichenvergleich je Zeile, keine Dekodierung — er darf deshalb vor
++    #     der Kappe stehen.
++    for line in lines:
++        if not line.startswith(EM_DASH + " "):
++            raise BundleFormatError(
++                f"{what} carries a non-signature line in its signature block — after the empty-line "
++                "separator EVERY line must begin with EM DASH + space. Skipping such a line would let "
++                "UNSIGNED attacker-chosen content ride inside a note that verifies (malformed)")
++    # (b) KAPPE VOR DER ARBEIT, jetzt an der frühestmoeglichen Stelle: nach (a) ist jede Zeile per
++    #     Konstruktion eine Signaturzeile, die Zeilenzahl IST die Signaturzahl, und (c) unten dekodiert.
++    #     Ohne diese Reihenfolge haette die neue Formpruefung die gelandete Haertung
++    #     L2-BDOS-C2SP-SIGLINES-01 aufgeweicht (74234 base64-Dekodierungen vor der Ablehnung).
++    if apply_budget_cap:
++        _cap_signature_lines(sig_block, what)
++    # (c) FORMDURCHGANG, die restliche Zeilenregel von note.Open: Name (nicht leer, ohne '+', ohne
++    #     Leerzeichen per Konstruktion des Schnitts), nicht-leeres Standard-base64, und mindestens die
++    #     5 Bytes, unter denen keyID + Signatur nicht passen. OHNE (c) bliebe der naechste Nachbar
++    #     derselben Klasse offen: ``EM DASH + Leerzeichen + BELIEBIGER ANGREIFERTEXT`` haette die
++    #     Praefixregel bestanden, waere still uebersprungen worden und haette genau die unsignierte
++    #     Fracht weitergetragen, gegen die (a) gebaut ist — die Referenz nennt auch das
++    #     errMalformedNote. Kryptografie laeuft hier NICHT: geprueft wird die FORM, nicht die Gueltigkeit.
++    for line in lines:
++        name, sep, payload_b64 = line[len(EM_DASH) + 1:].partition(" ")
++        # ``any(ch.isspace())`` ist die Entsprechung zu ``strings.IndexFunc(name, unicode.IsSpace)``
++        # (note.go:238). Der Schnitt am ASCII-Leerzeichen allein reicht NICHT: ein Name mit U+00A0,
++        # U+2003, U+3000 oder U+2028 traegt kein ASCII-Leerzeichen, kam hier durch, wurde als Zeile
++        # eines unbekannten Schluessels still uebersprungen — und die Note verifizierte mit ok=True,
++        # waehrend die Referenz die GANZE Note ablehnt. Gemessen mit lauffaehigem Gegenbeispiel;
++        # U+200B (ZWSP) ist die Negativkontrolle: kein unicode.IsSpace, beide Seiten nehmen an.
++        # Die Mengen fallen dort auseinander, wo Python U+001C..U+001F als space zaehlt und Go nicht —
++        # die liegen unter 0x20 und sind oben in (0) auf beiden Seiten schon weg.
++        if (not sep or not name or "+" in name or not payload_b64
++                or any(ch.isspace() for ch in name)):
++            raise BundleFormatError(
++                f"{what} has a malformed signature line — the canonical form is EM DASH, space, a "
++                "non-empty name without '+' and without any Unicode whitespace, space, and non-empty "
++                "standard base64 (malformed)")
++        try:
++            payload = decode_b64_c2sp(payload_b64)
++        except (ValueError, TypeError) as exc:
++            raise BundleFormatError(
++                f"{what} has a signature line whose payload is not valid standard base64 "
++                "(malformed)") from exc
++        if len(payload) < 5:
++            raise BundleFormatError(
++                f"{what} has a signature line whose payload is shorter than the 4-byte key ID plus a "
++                "signature (malformed)")
++    return note_text, sig_block
++
++
+ def _cap_signature_lines(sig_block: str, what: str) -> None:
+     """DIE KAPPE VOR DER ARBEIT, auf der C2SP-Notenfamilie (deep gate 2026-09-05, L2-BDOS-C2SP-SIGLINES-01,
+     P2). Das ``signatures``-Budget (Finding 15b) sass auf DSSE und trust_pack; die Signaturzeilen einer
+@@ -248,6 +415,8 @@ def _cap_signature_lines(sig_block: str, what: str) -> None:
+     signiert' — sie faellt typisiert, damit ein Aufrufer sie von einer unsignierten Note unterscheiden kann.
+     Dieselbe Kappe fuer Log-Signaturen (verify_checkpoint) und Cosignaturen (verify_cosignature): beide
+     Schleifen tragen dieselbe Form, und zwei Kappen fuer dieselbe Groesse waeren die naechste Drift."""
++    # Aufgerufen wird sie seit L1-600-NOTE-FRAMING-01 aus _split_signed_note (Schritt b), also nach dem
++    # Praefix-Durchgang und VOR jeder Dekodierung — frueher als zuvor, nicht spaeter.
+     n = sig_block.count(EM_DASH + " ")
+     if n > DEFAULT_BUDGET.signatures:
+         raise BundleFormatError(
+@@ -263,13 +432,9 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
+     # 6-lens DEEP gate L1-02 (never-raise): a non-str signed_note made `"\n\n" not in signed_note` raise a
+     # raw TypeError out of the public verify_witnessed_checkpoint/verify_checkpoint surface — mirror the
+     # isinstance(str) guard already on witness_vkey (_parse_witness_vkey, RE-GATE never-raise consistency).
+-    if not isinstance(signed_note, str):
+-        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
+-    # note text = everything up to (and including the \n before) the separating empty line
+-    if "\n\n" not in signed_note:
+-        raise BundleFormatError("signed note has no empty-line separator between text and signatures")
+-    note_text, sig_block = signed_note.split("\n\n", 1)
+-    note_text += "\n"                       # restore the trailing newline that belongs to the note text
++    # Die RAHMUNG liegt seit L1-600-NOTE-FRAMING-01 im gemeinsamen Helfer (letzte Leerzeile, jede
++    # Blockzeile eine Signaturzeile); der Typboden steht dort mit derselben Meldung.
++    note_text, sig_block = _split_signed_note(signed_note)
+     lines = note_text.split("\n")
+     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
+         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
+@@ -293,9 +458,12 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
+     # verify_checkpoint instance the F-8/F-10 validate-before-encode re-gates missed (verify_tlog_proof
+     # already wraps its call; the sibling _note_text_of already validates first). Encode AFTER the string
+     # validation, and fail-closed on any residual non-UTF-8 note text (e.g. a surrogate in an extension line).
++    # Seit L1-600-NOTE-FRAMING-01 prueft _split_signed_note UTF-8 bereits ueber die GANZE Note, dieser
++    # Zweig ist also nicht mehr erreichbar. Er bleibt als zweite Lage stehen, weil er den Vertrag DIESER
++    # Funktion beschreibt (kodiere erst nach der Validierung) und nichts kostet.
+     try:
+         note_bytes = note_text.encode("utf-8")
+-    except UnicodeEncodeError as exc:
++    except UnicodeEncodeError as exc:                                             # pragma: no cover
+         raise BundleFormatError("checkpoint note text is not valid UTF-8 (malformed, fail-closed)") from exc
+ 
+     ok = False
+@@ -313,7 +481,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
+     # Aussage ueber die Lage, kein Messfehler.
+     signer_present = False
+     kid_expected = key_id(name, pubkey)
+-    _cap_signature_lines(sig_block, "checkpoint note")
++    # Die Kappe lief bereits in _split_signed_note, vor der ersten Dekodierung — hier keine zweite.
+     for line in sig_block.split("\n"):
+         if not line.startswith(EM_DASH + " "):
+             continue
+@@ -391,15 +559,18 @@ def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
+     return f"{witness_name}+{kid_hex}+{keymat}"
+ 
+ 
+-def _note_text_of(signed_note: str) -> str:
+-    """The note body of a signed note: everything before the empty-line separator, newline restored."""
++def _note_body_and_sigs(signed_note: str, *,
++                        require_signature_line: bool = True) -> "tuple[str, str]":
++    """Kanonisch gerahmt UND im Koerper validiert: (note_text, sig_block).
++
++    EIN Aufruf, EINE Rahmung. ``verify_cosignature`` holte sich den Signaturblock frueher mit einer
++    ZWEITEN, eigenen Trennung (``signed_note.split("\\n\\n", 1)[1]``) — genau die Doppelung, aus der
++    L1-600-NOTE-FRAMING-01 wurde: zwei Schreibweisen derselben Frage driften auseinander.
++    """
+     # 6-lens DEEP gate L1-01 (never-raise): a non-str signed_note leaked a raw TypeError out of the public
+-    # verify_cosignature surface — same isinstance(str) guard class as verify_checkpoint.
+-    if not isinstance(signed_note, str):
+-        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
+-    if "\n\n" not in signed_note:
+-        raise BundleFormatError("signed note has no empty-line separator between text and signatures")
+-    note_text = signed_note.split("\n\n", 1)[0] + "\n"
++    # verify_cosignature surface — der isinstance(str)-Boden steht jetzt im gemeinsamen Helfer.
++    note_text, sig_block = _split_signed_note(signed_note,
++                                              require_signature_line=require_signature_line)
+     lines = note_text.split("\n")
+     if len(lines) < 4 or not lines[0] or not lines[1] or not lines[2]:
+         raise BundleFormatError("checkpoint note must have at least 3 non-empty lines")
+@@ -434,7 +605,12 @@ def _note_text_of(signed_note: str) -> str:
+         decode_b64_c2sp(root_b64)
+     except (ValueError, TypeError) as exc:
+         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
+-    return note_text
++    return note_text, sig_block
++
++
++def _note_text_of(signed_note: str, *, require_signature_line: bool = True) -> str:
++    """The note body of a signed note: everything before the empty-line separator, newline restored."""
++    return _note_body_and_sigs(signed_note, require_signature_line=require_signature_line)[0]
+ 
+ 
+ def _cosigned_message(note_text: str, timestamp: int) -> bytes:
+@@ -457,7 +633,9 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
+     if not _witness_name_wellformed(witness_name):
+         raise BundleFormatError("witness name must be a printable-ASCII identity "
+                                 "without spaces, invisible characters, or '+'")
+-    note_text = _note_text_of(signed_note)
++    # EMIT-Seite: der Notenkoerper darf hier noch ohne Signaturzeile ankommen (Selbstbezeugung), das
++    # Ergebnis dieser Funktion ist in jedem Fall kanonisch.
++    note_text = _note_text_of(signed_note, require_signature_line=False)
+     if not signed_note.endswith("\n"):
+         raise BundleFormatError("signed note must end with a newline")
+     pubkey = witness_signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+@@ -540,7 +718,7 @@ def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
+     if not _witness_name_wellformed(witness_name):
+         raise BundleFormatError("witness name must be a printable-ASCII identity "
+                                 "without spaces, invisible characters, or '+'")
+-    note_text = _note_text_of(signed_note)
++    note_text = _note_text_of(signed_note, require_signature_line=False)   # EMIT-Seite, siehe oben
+     if not signed_note.endswith("\n"):
+         raise BundleFormatError("signed note must end with a newline")
+     lines = note_text.split("\n")
+@@ -612,7 +790,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
+     checkpoint. Timestamp freshness is caller policy (offline verifier, no trusted clock).
+     """
+     name, kid_v, pubkey, sig_type = _parse_witness_vkey(witness_vkey)
+-    note_text = _note_text_of(signed_note)
++    note_text, sig_block = _note_body_and_sigs(signed_note)
+     lines = note_text.split("\n")
+     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
+     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
+@@ -634,8 +812,9 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
+         mldsa = _mldsa_module()                  # raise BEFORE scanning lines — fail-closed
+         mldsa_pub = mldsa.MLDSA44PublicKey.from_public_bytes(pubkey)
+ 
+-    sig_block = signed_note.split("\n\n", 1)[1]
+-    _cap_signature_lines(sig_block, "cosigned checkpoint note")
++    # KEIN zweiter Schnitt: der Block kommt aus derselben kanonischen Rahmung wie der Notentext oben
++    # (L1-600-NOTE-FRAMING-01) — frueher trennte diese Zeile ein zweites Mal, an der ERSTEN Leerzeile.
++    # Kappe: siehe _split_signed_note (b) — sie lief dort, vor jeder Dekodierung.
+     for line in sig_block.split("\n"):
+         if not line.startswith(EM_DASH + " "):
+             continue
+diff --git a/src/proofbundle/public_transparency.py b/src/proofbundle/public_transparency.py
+index cdbb355..ed39592 100644
+--- a/src/proofbundle/public_transparency.py
++++ b/src/proofbundle/public_transparency.py
+@@ -187,12 +187,16 @@ def evaluate_public_transparency(
+     try:
+         # verify_checkpoint parses AND checks the signature; when no log_vkey is available we still want the
+         # parsed origin/size/root, so parse defensively via a trivial re-parse of the note text.
+-        note_text = signed_note.split("\n\n", 1)[0] + "\n"
++        # DIESELBE kanonische Rahmung wie verify_checkpoint (L1-600-NOTE-FRAMING-01). Sonst berichtet
++        # diese Flaeche Ursprung/Groesse/Wurzel aus dem ERSTEN Tripel einer Note, deren Signatur ueber
++        # einen ANDEREN Text laeuft — zwei Rahmungen an einer Note sind zwei Wahrheiten, und die
++        # Statusfelder ROOT_BYTES_AUTHENTICITY / TREE_CONTEXT_AUTHENTICITY haengen genau daran.
++        note_text = cp._split_signed_note(signed_note)[0]
+         lines = note_text.split("\n")
+         origin = lines[0]
+         tree_size = int(lines[1])
+         root = lines[2]  # base64 root as-is
+-    except (ValueError, IndexError):
++    except (ProofBundleError, ValueError, IndexError):
+         parsed_ok = False
+         errors.append("checkpoint note is malformed (cannot parse origin/tree_size/root)")
+ 
+diff --git a/src/proofbundle/tlogproof.py b/src/proofbundle/tlogproof.py
+index 4fe8388..2d68d15 100644
+--- a/src/proofbundle/tlogproof.py
++++ b/src/proofbundle/tlogproof.py
+@@ -41,7 +41,7 @@ from typing import Optional, Sequence
+ 
+ from . import merkle
+ from .budget import DEFAULT_BUDGET
+-from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
++from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
+                          verify_checkpoint, witness_quorum)
+ from .errors import BundleFormatError, ProofBundleError
+ from ._wire_b64 import decode_b64
+@@ -73,8 +73,12 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
+         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
+     if not signed_checkpoint.endswith("\n"):
+         raise BundleFormatError("signed checkpoint must end with a newline")
+-    if "\n\n" not in signed_checkpoint:
+-        raise BundleFormatError("signed checkpoint is missing its note/signature separator")
++    # Der Emitter darf nichts bauen, was sein eigener Verifizierer malformed nennt (dieselbe Regel,
++    # die checkpoint_note fuer die leere Wurzel traegt): kanonische Rahmung, nicht nur "irgendwo eine
++    # Leerzeile" (L1-600-NOTE-FRAMING-01).
++    # apply_budget_cap=False: die Zeilenkappe ist ein Verifikations-Budget gegen FREMDE Dateien, keine
++    # Formatregel — ein Betreiber mit mehr Zeugen als dem Budget muss seine eigene Note verpacken koennen.
++    _split_signed_note(signed_checkpoint, "signed checkpoint", apply_budget_cap=False)
+     if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
+         raise BundleFormatError("tlog-proof extra must be bytes or None")
+     # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
+@@ -143,8 +147,13 @@ def parse_tlog_proof(text: str) -> dict:
+         if len(h) != 32:
+             raise BundleFormatError("inclusion proof hashes must decode to 32 bytes")
+         proof.append(h)
+-    if not checkpoint.endswith("\n") or "\n\n" not in checkpoint:
+-        raise BundleFormatError("embedded checkpoint is malformed")
++    # DIESELBE Frage, DERSELBE Helfer (L1-600-NOTE-FRAMING-01, Inventar-Auflage A2). Vorher stand hier
++    # eine SCHWAECHERE Rahmungspruefung ("endet auf \n und enthaelt irgendwo eine Leerzeile") als in
++    # verify_checkpoint eine Zeile weiter — zwei Antworten auf dieselbe Frage sind die naechste Drift,
++    # und der oeffentliche Parser haette eine nicht-kanonische Note an seinen Aufrufer weitergereicht.
++    # Die AEUSSERE Trennung oben bleibt die ERSTE Leerzeile: das ist die Regel des tlog-proof-Formats
++    # selbst (Modul-Docstring), nicht die der Note.
++    _split_signed_note(checkpoint, "embedded checkpoint")
+     return {"extra": extra, "index": int(index_s), "proof": proof, "checkpoint": checkpoint}
+ 
+ 
+@@ -161,7 +170,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
+     mk = bundle.get("merkle")
+     if not isinstance(mk, dict):
+         raise BundleFormatError("bundle has no merkle object")
+-    note_text = signed_checkpoint.split("\n\n", 1)[0].split("\n")
++    # Dieselbe kanonische Rahmung wie der Verifizierer (L1-600-NOTE-FRAMING-01); frueher las diese
++    # Zeile das ERSTE Tripel einer Note, deren signierter Text ein anderer sein konnte.
++    note_text = _split_signed_note(signed_checkpoint, "signed checkpoint",
++                                   apply_budget_cap=False)[0].split("\n")
+     if len(note_text) < 3:
+         raise BundleFormatError("signed checkpoint note must have at least 3 lines")
+     if note_text[1] != str(mk.get("tree_size")):
+diff --git a/tests/test_bughunt_361_never_raise.py b/tests/test_bughunt_361_never_raise.py
+index d98baec..75c70c8 100644
+--- a/tests/test_bughunt_361_never_raise.py
++++ b/tests/test_bughunt_361_never_raise.py
+@@ -349,10 +349,23 @@ class Round5PolicyCanonicalRenewalCheckpoint(unittest.TestCase):
+         _pub = b"\x00" * 1312
+         keymat = bytes([0x06]) + _pub
+         vkey = "w+" + cp.cosign_key_id_mldsa("w", _pub).hex() + "+" + base64.b64encode(keymat).decode()
++        # DER ABSCHLIESSENDE ZEILENUMBRUCH FEHLTE HIER (korrigiert 2026-09-05, L1-600-NOTE-FRAMING-01).
++        # Er war kein Teil der gemessenen Eigenschaft, sondern ein Versehen im Aufbau: seit die Rahmung
++        # kanonisch ist, sind "...SIG\n" und "...SIG" nicht mehr zwei Drahtformen derselben Signatur,
++        # und die zweite faellt typisiert. Die ZUSICHERUNG dieses Tests bleibt unveraendert und wird
++        # unten sogar erweitert — geaendert wurde nur der Aufbau, der sie traegt.
+         note = ("o\n1\n" + base64.b64encode(b"\x00" * 32).decode() + "\nx\n\n— w "
+-                + base64.b64encode(b"\x00" * 2432).decode())
++                + base64.b64encode(b"\x00" * 2432).decode() + "\n")
+         ok, witnesses = cp.witness_quorum(note, [vkey], 1, log_key_material=None)  # must not raise out of the batch
+         self.assertIsInstance(witnesses, dict)
++        # ZUSATZ statt Abschwaechung: die nicht-kanonische Fassung derselben Note darf ebenfalls nicht
++        # ROH krachen — sie faellt typisiert, und die never-raise-Eigenschaft heisst genau das.
++        from proofbundle.errors import BundleFormatError as _BFE  # noqa: PLC0415
++        with self.assertRaises(_BFE):
++            cp.witness_quorum(note[:-1], [vkey], 1, log_key_material=None)
++        # und die dokumentierte never-raise-FLAECHE darueber liefert dafuer ein Verdikt, keine Ausnahme
++        from proofbundle.tlogproof import verify_tlog_proof as _vtp  # noqa: PLC0415
++        self.assertIs(_vtp("nicht-einmal-ein-beweis", b"x", "kaputt")["ok"], False)
+ 
+     def test_cli_verify_trusted_tsa_root_fifo_does_not_hang(self):
+         import os
+diff --git a/tests/test_go_note_differential.py b/tests/test_go_note_differential.py
+new file mode 100644
+index 0000000..6b4d3ad
+--- /dev/null
++++ b/tests/test_go_note_differential.py
+@@ -0,0 +1,156 @@
++"""Das ECHTE Differential gegen die Referenz: golang.org/x/mod/sumdb/note.Open, Fall fuer Fall.
++
++WARUM DAS HIER STEHT UND NICHT NUR IM BERICHT. ``tests/test_note_rahmung_kanonisch.py`` misst gegen ein
++aus der Spezifikation NEU GESCHRIEBENES Orakel. Das ist ein starkes Orakel, aber es ist MEINE Lesart der
++Spezifikation: haette ich ``note.Open`` an derselben Stelle falsch verstanden wie die Implementierung,
++haetten sich zwei Fehler in dieselbe Richtung aufgehoben und das Differential haette nichts gesehen.
++Dieser Test ersetzt die Lesart durch die Referenz selbst.
++
++DASS DIESE SORGE BERECHTIGT WAR, IST GEMESSEN. Der Reproducer des Gates trug eine eigene, KURZE
++Python-Nachbildung von ``note.Open`` (Feld ``go_reference``) — sie prueft nur die Rahmung. Gegen echtes
++Go gefahren war sie auf 7 von 66 Faellen ZU MILD: ``steuerzeichen-in-zusatzzeile``,
++``surrogat-in-zusatzzeile``, ``junk-hinter-em-dash``, ``leerer-name``, ``plus-im-namen``,
++``nutzlast-zu-kurz``, ``leere-nutzlast`` haette sie angenommen, echtes Go nennt alle sieben
++``malformed note``. Genau diese sieben sind die Regeln, die ueber die Rahmung hinausgehen (Steuerzeichen,
++Surrogate, Zeilensyntax). Wer die Nachbildung fuer die Referenz haelt, laesst sie offen.
++
++GELTUNGSBEREICH, ausdruecklich und eng: ``note.Open`` kennt NUR Ed25519 (Algorithmusbyte 0x01). Dieser
++Test misst deshalb ausschliesslich den Ed25519-Arm des Korpus, gegen das Praedikat "Rahmung kanonisch
++UND mindestens eine Signatur eines bekannten Schluessels verifiziert" — dasselbe Praedikat wie
++``verify_checkpoint(...)["ok"] is True``. Fuer ML-DSA-44 (0x06) ist Go NICHT zustaendig; dort bleibt das
++Spezifikations-Orakel in ``test_note_rahmung_kanonisch.py`` die Referenz, und dieser Test behauptet
++darueber nichts.
++
++WANN ER LAEUFT: nur wenn eine Go-Toolchain erreichbar ist (``$PB_GO_BIN`` oder ``go`` im PATH) UND der
++Modul-Cache ``golang.org/x/mod`` schon hat oder geholt werden kann. Sonst SKIP mit Begruendung — nie ein
++stilles Gruen. Gemessen am 2026-09-05 mit go1.27.1 linux/amd64 und golang.org/x/mod v0.29.0:
++66 Faelle, 66 einig, 0 uneinig.
++"""
++from __future__ import annotations
++
++import base64
++import json
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++from proofbundle import checkpoint as cp
++from proofbundle.errors import ProofBundleError
++
++GO_DIR = Path(__file__).resolve().parent.parent / "tools" / "go_note_differential"
++
++
++def _go_bin() -> "str | None":
++    kandidat = os.environ.get("PB_GO_BIN") or shutil.which("go")
++    return kandidat if kandidat and os.access(kandidat, os.X_OK) else None
++
++
++def _impl_nimmt_an(note: str, vkey: str) -> bool:
++    try:
++        return cp.verify_checkpoint(note, vkey)["ok"] is True
++    except ProofBundleError:
++        return False
++
++
++@unittest.skipUnless(GO_DIR.is_dir(), "tools/go_note_differential fehlt")
++class DasEchteGoDifferential(unittest.TestCase):
++
++    @classmethod
++    def setUpClass(cls):
++        cls.go = _go_bin()
++        if not cls.go:
++            raise unittest.SkipTest(
++                "keine Go-Toolchain (weder $PB_GO_BIN noch `go` im PATH) — das Differential gegen "
++                "note.Open kann nicht gefahren werden; der Spezifikations-Orakel-Test laeuft weiter")
++        # Der Korpus kommt aus DEMSELBEN Generator wie das Spezifikations-Orakel — zwei Korpora waeren
++        # zwei Messungen und keine Gegenprobe.
++        sys.path.insert(0, str(Path(__file__).resolve().parent))
++        from test_note_rahmung_kanonisch import _Aufbau            # noqa: PLC0415
++        cls.a = _Aufbau()
++
++    def _go_lauf(self, faelle, vkey):
++        with tempfile.TemporaryDirectory() as tmp:
++            cases = [{"id": k, "b64": base64.b64encode(t.encode("utf-8", "surrogatepass")).decode()}
++                     for k, t in faelle]
++            pfad = Path(tmp) / "cases.json"
++            pfad.write_text(json.dumps({"vkey": vkey, "cases": cases}), encoding="utf-8")
++            umgebung = {**os.environ}
++            umgebung.setdefault("GOCACHE", str(Path(tmp) / "gocache"))
++            p = subprocess.run([self.go, "run", ".", str(pfad)], cwd=str(GO_DIR),
++                               capture_output=True, text=True, timeout=600, env=umgebung)
++        if p.returncode != 0:
++            fehler = (p.stderr or "").strip()
++            if "dial tcp" in fehler or "proxy.golang.org" in fehler or "module lookup disabled" in fehler:
++                raise unittest.SkipTest(
++                    "golang.org/x/mod ist nicht im Modul-Cache und kann nicht geholt werden "
++                    f"(kein Netz) — SKIP statt stillem Gruen. Meldung: {fehler[:300]}")
++            self.fail(f"go run scheiterte (exit {p.returncode}): {fehler[:800]}")
++        aus = {}
++        for zeile in p.stdout.splitlines():
++            if zeile.strip():
++                teile = zeile.split("\t")
++                aus[teile[0]] = teile[1]
++        # DIE VOLLSTAENDIGKEIT DER FREMDAUSGABE WIRD HIER ERZWUNGEN, NICHT IM EINZELNEN TEST.
++        # Befund META-TEST-BESTEHT-AUCH-WENN-DAS-FREMDE-ORAKEL-SCHWEIGT-01 (2026-09-05): der Meta-Test
++        # unten urteilte mit ``go.get(k) != "ACCEPT"`` ueber die Inhalte, ohne vorher zu verlangen, dass
++        # ueberhaupt etwas gelesen wurde. Bei leerer Go-Ausgabe ist "Schluessel fehlt" von "Go hat
++        # abgelehnt" nicht unterscheidbar, und die Aussage wird WAHR, ohne dass je ein Go-Verdikt
++        # existierte — gemessen mit einem main.go, das vor der ersten Ausgabezeile os.Exit(0) macht.
++        # Der Riegel sitzt deshalb an der EINEN Stelle, durch die jede Frage an Go laeuft: ein neuer
++        # Test kann ihn gar nicht mehr vergessen. (Klassenfix statt Instanzfix, B7_STANDING_FIX_THE_CLASS.)
++        fehlend = [k for k, _ in faelle if k not in aus]
++        if fehlend:
++            self.fail(f"die Go-Ausgabe ist unvollstaendig: {len(aus)} von {len(faelle)} Verdikten, "
++                      f"es fehlen u.a. {fehlend[:5]} — ueber eine schweigende Gegenseite wird hier "
++                      "NICHT geurteilt")
++        return aus
++
++    def test_python_und_go_sind_sich_ueber_den_ganzen_ed25519_korpus_einig(self):
++        go = self._go_lauf(self.a.faelle, self.a.vkey)   # _go_lauf erzwingt die Vollstaendigkeit
++        abweichungen = []
++        for kennung, text in self.a.faelle:
++            py = _impl_nimmt_an(text, self.a.vkey)
++            g = go.get(kennung) == "ACCEPT"
++            if py != g:
++                abweichungen.append(f"{kennung}: python={py} go={g}")
++        self.assertEqual(abweichungen, [], "\n".join(abweichungen))
++
++    def test_antiparitaet_die_echte_note_wird_von_beiden_angenommen(self):
++        go = self._go_lauf([("echt", self.a.note)], self.a.vkey)
++        self.assertEqual(go["echt"], "ACCEPT", "die echte Note faellt bei der Referenz durch")
++        self.assertIs(_impl_nimmt_an(self.a.note, self.a.vkey), True)
++
++    def test_meta_die_kurze_nachbildung_ist_nachweislich_milder_als_die_referenz(self):
++        """ANTITAUTOLOGIE gegen die eigene Begruendung: wenn die kurze Nachbildung genauso streng waere
++        wie echtes Go, waere dieser ganze Test Zierde. Sie ist es nicht — und das wird hier gemessen,
++        nicht behauptet."""
++        EM = cp.EM_DASH
++
++        def nachbildung(msg):                      # woertlich der Port aus dem Gate-Reproducer
++            i = msg.rfind("\n\n")
++            if i < 0:
++                return None
++            text_, data = msg[:i + 1], msg[i + 2:]
++            if not data or not data.endswith("\n"):
++                return None
++            for line in data.rstrip("\n").split("\n"):
++                if not line.startswith(EM + " "):
++                    return None
++            return text_
++
++        echt_text = self.a.note[:self.a.note.rfind("\n\n") + 1]
++        go = self._go_lauf(self.a.faelle, self.a.vkey)
++        milder = [k for k, t in self.a.faelle
++                  if (nachbildung(t) == echt_text) and go.get(k) != "ACCEPT"]
++        self.assertGreaterEqual(
++            len(milder), 5,
++            "die kurze Nachbildung war hier nicht milder als die Referenz — dann traegt die "
++            f"Begruendung dieses Tests nicht mehr (gefunden: {milder})")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_note_rahmung_kanonisch.py b/tests/test_note_rahmung_kanonisch.py
+new file mode 100644
+index 0000000..d83ce03
+--- /dev/null
++++ b/tests/test_note_rahmung_kanonisch.py
+@@ -0,0 +1,624 @@
++"""Eine signierte C2SP-Note hat GENAU EINE akzeptierte Drahtform — die Klasse, nicht die Instanz.
++
++WAS DAS SCHLIESST. Fund L1-600-NOTE-FRAMING-01 (deep gate 6.0.0, P1), nachreproduziert auf 917edc69:
++``checkpoint.verify_checkpoint`` trennte Notentext und Signaturblock an der ERSTEN Leerzeile und
++UEBERSPRANG danach still jede Blockzeile ohne EM DASH + Leerzeichen; dieselbe Erst-Trennung lag in
++``_note_text_of`` und in der Cosignatur-Schleife. Die Referenz des Formats
++(``golang.org/x/mod/sumdb/note.Open``) trennt an der LETZTEN Leerzeile und nennt jede andere Zeile im
++Block ``errMalformedNote``. Gemessen: EINE signierte Note hatte damit eine unbegrenzte Familie
++byteverschiedener Formen mit ``ok=True`` — 24 verschiedene sha256-Formen allein aus vier Mustern —,
++jede faehig, beliebigen unsignierten Angreifertext mitzufuehren, und jede von der Referenz abgelehnt.
++Die Wirkung reichte bis in ``verify_tlog_proof`` und beide CLI-Wege (``verify --trusted-checkpoint``,
++``verify-proof``): dort verifizierte die gefaelschte Datei mit Exit 0.
++
++DIE KLASSE, nicht der eine Treiber: "alle Artefakte mit Notiz-Rahmung". Der Fix sitzt deshalb im
++gemeinsamen Helfer ``checkpoint._split_signed_note`` und nicht in ``verify_checkpoint`` — das Gate hatte
++gemessen, dass ``verify_tlog_proof`` auf denselben gefaelschten Bytes ebenfalls ``ok=True`` lieferte.
++Sie ist die Schwester der Invariante in ``tests/test_wire_bytes_strict.py`` ("ein signiertes Artefakt,
++EINE akzeptierte Drahtform"), dort fuer die base64-FELDER, hier eine Schicht hoeher: an der RAHMUNG.
++
++DIE EIGENSCHAFT, EINGESCHRAENKT formuliert (und das ist Absicht — eine Zusicherung, die mehr behauptet,
++als sie prueft, ist genau der Fehler, den dieser Fix behebt): fuer Eingaben INNERHALB der deklarierten
++Grenzen — ``str``-Eingabe, unterstuetzte Signaturtypen (0x01 Log, 0x04 Ed25519-Cosignatur, 0x06
++ML-DSA-44), Zeilen- und Zeugenzahl unter ``DEFAULT_BUDGET`` — nimmt eine ``verify_*``-Flaeche dieses
++Moduls genau die Bytefolgen an, die auch die kanonische Rahmung annimmt. AUSSERHALB dieser Grenzen
++lehnt proofbundle typisiert ab, wo die Referenz noch parst (ueber der Kappe, unbekannter Algorithmus);
++das ist absichtlich strenger und wird hier NICHT als Gleichheit behauptet oder geprueft.
++
++DAS ORAKEL, und seine ehrliche Grenze. ``go`` ist auf dieser Maschine NICHT installiert (gemessen mit
++``command -v go``), das Go-Differential gegen ``note.Open`` wurde also NICHT gefahren. Das Orakel unten
++ist stattdessen aus der Spezifikation neu geschrieben (C2SP ``signed-note.md`` + die Parse-Regeln von
++``note.Open``) und teilt KEINE Zeile mit proofbundle: eigener base64-Decoder-Aufruf, eigene
++keyID-Rechnung, eigene Ed25519-Pruefung ueber ``cryptography``, eigene Rahmungslogik. Es hat zwei Arme,
++weil ein Signatur-Orakel fuer ML-DSA-44 und fuer reine Rahmungsfaelle nichts aussagt: ein
++RAHMUNGS-Orakel (algorithmusfrei) und ein SIGNATUR-Orakel (Ed25519).
++
++ANTIPARITAET ist eingebaut, sonst besteht ein Fix, der einfach alles ablehnt, diese Pruefung: die echte
++Note, jede Umordnung des Signaturblocks und eine zusaetzliche wohlgeformte Zeile eines UNBEKANNTEN
++Schluessels muessen auf BEIDEN Seiten ANGENOMMEN werden. Und die zwanzig echten, ausgelieferten Vektoren
++(sum.golang.org, Rekor, MarkovianProtocol, rootcommit) laufen in
++``tests/test_checkpoint_external_vectors.py`` und ``tests/test_anchors_*.py`` unveraendert weiter.
++
++ANTITAUTOLOGIE: der Meta-Test pflanzt die VOR-FIX-Rahmung zurueck und verlangt, dass der Korpus sie
++faengt. Ein Korpus, der den eingepflanzten Defekt seiner eigenen Klasse nicht sieht, misst nichts.
++"""
++from __future__ import annotations
++
++import base64
++import hashlib
++import itertools
++import re
++import unittest
++from unittest import mock
++
++from cryptography.exceptions import InvalidSignature
++from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
++
++from proofbundle import checkpoint as cp
++from proofbundle import tlogproof
++from proofbundle.budget import DEFAULT_BUDGET
++from proofbundle.emit import emit_bundle, generate_signer
++from proofbundle.errors import BundleFormatError, ProofBundleError
++
++EM = "—"
++
++# ======================================================================================
++# DAS ORAKEL — Neuimplementierung aus der Spezifikation. Ab hier bis zur naechsten
++# Trennlinie wird KEIN proofbundle-Symbol benutzt; das ist der ganze Sinn der Sache.
++# ======================================================================================
++
++# Genau note.Opens Menge: ``r < 0x20 && r != '\n'`` (note.go:524, x/mod v0.29.0). 0x7F/DEL gehoert
++# NICHT dazu. Meine erste Fassung hatte es drin — DERSELBE Fehler wie in der Implementierung, und
++# genau deshalb hat das Spezifikations-Differential ihn nicht gesehen: zwei Fehler in dieselbe
++# Richtung heben sich auf. Gefunden hat ihn erst der Lauf gegen echtes Go.
++_ORAKEL_STEUERZEICHEN = re.compile(r"[\x00-\x09\x0b-\x1f]")
++_ORAKEL_SURROGAT = re.compile(r"[\ud800-\udfff]")
++
++
++def orakel_rahmung(msg):
++    """Die Rahmungsregeln von note.Open, algorithmusfrei. -> (text, sigzeilen) oder (None, Grund).
++
++    1. gueltiges UTF-8, kein ASCII-Steuerzeichen ausser U+000A · 2. Trennung am LETZTEN "\\n\\n", der
++    Text ist ``msg[:i+1]`` (der signierte Schluss-Umbruch bleibt drin) · 3. der Block ist nicht leer und
++    endet auf "\\n" · 4. jede Zeile beginnt mit EM DASH + Leerzeichen · 5. je Zeile Name (nicht leer,
++    ohne '+') + Leerzeichen + nicht-leeres Standard-base64 mit mindestens 5 Nutzbytes.
++    """
++    if not isinstance(msg, str):
++        return None, "kein str"
++    if _ORAKEL_SURROGAT.search(msg):
++        return None, "errMalformedNote: kein gueltiges UTF-8 (Surrogat)"
++    if _ORAKEL_STEUERZEICHEN.search(msg):
++        return None, "errMalformedNote: ASCII-Steuerzeichen ausser \\n"
++    i = msg.rfind("\n\n")
++    if i < 0:
++        return None, "errMalformedNote: keine Leerzeile zwischen Text und Signaturen"
++    text, block = msg[:i + 1], msg[i + 2:]
++    if not block or not block.endswith("\n"):
++        return None, "errMalformedNote: Signaturblock leer oder ohne Schluss-Umbruch"
++    zeilen = block.split("\n")[:-1]
++    if not zeilen:
++        return None, "errMalformedNote: keine Signaturzeile"
++    for z in zeilen:
++        if not z.startswith(EM + " "):
++            return None, f"errMalformedNote: Nicht-Signaturzeile {z[:40]!r}"
++        rest = z[2:]
++        if " " not in rest:
++            return None, f"errMalformedNote: kein Leerzeichen nach dem Namen {z[:40]!r}"
++        name, b64s = rest.split(" ", 1)
++        # isValidName (note.go:238): nicht leer, gueltiges UTF-8, KEIN unicode.IsSpace, kein '+'.
++        # Der Schnitt am ASCII-Leerzeichen deckt nur EIN Leerzeichen ab; U+00A0/U+2003/U+3000/U+2028
++        # muessen hier fallen. Auch das stand in meiner ersten Fassung nicht drin.
++        if not name or "+" in name or not b64s or any(ch.isspace() for ch in name):
++            return None, f"errMalformedNote: Name/Nutzlast ungueltig {z[:40]!r}"
++        try:
++            roh = base64.b64decode(b64s, validate=True)
++        except Exception:
++            return None, f"errMalformedNote: base64 ungueltig {z[:40]!r}"
++        if len(roh) < 5:
++            return None, "errMalformedNote: Nutzlast kuerzer als keyID + Signatur"
++    return text, zeilen
++
++
++def _orakel_vkey(vkey):
++    """name+hexKeyID+base64(0x01||pub) -> (name, keyID, pubkey) oder None. Eigene Rechnung."""
++    try:
++        name, kid_hex, keymat_b64 = vkey.split("+", 2)
++        keymat = base64.b64decode(keymat_b64, validate=True)
++    except Exception:
++        return None
++    if len(keymat) != 33 or keymat[0] != 0x01:
++        return None
++    pub = keymat[1:]
++    kid = hashlib.sha256(name.encode("utf-8") + b"\n" + b"\x01" + pub).digest()[:4]
++    if kid.hex() != kid_hex:
++        return None
++    return name, kid, pub
++
++
++def orakel_nimmt_an(msg, vkey):
++    """True nur, wenn die Rahmung kanonisch ist UND eine Zeile dieses Schluessels ueber genau diesen
++    Text verifiziert. Unbekannte Schluessel werden ignoriert (note.Open tut das auch); eine Zeile MIT
++    passender keyID, deren Signatur nicht haelt, zaehlt NIE als Beleg."""
++    zerlegt = _orakel_vkey(vkey)
++    if zerlegt is None:
++        return False
++    name, kid, pub = zerlegt
++    text, zeilen = orakel_rahmung(msg)
++    if text is None:
++        return False
++    schluessel = Ed25519PublicKey.from_public_bytes(pub)
++    for z in zeilen:
++        lname, b64s = z[2:].split(" ", 1)
++        if lname != name:
++            continue
++        roh = base64.b64decode(b64s, validate=True)
++        if roh[:4] != kid or len(roh) != 4 + 64:
++            continue
++        try:
++            schluessel.verify(roh[4:], text.encode("utf-8"))
++            return True
++        except InvalidSignature:
++            continue
++    return False
++
++
++# ======================================================================================
++# Ab hier wieder proofbundle.
++# ======================================================================================
++
++
++def _bau(text, blockzeilen):
++    """Notentext (endet auf \\n) + Leerzeile + je Blockzeile ein \\n."""
++    return text + "\n" + "".join(z + "\n" for z in blockzeilen)
++
++
++FUELL_ZEILE = "F" * 63
++
++
++def korpus(text, block):
++    """(Kennung, Bytes) — ENUMERIERT aus den Arten, wie fremde Bytes in eine Note geraten koennen,
++    nicht handverlesen: an JEDER Einfuegestelle des Blocks, ueber die ganze Laufweite der
++    Leerzeilenlaeufe, ueber ALLE Umordnungen des Blocks. Punktfixtures waeren genau der Fehlermodus,
++    den ``test_wire_bytes_strict`` als ``family_property_green_over_a_hand_maintained_population``
++    benennt."""
++    faelle = [("echt", _bau(text, block))]
++    stellen = range(len(block) + 1)
++    fake_tripel = ["evil.example/log", "99", base64.b64encode(bytes(32)).decode()]
++
++    for p in stellen:
++        faelle.append((f"klartextzeile@{p}", _bau(text, block[:p] + ["INJIZIERT-UNSIGNIERT"] + block[p:])))
++        faelle.append((f"zweites-tripel@{p}", _bau(text, block[:p] + fake_tripel + block[p:])))
++        for kib in (1, 4, 16):
++            fuellung = [FUELL_ZEILE] * (kib * 1024 // 64)
++            faelle.append((f"fuellung-{kib}KiB@{p}", _bau(text, block[:p] + fuellung + block[p:])))
++
++    # Leerzeilenlaeufe: r = Anzahl aufeinanderfolgender \n zwischen Text und Block. r=2 ist die echte
++    # Form; r>=3 sind die Laeufe, die die Erst-Trennung frueher stumm geschluckt hat.
++    blockstr = "".join(z + "\n" for z in block)
++    for r in range(2, 25):
++        faelle.append((f"leerzeilenlauf-{r}", text[:-1] + "\n" * r + blockstr))
++    # dieselben Laeufe INNERHALB des Blocks und an seinem Ende
++    for r in range(1, 6):
++        faelle.append((f"leerzeilen-im-block-{r}", text + "\n" + "\n" * r + blockstr))
++        faelle.append((f"leerzeilen-am-blockende-{r}", _bau(text, block) + "\n" * r))
++
++    # Umordnung: ALLE Permutationen. Der Signaturblock ist eine MENGE, seine Reihenfolge traegt keine
++    # Bedeutung — jede Umordnung MUSS angenommen bleiben.
++    for perm in itertools.permutations(range(len(block))):
++        faelle.append(("umordnung-" + "".join(map(str, perm)), _bau(text, [block[i] for i in perm])))
++
++    # Rahmungskanten
++    echt = _bau(text, block)
++    gueltige_zusatzzeile = f"{EM} fremd.example {base64.b64encode(bytes(range(68))).decode()}"
++    faelle += [
++        ("ohne-schluss-umbruch", echt[:-1]),
++        ("ohne-trenner", text + blockstr),
++        ("leerer-block", text + "\n"),
++        ("nur-text", text),
++        ("fuehrende-leerzeile", "\n" + echt),
++        ("steuerzeichen-im-text", text[:-1] + "\x07\n" + "\n" + blockstr),
++        ("steuerzeichen-in-zusatzzeile", _bau(text, block + [gueltige_zusatzzeile + "\x07"])),
++        ("surrogat-in-zusatzzeile", _bau(text, block + [gueltige_zusatzzeile + "\ud800"])),
++        ("junk-hinter-em-dash", _bau(text, block + [f"{EM} evil BELIEBIGER ANGREIFERTEXT"])),
++        ("leerer-name", _bau(text, block + [f"{EM}  {base64.b64encode(bytes(68)).decode()}"])),
++        ("plus-im-namen", _bau(text, block + [f"{EM} ev+il {base64.b64encode(bytes(68)).decode()}"])),
++        ("nutzlast-zu-kurz", _bau(text, block + [f"{EM} evil QQ=="])),
++        ("leere-nutzlast", _bau(text, block + [f"{EM} evil "])),
++        # ANTIPARITAET: eine wohlgeformte Zeile eines UNBEKANNTEN Schluessels ist gueltig und wird
++        # ignoriert, nicht abgelehnt - sonst waere der Fix "lehne alles ab, was du nicht kennst".
++        ("fremde-wohlgeformte-zeile", _bau(text, block + [gueltige_zusatzzeile])),
++        ("fremde-zeile-voran", _bau(text, [gueltige_zusatzzeile] + block)),
++    ]
++
++    # ZWEI NACHBARN, die eine adversariale Gegenlesung gegen ECHTES note.Open gefunden hat
++    # (NOTE-RAHMUNG-ZWEI-NACHBARN-GEGEN-ECHTES-GO-OFFEN-01, 2026-09-05). Beide waren mit lauffaehigem
++    # Gegenbeispiel belegt, beide hier nachgefahren, beide jetzt als Korpusfall.
++    #
++    # (a) UNICODE-LEERZEICHEN IM NAMEN, die gefaehrliche Richtung: der Schnitt am ASCII-Leerzeichen
++    #     laesst U+00A0/U+2003/U+3000/U+2028 im Namen durch, die Zeile galt als "unbekannter
++    #     Schluessel" und wurde still uebersprungen -> die Note verifizierte mit ok=True, waehrend
++    #     note.Open (isValidName mit unicode.IsSpace) die GANZE Note ablehnt. MUSS abgelehnt werden.
++    for kenn, zeichen in (("nbsp", "\u00a0"), ("em-space", "\u2003"),
++                          ("ideographic-space", "\u3000"), ("line-sep", "\u2028")):
++        faelle.append((f"name-mit-{kenn}",
++                       _bau(text, block + [f"{EM} ev{zeichen}il {base64.b64encode(bytes(range(68))).decode()}"])))
++    # (b) NEGATIVKONTROLLEN, die ANGENOMMEN bleiben muessen - ohne sie waere (a) auch mit einem Fix
++    #     erfuellt, der jedes nicht-ASCII im Namen ablehnt, und das waere STRENGER als die Referenz:
++    #     U+200B ist KEIN unicode.IsSpace, und 0x7F (DEL) faellt nicht unter note.Opens
++    #     ``r < 0x20 && r != '\n'`` - beides nimmt die Referenz an, also nehmen wir es auch an.
++    faelle.append(("fremde-zeile-name-zwsp",
++                   _bau(text, block + [f"{EM} ev\u200bil {base64.b64encode(bytes(range(68))).decode()}"])))
++    faelle.append(("fremde-zeile-name-del-0x7f",
++                   _bau(text, block + [f"{EM} ev\x7fil {base64.b64encode(bytes(range(68))).decode()}"])))
++    # (c) 0x7F IM NOTENTEXT: von beiden Seiten abgelehnt, aber aus verschiedenen Gruenden - die
++    #     Referenz, weil die Signatur den geaenderten Text nicht deckt; wir ebenso. Kein Steuerzeichen-
++    #     Riegel mehr, und genau das ist der Punkt.
++    faelle.append(("del-0x7f-im-notentext", text[:-1] + "\next\x7fline\n" + "\n" + blockstr))
++    return faelle
++
++
++def _impl_nimmt_an(note, vkey):
++    """Annahme der Implementierung: ok=True. Ein typisierter Fehler IST eine Ablehnung."""
++    try:
++        return cp.verify_checkpoint(note, vkey)["ok"] is True
++    except ProofBundleError:
++        return False
++
++
++def _impl_rahmung_ok(note):
++    try:
++        cp._split_signed_note(note)
++        return True
++    except ProofBundleError:
++        return False
++
++
++def _vorfix_split(signed_note, what="signed note"):
++    """Die Rahmung VOR dem Fix, exakt: Trennung an der ERSTEN Leerzeile, keine Zeilenregel."""
++    if not isinstance(signed_note, str):
++        raise BundleFormatError("signed note must be a string (non-str is malformed, fail-closed)")
++    if "\n\n" not in signed_note:
++        raise BundleFormatError("signed note has no empty-line separator between text and signatures")
++    t, s = signed_note.split("\n\n", 1)
++    return t + "\n", s
++
++
++class _Aufbau:
++    """Echte Note, echtes Bundle, echter tlog-proof — alles ueber die Emitter des Repos."""
++
++    def __init__(self):
++        self.log = generate_signer()
++        self.witness = generate_signer()
++        self.name = "log.example/x"
++        self.wname = "w.example"
++        self.nutzlast = b'{"suite": "demo", "passed": true}'
++        self.bundle = emit_bundle(self.nutzlast, self.log, prior_leaves=[b"e1", b"e2"])
++        wurzel = base64.b64decode(self.bundle["merkle"]["root_b64"])
++        note = cp.sign_checkpoint(self.name, self.bundle["merkle"]["tree_size"], wurzel,
++                                  self.log, self.name)
++        self.note = cp.cosign_checkpoint(note, self.witness, self.wname, 1_780_000_000)
++        self.vkey = cp.vkey(self.name, self.log.public_key().public_bytes_raw())
++        self.wvkey = cp.cosign_vkey(self.wname, self.witness.public_key().public_bytes_raw())
++        self.text, self.block_str = self.note[:self.note.rfind("\n\n") + 1], \
++            self.note[self.note.rfind("\n\n") + 2:]
++        self.block = self.block_str.split("\n")[:-1]
++        self.faelle = korpus(self.text, self.block)
++        # der Kopf eines echten tlog-proof, damit die Nachbarflaeche mit derselben Note laeuft
++        echter_proof = tlogproof.tlog_proof_for_bundle(self.bundle, self.note)
++        self.proof_kopf = echter_proof.split("\n\n", 1)[0]
++
++
++class DerKorpusIstNichtLeerUndNichtEinseitig(unittest.TestCase):
++    """Ein Differential ueber einem Korpus, in dem alles gleich ausgeht, misst nichts."""
++
++    def setUp(self):
++        self.a = _Aufbau()
++
++    def test_der_korpus_traegt_beide_ausgaenge_in_zahl(self):
++        angenommen = [k for k, b in self.a.faelle if orakel_nimmt_an(b, self.a.vkey)]
++        abgelehnt = [k for k, b in self.a.faelle if not orakel_nimmt_an(b, self.a.vkey)]
++        self.assertGreaterEqual(len(self.a.faelle), 60, "Korpus zu klein")
++        self.assertGreaterEqual(len(angenommen), 4, f"zu wenige ANGENOMMENE Faelle: {angenommen}")
++        self.assertGreaterEqual(len(abgelehnt), 40, "zu wenige ABGELEHNTE Faelle")
++        self.assertIn("echt", angenommen)
++        self.assertIn("fremde-wohlgeformte-zeile", angenommen)
++        self.assertTrue(any(k.startswith("umordnung-") for k in angenommen))
++
++    def test_jeder_fall_ist_byteverschieden_oder_heisst_echt(self):
++        gesehen = {}
++        for k, b in self.a.faelle:
++            gesehen.setdefault(b, []).append(k)
++        # Dubletten sind erlaubt (eine Umordnung kann die echte Form sein), aber der Korpus muss
++        # ueberwiegend byteverschieden sein, sonst zaehlt er dieselbe Frage mehrfach.
++        self.assertGreater(len(gesehen), len(self.a.faelle) * 0.8)
++
++
++class DasDifferentialGegenDasSpezifikationsOrakel(unittest.TestCase):
++    """Kern: Annahme der Implementierung == Annahme des unabhaengigen Orakels, Fall fuer Fall."""
++
++    def setUp(self):
++        self.a = _Aufbau()
++
++    def test_verify_checkpoint_stimmt_mit_dem_signatur_orakel_ueberein(self):
++        abweichungen = []
++        for k, b in self.a.faelle:
++            impl, orakel = _impl_nimmt_an(b, self.a.vkey), orakel_nimmt_an(b, self.a.vkey)
++            if impl != orakel:
++                abweichungen.append(f"{k}: impl={impl} orakel={orakel}")
++        self.assertEqual(abweichungen, [], "\n".join(abweichungen))
++
++    def test_die_rahmung_stimmt_mit_dem_rahmungs_orakel_ueberein(self):
++        """Der algorithmusfreie Arm (Auflage A3): er gilt auch dort, wo keine Ed25519-Signatur die
++        Frage entscheidet — Leerzeilenlaeufe, Blockkanten, ML-DSA."""
++        abweichungen = []
++        for k, b in self.a.faelle:
++            impl = _impl_rahmung_ok(b)
++            orakel = orakel_rahmung(b)[0] is not None
++            if impl != orakel:
++                abweichungen.append(f"{k}: impl={impl} orakel={orakel}")
++        self.assertEqual(abweichungen, [], "\n".join(abweichungen))
++
++    def test_der_notentext_ist_bytegenau_der_signierte(self):
++        """Der heikelste Punkt der Rahmung: ``rsplit`` frisst BEIDE Umbrueche, und der erste gehoert
++        zur signierten Nachricht. Gemessen statt geglaubt."""
++        signiert = cp.checkpoint_note(self.a.name, self.a.bundle["merkle"]["tree_size"],
++                                      base64.b64decode(self.a.bundle["merkle"]["root_b64"]))
++        text, _ = cp._split_signed_note(self.a.note)
++        self.assertEqual(text, signiert)
++        self.assertTrue(text.endswith("\n"))
++        self.assertEqual(text, self.a.note.rsplit("\n\n", 1)[0] + "\n")
++        self.assertNotEqual(text, self.a.note.rsplit("\n\n", 1)[0],
++                            "die naive Trennung haette genau ein signiertes Byte verloren")
++        # und das Orakel sieht denselben Text
++        self.assertEqual(orakel_rahmung(self.a.note)[0], signiert)
++
++    def test_eine_note_hat_genau_eine_angenommene_drahtform(self):
++        # Ausgenommen sind die Formen, die eine ZUSAETZLICHE wohlgeformte Zeile eines unbekannten
++        # Schluessels tragen (Praefix "fremde-") und die Umordnungen: beide sind nach der Referenz
++        # gueltige Formen DESSELBEN signierten Textes und muessen angenommen bleiben.
++        formen = {hashlib.sha256(b.encode()).hexdigest()
++                  for k, b in self.a.faelle if _impl_nimmt_an(b, self.a.vkey)
++                  and not k.startswith("umordnung-") and not k.startswith("fremde-")}
++        self.assertEqual(len(formen), 1,
++                         f"{len(formen)} byteverschiedene Formen derselben Signatur angenommen")
++
++
++class DieNachbarflaechenTragenDieselbeRahmung(unittest.TestCase):
++    """FIX-THE-CLASS: der Fund war an verify_checkpoint gemessen, der Nachbar verify_tlog_proof lieferte
++    auf denselben Bytes ok=True. Beide haengen jetzt am selben Helfer, und das wird hier gemessen."""
++
++    def setUp(self):
++        self.a = _Aufbau()
++
++    def test_verify_tlog_proof_stimmt_mit_dem_orakel_ueberein(self):
++        abweichungen = []
++        for k, b in self.a.faelle:
++            proof = self.a.proof_kopf + "\n\n" + b
++            r = tlogproof.verify_tlog_proof(proof, self.a.nutzlast, self.a.vkey)
++            impl = r["ok"] is True
++            orakel = orakel_nimmt_an(b, self.a.vkey)
++            if impl != orakel:
++                abweichungen.append(f"{k}: verify_tlog_proof={impl} orakel={orakel}")
++        self.assertEqual(abweichungen, [], "\n".join(abweichungen))
++
++    def test_verify_witnessed_checkpoint_stimmt_mit_dem_orakel_ueberein(self):
++        abweichungen = []
++        for k, b in self.a.faelle:
++            try:
++                impl = cp.verify_witnessed_checkpoint(b, self.a.vkey, [self.a.wvkey],
++                                                      threshold=1)["ok"] is True
++            except ProofBundleError:
++                impl = False
++            # Zeugenquorum UND Logsignatur: das Orakel deckt die Logsignatur, die Cosignatur haengt
++            # an derselben Rahmung — eine angenommene Rahmung mit gueltiger Logsignatur traegt hier
++            # immer auch die unveraenderte Cosignatur.
++            if impl != orakel_nimmt_an(b, self.a.vkey):
++                abweichungen.append(f"{k}: verify_witnessed={impl}")
++        self.assertEqual(abweichungen, [], "\n".join(abweichungen))
++
++    def test_verify_cosignature_lehnt_jede_nicht_kanonische_form_ab(self):
++        for k, b in self.a.faelle:
++            if orakel_rahmung(b)[0] is not None:
++                continue
++            with self.assertRaises(BundleFormatError, msg=f"{k} kam durch"):
++                cp.verify_cosignature(b, self.a.wvkey)
++
++    def test_die_emit_seite_baut_nichts_was_der_verifizierer_ablehnt(self):
++        """``format_tlog_proof``/``tlog_proof_for_bundle`` sind die Emitter derselben Note."""
++        for k, b in self.a.faelle:
++            if orakel_rahmung(b)[0] is not None:
++                continue
++            with self.assertRaises(BundleFormatError, msg=f"{k} wurde eingebettet"):
++                tlogproof.format_tlog_proof(0, [], b)
++
++    def test_der_rootcommit_zweitverifizierer_faellt_geschlossen_statt_zu_werfen(self):
++        """Nachbar ohne eigene Kryptografie: never-raise bleibt, das Verdikt wird malformed."""
++        from proofbundle import anchors_rootcommit as rc
++        for k, b in self.a.faelle:
++            if orakel_rahmung(b)[0] is not None:
++                continue
++            self.assertIsNone(rc.parse_checkpoint_head(b), f"{k} lieferte einen Kopf")
++            self.assertEqual(rc.verify_rootcommit_v1(b)["status"], "malformed_checkpoint")
++
++
++class EinBekannterSchluesselMitUngueltigerSignaturZaehltNie(unittest.TestCase):
++    """Auflage A1: unbekannte Schluessel werden ignoriert, ein BEKANNTER mit kaputter Signatur nie
++    als Beleg genommen — auch nicht, wenn er der einzige Traeger seiner keyID ist."""
++
++    def setUp(self):
++        self.a = _Aufbau()
++
++    def _kaputte_logzeile(self):
++        zeile = next(z for z in self.a.block if z.split(" ")[1] == self.a.name)
++        roh = bytearray(base64.b64decode(zeile.split(" ", 2)[2], validate=True))
++        roh[-1] ^= 0xFF                                   # keyID bleibt, Signatur bricht
++        return f"{EM} {self.a.name} {base64.b64encode(bytes(roh)).decode()}"
++
++    def test_nur_eine_kaputte_signatur_dieses_schluessels_ergibt_kein_ok(self):
++        andere = [z for z in self.a.block if z.split(" ")[1] != self.a.name]
++        note = _bau(self.a.text, [self._kaputte_logzeile()] + andere)
++        r = cp.verify_checkpoint(note, self.a.vkey)
++        self.assertIs(r["ok"], False)
++        self.assertIs(r["signer_present"], True, "die Zeile trug die keyID — das muss sichtbar sein")
++        self.assertFalse(orakel_nimmt_an(note, self.a.vkey))
++
++    def test_eine_kaputte_neben_der_echten_zeile_aendert_nichts(self):
++        note = _bau(self.a.text, [self._kaputte_logzeile()] + self.a.block)
++        self.assertIs(cp.verify_checkpoint(note, self.a.vkey)["ok"], True)
++        self.assertTrue(orakel_nimmt_an(note, self.a.vkey))
++
++
++class DerMldsaArmDerRahmung(unittest.TestCase):
++    """Auflage A3: fuer ML-DSA-44 entscheidet kein Ed25519-Orakel — hier laeuft der algorithmusfreie
++    Rahmungsarm ueber denselben Korpus, auf einer Note mit einer 0x06-Cosignatur."""
++
++    def setUp(self):
++        try:
++            cp._mldsa_module()
++        except Exception as exc:                       # noqa: BLE001
++            self.skipTest(f"ML-DSA-44 nicht verfuegbar: {exc}")
++        from cryptography.hazmat.primitives.asymmetric import mldsa
++        self.a = _Aufbau()
++        self.w = mldsa.MLDSA44PrivateKey.generate()
++        self.note = cp.cosign_checkpoint_mldsa(self.a.note, self.w, "pq.example", 1_780_000_001)
++        self.wvkey = cp.cosign_vkey_mldsa("pq.example", self.w.public_key().public_bytes_raw())
++        text = self.note[:self.note.rfind("\n\n") + 1]
++        block = self.note[self.note.rfind("\n\n") + 2:].split("\n")[:-1]
++        self.faelle = korpus(text, block)
++
++    def test_die_echte_mldsa_note_bleibt_gut(self):
++        self.assertIsNotNone(orakel_rahmung(self.note)[0])
++        self.assertIs(cp.verify_cosignature(self.note, self.wvkey)["ok"], True)
++
++    def test_rahmung_und_orakel_stimmen_auf_der_mldsa_note_ueberein(self):
++        abweichungen = [k for k, b in self.faelle
++                        if _impl_rahmung_ok(b) != (orakel_rahmung(b)[0] is not None)]
++        self.assertEqual(abweichungen, [], f"{abweichungen}")
++
++    def test_keine_nicht_kanonische_mldsa_form_verifiziert(self):
++        for k, b in self.faelle:
++            if orakel_rahmung(b)[0] is not None:
++                continue
++            with self.assertRaises(BundleFormatError, msg=f"{k} kam durch"):
++                cp.verify_cosignature(b, self.wvkey)
++
++
++class DieKappeBleibtVorDerArbeit(unittest.TestCase):
++    """Die neue Formpruefung dekodiert base64 — sie darf die gelandete Haertung
++    L2-BDOS-C2SP-SIGLINES-01 nicht aufweichen. Gemessen wird die Zahl der Dekodierungen VOR der
++    Ablehnung, nicht die Zeit."""
++
++    @staticmethod
++    def _zaehle_dekodierungen(fn):
++        echt = cp.decode_b64_c2sp
++        zaehler = {"n": 0}
++
++        def zaehl(*args, **kwargs):
++            zaehler["n"] += 1
++            return echt(*args, **kwargs)
++
++        with mock.patch.object(cp, "decode_b64_c2sp", zaehl):
++            fn()
++        return zaehler["n"]
++
++    def test_ueber_der_kappe_wird_keine_einzige_notenzeile_dekodiert(self):
++        """Die Grundlinie ist NICHT null, und das ist keine Ausrede, sondern der gemessene Grund: schon
++        das Zerlegen des vom AUFRUFER uebergebenen vkey dekodiert einmal (sein eigenes Schluesselmaterial,
++        keine angreifer-gelieferte Zeile). Die Aussage ist deshalb 'keine Dekodierung UEBER die Grundlinie
++        hinaus' — gemessen gegen genau diese Grundlinie, nicht gegen eine gewuenschte Null."""
++        a = _Aufbau()
++        grundlinie = self._zaehle_dekodierungen(lambda: cp._parse_vkey(a.vkey))
++        self.assertEqual(grundlinie, 1, "die Grundlinie selbst hat sich geaendert — Messung neu ansetzen")
++        note = _bau(a.text, [a.block[0]] * (DEFAULT_BUDGET.signatures + 1))
++
++        def lauf():
++            with self.assertRaises(BundleFormatError) as cm:
++                cp.verify_checkpoint(note, a.vkey)
++            self.assertIn("signature lines", str(cm.exception))
++            self.assertIn("before any signature", str(cm.exception))
++
++        self.assertEqual(self._zaehle_dekodierungen(lauf), grundlinie,
++                         "eine Notenzeile wurde dekodiert, bevor die Kappe fiel")
++
++    def test_meta_ohne_kappe_wuerde_jede_zeile_dekodiert(self):
++        """ANTITAUTOLOGIE: mit gehobener Kappe MUSS der Zaehler die Arbeit wieder sehen — sonst misst
++        der Test darueber nur, dass irgendetwas frueh abbricht."""
++        from proofbundle.budget import VerificationBudget
++        a = _Aufbau()
++        n = 40
++        note = _bau(a.text, [a.block[0]] * n)
++        with mock.patch.object(cp, "DEFAULT_BUDGET", VerificationBudget(signatures=10 ** 9)):
++            zahl = self._zaehle_dekodierungen(lambda: cp.verify_checkpoint(note, a.vkey))
++        self.assertGreaterEqual(zahl, n, f"nur {zahl} Dekodierungen bei {n} Zeilen")
++
++
++class DieGrenzeZwischenEmitterUndVerifizierer(unittest.TestCase):
++    """Zwei Regeln gelten fuer die FERTIGE Note, nicht fuer den Bauplatz — und beide habe ich beim
++    ersten Zuschnitt an der falschen Stelle aufgehaengt.
++
++    Die Zeilenkappe (ein Verifikations-Budget) und "mindestens eine Signaturzeile" (eine Aussage ueber
++    eine fertige signierte Note) hingen zuerst auch am Emitter. Gefunden hat das beide Male nicht die
++    Ueberlegung, sondern die Vollsuite: ``test_kappe_vor_arbeit_signaturzeilen`` konnte seine feindliche
++    Note nicht mehr bauen, und ``test_origin_quorum_rule`` cosigniert einen blossen Notenkoerper. Diese
++    Klasse haelt die Grenze fest, damit sie nicht beim naechsten Zuschnitt wieder verrutscht."""
++
++    def setUp(self):
++        self.a = _Aufbau()
++        self.koerper = ("bare.example/log\n7\n"
++                        + base64.b64encode(b"\x22" * 32).decode() + "\nextension ok\n")
++
++    def test_der_emitter_darf_die_erste_signaturzeile_anhaengen(self):
++        w = generate_signer()
++        note = cp.cosign_checkpoint(self.koerper + "\n", w, "w.example", 1_780_000_000)
++        wv = cp.cosign_vkey("w.example", w.public_key().public_bytes_raw())
++        self.assertIs(cp.verify_cosignature(note, wv)["ok"], True)
++        # und das ERGEBNIS ist kanonisch — genau deshalb ist die Ausnahme am Emitter unschaedlich
++        self.assertIsNotNone(orakel_rahmung(note)[0])
++
++    def test_der_verifizierer_lehnt_die_note_ohne_signaturzeile_weiterhin_ab(self):
++        for flaeche in (lambda n: cp.verify_checkpoint(n, self.a.vkey),
++                        lambda n: cp.verify_cosignature(n, self.a.wvkey),
++                        lambda n: tlogproof.format_tlog_proof(0, [], n)):
++            with self.assertRaises(BundleFormatError):
++                flaeche(self.koerper + "\n")
++        self.assertIsNone(orakel_rahmung(self.koerper + "\n")[0])
++
++    def test_der_emitter_erbt_die_zeilenkappe_nicht(self):
++        viele = _bau(self.a.text, self.a.block * (DEFAULT_BUDGET.signatures // len(self.a.block) + 2))
++        self.assertIsInstance(tlogproof.format_tlog_proof(0, [], viele), str)
++        with self.assertRaises(BundleFormatError):       # der Verifizierer sehr wohl
++            cp.verify_checkpoint(viele, self.a.vkey)
++
++    def test_die_abgeschnittene_letzte_zeile_ist_keine_zweite_drahtform(self):
++        echt = _bau(self.a.text, self.a.block)
++        self.assertIs(cp.verify_checkpoint(echt, self.a.vkey)["ok"], True)
++        with self.assertRaises(BundleFormatError):
++            cp.verify_checkpoint(echt[:-1], self.a.vkey)
++        self.assertIsNone(orakel_rahmung(echt[:-1])[0])
++
++
++class AntiTautologieDerEingepflanzteDefekt(unittest.TestCase):
++    """Der Korpus MUSS die Vor-Fix-Rahmung fangen. Tut er das nicht, misst er nichts."""
++
++    def test_die_vorfix_rahmung_wird_vom_korpus_gefangen(self):
++        a = _Aufbau()
++        with mock.patch.object(cp, "_split_signed_note", _vorfix_split):
++            abweichungen = [k for k, b in a.faelle
++                            if _impl_nimmt_an(b, a.vkey) != orakel_nimmt_an(b, a.vkey)]
++        self.assertGreaterEqual(
++            len(abweichungen), 20,
++            f"der eingepflanzte Vor-Fix-Defekt wurde nur {len(abweichungen)}x gesehen — "
++            "dann bindet der Korpus die Eigenschaft nicht")
++        self.assertTrue(any(k.startswith("leerzeilenlauf-") for k in abweichungen))
++        self.assertTrue(any(k.startswith("klartextzeile@") for k in abweichungen))
++
++    def test_die_vorfix_rahmung_nahm_die_echte_note_weiterhin_an(self):
++        """Gegenprobe zum Meta-Test: der Defekt war KEIN Totalausfall, sondern genau die Aufweichung —
++        sonst haette der Korpus ihn aus dem falschen Grund gesehen."""
++        a = _Aufbau()
++        with mock.patch.object(cp, "_split_signed_note", _vorfix_split):
++            self.assertTrue(_impl_nimmt_an(a.note, a.vkey))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/go_note_differential/README.md b/tools/go_note_differential/README.md
+new file mode 100644
+index 0000000..882ce09
+--- /dev/null
++++ b/tools/go_note_differential/README.md
+@@ -0,0 +1,54 @@
++# Go-Differential gegen `golang.org/x/mod/sumdb/note`
++
++Dieses Verzeichnis faehrt den Mutationskorpus aus `tests/test_note_rahmung_kanonisch.py` gegen die
++**Referenzimplementierung** des Formats — `note.Open` aus `golang.org/x/mod/sumdb/note` — statt gegen
++eine Nachbildung.
++
++## Warum
++
++`tests/test_note_rahmung_kanonisch.py` misst gegen ein aus der Spezifikation NEU GESCHRIEBENES
++Python-Orakel. Das ist stark, aber es bleibt eine **Lesart** der Spezifikation: ein Denkfehler, der
++Implementierung und Orakel gleichermassen trifft, hebt sich in einem Differential auf und wird
++unsichtbar. Nur die Referenz selbst schliesst diese Luecke.
++
++**Dass die Sorge berechtigt war, ist gemessen.** Der Reproducer des Gates trug eine kurze
++Python-Nachbildung von `note.Open` (Feld hiess `go_reference`, prueft nur die Rahmung). Gegen echtes Go
++gefahren war sie auf **7 von 66** Faellen zu mild — `steuerzeichen-in-zusatzzeile`,
++`surrogat-in-zusatzzeile`, `junk-hinter-em-dash`, `leerer-name`, `plus-im-namen`, `nutzlast-zu-kurz`,
++`leere-nutzlast`: alle sieben nimmt die Nachbildung an, echtes Go nennt alle sieben `malformed note`.
++
++## Geltungsbereich, eng
++
++`note.Open` kennt **nur Ed25519** (Algorithmusbyte 0x01). Dieses Differential misst deshalb
++ausschliesslich den Ed25519-Arm, gegen das Praedikat "Rahmung kanonisch UND mindestens eine Signatur
++eines bekannten Schluessels verifiziert" — dasselbe Praedikat wie `verify_checkpoint(...)["ok"] is True`.
++Fuer **ML-DSA-44 (0x06) ist Go nicht zustaendig**; dort bleibt das Spezifikations-Orakel in
++`tests/test_note_rahmung_kanonisch.py` die Referenz. Dieses Verzeichnis behauptet darueber nichts.
++
++## Fahren
++
++```
++# Toolchain ohne sudo, irgendwo im Benutzerraum:
++curl -fsSLO https://go.dev/dl/go1.27.1.linux-amd64.tar.gz
++sha256sum go1.27.1.linux-amd64.tar.gz          # VOR dem Entpacken pruefen
++tar -xzf go1.27.1.linux-amd64.tar.gz
++export PATH="$PWD/go/bin:$PATH"
++
++# als Test (skippt sauber, wenn keine Toolchain da ist):
++PYTHONPATH=src python -m pytest tests/test_go_note_differential.py -q
++
++# oder als Tabelle, Python- und Go-Verdikt je Fall in EINER Zeile:
++PYTHONPATH=src python tools/go_note_differential/treiber.py
++```
++
++## Gemessen am 2026-09-05
++
++| Groesse | Wert |
++|---|---|
++| Go | `go version go1.27.1 linux/amd64` |
++| Modul | `golang.org/x/mod v0.29.0` (`go.sum`-Pin `h1:HV8lRxZC4l2cr3Zq1LvtOsi/ThTgWnUk/y64QSs8GwA=`) |
++| Tarball sha256, GEMESSEN | `63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445` |
++| Faelle (Ed25519-Arm) | 66 |
++| einig | 66 |
++| uneinig | **0** |
++| Antiparitaet | die echte Note: `python.ok=True`, `go=ACCEPT` |
+diff --git a/tools/go_note_differential/go.mod b/tools/go_note_differential/go.mod
+new file mode 100644
+index 0000000..46f6437
+--- /dev/null
++++ b/tools/go_note_differential/go.mod
+@@ -0,0 +1,5 @@
++module pbnotedifferential
++
++go 1.24.0
++
++require golang.org/x/mod v0.29.0
+diff --git a/tools/go_note_differential/go.sum b/tools/go_note_differential/go.sum
+new file mode 100644
+index 0000000..6cba3a8
+--- /dev/null
++++ b/tools/go_note_differential/go.sum
+@@ -0,0 +1,2 @@
++golang.org/x/mod v0.29.0 h1:HV8lRxZC4l2cr3Zq1LvtOsi/ThTgWnUk/y64QSs8GwA=
++golang.org/x/mod v0.29.0/go.mod h1:NyhrlYXJ2H4eJiRy/WDBO6HMqZQ6q9nk4JzS3NuCK+w=
+diff --git a/tools/go_note_differential/main.go b/tools/go_note_differential/main.go
+new file mode 100644
+index 0000000..e0bb784
+--- /dev/null
++++ b/tools/go_note_differential/main.go
+@@ -0,0 +1,64 @@
++// Echtes Differential gegen die REFERENZ: golang.org/x/mod/sumdb/note.Open.
++//
++// Liest cases.json ({"vkey": "...", "cases":[{"id":"...","b64":"..."}]}), ruft fuer jeden Fall
++// note.Open mit genau EINEM bekannten Verifizierer (dem Log-Schluessel, Ed25519/0x01) auf und gibt
++// je Fall eine Zeile "id\tACCEPT|REJECT\tgrund" aus. err==nil bei note.Open heisst: die Rahmung ist
++// kanonisch UND mindestens eine Signatur eines BEKANNTEN Schluessels verifiziert — dasselbe
++// Praedikat wie proofbundle.verify_checkpoint(...)["ok"] is True.
++package main
++
++import (
++	"bufio"
++	"encoding/base64"
++	"encoding/json"
++	"fmt"
++	"os"
++
++	"golang.org/x/mod/sumdb/note"
++)
++
++type Fall struct {
++	ID  string `json:"id"`
++	B64 string `json:"b64"`
++}
++
++type Eingabe struct {
++	Vkey  string `json:"vkey"`
++	Cases []Fall `json:"cases"`
++}
++
++func main() {
++	roh, err := os.ReadFile(os.Args[1])
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "cases.json:", err)
++		os.Exit(2)
++	}
++	var ein Eingabe
++	if err := json.Unmarshal(roh, &ein); err != nil {
++		fmt.Fprintln(os.Stderr, "json:", err)
++		os.Exit(2)
++	}
++	v, err := note.NewVerifier(ein.Vkey)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "note.NewVerifier:", err)
++		os.Exit(2)
++	}
++	known := note.VerifierList(v)
++
++	w := bufio.NewWriter(os.Stdout)
++	defer w.Flush()
++
++	for _, f := range ein.Cases {
++		msg, derr := base64.StdEncoding.DecodeString(f.B64)
++		if derr != nil {
++			fmt.Fprintf(w, "%s\tERROR\tbase64: %v\n", f.ID, derr)
++			continue
++		}
++		_, oerr := note.Open(msg, known)
++		if oerr == nil {
++			fmt.Fprintf(w, "%s\tACCEPT\t-\n", f.ID)
++		} else {
++			fmt.Fprintf(w, "%s\tREJECT\t%v\n", f.ID, oerr)
++		}
++	}
++}
+diff --git a/tools/go_note_differential/treiber.py b/tools/go_note_differential/treiber.py
+new file mode 100644
+index 0000000..8b23554
+--- /dev/null
++++ b/tools/go_note_differential/treiber.py
+@@ -0,0 +1,71 @@
++# -*- coding: utf-8 -*-
++"""ECHTES Go-Differential: proofbundle gegen golang.org/x/mod/sumdb/note.Open, Fall fuer Fall.
++
++Geltungsbereich, ausdruecklich: note.Open kennt nur Ed25519 (Algorithmusbyte 0x01). Dieser Lauf
++misst deshalb den Ed25519-Arm des Korpus gegen das PRAEDIKAT "Rahmung kanonisch UND mindestens eine
++Signatur eines bekannten Schluessels verifiziert" — dasselbe Praedikat wie
++proofbundle.verify_checkpoint(...)["ok"] is True. Fuer ML-DSA-44 ist Go nicht zustaendig; dort bleibt
++das Spezifikationsorakel aus Auflage A3 die Referenz.
++"""
++import base64
++import json
++import pathlib
++import subprocess
++import sys
++import tempfile
++
++W = str(pathlib.Path(__file__).resolve().parents[2])
++GT = str(pathlib.Path(__file__).resolve().parent)
++sys.path.insert(0, W + "/src")
++sys.path.insert(0, W + "/tests")
++from test_note_rahmung_kanonisch import _Aufbau, _impl_nimmt_an  # noqa: E402
++
++a = _Aufbau()
++faelle = a.faelle
++
++# Fuer die Uebergabe: UTF-8 mit surrogatepass, damit auch der Surrogat-Fall echte Bytes bekommt,
++# die Go dann als ungueltiges UTF-8 sieht — genau die Frage, die gestellt werden soll.
++cases = []
++for kennung, text in faelle:
++    roh = text.encode("utf-8", "surrogatepass")
++    cases.append({"id": kennung, "b64": base64.b64encode(roh).decode("ascii")})
++
++ein = {"vkey": a.vkey, "cases": cases}
++pfad = pathlib.Path(tempfile.mkdtemp()) / "cases.json"
++pfad.write_text(json.dumps(ein), encoding="utf-8")
++
++p = subprocess.run(["go", "run", ".", str(pfad)], cwd=GT,
++                   capture_output=True, text=True)
++if p.returncode != 0:
++    print("GO-LAUF FEHLGESCHLAGEN, exit", p.returncode)
++    print(p.stderr.strip())
++    raise SystemExit(1)
++
++go = {}
++for zeile in p.stdout.splitlines():
++    if not zeile.strip():
++        continue
++    teile = zeile.split("\t")
++    go[teile[0]] = (teile[1], teile[2] if len(teile) > 2 else "")
++
++print(f"{'Fall':34s} {'python.ok':>9s}  {'go.note.Open':>12s}  {'einig':>5s}  Go-Grund")
++print("-" * 118)
++einig = uneinig = 0
++abweichungen = []
++for kennung, text in faelle:
++    py = _impl_nimmt_an(text, a.vkey)
++    g_verdikt, g_grund = go.get(kennung, ("FEHLT", ""))
++    g = (g_verdikt == "ACCEPT")
++    ok = (py == g)
++    einig += ok
++    uneinig += (not ok)
++    if not ok:
++        abweichungen.append(kennung)
++    print(f"{kennung:34s} {str(py):>9s}  {('ACCEPT' if g else 'REJECT'):>12s}  {'ja' if ok else 'NEIN':>5s}  {g_grund[:52]}")
++print("-" * 118)
++print(f"Faelle {len(faelle)} · einig {einig} · UNEINIG {uneinig}"
++      + (f" -> {abweichungen}" if abweichungen else ""))
++# Antiparitaet ausdruecklich
++print(f"Antiparitaet: die ECHTE Note -> python.ok={_impl_nimmt_an(a.note, a.vkey)}, "
++      f"go={go.get('echt', ('?',))[0]}")
++raise SystemExit(0 if uneinig == 0 else 1)

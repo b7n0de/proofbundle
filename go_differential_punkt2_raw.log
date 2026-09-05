@@ -1,0 +1,104 @@
+=== EVIDENCE PUNKT 2: Rohausgang des ECHTEN Go-Differentials, gebunden an den Commit ===
+Zweck: Beleg fuer externen Review Runde 2, Framing-Lane, Punkt 2
+Erzeugt: 2026-09-05T20:58:26Z
+Commit (voll):  defda6afba53f6c66bee49be1ebcb3816e2ff2c1
+Commit (kurz):  defda6a
+git status --porcelain=v1 zum Zeitpunkt des Go-Laufs (Vollsuite-Log + dieses Log sind erwartet):
+?? go_differential_punkt2_raw.log
+?? pip_setup_evidence.log
+?? vollsuite_defda6a_raw.log
+Go-Version (go version):  go version go1.27.1 linux/amd64
+Go-Modul (tools/go_note_differential/go.mod):
+module pbnotedifferential
+
+go 1.24.0
+
+require golang.org/x/mod v0.29.0
+Go-Modul-Pin (tools/go_note_differential/go.sum):
+golang.org/x/mod v0.29.0 h1:HV8lRxZC4l2cr3Zq1LvtOsi/ThTgWnUk/y64QSs8GwA=
+golang.org/x/mod v0.29.0/go.mod h1:NyhrlYXJ2H4eJiRy/WDBO6HMqZQ6q9nk4JzS3NuCK+w=
+Go-BINARY-DIGEST (sha256 des kompilierten go_note_differential-Binaries):
+e674fa9c3529af208df515b740436c321be49713c8b0b39a09db39a55ed7059c  /mnt/bigstore/claude_scratch/lane_framing2_evidence_go_note_differential_bin
+Build-rc laut vorangegangenem 'go build': siehe /mnt/bigstore/claude_scratch/lane_framing2_evidence_go_build.log (build_rc=0)
+--- Ende Kopf, Rohausgang je Fall folgt ---
+
+GO_BINARY_EXIT_STATUS=0
+Fall                               python.ok  go.note.Open  einig  Go-Grund
+----------------------------------------------------------------------------------------------------------------------
+echt                                    True        ACCEPT     ja  -
+klartextzeile@0                        False        REJECT     ja  malformed note
+zweites-tripel@0                       False        REJECT     ja  malformed note
+fuellung-1KiB@0                        False        REJECT     ja  malformed note
+fuellung-4KiB@0                        False        REJECT     ja  malformed note
+fuellung-16KiB@0                       False        REJECT     ja  malformed note
+klartextzeile@1                        False        REJECT     ja  malformed note
+zweites-tripel@1                       False        REJECT     ja  malformed note
+fuellung-1KiB@1                        False        REJECT     ja  malformed note
+fuellung-4KiB@1                        False        REJECT     ja  malformed note
+fuellung-16KiB@1                       False        REJECT     ja  malformed note
+klartextzeile@2                        False        REJECT     ja  malformed note
+zweites-tripel@2                       False        REJECT     ja  malformed note
+fuellung-1KiB@2                        False        REJECT     ja  malformed note
+fuellung-4KiB@2                        False        REJECT     ja  malformed note
+fuellung-16KiB@2                       False        REJECT     ja  malformed note
+leerzeilenlauf-2                        True        ACCEPT     ja  -
+leerzeilenlauf-3                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-4                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-5                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-6                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-7                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-8                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-9                       False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-10                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-11                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-12                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-13                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-14                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-15                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-16                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-17                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-18                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-19                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-20                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-21                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-22                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-23                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilenlauf-24                      False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-im-block-1                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-am-blockende-1              False        REJECT     ja  malformed note
+leerzeilen-im-block-2                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-am-blockende-2              False        REJECT     ja  malformed note
+leerzeilen-im-block-3                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-am-blockende-3              False        REJECT     ja  malformed note
+leerzeilen-im-block-4                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-am-blockende-4              False        REJECT     ja  malformed note
+leerzeilen-im-block-5                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+leerzeilen-am-blockende-5              False        REJECT     ja  malformed note
+umordnung-01                            True        ACCEPT     ja  -
+umordnung-10                            True        ACCEPT     ja  -
+ohne-schluss-umbruch                   False        REJECT     ja  malformed note
+ohne-trenner                           False        REJECT     ja  malformed note
+leerer-block                           False        REJECT     ja  malformed note
+nur-text                               False        REJECT     ja  malformed note
+fuehrende-leerzeile                    False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+steuerzeichen-im-text                  False        REJECT     ja  malformed note
+steuerzeichen-in-zusatzzeile           False        REJECT     ja  malformed note
+surrogat-in-zusatzzeile                False        REJECT     ja  malformed note
+junk-hinter-em-dash                    False        REJECT     ja  malformed note
+leerer-name                            False        REJECT     ja  malformed note
+plus-im-namen                          False        REJECT     ja  malformed note
+nutzlast-zu-kurz                       False        REJECT     ja  malformed note
+leere-nutzlast                         False        REJECT     ja  malformed note
+fremde-wohlgeformte-zeile               True        ACCEPT     ja  -
+fremde-zeile-voran                      True        ACCEPT     ja  -
+name-mit-nbsp                          False        REJECT     ja  malformed note
+name-mit-em-space                      False        REJECT     ja  malformed note
+name-mit-ideographic-space             False        REJECT     ja  malformed note
+name-mit-line-sep                      False        REJECT     ja  malformed note
+fremde-zeile-name-zwsp                  True        ACCEPT     ja  -
+fremde-zeile-name-del-0x7f              True        ACCEPT     ja  -
+del-0x7f-im-notentext                  False        REJECT     ja  invalid signature for key log.example/x+6b1f4e49
+----------------------------------------------------------------------------------------------------------------------
+Faelle 73 (Ed25519-Arm) - einig 73 - UNEINIG 0
+Antiparitaet: die ECHTE Note -> python.ok=True, go=ACCEPT
+GO_DIFFERENTIAL_SCRIPT_RC=0

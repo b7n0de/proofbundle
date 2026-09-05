@@ -1,0 +1,28 @@
+=== EVIDENCE PUNKT 1+3 (NACHLAUF): Vollsuite-Rohausgang auf defda6a, jetzt MIT [inspect]-Extra ===
+Grund: der erste Lauf (vollsuite_defda6a_raw.log) hatte 1 Fehlschlag; Ursache diagnostiziert und
+bestaetigt (siehe Bericht): inspect_ai fehlte in diesem Venv, dadurch inventories_agree=False bei
+type_confusion_gate.evaluate() (proofbundle.inspect_hook / _inspect_registry ModuleNotFoundError).
+Kein Code wurde geaendert -- nur die venv-Extras ergaenzt (pip install inspect_ai<=0.3.261).
+Erzeugt: 2026-09-05T21:05:35Z
+Commit (voll):  defda6afba53f6c66bee49be1ebcb3816e2ff2c1
+Commit (kurz):  defda6a
+git status --porcelain=v1 (nur eigene Belegdateien erwartet, kein getrackter Quellcode):
+?? go_differential_punkt2_raw.log
+?? pip_inspect_extra.log
+?? pip_setup_evidence.log
+?? vollsuite_defda6a_mit_inspect_raw.log
+?? vollsuite_defda6a_raw.log
+--- Ende Kopf ---
+
+......................................... [  1%]
+.................................................. [  2%]
+........................................................................ [  4%]
+.......................................... [  6%]
+........................................................................ [  8%]
+................................................................. [ 10%]
+.................................................................................................... [ 12%]
+.............................................................. [ 14%]
+.................................................. [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+.................................................
