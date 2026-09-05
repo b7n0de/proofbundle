@@ -31,7 +31,7 @@ from typing import Any
 
 __all__ = [
     "CAP1_PROFILE", "DISPOSITIONS", "BASIS_KINDS", "HARD_DISPOSITIONS", "RULE_IDS", "RULES",
-    "check_cap1_document", "is_conformant", "load_cap1_document", "Cap1DuplicateKey",
+    "check_cap1_document", "is_conformant", "load_cap1_document",
 ]
 
 CAP1_PROFILE = "cap/1"
@@ -264,33 +264,26 @@ def is_conformant(doc: object) -> bool:
     return not check_cap1_document(doc)
 
 
-class Cap1DuplicateKey(ValueError):
-    """Ein JSON-Objekt traegt denselben Namen zweimal. RFC 8259 §4 nennt das Verhalten dann
-    'unpredictable'; drei gleichermassen konforme Leser urteilen ueber dieselben Bytes verschieden
-    (gemessen in tools/cap1_unabhaengige_umsetzung). Wir lesen es gar nicht erst."""
-
-
-def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict:
-    d: dict = {}
-    for k, v in pairs:
-        if k in d:
-            raise Cap1DuplicateKey(f"doppelter Name im JSON-Objekt: {k!r}")
-        d[k] = v
-    return d
-
-
 def load_cap1_document(raw: object) -> Any:
-    """Strikt lesen: UTF-8, JSON, keine doppelten Namen.
+    """Strikt lesen: UTF-8, JSON, keine doppelten Namen — mit dem EINEN strikten Leser des Pakets.
 
-    Wirft NUR typisierte Fehler (ValueError-Familie: Cap1DuplicateKey, UnicodeDecodeError,
-    json.JSONDecodeError) — nie einen rohen TypeError. Die never-raise-Familie des Pakets fuzzt jede
-    oeffentliche Flaeche mit acht falschen Typen; ein Leser, der bei `None` mit TypeError abstuerzt,
-    urteilt nicht, er faellt um (gemessen beim ersten Lauf dieser Datei, 2026-09-05).
+    Die erste Fassung brachte einen eigenen `object_pairs_hook` mit. Das Paket hat seit WP-C1
+    genau einen Leser fuer diese Eigenschaft (`_strict_json.loads_strict`, in jedem Verify-Pfad);
+    ein zweiter waere eine zweite Wahrheit ueber dieselbe Grenze, und die driftet. Doppelte Namen
+    kommen als `BundleFormatError` (ProofBundleError-Familie) zurueck — RFC 8259 §4 nennt das
+    Verhalten sonst 'unpredictable', drei gleichermassen konforme Leser urteilen ueber dieselben
+    Bytes verschieden (gemessen in tools/cap1_unabhaengige_umsetzung).
+
+    Wirft NUR typisierte Fehler (ProofBundleError, ValueError-Familie inkl. UnicodeDecodeError) —
+    nie einen rohen TypeError. Die never-raise-Familie des Pakets fuzzt jede oeffentliche Flaeche
+    mit acht falschen Typen; ein Leser, der bei `None` mit TypeError abstuerzt, urteilt nicht, er
+    faellt um (gemessen beim ersten Lauf dieser Datei, 2026-09-05).
     """
+    from ._strict_json import loads_strict  # noqa: PLC0415
     if isinstance(raw, (bytes, bytearray, memoryview)):
         text = bytes(raw).decode("utf-8")
     elif isinstance(raw, str):
         text = raw
     else:
         raise ValueError(f"CAP-1 document must be str or bytes, not {type(raw).__name__}")
-    return json.loads(text, object_pairs_hook=_no_duplicates)
+    return loads_strict(text)

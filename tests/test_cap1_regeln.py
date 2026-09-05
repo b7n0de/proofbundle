@@ -89,9 +89,19 @@ def test_never_raise_auf_muell(muell):
 
 
 def test_doppelte_namen_werden_beim_lesen_abgewiesen():
-    with pytest.raises(cap1.Cap1DuplicateKey):
+    """Mit dem EINEN strikten Leser des Pakets — nicht mit einem eigenen Hook."""
+    from proofbundle.errors import BundleFormatError
+    with pytest.raises(BundleFormatError, match="duplicate JSON key"):
         cap1.load_cap1_document(b'{"profile": "cap/1", "profile": "cap/2"}')
+    with pytest.raises(BundleFormatError):
+        cap1.load_cap1_document('{"strata": [{"id": "a", "id": "b"}]}')  # auch in der Tiefe
     assert cap1.load_cap1_document(b'{"a": 1}') == {"a": 1}
+
+
+@pytest.mark.parametrize("roh", [None, 42, 4.2, True, [], {}, object()])
+def test_falscher_typ_ist_ein_typisierter_fehler(roh):
+    with pytest.raises(ValueError):
+        cap1.load_cap1_document(roh)
 
 
 def test_positivkontrolle_bleibt_nach_kleinster_aenderung_nicht_konform():
