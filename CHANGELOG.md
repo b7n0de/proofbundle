@@ -75,6 +75,38 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   gains a documented backstop: an `UnicodeEncodeError` or a member of the named type-confusion family
   that escapes a per-command handler ends in exit 2 with an ASCII-safe message (traceback on
   `PROOFBUNDLE_DEBUG=1`), never a raw traceback on a consumer surface.
+- **An attached target is VERIFIED only if it verifies standalone (deep gate finding L4-01, P1).** The
+  `--with-related` resolver verified a target's SIGNATURE and then parsed its payload leniently, so a
+  strict-parser refusal (duplicate JSON key, NaN, BOM, non-canonical, not an object) was swallowed into
+  "verified, no edges, subject absent". A chain hidden behind a duplicate `predicate` key therefore came
+  out `lineage=VERIFIED` / exit 0 in **both** shipped verifiers, while the same bytes failed standalone.
+  Loader and standalone verifier now share ONE payload oracle (`_statement_payload.load_statement_strict`);
+  a refused payload is `RELATION_TARGET_MALFORMED` and FAILs at every hop, in Python and in Rust.
+- **A statement with more than one subject binds to none of them silently (L4-02, P2).**
+  `classify_subject` read `subject[0]`, so `[derived, foreign]` classified as `DERIVED` and reached
+  `safeForAutomation: true`, while `[foreign, derived]` failed — the verdict depended on the order the
+  issuer wrote. `len(subject) != 1` is now its own mode, `AMBIGUOUS`, on the decision, outcome and
+  relation-statement paths; `require_derived_subject` fails closed (exit 2). The resolver already
+  reported such a target as `ambiguous`; both sides of the invariant now agree.
+- **A release gate distinguishes ABSENT from REJECTED by a typed field, never by prose (L5-G6-01, P2).**
+  C12.1 narrowed "no receipt binds this tree" to NOT_APPLICABLE on a pull request by matching a substring
+  of the gate's reason — a sentence that opens the reason for rejection too. An untrusted signer, a
+  tampered signature, a copied v5.0.0 receipt and an unreadable file all inherited that leniency and the
+  matrix exited 0. `pre_tag_audit_gate.evaluate` now reports `state` ∈ {absent, rejected, verified,
+  not_determinable}, an unreadable candidate is rejected rather than skipped, and C12.1 narrows only on
+  `absent`. Neighbour swept with it: `pyproject_version` no longer raises a raw `FileNotFoundError` out
+  of a gate whose contract is to rule.
+- **A version-scoped signed artefact binds its version to the version under test (L5-G6-02, P1).**
+  The release-deciding C12.2 reported PASS for 6.0.0 out of a signed findings register scoped to `3.6.1`;
+  a register carrying `0.0.1` or no version at all was accepted just as readily. `verify_and_count` now
+  takes `expected_version`, fails closed with `REGISTER_VERSION_MISMATCH` on mismatch, absence or an
+  unmeasurable `generated_at`, and reports `version_bound` so an unbound caller is visible as unbound.
+  This is the L6-01 lesson applied to the artefact rather than to the matrix pin.
+- **An extracted sdist behaves the same wherever it is unpacked (L6-600-01, P2).** The repo-context
+  derivation asked `git check-ignore` of whatever repository CONTAINED the tree, so the same sdist bytes
+  produced 40 failures under a gitignored `vendor/`, 1 under a non-ignored sibling and 0 in a plain
+  directory. git is now consulted only when this tree is itself the repository (`--show-toplevel`
+  equality); otherwise the stricter no-git behaviour applies.
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 

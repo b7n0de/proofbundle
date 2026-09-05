@@ -633,7 +633,16 @@ def c12_1_pretag_audit():
     # Fehlschlag des Tors — eine kaputte Signatur, ein nicht vertrauenswuerdiger Schluessel, ein
     # unlesbares Receipt — bleibt FAIL, auch auf einem PR. Sonst waere aus einer Praezisierung
     # eine Abschaltung geworden.
-    if _laeuft_auf_pull_request() and "no valid pre-tag audit RECEIPT" in (r.get("reason") or ""):
+    #
+    # AM TYPISIERTEN FELD, NICHT AM PROSA-TEXT (Tiefen-Gate 2026-09-05, Fund L5-G6-01, P2). Hier stand
+    # `"no valid pre-tag audit RECEIPT" in r["reason"]` — und genau dieser Satz steht im Tor-Grund SOWOHL
+    # bei Abwesenheit ALS AUCH bei Ablehnung. Gemessen: ein fremder Signierer, eine manipulierte Signatur,
+    # ein kopiertes 5.0.0-Receipt und eine unlesbare Datei wurden auf einem PR alle vier zu
+    # NOT_APPLICABLE, und der ganze Lauf endete mit 0, obwohl ein bekannt schlechtes Artefakt im Baum lag.
+    # Die Nachsicht gilt der ABWESENHEIT; sie vererbt sich nicht auf ein vorhandenes, geprueftes und
+    # verworfenes Artefakt. `state` ist das Feld dafuer, und es driftet nicht, wenn jemand den Satz
+    # umformuliert. Ein Tor ohne `state` (aeltere Fassung) faellt fail-closed auf FAIL zurueck.
+    if _laeuft_auf_pull_request() and r.get("state") == "absent":
         return (NOT_APPLICABLE,
                 "nicht anwendbar vor dem Tag: ein Receipt bindet einen BAUM, und der Baum eines "
                 "Zweigs hoert beim Merge auf zu existieren (Owner-Entscheid 30.08., OA-4a8daddb55). "
@@ -652,10 +661,18 @@ def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
     # FAIL); supersession is resolved current-wins; a contradiction is an ERROR; and absence / an empty
     # register is FAIL, not PASS (evaluated_count==0 -> FAIL, the assertion-by-absence guard). Every verdict
     # carries the RT-10 triple (population_size, evaluated_count, source_digest).
+    #
+    # DIE VERSIONSBINDUNG DES ARTEFAKTS, nicht nur die des Matrix-Pins (Tiefen-Gate 2026-09-05, Fund
+    # L5-G6-02, P1). Diese Zeile entscheidet ueber die Freigabe, und sie las bis hierher ein signiertes
+    # Register, das auf `3.6.1` lautet und am 18.07. erzeugt wurde — siebzehn Funde ueber eine Fassung
+    # zwei Hauptversionen zurueck, als Aussage ueber die heutige. Ein Register mit `0.0.1` oder ganz
+    # ohne Versionsfeld ging genauso durch. Die Signatur war immer gueltig; das war nie die Frage.
+    # L6-01 hat diese Klasse fuer den PIN geschlossen — hier ist sie fuer das ARTEFAKT geschlossen.
     import findings_register as fr
-    r = fr.verify_and_count(repo)
+    r = fr.verify_and_count(repo, expected_version=VERSION_UNDER_TEST)
     triple = (f"population_size={r['population_size']} evaluated_count={r['evaluated_count']} "
-              f"source_digest={r['source_digest']}")
+              f"source_digest={r['source_digest']} version_bound={r.get('version_bound')} "
+              f"register_version={r.get('register_version')!r} version_under_test={VERSION_UNDER_TEST!r}")
     return (PASS if r["ok"] else FAIL), f"{r['reason']} [{triple}]"
 
 

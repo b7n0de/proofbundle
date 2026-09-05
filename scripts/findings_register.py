@@ -206,11 +206,53 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     return effective, contradictions, anomalies, legit_superseded
 
 
-def verify_and_count(repo: Path | str = REPO) -> dict:
-    """Fail-closed verify + count. Returns a verdict dict; never raises on a bad register."""
+_RFC3339_Z = __import__("re").compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+
+CODE_REGISTER_VERSION_MISMATCH = "REGISTER_VERSION_MISMATCH"
+
+
+def _version_binding_error(register: dict, expected_version: str | None) -> str | None:
+    """The register's SIGNED version field must name the version under test (deep gate 2026-09-05,
+    finding L5-G6-02, P1).
+
+    THE CLASS, and it is the L6-01 lesson applied to the ARTEFACT rather than to the matrix pin: a
+    version-scoped signed artefact that feeds a release-deciding check must bind its signed version to
+    the shipping identity and fail closed on mismatch or absence. Measured on this tree: C12.2 reported
+    PASS for 6.0.0 out of a register whose signed ``version`` says ``3.6.1`` and whose ``generated_at``
+    is 2026-07-18 — seventeen findings about a release two majors back, deciding a release today. A
+    register carrying ``0.0.1`` or no version field at all was accepted just the same, because nothing
+    compared the two numbers. The signature was always valid; that was never the question.
+
+    ``expected_version=None`` means the caller did NOT bind (library/inspection use). The verdict then
+    carries ``version_bound: False`` so a reader can tell "bound and equal" from "never compared" —
+    a gate that passes None is visibly unbound, not silently fine."""
+    if expected_version is None:
+        return None
+    got = register.get("version")
+    if not isinstance(got, str) or not got:
+        return (f"{CODE_REGISTER_VERSION_MISMATCH}: the register carries no version field, so it cannot "
+                f"be shown to be about {expected_version!r} (fail-closed)")
+    if got != expected_version:
+        return (f"{CODE_REGISTER_VERSION_MISMATCH}: the register is scoped to {got!r}, the version under "
+                f"test is {expected_version!r} — findings about another release cannot decide this one")
+    gen = register.get("generated_at")
+    if not isinstance(gen, str) or not _RFC3339_Z.match(gen):
+        return (f"{CODE_REGISTER_VERSION_MISMATCH}: the register carries no well-formed generated_at "
+                f"(got {gen!r}) — freshness is not measurable, and not measurable is not fresh")
+    return None
+
+
+def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None) -> dict:
+    """Fail-closed verify + count. Returns a verdict dict; never raises on a bad register.
+
+    ``expected_version`` binds the register's SIGNED ``version`` field to the version under test
+    (L5-G6-02). The release-deciding caller (audit_candidate_matrix C12.2) MUST pass it; a caller that
+    passes None gets ``version_bound: False`` in the verdict and has, by that, declared it is not
+    deciding a release."""
     repo = Path(repo)
     path = repo / REGISTER_REL
-    triple = {"population_size": 0, "evaluated_count": 0, "source_digest": None}
+    triple = {"population_size": 0, "evaluated_count": 0, "source_digest": None,
+              "version_bound": expected_version is not None}
     if not path.is_file():
         return {"ok": False, "reason": f"findings register missing at {REGISTER_REL} (RT-10: absence is FAIL, not PASS)",
                 "open_ids": [], **triple}
@@ -228,6 +270,13 @@ def verify_and_count(repo: Path | str = REPO) -> dict:
     if not sig_ok:
         return {"ok": False, "reason": f"register signature invalid: {sig_detail} (fail-closed)",
                 "open_ids": [], **triple, "source_digest": source_digest}
+    # AFTER the signature, BEFORE the count: the version binding decides whether these findings are
+    # about the thing being released at all. A valid signature over the wrong scope is exactly the
+    # shape this check exists for (L5-G6-02).
+    version_err = _version_binding_error(register, expected_version)
+    if version_err is not None:
+        return {"ok": False, "reason": version_err, "open_ids": [], **triple,
+                "register_version": register.get("version"), "source_digest": source_digest}
     findings = register.get("findings")
     if not isinstance(findings, list) or not findings:
         return {"ok": False, "reason": "register lists no findings (RT-10 evaluated_count==0 -> FAIL)",
@@ -267,11 +316,24 @@ def verify_and_count(repo: Path | str = REPO) -> dict:
               f"({evaluated_count} findings evaluated, {source_digest})") if ok \
         else f"{len(open_p0p1)} open P0/P1 still present: {open_p0p1}"
     return {"ok": ok, "reason": reason, "open_ids": open_p0p1, "population_size": population_size,
-            "evaluated_count": evaluated_count, "source_digest": source_digest}
+            "evaluated_count": evaluated_count, "source_digest": source_digest,
+            "version_bound": expected_version is not None,
+            "register_version": register.get("version")}
+
+
+def _pyproject_version(repo: Path) -> str | None:
+    import re as _re
+    try:
+        roh = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = _re.search(r'(?m)^\s*version\s*=\s*["\']([^"\']+)["\']', roh)
+    return m.group(1) if m else None
 
 
 def main(argv=None) -> int:
-    r = verify_and_count(REPO)
+    # Die CLI bindet gegen die ausgeliefernde Identitaet, sonst misst sie etwas anderes als das Tor.
+    r = verify_and_count(REPO, expected_version=_pyproject_version(REPO))
     print(json.dumps(r, indent=2, ensure_ascii=False))
     return 0 if r["ok"] else 1
 

@@ -1773,6 +1773,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     import base64  # noqa: PLC0415
     from . import anchors as _anchors_mod  # noqa: PLC0415
     from . import dsse as _dsse  # noqa: PLC0415
+    from ._statement_payload import load_statement_strict  # noqa: PLC0415
     from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
     errs: list[str] = []
@@ -1799,18 +1800,33 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
             continue
         rels = None
         subject_digest = None
+        payload_malformed = None
         # PB-2026-0717-01: classify the target's actual subject state so the verifier fails closed
         # on absent/ambiguous/malformed. NEVER silently pick subject[0] from a multi-subject
-        # statement (that was the resolver half of the subject-pin fail-open). "absent" is the
-        # fail-closed default if the statement cannot even be parsed.
+        # statement (that was the resolver half of the subject-pin fail-open).
+        #
+        # Deep gate 2026-09-05, finding L4-01 (P1): the SIGNED payload goes through the SAME strict,
+        # canonical oracle the standalone verifiers use (`_statement_payload.load_statement_strict`).
+        # Before this, a parse failure here (duplicate key, NaN, BOM, non-object) was swallowed into
+        # "verified=True, relationships=None, subject absent" — an attached target whose bytes FAIL
+        # standalone walked the chain as a verified, edge-less ancestor, and a failing chain hidden
+        # behind a duplicate `predicate` key came out VERIFIED (parser-differential at the resolver
+        # seam). Now such a target is `payload_malformed`, `verified=False`, and the engine FAILs it
+        # with RELATION_TARGET_MALFORMED at any hop. "absent" is no longer a parse-failure disguise.
         subject_digest_state = "absent"
         try:
-            stmt = loads_strict(body.decode("utf-8"))
-            if isinstance(stmt, dict) and isinstance(stmt.get("predicate"), dict):
+            stmt = load_statement_strict(body, require_canonical=True)
+        except ProofBundleError as exc:
+            payload_malformed = str(exc)
+            verified = False
+            subject_digest_state = "malformed"
+            stmt = None
+        if stmt is not None:
+            if isinstance(stmt.get("predicate"), dict):
                 rels = stmt["predicate"].get("relationships")
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
-            subj = stmt.get("subject") if isinstance(stmt, dict) else None
+            subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
             elif len(subj) != 1:
@@ -1822,14 +1838,12 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 subject_digest_state = "present"
             else:
                 subject_digest_state = "malformed"   # single subject but no well-formed sha-256
-        except (ProofBundleError, ValueError):
-            rels = None
-            subject_digest_state = "absent"
         related[root_hex] = {
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
             "subject_digest_state": subject_digest_state,
+            "payload_malformed": payload_malformed,
         }
     return related, errs
 

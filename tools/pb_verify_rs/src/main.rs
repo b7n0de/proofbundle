@@ -851,6 +851,10 @@ struct TargetInfo {
     verified_under: String,
     subject_digest: Option<String>,
     relationships: Option<serde_json::Value>,
+    /// Deep gate 2026-09-05, L4-01 (P1): the attached target's SIGNED payload failed the strict parse
+    /// (duplicate key / not an object / non-canonical). Mirrors Python `payload_malformed`: a hard FAIL
+    /// at any hop, never "verified with no edges".
+    payload_malformed: bool,
 }
 
 struct EdgeOut {
@@ -913,6 +917,17 @@ fn walk_chain(
         // ASYMMETRY vs Python, stated rather than silently absent: TargetInfo is a typed struct,
         // so the "attached target is not a well-formed object" case cannot arise here — the
         // loader rejects it earlier. Python needs that third gate, Rust does not.
+        // L4-01 (deep gate 2026-09-05): the payload gate binds at EVERY hop, exactly like the
+        // receipt's own edge — otherwise the hop an attacker inserts is precisely the one nobody checks.
+        if node.payload_malformed {
+            return Some(
+                "relation:ancestor_edge: relation:attached_target_malformed \
+                 (RELATION_TARGET_MALFORMED): an ATTACHED target's signed payload is not a \
+                 well-formed statement (present-and-malformed is a hard FAIL at any hop; the same \
+                 bytes fail standalone)"
+                    .into(),
+            );
+        }
         if !node.verified {
             return Some(
                 "relation:ancestor_verification_failed: an ATTACHED ancestor does not verify \
@@ -1034,7 +1049,11 @@ fn verify_relationship_edges(
             entry.resolution = LINEAGE_FAIL.into();
         } else if let Some(th) = &target_hex {
             if let Some(target) = related.get(th) {
-                if !target.verified {
+                if target.payload_malformed {
+                    // L4-01: the target's signed payload is not a well-formed statement — the same bytes
+                    // fail standalone, so the edge FAILs here (RELATION_TARGET_MALFORMED), never VERIFIED.
+                    entry.resolution = LINEAGE_FAIL.into();
+                } else if !target.verified {
                     entry.resolution = LINEAGE_FAIL.into(); // attached-but-unverified = present-and-wrong
                 } else {
                     let mut seed: HashSet<String> = HashSet::new();
@@ -1280,11 +1299,26 @@ fn load_related(
         let root_hex = statement_content_root_hex(&body);
         // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
         // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
-        let verified =
+        let mut verified =
             verify_dsse(&env, verify_key_b64, Some(expected_payload_type)).unwrap_or(false);
         let mut relationships = None;
         let mut subject_digest = None;
-        if let Ok(stmt) = strict_parse(&body) {
+        // Deep gate 2026-09-05, L4-01 (P1): the SAME payload gate as the standalone verify path, mirroring
+        // Python `_statement_payload.load_statement_strict`. A target whose signed payload the strict parser
+        // refuses (duplicate key), that is not an object, or that is not RFC-8785 canonical is
+        // `payload_malformed` — a hard FAIL at any hop, never "verified with no edges". Before this, a
+        // failing ancestor hidden behind a duplicate `predicate` key came out lineage=VERIFIED / exit 0 in
+        // BOTH implementations, because both loaders swallowed the parse failure at the resolver seam.
+        let mut payload_malformed = false;
+        let parsed = match strict_parse(&body) {
+            Ok(v) if v.is_object() && jcs_bytes(&v).map(|c| c == body).unwrap_or(false) => Some(v),
+            _ => {
+                payload_malformed = true;
+                verified = false;
+                None
+            }
+        };
+        if let Some(stmt) = parsed {
             if let Some(pred) = stmt.get("predicate") {
                 if let Some(r) = pred.get("relationships") {
                     relationships = Some(r.clone());
@@ -1315,6 +1349,7 @@ fn load_related(
                 verified_under,
                 subject_digest,
                 relationships,
+                payload_malformed,
             },
         );
     }

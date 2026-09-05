@@ -730,7 +730,14 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 _cls = None
             if _cls is not None:
                 r["subject_binding"] = {"mode": _cls["mode"], "matches": _cls["matches"]}
-                if not _cls["matches"]:
+                if _cls["mode"] == "AMBIGUOUS":
+                    # Deep gate 2026-09-05, L4-02: a multi-subject statement never binds silently to
+                    # subject[0] on THIS side of the invariant either. It is not "external" — it is
+                    # undecided which object the receipt speaks about, and that is its own state.
+                    r["warnings"].append(
+                        "subject is AMBIGUOUS — the statement carries more than one subject; which object it "
+                        "commits to is undecided (never silently the first one)")
+                elif not _cls["matches"]:
                     r["warnings"].append(
                         "subject is EXTERNAL_ATTESTED — it does not commit to this predicate (subject-rehang); "
                         "trust it only via a policy that pins the external attester")
@@ -739,7 +746,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                     if not _cls["matches"]:
                         r["errors"].append(
                             "require_derived_subject: subject is not a DERIVED commitment to the predicate "
-                            "(fail-closed)")
+                            + ("(AMBIGUOUS: more than one subject) " if _cls["mode"] == "AMBIGUOUS" else "")
+                            + "(fail-closed)")
             elif require_derived_subject:
                 # classify_subject raised (e.g. a predicate the JCS canonicalizer rejects). Do NOT silently
                 # pass the gate on a coincidence elsewhere — make the fail-closed explicit.

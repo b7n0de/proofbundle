@@ -188,9 +188,30 @@ class TestCheckDiscrimination(unittest.TestCase):
     # substring scan. The old lexical '0 open P0/P1' md-scan granted a FALSE PASS from a stale record; it is
     # replaced by a fail-closed signed register (absent/tampered/foreign-key/empty -> FAIL, never PENDING). ---
 
-    def test_c12_2_green_on_real_repo(self):
-        verdict, _ = self.m.c12_2_audit_pack_zero_p0p1()
-        self.assertEqual(verdict, self.m.PASS)
+    def test_c12_2_states_which_release_it_is_green_FOR(self):
+        """GEAENDERT 2026-09-05 nach dem Tiefen-Gate-Fund L5-G6-02 (P1) — dieselbe Korrektur, die
+        L6-01 an `test_matrix_is_ready_and_has_33_checks` erzwungen hat, eine Ebene tiefer.
+
+        Hier stand `assertEqual(verdict, PASS)` ohne Bedingung, und genau das liess das falsche Gruen
+        durch: das signierte Register ist auf `3.6.1` datiert, die Matrix urteilt ueber 6.0.0, und die
+        Zeile war trotzdem gruen — weil die siebzehn Funde ehrlich gezaehlt wurden, nur eben ueber eine
+        andere Fassung. Ein Test, der Gruen behauptet, ohne zu sagen WOFUER, kann die beiden Faelle
+        nicht unterscheiden.
+
+        Beide Richtungen stehen hier: passt die Registerfassung zur Fassung unter Test, MUSS die Zeile
+        gruen sein (sonst waere die Bindung ein konstantes FAIL); passt sie nicht, MUSS sie rot sein
+        und den Grund nennen."""
+        verdict, detail = self.m.c12_2_audit_pack_zero_p0p1()
+        import json as _json
+        reg = _json.loads((REPO / "audit_artifacts" / "findings_register_361.json")
+                          .read_text(encoding="utf-8"))
+        if reg.get("version") == self.m.VERSION_UNDER_TEST:
+            self.assertEqual(verdict, self.m.PASS, detail)
+        else:
+            self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("REGISTER_VERSION_MISMATCH", detail)
+            self.assertIn(str(reg.get("version")), detail)
+            self.assertIn(self.m.VERSION_UNDER_TEST, detail)
 
     def test_c12_2_fails_when_register_absent(self):
         # RT-10: absence of the register is FAIL, not PASS and not PENDING (assertion-by-absence guard).
@@ -201,6 +222,10 @@ class TestCheckDiscrimination(unittest.TestCase):
             (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.1. 0 open P0/P1 issues.\n")
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            # DER GRUND WIRD MITGEPRUEFT (2026-09-05): seit der Versionsbindung (L5-G6-02) faellt ein
+            # fremd-versioniertes Register schon daran. Ohne diese Zeile waere der Test auch dann noch
+            # gruen, wenn die Abwesenheits-Regel selbst ausgebaut waere — er wuerde die falsche Sache messen.
+            self.assertIn("missing", detail.lower())
 
     def test_c12_2_fails_on_tampered_register(self):
         # a copy of the real register with a P0 flipped to 'open' breaks the pinned-key signature -> FAIL
@@ -209,12 +234,16 @@ class TestCheckDiscrimination(unittest.TestCase):
         real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
         reg = json.loads(real.read_text(encoding="utf-8"))
         reg["findings"][0]["status"] = "open"  # tamper: does not re-sign
+        reg["version"] = self.m.VERSION_UNDER_TEST   # 2026-09-05: die Fassung passt, damit dieser Test
+        # weiterhin die SIGNATUR misst und nicht die neue Versionsbindung (L5-G6-02) — sonst waere er
+        # vakuoes: auch ohne jede Signaturpruefung rot, und niemand haette es bemerkt.
         with tempfile.TemporaryDirectory() as td:
             art = Path(td) / "audit_artifacts"
             art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(reg))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("signature", detail.lower())
 
     def test_c12_2_fails_on_foreign_key_register(self):
         # a register validly signed by a DIFFERENT key must be rejected by the committed pin -> FAIL.
@@ -227,6 +256,9 @@ class TestCheckDiscrimination(unittest.TestCase):
         from proofbundle import canonical
         real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
         body = {k: v for k, v in json.loads(real.read_text(encoding="utf-8")).items() if k != "signature"}
+        # 2026-09-05: die Fassung passt zur Fassung unter Test, damit dieser Test den PIN misst und
+        # nicht die neue Versionsbindung (L5-G6-02) — sonst waere er auch ohne jeden Pin rot.
+        body["version"] = self.m.VERSION_UNDER_TEST
         k = Ed25519PrivateKey.generate()
         pub = k.public_key().public_bytes(encoding=serialization.Encoding.Raw,
                                           format=serialization.PublicFormat.Raw)
@@ -240,6 +272,7 @@ class TestCheckDiscrimination(unittest.TestCase):
             (art / "findings_register_361.json").write_text(json.dumps(forged))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
+            self.assertIn("pinned", detail.lower())
 
     # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
 

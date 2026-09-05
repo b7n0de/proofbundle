@@ -125,19 +125,18 @@ if __name__ == "__main__":
 
 
 def _in_git_checkout() -> bool:
-    """Laeuft das hier in einem git-Arbeitsbaum? Gemessen, nicht aus der Verzeichnisform geraten.
+    """Ist DIESER Baum das Repository? Gemessen, nicht aus der Verzeichnisform geraten.
 
     Im entpackten sdist gibt es weder `.git` noch das Kommando — und genau dort ist die Ignore-Regel
-    nicht befragbar. Der Aufruf hier ist derselbe, den `_ist_bauartefakt` intern macht, damit die
-    Bedingung des Tests und die des Codes nicht auseinanderlaufen koennen.
-    """
-    import subprocess
-    try:
-        r = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--is-inside-work-tree"],
-                           capture_output=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0
+    nicht befragbar. Die Bedingung des Tests IST die des Codes: beide fragen ueber
+    `conftest._dieser_baum_ist_das_repo`, damit sie nicht auseinanderlaufen koennen.
+
+    KORRIGIERT (Tiefen-Gate 2026-09-05, Fund L6-600-01): hier stand `--is-inside-work-tree`, und das
+    ist wahr fuer JEDES Unterverzeichnis eines FREMDEN Repositoriums. Ein in `vendor/` oder `src_deps/`
+    eines Consumer-Checkouts entpacktes sdist meldete damit "im Checkout", der Test lief statt zu
+    ueberspringen, und `_ist_bauartefakt` beantwortete seine Frage aus den Ignore-Regeln des fremden
+    Baums. Dieselbe Verwechslung, gegen die diese Datei steht, eine Ebene hoeher."""
+    return cf._dieser_baum_ist_das_repo(REPO)
 
 
 class BauartefakteZaehlenNicht(unittest.TestCase):

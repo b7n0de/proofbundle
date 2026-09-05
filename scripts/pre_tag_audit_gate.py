@@ -138,7 +138,16 @@ def _positive_audit_marker(text: str) -> bool:
 
 
 def pyproject_version(repo: Path) -> str | None:
-    text = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    """The release version read from pyproject.toml, or ``None`` when it cannot be read.
+
+    NEIGHBOUR OF L5-G6-01, swept with it (2026-09-05): the read was unguarded, so ``evaluate()`` on a
+    tree without a pyproject.toml raised a raw ``FileNotFoundError`` out of a gate whose whole contract
+    is to RULE — the same shape as deciding on prose, one step earlier. Absence of the file is a state
+    (``not_determinable``), and the caller already has a branch for it."""
+    try:
+        text = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
     m = re.search(r'(?m)^\s*version\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']', text)
     return m.group(1) if m else None
 
@@ -226,10 +235,17 @@ def _gate_source_digest() -> str:
 
 
 def _receipt_candidates(repo: Path, version: str) -> list:
-    """Every *.json under audit_artifacts/<token>/ that parses to an object — the pre-tag receipt
-    candidates. A non-JSON / unparseable file is skipped (it is not a receipt), never a crash."""
+    """Every *.json under audit_artifacts/<token>/ — the pre-tag receipt candidates, as
+    ``(relpath, receipt_dict_or_None, unreadable_reason_or_None)``.
+
+    UNREADABLE IS REJECTED, NOT ABSENT (deep gate 2026-09-05, finding L5-G6-01, P2). This used to
+    ``continue`` past a file that would not parse, so a receipt placed under the version folder as
+    ``{ this is not json`` left the gate reporting the ABSENT wording ("no receipt under
+    audit_artifacts/<token>/*.json") — and C12.1 then narrowed that to NOT_APPLICABLE on a pull
+    request. A present-but-broken artefact is a finding about the artefact; only genuine absence
+    may inherit the leniency reserved for absence."""
     scoped = repo / "audit_artifacts" / _version_token(version)
-    out = []
+    out: list = []
     if not scoped.is_dir():
         return out
     for f in sorted(scoped.rglob("*.json")):
@@ -237,10 +253,15 @@ def _receipt_candidates(repo: Path, version: str) -> list:
             continue
         try:
             rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            out.append((str(f.relative_to(repo)), None,
+                        f"receipt file is present but unreadable ({type(exc).__name__}: {exc})"))
             continue
         if isinstance(rc, dict):
-            out.append((str(f.relative_to(repo)), rc))
+            out.append((str(f.relative_to(repo)), rc, None))
+        else:
+            out.append((str(f.relative_to(repo)), None,
+                        f"receipt file is present but is not a JSON object (got {type(rc).__name__})"))
     return out
 
 
@@ -264,13 +285,19 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
     from pre_tag_receipt_lib import load_trusted_pubkeys, verify_receipt  # noqa: PLC0415
     version = version or pyproject_version(repo)
     if not version:
-        return {"ok": False, "version": None,
+        # NOT "absent": the gate could not even determine WHAT it is judging. Unmeasurable is its own
+        # state and must never inherit the absence leniency (three states, L5-G6-01).
+        return {"ok": False, "state": "not_determinable", "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
     tree = _gate_tree_digest(repo)
     gate_src = _gate_source_digest()
     trusted = load_trusted_pubkeys(repo)
     verified, rejected = [], []
-    for rp, rc in _receipt_candidates(repo, version):
+    for rp, rc, unreadable in _receipt_candidates(repo, version):
+        if rc is None:
+            # L5-G6-01: a present-but-unreadable candidate is REJECTED, never invisible.
+            rejected.append({"path": rp, "reason": unreadable or "receipt file is unreadable"})
+            continue
         # A gate must RULE, never crash (P1-A defense-in-depth): any exception from verify_receipt is a
         # fail-closed REJECT of that candidate, never a false accept and never an uncaught traceback that
         # a CI reader could misread. The src-path setup above resolves the actual import case; this is the
@@ -282,12 +309,25 @@ def evaluate(repo: Path, version: str | None = None) -> dict:
             ok_r, reason = False, f"verify_receipt raised {type(e).__name__}: {e} (fail-closed reject)"
         (verified if ok_r else rejected).append({"path": rp, "reason": reason})
     ok = bool(verified)
+    # ── THE TYPED STATE, and why a consumer must key on it (deep gate 2026-09-05, L5-G6-01, P2) ────────
+    #
+    # C12.1 narrows "no receipt binds this tree" to NOT_APPLICABLE on a pull request, because a receipt
+    # binds a TREE and a branch's tree stops existing at the merge (owner decision 2026-08-30). It read
+    # that condition off a SUBSTRING of the prose `reason` — and the prose said "no valid pre-tag audit
+    # RECEIPT ..." for BOTH absence and rejection. So an untrusted signer, a tampered signature, a copied
+    # v5.0.0 receipt and an unreadable file all inherited the leniency built for absence, and the whole
+    # matrix exited 0 with a known-bad artefact in the tree.
+    #
+    # A gate distinguishes ABSENT from REJECTED by a typed field, never by a message string. Prose is for
+    # readers; `state` is for consumers, and it cannot drift when someone rewords a sentence.
+    state = "verified" if verified else ("rejected" if rejected else "absent")
     # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
     # verdict in either direction (L5-02 kept; the attestation is the receipt's job now).
     section = changelog_section(repo, version)
     changelog_ok = bool(section and _positive_audit_marker(section))
     return {
         "ok": ok,
+        "state": state,
         "version": version,
         "subject_tree_digest": tree,
         "gate_source_digest": gate_src,
