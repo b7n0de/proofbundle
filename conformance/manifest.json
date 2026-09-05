@@ -108,6 +108,21 @@
     "agent_review/agent-review-v02-positive-control-default-policy-decides-accept",
     "agent_review/agent-review-v02-counter-proof-without-policy-nothing-is-decided",
     "agent_review/agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence",
-    "agent_review/agent-review-v02-counter-proof-blocking-policy-rejects"
+    "agent_review/agent-review-v02-counter-proof-blocking-policy-rejects",
+    "cap1/cap1-positive-control-pv-01-complete-run-catalogued-basis",
+    "cap1/cap1-positive-control-pv-02-policy-and-scope-dispositions-still-complete",
+    "cap1/cap1-positive-control-pv-03-failure-reported-and-verdict-capped",
+    "cap1/cap1-positive-control-pv-04-withholding-digest-bound",
+    "cap1/cap1-positive-control-pv-05-two-strata-at-different-granularity",
+    "cap1/cap1-counter-proof-nc-01-two-units-vanish-from-the-accounting-the-counts-no-longer-re",
+    "cap1/cap1-counter-proof-nc-02-an-open-reason-string-replaces-a-vocabulary-member",
+    "cap1/cap1-counter-proof-nc-03-a-unit-is-withheld-with-no-digest-of-what-was-withheld",
+    "cap1/cap1-counter-proof-nc-04-a-catalogue-denominator-is-asserted-without-naming-the-catal",
+    "cap1/cap1-counter-proof-nc-05-examined-exceeds-eligible",
+    "cap1/cap1-counter-proof-nc-06-an-absence-is-asserted-against-no-population",
+    "cap1/cap1-counter-proof-nc-07-a-unit-failed-and-the-run-is-still-reported-complete",
+    "cap1/cap1-counter-proof-nc-08-a-cited-stratum-states-no-supported-claim-classes",
+    "cap1/cap1-counter-proof-nc-09-a-count-only-ledger-the-disposition-totals-are-present-but-n",
+    "cap1/cap1-counter-proof-nc-10-incomplete-is-declared-but-no-capped-verdict-is-given"
   ]
 }

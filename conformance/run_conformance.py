@@ -801,12 +801,47 @@ def miss_policy_entscheidung(case: dict, case_dir: pathlib.Path) -> dict:
             "policy_digest": r.get("policy_digest"), "errors": list(r.get("errors") or [])}
 
 
+def _check_cap1_document(case: dict, case_dir: pathlib.Path, *,
+                         require_anchors: bool = False) -> dict:
+    """One CAP-1 vector (draft-hillier-coverage-attestation-00), checked through proofbundle.cap1.
+
+    ONE AXIS, and it is a SET. `expected.cap1Rules` names exactly the rules that must fire; `[]`
+    means conformant. The comparison is exact in both directions: a counter-proof that fires the
+    wrong rule, or an extra one, fails — "refused" alone would let a checker pass that rejects for
+    any reason at all (draft section 7.1). Fail-closed on the declaration: a case without the axis
+    asserts nothing and is a corpus bug, not a pass.
+    """
+    cid = case.get("caseId", str(case_dir))
+    exp = case.get("expected") or {}
+    if "cap1Rules" not in exp or not isinstance(exp["cap1Rules"], list):
+        return _fail(cid, "cap1_document case must declare the cap1Rules axis (a list; [] = conformant)")
+    if len(exp) != 1:
+        return _fail(cid, f"cap1_document case must declare EXACTLY ONE expectation axis, got {sorted(exp)}")
+    name = case.get("input") or "document.json"
+    if pathlib.Path(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts:
+        return _fail(cid, f"input {name!r} escapes the case directory")
+    sys.path.insert(0, str(ROOT.parent / "src"))
+    from proofbundle import cap1  # noqa: PLC0415
+    from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    try:
+        doc = cap1.load_cap1_document((case_dir / name).read_bytes())
+    except (ProofBundleError, ValueError) as e:
+        return _fail(cid, f"document does not parse strictly: {e}")
+    gefeuert = sorted({f["rule"] for f in cap1.check_cap1_document(doc)})
+    erwartet = sorted(set(exp["cap1Rules"]))
+    if gefeuert != erwartet:
+        return _fail(cid, f"rules fired {gefeuert} != expected {erwartet}")
+    return {"caseId": cid, "ok": True,
+            "detail": ("conformant, no rule fires" if not erwartet else f"refused by exactly {erwartet}")}
+
+
 _DISPATCH = {"decision_crossimpl": _check_decision_crossimpl, "native_bundle": _check_native_bundle,
              "decision_relation": _check_decision_relation, "outcome_relation": _check_outcome_relation,
              "relation_statement": _check_relation_statement,
              "provenance_version_status": _check_provenance_version_status,
              "envelope_profile_rule": _check_envelope_profile_rule,
-             "agent_review_predicate": _check_agent_review_predicate}
+             "agent_review_predicate": _check_agent_review_predicate,
+             "cap1_document": _check_cap1_document}
 
 
 def run(*, require_anchors: bool = False) -> int:

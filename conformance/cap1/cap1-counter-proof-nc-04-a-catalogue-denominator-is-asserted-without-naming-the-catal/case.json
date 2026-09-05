@@ -1,0 +1,17 @@
+{
+  "attribution": "CAP-1 conformance vectors by the draft author (Certisyn-Inc/certisyn-drafts, commit 0980d32, Apache-2.0; conformance/cap1/vectors/LICENSE.author). Case wrapper built 2026-09-05 for proofbundle, Thema 7 Teil B Block 3.",
+  "caseId": "cap1-counter-proof-nc-04-a-catalogue-denominator-is-asserted-without-naming-the-catal",
+  "expected": {
+    "cap1Rules": [
+      "R4-denominator-basis"
+    ]
+  },
+  "input": "document.json",
+  "kind": "cap1_document",
+  "rationale": "NC-04: a catalogue denominator is asserted without naming the catalogue. Non-conformant: the author's run records exactly ['R4-denominator-basis'] firing; the case pins that set, not merely 'refused' — a counter-proof that fails for the wrong reason proves nothing about its rule (draft section 7.1).",
+  "role": "counter_proof",
+  "rule": "R4-denominator-basis",
+  "specRefs": [
+    "draft-hillier-coverage-attestation-00, section 7 (conformance class)"
+  ]
+}
