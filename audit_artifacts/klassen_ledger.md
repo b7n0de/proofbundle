@@ -83,3 +83,46 @@ zweite Aufrufer `audit_records_for` ist ein Lokalisierer ohne Produktionskonsume
 ist mit zwei Tests festgehalten, damit ein spaeteres Verdrahten auffaellt. Nebenbefund, nicht
 behoben: `attesting_records_for` / `attests_version` — die gehaertete Allowlist-Form aus L5-02 —
 haben ueberhaupt keinen Produktionsaufrufer.
+
+---
+
+## KLASSE-C-2026-0905 — Eine Zusicherung verkleinert ihre eigene Positivmenge, um eine Zahl zu erzwingen
+
+**Verletzte Invariante.** Eine Eigenschaftszusicherung ("die akzeptierte Menge entspricht der
+Referenzmenge") darf ihren Korpus nicht durch einen Ausschluss VOR dem Zaehlen auf das gewuenschte
+Ergebnis zurechtstutzen. Gueltige, von der Referenz-Spezifikation ausdruecklich zugelassene
+Umformungen desselben signierten Inhalts (hier: Umordnung des C2SP-Signaturblocks — eine MENGE ohne
+Reihenfolge — und eine zusaetzliche wohlgeformte Zeile eines unbekannten Schluessels, die note.Open
+ignoriert statt ablehnt) gehoeren in die POSITIVMENGE. Eine Formulierung wie "genau eine akzeptierte
+Drahtform", die nur durch Herausfiltern dieser gueltigen Formen wahr wird, behauptet mehr Praezision
+(globale Byte-Einzigkeit), als sie tatsaechlich zeigt (Mengengleichheit mit der Referenz).
+
+**ODC.** defect_type = assertion (Zusicherung praeziser als geprueft, false precision) · trigger =
+test-oracle/property specification · source_layer = test-Eigenschaftsformulierung + begleitender
+Docstring-Vertrag.
+
+**Wie es auffiel.** Externer Review Runde 2 (2026-09-05), Framing-Lane, Bedingung "Der Korpus darf
+nicht durch eine falsche Einzigkeitsaussage seine eigene Positivmenge verkleinern": der Reviewer
+zeigte an `tests/test_note_rahmung_kanonisch.py::test_eine_note_hat_genau_eine_angenommene_drahtform`,
+dass die Zaehlung `and not k.startswith("umordnung-") and not k.startswith("fremde-")` genau die
+gueltigen Positivfaelle aus der Menge nahm, BEVOR `len(formen) == 1` geprueft wurde — ohne den
+Ausschluss haette der Test seine eigene Zusicherung nicht mehr erfuellt.
+
+**Wo die Klasse jetzt lebt.** `src/proofbundle/checkpoint.py::_split_signed_note` (Docstring, die
+Formulierung "akzeptierte Menge entspricht der Referenzmenge innerhalb des erklaerten Vertrags" statt
+"genau eine Drahtform"); `tests/test_note_rahmung_kanonisch.py` (Moduldocstring plus
+`test_akzeptierte_menge_entspricht_referenzmenge_ohne_formausschluss`, ohne Ausschluss, mit expliziter
+Positivmengen-Zusicherung fuer Umordnungen und fremde wohlgeformte Zeilen).
+
+**Orakel.** Die Zaehlung haengt am extrahierten Notentext (`cp._split_signed_note(b)[0]`), nicht an den
+rohen Bytes der ganzen Nachricht — eine gueltige Umformung aendert per Konstruktion nur den
+Signaturblock, nie den Text, waehrend eine faelschlich angenommene ANDERE Note (verschobener
+Leerzeilenlauf, eingespeiste Klartextzeile) einen zweiten Textdigest erzeugen wuerde. Das macht die
+Zaehlung UNABHAENGIG vom Spezifikations-Orakel (das in derselben Lane, FUND 1-3 auf defda6a, nachweislich
+zeitweise dieselben zwei Fehler wie die Implementierung trug).
+
+**Ehrliche Grenzen.** Die Klasse ist bislang nur an dieser EINEN Note-Framing-Zusicherung behoben; ein
+repo-weiter Sweep auf denselben Formulierungsfehler ("Zusicherung X erreicht durch Vorfilterung") wurde
+NICHT gefahren — `tests/test_wire_bytes_strict.py`s verwandte, aber semantisch andere Aussage (ein
+base64-FELD hat wirklich nur eine kanonische Kodierung, keine Mengengleichheit ueber Umformungen einer
+ganzen Note) liegt ausserhalb des Auftrags dieser Lane und wurde nicht angefasst.

@@ -1,4 +1,20 @@
-"""Eine signierte C2SP-Note hat GENAU EINE akzeptierte Drahtform — die Klasse, nicht die Instanz.
+"""Eine signierte C2SP-Note: die AKZEPTIERTE MENGE entspricht der REFERENZMENGE innerhalb des erklaerten
+Vertrags — die Klasse, nicht die Instanz.
+
+KORREKTUR (Review Runde 2, 2026-09-05, Auflage A2). Diese Datei behauptete zuvor "GENAU EINE akzeptierte
+Drahtform". Das war zu stark: eine gueltige UMORDNUNG des Signaturblocks und eine wohlgeformte Zeile
+eines UNBEKANNTEN Schluessels sind nach der Referenz gueltige, BYTEVERSCHIEDENE Formen DESSELBEN
+signierten Textes und muessen angenommen bleiben (siehe ``korpus()`` unten, Praefixe ``umordnung-`` und
+``fremde-``) — sie gehoeren in die REFERENZMENGE und damit in die akzeptierte Menge, nicht aus ihr
+heraus. Der alte Test erreichte "genau eins" nur, indem er diese gueltigen Formen VOR dem Zaehlen
+herausfilterte — eine Zusicherung, die ihre eigene Positivmenge verkleinert, um eine Zahl zu erzwingen,
+ist der Fehler, den diese Korrektur behebt (Ledger: ``audit_artifacts/klassen_ledger.md``
+KLASSE-C-2026-0905). Die tragende Eigenschaft war immer schon Mengengleichheit gegen die Referenz —
+``test_verify_checkpoint_stimmt_mit_dem_signatur_orakel_ueberein`` unten prueft genau das, Fall fuer
+Fall, OHNE eine einzige Ausnahme. ``test_akzeptierte_menge_entspricht_referenzmenge_ohne_formausschluss``
+haelt dieselbe Eigenschaft zusaetzlich ueber dem extrahierten Notentext fest (siehe dort), damit ein Fund,
+der Orakel UND Implementierung gleichermassen traefe (wie tatsaechlich geschehen, siehe defda6a), nicht
+unsichtbar bleibt.
 
 WAS DAS SCHLIESST. Fund L1-600-NOTE-FRAMING-01 (deep gate 6.0.0, P1), nachreproduziert auf 917edc69:
 ``checkpoint.verify_checkpoint`` trennte Notentext und Signaturblock an der ERSTEN Leerzeile und
@@ -14,8 +30,10 @@ Die Wirkung reichte bis in ``verify_tlog_proof`` und beide CLI-Wege (``verify --
 DIE KLASSE, nicht der eine Treiber: "alle Artefakte mit Notiz-Rahmung". Der Fix sitzt deshalb im
 gemeinsamen Helfer ``checkpoint._split_signed_note`` und nicht in ``verify_checkpoint`` — das Gate hatte
 gemessen, dass ``verify_tlog_proof`` auf denselben gefaelschten Bytes ebenfalls ``ok=True`` lieferte.
-Sie ist die Schwester der Invariante in ``tests/test_wire_bytes_strict.py`` ("ein signiertes Artefakt,
-EINE akzeptierte Drahtform"), dort fuer die base64-FELDER, hier eine Schicht hoeher: an der RAHMUNG.
+Verwandt mit der Invariante in ``tests/test_wire_bytes_strict.py`` (dort ueber die base64-FELDER, hier
+eine Schicht hoeher an der RAHMUNG) — aber NICHT byte-fuer-byte dieselbe Aussage: die base64-Invariante
+gilt fuer ein FELD (ein Feld hat wirklich nur eine kanonische Kodierung), die Rahmung hier gilt fuer eine
+ganze NOTE, deren Signaturblock als MENGE gelesen wird und deren Reihenfolge keine Bedeutung traegt.
 
 DIE EIGENSCHAFT, EINGESCHRAENKT formuliert (und das ist Absicht — eine Zusicherung, die mehr behauptet,
 als sie prueft, ist genau der Fehler, den dieser Fix behebt): fuer Eingaben INNERHALB der deklarierten
@@ -372,15 +390,42 @@ class DasDifferentialGegenDasSpezifikationsOrakel(unittest.TestCase):
         # und das Orakel sieht denselben Text
         self.assertEqual(orakel_rahmung(self.a.note)[0], signiert)
 
-    def test_eine_note_hat_genau_eine_angenommene_drahtform(self):
-        # Ausgenommen sind die Formen, die eine ZUSAETZLICHE wohlgeformte Zeile eines unbekannten
-        # Schluessels tragen (Praefix "fremde-") und die Umordnungen: beide sind nach der Referenz
-        # gueltige Formen DESSELBEN signierten Textes und muessen angenommen bleiben.
-        formen = {hashlib.sha256(b.encode()).hexdigest()
-                  for k, b in self.a.faelle if _impl_nimmt_an(b, self.a.vkey)
-                  and not k.startswith("umordnung-") and not k.startswith("fremde-")}
+    def test_akzeptierte_menge_entspricht_referenzmenge_ohne_formausschluss(self):
+        """Review Runde 2, Auflage A2 (2026-09-05): ersetzt ``test_eine_note_hat_genau_eine_angenommene_
+        drahtform``. Jener Test behauptete "genau eine Drahtform", erreichte das aber nur, indem er
+        Umordnungen (Praefix ``umordnung-``) und wohlgeformte fremde Zeilen (Praefix ``fremde-``) VOR dem
+        Zaehlen aus der Menge herausfilterte — beide sind nach der Referenz gueltige, byteverschiedene
+        Formen DESSELBEN signierten Textes (siehe ``korpus()``) und gehoeren in die Positivmenge, nicht
+        aus ihr heraus. Ein Ausschluss, der noetig ist, damit eine Zahl herauskommt, ist der Fehler.
+
+        DIE KORRIGIERTE INVARIANTE, ohne jeden Ausschluss: unter JEDER von der Implementierung
+        angenommenen Bytefolge — der echten Note, jeder Umordnung, jeder fremden wohlgeformten Zeile,
+        OHNE Ausnahme — liefert ``checkpoint._split_signed_note`` denselben kanonischen Notentext. Das
+        gilt, WEIL keine dieser Formen den TEXT-Teil aendert, nur den Signaturblock (Reihenfolge bzw.
+        eine zusaetzliche, ignorierte fremde Zeile) — und es waere VERLETZT, haette die Implementierung
+        einen Fehler, der eine Form mit einem ANDEREN Text (eingespeiste Klartextzeile, verschobener
+        Leerzeilenlauf, Steuerzeichen im Text) faelschlich annimmt: eine solche Form wuerde hier sofort
+        als zweiter Digest auftauchen. Die Zaehlung ist damit ein von ``orakel_nimmt_an`` UNABHAENGIGES
+        Netz (Auflage A3-Geist): sie haengt nur an ``cp._split_signed_note`` selbst, nicht am
+        Spezifikations-Orakel — ein Fund, der beide gleichermassen traefe (wie in defda6a gemessen,
+        FUND 1-3), waere hier trotzdem sichtbar, sofern er den extrahierten Text veraendert."""
+        formen = set()
+        for _k, b in self.a.faelle:
+            if not _impl_nimmt_an(b, self.a.vkey):
+                continue
+            text, _sig_block = cp._split_signed_note(b)
+            formen.add(hashlib.sha256(text.encode()).hexdigest())
         self.assertEqual(len(formen), 1,
-                         f"{len(formen)} byteverschiedene Formen derselben Signatur angenommen")
+                         f"{len(formen)} verschiedene kanonische Notentexte unter den angenommenen "
+                         "Bytefolgen — die akzeptierte Menge deckt mehr als die Referenzmenge")
+        # POSITIVMENGE statt Ausschluss (Auflage A2, woertlich): Umordnungen UND fremde wohlgeformte
+        # Zeilen MUESSEN in der angenommenen Menge auftauchen, sonst prueft der Test oben nichts.
+        angenommen = {k for k, b in self.a.faelle if _impl_nimmt_an(b, self.a.vkey)}
+        self.assertTrue(any(k.startswith("umordnung-") for k in angenommen),
+                        "keine Umordnung wurde angenommen — die Positivmenge, die oben mitgezaehlt "
+                        "werden soll, ist in Wahrheit leer")
+        self.assertIn("fremde-wohlgeformte-zeile", angenommen)
+        self.assertIn("fremde-zeile-voran", angenommen)
 
 
 class DieNachbarflaechenTragenDieselbeRahmung(unittest.TestCase):
