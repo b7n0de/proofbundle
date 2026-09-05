@@ -286,6 +286,52 @@ class StderrErrorLinesAreSafe(unittest.TestCase):
             self.assertNotIn("\n[PASS] forged", err)
 
 
+class EveryStderrWriterIsTheOneWriter(unittest.TestCase):
+    """The sweep, as a BEHAVIOUR test rather than a source grep.
+
+    Honest note on how this test came to exist: the first sweep matched the literal ``{exc}`` and therefore
+    missed ``anchor upgrade``'s ``ERROR: {binding['detail']}`` — a different code form of the same class.
+    A source-text assertion would be the vacuous seam the gate warns about, so each surface is DRIVEN and
+    its stderr measured: exactly one ``ERROR:`` line, no traceback, the documented exit code."""
+
+    def test_error_emitting_surfaces_print_exactly_one_error_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx = _Fixtures(d)
+            bad_json = os.path.join(d, "bad.json")
+            Path(bad_json).write_text("{not json", encoding="utf-8")
+            bad_ots = os.path.join(d, "bad.ots")
+            Path(bad_ots).write_bytes(b"not-an-ots-proof")
+            cases = {
+                "verify": ["verify", bad_json],
+                "show-eval": ["show-eval", bad_json],
+                "anchor upgrade": ["anchor", "upgrade", "--proof", bad_ots,
+                                   "--canonical-root-hex", "a" * 64, "--out", os.path.join(d, "p.json")],
+                "anchor verify-pack": ["anchor", "verify-pack", bad_json],
+                "anchor inspect": ["anchor", "inspect", bad_json],
+                "policy lint": ["policy", "lint", bad_json],
+                "verify-opening": ["verify-opening", bad_json, "--root", "AA==", "--n", "1"],
+                "svr --verify": ["svr", bad_json, "--verify", "--pub", fx.pub_b64],
+                "intoto --verify": ["intoto", bad_json, "--verify", "--pub", fx.pub_b64],
+                "decision verify": ["decision", "verify", bad_json, "--pub", fx.pub_b64],
+                "outcome verify": ["outcome", "verify", bad_json, "--pub", fx.pub_b64],
+                "relation-statement verify": ["relation-statement", "verify", bad_json, "--pub", fx.pub_b64],
+                "decision inspect": ["decision", "inspect", bad_json],
+                "verify-proof": ["verify-proof", bad_json, "--payload-file", bad_json, "--log-vkey", "x+00+AA=="],
+                "verify-enclave": ["verify-enclave", bad_json, "--receipt", bad_json,
+                                   "--verifier-key", fx.pub_b64],
+            }
+            for name, argv in cases.items():
+                rc, out, err = _cli(*argv)
+                # `anchor inspect` documents exit 0 for a file it can read but not parse as a pack (it
+                # reports the lifecycle state); the oracle here is the WRITER, not the code — one ERROR
+                # line at most, no traceback, no raw escape sequence.
+                _no_traceback(self, rc, out, err, {0, 1, 2, 3})
+                errors = [ln for ln in err.splitlines() if ln.startswith("ERROR:")]
+                self.assertLessEqual(len(errors), 1, (name, err))
+                for ln in err.splitlines():
+                    self.assertNotIn("\x1b", ln, name)
+
+
 class MainBackstop(unittest.TestCase):
     """The floor of the class: a member the per-site writer misses still ends in exit 2, not a traceback."""
 

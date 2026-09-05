@@ -1390,7 +1390,12 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         # bound-but-not-yet-confirmed; only unbound/malformed are hard binding errors.
         binding = verify_opentimestamps(proof, canonical_root, frozen={})
         if binding["status"] in ("unbound", "malformed", "no_lib"):
-            print(f"ERROR: {binding['detail']}", file=sys.stderr)
+            # RT-06 sweep follow-up (2026-09-05): this ERROR line was MISSED by the first pass, which
+            # matched the literal `{exc}` instead of enumerating every stderr writer — the same
+            # symptom-vs-class mistake the class is about. `binding['detail']` is built by
+            # anchors_ots from the attacker's proof bytes (it renders the bytes it got), so it is
+            # untrusted text on a labelled line.
+            _err(binding["detail"])
             return 2
         info = describe_proof(proof)
         if not ots_upgraded_proof_is_self_contained(proof):
