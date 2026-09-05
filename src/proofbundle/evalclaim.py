@@ -514,14 +514,22 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     raw = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
     try:
         dt = datetime.fromisoformat(raw)
-    except ValueError:
+    except (ValueError, OverflowError):
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": f"unparseable timestamp {ts!r}"}
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     ref = now or datetime.now(timezone.utc)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=timezone.utc)
-    age = int((ref - dt).total_seconds())
+    # RT-06 neighbour of L3-600-07 (sweep of every datetime site, 2026-09-05): an aware timestamp whose
+    # UTC instant lies outside year 1..9999 (``0001-01-01T00:00:00+23:00``) parses fine and then raises
+    # OverflowError in the SUBTRACTION — reachable from show-eval (age line) and from a policy
+    # max_iat_age_seconds. Out of range is "not parsed", never a crash on a never-raise surface.
+    try:
+        age = int((ref - dt).total_seconds())
+    except OverflowError:
+        return {"parsed": False, "age_seconds": None, "fresh": None,
+                "reason": f"timestamp {ts!r} is out of the representable range"}
     if max_age_seconds is None:
         return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
     fresh = 0 <= age <= max_age_seconds

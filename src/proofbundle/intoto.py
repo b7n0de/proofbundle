@@ -614,6 +614,39 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
+    """Structural check of an SVR Statement's predicate — the shape every consumer dereferences.
+
+    RT-06 (deep gate 2026-09-05, L3-600-06): a VALIDLY SIGNED SVR whose ``predicate`` was a list, or whose
+    ``properties`` was an int, made ``proofbundle svr --verify`` print ``[PASS] SVR attestation`` and then
+    crash on the dereference. The signature proves who signed the bytes; it says nothing about whether
+    the bytes have the shape the consumer is about to walk. So the shape is checked HERE, as part of the
+    library verdict, and a consumer never has to guess. Returns ``(ok, detail)``; ``detail`` is empty
+    when ok. Deliberately narrow: only what svr/v0.1 declares (predicate object, ``properties`` a list of
+    strings, ``verifier`` an object when present, ``timeCreated`` a string when present).
+
+    NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
+    function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
+    so it belongs in the never-raise denominator — and the ``classify_`` family is how that denominator is
+    built. Widening the allowlist by one bespoke name would have put it beside the property instead of
+    under it; the family test now fuzzes this function like every sibling."""
+    if not isinstance(statement, dict):
+        return False, "statement is not a JSON object"
+    predicate = statement.get("predicate")
+    if not isinstance(predicate, dict):
+        return False, f"SVR predicate must be an object, got {type(predicate).__name__}"
+    props = predicate.get("properties")
+    if not isinstance(props, list):
+        return False, f"SVR predicate.properties must be a list of strings, got {type(props).__name__}"
+    if not all(isinstance(p, str) for p in props):
+        return False, "SVR predicate.properties must contain strings only"
+    if "verifier" in predicate and not isinstance(predicate["verifier"], dict):
+        return False, "SVR predicate.verifier must be an object"
+    if "timeCreated" in predicate and not isinstance(predicate["timeCreated"], str):
+        return False, "SVR predicate.timeCreated must be a string"
+    return True, ""
+
+
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,
@@ -636,4 +669,14 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                                      f"DSSE payload rejected (fail-closed): {exc}",
                                      expected_predicate_type)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    # RT-06 (L3-600-06): the predicate SHAPE is part of the verdict. A signed statement whose predicate
+    # is not what svr/v0.1 declares is not an SVR that verified — ``ok`` stays False and the reason is
+    # named, so no consumer prints PASS and then walks a list that is an int.
+    shape_ok, shape_detail = classify_svr_predicate_shape(statement)
+    res["predicate_shape_ok"] = shape_ok
+    if not shape_ok:
+        res["ok"] = False
+        res["content_root_detail"] = (
+            (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + shape_detail)
+    return res

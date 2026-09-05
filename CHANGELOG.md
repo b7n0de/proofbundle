@@ -59,6 +59,22 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   before decoding a single step; `verify_tlog_proof` routes its inclusion check through
   `merkle.verify_inclusion` so one oracle carries the caps.
 
+- **CLI consumer surfaces never raise (class RT-06, deep gate 2026-09-05, findings L3-600-05/06/07/08).**
+  One writer discipline for every untrusted string on the human path: `_safe_line` renders a lone
+  UTF-16 surrogate in its escaped form (`\ud800`) instead of dying in `print()` under a strict
+  utf-8 stdout, and neutralises control characters in Check rows, `show-eval` fields, `svr --verify`
+  property rows, `anchor` calendar lines and every `ERROR:` line on stderr — an embedded newline can
+  no longer forge an extra `[PASS] …` / `=> OK` row. `verify_svr_dsse` now carries the SVR predicate
+  shape in its verdict (`predicate_shape_ok`): a validly signed SVR whose predicate is not an object,
+  or whose `properties` is not a list of strings, is `ok=False`, and `svr --verify` exits 2 without
+  printing a PASS line first. `policy._parse_iso_utc` maps the whole stdlib failure family of a
+  timestamp parse (`ValueError`, `OverflowError` from `astimezone` on `0001-01-01T00:00:00+23:00`) to
+  "unparseable", so `policy lint/explain`, `verify --policy`, `--verification-time` and every
+  `<verb> verify --policy` exit 2 with the typed PolicyError instead of a raw OverflowError; the
+  sibling datetime sites (`check_freshness`, agent-review time axis) carry the same guard. `main()`
+  gains a documented backstop: an `UnicodeEncodeError` or a member of the named type-confusion family
+  that escapes a per-command handler ends in exit 2 with an ASCII-safe message (traceback on
+  `PROOFBUNDLE_DEBUG=1`), never a raw traceback on a consumer surface.
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 

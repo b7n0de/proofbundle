@@ -137,13 +137,18 @@ def _parse_iso_utc(s):
     if not isinstance(s, str):
         return None
     norm = s[:-1] + "+00:00" if s.endswith("Z") else s
+    # RT-06 (deep gate 2026-09-05, L3-600-07): ``fromisoformat`` is only half of the parse. A value that
+    # PARSES but whose UTC instant lies before year 1 (``0001-01-01T00:00:00+23:00``) raises OverflowError
+    # from ``astimezone`` — a raw traceback out of ``policy lint``, ``verify --policy``,
+    # ``--verification-time`` and every decision/outcome/relation ``--policy`` path, all of which promise
+    # a typed PolicyError / exit 2. The whole stdlib failure family of the two calls is one "unparseable".
     try:
         dt = datetime.fromisoformat(norm)
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
