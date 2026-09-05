@@ -113,13 +113,22 @@ def sdist_dateien():
         with tarfile.open(archive[-1]) as tf:
             namen = tf.getnames()
             skripte = {}
+            andere = {}
             for n in namen:
                 teile = n.split("/", 1)
-                if len(teile) == 2 and teile[1].startswith("scripts/") and n.endswith(".py"):
-                    f = tf.extractfile(n)
-                    if f is not None:
-                        skripte[teile[1]] = f.read().decode("utf-8", errors="replace")
-        yield {"namen": namen, "skripte": skripte}
+                if len(teile) != 2 or not teile[1].startswith("scripts/"):
+                    continue
+                f = tf.extractfile(n)
+                if f is None:
+                    continue
+                inhalt = f.read().decode("utf-8", errors="replace")
+                # ZWEI KOERBE, und der zweite ist seit dem 06.09.2026 nicht mehr leer: bis dahin
+                # trug das sdist unter scripts/ ausschliesslich Python, und der Filter `.py` war
+                # deckungsgleich mit "alles". Seit die ausdrueckliche Liste `demo.sh` und
+                # `demo_tamper.sh` mitnimmt, ist er es nicht mehr — und ein Filter, der frueher
+                # alles traf, faellt beim Aufhoeren nicht auf.
+                (skripte if n.endswith(".py") else andere)[teile[1]] = inhalt
+        yield {"namen": namen, "skripte": skripte, "andere": andere}
     finally:
         shutil.rmtree(arbeit, ignore_errors=True)
 
@@ -201,7 +210,15 @@ AUSGESCHLOSSEN = {
     "gen_findings_register.py": "liest denselben Weg aus Umgebung oder Datei",
     # Kein sdist-Verbraucher: der git-Hook des Checkouts und der CI-Kanal, beides gibt es dort nicht.
     "install_git_hooks.sh": "Verbraucher sind der Checkout-Hook und CI, nicht das Paket",
+    # Rekursion, gefunden 2026-09-06 von einer Review-Linse gegen den Fix, der die Ebene darueber
+    # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
+    # BEIDER Fassungen der Liste.
+    "git-hooks/pre-commit": "ist der Hook selbst, wird im Checkout installiert, nicht im Paket",
 }
+
+#: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
+#: dieser Liste — sonst muesste jeder Entwickler seinen Bytecode hier eintragen.
+_NIE_EINE_ENTSCHEIDUNG = ("__pycache__/", ".pyc", ".pyo", ".pyd")
 
 
 def test_jede_datei_unter_scripts_ist_in_manifest_entschieden():
@@ -230,7 +247,15 @@ def test_jede_datei_unter_scripts_ist_in_manifest_entschieden():
                 for z in manifest.read_text(encoding="utf-8").splitlines()
                 if z.startswith("include scripts/")}
     ausgeschlossen = set(AUSGESCHLOSSEN)
-    vorhanden = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
+    # REKURSIV, und das ist die zweite Nachbesserung desselben Tages. Die erste ersetzte
+    # `glob("*.py")` durch `iterdir()` und schloss damit die Sprach-Luecke — nicht die
+    # Verzeichnis-Luecke: `graft scripts` liefert REKURSIV aus, `iterdir()` sieht nur die oberste
+    # Ebene, und `scripts/git-hooks/pre-commit` lag unter dem Radar beider Fassungen. Eine Linse
+    # gegen den Fix hat es gefunden. Die Klasse ist damit dieselbe wie beim ersten Mal, eine
+    # Dimension versetzt: wer ein `graft` durch eine Liste ersetzt, uebernimmt die Entscheidung
+    # fuer jede Datei DARUNTER, nicht fuer jede Datei DANEBEN.
+    vorhanden = {str(p.relative_to(REPO / "scripts")) for p in (REPO / "scripts").rglob("*")
+                 if p.is_file() and not any(t in str(p) for t in _NIE_EINE_ENTSCHEIDUNG)}
     unentschieden = sorted(vorhanden - gelistet - ausgeschlossen)
     assert not unentschieden, (
         f"neue Datei(en) unter scripts/, die MANIFEST.in nicht entscheidet: {unentschieden} — "
@@ -340,6 +365,32 @@ def _geschwisterdateien_die_ein_skript_zusammensetzt(quelle: str, namen: set[str
     return treffer
 
 
+def _fehlende_datendateien(gelistet: set[str], namen: set[str]) -> dict[str, set[str]]:
+    """DIE PRIMAERLOGIK, herausgezogen — und der Grund dafuer ist ein Fund gegen mich selbst.
+
+    Die erste Fassung hatte den Meta-Test danebengerechnet: er baute ``ohne = gelistet - {name}``
+    und prueste ``name in gebraucht - ohne``. Da ``ohne`` den Namen per KONSTRUKTION nie enthaelt,
+    ist dieser Ausdruck algebraisch identisch zu ``name in gebraucht`` — er haengt vom entfernten
+    Eintrag ueberhaupt nicht ab. Eine Review-Linse hat es bewiesen, indem sie ``- ohne`` ersatzlos
+    strich: der Test blieb gruen. Er pruefte den DETEKTOR am echten Baum und nie das Fangen einer
+    Manifest-Entfernung; ein Fehler in der Primaerzeile (etwa ``namen`` statt ``gelistet``) waere
+    ihm entgangen. Eine Tautologie im Riegel GEGEN Tautologien, und sie stand keine zwei Stunden.
+
+    Seitdem gibt es genau EINE Stelle, die die Frage beantwortet, und beide Tests rufen sie.
+    """
+    fehlend: dict[str, set[str]] = {}
+    for skript in sorted(gelistet):
+        p = REPO / "scripts" / skript
+        if p.suffix != ".py" or not p.is_file():
+            continue
+        gebraucht = _geschwisterdateien_die_ein_skript_zusammensetzt(
+            p.read_text(encoding="utf-8", errors="replace"), namen)
+        fehlt = {g for g in gebraucht if g not in gelistet and g != skript}
+        if fehlt:
+            fehlend[skript] = fehlt
+    return fehlend
+
+
 def test_ein_ausgeliefertes_skript_bekommt_seine_datendateien_mit():
     """Ein Skript ohne seine Datendatei ist kein Skript.
 
@@ -355,16 +406,7 @@ def test_ein_ausgeliefertes_skript_bekommt_seine_datendateien_mit():
                 for z in manifest.read_text(encoding="utf-8").splitlines()
                 if z.startswith("include scripts/")}
     namen = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
-    fehlend: dict[str, set[str]] = {}
-    for skript in sorted(gelistet):
-        p = REPO / "scripts" / skript
-        if p.suffix != ".py" or not p.is_file():
-            continue
-        gebraucht = _geschwisterdateien_die_ein_skript_zusammensetzt(
-            p.read_text(encoding="utf-8", errors="replace"), namen)
-        fehlt = {g for g in gebraucht if g not in gelistet and g != skript}
-        if fehlt:
-            fehlend[skript] = fehlt
+    fehlend = _fehlende_datendateien(gelistet, namen)
     assert not fehlend, (
         f"ausgelieferte Skripte setzen Pfade auf Dateien zusammen, die das sdist nicht traegt: "
         f"{ {k: sorted(v) for k, v in fehlend.items()} } — aufnehmen oder den Zugriff entfernen")
@@ -383,20 +425,69 @@ def test_meta_der_detektor_unterscheidet_zusammensetzung_von_erwaehnung():
 
 
 def test_meta_eine_entfernte_datendatei_wird_wirklich_gefunden():
-    """Pflanzen und fangen am ECHTEN Zustand: nimmt man die Registry aus der Liste, muss der
-    Riegel oben ihren Leser melden. Faellt er dann nicht, misst er nichts."""
+    """Pflanzen und fangen — durch die PRIMAERLOGIK hindurch, nicht daneben.
+
+    Gepflanzt wird in der EINGABE (die Registry faellt aus der Liste), gefangen wird von
+    ``_fehlende_datendateien`` selbst. Beide Richtungen stehen hier: mit der Registry meldet sie
+    ihren Leser NICHT, ohne sie meldet sie ihn. Ohne die erste Haelfte waere auch eine Funktion
+    gruen, die immer alles meldet; ohne die zweite eine, die nie etwas meldet.
+    """
     manifest = REPO / "MANIFEST.in"
     if not manifest.is_file() or not (REPO / "scripts").is_dir():
         pytest.skip("kein Repo-Kontext")
     gelistet = {z.split("include scripts/", 1)[1].strip()
                 for z in manifest.read_text(encoding="utf-8").splitlines()
                 if z.startswith("include scripts/")}
+    namen = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
     assert "rust_parity_registry.json" in gelistet, (
         "die Vorbedingung dieses Meta-Tests ist weg: die Registry steht nicht mehr in der Liste")
-    ohne = gelistet - {"rust_parity_registry.json"}
-    namen = {p.name for p in (REPO / "scripts").iterdir() if p.is_file()}
-    leser = REPO / "scripts" / "rust_parity_gate.py"
-    gebraucht = _geschwisterdateien_die_ein_skript_zusammensetzt(
-        leser.read_text(encoding="utf-8", errors="replace"), namen)
-    assert "rust_parity_registry.json" in gebraucht - ohne, (
-        "der gepflanzte Verlust wird nicht gefunden — der Riegel oben ist eine Zusicherung ohne Wirkung")
+
+    mit = _fehlende_datendateien(gelistet, namen)
+    assert "rust_parity_gate.py" not in mit, (
+        f"mit vollstaendiger Liste meldet die Primaerlogik trotzdem einen Mangel: {mit} — "
+        "dann meldet sie immer etwas und der Riegel unterscheidet nichts")
+
+    ohne = _fehlende_datendateien(gelistet - {"rust_parity_registry.json"}, namen)
+    assert ohne.get("rust_parity_gate.py") == {"rust_parity_registry.json"}, (
+        f"der gepflanzte Verlust wird von der Primaerlogik nicht gemeldet: {ohne} — der Riegel "
+        "oben ist eine Zusicherung ohne Wirkung")
+
+
+def test_kein_ausgeliefertes_nicht_python_skript_liest_einen_privaten_schluessel(sdist_dateien):
+    """DIE ZWEITE SPRACHE, und sie kam mit diesem Commit ins Paket.
+
+    Der AST-Detektor oben kann nur Python. Bis zum 06.09.2026 war das deckungsgleich mit "alles
+    unter scripts/ im sdist"; seit die ausdrueckliche Liste ``demo.sh`` und ``demo_tamper.sh``
+    mitnimmt, ist es das nicht mehr. Der Owner-Wortlaut sagt "kein Signierskript und kein
+    schluessel-lesender Weg im sdist" und nennt keine Sprache — ein Shell-Skript, das
+    ``python3 -c "...from_private_bytes..."`` ausfuehrt, waere genau der ausgeschlossene Weg,
+    einmal um den Detektor herum. Eine Review-Linse hat die Luecke gefunden, bevor sie jemand
+    benutzt hat.
+
+    Fuer Shell gibt es keinen Syntaxbaum, also wird der Text gemessen — aber OHNE Kommentarzeilen,
+    damit eine Notiz ueber den entfernten Weg nicht als Weg zaehlt. Dieselbe Unterscheidung wie
+    oben, mit dem groebsten verfuegbaren Werkzeug.
+    """
+    verdacht = {}
+    for name, inhalt in sorted(sdist_dateien["andere"].items()):
+        zeilen = [z for z in inhalt.splitlines() if not z.strip().startswith("#")]
+        text = "\n".join(zeilen)
+        treffer = [m for m in (_PRIVATKLASSE, "from_private_bytes", "--privkey") if m in text]
+        if treffer:
+            verdacht[name] = treffer
+    assert not verdacht, (
+        f"ausgeliefertes Nicht-Python-Skript nennt ausserhalb von Kommentaren einen "
+        f"schluessel-lesenden Weg: {verdacht}")
+
+
+def test_meta_ein_gepflanztes_shell_skript_mit_schluesselweg_wird_gefunden():
+    """Beide Richtungen fuer den Shell-Riegel: der Kommentar darf NICHT treffen, die Anweisung schon."""
+    def verdaechtig(inhalt: str) -> list[str]:
+        zeilen = [z for z in inhalt.splitlines() if not z.strip().startswith("#")]
+        text = "\n".join(zeilen)
+        return [m for m in (_PRIVATKLASSE, "from_private_bytes", "--privkey") if m in text]
+
+    kommentar = "#!/bin/bash\n# frueher stand hier --privkey-file, der Weg ist weg\necho ok\n"
+    anweisung = "#!/bin/bash\npython3 -c \"...Ed25519PrivateKey.from_private_bytes(b)...\"\n"
+    assert verdaechtig(kommentar) == [], "eine Notiz ueber den Weg gilt als Weg — Fehlalarm"
+    assert verdaechtig(anweisung), "ein echter Aufruf wird nicht gesehen — der Riegel ist blind"
