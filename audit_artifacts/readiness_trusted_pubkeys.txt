@@ -22,4 +22,27 @@
 # Separate from pre_tag_trusted_pubkeys.txt ON PURPOSE: a key that may attest routine release
 # evidence must not thereby be able to sign a pre-tag audit receipt. Two trust anchors, two scopes.
 
+# LINE FORMAT, one key per line (Auflage C3, second half, 2026-09-06):
+#
+#     <base64 raw 32-byte ed25519 public key> role=<role> not_after=<YYYY-MM-DD>
+#
+# BOTH FIELDS ARE MANDATORY, and a line missing either is DISCARDED — not read as "a key without
+# restrictions". Before this format the anchor was a flat list of bare keys: it said WHO may sign,
+# but not WHAT FOR and UNTIL WHEN. `signer_role` in an artifact was therefore checked only for
+# PRESENCE — a field the producer writes itself, verified against nothing. A role the audited party
+# assigns to itself is not a role.
+#
+#   role        what this key may speak for. The gate compares it to the artifact's `signer_role`
+#               and refuses a mismatch: the ANCHOR decides what a key attests, not the artifact
+#               that wants to be admitted. Use one role per purpose (e.g. `release-runner`), never
+#               a catch-all — the point of the field is that it can fail to match.
+#   not_after   last day this key may produce evidence, compared against the artifact's
+#               `produced_at` (the moment of MEASUREMENT), not against "now". Evidence that was
+#               lawful yesterday does not become inadmissible because the matrix runs today, and
+#               evidence produced after the window does not become lawful by being read early.
+#
+# The stricter format costs nothing today precisely BECAUSE this file is empty: there is no
+# existing entry a tighter reading would break. That is why the format is fixed now — later, every
+# tightening would be a break.
+
 # (no keys pinned yet)

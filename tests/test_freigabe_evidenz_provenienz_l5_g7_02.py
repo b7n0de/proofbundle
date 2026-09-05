@@ -294,7 +294,13 @@ def welt():
         fremd = Ed25519PrivateKey.generate()
         (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
         (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
-            "# test anchor\n" + pub + "\n", encoding="utf-8")
+            # Ankerformat seit Auflage C3, zweite Haelfte (2026-09-06): je Schluessel eine
+            # ROLLE und eine FRIST. Ohne sie ist eine Zeile kein Anker mehr — sie sagte, WER
+            # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
+            # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
+            # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
+            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
         (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
@@ -476,7 +482,13 @@ def test_ein_anker_im_selben_commit_wie_der_kandidat_ist_selbstregistrierung():
         (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
         # EIN Commit traegt Anker UND Kandidat zugleich.
         (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
-            "# test anchor\n" + pub + "\n", encoding="utf-8")
+            # Ankerformat seit Auflage C3, zweite Haelfte (2026-09-06): je Schluessel eine
+            # ROLLE und eine FRIST. Ohne sie ist eine Zeile kein Anker mehr — sie sagte, WER
+            # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
+            # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
+            # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
+            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m",
              "anchor+candidate in one commit")
@@ -514,7 +526,13 @@ def test_ein_anker_in_einem_frueheren_commit_bleibt_zulaessig():
         pub = base64.b64encode(schluessel.public_key().public_bytes_raw()).decode()
         (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
         (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
-            "# test anchor\n" + pub + "\n", encoding="utf-8")
+            # Ankerformat seit Auflage C3, zweite Haelfte (2026-09-06): je Schluessel eine
+            # ROLLE und eine FRIST. Ohne sie ist eine Zeile kein Anker mehr — sie sagte, WER
+            # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
+            # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
+            # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
+            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
         (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
@@ -741,7 +759,15 @@ def test_der_anker_unterscheidet_leer_von_nicht_messbar(welt):
     umgekehrt. Die drei Zustaende werden hier einzeln erzeugt und gemessen."""
     m = _matrix_modul()
     schluessel, zustand = m._trust_anchor(welt["repo"])
-    assert zustand == "ok" and schluessel == [welt["pub"]], (zustand, schluessel)
+    # Seit Auflage C3, zweite Haelfte (2026-09-06) ist der Anker eine ZUORDNUNG, keine Liste:
+    # je Schluessel eine Rolle und eine Frist. Der Vergleich prueft deshalb beides — dass der
+    # richtige Schluessel drin ist UND dass er seine Einschraenkungen mitbringt. Ein Test, der
+    # nur die Schluesselmenge vergliche, wuerde einen Anker ohne Rolle und Frist durchwinken,
+    # also genau den Zustand, den die Auflage abgeschafft hat.
+    assert zustand == "ok", (zustand, schluessel)
+    assert set(schluessel) == {welt["pub"]}, (zustand, schluessel)
+    assert schluessel[welt["pub"]] == {"role": "release-runner", "not_after": "2099-12-31"}, \
+        schluessel[welt["pub"]]
 
     leer = Path(tempfile.mkdtemp(prefix="anker_leer_"))
     ohne = Path(tempfile.mkdtemp(prefix="anker_ohne_"))
@@ -758,9 +784,9 @@ def test_der_anker_unterscheidet_leer_von_nicht_messbar(welt):
                     inhalt, encoding="utf-8")
             _git(baum, "add", "-A")
             _git(baum, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "x")
-        assert m._trust_anchor(leer) == ([], "empty"), "nur Kommentare heisst: kein Anker"
-        assert m._trust_anchor(ohne) == ([], "empty"), "gar keine Ankerdatei heisst: kein Anker"
-        assert m._trust_anchor(kein_repo) == ([], "unmeasurable"), \
+        assert m._trust_anchor(leer) == ({}, "empty"), "nur Kommentare heisst: kein Anker"
+        assert m._trust_anchor(ohne) == ({}, "empty"), "gar keine Ankerdatei heisst: kein Anker"
+        assert m._trust_anchor(kein_repo) == ({}, "unmeasurable"), \
             "kein git-Baum ist eine Aussage ueber die Umgebung, nicht ueber das Repo"
     finally:
         for baum in (leer, ohne, kein_repo):
@@ -974,3 +1000,90 @@ class TestErlaubteEvidenzRelation:
             assert "does not exist" in grund
         finally:
             shutil.rmtree(td, ignore_errors=True)
+
+
+class TestAnkerTraegtRolleUndFrist:
+    """C3, zweite Haelfte der Auflage (Owner-Runde 2, umgesetzt 2026-09-06).
+
+    Die erste Haelfte stand: der Anker wird aus dem committeten Blob gelesen und darf nicht im
+    Kandidaten-Commit eingefuehrt worden sein. Der Rest des Satzes fehlte — "samt Digest, ROLLE,
+    GUELTIGKEITSZEIT und Signierpolitik". ``signer_role`` wurde nur auf ANWESENHEIT geprueft, also
+    auf ein Feld, das der Erzeuger selbst schreibt. Eine Rolle, die der Geprueft sich selbst gibt,
+    ist keine Rolle; sie sagt nichts darueber, wofuer der Schluessel sprechen DARF.
+
+    Jetzt entscheidet der Anker. Diese Klasse haelt beide Richtungen fest — dass die Bindung
+    greift, und dass sie legitime Evidenz nicht abweist.
+    """
+
+    ROLLE = "release-runner"
+
+    @staticmethod
+    def _anker(text):
+        m = _matrix_modul()
+        return m._anker_zeilen_lesen(text)
+
+    def test_das_alte_flache_format_ist_kein_anker_mehr(self):
+        """Eine nackte base64-Zeile sagt, WER unterschreiben darf, nicht WOFUER und BIS WANN. Sie
+        weiter als "Schluessel ohne Einschraenkung" zu lesen, machte das schwaechere Format zur
+        stillen Umgehung des staerkeren — und das ist der uebliche Weg, auf dem eine Verschaerfung
+        wirkungslos bleibt."""
+        assert self._anker("# nur ein Kommentar\nAAAABBBBCCCC\n") == {}
+
+    def test_eine_halbe_zeile_autorisiert_nichts(self):
+        """Rolle ohne Frist oder Frist ohne Rolle ist keine halbe Autorisierung, sondern keine."""
+        assert self._anker("AAAA role=release-runner\n") == {}
+        assert self._anker("AAAA not_after=2099-12-31\n") == {}
+
+    def test_eine_vollstaendige_zeile_wird_gelesen(self):
+        """Gegenrichtung: ein Parser, der alles verwirft, ist kein Parser."""
+        a = self._anker("# Kopf\nAAAA role=release-runner not_after=2099-12-31\n")
+        assert a == {"AAAA": {"role": "release-runner", "not_after": "2099-12-31"}}
+
+    @_braucht_krypto
+    def test_eine_fremde_rolle_wird_abgewiesen(self, welt):
+        """Der Kern. Das Artefakt behauptet eine andere Rolle als die, an die der Anker seinen
+        Schluessel bindet — und wird nicht zugelassen, obwohl die Signatur mathematisch stimmt und
+        der Schluessel im Anker steht."""
+        m = _matrix_modul()
+        koerper = _rumpf(welt, {})
+        koerper["signer_role"] = "irgendwas-anderes"
+        art = _signiere(koerper, welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        assert zustand == "ok" and trusted, "Vorbedingung: der Baum traegt einen lesbaren Anker"
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_UNTRUSTED, f"eine fremde Rolle kam durch: {verdikt} / {grund}"
+        assert "signer_role" in grund and self.ROLLE in grund
+
+    @_braucht_krypto
+    def test_eine_fehlende_rolle_wird_abgewiesen(self, welt):
+        m = _matrix_modul()
+        koerper = _rumpf(welt, {})
+        koerper.pop("signer_role", None)
+        art = _signiere(koerper, welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_UNTRUSTED, f"ein Artefakt ohne Rolle kam durch: {grund}"
+
+    @_braucht_krypto
+    def test_evidenz_nach_ablauf_der_frist_wird_abgewiesen(self, welt):
+        """Die Gueltigkeitszeit, gemessen am Zeitpunkt der MESSUNG, nicht am Zeitpunkt des Lesens.
+        Dafuer bekommt dieser Test einen eigenen Baum mit einer engen Frist — die Modul-Fixture
+        traegt bewusst eine ferne, damit sie keine Zeitbombe wird."""
+        m = _matrix_modul()
+        eng = m._anker_zeilen_lesen(welt["pub"] + " role=release-runner not_after=2020-01-01\n")
+        assert eng, "Vorbedingung: die enge Ankerzeile ist lesbar"
+        koerper = _rumpf(welt, {})              # produced_at liegt eine Stunde in der Vergangenheit
+        art = _signiere(koerper, welt["key"])
+        verdikt, grund = m._artifact_signature_ok(art, eng, "ok", repo=welt["repo"])
+        assert verdikt == m.ART_UNTRUSTED, f"Evidenz nach Fristablauf kam durch: {verdikt} / {grund}"
+        assert "not_after" in grund
+
+    @_braucht_krypto
+    def test_innerhalb_der_frist_und_mit_passender_rolle_geht_es_durch(self, welt):
+        """Die Gegenrichtung, und der Grund, warum die beiden Pruefungen oben etwas messen: eine
+        Bindung, die auch legitime Evidenz abweist, hat nichts gehaertet, sondern nur zugemacht."""
+        m = _matrix_modul()
+        art = _signiere(_rumpf(welt, {}), welt["key"])
+        trusted, zustand = m._trust_anchor(welt["repo"])
+        verdikt, grund = m._artifact_signature_ok(art, trusted, zustand, repo=welt["repo"])
+        assert verdikt == m.ART_VERIFIED, f"legitime Evidenz wurde abgewiesen: {verdikt} / {grund}"

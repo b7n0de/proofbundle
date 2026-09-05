@@ -305,7 +305,7 @@ ART_UNMEASURABLE_HERE = "unmeasurable_here"
 _ART_DATA_BLOCKED_STATES = {ART_UNMEASURABLE_HERE}
 
 
-def _trust_anchor(repo: Path) -> tuple[list[str], str]:
+def _trust_anchor(repo: Path) -> tuple[dict, str]:
     """``(schluessel, zustand)`` mit ``zustand`` in ``{"ok", "empty", "unmeasurable"}``.
 
     DIE UNTERSCHEIDUNG IST DER PUNKT (Auflage C2): „kein git in dieser Umgebung" und „dieses Repo
@@ -335,11 +335,55 @@ def _trust_anchor(repo: Path) -> tuple[list[str], str]:
         # Die ersten beiden heissen „dieses Repo checkt keinen Anker ein", die letzten beiden
         # „hier ist nichts zu lesen".
         if "does not exist" in stderr or "exists on disk, but not in" in stderr:
-            return [], "empty"
-        return [], "unmeasurable"
-    keys = [ln.strip() for ln in r.stdout.splitlines()
-            if ln.strip() and not ln.strip().startswith("#")]
-    return keys, ("ok" if keys else "empty")
+            return {}, "empty"
+        return {}, "unmeasurable"
+    zuordnung = _anker_zeilen_lesen(r.stdout)
+    return zuordnung, ("ok" if zuordnung else "empty")
+
+
+#: Pflichtfelder je Ankerzeile (Auflage C3, zweite Haelfte, 2026-09-06). Vorher war der Anker eine
+#: flache Liste roher base64-Schluessel: er sagte WER unterschreiben darf, aber nicht WOFUER und BIS
+#: WANN. Damit war ``signer_role`` im Artefakt eine unbelegte Selbstauskunft — der Erzeuger schrieb
+#: die Rolle hinein, gegen die er geprueft werden sollte. Eine Rolle, die der Geprueft selbst setzt,
+#: ist keine Rolle.
+_ANKER_FELDER = ("role", "not_after")
+
+
+def _anker_zeilen_lesen(roh: str) -> dict:
+    """``{pubkey_b64: {"role": str, "not_after": str}}`` aus dem Ankertext.
+
+    FORMAT, eine Zeile je Schluessel:  ``<base64> role=<rolle> not_after=<YYYY-MM-DD>``
+
+    FAIL-CLOSED UND NICHT RUECKWAERTSKOMPATIBEL, mit Absicht. Eine nackte base64-Zeile ohne Rolle
+    und Frist wird VERWORFEN, nicht als "Schluessel ohne Einschraenkung" gelesen — sonst waere das
+    alte, schwaechere Format die stille Umgehung des neuen. Das kostet hier nichts: der Anker dieses
+    Repositoriums ist heute leer (nur Kommentare, absichtlich, siehe die Datei selbst), es gibt also
+    keinen Bestand, den eine strengere Lesart braeche. Genau deshalb ist jetzt der richtige
+    Zeitpunkt, das Format festzulegen — spaeter waere jede Verschaerfung ein Bruch.
+
+    Eine Zeile, die das Format verletzt, verschwindet still aus der Menge; der Aufrufer sieht
+    dadurch WENIGER Schluessel, nie mehr. Das ist die sichere Richtung: eine unlesbare Zeile kann
+    nichts autorisieren.
+    """
+    aus: dict = {}
+    for zeile in roh.splitlines():
+        z = zeile.strip()
+        if not z or z.startswith("#"):
+            continue
+        teile = z.split()
+        if len(teile) < 1 + len(_ANKER_FELDER):
+            continue                      # nackte base64-Zeile: altes Format, nicht mehr gueltig
+        pub, rest = teile[0], teile[1:]
+        felder = {}
+        for stueck in rest:
+            if "=" not in stueck:
+                continue
+            k, _, v = stueck.partition("=")
+            felder[k.strip()] = v.strip()
+        if not all(felder.get(f) for f in _ANKER_FELDER):
+            continue                      # unvollstaendig: keine halbe Autorisierung
+        aus[pub] = {f: felder[f] for f in _ANKER_FELDER}
+    return aus
 
 
 def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> bool:
@@ -394,7 +438,7 @@ def _live_tree_digest(repo: Path) -> tuple[str | None, str]:
         return None, f"git is not usable here ({type(exc).__name__})"
 
 
-def _artifact_signature_ok(artifact: dict, trusted: list[str], anchor_state: str, *,
+def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
                            repo: Path | None = None) -> tuple[str, str]:
     """``(zustand, grund)`` fuer die Attestierung EINES Artefakts.
 
@@ -445,6 +489,40 @@ def _artifact_signature_ok(artifact: dict, trusted: list[str], anchor_state: str
     if pub_b64 not in trusted:
         return ART_UNTRUSTED, ("the signing key is not in the committed trusted set "
                                f"(signer={pub_b64[:12]}...)")
+
+    # AUFLAGE C3, ZWEITE HAELFTE (2026-09-06). Die erste Haelfte — der Anker wird aus dem
+    # committeten Blob gelesen und darf nicht im Kandidaten-Commit eingefuehrt worden sein — stand
+    # schon. Was fehlte, war der Rest des Satzes: "samt Digest, ROLLE, GUELTIGKEITSZEIT und
+    # Signierpolitik". ``signer_role`` wurde bis hier nur auf ANWESENHEIT geprueft, also auf ein
+    # Feld, das der Erzeuger selbst schreibt — eine Rolle, die der Geprueft sich selbst gibt, ist
+    # keine Rolle. Jetzt entscheidet der ANKER, wofuer ein Schluessel sprechen darf, und das
+    # Artefakt muss dazu passen.
+    erlaubt = trusted[pub_b64]
+    rolle_im_artefakt = artifact.get("signer_role")
+    if not isinstance(rolle_im_artefakt, str) or not rolle_im_artefakt:
+        return ART_UNTRUSTED, ("the artifact names no signer_role, but the trust anchor binds this "
+                               f"key to role {erlaubt['role']!r} — an unnamed role cannot match one")
+    if rolle_im_artefakt != erlaubt["role"]:
+        return ART_UNTRUSTED, (
+            f"the artifact claims signer_role {rolle_im_artefakt!r}, but the committed anchor binds "
+            f"this key to {erlaubt['role']!r} — the anchor decides what a key may speak for, not "
+            "the artifact that wants to be admitted")
+
+    # GUELTIGKEITSZEIT, gemessen gegen den Zeitpunkt der MESSUNG (``produced_at``), nicht gegen
+    # "jetzt": ein Artefakt, das gestern rechtmaessig entstand, wird nicht dadurch ungueltig, dass
+    # heute jemand die Matrix faehrt — und eines, das nach Ablauf erzeugt wurde, wird nicht dadurch
+    # gueltig, dass es frueh genug gelesen wird.
+    frist = erlaubt["not_after"]
+    erzeugt = artifact.get("produced_at")
+    if not isinstance(erzeugt, str) or not erzeugt:
+        return ART_UNTRUSTED, ("the artifact names no produced_at, so its signing key's validity "
+                               f"window (not_after={frist}) cannot be applied to it")
+    # Beide Formen sind ISO-8601-Praefixe; ein Zeichenvergleich der ersten zehn Stellen ordnet
+    # Kalendertage korrekt, ohne eine Zeitzonenrechnung zu erfinden, die der Anker nicht hergibt.
+    if erzeugt[:10] > frist[:10]:
+        return ART_UNTRUSTED, (
+            f"the artifact was produced at {erzeugt} but the anchor limits this key to "
+            f"not_after={frist} — evidence signed after a key's window is not admissible")
     # AUFLAGE C3 (Runde 2): der Anker darf nicht im selben Commit eingefuehrt worden sein, den er
     # gerade autorisiert — sonst koennte derselbe ungeschuetzte Bauprincipal Schluessel und
     # Kandidat in einer Kette einfuehren. Nur geprueft, wenn ein Baum uebergeben wurde UND der
