@@ -8,7 +8,36 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **One signed artefact, ONE accepted wire form, and both shipped verifiers agree on it** (deep gate run
+  3 on 049b3195, 2026-09-05, findings L1-600-01 and L1-600-03, class
+  `canonicity_preserving_perturbation_accepted` / RT-08). `validate=True` alone refused foreign characters
+  and a missing pad character but not NON-ZERO PAD BITS (`b64decode(b"QUJ=", validate=True) == b"AB"`),
+  the url-safe arm re-padded an unpadded string, and the Rust verifier trimmed whitespace Python refuses —
+  so Python and Rust returned different verdicts for the same file, in both directions. `_wire_b64` v1.1
+  decodes strictly and then re-encodes: a spelling that does not round-trip byte-for-byte is refused
+  (pad bits, padding, alphabet, whitespace). `decode_b64` (standard, padded), `decode_b64url` (JWS,
+  unpadded), `decode_b64_either` (DSSE: standard OR url-safe, each padded — RFC 4648 §3.2 applies because
+  the DSSE envelope specification says nothing about padding) and `decode_b64_c2sp` (C2SP signed notes:
+  non-zero pad bits tolerated for parity with Go's reference decoder, named in one place). Every stdlib
+  base64 decode in the package (51 sites) now goes through these helpers; `tests/test_wire_bytes_strict.py`
+  refuses any direct stdlib decode outside the wrapper, enumerates the canonicity-preserving population
+  (pad bits, unpadded, surplus padding, other alphabet, whitespace) over DSSE envelopes and native bundles,
+  and its Rust arm now MEASURES agreement over that population instead of skipping itself. Rust:
+  `b64_strict` (bundle fields, keys) and `b64_dsse` (envelopes) without `.trim()`, `b64url_nopad` without
+  padding tolerance. **Behaviour change:** an UNPADDED DSSE `payload`/`sig` is now refused by Python as it
+  already was by Rust; the padded url-safe spelling the spec mandates still verifies.
+- **A Trust Pack role applies to the key that signed, never to a self-declared keyId** (finding
+  L1-600-02, P2 fail-open). `verify_outcome_receipt(..., trust_pack=)` reported `executor_role_trusted=True`
+  and `safeForAutomation=True` for an outcome signed by a fresh key whose predicate merely claimed
+  `executor.keyId = root-0`. It now binds the keyId to the verifying key against `keys[keyId].publicKey`
+  (`outcome.pack_key_binds_signer`; `executor_trusted_by_role(..., public_key=)`), reports
+  `executor_key_bound` and the blocker `KEY_ID_NOT_BOUND_TO_SIGNER`. On the receiver side a
+  `receiver_attestation_resolver` may return the referenced statement's 32-byte signer key; when the pack
+  names key material for a `receiverKeyId`, promotion to `INDEPENDENTLY_ATTESTED` and
+  `receiver_role_trusted` require that key to match (`receiver_key_bound`); a bare `True` no longer binds a
+  label the pack names. Callers without a trust pack are unchanged.
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 

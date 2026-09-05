@@ -361,8 +361,7 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
         if getattr(args, "verifier_key", None):
-            import base64 as _b64  # noqa: PLC0415
-            verifier_pubkey = _b64.b64decode(args.verifier_key, validate=True)
+            verifier_pubkey = decode_b64(args.verifier_key)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -607,7 +606,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 cp_root_b64 = _b64mod.b64encode(cp_res["root"]).decode("ascii")
                 if expected_root is not None:
                     try:
-                        explicit_root = _b64mod.b64decode(expected_root, validate=True)
+                        explicit_root = decode_b64(expected_root)
                     except (ValueError, TypeError) as exc:
                         raise ValueError("--expected-root is not valid base64") from exc
                     if explicit_root != cp_res["root"]:
@@ -1428,7 +1427,6 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
     relying-party Bitcoin header (``--bitcoin-header``; the pack's own bundled header is never trusted).
     Exit 0 confirmed · 3 pending / needs-relying-party-header (honest not-pass) · 1 hard fail
     (unbound / block mismatch / malformed pack) · 2 malformed input."""
-    import base64 as _b64  # noqa: PLC0415
 
     from .evidence_pack import describe_proof, verify_evidence_pack  # noqa: PLC0415
     try:
@@ -1451,7 +1449,7 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
         recomputed = {"selfContained": False, "provenCalendars": [],
                       "provenCalendarOperators": [], "operatorRedundancy": 0}
         try:
-            info = describe_proof(_b64.b64decode(pack["proof"], validate=True))
+            info = describe_proof(decode_b64(pack["proof"]))
             recomputed = {"selfContained": bool(info["selfContained"]),
                           "provenCalendars": info["provenCalendars"],
                           "provenCalendarOperators": info["provenCalendarOperators"],
@@ -1501,7 +1499,6 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
     """WP-B1 transparency: print the lifecycle state (pending/upgraded/self-contained) and the
     calendars/operators carrying an OpenTimestamps proof (.ots) or evidence pack. Read-only, no crypto
     trust — it reports state, it never confirms. Exit 0 unless the file cannot be read (exit 2)."""
-    import base64 as _b64  # noqa: PLC0415
     from .evidence_pack import describe_proof  # noqa: PLC0415
     try:
         with _open_input(args.path, binary=True) as handle:
@@ -1517,7 +1514,7 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
             # falling through to the raw-proof inspect branch — never a raw RecursionError traceback.
             pack = None
         if pack is not None:
-            proof = _b64.b64decode(pack["proof"], validate=True)
+            proof = decode_b64(pack["proof"])
             info = describe_proof(proof)
             info["source"] = "evidence_pack"
             # No-Fake (2026-07-17): do NOT mirror the pack's own selfContained claim. `describe_proof`
@@ -1566,7 +1563,6 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
-    import base64 as _b64  # noqa: PLC0415
     from .bundle import load_bundle  # noqa: PLC0415
     from .experimental.enclave import (enclave_binding_for,  # noqa: PLC0415
                                        verify_enclave_attestation)
@@ -1574,7 +1570,7 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         bundle = load_bundle(args.receipt)
         with _open_input(args.eat) as handle:
             eat = _read_capped(handle).strip()
-        verifier_pub = _b64.b64decode(args.verifier_key, validate=True)
+        verifier_pub = decode_b64(args.verifier_key)
         res = verify_enclave_attestation(
             eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),
             expected_profile=args.profile)
@@ -1737,7 +1733,7 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
         # position-paired per-target key; empty string or missing = same-key (main pub).
         rp_b64 = related_pubs[i] if i < len(related_pubs) else None
         try:
-            verify_key = base64.b64decode(rp_b64, validate=True) if rp_b64 else pub
+            verify_key = decode_b64(rp_b64) if rp_b64 else pub
         except (ValueError, TypeError) as exc:
             errs.append(f"cannot decode --related-pub for {path}: {exc}")
             continue

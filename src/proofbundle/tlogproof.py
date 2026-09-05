@@ -44,6 +44,7 @@ from . import merkle
 from .checkpoint import (_log_key_material_of, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
+from ._wire_b64 import decode_b64
 
 __all__ = ["MAGIC", "format_tlog_proof", "parse_tlog_proof", "tlog_proof_for_bundle",
            "verify_tlog_proof"]
@@ -57,7 +58,7 @@ def _b64(data: bytes) -> str:
 
 def _b64d(value: str, what: str) -> bytes:
     try:
-        return base64.b64decode(value, validate=True)
+        return decode_b64(value)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError(f"{what} is not valid standard base64") from exc
 

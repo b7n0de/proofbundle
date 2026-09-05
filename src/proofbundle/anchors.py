@@ -38,13 +38,13 @@ error while stamping never corrupts the local receipt.
 """
 from __future__ import annotations
 
-import base64
 import binascii
 import hashlib
 from typing import Callable, Optional
 
 from .errors import BundleFormatError
 from ._membership import is_member
+from ._wire_b64 import decode_b64
 
 ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
 _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "frozen"}
@@ -108,7 +108,7 @@ def _b64d(value, field: str) -> bytes:
     if not isinstance(value, str):
         raise BundleFormatError(f"anchor {field} must be a base64 string")
     try:
-        return base64.b64decode(value, validate=True)
+        return decode_b64(value)
     except (ValueError, binascii.Error) as exc:
         raise BundleFormatError(f"anchor {field} is not valid base64") from exc
 

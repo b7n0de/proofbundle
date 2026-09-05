@@ -273,7 +273,12 @@ _OUT_OF_SCOPE = frozenset({
     "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
     "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
-    "outcome_execution_proven",  "pae",  "parse_checkpoint_head",  "parse_tlog_proof",
+    "outcome_execution_proven",  "pae",
+    # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
+    # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
+    # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).
+    "pack_key_binds_signer",
+    "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
     "profile_aliases",  "profile_path",  "receipt_token",  "receiver_trusted_by_role",  "register",

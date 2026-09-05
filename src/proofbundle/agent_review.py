@@ -46,7 +46,6 @@ validator; the JSON schema is docs.
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import re
@@ -55,6 +54,7 @@ from typing import Any
 
 from ._membership import is_member
 from .errors import ProofBundleError
+from ._wire_b64 import decode_b64, decode_b64_either
 
 #: House convention is `b7n0de.com/proofbundle/predicates/<name>/v<major.minor>` — the external read
 #: proposed a shorter path, but every sibling predicate here uses this one, and an inconsistent id is
@@ -776,13 +776,12 @@ def _waere_fuer_dsse_ein_receipt(env: object) -> bool:
     hat es `test_ein_kaputter_umschlag_bringt_den_resolver_nicht_um`."""
     if not isinstance(env, dict) or not isinstance(env.get("payload"), str):
         return False
-    for altchars in (None, b"-_"):
-        try:
-            base64.b64decode(env["payload"], altchars=altchars, validate=True)
-            return True
-        except (ValueError, TypeError):
-            continue
-    return False
+    # DSSE: standard OR url-safe, each padded and canonical (the one wire-form rule lives in _wire_b64).
+    try:
+        decode_b64_either(env["payload"])
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def receipt_digest(envelope: dict) -> str:
@@ -800,7 +799,7 @@ def receipt_digest(envelope: dict) -> str:
     # Zeichen ausserhalb des Alphabets, und dann haette dasselbe Artefakt viele akzeptierte
     # Drahtformen — ein Angreifer koennte den Digest waehlen, indem er Muell einstreut.
     try:
-        bytes_ = base64.b64decode(roh, validate=True)
+        bytes_ = decode_b64(roh)
     except (ValueError, TypeError) as exc:
         raise AgentReviewError(f"payload is not strict base64: {exc}") from exc
     return hashlib.sha256(bytes_).hexdigest()
@@ -873,7 +872,7 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
     ungeprueft_mit_anspruch: list[str] = []
     for d, env in vorhanden.items():
         try:
-            st = json.loads(base64.b64decode(env["payload"], validate=True))
+            st = json.loads(decode_b64(env["payload"]))
             sup = (st.get("predicate") or {}).get("supersession") or {}
         except (ValueError, KeyError, TypeError):
             continue

@@ -224,11 +224,10 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         # proofbundle.persample.build_sample_tree — the samples root is SIGNED with the claim,
         # so tree-size lies and post-hoc sample swaps are closed at the signature layer
         # (an RFC 6962 inclusion proof constrains n only up to path-shape equivalence).
-        import base64 as _b64mod  # noqa: PLC0415
         if not isinstance(samples, dict) or set(samples) - {"root_b64", "n", "leaf_alg"}:
             raise EvalClaimError("samples must be {root_b64, n, leaf_alg} (see persample module)")
         try:
-            root_raw = _b64mod.b64decode(samples["root_b64"], validate=True)
+            root_raw = decode_b64(samples["root_b64"])
         except (KeyError, ValueError, TypeError) as exc:
             raise EvalClaimError("samples.root_b64 must be valid base64") from exc
         if len(root_raw) != 32:
@@ -341,7 +340,7 @@ def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Opti
             if (isinstance(s_n, bool) or not isinstance(s_n, int)
                     or isinstance(c_n, bool) or not isinstance(c_n, int) or s_n != c_n):
                 return None
-            if len(base64.b64decode(samples["root_b64"], validate=True)) != 32:
+            if len(decode_b64(samples["root_b64"])) != 32:
                 return None
         if expected_context is not None and claim.get("context_binding") != expected_context:
             return None
@@ -549,7 +548,7 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     try:
         jwt = token.split("~", 1)[0]                     # issuer JWT, before any disclosures
         payload_b64 = jwt.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)     # restore base64url padding
+        # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
         # F12 (release-audit follow-up 2026-07-12): loads_strict, not json.loads — a 5th SD-JWT
         # issuer-payload parse site of the same parser-differential class. A duplicate key (e.g. two
         # `_sd`) → BundleFormatError → None (honest "cannot count"), never a silent last-wins count.

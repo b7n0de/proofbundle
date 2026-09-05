@@ -135,7 +135,7 @@ def _sd_jwt_carries_eval_root_commitment(sd_payload) -> bool:
 
 def _b64d(value: str, field: str) -> bytes:
     try:
-        return base64.b64decode(value, validate=True)
+        return decode_b64(value)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError(f"field {field} is not valid base64") from exc
 
