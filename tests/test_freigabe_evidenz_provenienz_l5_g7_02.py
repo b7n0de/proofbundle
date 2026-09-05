@@ -8,6 +8,9 @@ nur aus Evidenz bilden, die
         einem EINGECHECKTEN Vertrauensanker verifiziert,
   P-A2  den exakten Kandidaten bindet (Commit, Baumkennung, sdist- und wheel-Digest), wobei die
         Baumkennung gegen den lebenden Baum nachgerechnet wird,
+  P-A2b die GATE-ZEILE des entscheidenden Deep-Gate-Laufs traegt, deren ``head`` an den
+        ``candidate.commit`` gebunden ist — damit die Baumaschine nicht ihre eigene Freigabe
+        beglaubigt (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18),
   P-A3  Schema, Erzeuger, Werkzeugversion, Eingabe-Digest, Zeit und Signiererrolle nennt,
   P-A4  frisch ist,
   P-A5  Arbeitszaehler ungleich null traegt — ein signiertes „ok" ueber Nullzaehlern ist kein Beleg,
@@ -111,6 +114,23 @@ def _baum_digest(repo: Path) -> str:
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
+# ── Die Gate-Zeile, Form abgelesen am Lauf-4-Verdikt ──────────────────────────────────────────
+#
+# `office/governance/deepgate_600_lauf3/gate_result_600_lauf4b_FIX_FIRST.json` traegt unter
+# `notes.gate_zeile` ein OBJEKT mit 20 Feldern. Verlangt werden hier die fuenf, die die Zeile zu
+# einer BINDUNG machen. Der WERT fuer 6.0.0 entsteht erst im Release-Zug (Verdikt Lauf 5); geprueft
+# wird deshalb die FORM und die Bindung an den Kandidaten, nicht ein konkreter Digest.
+def _gate_zeile(commit: str, *, workflow_sha: str | None = None) -> dict:
+    return {
+        "gate_version": "v4",
+        "workflow_datei": "office/governance/deepgate_600_lauf3/berkeley_gate_workflow_600.js",
+        "workflow_sha256": workflow_sha or ("5" * 64),
+        "modus": "DEEP 6L/7I",
+        "head": commit,
+        "sitzungsmodell": "claude-opus-5 (Claude Opus 5, 1M context)",
+    }
+
+
 _SOAK_GUT = {
     "schema": "proofbundle.fuzz_soak.v1",
     "seed": 7,
@@ -212,6 +232,12 @@ def matrix_zellen():
         ("kandidat_ohne_wheel", _mut(lambda b: b["candidate"].pop("wheel_sha256", None)), True),
         ("kandidat_commit_unformig",
          _mut(lambda b: b["candidate"].__setitem__("commit", "nicht-hex")), True),
+        ("gate_zeile_fehlt", _mut(lambda b: b.pop("gate_zeile", None)), True),
+        ("gate_zeile_fremder_lauf",
+         _mut(lambda b: b["gate_zeile"].__setitem__("head", "9" * 40)), True),
+        ("gate_zeile_unformig",
+         _mut(lambda b: b["gate_zeile"].__setitem__("workflow_sha256", "kein-digest")), True),
+        ("gate_zeile_kein_objekt", _mut(lambda b: b.__setitem__("gate_zeile", "RUN")), True),
         ("erzeuger_fehlt", _mut(lambda b: b.pop("producer", None)), True),
         ("werkzeugversion_fehlt", _mut(lambda b: b["producer"].pop("tool_version", None)), True),
         ("eingabe_digest_fehlt", _mut(lambda b: b.pop("input_digest", None)), True),
@@ -264,6 +290,7 @@ def _rumpf(welt, gut: dict) -> dict:
     b["version"] = VERSION
     b["candidate"] = {"commit": welt["commit"], "tree_digest": welt["tree"],
                       "sdist_sha256": "a" * 64, "wheel_sha256": "b" * 64}
+    b["gate_zeile"] = _gate_zeile(welt["commit"])
     b["producer"] = {"tool": "scripts/fuzz_soak.py", "tool_version": VERSION}
     b["input_digest"] = "c" * 64
     b["signer_role"] = "release-runner"
@@ -347,7 +374,16 @@ def test_die_matrix_erteilt_kein_einziges_bestehen(welt, leser):
             # DIE EINE ZELLE, deren richtige Antwort je Pflicht ANDERS lautet — und sie wird deshalb
             # je Pflicht festgeschrieben statt mit „nicht PASS" durchgewinkt. Sonst waere
             # `absent_ist_umgebung` ein Feld, das wie ein Riegel aussieht und keiner ist.
+            #
+            # UND SIE WIRD GEMESSEN, NICHT ANGENOMMEN (gefunden 2026-09-05, als eine andere Bahn die
+            # Rust-Binaerdatei baute): C8.2 liest eine ABWESENHEIT nur dann als Umgebungsaussage, wenn
+            # die Rust-Binaerdatei hier WIRKLICH fehlt. Ist sie da, hat schlicht niemand die Matrix
+            # gefahren, und das ist FAIL. Das Orakel fragt dafuer das FREMDE Modul
+            # `rust_parity_gate`, nicht die Funktion, die es prueft.
             erwartet = m.DATA_BLOCKED if leser.absent_ist_umgebung else m.FAIL
+            if leser.cid == "C8.2":
+                import rust_parity_gate as _rpg              # noqa: PLC0415
+                erwartet = m.FAIL if _rpg.evaluate().get("binary_available") else m.DATA_BLOCKED
             assert verdikt == erwartet, (
                 f"{leser.cid}/fehlend meldete {verdikt}, erwartet {erwartet}: eine fehlende Evidenz "
                 f"heisst bei dieser Pflicht "
@@ -461,6 +497,11 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     m = _matrix_modul()
     roh = welt["repo"] / "roh_soak.json"
     roh.write_text(json.dumps(_SOAK_GUT, indent=2), encoding="utf-8")
+    verdikt_datei = welt["repo"] / "gate_result.json"
+    verdikt_datei.write_text(
+        json.dumps({"verdict": "WITHSTANDS_DEEPGATE", "head": welt["commit"],
+                    "notes": {"gate_zeile": _gate_zeile(welt["commit"])}}, indent=2),
+        encoding="utf-8")
     key_datei = welt["repo"] / "privkey.b64"
     key_datei.write_text(
         base64.b64encode(welt["key"].private_bytes_raw()).decode() + "\n", encoding="utf-8")
@@ -472,6 +513,7 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
          "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
          "--input-digest", "d" * 64, "--signer-role", "release-runner",
          "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
+         "--gate-zeile-aus-verdikt", str(verdikt_datei),
          "--privkey-file", str(key_datei)],
         capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, f"der Erzeuger scheiterte: {r.stdout}\n{r.stderr}"
@@ -481,10 +523,15 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     assert verdikt == m.PASS, (
         f"das Tor lehnt ab, was sein eigener Erzeuger herstellt: {grund}\n{r.stdout}")
     gebaut = json.loads(ziel.read_text(encoding="utf-8"))
-    for feld in ("candidate", "producer", "input_digest", "signer_role", "produced_at", "signature"):
+    for feld in ("candidate", "gate_zeile", "producer", "input_digest", "signer_role",
+                 "produced_at", "signature"):
         assert feld in gebaut, f"der Erzeuger legt {feld} nicht an"
     assert gebaut["candidate"]["tree_digest"] == welt["tree"]
     assert gebaut["candidate"]["commit"] == welt["commit"]
+    # WOERTLICH uebernommen, nicht zusammengesetzt: was im Verdikt steht, steht im Rumpf.
+    aus_verdikt = json.loads(verdikt_datei.read_text(encoding="utf-8"))["notes"]["gate_zeile"]
+    assert gebaut["gate_zeile"] == aus_verdikt, "die Gate-Zeile wurde veraendert statt kopiert"
+    assert "gate_zeile" not in gebaut["signature"], "die Gate-Zeile gehoert in den Rumpf, nicht in den Umschlag"
 
     # ── DIE SCHLUESSELLOSE ZWEITEILUNG, und sie wird gefahren statt nur beschrieben ──────────────
     # Der Freigabe-Schluessel liegt beim Owner, nicht auf dem Bauwirt. Deshalb gibt es emit/assemble
@@ -498,6 +545,7 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
          "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
          "--input-digest", "d" * 64, "--signer-role", "release-runner",
          "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
+         "--gate-zeile-aus-verdikt", str(verdikt_datei),
          "--emit-payload", str(nutzlast), "--context-out", str(kontext)],
         capture_output=True, text=True, timeout=120)
     assert r2.returncode == 0, f"emit scheiterte: {r2.stdout}\n{r2.stderr}"
@@ -525,7 +573,45 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     assert not (welt["repo"] / "darf_nicht_entstehen.json").exists(), \
         "ein schlechtes Paar wurde trotzdem geschrieben"
 
-    for p in (key_datei, roh, nutzlast, kontext, sig):
+    for p in (key_datei, roh, verdikt_datei, nutzlast, kontext, sig):
+        p.unlink(missing_ok=True)
+
+
+@_braucht_krypto
+def test_der_erzeuger_erfindet_keine_gate_zeile(welt):
+    """Der Erzeuger darf die Gate-Zeile nur KOPIEREN. Ein Verdikt ohne ``notes.gate_zeile`` muss ihn
+    abbrechen lassen — sonst waere er wieder die Baumaschine, die ihre eigene Freigabe beglaubigt
+    (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18)."""
+    roh = welt["repo"] / "roh2.json"
+    roh.write_text(json.dumps(_SOAK_GUT, indent=2), encoding="utf-8")
+    ohne = welt["repo"] / "verdikt_ohne_zeile.json"
+    ohne.write_text(json.dumps({"verdict": "WITHSTANDS_DEEPGATE", "notes": {}}), encoding="utf-8")
+    key_datei = welt["repo"] / "pk2.b64"
+    key_datei.write_text(
+        base64.b64encode(welt["key"].private_bytes_raw()).decode() + "\n", encoding="utf-8")
+    ziel = welt["repo"] / "darf_nicht_entstehen2.json"
+    r = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
+         "--repo", str(welt["repo"]), "--in", str(roh), "--out", str(ziel),
+         "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
+         "--input-digest", "d" * 64, "--signer-role", "release-runner",
+         "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
+         "--gate-zeile-aus-verdikt", str(ohne), "--privkey-file", str(key_datei)],
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0, f"der Erzeuger hat eine Gate-Zeile erfunden: {r.stdout}"
+    assert "notes.gate_zeile" in (r.stdout + r.stderr)
+    assert not ziel.exists(), "trotz fehlender Gate-Zeile wurde ein Artefakt geschrieben"
+    # Und ganz ohne die Flagge bricht er ebenfalls ab, statt das Feld wegzulassen.
+    r2 = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
+         "--repo", str(welt["repo"]), "--in", str(roh), "--out", str(ziel),
+         "--producer-tool", "x", "--producer-tool-version", VERSION,
+         "--input-digest", "d" * 64, "--signer-role", "release-runner",
+         "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
+         "--privkey-file", str(key_datei)],
+        capture_output=True, text=True, timeout=120)
+    assert r2.returncode != 0 and "gate-zeile-aus-verdikt" in (r2.stdout + r2.stderr)
+    for p in (roh, ohne, key_datei):
         p.unlink(missing_ok=True)
 
 

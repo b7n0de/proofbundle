@@ -217,6 +217,9 @@ def _json_artifact(rel: str) -> dict | None:
 #          einem EINGECHECKTEN Vertrauensanker verifiziert,
 #   (P-A2) den exakten KANDIDATEN bindet — Commit UND Baumkennung UND die Digests von sdist und
 #          wheel —, wobei die Baumkennung gegen den lebenden Baum nachgerechnet wird,
+#   (P-A2b) die GATE-ZEILE des entscheidenden Deep-Gate-Laufs traegt, deren `head` an den
+#          `candidate.commit` gebunden ist — damit die Baumaschine nicht ihre eigene Freigabe
+#          beglaubigt (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18),
 #   (P-A3) ihr eigenes Schema, ihre Erzeuger- und Werkzeugversion, den Digest ihrer Eingabe, ihre
 #          Zeit und ihre Signiererrolle nennt,
 #   (P-A4) frisch ist (wohlgeformte Zeit, nicht in der Zukunft, nicht aelter als das erklaerte
@@ -271,6 +274,13 @@ _RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
 _CANDIDATE_FIELDS = (("commit", _HEX40), ("tree_digest", _HEX64),
                      ("sdist_sha256", _HEX64), ("wheel_sha256", _HEX64))
 
+#: Die Pflichtfelder der GATE-ZEILE, uebernommen aus dem Verdikt des entscheidenden Deep-Gate-Laufs.
+#: Form abgelesen am Lauf-4-Verdikt (`notes.gate_zeile`, 20 Felder); hier sind die verlangt, die die
+#: Zeile zu einer BINDUNG machen: welche Gate-Fassung, welche Workflow-Datei mit welchem Digest,
+#: welcher Modus, und welchen Kopf der Lauf beurteilt hat.
+_GATE_LINE_FIELDS = (("gate_version", None), ("workflow_datei", None),
+                     ("workflow_sha256", _HEX64), ("modus", None), ("head", _HEX40))
+
 #: Typisierte Ausgaenge. Typisiert und nicht Prosa, weil genau daran der Nachbarfund L5-G6-01 haengt:
 #: ein Satz driftet, wenn ihn jemand umformuliert; ein Feld nicht.
 ART_VERIFIED = "verified"
@@ -279,6 +289,7 @@ ART_MALFORMED = "malformed"
 ART_SCHEMA_MISMATCH = "schema_mismatch"
 ART_VERSION_UNBOUND = "version_unbound"
 ART_CANDIDATE_UNBOUND = "candidate_unbound"
+ART_GATE_LINE_UNBOUND = "gate_line_unbound"
 ART_PROVENANCE_INCOMPLETE = "provenance_incomplete"
 ART_STALE = "stale"
 ART_VACUOUS = "vacuous"
@@ -424,6 +435,49 @@ def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
     return None
 
 
+def _gate_line_error(body: dict) -> tuple[str, str] | None:
+    """``(zustand, grund)`` wenn die GATE-ZEILE fehlt, unformig ist oder einen ANDEREN Lauf bezeugt.
+
+    WARUM ES DIESES FELD GIBT (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18, woertlich): „Damit die
+    Baumaschine nicht ihre eigene Freigabe beglaubigt, traegt jedes signierte Artefakt Kandidatenbindung
+    (Commit, sdist- und wheel-Digest, Werkzeugversion, Zeit) und die Gate-Zeile des Lauf-5-Verdikts als
+    Feld. Der Verifier prueft die Bindung, nicht nur die Signatur."
+
+    Ohne diese Zeile beglaubigt der Farmer sich selbst: er misst, er signiert, er released — und die
+    Signatur sagt nur, dass ER es war, nicht dass ein Tor es durchgelassen hat. Die Gate-Zeile ist die
+    fremde Instanz IM signierten Rumpf.
+
+    DIE BINDUNG, die hier wirklich geprueft wird: ``gate_zeile.head`` muss der ``candidate.commit``
+    sein. Ein Verdikt ueber einen anderen Kopf ist ein Verdikt ueber eine andere Sache; genau daran
+    faellt die Gate-Zeile eines FREMDEN Laufs.
+
+    EHRLICHE GRENZE, aufgeschrieben statt geglaettet: eine gefaelschte Gate-Zeile fuer DENSELBEN Kopf
+    ist hier nicht unterscheidbar, solange der ``workflow_sha256`` des entscheidenden Laufs nirgends
+    gepinnt ist. Sobald das Verdikt von Lauf 5 existiert, ist das eine Zeile mehr (Vergleich gegen
+    einen eingecheckten Erwartungswert, gelesen wie der Vertrauensanker aus dem committeten Baum).
+    """
+    zeile = body.get("gate_zeile")
+    if not isinstance(zeile, dict):
+        return ART_GATE_LINE_UNBOUND, ("the artifact carries no `gate_zeile` — nothing but its own "
+                                       "signature vouches for it, and a build machine that signs its "
+                                       "own release attests nothing")
+    fehlend = []
+    for feld, form in _GATE_LINE_FIELDS:
+        wert = zeile.get(feld)
+        if not isinstance(wert, str) or not wert.strip():
+            fehlend.append(f"gate_zeile.{feld}={wert!r}")
+        elif form is not None and not form.fullmatch(wert):
+            fehlend.append(f"gate_zeile.{feld}={wert!r} (malformed)")
+    if fehlend:
+        return ART_GATE_LINE_UNBOUND, f"the gate line is incomplete or malformed: {', '.join(fehlend)}"
+    kandidat = body.get("candidate") or {}
+    if zeile["head"] != kandidat.get("commit"):
+        return ART_GATE_LINE_UNBOUND, (f"the gate line attests head {zeile['head'][:12]}… but the "
+                                       f"artifact binds commit {str(kandidat.get('commit'))[:12]}… — "
+                                       f"a verdict about another head cannot release this one")
+    return None
+
+
 def _provenance_error(body: dict) -> tuple[str, str] | None:
     """``(zustand, grund)`` wenn Erzeuger, Eingabe-Digest, Zeit oder Signiererrolle fehlen."""
     erzeuger = body.get("producer")
@@ -533,6 +587,9 @@ def _signed_versioned_artifact(rel: str, version: str, *, counters: tuple[str, .
                       f"is scoped to {gefunden!r}, the version under test is {version!r} — evidence "
                       f"about another release cannot decide this one"))
     fehler = _candidate_binding_error(rumpf, basis)
+    if fehler is not None:
+        return _nein(fehler)
+    fehler = _gate_line_error(rumpf)
     if fehler is not None:
         return _nein(fehler)
     fehler = _provenance_error(rumpf)
