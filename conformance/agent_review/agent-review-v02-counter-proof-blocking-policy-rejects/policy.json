@@ -1,0 +1,13 @@
+{
+  "blocking": [
+    "IDENTITY_UNBOUND"
+  ],
+  "name": "agent-review/conformance-blocking",
+  "never_blocking": [],
+  "require_coverage_status": [
+    "COMPLETE",
+    "PARTIAL"
+  ],
+  "summary": "Korpus-Policy, die IDENTITY_UNBOUND sperrt \u2014 nur um zu zeigen, dass `reject` erreichbar ist und dass der Digest im Ergebnis DIESE Datei nennt.",
+  "version": "1"
+}

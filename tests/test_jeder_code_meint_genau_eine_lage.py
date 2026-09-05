@@ -193,6 +193,21 @@ OHNE_TAFELZEILE = {
                              "validate_statement_shape — eigene Testdatei",
     "FINDINGS_ROOT_MALFORMED": "wird von _validate_declaration vergeben, nicht von "
                                "validate_statement_shape — eigene Testdatei",
+    # 04.09.2026, Teil A des v0.2-Vorgabewechsels. BEIDE haben eine eigene Testdatei; der Grund
+    # fuer die Ausnahme ist dieselbe wie oben — sie werden nicht von `validate_statement_shape`
+    # vergeben, und eine Tafelzeile braucht eine ausloesende Eingabe FUER DIESEN Pfad.
+    "FIXCOMMIT_NOT_FULL_SHA": "wird von validate_agent_review_v02_predicate vergeben, nicht von "
+                              "validate_statement_shape — tests/test_a4_fixcommit_volle_sha.py "
+                              "(13 Faelle plus Gegenrichtung)",
+    # 05.09.2026, Linse 1 auf PR 185 (F1). Vergeben von `_verify_v02_inner`, sobald eine Zeitachse
+    # CONFLICT meldet — unabhaengig von jeder Policy. Eigene Testdatei mit dem gemessenen Fall
+    # (zwei einander widersprechende reviewCompleted-Zeiten unter der Standard-Policy: ok=True).
+    "TIME_CLAIMS_CONFLICT": "wird von _verify_v02_inner vergeben, nicht von "
+                            "validate_statement_shape — tests/test_linsen_pr185_funde.py",
+    "POLICY_NOT_EVALUABLE": "wird von _verify_v02_inner vergeben, wenn eine UEBERGEBENE Policy "
+                            "beim Auswerten wirft — tests/test_policy_nicht_auswertbar_hat_einen_"
+                            "code.py. Dieser Code hatte beim ersten vollen Lauf KEINEN Test; "
+                            "gefunden hat das genau diese Tafel, nicht ein roter Test",
 }
 
 
@@ -234,6 +249,7 @@ AUFRUFSTELLEN_JE_CODE = {
     "SUBJECT_ENTRY_NOT_OBJECT": 1, "SUBJECT_NAME_ABSENT": 1, "SUBJECT_NAME_DISAGREES": 1,
     "SUBJECT_NAME_EMPTY": 1, "SUBJECT_NAME_NOT_STRING": 1, "SUBJECT_NAME_NULL": 1,
     "SUBJECT_NAME_UNDERIVABLE": 1, "SUBJECT_NOT_ARRAY": 1, "UNKNOWN_STATEMENT_FIELD": 1,
+    "TIME_CLAIMS_CONFLICT": 1,
 }
 
 

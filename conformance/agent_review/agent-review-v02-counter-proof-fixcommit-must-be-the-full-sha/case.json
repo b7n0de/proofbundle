@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 gebaut 04.09.2026 zu Teil A5 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-fixcommit-must-be-the-full-sha",
+  "expected": {
+    "classification": "refused"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "Ein gekuerzter fixCommit wird ABGELEHNT (A4). Sieben Zeichen sind eine Suchanfrage, keine Angabe: sie binden nichts, solange nicht feststeht, in welchem Repository und zu welchem Zeitpunkt sie eindeutig waren. Der Beleg soll ohne Rueckfrage lesbar sein.",
+  "role": "counter_proof",
+  "rule": "A4",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"
+  ]
+}

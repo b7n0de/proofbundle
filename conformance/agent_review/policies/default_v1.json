@@ -1,0 +1,39 @@
+{
+  "name": "agent-review/default",
+  "version": "1",
+  "summary": "Die benannte Standard-Policy einer relying party fuer agent-review-Receipts.",
+  "why_a_file": [
+    "Eine Policy im Code ist keine Policy, sondern eine Annahme des Verifizierers.",
+    "Wer sie als Datei fuehrt, kann sie zitieren, ihren Digest nennen und sie ersetzen,",
+    "ohne den Verifizierer anzufassen. Ihr Digest steht im Ergebnis, damit eine spaetere",
+    "Lesung sagen kann, GEGEN WAS entschieden wurde."
+  ],
+  "gemessen_am": "2026-09-04",
+  "gemessen_wie": [
+    "Ueber fuenf Praedikate, die die Achsen wirklich variieren (Abdeckung UNKNOWN/PARTIAL/COMPLETE,",
+    "mit Beobachtung, unabhaengig bezeugt), wurde gezaehlt, in wie vielen Faellen jeder der fuenf",
+    "abgeleiteten Codes auftritt. Ein Merkmal ohne Streuung ist kein Kriterium, sondern ein",
+    "konstanter Summand — als Sperre lehnt es alles ab und unterscheidet nichts."
+  ],
+  "streuung": {
+    "COVERAGE_PARTIAL": "2 von 5 — unterscheidet",
+    "IDENTITY_UNBOUND": "4 von 5 — unterscheidet",
+    "TIME_SELF_DECLARED": "4 von 5 — unterscheidet",
+    "CURRENTNESS_UNKNOWN": "5 von 5 — KONSTANT",
+    "NOT_QUALITY_ATTESTATION": "5 von 5 — KONSTANT"
+  },
+  "never_blocking": [
+    "NOT_QUALITY_ATTESTATION",
+    "CURRENTNESS_UNKNOWN"
+  ],
+  "never_blocking_reason": "Beide stehen in JEDEM Receipt und sind Eigenschaften des BELEGTYPS, nicht des Einzelfalls. Fuer CURRENTNESS_UNKNOWN sagt es der Modul-Docstring woertlich: 'this offline module can only ever reach CURRENTNESS_UNKNOWN — saying so is the point.' Die erste Fassung dieser Policy fuehrte ihn als EINZIGEN blockierenden Code und lehnte damit jedes Receipt ab: sie entschied, ohne zu unterscheiden.",
+  "blocking": [],
+  "blocking_reason": "KEINER der fuenf Codes sperrt. Die drei mit Streuung schwaechen die Aussage, ohne sie wertlos zu machen — ein selbsterklaertes Receipt traegt IDENTITY_UNBOUND und TIME_SELF_DECLARED per Definition, und wer sie sperrt, sperrt die Gattung. COVERAGE_PARTIAL sagt aus, was die Abdeckung selbst zugibt; die Abdeckungsregel unten wertet sie aus, nicht diese Liste. Eine leere Sperrliste ist hier eine MESSUNG, keine Nachlaessigkeit.",
+  "require_coverage_status": ["COMPLETE", "PARTIAL"],
+  "require_coverage_reason": "Das ist die Achse, auf der diese Policy wirklich entscheidet. UNKNOWN ist keine Abdeckungsangabe, sondern deren Abwesenheit — und das Fehlen eines Nachweises ist kein Nachweis eines Mangels, deshalb insufficient_evidence und nicht reject.",
+  "decisions": {
+    "accept": "kein blockierender Code, Abdeckung genannt (COMPLETE oder PARTIAL)",
+    "reject": "mindestens ein blockierender Code — in dieser Fassung erreichbar nur, wenn ein Nachfolger die Sperrliste fuellt",
+    "insufficient_evidence": "die Abdeckung ist nicht genannt"
+  }
+}

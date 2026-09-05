@@ -21,6 +21,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from proofbundle import agent_review as AR  # noqa: E402
 
+#: DIE FASSUNG STEHT HIER AUSDRUECKLICH, seit v0.2 die Vorgabe ist (6.0.0). Diese Datei
+#: prueft die v0.1-Semantik — sie ruft den v0.1-Verifizierer und sichert den v0.1-Typ zu.
+#: Sie verliess sich bisher auf den Vorgabewert; `legacy_v01=True` erhaelt genau das, was
+#: sie prueft, statt sie an einen Vorgabewert zu haengen, den eine andere Entscheidung
+#: bewegt. KEINE Zusicherung wurde dabei geaendert — nur die Fassung benannt.
+
+
 BODY = "# T\n\nText.\n"
 FINDINGS = [{"id": "F1", "severity": "low", "title": "t", "disposition": "dismissed", "reason": "r"}]
 
@@ -53,7 +60,7 @@ def paar():
 def test_ohne_erwartung_ist_ok_falsch_und_die_konsistenz_wahr(paar):
     """DER KERN. Das Receipt ist in sich stimmig — aber nichts hier sagt, dass es hierher gehoert."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk, legacy_v01=True), pk)
     assert r["internal_consistency_ok"] is True
     assert r["ok"] is False
     assert r["subject_expectation"] == "not_supplied"
@@ -63,7 +70,7 @@ def test_ohne_erwartung_ist_ok_falsch_und_die_konsistenz_wahr(paar):
 def test_mit_richtiger_erwartung_ist_ok_wahr(paar):
     sk, pk = paar
     p = _pred()
-    r = AR.verify_agent_review(AR.emit_agent_review(p, sk), pk,
+    r = AR.verify_agent_review(AR.emit_agent_review(p, sk, legacy_v01=True), pk,
                                expected_subject_digest=AR._subject_digest(p))
     assert r["ok"] is True and r["subject_expectation"] == "checked"
 
@@ -74,7 +81,7 @@ def test_fremdes_receipt_faellt_gegen_die_erwartung_durch(paar):
     a = _pred()
     b = copy.deepcopy(a)
     b["subjectContext"]["pullRequestNodeId"] = "PR_ANDERER"
-    r = AR.verify_agent_review(AR.emit_agent_review(b, sk), pk,
+    r = AR.verify_agent_review(AR.emit_agent_review(b, sk, legacy_v01=True), pk,
                                expected_subject_digest=AR._subject_digest(a))
     assert r["ok"] is False and r["subject_binding_ok"] is False
 
@@ -83,7 +90,7 @@ def test_eine_warnung_allein_haette_nicht_getragen(paar):
     """Festgehalten, weil es die verworfene Alternative ist: die Warnung STEHT weiterhin da, aber
     sie ist nicht mehr das Einzige. Wer nur `ok` liest, ist jetzt sicher."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk, legacy_v01=True), pk)
     assert any("expected_subject_digest" in w for w in r["warnings"])
     assert r["ok"] is False, "die Warnung ersetzt das Urteil nicht, sie begleitet es"
 
@@ -91,7 +98,7 @@ def test_eine_warnung_allein_haette_nicht_getragen(paar):
 def test_kaputte_signatur_macht_auch_die_konsistenz_falsch(paar):
     """Die Gegenrichtung: `internal_consistency_ok` ist kein Trostpreis, den es immer gibt."""
     sk, pk = paar
-    env = AR.emit_agent_review(_pred(), sk)
+    env = AR.emit_agent_review(_pred(), sk, legacy_v01=True)
     env["signatures"][0]["sig"] = base64.b64encode(b"\x00" * 64).decode()
     r = AR.verify_agent_review(env, pk, expected_subject_digest="0" * 64)
     assert r["internal_consistency_ok"] is False and r["ok"] is False
@@ -99,7 +106,7 @@ def test_kaputte_signatur_macht_auch_die_konsistenz_falsch(paar):
 
 def test_das_statement_traegt_die_erwartete_form(paar):
     sk, _ = paar
-    env = AR.emit_agent_review(_pred(), sk)
+    env = AR.emit_agent_review(_pred(), sk, legacy_v01=True)
     stmt = json.loads(base64.b64decode(env["payload"]))
     assert stmt["predicateType"] == AR.AGENT_REVIEW_PREDICATE_TYPE
     assert stmt["subject"][0]["digest"]["sha256"] == AR._subject_digest(_pred())
@@ -188,7 +195,7 @@ class ErwartungsvergleichIstExakt(unittest.TestCase):
         sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
         pk = sk.public_key().public_bytes_raw()
         p = _pred()
-        env = AR.emit_agent_review(p, sk)
+        env = AR.emit_agent_review(p, sk, legacy_v01=True)
         erwartet = AR._subject_digest(p)
 
         # Gegenprobe des Aufbaus: mit dem RICHTIGEN Digest ist es gueltig. Ohne diese Zeile misst
@@ -215,7 +222,7 @@ def test_ohne_zielkontext_ist_die_bindungsachse_NIE_wahr(paar):
     """DER WORTLAUT DER ABNAHME: „Ohne Zielkontext lautet der Zustand NOT_EVALUATED, niemals
     subject_binding_ok=True." Vorher stand die Achse hier auf `True`."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk)
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk, legacy_v01=True), pk)
     assert r["internal_subject_consistency_ok"] is True, "die interne Konsistenz IST gegeben"
     assert r["expected_subject_match"] == "NOT_EVALUATED"
     assert r["subject_binding_ok"] is not True, (
@@ -229,7 +236,7 @@ def test_mit_passendem_zielkontext_wird_die_achse_wahr(paar):
     Abschaffung — die Achse duerfte einfach nie mehr gruen werden und niemand saehe es."""
     sk, pk = paar
     pred = _pred()
-    r = AR.verify_agent_review(AR.emit_agent_review(pred, sk), pk,
+    r = AR.verify_agent_review(AR.emit_agent_review(pred, sk, legacy_v01=True), pk,
                                expected_subject_digest=AR._subject_digest(pred))
     assert r["internal_subject_consistency_ok"] is True
     assert r["expected_subject_match"] == "MATCH"
@@ -241,7 +248,7 @@ def test_fremder_zielkontext_macht_beide_achsen_eindeutig(paar):
     """DASSELBE RECEIPT AUF FREMDEM PR — die Abnahme aus dem Auftrag. Intern konsistent bleibt es,
     die Zielachse faellt, und die zusammengefuehrte Achse faellt mit."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk, legacy_v01=True), pk,
                                expected_subject_digest="f" * 64)
     assert r["internal_subject_consistency_ok"] is True
     assert r["expected_subject_match"] == "MISMATCH"
@@ -307,7 +314,7 @@ def test_ein_MISMATCH_blockt_das_automations_urteil(paar):
 
     Gefunden, weil die volle Suite ein `F` warf — nicht, weil ich es beim Schreiben gesehen haette."""
     sk, pk = paar
-    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk), pk,
+    r = AR.verify_agent_review(AR.emit_agent_review(_pred(), sk, legacy_v01=True), pk,
                                expected_subject_digest="f" * 64)
     assert r["expected_subject_match"] == "MISMATCH"
     assert r["subject_binding_ok"] is False

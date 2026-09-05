@@ -27,6 +27,13 @@ import pytest
 
 from proofbundle import agent_review as AR
 
+#: DIE FASSUNG STEHT HIER AUSDRUECKLICH, seit v0.2 die Vorgabe ist (6.0.0). Diese Datei
+#: prueft die v0.1-Semantik — sie ruft den v0.1-Verifizierer und sichert den v0.1-Typ zu.
+#: Sie verliess sich bisher auf den Vorgabewert; `legacy_v01=True` erhaelt genau das, was
+#: sie prueft, statt sie an einen Vorgabewert zu haengen, den eine andere Entscheidung
+#: bewegt. KEINE Zusicherung wurde dabei geaendert — nur die Fassung benannt.
+
+
 KORPUS = Path(__file__).resolve().parents[1] / "conformance" / "agent_review"
 
 
@@ -74,11 +81,31 @@ def test_der_korpus_ist_nicht_leer_und_die_zahl_steht_fest():
     assert len(ALLE) >= 13, f"nur {len(ALLE)} Faelle gefunden — der Korpus ist geschrumpft"
 
 
+#: Verzeichnisse im Korpus, die KEINE Faelle sind. Der fuehrende Unterstrich war bisher die
+#: einzige Kennzeichnung (`_generator`); `policies/` kam mit Teil A3 dazu und traegt keinen, weil
+#: der Auftrag seinen Pfad woertlich nennt. Die Liste steht hier ausdruecklich, statt die
+#: Unterstrich-Regel zu dehnen: wer sie liest, sieht WELCHE Verzeichnisse gemeint sind, und ein
+#: neues faellt auf, statt von einer Namensregel stillschweigend mitgenommen zu werden.
+KEINE_FAELLE = {"policies"}
+
+
 def test_jedes_fall_verzeichnis_traegt_auch_eine_case_json():
-    """Ein Verzeichnis mit Eingaben, aber ohne Fallbeschreibung, wuerde still nicht gefahren."""
+    """Ein Verzeichnis mit Eingaben, aber ohne Fallbeschreibung, wuerde still nicht gefahren.
+
+    Die Zusicherung ist UNVERAENDERT — jeder FALL traegt seine Beschreibung. Praezisiert ist nur,
+    was ein Fall ist: `policies/` haelt die benannte Standard-Policy und ist keiner.
+    """
     ohne = [d.name for d in KORPUS.iterdir()
-            if d.is_dir() and not d.name.startswith("_") and not (d / "case.json").is_file()]
+            if d.is_dir() and not d.name.startswith("_") and d.name not in KEINE_FAELLE
+            and not (d / "case.json").is_file()]
     assert ohne == [], f"Fallverzeichnisse ohne case.json: {ohne}"
+
+
+def test_die_ausnahmeliste_nimmt_keinen_echten_fall_heraus():
+    """GEGENPROBE. Eine Ausnahmeliste ist ein Loch im Riegel, solange niemand prueft, dass sie nur
+    das enthaelt, was wirklich kein Fall ist. Ein Verzeichnis MIT case.json darf nie darin stehen."""
+    falsch = [n for n in KEINE_FAELLE if (KORPUS / n / "case.json").is_file()]
+    assert falsch == [], f"als Nicht-Fall gefuehrt, traegt aber eine case.json: {falsch}"
 
 
 # ── der Ausfuehrer ────────────────────────────────────────────────────────────────────────────
@@ -133,6 +160,20 @@ def _urteil(d: Path, fall: dict) -> dict:
         return {"ok": passt, "refused": False, "kette": True,
                 "result": {"errors": [grund]},
                 "gemessen_an": "run_conformance.loese_kette"}
+
+    # A5, ERSTE HAELFTE: die zwei neuen Achsen (Weiche, Policy). Die MESSUNG kommt aus dem
+    # Laeufer, die Erwartung bleibt hier — dieselbe Trennung wie bei den Kettenachsen, und aus
+    # demselben Grund: einen Ausfuehrer zweimal zu schreiben heisst, ihn einmal altern zu lassen.
+    if "versionStatus" in erw:
+        m = _laeufer().miss_versionsstatus(fall, d)
+        return {"ok": m["status"] == erw["versionStatus"], "achse": "versionStatus",
+                "result": {"errors": [f"status={m['status']!r} codes={m['codes']}"]},
+                "gemessen_an": "run_conformance.miss_versionsstatus"}
+    if "policyDecision" in erw:
+        m = _laeufer().miss_policy_entscheidung(fall, d)
+        return {"ok": m["decision"] == erw["policyDecision"], "achse": "policyDecision",
+                "result": {"errors": [f"decision={m['decision']!r} codes={m['codes']}"]},
+                "gemessen_an": "run_conformance.miss_policy_entscheidung"}
 
     if (fall.get("kind") == "agent_review_predicate"
             and fall.get("input") == "predicate.json" and "classification" in erw):
@@ -213,6 +254,9 @@ def test_der_fall_verhaelt_sich_wie_beschrieben(d):
         # noch das Ergebnis. Der Grund faehrt in der Meldung mit, sonst stuende bei einem roten
         # Fall nichts als der Dateiname.
         assert u["ok"], f"{d.name}: {u['result']['errors']}"
+    elif u.get("achse") in ("versionStatus", "policyDecision"):
+        # A5: schon in `_urteil` gegen die Erwartung gemessen, der Grund faehrt mit.
+        assert u["ok"], f"{d.name}: {u['result']['errors']}"
     elif "subjectExpectation" in erw:
         assert u["subject_expectation"] == erw["subjectExpectation"], d.name
     else:
@@ -228,6 +272,21 @@ def test_der_fall_verhaelt_sich_wie_beschrieben(d):
 #: Je Gegenbeweis-Fall der Eingriff, der seinen Defekt WEGNIMMT. Faellt danach das Urteil nicht
 #: um, prueft der Fall nichts — dann ist er ein Fall, den auch ein kaputter Validator besteht.
 _ENTSCHAERFUNG = {
+    # ── die v0.2-Gegenbeweise aus Teil A5 ─────────────────────────────────────────────────────
+    #
+    # Die Entschaerfung nimmt GENAU DEN Defekt weg, den der Fall prueft, und sonst nichts. Ein
+    # Flip, der nebenbei etwas anderes repariert, belegt nicht, dass der Fall an seinem eigenen
+    # Grund faellt — dieselbe Falle, in die ich weiter unten schon einmal gelaufen bin.
+    "agent-review-v02-counter-proof-coverage-partial-must-name-its-gap":
+        lambda p: p["coverage"].update({"knownGaps": ["eine benannte Luecke"]}),
+    "agent-review-v02-counter-proof-limitation-codes-are-required":
+        lambda p: p.update({"limitationCodes": ["COVERAGE_PARTIAL", "CURRENTNESS_UNKNOWN",
+                                                "IDENTITY_UNBOUND", "NOT_QUALITY_ATTESTATION",
+                                                "TIME_SELF_DECLARED"]}),
+    "agent-review-v02-counter-proof-fixcommit-must-be-the-full-sha":
+        lambda p: p["declaration"]["findings"][0].update({"fixCommit": "f" * 40}),
+    "agent-review-v02-counter-proof-disclosure-core-digest-is-required":
+        lambda p: p["subjectContext"].update({"disclosureCoreDigest": "e" * 64}),
     "agent-review-counter-proof-partial-must-name-its-gap":
         lambda p: p["coverage"].update({"knownGaps": ["eine benannte Luecke"]}),
     "agent-review-counter-proof-complete-needs-an-expectation":
@@ -257,10 +316,18 @@ def test_der_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
     fall = _fall(d)
     assert fall["expected"]["classification"] == "refused", f"{name} ist kein refused-Fall mehr"
     p = _eingabe(d, fall)
-    assert AR.validate_agent_review_predicate(p, strict=True), (
+    # DER PRUEFER FOLGT DER FASSUNG DES FALLS (A5). Fest verdrahtet auf v0.1 wuerde er einen
+    # v0.2-Fall an den falschen Regeln messen: der v0.1-Validator kennt weder die
+    # fixCommit-Pflicht noch disclosureCoreDigest noch limitationCodes, meldete also fuer einen
+    # entschaerften v0.2-Fall Fehler, die es nicht gibt — oder schlimmer, fuer den unentschaerften
+    # KEINE. Dieselbe Kopplung, die beim Konformitaets-Laeufer selbst schon aufgefallen ist.
+    _pruefer = (AR.validate_agent_review_v02_predicate
+                if fall.get("predicateVersion") == "v0.2"
+                else AR.validate_agent_review_predicate)
+    assert _pruefer(p, strict=True), (
         f"{name} wird gar nicht mehr verweigert — der Fall prueft nichts")
     _ENTSCHAERFUNG[name](p)
-    errs = AR.validate_agent_review_predicate(p, strict=True)
+    errs = _pruefer(p, strict=True)
     assert errs == [], (
         f"{name}: nach dem Wegnehmen des Defekts wird immer noch verweigert ({errs[:2]}) — der "
         f"Fall unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem")
@@ -278,7 +345,7 @@ def _entschaerfe_fremden_schluessel(d):
     heil = []
     for env in kette:
         st = json.loads(base64.b64decode(env["payload"], validate=True))
-        heil.append(AR.emit_agent_review(st["predicate"], sk))
+        heil.append(AR.emit_agent_review(st["predicate"], sk, legacy_v01=True))
     return heil
 
 
@@ -321,6 +388,93 @@ def test_der_ketten_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
         f"unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem ({nachher})")
 
 
+# ── A5, erste Haelfte: Entschaerfung der Weichen- und Policy-Gegenbeweise ────────────────────
+# Jeder Gegenbeweis nimmt GENAU seinen Defekt weg und wird danach am selben Eintrittspunkt
+# gemessen wie im Laeufer. Ein Flip, der nebenbei etwas anderes repariert, belegt nichts.
+
+def _v02_predicate_des_falls(d: Path) -> dict:
+    fall = _fall(d)
+    eingabe = _eingabe(d, fall)
+    if fall.get("input") == "envelope.json":
+        return json.loads(base64.b64decode(eingabe["payload"], validate=True))["predicate"]
+    return eingabe
+
+
+def _miss_policy(pred: dict, policy):
+    """Dieselbe Messung wie `run_conformance.miss_policy_entscheidung`, auf einem entschaerften
+    Predicate — den Umweg ueber eine Datei braucht sie nicht."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    env = AR.emit_agent_review(pred, sk)
+    return AR.verify_agent_review_v02(env, sk.public_key().public_bytes_raw(),
+                                      expected_subject_digest=AR._subject_digest(pred),
+                                      policy=policy)
+
+
+def _entschaerfe_fremde_fassung(d: Path):
+    # Dasselbe Predicate als v0.2 neu ausgestellt: die Weiche muss es als `current` lesen.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
+    pred = _v02_predicate_des_falls(d)
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    env = AR.emit_agent_review(pred, sk)
+    r = AR.verify_agent_review_any(env, sk.public_key().public_bytes_raw(),
+                                   expected_subject_digest=AR._subject_digest(pred))
+    return r.get("predicateVersionStatus"), r
+
+
+def _entschaerfe_ohne_policy(d: Path):
+    return _miss_policy(_v02_predicate_des_falls(d), AR.load_policy())
+
+
+def _entschaerfe_unbekannte_abdeckung(d: Path):
+    pred = dict(_v02_predicate_des_falls(d))
+    pred["coverage"] = {"status": "PARTIAL", "knownGaps": ["eine benannte Luecke"]}
+    return _miss_policy(pred, AR.load_policy())
+
+
+def _entschaerfe_sperrende_policy(d: Path):
+    return _miss_policy(_v02_predicate_des_falls(d), AR.load_policy())
+
+
+def _heil(r: dict, feld: str, wert) -> bool:
+    """Geheilt heisst: die Achse zeigt den erwarteten Wert UND das Ganze ist ok.
+
+    GEMESSEN von Linse 2 auf PR 185 (05.09.2026): das Orakel las nur EIN Feld. Ein orthogonaler,
+    wohlgeformter Fremd-Defekt (falsche, aber formkorrekte findingsRoot) neben dem Zieldefekt
+    blieb ihm unsichtbar — nach dem Flip las es "geheilt", obwohl ok und internal_consistency_ok
+    weiter False standen. Ein Flip, der "genau seinen Defekt" wegnimmt, muss ein GUELTIGES Receipt
+    hinterlassen, sonst hat er etwas anderes weggenommen.
+    """
+    return r.get(feld) == wert and r.get("ok") is True
+
+
+_A5_ENTSCHAERFUNG = {
+    "agent-review-v02-counter-proof-unknown-predicate-type-is-refused":
+        (lambda d: _laeufer().miss_versionsstatus(_fall(d), d)["status"] == "unknown",
+         lambda d: _heil(_entschaerfe_fremde_fassung(d)[1], "predicateVersionStatus", "current")),
+    "agent-review-v02-counter-proof-without-policy-nothing-is-decided":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] is None,
+         lambda d: _heil(_entschaerfe_ohne_policy(d), "policy_decision", "accept")),
+    "agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"]
+         == "insufficient_evidence",
+         lambda d: _heil(_entschaerfe_unbekannte_abdeckung(d), "policy_decision", "accept")),
+    "agent-review-v02-counter-proof-blocking-policy-rejects":
+        (lambda d: _laeufer().miss_policy_entscheidung(_fall(d), d)["decision"] == "reject",
+         lambda d: _heil(_entschaerfe_sperrende_policy(d), "policy_decision", "accept")),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_A5_ENTSCHAERFUNG), ids=lambda s: s[-40:])
+def test_der_a5_gegenbeweis_kippt_wenn_man_seinen_defekt_wegnimmt(name):
+    """Ohne diesen Test koennte ein Weichen- oder Policy-Fall gruen sein, ohne je zu unterscheiden."""
+    d = KORPUS / name
+    ist_defekt, ist_heil = _A5_ENTSCHAERFUNG[name]
+    assert ist_defekt(d), f"{name}: der Fall ist schon heil — er prueft nichts"
+    assert ist_heil(d), (f"{name}: nach dem Wegnehmen des Defekts stimmt es immer noch nicht — der "
+                         f"Fall unterscheidet nicht zwischen seinem Defekt und irgendetwas anderem")
+
+
 def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
     """Ein Fall ohne Entschaerfung ist nicht verboten — aber er muss BENANNT sein.
 
@@ -334,9 +488,9 @@ def test_jeder_gegenbeweis_fall_ist_entweder_entschaerfbar_oder_benannt():
             "agent-review-counter-proof-receipt-does-not-travel-between-subjects",
             "agent-review-counter-proof-introducing-the-first-block-moves-the-digest"}
     alle_gegen = {d.name for d in ALLE if _fall(d)["role"] == "counter_proof"}
-    assert alle_gegen == set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne, (
-        f"neue oder entfallene Gegenbeweis-Faelle: "
-        f"{alle_gegen ^ (set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | ohne)}")
+    bekannt = set(_ENTSCHAERFUNG) | set(_KETTEN_ENTSCHAERFUNG) | set(_A5_ENTSCHAERFUNG) | ohne
+    assert alle_gegen == bekannt, (
+        f"neue oder entfallene Gegenbeweis-Faelle: {alle_gegen ^ bekannt}")
 
 
 def test_die_positiven_kontrollen_sind_wirklich_positiv():
@@ -414,7 +568,7 @@ def test_die_positive_kontrolle_laeuft_durch_den_ECHTEN_emitter():
     import base64
     p = json.loads(base64.b64decode(env_fix["payload"]))["predicate"]
 
-    env = AR.emit_agent_review(p, sk, strict=True)          # <- der echte Erzeuger
+    env = AR.emit_agent_review(p, sk, strict=True, legacy_v01=True)          # <- der echte Erzeuger
     r = AR.verify_agent_review(env, pk, strict=True,
                                expected_subject_digest=AR._subject_digest(p))
     assert r["crypto_ok"] is True, r["errors"]
@@ -440,4 +594,4 @@ def test_ein_ungueltiges_praedikat_kommt_durch_den_emitter_NICHT_durch():
     d = KORPUS / "agent-review-counter-proof-partial-must-name-its-gap"
     p = _eingabe(d, _fall(d))
     with pytest.raises(AR.AgentReviewError):
-        AR.emit_agent_review(p, sk, strict=True)
+        AR.emit_agent_review(p, sk, strict=True, legacy_v01=True)

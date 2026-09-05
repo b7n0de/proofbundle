@@ -1,0 +1,59 @@
+{
+  "coverage": {
+    "knownGaps": [
+      "nur eine Datei gelesen"
+    ],
+    "status": "PARTIAL"
+  },
+  "declaration": {
+    "authoring": [
+      {
+        "assertedBy": "x",
+        "assurance": "selfDeclared"
+      }
+    ],
+    "findings": [
+      {
+        "disposition": "fixed",
+        "fixCommit": "a1b2c3d",
+        "id": "F1",
+        "severity": "low",
+        "title": "t"
+      }
+    ],
+    "findingsRoot": "9e2e447ea78fe3433dd367c4edbed7ba2a6f045264042025b278540e6fcf92f8",
+    "findingsTotal": 1,
+    "nonClaims": [
+      "n"
+    ],
+    "reviewRuns": []
+  },
+  "limitationCodes": [
+    "COVERAGE_PARTIAL",
+    "CURRENTNESS_UNKNOWN",
+    "IDENTITY_UNBOUND",
+    "NOT_QUALITY_ATTESTATION",
+    "TIME_SELF_DECLARED"
+  ],
+  "limitations": [
+    "selbsterklaert, nicht unabhaengig bezeugt"
+  ],
+  "reviewId": "ar-v02-konformitaet",
+  "schemaVersion": "0.1.0",
+  "subjectContext": {
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "bodyCoreDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "disclosureCoreDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "forge": "github",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "githubPullRequest",
+    "pullRequestNodeId": "P",
+    "repositoryId": "R",
+    "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "times": {
+    "declaredAt": "2026-09-04T00:00:00Z",
+    "observedAt": null,
+    "signedAt": "2026-09-04T00:00:00Z"
+  }
+}

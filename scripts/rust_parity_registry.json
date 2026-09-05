@@ -405,6 +405,12 @@
       "crosscheck_refs": [],
       "notes": "The v0.2 verifier. Separate time axes — event, observation, signature, external — each saying WHERE its value came from, never whether it is true; a relying party decides which source its policy accepts, and this verifier deliberately does not decide that for it (policy_decision stays None). It REFUSES a v0.1 envelope rather than reinterpreting: in v0.1 a producer-supplied observedAt was allowed, and judging it by v0.2 rules would rewrite what that receipt meant when it was signed. A second implementation would have to reproduce that refusal, not just the happy path — which is exactly where parity would pay. No Rust counterpart exists yet."
     },
+    "proofbundle.agent_review.verify_agent_review_any": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Version-agnostic dispatcher: reads predicateType from the payload and routes to the v0.1 or v0.2 verifier, setting predicateVersionStatus. Added in 6.0.0 together with the default switch to v0.2. It ROUTES, it does not verify itself - the parity work is on the two verifiers it dispatches to."
+    },
     "proofbundle.agent_review.validate_agent_review_v02_predicate": {
       "status": "PENDING",
       "rust_subcommands": [],

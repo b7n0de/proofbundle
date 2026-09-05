@@ -170,6 +170,30 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
+    # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
+    #
+    # `standard_policy_path` nimmt GAR KEINE Eingabe entgegen. Sie kann keine unvertraute Eingabe
+    # bekommen, also kann sie die Eigenschaft nicht verletzen; ein Eintrag im Nenner waere eine
+    # Pruefung ohne Gegenstand. Sie liegt ausserhalb, weil sie NICHTS konsumiert.
+    #
+    # `load_policy` und `evaluate_limitation_policy` stehen ausdruecklich NICHT hier: beide nehmen
+    # Aufrufer-Eingabe (einen Pfad, ein Predicate, eine Policy) und muessen urteilen statt zu
+    # crashen. Beide haben die Eigenschaft beim ersten Lauf verletzt — `load_policy` mit rohem
+    # TypeError ueber sieben Typen (vom Riegel gefangen), `evaluate_limitation_policy` mit rohem
+    # AttributeError ueber 72 Kombinationen. Beide sind behoben.
+    #
+    # KORREKTUR am selben Tag, von einer Gegenlese-Linse gemessen: hier stand zuerst, der Riegel
+    # probiere "nur einstellige Flaechen". Das trifft den Mechanismus NICHT. Er ruft mehrstellige
+    # Funktionen sehr wohl auf (`if not params: continue` greift nur bei NULL Parametern) — aber
+    # nur ARGUMENT 0 bekommt den feindlichen Wert, jeder andere Pflichtparameter einen plausiblen
+    # Stub, und Parameter mit Default werden gar nicht erst gesetzt (Zeilen 380-388). Die Groesse,
+    # die zaehlt, ist die POSITION, nicht die Stelligkeit. Gemessen: 87 von 114 Flaechen sind
+    # mehrstellig, und an Position >= 1 entkommen 16 rohe TypeError — alle in
+    # `check_on_receipt` (request_bytes/response_bytes). Diese Grenze ist von Anfang an im
+    # Modulkopf dokumentiert ("untrusted PRIMARY argument"); falsch war meine Paraphrase, nicht
+    # der Riegel.
+    "standard_policy_path",
     # 2026-09-03, C5 des anbieterbezeugten Inferenz-Wegs — VIER Funktionen, DREI davon hier, und
     # die Trennung ist der Zwei-Schichten-Vertrag dieses Hauses, nicht Bequemlichkeit.
     #
@@ -475,6 +499,59 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
             except _FORBIDDEN as exc:
                 escapes.append(f"{label}: raw {type(exc).__name__}: {exc}")
         self.assertEqual(escapes, [], "round-4 non-primary regression escapes:\n" + "\n".join(escapes))
+
+    def test_round6_nonprimary_bytes_regression(self):
+        """Runde 6, gefunden 04.09.2026 von einer Gegenlese-Linse, NICHT vom Riegel darueber.
+
+        WARUM DER RIEGEL IHN NICHT FAND, und das ist der eigentliche Inhalt dieses Tests: er
+        fuzzt AUSSCHLIESSLICH Argument 0 (Zeilen 380-388) — jeder andere Pflichtparameter bekommt
+        einen plausiblen Stub, Parameter mit Default werden gar nicht gesetzt. Gemessen sind 87
+        von 114 Flaechen mehrstellig; an Position >= 1 entkamen 16 rohe TypeError, alle in
+        `check_on_receipt` bei `request_bytes` / `response_bytes`.
+
+        DAS IST BESONDERS SCHARF, WEIL DIE FUNKTION SICH SELBST WIDERSPRACH: ihr eigener
+        Kommentar sagt "a caller reaching for a verdict must get a verdict ... this boundary
+        catches that and NAMES it instead of propagating it". Genau das tat sie fuer diese zwei
+        Parameter nicht.
+
+        DER FIX BRAUCHTE ZWEI STELLEN, und die erste allein war schlimmer als keine: `req_h` auf
+        None zu setzen verschob den Absturz nur nach `req_h[:16]`. Beide Punkte sind hier
+        gebunden, damit ein Rueckfall an einem von beiden auffaellt.
+        """
+        import itertools
+        from proofbundle.experimental import attested_inference as ai
+        werte = (None, 5, 5.0, True, [], {}, (), "x", b"ok", bytearray(b"y"))
+        entkommen = []
+        for rb, resb in itertools.product(werte, repeat=2):
+            try:
+                r = ai.check_on_receipt({}, provider="p", nonce="n",
+                                        request_bytes=rb, response_bytes=resb)
+            except Exception as exc:                              # noqa: BLE001 — das ist der Test
+                entkommen.append(f"{type(exc).__name__} bei ({type(rb).__name__}, "
+                                 f"{type(resb).__name__}): {exc}")
+                continue
+            self.assertIsInstance(r, dict, "eine Flaeche, die ein Urteil verspricht, liefert eines")
+        self.assertEqual(entkommen, [], "rohe Ausnahmen an Nicht-Primaer-Parametern:\n"
+                                        + "\n".join(entkommen))
+
+    def test_round6_der_grund_ist_benannt_nicht_nur_kein_absturz(self):
+        """DIE GEGENRICHTUNG. Ein Guard, der nur nicht mehr abstuerzt, aber schweigt, waere die
+        naechste Klasse: der Aufrufer bekaeme ein Urteil ohne zu erfahren, dass eine Achse gar
+        nicht gemessen wurde. Der Grund steht deshalb im Ergebnis, mit EIGENEM Code — nicht unter
+        `evidence.malformed`, denn dort ist die EVIDENZ kaputt und hier die Frage des Aufrufers.
+
+        DAS FELD HEISST `not_measurable`, NICHT `unmeasurable` — die interne Liste traegt den
+        einen Namen, das ausgelieferte Feld den anderen. Die erste Fassung dieses Tests las den
+        internen Namen und war deshalb rot, obwohl der Guard griff: ein `dict.get` auf einen nie
+        geschriebenen Schluessel liefert None und liest sich wie ein fehlender Grund."""
+        from proofbundle.experimental import attested_inference as ai
+        r = ai.check_on_receipt({}, provider="p", nonce="n", request_bytes=None, response_bytes=b"")
+        self.assertIn(ai.REASON_BYTES_NOT_BYTES, (r.get("not_measurable") or []) + (r.get("reasons") or []),
+                      f"der Grund muss benannt sein, gemessen: {r}")
+        heil = ai.check_on_receipt({}, provider="p", nonce="n", request_bytes=b"a", response_bytes=b"b")
+        self.assertNotIn(ai.REASON_BYTES_NOT_BYTES,
+                         (heil.get("not_measurable") or []) + (heil.get("reasons") or []),
+                         "heile Bytes, trotzdem der Code — dann ordnet er nichts")
 
     def test_round5_nested_config_subfield_regression(self):
         """Generator-hardening r5: der r5-Re-Gate fand die never-raise-Klasse NICHT konvergierend (5->12->16),

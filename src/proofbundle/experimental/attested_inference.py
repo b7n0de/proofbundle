@@ -169,6 +169,13 @@ REASON_ROUTE_DRIFT = "route.silent_fallback"
 REASON_EVIDENCE_TAMPERED = "evidence.digest_mismatch"
 REASON_EVIDENCE_FOREIGN = "evidence.belongs_to_another_answer"
 REASON_MALFORMED = "evidence.malformed"
+#: Die uebergebenen Bytes sind keine. Eigener Grund, NICHT `REASON_MALFORMED`: dort ist die
+#: EVIDENZ kaputt, hier die Frage des Aufrufers — zwei verschiedene naechste Schritte, und wer sie
+#: zusammenwirft, schickt den Aufrufer zum falschen Ort. Gefunden 04.09.2026 von einer
+#: Gegenlese-Linse: `check_on_receipt(..., request_bytes=None)` warf einen ROHEN TypeError, obwohl
+#: der Kommentar zwei Absaetze weiter unten die Zusage traegt, eine Flaeche, die ein Urteil
+#: verspricht, muesse ein Urteil liefern. Der Riegel fing es nicht, weil er nur Argument 0 fuzzt.
+REASON_BYTES_NOT_BYTES = "input.bytes_expected"
 
 
 def _sha256_bytes(b: bytes) -> str:
@@ -226,7 +233,22 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 1. Has the evidence itself been altered since it was handed to us? Checked FIRST: altered
     #    evidence cannot testify about its own bindings.
-    digest = evidence_digest(evidence)
+    # A MAPPING WITH UNSERIALISABLE CONTENT IS NOT EVIDENCE EITHER (lens 1 on PR 185, F5). The
+    # guard above checks only `isinstance(evidence, dict)`; `{"x": {1, 2}}`, `{"x": b"bytes"}` or
+    # `{1: "a", "b": 2}` passed it and then raised a raw TypeError out of `json.dumps` — the same
+    # class as the depth guard, one hop further in. Same verdict as a non-mapping: attestation
+    # failure, REASON_MALFORMED, named instead of propagated.
+    try:
+        digest = evidence_digest(evidence)
+    except (TypeError, ValueError, BundleFormatError) as exc:
+        return {"outcome": OUTCOME_ATTESTATION_FAILURE, "reasons": [REASON_MALFORMED],
+                "not_measurable": [], "evidence_digest": None,
+                "normalised": {"assurance": ASSURANCE_PROVIDER_DECLARED, "provider": provider,
+                               "evidence_digest": None, "binding_present": False,
+                               "request_id": None, "route": None, "reported": None,
+                               "detail": (f"evidence cannot be canonicalised ({type(exc).__name__}: "
+                                          f"{exc}) — a mapping whose content has no canonical JSON "
+                                          "form cannot be digested and cannot be counted")}}
     if expected_evidence_digest is not None and digest != expected_evidence_digest:
         reasons.append(REASON_EVIDENCE_TAMPERED)
 
@@ -239,18 +261,41 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # 3. Do the hashes in the signed material match the bytes we actually sent and received?
     #    A mismatch means the statement is about a different exchange than ours.
     signed = json.dumps(_without_credentials(evidence), ensure_ascii=False)
-    req_h = _sha256_bytes(request_bytes)
-    res_h = _sha256_bytes(response_bytes)
+    _falsche = [n for n, v in (("request_bytes", request_bytes), ("response_bytes", response_bytes))
+                if not isinstance(v, (bytes, bytearray, memoryview))]
+    if _falsche:
+        # NICHT MESSBAR, nicht "Angriff": ohne die Bytes kann diese Achse nichts sagen, und eine
+        # Ablehnung zu erfinden waere eine Aussage ueber etwas Ungemessenes.
+        unmeasurable.append(REASON_BYTES_NOT_BYTES)
+    # JE ACHSE gerechnet, nicht im Paar: sind nur die Antwort-Bytes kaputt, bleibt der
+    # Anfrage-Hash messbar. Vorher setzte ein kaputter Teil beide auf None und nahm der
+    # anderen Achse die Messung, die sie haette liefern koennen.
+    req_h = (_sha256_bytes(bytes(request_bytes))
+             if isinstance(request_bytes, (bytes, bytearray, memoryview)) else None)
+    res_h = (_sha256_bytes(bytes(response_bytes))
+             if isinstance(response_bytes, (bytes, bytearray, memoryview)) else None)
     claims_req = "request_hash" in signed or "request_sha256" in signed
     claims_res = "response_hash" in signed or "response_sha256" in signed
-    if claims_req and req_h not in signed:
-        reasons.append(REASON_REQUEST_HASH)
-    elif not claims_req:
+    # DREI LAGEN JE ACHSE, nie zwei. Nicht behauptet: nicht messbar. Behauptet, aber ohne Bytes
+    # (req_h is None): ebenfalls nicht messbar — eine Ablehnung zu erfinden waere eine Aussage
+    # ueber Ungemessenes. Behauptet und mit Bytes: gemessen.
+    #
+    # GEMESSEN 04.09.2026, gefunden von mypy in der CI von PR 185 und zur Laufzeit nachgestellt:
+    # `None not in signed` ist ein TypeError, kein Urteil. Die Regressionsklammer aus 6ac2041
+    # deckte nur Belege, die KEINEN Hash behaupten; mit Behauptung und str statt bytes fiel die
+    # Flaeche weiter roh — der Typpruefer sah es, der Fuzz nicht.
+    if not claims_req:
         unmeasurable.append(REASON_REQUEST_HASH)
-    if claims_res and res_h not in signed:
-        reasons.append(REASON_RESPONSE_HASH)
-    elif not claims_res:
+    elif req_h is None:
+        unmeasurable.append(REASON_REQUEST_HASH)
+    elif req_h not in signed:
+        reasons.append(REASON_REQUEST_HASH)
+    if not claims_res:
         unmeasurable.append(REASON_RESPONSE_HASH)
+    elif res_h is None:
+        unmeasurable.append(REASON_RESPONSE_HASH)
+    elif res_h not in signed:
+        reasons.append(REASON_RESPONSE_HASH)
 
     # 4. Did the route silently move? A change of backend is an attestation failure, not a detail:
     #    the evidence describes a machine that did not serve this answer.
@@ -262,7 +307,8 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     normalised = normalise_provider_evidence(
         evidence, provider=provider, expected_binding=nonce,
-        request_id=req_h[:16], route=str(reported_route) if reported_route else None)
+        request_id=req_h[:16] if req_h else None,
+        route=str(reported_route) if reported_route else None)
 
     if reasons:
         outcome = OUTCOME_ATTESTATION_FAILURE
@@ -282,4 +328,7 @@ def counts_as_own_domain(receipt_check: dict) -> bool:
     would inflate the measured diversity of a panel with something nobody checked, which is the
     one thing a diversity floor must never do.
     """
-    return bool(receipt_check.get("outcome") == OUTCOME_ACCEPTED)
+    # Only a mapping can carry an outcome (lens 1 on PR 185, F8): `None`, a string or a list
+    # raised a raw AttributeError here — and this is the gate of the diversity floor, where
+    # "not judged" must read as "does not count", never as a crash.
+    return isinstance(receipt_check, dict) and receipt_check.get("outcome") == OUTCOME_ACCEPTED

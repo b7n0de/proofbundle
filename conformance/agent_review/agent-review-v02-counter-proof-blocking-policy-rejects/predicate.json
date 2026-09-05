@@ -1,0 +1,50 @@
+{
+  "coverage": {
+    "knownGaps": [
+      "nur eine Datei gelesen"
+    ],
+    "status": "PARTIAL"
+  },
+  "declaration": {
+    "authoring": [
+      {
+        "assertedBy": "x",
+        "assurance": "selfDeclared"
+      }
+    ],
+    "findings": [],
+    "findingsTotal": 0,
+    "nonClaims": [
+      "n"
+    ],
+    "reviewRuns": []
+  },
+  "limitationCodes": [
+    "COVERAGE_PARTIAL",
+    "CURRENTNESS_UNKNOWN",
+    "IDENTITY_UNBOUND",
+    "NOT_QUALITY_ATTESTATION",
+    "TIME_SELF_DECLARED"
+  ],
+  "limitations": [
+    "selbsterklaert, nicht unabhaengig bezeugt"
+  ],
+  "reviewId": "ar-v02-konformitaet",
+  "schemaVersion": "0.1.0",
+  "subjectContext": {
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "bodyCoreDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "disclosureCoreDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "forge": "github",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "githubPullRequest",
+    "pullRequestNodeId": "P",
+    "repositoryId": "R",
+    "reviewedDiffDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "times": {
+    "declaredAt": "2026-09-04T00:00:00Z",
+    "observedAt": null,
+    "signedAt": "2026-09-04T00:00:00Z"
+  }
+}

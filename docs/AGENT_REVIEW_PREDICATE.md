@@ -1,8 +1,11 @@
-# Agent review predicate `agent-review/v0.1`
+# Agent review predicate `agent-review/v0.1` and `agent-review/v0.2`
 
 Status: **v0.1, Tier 1 — a signed self-declaration.** Emitted and verified by
 `src/proofbundle/agent_review.py`; that module is the normative implementation, this document
-explains it. Conformance vectors live in `conformance/agent_review/`.
+explains it. Conformance vectors live in `conformance/agent_review/`. **Since 6.0.0 the emitter
+produces `agent-review/v0.2` without an argument**; v0.1 stays readable and its verifier is
+byte-pinned. What v0.2 adds is in the section *Version 0.2* at the end of this page; everything
+above it holds for both versions unless that section says otherwise.
 
 ## The one sentence everything follows from
 
@@ -113,6 +116,16 @@ The `Assurance` line reports the **weakest** rung present and the `Limits` line 
 predicate's own limitations verbatim: a reader who only skims the block must not come away with a
 stronger impression than a verifier would report.
 
+The renderers read the predicate version from the predicate (`timeClaims`, `limitationCodes` or
+`subjectContext.disclosureCoreDigest` select v0.2) unless the caller states it with
+`legacy_v01=`; an explicit answer always wins over the markers.
+
+**The `Receipt:` line is the sha256 of the receipt file as published** — the value a reader
+recomputes with `sha256sum` on the `.receipt.json`. It is not `receipt_digest()`, the canonical
+digest of the envelope that supersession (`priorDigest`) and `resolve_receipt_chain` key on. The two
+differ by construction; a correction must cite the canonical digest, and a block's file hash is a
+locator, not a chain key.
+
 ## Verification axes
 
 `verify_agent_review` reports separate axes and never a single collapsed verdict:
@@ -132,7 +145,7 @@ Three fields, and the distinction between them is the point:
 |---|---|---|
 | `reason_codes` | **only fatal** codes — reasons the receipt was rejected | you want to branch on *why* it failed |
 | `reason_code` | the **first** entry of `reason_codes`, else `None` | you want one label and accept that it is a sample |
-| `advisory_codes` | notes that do **not** determine the outcome (e.g. `LEGACY_SELF_DECLARED_OBSERVED_AT`) | you want context; never as a rejection reason |
+| `advisory_codes` | notes that do **not** determine the outcome (`LEGACY_SELF_DECLARED_OBSERVED_AT`, `POLICY_NOT_EVALUATED`, `AGENT_REVIEW_LEGACY_V01`, `ARGUMENT_NOT_APPLICABLE_TO_VERSION`) | you want context; never as a rejection reason |
 
 **Branch on `in reason_codes`, not on `reason_code ==`.** The scalar is the *first* fatal code in
 check order, so an unrelated second defect in the same receipt can displace it while the defect you
@@ -177,6 +190,71 @@ Three classifications, and the difference between the last two is the substance:
 `v0.1` is `0.1.x`. A change that alters what a receipt asserts, or what a verifier must reject, is a
 new version — not a patch. `predicateType` is read, not decoration: a receipt naming a version this
 verifier does not know is refused rather than guessed at.
+
+## Version 0.2 — the emitter's default since 6.0.0
+
+`emit_agent_review` and `build_agent_review_statement` produce v0.2 without an argument; v0.1 needs
+the explicit `legacy_v01=True`. v0.1 keeps working: `verify_agent_review` is byte-pinned to the
+5.1.0 source (a test resolves the function through `git show v5.1.0:` rather than trusting a typed
+digest), and the six published v0.1 receipts under `receipts/agent_review/` run as a regression
+against values that were measured under 5.1.0 and frozen in
+`conformance/agent_review/_regression/v01_unter_510.json`.
+
+What v0.2 adds, each with its conformance case:
+
+- **`subjectContext.disclosureCoreDigest` is required.** Without it the visible disclosure block is
+  unbound: an edit from `selfDeclared` to `independentlyWitnessed` in the text would leave every
+  digest unchanged.
+- **`limitationCodes` is required and derived**, never typed by hand: `derive_limitation_codes`
+  produces them from the predicate. The five codes are `IDENTITY_UNBOUND`, `TIME_SELF_DECLARED`,
+  `CURRENTNESS_UNKNOWN`, `COVERAGE_PARTIAL` and `NOT_QUALITY_ATTESTATION`; the last one is always
+  present, because no receipt of this kind says anything about the quality of the reviewed work.
+- **Time claims carry their source.** `declaration.timeClaims[]` entries have `kind`
+  (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value`,
+  `assertedBy` and `assurance`; `times.observedAt` is not allowed on a Tier 1 predicate, because an
+  observation without a named observer is not one. The verifier reports four time axes
+  (`event_time_status`, `observation_time_status`, `signature_time_status`,
+  `external_time_status`) with seven states (`ABSENT`, `SELF_DECLARED`, `RUNNER_OBSERVED`,
+  `PLATFORM_ATTESTED`, `EXTERNALLY_ANCHORED`, `CONFLICT`, `NOT_EVALUATED`) and never one
+  collapsed verdict about time.
+- **`fixCommit` is the full 40-character SHA.** Anything shorter is a validator error
+  (`FIXCOMMIT_NOT_FULL_SHA`): seven characters are a search query, not a reference.
+- **A named policy axis.** `verify_agent_review_v02(..., policy=load_policy())` evaluates the
+  derived limitation codes and the coverage status against a policy that is a file, not code. The
+  named standard policy ships inside the package as `proofbundle/policies/agent-review-default-v1.json` (resolved with `importlib.resources`, so an installed package finds it); the copy under `conformance/agent_review/policies/default_v1.json` is byte-identical and kept for readers of the corpus
+  (`agent-review/default`); its name and sha256 digest appear in the result, so a later reading can
+  say what the decision was made against. Decisions are `accept`, `reject` and
+  `insufficient_evidence` (a coverage that is not stated is the absence of evidence, not evidence of
+  a defect). Without a policy the result carries `policy_decision: null`, the advisory code
+  `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false; `ok` is unaffected, because a
+  check that was not run is not a failed check. A `reject` or an `insufficient_evidence` sets `ok`
+  to false. The policy file itself is validated before it decides: `blocking`, `never_blocking` and
+  `require_coverage_status` must be lists of known names (a string would be read as characters and
+  match nothing), and a `time` block, if present, must name a known kind. A policy that fails this
+  reaches the result as `POLICY_NOT_EVALUABLE` with `insufficient_evidence`.
+- **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
+  axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
+  `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak
+  one. A policy may additionally carry a `time` block; it is evaluated with `evaluate_time_policy`,
+  reported as `time_policy_decision`, and the stricter decision wins. The standard policy carries
+  none.
+- **One dispatcher for both versions.** `verify_agent_review_any` reads the `predicateType` and
+  reports `predicateVersionStatus`: `current` for v0.2, `legacy` for v0.1 (with the advisory code
+  `AGENT_REVIEW_LEGACY_V01` added and the v0.1 verdict left untouched), `unknown` for anything else
+  (refused with `AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN` before any signature check, so an unknown
+  version is never read under the rules of a known one). Keyword arguments are filtered per
+  version: one that neither version knows is a `TypeError` before the envelope is read, the same
+  for both; one that only the other version knows (today `policy=` on a v0.1 envelope) is dropped,
+  named in `warnings`, and marked with the advisory code `ARGUMENT_NOT_APPLICABLE_TO_VERSION`.
+
+Every rule above has a counter-proof and a positive control in `conformance/agent_review/`, and every
+counter-proof has a flip test in `tests/test_agent_review_conformance_runner.py` that removes exactly
+its defect and expects the verdict to turn.
+
+Honest limit of v0.2: it still emits only `selfDeclared` assurance. A receipt observed by a runner
+or witnessed independently needs a witness outside the agent's own workspace, which this version
+does not provide. And a v0.2 receipt can be verified with the published package only from 6.0.0 on;
+5.1.0 knows no v0.2 and refuses it by `predicateType`.
 
 ## Provenance of this design
 

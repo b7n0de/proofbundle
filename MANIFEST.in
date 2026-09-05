@@ -63,3 +63,8 @@ global-exclude *.py[cod]
 global-exclude *.so
 global-exclude *.rs
 global-exclude *.orig
+# Die sechs v0.1-Receipts und die zwei v0.2-Receipts: tests/test_agent_review_v01_regression.py
+# liest sie als Regression gegen die unter 5.1.0 gemessenen Urteile. Ohne diese Zeile stand das
+# Modul in der sdist als repo-context und uebersprang alle 20 Faelle (Linse 3 auf PR 185,
+# FUND-1) — dieselbe Klasse wie PB-2026-0717-02, PB-2026-0831-01 und PB-2026-0902-01.
+recursive-include receipts/agent_review *.receipt.json *.block.md *.publickey.hex

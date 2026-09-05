@@ -1,0 +1,18 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 A5 erste Haelfte, gebaut 04.09.2026 zu Teil A2/A3 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-counter-proof-unknown-predicate-type-is-refused",
+  "expected": {
+    "versionStatus": "unknown"
+  },
+  "input": "envelope.json",
+  "kind": "agent_review_predicate",
+  "params": {
+    "expectedSubjectDigest": "876f39fd4f114966328e9f53a1726144a53adf41262af507863f1cdbb18200df"
+  },
+  "rationale": "Die Weiche kennt v0.1 und v0.2 und weist alles andere ab (A2): ein Umschlag mit predicateType .../agent-review/v0.3 bekommt `predicateVersionStatus: unknown`, ok=False und den Code AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN \u2014 VOR jeder Signaturpruefung, damit eine unbekannte Fassung nie nach den Regeln einer bekannten gelesen wird. Die Signatur dieses Umschlags ist absichtlich die alte (sie gilt fuer die v0.2-Bytes): die Abweisung darf nicht vom Kryptourteil abhaengen. Entschaerfung: dasselbe Predicate als v0.2 neu ausgestellt ist `current`.",
+  "role": "counter_proof",
+  "rule": "A2",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A2"
+  ]
+}

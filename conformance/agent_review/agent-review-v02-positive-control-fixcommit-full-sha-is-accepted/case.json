@@ -1,0 +1,16 @@
+{
+  "attribution": "agent-review/v0.2 \u2014 gebaut 04.09.2026 zu Teil A5 des Auftrags QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01.",
+  "caseId": "agent-review-v02-positive-control-fixcommit-full-sha-is-accepted",
+  "expected": {
+    "classification": "valid"
+  },
+  "input": "predicate.json",
+  "kind": "agent_review_predicate",
+  "predicateVersion": "v0.2",
+  "rationale": "DIE GEGENRICHTUNG zu A4. Ohne sie waere die Regel nur eine Sperre, und ein Validator, der JEDEN fixCommit ablehnt, bestuende die Gegenprobe daruber ebenfalls. Erst das Paar zeigt, dass die Regel die LAENGE prueft und nicht das Vorhandensein des Feldes.",
+  "role": "positive_control",
+  "rule": "A4",
+  "specRefs": [
+    "Auftrag QITEM-PB-AGENT-REVIEW-V02-RELEASE-600-01, Teil A4"
+  ]
+}

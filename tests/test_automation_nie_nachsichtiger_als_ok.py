@@ -64,6 +64,11 @@ VARIANTEN = {
     "pfad": ["v0.1", "v0.2"],
     "ziel_erwartung": [None, "gesetzt", "falsch"],
     "sichtbarer_text": [None, "passend", "abweichend"],
+    # VIERTE ACHSE seit 04.09.2026. Vorher bewegte KEINE Variante die Policy — `policy_ok` blieb
+    # ueber die ganze Matrix auf einem Wert und war damit kein Kriterium, sondern ein konstanter
+    # Summand. Der Vollstaendigkeits-Test hat das gefangen, als die Achse ueberhaupt entstand;
+    # sie in UNBEWEGT_BEGRUENDET zu schieben waere die bequeme und falsche Antwort gewesen.
+    "policy": [None, "standard"],
 }
 
 
@@ -85,7 +90,9 @@ def _v02_predicate(doc):
 
 
 def _v02_umschlag(doc):
-    """Baut einen v0.2-Umschlag von Hand — `emit_agent_review` kennt nur den v0.1-Typ."""
+    """Baut einen v0.2-Umschlag von Hand. HISTORISCH: bis 6.0.0 konnte `emit_agent_review` nur
+    v0.1; seit dem Vorgabewechsel kann es beides, und dieser Handbau bleibt trotzdem stehen — er
+    prueft die Form UNABHAENGIG vom Aussteller, und genau das ist sein Wert."""
     import base64  # noqa: PLC0415
     import json  # noqa: PLC0415
 
@@ -103,7 +110,7 @@ def _v02_umschlag(doc):
             "signatures": [{"sig": base64.b64encode(sig).decode()}]}
 
 
-def _fahre(pfad, ziel, text):
+def _fahre(pfad, ziel, text, policy=None):
     """DIE INVARIANTE GILT FUER BEIDE VERIFIER.
 
     Bis zum 02.09.2026 lief diese Menge nur ueber v0.1. Eine adversariale Gegenlesung hat dann
@@ -117,9 +124,13 @@ def _fahre(pfad, ziel, text):
         env, pruefer = _v02_umschlag(doc), ar.verify_agent_review_v02
         digest = ar._subject_digest(_v02_predicate(doc))
     else:
-        env, pruefer = ar.emit_agent_review(doc, SK), ar.verify_agent_review
+        env, pruefer = ar.emit_agent_review(doc, SK, legacy_v01=True), ar.verify_agent_review
         digest = ar._subject_digest(doc)
     kw = {}
+    if policy == "standard" and pfad == "v0.2":
+        # v0.1 hat konzeptionell KEINE Policy-Achse (ihr Verifizierer kennt das Wort nicht) —
+        # ihr eine unterzuschieben pruefte eine Eigenschaft, die es dort nicht gibt.
+        kw["policy"] = ar.load_policy()
     if ziel == "gesetzt":
         kw["expected_subject_digest"] = digest
     elif ziel == "falsch":
@@ -131,10 +142,10 @@ def _fahre(pfad, ziel, text):
     return pruefer(env, PK, strict=True, **kw)
 
 
-@pytest.mark.parametrize("pfad,ziel,text", list(itertools.product(*VARIANTEN.values())))
-def test_safe_impliziert_ok(pfad, ziel, text):
+@pytest.mark.parametrize("pfad,ziel,text,policy", list(itertools.product(*VARIANTEN.values())))
+def test_safe_impliziert_ok(pfad, ziel, text, policy):
     """DIE INVARIANTE: safeForAutomation=True setzt ok=True voraus. Ueber die volle Kombination."""
-    r = _fahre(pfad, ziel, text)
+    r = _fahre(pfad, ziel, text, policy)
     a = r.get("automation") or {}
     if a.get("safeForAutomation") is True:
         assert r.get("ok") is True, (
@@ -145,8 +156,9 @@ def test_safe_impliziert_ok(pfad, ziel, text):
 def test_die_menge_enthaelt_ueberhaupt_einen_nicht_ok_fall():
     """GEGENPROBE. Ohne sie waere der Test oben gruen, weil er nie einen ok=False sieht — genau
     die Tautologie, die im Konformitaets-Korpus dieses Releases gefunden wurde."""
-    nicht_ok = [(p, z, t) for p in VARIANTEN["pfad"] for z in VARIANTEN["ziel_erwartung"]
-                for t in VARIANTEN["sichtbarer_text"] if _fahre(p, z, t).get("ok") is not True]
+    nicht_ok = [(p, z, t, pol) for p in VARIANTEN["pfad"] for z in VARIANTEN["ziel_erwartung"]
+                for t in VARIANTEN["sichtbarer_text"] for pol in VARIANTEN["policy"]
+                if _fahre(p, z, t, pol).get("ok") is not True]
     assert len(nicht_ok) >= 3, (
         f"nur {len(nicht_ok)} Kombinationen liefern ok!=True — die Menge prueft die Invariante "
         f"kaum: {nicht_ok}")
@@ -299,7 +311,26 @@ UNBEWEGT_BEGRUENDET = {
     "external_time_status": "v0.2-Zeitachse; braucht einen externen Anker, den dieser Aufruf nicht gibt",
     "observation_time_status": "v0.2-Zeitachse; braucht eine beobachtete Zeit",
     "signature_time_status": "v0.2-Zeitachse; braucht eine bezeugte Signaturzeit",
-    "policy_decision": "braucht eine uebergebene Policy; dieser Aufruf uebergibt keine",
+    # `policy_decision` ist am 04.09.2026 aus dieser Liste GEFALLEN: die neue Policy-Achse bewegt
+    # sie wirklich, und der Riegel `test_die_begruendete_liste_verrottet_nicht` hat das im selben
+    # Lauf gemeldet. Genau dafuer ist er da — eine Begruendung, die nicht mehr stimmt, deckt sonst
+    # etwas, das niemand mehr prueft.
+    #
+    # ZWEI NEUE EINTRAEGE, und sie sind KEINE Urteilsachsen: `policy_name` und `policy_digest`
+    # sagen, GEGEN WAS entschieden wurde, nicht WIE. Sie nehmen genau einen Wert an, weil die
+    # Matrix genau eine benannte Policy fuehrt. Eine zweite, erfundene Policy nur dafuer zu bauen
+    # bewegte die Achse, ohne eine Eigenschaft zu pruefen — das waere ein Test ueber die Matrix
+    # statt ueber den Code.
+    "policy_name": "Identitaet der Policy, kein Urteil; die Matrix fuehrt genau eine benannte",
+    "policy_digest": "Fassung der Policy, kein Urteil; bewegt sich erst mit einer zweiten Policy",
+    # ── seit dem 05.09.2026 (Linse 1 auf PR 185, F1) ───────────────────────────────────────────
+    # `time_consistency_ok` haengt an den timeClaims IM DOKUMENT (zwei einander widersprechende
+    # reviewCompleted-Zeiten), nicht am Aufruf — dieselbe Klasse wie findings_root_ok. Dass sie
+    # `ok` wirklich kippt, misst tests/test_linsen_pr185_funde.py am Dokument.
+    # `time_policy_decision` bewegt sich erst mit einer Policy, die einen `time`-Block fuehrt; die
+    # Matrix fuehrt genau die benannte Standard-Policy, und die hat keinen.
+    "time_consistency_ok": "haengt an den timeClaims im Dokument, nicht am Aufruf; eigene Testdatei",
+    "time_policy_decision": "bewegt sich erst mit einer Policy, die `time` fuehrt; die Matrix fuehrt genau eine benannte ohne",
 }
 
 #: Werte, die NICHT als Urteil zaehlen: Sammelbehaelter und das Urteil selbst.
@@ -310,8 +341,8 @@ _KEINE_ACHSE = ("ok", "errors", "warnings", "reason_code", "reason_codes", "advi
 def _achsen_und_werte():
     """Welche Achse nahm ueber die volle Matrix welche Werte an? GEMESSEN, nicht aufgezaehlt."""
     gesehen: dict[str, set] = {}
-    for pfad, ziel, text in itertools.product(*VARIANTEN.values()):
-        r = _fahre(pfad, ziel, text)
+    for pfad, ziel, text, policy in itertools.product(*VARIANTEN.values()):
+        r = _fahre(pfad, ziel, text, policy)
         for k, v in r.items():
             if k in _KEINE_ACHSE or isinstance(v, (list, dict)):
                 continue
