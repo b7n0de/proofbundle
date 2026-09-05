@@ -8,6 +8,9 @@ nur aus Evidenz bilden, die
         einem EINGECHECKTEN Vertrauensanker verifiziert,
   P-A2  den exakten Kandidaten bindet (Commit, Baumkennung, sdist- und wheel-Digest), wobei die
         Baumkennung gegen den lebenden Baum nachgerechnet wird,
+  P-A2b die GATE-ZEILE des entscheidenden Deep-Gate-Laufs traegt, deren ``head`` an den
+        ``candidate.commit`` gebunden ist — damit die Baumaschine nicht ihre eigene Freigabe
+        beglaubigt (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18),
   P-A3  Schema, Erzeuger, Werkzeugversion, Eingabe-Digest, Zeit und Signiererrolle nennt,
   P-A4  frisch ist,
   P-A5  Arbeitszaehler ungleich null traegt — ein signiertes „ok" ueber Nullzaehlern ist kein Beleg,
@@ -125,6 +128,23 @@ def _baum_digest(repo: Path) -> str:
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
+# ── Die Gate-Zeile, Form abgelesen am Lauf-4-Verdikt ──────────────────────────────────────────
+#
+# `office/governance/deepgate_600_lauf3/gate_result_600_lauf4b_FIX_FIRST.json` traegt unter
+# `notes.gate_zeile` ein OBJEKT mit 20 Feldern. Verlangt werden hier die fuenf, die die Zeile zu
+# einer BINDUNG machen. Der WERT fuer 6.0.0 entsteht erst im Release-Zug (Verdikt Lauf 5); geprueft
+# wird deshalb die FORM und die Bindung an den Kandidaten, nicht ein konkreter Digest.
+def _gate_zeile(commit: str, *, workflow_sha: str | None = None) -> dict:
+    return {
+        "gate_version": "v4",
+        "workflow_datei": "office/governance/deepgate_600_lauf3/berkeley_gate_workflow_600.js",
+        "workflow_sha256": workflow_sha or ("5" * 64),
+        "modus": "DEEP 6L/7I",
+        "head": commit,
+        "sitzungsmodell": "claude-opus-5 (Claude Opus 5, 1M context)",
+    }
+
+
 _SOAK_GUT = {
     "schema": "proofbundle.fuzz_soak.v1",
     "seed": 7,
@@ -235,6 +255,18 @@ def matrix_zellen():
          _mut(lambda b: b["candidate"].__setitem__("sdist_sha256", "f" * 64)), True),
         ("kandidat_falscher_wheel_digest",
          _mut(lambda b: b["candidate"].__setitem__("wheel_sha256", "e" * 64)), True),
+        # RELEASE-STANDARD 6.0.0 ZEILE 18: die Gate-Zeile ist eine EIGENE Verletzungsklasse neben
+        # der Kandidatenbindung. Die Bindung sagt WELCHE Version gemessen wurde, die Gate-Zeile
+        # sagt, WELCHES Tor sie durchgelassen hat — eine Baumaschine, die nur die erste traegt,
+        # beglaubigt weiterhin ihre eigene Freigabe. Beide Gruppen stehen hier, nicht die eine ODER
+        # die andere; der Merge-Konflikt am 2026-09-07 kam allein daraus, dass beide an derselben
+        # Stelle in dieselbe Zellenliste geschrieben werden.
+        ("gate_zeile_fehlt", _mut(lambda b: b.pop("gate_zeile", None)), True),
+        ("gate_zeile_fremder_lauf",
+         _mut(lambda b: b["gate_zeile"].__setitem__("head", "9" * 40)), True),
+        ("gate_zeile_unformig",
+         _mut(lambda b: b["gate_zeile"].__setitem__("workflow_sha256", "kein-digest")), True),
+        ("gate_zeile_kein_objekt", _mut(lambda b: b.__setitem__("gate_zeile", "RUN")), True),
         ("erzeuger_fehlt", _mut(lambda b: b.pop("producer", None)), True),
         ("werkzeugversion_fehlt", _mut(lambda b: b["producer"].pop("tool_version", None)), True),
         ("eingabe_digest_fehlt", _mut(lambda b: b.pop("input_digest", None)), True),
@@ -331,6 +363,7 @@ def _rumpf(welt, gut: dict) -> dict:
     b["version"] = VERSION
     b["candidate"] = {"commit": welt["commit"], "tree_digest": welt["tree"],
                       "sdist_sha256": welt["sdist_sha256"], "wheel_sha256": welt["wheel_sha256"]}
+    b["gate_zeile"] = _gate_zeile(welt["commit"])
     b["producer"] = {"tool": "scripts/fuzz_soak.py", "tool_version": VERSION}
     b["input_digest"] = "c" * 64
     b["signer_role"] = "readiness_und_register_signierer_600"
@@ -803,6 +836,20 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     roh.write_text(json.dumps(_SOAK_GUT, indent=2), encoding="utf-8")
     m.REPO = welt["repo"]
     m.VERSION_UNDER_TEST = VERSION
+    # DIE VERDIKT-DATEI, aus der die Gate-Zeile WOERTLICH kopiert wird — sie steht hier, weil der
+    # emit-Aufruf weiter unten sie braucht.
+    #
+    # WAS AUS 3f15b4b BEWUSST NICHT UEBERNOMMEN IST (Merge 2026-09-07): dieser Commit brachte an
+    # dieser Stelle die damalige INLINE-Fassung desselben Tests mit, samt `--privkey-file`. Dieses
+    # Flag existiert seit Auflage C9 (Runde 2) nicht mehr — es gibt keinen Codepfad im Erzeuger, der
+    # einen privaten Schluessel liest. Ein Test, der es faehrt, pruefte nicht den Erzeuger, sondern
+    # nur seine Argumentpruefung. Uebernommen ist die ABSICHT — die Gate-Zeile wird KOPIERT statt
+    # komponiert —, gefahren auf dem schluessellosen emit/assemble-Weg, den es wirklich gibt.
+    verdikt_datei = welt["repo"] / "gate_result.json"
+    verdikt_datei.write_text(
+        json.dumps({"verdict": "WITHSTANDS_DEEPGATE", "head": welt["commit"],
+                    "notes": {"gate_zeile": _gate_zeile(welt["commit"])}}, indent=2),
+        encoding="utf-8")
 
     # ── DIE SCHLUESSELLOSE ZWEITEILUNG, und sie wird gefahren statt nur beschrieben ──────────────
     # Der Freigabe-Schluessel liegt beim Owner, nicht auf dem Bauwirt. Deshalb gibt es emit/assemble
@@ -819,6 +866,7 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
          # AUFLAGE C2 (Runde 2): keine frei erfundenen Digest-Strings mehr — das Tor rechnet
          # sdist/wheel jetzt aus den ECHTEN Dateien in dist/ nach (von der Fixture abgelegt).
          "--sdist-sha256", welt["sdist_sha256"], "--wheel-sha256", welt["wheel_sha256"],
+         "--gate-zeile-aus-verdikt", str(verdikt_datei),
          "--emit-payload", str(nutzlast), "--context-out", str(kontext)],
         capture_output=True, text=True, timeout=120)
     assert r2.returncode == 0, f"emit scheiterte: {r2.stdout}\n{r2.stderr}"
@@ -832,10 +880,19 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
         capture_output=True, text=True, timeout=120)
     assert r3.returncode == 0, f"assemble scheiterte: {r3.stdout}\n{r3.stderr}"
     gebaut = json.loads(ziel2.read_text(encoding="utf-8"))
-    for feld in ("candidate", "producer", "input_digest", "signer_role", "produced_at", "signature"):
+    for feld in ("candidate", "gate_zeile", "producer", "input_digest", "signer_role",
+                 "produced_at", "signature"):
         assert feld in gebaut, f"der Erzeuger legt {feld} nicht an"
     assert gebaut["candidate"]["tree_digest"] == welt["tree"]
     assert gebaut["candidate"]["commit"] == welt["commit"]
+    # WOERTLICH uebernommen, nicht zusammengesetzt: was im Verdikt steht, steht im Rumpf. Das ist die
+    # eigentliche Zusicherung des Standards — ein Erzeuger, der die Zeile formen koennte, waere
+    # wieder die Baumaschine, die ihre eigene Freigabe beglaubigt.
+    aus_verdikt = json.loads(verdikt_datei.read_text(encoding="utf-8"))["notes"]["gate_zeile"]
+    assert gebaut["gate_zeile"] == aus_verdikt, "die Gate-Zeile wurde veraendert statt kopiert"
+    assert "gate_zeile" not in gebaut["signature"], (
+        "die Gate-Zeile steht im UMSCHLAG statt im Rumpf — dort waere sie unsigniert und damit "
+        "Dekoration statt Bindung")
     verdikt2, grund2 = m.c6_2_recorded_soak_clean()
     assert verdikt2 == m.PASS, f"die schluessellos zusammengesetzte Evidenz wird abgelehnt: {grund2}"
 
@@ -851,7 +908,46 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     assert not (welt["repo"] / "darf_nicht_entstehen.json").exists(), \
         "ein schlechtes Paar wurde trotzdem geschrieben"
 
-    for p in (roh, nutzlast, kontext, sig):
+    for p in (roh, verdikt_datei, nutzlast, kontext, sig):
+        p.unlink(missing_ok=True)
+
+
+@_braucht_krypto
+def test_der_erzeuger_erfindet_keine_gate_zeile(welt):
+    """Der Erzeuger darf die Gate-Zeile nur KOPIEREN. Ein Verdikt ohne ``notes.gate_zeile`` muss ihn
+    abbrechen lassen — sonst waere er wieder die Baumaschine, die ihre eigene Freigabe beglaubigt
+    (Release-Standard 6.0.0 vom 05.09.2026, Zeile 18).
+
+    PORTIERT AUF DEN SCHLUESSELLOSEN WEG (Merge 2026-09-07): 3f15b4b fuhr diesen Fall mit
+    ``--privkey-file``, das es seit Auflage C9 nicht mehr gibt. Gemessen wird derselbe Abbruch am
+    emit-Schritt — und das ist sogar die schaerfere Stelle, denn dort entstehen die Bytes, die
+    spaeter jemand signiert.
+    """
+    roh = welt["repo"] / "roh2.json"
+    roh.write_text(json.dumps(_SOAK_GUT, indent=2), encoding="utf-8")
+    ohne = welt["repo"] / "verdikt_ohne_zeile.json"
+    ohne.write_text(json.dumps({"verdict": "WITHSTANDS_DEEPGATE", "notes": {}}), encoding="utf-8")
+    nutzlast = welt["repo"] / "darf_nicht_entstehen_payload.bin"
+    kontext = welt["repo"] / "darf_nicht_entstehen_context.json"
+    gemeinsam = [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
+                 "--repo", str(welt["repo"]), "--in", str(roh),
+                 "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
+                 "--input-digest", "d" * 64,
+                 "--signer-role", "readiness_und_register_signierer_600",
+                 "--sdist-sha256", welt["sdist_sha256"], "--wheel-sha256", welt["wheel_sha256"],
+                 "--emit-payload", str(nutzlast), "--context-out", str(kontext)]
+    r = subprocess.run(gemeinsam + ["--gate-zeile-aus-verdikt", str(ohne)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode != 0, f"der Erzeuger hat eine Gate-Zeile erfunden: {r.stdout}"
+    assert "notes.gate_zeile" in (r.stdout + r.stderr), (
+        f"der Abbruch nennt seinen Grund nicht: {r.stdout}\n{r.stderr}")
+    assert not nutzlast.exists(), "trotz fehlender Gate-Zeile wurden signierbare Bytes geschrieben"
+    # Und ganz OHNE die Flagge bricht er ebenfalls ab, statt das Feld stillschweigend wegzulassen.
+    r2 = subprocess.run(gemeinsam, capture_output=True, text=True, timeout=120)
+    assert r2.returncode != 0 and "gate-zeile-aus-verdikt" in (r2.stdout + r2.stderr), (
+        f"eine fehlende Flagge liess den Erzeuger durchlaufen: {r2.stdout}\n{r2.stderr}")
+    assert not nutzlast.exists()
+    for p in (roh, ohne):
         p.unlink(missing_ok=True)
 
 

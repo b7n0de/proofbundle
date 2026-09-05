@@ -10,11 +10,20 @@ WHAT IT ADDS to a raw measurement artifact (e.g. what ``fuzz_soak.py`` writes):
 
     version        the release under test, read from pyproject.toml unless given
     candidate      commit + tree_digest + sdist_sha256 + wheel_sha256 — the exact candidate
+    gate_zeile     the gate line of the DECIDING deep-gate verdict, copied VERBATIM out of that
+                   verdict file — never composed here (release standard 6.0.0, 2026-09-05, line 18)
     producer       tool + tool_version — WHO measured
     input_digest   the corpus/input the measurement consumed
     produced_at    when, RFC-3339 UTC, measured by the runner
     signer_role    the role the signing key speaks for
     signature      ed25519 over the RFC-8785 canonical bytes of everything above
+
+WHY THE GATE LINE IS NOT OPTIONAL. The standard says it in one sentence: "Damit die Baumaschine
+nicht ihre eigene Freigabe beglaubigt, traegt jedes signierte Artefakt Kandidatenbindung … und die
+Gate-Zeile des Lauf-5-Verdikts als Feld. Der Verifier prueft die Bindung, nicht nur die Signatur."
+A machine that measures, signs and releases attests only that IT was the author. The gate line is the
+foreign instance inside the signed body — so this script cannot COMPOSE one: it can only copy
+``notes.gate_zeile`` out of a verdict file, and it refuses when that file does not carry one.
 
 ``tree_digest`` is the same quantity a pre-tag receipt binds, narrowed for the deliberately-mutable
 release-evidence files: sha256 over the sorted ``git ls-tree -r HEAD`` lines EXCLUDING exactly the
@@ -24,6 +33,13 @@ releases' historical records) IS part of the bound tree (deep gate 2026-09-05, N
 Auflage C3: "audit_artifacts nicht pauschal aus dem Baumdigest ausschliessen" — a whole-directory
 exclusion let a key be introduced in the very build path it would go on to authorise, invisibly to
 this binding).
+
+AUFLOESUNG DES MERGE-KONFLIKTS 2026-09-07, damit sie nachvollziehbar ist statt stillschweigend:
+`3f15b4b` wurde gegen `bedb0a5` geschrieben und brachte hier den DAMALIGEN tree_digest-Satz mit,
+der das ganze Verzeichnis ``audit_artifacts/`` ausschliesst. Genau diesen Satz hat der Kandidat
+seither durch Auflage C3 ersetzt. Uebernommen ist deshalb der Gate-Zeilen-Absatz, NICHT der
+veraltete tree_digest-Absatz — sonst haette der Docstring zwei einander widersprechende Regeln fuer
+dieselbe Groesse getragen, und der Code haette die eine, der Leser die andere geglaubt.
 
 TWO MODES, the same signed body in both (mirrors scripts/pre_tag_receipt.py's split, and for the
 same reason: the release private key lives on the owner's machine, never on the build host) —
@@ -51,6 +67,7 @@ Usage (keyless, both steps run — possibly on different hosts):
   sign_readiness_artifact.py --in audit_artifacts/600/fuzz_soak_latest.json \\
       --producer-tool scripts/fuzz_soak.py --producer-tool-version 6.0.0 \\
       --input-digest <sha256 of the corpus> --signer-role release-runner \\
+      --gate-zeile-aus-verdikt <deep-gate verdict json> \\
       --sdist dist/proofbundle-6.0.0.tar.gz --wheel dist/proofbundle-6.0.0-py3-none-any.whl \\
       --emit-payload /tmp/payload.bin --context-out /tmp/context.json
   # ... the key holder signs /tmp/payload.bin out of band, producing sig.b64 ...
@@ -166,6 +183,25 @@ def file_sha256(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
+def gate_zeile_aus_verdikt(pfad: Path) -> dict:
+    """Die Gate-Zeile WOERTLICH aus dem Verdikt des entscheidenden Laufs holen.
+
+    Nicht zusammensetzen, nicht ergaenzen, nicht normalisieren — kopieren. Ein Erzeuger, der die
+    Gate-Zeile selbst bauen koennte, waere wieder die Baumaschine, die ihre eigene Freigabe
+    beglaubigt. Fehlt ``notes.gate_zeile``, bricht das hier ab statt ein Feld zu erfinden.
+    """
+    try:
+        verdikt = json.loads(Path(pfad).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"gate line: verdict file {pfad} is unreadable: {exc}")
+    if not isinstance(verdikt, dict):
+        raise SystemExit(f"gate line: verdict file {pfad} is not a JSON object")
+    zeile = (verdikt.get("notes") or {}).get("gate_zeile")
+    if not isinstance(zeile, dict) or not zeile:
+        raise SystemExit(f"gate line: {pfad} carries no notes.gate_zeile — refusing to invent one")
+    return zeile
+
+
 def canonical_bytes(body: dict) -> bytes:
     """The exact bytes signed and verified: RFC-8785 over the body WITHOUT the signature wrapper.
 
@@ -179,8 +215,12 @@ def canonical_bytes(body: dict) -> bytes:
 
 def build_body(measurement: dict, *, repo: Path, version: str, producer_tool: str,
                producer_tool_version: str, input_digest: str, signer_role: str,
-               sdist_sha256: str, wheel_sha256: str, produced_at: str) -> dict:
-    """The signed body: the measurement plus its provenance and its candidate binding."""
+               sdist_sha256: str, wheel_sha256: str, produced_at: str,
+               gate_zeile: dict) -> dict:
+    """The signed body: the measurement, its provenance, its candidate binding AND the gate line.
+
+    The gate line sits INSIDE the body, not in the envelope — the envelope is not signed, so a gate
+    line outside it would bind nothing and be decoration."""
     body = {k: v for k, v in measurement.items() if k != SIGNATURE_KEY}
     body["version"] = version
     body["candidate"] = {
@@ -191,6 +231,12 @@ def build_body(measurement: dict, *, repo: Path, version: str, producer_tool: st
     }
     # Auflage C3, dritter Teil: das Artefakt bindet den Ankerzustand, unter dem es entstand.
     body["trust_anchor_digest"] = trust_anchor_digest(repo)
+    # Release-Standard 6.0.0 Zeile 18: das Artefakt bindet zusaetzlich das Verdikt des Tores.
+    # Die beiden Felder konkurrieren nicht — sie beantworten verschiedene Fragen. Der Ankerdigest
+    # sagt, UNTER WELCHER Vertrauensbasis gemessen wurde; die Gate-Zeile sagt, WELCHES Tor den
+    # Kopf durchgelassen hat. Der Merge-Konflikt entstand nur daraus, dass beide Zeilen an
+    # derselben Stelle in denselben Rumpf geschrieben werden.
+    body["gate_zeile"] = gate_zeile
     body["producer"] = {"tool": producer_tool, "tool_version": producer_tool_version}
     body["input_digest"] = input_digest
     body["signer_role"] = signer_role
@@ -242,6 +288,9 @@ def main(argv=None) -> int:
     p.add_argument("--producer-tool-version", default=None)
     p.add_argument("--input-digest", default=None, help="sha256 (hex) of the corpus/input consumed")
     p.add_argument("--signer-role", default=None, help="e.g. release-runner")
+    p.add_argument("--gate-zeile-aus-verdikt", type=Path, default=None,
+                   help="deep-gate verdict json; notes.gate_zeile is copied VERBATIM into the "
+                        "signed body (never composed here)")
     p.add_argument("--sdist", type=Path, default=None, help="the candidate sdist (digested here)")
     p.add_argument("--wheel", type=Path, default=None, help="the candidate wheel (digested here)")
     p.add_argument("--sdist-sha256", default=None, help="instead of --sdist, when only the digest is at hand")
@@ -267,8 +316,13 @@ def main(argv=None) -> int:
         print(f"assembled signed evidence -> {args.out}")
         return 0
 
-    _need(args, ["in", "producer-tool", "producer-tool-version", "input-digest", "signer-role"],
-          "emit")
+    # Die Gate-Zeile ist PFLICHT, nicht optional: fehlt die Flagge, bricht das Werkzeug hier ab,
+    # statt ein Artefakt ohne Tor-Bindung zu emittieren. Die Modusbezeichnung heisst "emit" und
+    # nicht mehr "emit/inline" wie in 3f15b4b — die dritte, inline signierende Form gibt es seit
+    # Auflage C9 (Runde 2) nicht mehr, und ein Modusname fuer einen Modus, den es nicht gibt,
+    # waere eine Meldung, die den Leser an einen Weg schickt, der nicht existiert.
+    _need(args, ["in", "producer-tool", "producer-tool-version", "input-digest", "signer-role",
+                 "gate-zeile-aus-verdikt"], "emit")
     version = args.version or pyproject_version(repo)
     if not version:
         raise SystemExit("cannot read the release version from pyproject.toml — pass --version")
@@ -282,7 +336,8 @@ def main(argv=None) -> int:
                       producer_tool=args.producer_tool,
                       producer_tool_version=args.producer_tool_version,
                       input_digest=args.input_digest, signer_role=args.signer_role,
-                      sdist_sha256=sdist, wheel_sha256=wheel, produced_at=produced_at)
+                      sdist_sha256=sdist, wheel_sha256=wheel, produced_at=produced_at,
+                      gate_zeile=gate_zeile_aus_verdikt(args.gate_zeile_aus_verdikt))
 
     # KEINE dritte, inline Signierform mehr (Auflage C9, Runde 2). Wer signieren will, laesst diesen
     # Prozess NUR die kanonischen Bytes emittieren (--emit-payload) und packt die extern erzeugte
