@@ -161,3 +161,77 @@ Erzeuger auf, statt ein zweites Mal zu implementieren) + `_anchor_last_touched_a
 traegt dieselbe pauschale Ordner-Ausschluss-Form ("Option C, owner-GO" — bereits einmal durch ein
 Deep-Gate gegangen). Bindet echte, bereits ausgelieferte v5.0.0/v5.1.0-Receipts; eine Aenderung dort
 wuerde deren Nachpruefbarkeit brechen und liegt ausserhalb dieses Auftrags.
+
+---
+
+## NACHTRAG 2026-09-06 zu KLASSE-E-2026-0905 — die dort offene Owner-Frage ist beantwortet
+
+Der Absatz „Nachbarn im selben Durchgang geprueft, NICHT gefixt" oben endet mit
+„Owner-Entscheidung noch ausstehend, ob dieselbe Trennung dort nachgezogen wird". Sie steht seit
+dem 06.09.2026 (Karte OA-8b1a31cc4f). Der Eintrag selbst bleibt unveraendert, weil dieser Ledger
+append-only ist; was gilt, steht hier.
+
+**Die Entscheidung.** Nur Packaging, mit zwei Auflagen. `scripts/pre_tag_receipt.py` BEHAELT den
+Inline-Modus, weil er der Owner-Signierweg am Mac ist und die bereits ausgelieferten v5.0.0- und
+v5.1.0-Receipts an ihm haengen. Dafuer (1) faellt das Skript aus dem sdist — `MANIFEST.in` fuehrt
+seit dem 06.09. eine namentliche Liste statt `graft scripts` und laesst es weg — und (2) traegt es
+eine Sperre gegen Ausfuehrung auf dem Bau-Konto (`_inline_erlaubt_oder_stop`, vor der
+Schluesselabfrage, Freigabe nur ueber `PB_INLINE_SIGNING=1`).
+
+**Was das an der Klasse aendert und was nicht.** Die Instanz ist entschaerft: kein ausgeliefertes
+Skript liest mehr einen privaten Schluessel, und auf dem messenden Konto laeuft der Weg nicht mehr.
+Die KLASSE bleibt OFFEN — die Selbstbeglaubigungs-Bauform existiert im Repo weiter, sie ist nur
+nicht mehr ausgeliefert und nicht mehr unbeaufsichtigt ausfuehrbar. Sie ist als `N14` in
+`RESTRISIKO_600.md` gefuehrt und wird mit 6.1 neben `b7sign` auf dieselbe emit/assemble-Trennung
+umgebaut. Ein Eintrag hier waere sonst zu frueh geschlossen worden, und ein zu frueh geschlossener
+Klasseneintrag ist schlimmer als keiner.
+
+**Auch veraltet im Eintrag oben, damit es niemand als heutigen Zustand liest:** die „Verletzte
+Invariante" beschreibt den Auslieferungsweg mit `MANIFEST.in: graft scripts`. Diese Zeile gibt es
+seit dem 06.09. nicht mehr.
+
+---
+
+## KLASSE-F-2026-0906 — Zwei Lanes vergeben unabhaengig dieselbe Ledger-Kennung
+
+**Verletzte Invariante.** In einem append-only Ledger bezeichnet eine Kennung FUER IMMER genau eine
+Sache. Belege, Commits, Berichte und spaetere Eintraege verweisen auf sie; zwei Klassen unter einem
+Namen machen jeden dieser Verweise rueckwirkend zweideutig — und zwar still, ohne dass irgendwo
+etwas rot wird. Das ist keine Unordnung, sondern der Verlust genau der Eigenschaft, wegen der ein
+Ledger append-only gefuehrt wird.
+
+**ODC.** defect_type = assignment (Kennungsvergabe ohne globale Sicht) · trigger = concurrent
+branches / parallel lanes · source_layer = evidence-ledger.
+
+**Wie es auffiel.** Probe-Merge der vier Lanes auf den Mergekopf `48159022`, 06.09.2026. Zwei der
+drei Konflikte waren reine Anhaengekonflikte, der dritte war es NICHT: `framing2` hatte
+`KLASSE-C-2026-0905` fuer „Eine Zusicherung verkleinert ihre eigene Positivmenge" vergeben,
+`matrix2` unabhaengig dieselbe Kennung fuer „Selbstbeglaubigung". Wer den Konflikt stumpf aufloest
+und beide Bloecke behaelt — die naheliegendste Handlung — haette den Doppelnamen dauerhaft in den
+Ledger geschrieben.
+
+**Warum es kein Zufall war.** Die Kennung wird aus einem Buchstaben und dem Datum gebildet. Keine
+Lane sieht, welchen Buchstaben eine andere am selben Tag schon nahm. Parallele Lanes MUESSEN also
+kollidieren, sobald zwei am selben Tag eine Klasse schliessen; die Frage war nie ob, nur wann.
+
+**Wo die Klasse jetzt lebt.** `tests/test_klassen_ledger_kennungen_eindeutig.py`. Der Riegel liegt
+bewusst im Testbaum jeder Lane und nicht in einem Merge-Werkzeug: so faellt die Kollision in dem
+Augenblick auf, in dem sie real wird — beim ersten Suitenlauf auf dem zusammengefuehrten Baum —
+statt erst dann, wenn ein Mensch den Ledger liest.
+
+**Orakel.** Sechs Pruefungen: Eindeutigkeit; jede Kennung traegt einen tragfaehigen Titel (ein
+Platzhalter ist die Stelle, an der zwei Lanes wieder kollidieren); ein Gate-Meta-Test mit einer in
+eine KOPIE des echten Textes gepflanzten Dublette; Gedanken- und Bindestrich; und zwei Tests gegen
+den TATSAECHLICHEN Vorfall — `TestGegenDenEchtenVorfall` baut aus den echten Commits die stumpfe
+Merge-Aufloesung nach und verlangt, dass sie `KLASSE-C` zweimal zaehlt, waehrend die Gegenrichtung
+verlangt, dass derselbe Riegel nach der Umbenennung still bleibt. Ein Riegel, der auch den
+reparierten Zustand rot faerbt, haette nichts gemessen, sondern nur zugemacht.
+
+**Ehrliche Grenze — die Klasse ist halb geschlossen.** Geschlossen ist die ERKENNUNG. Die VERGABE
+ist unveraendert: es gibt kein Werkzeug, das die naechste freie Kennung aus dem Ledger-Stand
+ableitet, der Ledger wird von Hand geschrieben. Der Buchstabe `F` dieses Eintrags wurde deshalb
+von Hand gegen alle vier Lanes geprueft (framing2: A B C · renewal2: A B · matrix2: A B D E ·
+nachlauf: kein Ledger) — also genau die Handarbeit, die die Klasse eigentlich abschaffen soll. Ein
+Vergabe-Werkzeug in einer release-nahen Lane einzufuehren waere mehr Risiko als Nutzen; es gehoert
+nach 6.0.0. Bis dahin faengt der Riegel das Ergebnis, und diese Zeile haelt fest, dass die Ursache
+noch steht.
