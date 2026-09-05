@@ -22,9 +22,28 @@ proofbundle lets a verifier check **which key signed the exact bytes** and **whe
 
 **One file. No verification server. No network required.**
 
-[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [New in 5.1.0](#new-in-510) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) · [Documentation](#documentation)
+[Quick start](#quick-start) · [What it proves](#what-a-receipt-proves) · [New in 6.0.0](#new-in-600) · [New in 5.1.0](#new-in-510) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md) · [Documentation](#documentation)
 
 </div>
+
+## New in 6.0.0
+
+[proofbundle 6.0.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.0.0) makes `agent-review/v0.2`
+what the emitter produces without an argument. That is the one break of this MAJOR: v0.1 needs an explicit
+`legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as
+`predicateVersionStatus: legacy` by the new dispatcher `verify_agent_review_any`. v0.2 requires
+`subjectContext.disclosureCoreDigest` and derived `limitationCodes`, separates time claims by source,
+accepts only the full 40-character `fixCommit`, and carries a named policy axis: `verify_agent_review_v02`
+evaluates the derived codes and the coverage status against a policy that is a file (the standard one ships
+in the package and its digest appears in the result), with three decisions, `accept`, `reject` and
+`insufficient_evidence`.
+
+Two things a relying party should know. A receipt whose own time claims contradict each other is now
+rejected with `TIME_CLAIMS_CONFLICT` regardless of policy, and a malformed policy file is refused before it
+decides (`POLICY_NOT_EVALUABLE`), never read as a permissive one. Non-fatal notes such as
+`POLICY_NOT_EVALUATED` and `AGENT_REVIEW_LEGACY_V01` live in `advisory_codes`; `reason_codes` is empty for
+a valid receipt. The six published v0.1 receipts verify as before; the full list is in the
+[CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md).
 
 ## New in 5.1.0
 

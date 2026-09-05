@@ -8,9 +8,6 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-- docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
-  by a witnessed checkpoint (SPEC 7d).
-
 ### Added
 
 - **Coverage in the language of CAP-1, target 6.1.0 (not part of 6.0.0).** A `proofbundle.cap1` module
@@ -28,6 +25,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   disagrees is rejected (`COVERAGE_CAP1_STATUS_CONTRADICTS_STRATA`). The older counters stay readable as
   aliases with a stated decay (COMPATIBILITY.md); a v0.2 receipt without strata carries the advisory
   code `COVERAGE_LEGACY_FIELDS`. v0.1 rejects the three fields as unknown.
+
+## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
+
+**The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.
+
 
 ### Changed
 
@@ -141,6 +143,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - **Shard partition is weighted rather than round-robin.** The wall clock of the matrix is set by
   its longest shard, not by the mean; on the first sharded run the shards spanned 931 s to 1232 s
   around a mean of 1116 s. Operator durations are recorded per run and used to balance the shards.
+
+### Documentation
+
+- docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
+  by a witnessed checkpoint (SPEC 7d).
 
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 

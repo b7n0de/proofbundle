@@ -254,6 +254,22 @@
         "conformance vectors exist for R1 to R4 only; R5 and R6 carry none. R5 states its requirement and points at CAP-1 (draft-hillier-coverage-attestation-00) by decision, not by omission; R6 is a governance rule"
       ],
       "status": "filled"
+    },
+    "6.0.0": {
+      "delivers": [
+        "agent-review/v0.2 is what the emitter produces without an argument (PR 185, merge commit 1ea7e523 on 2026-09-05): required disclosureCoreDigest, derived limitationCodes, time claims by source, full 40-character fixCommit, a named policy axis with three decisions, and one dispatcher for both versions. The v0.1 verifier is byte-pinned to the 5.1.0 source and the six published v0.1 receipts run as a regression against values frozen under 5.1.0",
+        "the standard policy ships inside the package: found by the published-artifact gate on 2026-09-04 (standard_policy_path walked three levels up from the module, which exists in a checkout and not in an installed package; load_policy failed from the very package a stranger installs); now resolved with importlib.resources, the corpus copy byte-identical and held so by a test",
+        "receipts/agent_review ships in the sdist: measured on 2026-09-05 by a review lens, the regression module skipped all 20 cases outside a checkout because the directory was on no MANIFEST.in line (the same class as PB-2026-0717-02, PB-2026-0831-01, PB-2026-0902-01); one MANIFEST.in line closes it",
+        "three P1 findings of the closing lenses fixed before the release with a test each (bc95dd6): a time conflict is fatal regardless of policy (TIME_CLAIMS_CONFLICT), a malformed policy file is refused before it decides (POLICY_NOT_EVALUABLE), and the dispatcher no longer raises on a v0.1 envelope given policy=; non-fatal codes moved to advisory_codes as the documentation table defines",
+        "the shipped-docs test caught a relative link (README -> CHANGELOG.md, dead in the extracted sdist) on the version-bump branch before merge; fixed with an absolute URL (72c21e7)"
+      ],
+      "open": [
+        "CAP-1 coverage in the language of draft-hillier-coverage-attestation-00 (strata, integrity, absence assertions) is built and reviewed on the branch feat/cap1-abdeckung but is deliberately NOT in 6.0.0; it targets 6.1.0",
+        "the wheel still carries neither docs/ nor conformance/ (5.1.0 open point) — not re-measured in this cycle; the package-data design question stays undecided",
+        "agent-review/v0.2 emits only selfDeclared assurance; a runner-observed or independently witnessed receipt needs a witness outside the agent workspace, which this version does not provide",
+        "the closing gate round for 6.0.0 (six lenses, seven iterations on the frozen head) has not run at the time this slot is written; its verdict and the residual-risk file RESTRISIKO_600.md come from that round, not from this entry"
+      ],
+      "status": "filled"
     }
   },
   "navigation": {
