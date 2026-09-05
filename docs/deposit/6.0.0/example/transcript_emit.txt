@@ -1,0 +1,2 @@
+wrote new signing key to appendix_key.seed (keep this secret)
+wrote eval receipt receipt.json

@@ -1,0 +1,2 @@
+wrote new signing key to decision_key.seed (keep this secret)
+wrote decision receipt decision_receipt.json

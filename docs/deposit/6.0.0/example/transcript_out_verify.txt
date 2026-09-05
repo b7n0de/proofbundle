@@ -1,0 +1,8 @@
+  ! DEPRECATED: execution_proven / receiver_bound are digest-presence booleans (evidence_levels REFERENCE_WELL_FORMED — attacker-choosable content), NOT a content proof. Use evidence_levels; only CONTENT_RESOLVED or stronger is a real binding. These legacy fields will be removed in the next breaking format version.
+CRYPTO: OK
+STRUCTURE: OK
+DECISION_BINDING: OK
+ROLE_SEPARATION: OK
+SUBJECT: DERIVED
+
+This proves who signed what happened, bound to the referenced decision. It does not prove the effect was good, correct or desired.

@@ -1,0 +1,2 @@
+wrote new signing key to executor_key.seed (keep this secret)
+wrote outcome receipt outcome_receipt.json

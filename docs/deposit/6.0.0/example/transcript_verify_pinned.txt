@@ -1,0 +1,12 @@
+[PASS] ed25519-signature: payload signed by stated key
+[PASS] merkle-inclusion: anchored at index 0 of 1 (Merkle-consistent under the STATED root)
+[PASS] root-authenticity: stated root matches the expected authenticated root
+[PASS] tree-size: tree_size 1 matches the expected size
+CRYPTO: OK
+ROOT-AUTHENTICITY: PASS (payload-signature PASS, merkle-consistency PASS, tree-context PASS, root-trust-level ROOT_AND_TREE_SIZE_PINNED, safe-for-automation false)
+SAFE_FOR_AUTOMATION: NO
+Reason:
+  No trust policy was evaluated (supply --policy to authorise a signer)
+POLICY: NOT_EVALUATED (no trust policy supplied)
+ASSURANCE: self_attested (issuer-declared)
+LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present

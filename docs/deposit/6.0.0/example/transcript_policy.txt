@@ -1,0 +1,1 @@
+[policy-instantiate] strict-eval-authenticated-root-template-v1 -> note_policy.json  deploymentReady=True  policy_id=b7n0de/note-example-v1

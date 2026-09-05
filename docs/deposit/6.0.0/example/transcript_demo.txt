@@ -1,0 +1,15 @@
+proofbundle offline demo — in memory, no files, no network
+
+[PASS] honest receipt verifies  => OK
+
+tamper matrix (each must be caught → verify FAILED):
+  [caught] payload rewrite (passed:true→false)
+  [caught] signature graft from another key
+  [caught] public-key swap to attacker key
+  [caught] Merkle root replacement
+  [caught] leaf-index shift
+  [caught] drop merkle.hash_alg (non-canonical)
+
+[PASS] per-sample audit: challenged index 5: honest opening OK=True, swapped-sample opening OK=False (must be False)
+
+=> OK — every guarantee held

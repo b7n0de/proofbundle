@@ -1,0 +1,36 @@
+{
+  "schema": "proofbundle/trust-policy/v0.1",
+  "policy_id": "b7n0de/note-example-v1",
+  "policyPurpose": "eval",
+  "deploymentReady": true,
+  "requiresIdentityOverlay": false,
+  "allowed_schema_versions": [
+    "proofbundle/v0.1"
+  ],
+  "signature": {
+    "allowed_algs": [
+      "ed25519"
+    ],
+    "require_expected_signer": true
+  },
+  "merkle": {
+    "required_hash_alg": "sha256-rfc6962",
+    "require_authenticated_root": true,
+    "trusted_roots": [
+      "bGQENnsdUG9JcwhlKcmsQRw7Y25dxsu3LOswY6PLXVI="
+    ]
+  },
+  "sd_jwt": {
+    "require_key_binding_when_cnf_present": true
+  },
+  "assurance": {
+    "minimum_level": "reproduced",
+    "reject_self_attested_without_prereg": true
+  },
+  "allowed_issuers": [
+    {
+      "public_key_b64": "uG8s3tqIoRAm+Ot8baymCmjtKY9cuNRssrIf+YpGdNo="
+    }
+  ],
+  "generatedFromTemplate": "strict-eval-authenticated-root-template-v1"
+}

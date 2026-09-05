@@ -1,0 +1,12 @@
+[PASS] ed25519-signature: payload signed by stated key
+[PASS] merkle-inclusion: anchored at index 0 of 1 (Merkle-consistent under the STATED root)
+CRYPTO: OK
+ROOT-AUTHENTICITY: NOT_EVALUATED (payload-signature PASS, merkle-consistency PASS, tree-context NOT_EVALUATED, root-trust-level NONE, safe-for-automation false)
+SAFE_FOR_AUTOMATION: NO
+Reason:
+  The Merkle root was not authenticated against a relying-party value (--expected-root or a policy trusted_roots entry)
+  Root and tree size were not authenticated ATOMICALLY from one source (a signed checkpoint via --trusted-checkpoint / policy trusted_checkpoints, or an --expected-root + --expected-tree-size pair) — a root-bytes-only pin cannot detect a tree-size/leaf-index relabel (A-P0-1)
+  No trust policy was evaluated (supply --policy to authorise a signer)
+POLICY: NOT_EVALUATED (no trust policy supplied)
+ASSURANCE: self_attested (issuer-declared)
+LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present

@@ -37,7 +37,11 @@ references:
       - family-names: Gruszka
         given-names: Konrad
         orcid: "https://orcid.org/0009-0006-8947-6065"
-    version: 4.0.0
+    version: 6.0.0
     year: 2026
-    # Version DOI of Note 4.0.0. The concept DOI (all versions) is 10.5281/zenodo.21230466.
-    doi: 10.5281/zenodo.22004295
+    # DRAFT for the 6.0.0 revision of the Note (docs/deposit/6.0.0/). Its version DOI exists
+    # only after the deposit, which follows the tag v6.0.0; until then this entry carries NO
+    # `doi:` line rather than an invented one. The latest PUBLISHED revision is 5.0.0,
+    # version DOI 10.5281/zenodo.22209091 (2026-08-31). The concept DOI (all versions) is
+    # 10.5281/zenodo.21230466 and always resolves to the newest version.
+    # doi: {{NOTE_VERSION_DOI_600}}   <- set at deposit, then uncomment

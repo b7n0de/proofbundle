@@ -1,0 +1,33 @@
+subject: github-pr:b7n0de/proofbundle#185 sha256: 0dde610e4f77e6dd...
+--- run 1: no expected subject digest supplied
+ok                       False
+crypto_ok                True
+predicateVersionStatus   'current'
+policy_decision          'accept'
+policy_name              'agent-review/default'
+policy_digest            'sha256:248daae3a72020112479b3027d1ed269606e8cecb30ecad7c4226d28826b5280'
+reason_codes             []
+advisory_codes           []
+event_time_status        'SELF_DECLARED'
+observation_time_status  'ABSENT'
+time_consistency_ok      True
+subject_expectation      'not_supplied'
+errors                   ['ok=False because no expected subject digest was supplied']
+limitation_codes         ['COVERAGE_PARTIAL', 'CURRENTNESS_UNKNOWN', 'IDENTITY_UNBOUND', 'NOT_QUALITY_ATTESTATION', 'TIME_SELF_DECLARED']
+safeForAutomation        False
+--- run 2: expected subject digest supplied (here taken from the statement itself)
+ok                       True
+crypto_ok                True
+predicateVersionStatus   'current'
+policy_decision          'accept'
+policy_name              'agent-review/default'
+policy_digest            'sha256:248daae3a72020112479b3027d1ed269606e8cecb30ecad7c4226d28826b5280'
+reason_codes             []
+advisory_codes           []
+event_time_status        'SELF_DECLARED'
+observation_time_status  'ABSENT'
+time_consistency_ok      True
+subject_expectation      'checked'
+errors                   []
+safeForAutomation        True
+automationBlockers       []

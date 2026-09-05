@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "0.1.0",
+  "decisionId": "urn:uuid:58b69bef-2a75-5991-9c56-1d9a703a94f7",
+  "decisionType": "preActionAuthorization",
+  "decidedAt": "2026-09-05T09:00:00Z",
+  "decisionMaker": {
+    "id": "https://b7n0de.com/gate/eval-publish/v1",
+    "version": {
+      "proofbundle": "6.0.0"
+    }
+  },
+  "agent": {
+    "id": "agent://b7n0de/release-agent",
+    "version": "1"
+  },
+  "principal": {
+    "id": "workload://b7n0de/ci"
+  },
+  "proposedAction": {
+    "actionType": "tool.call",
+    "target": {
+      "name": "publish-eval-receipt",
+      "uri": "file://artifacts/receipt.json"
+    },
+    "method": "POST",
+    "parametersDigest": {
+      "sha256": "441a3a2aa803c738776151fffc7673cf80ccb0e35f3c19dbf7f91590e8194aac"
+    }
+  },
+  "inputSnapshot": [
+    {
+      "name": "eval-receipt",
+      "uri": "urn:proofbundle:input:0",
+      "digest": {
+        "sha256": "441a3a2aa803c738776151fffc7673cf80ccb0e35f3c19dbf7f91590e8194aac"
+      },
+      "mediaType": "application/json"
+    }
+  ],
+  "policyBoundary": {
+    "policyEngine": "opa",
+    "policyId": "https://b7n0de.com/policy/eval-publish/v1",
+    "policyDigest": {
+      "sha256": "6c8a2e170122ff8c5f2600eba92d7fd1c78a62be08f7b952f32850218d1bae1b"
+    },
+    "decisionPath": "data.b7n0de.evalpublish.allow"
+  },
+  "evidenceRefs": [],
+  "decision": {
+    "verdict": "ALLOW",
+    "reasonCodes": [
+      "eval.threshold.pass"
+    ],
+    "humanReadableSummary": "arc-easy accuracy >= 0.80 receipt verified offline (CRYPTO OK, root and tree size pinned); publishing the receipt is allowed.",
+    "obligations": [],
+    "allowedScope": []
+  },
+  "notChecked": [
+    {
+      "field": "evaluation design",
+      "reason": "out of scope of this gate",
+      "impact": "a well-formed receipt over a poorly designed eval still passes this gate"
+    }
+  ],
+  "decisionChangeConditions": [
+    {
+      "conditionType": "additionalApproval",
+      "description": "a revoked trust policy or a failed re-verification withdraws this authorization",
+      "requiredEvidenceType": "approvalReceipt"
+    }
+  ],
+  "privacy": {
+    "rawInputsIncluded": false,
+    "redactionProfile": "https://b7n0de.com/redaction/none/v1",
+    "erased": [],
+    "masked": []
+  }
+}

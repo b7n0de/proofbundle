@@ -1,0 +1,15 @@
+{
+  "schema": "proofbundle/eval-claim/v0.1",
+  "suite": "arc-easy",
+  "suite_version": "1.0",
+  "metric": "accuracy",
+  "comparator": ">=",
+  "threshold": "0.80",
+  "passed": true,
+  "n": 2376,
+  "model_id_commit": "sha256:4162cb4ec966eb511a484ae922268aa64d81fa3e0413f81a97f9de81fd6b123d",
+  "dataset_id_commit": "sha256:d0b14333d425beee8426642c9327a32617e6f7fb77a2f3be212b01c410fd9362",
+  "commit_alg": "sha256-salted-v1",
+  "issuer": "b7n0de eval harness (technical note example)",
+  "timestamp": "2026-09-05T06:00:00Z"
+}

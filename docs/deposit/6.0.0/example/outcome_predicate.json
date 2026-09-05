@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "0.1.0",
+  "outcomeId": "urn:uuid:698b6c0d-6a0b-59f7-8130-1c22d0128b7b",
+  "decisionRef": {
+    "sha256": "1e60e75f2969a58e66632a9348a028751d16c0e04e45973732ce43491ccfec32"
+  },
+  "executor": {
+    "id": "workload://b7n0de/release-runner",
+    "keyId": ""
+  },
+  "requestedActionDigest": {
+    "sha256": "441a3a2aa803c738776151fffc7673cf80ccb0e35f3c19dbf7f91590e8194aac"
+  },
+  "actualActionDigest": {
+    "sha256": "441a3a2aa803c738776151fffc7673cf80ccb0e35f3c19dbf7f91590e8194aac"
+  },
+  "responseDigest": {
+    "sha256": "7cabd9748e8a115fcffcb46ee65f8a9976ab1cae2fb56669256e3c3c6f085f5b"
+  },
+  "effectDigest": {
+    "sha256": "441a3a2aa803c738776151fffc7673cf80ccb0e35f3c19dbf7f91590e8194aac"
+  },
+  "status": "executed",
+  "performedAt": "2026-09-05T09:02:00Z",
+  "policyPurpose": "outcome",
+  "traceContext": {
+    "traceparent": ""
+  },
+  "limitations": [
+    "status=executed attests the executor's signature over these digests, not the external effect itself"
+  ]
+}
