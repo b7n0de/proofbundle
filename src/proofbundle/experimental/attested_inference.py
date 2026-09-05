@@ -233,7 +233,22 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 1. Has the evidence itself been altered since it was handed to us? Checked FIRST: altered
     #    evidence cannot testify about its own bindings.
-    digest = evidence_digest(evidence)
+    # A MAPPING WITH UNSERIALISABLE CONTENT IS NOT EVIDENCE EITHER (lens 1 on PR 185, F5). The
+    # guard above checks only `isinstance(evidence, dict)`; `{"x": {1, 2}}`, `{"x": b"bytes"}` or
+    # `{1: "a", "b": 2}` passed it and then raised a raw TypeError out of `json.dumps` — the same
+    # class as the depth guard, one hop further in. Same verdict as a non-mapping: attestation
+    # failure, REASON_MALFORMED, named instead of propagated.
+    try:
+        digest = evidence_digest(evidence)
+    except (TypeError, ValueError, BundleFormatError) as exc:
+        return {"outcome": OUTCOME_ATTESTATION_FAILURE, "reasons": [REASON_MALFORMED],
+                "not_measurable": [], "evidence_digest": None,
+                "normalised": {"assurance": ASSURANCE_PROVIDER_DECLARED, "provider": provider,
+                               "evidence_digest": None, "binding_present": False,
+                               "request_id": None, "route": None, "reported": None,
+                               "detail": (f"evidence cannot be canonicalised ({type(exc).__name__}: "
+                                          f"{exc}) — a mapping whose content has no canonical JSON "
+                                          "form cannot be digested and cannot be counted")}}
     if expected_evidence_digest is not None and digest != expected_evidence_digest:
         reasons.append(REASON_EVIDENCE_TAMPERED)
 
@@ -313,4 +328,7 @@ def counts_as_own_domain(receipt_check: dict) -> bool:
     would inflate the measured diversity of a panel with something nobody checked, which is the
     one thing a diversity floor must never do.
     """
-    return bool(receipt_check.get("outcome") == OUTCOME_ACCEPTED)
+    # Only a mapping can carry an outcome (lens 1 on PR 185, F8): `None`, a string or a list
+    # raised a raw AttributeError here — and this is the gate of the diversity floor, where
+    # "not judged" must read as "does not count", never as a crash.
+    return isinstance(receipt_check, dict) and receipt_check.get("outcome") == OUTCOME_ACCEPTED

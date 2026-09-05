@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -99,6 +100,16 @@ def test_ein_invalid_gegenbeweis_traegt_einen_gueltigen_umschlag():
 _STANDARD_POLICY = Path(str(__import__("proofbundle.agent_review", fromlist=["x"]).standard_policy_path()))
 
 
+_PARAM_ZUGRIFF = re.compile(r"""params(?:\.get\(|\[)\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+
+
+def _gelesene_params() -> frozenset[str]:
+    """Welche `params.<name>` der Konformitaetslaeufer wirklich liest — aus seinem Quelltext."""
+    quelle = (Path(__file__).resolve().parents[1] / "conformance" / "run_conformance.py").read_text(
+        encoding="utf-8")
+    return frozenset(_PARAM_ZUGRIFF.findall(quelle))
+
+
 def _eingabe_schluessel(d: Path, c: dict) -> str | None:
     """ALLES, was der Fall dem Pruefer gibt — nicht nur die Receipt-Datei.
 
@@ -116,7 +127,12 @@ def _eingabe_schluessel(d: Path, c: dict) -> str | None:
     env_p = d / c.get("input", "envelope.json")
     if not env_p.is_file():
         return None
-    params = dict(c.get("params") or {})
+    # NUR DIE PARAMETER, DIE DER LAEUFER LIEST (Linse 2 auf PR 185, FUND-2): das ganze
+    # params-Dict roh zu serialisieren macht zwei fuer den Verifizierer identische Faelle zu
+    # "verschiedenen" Schluesseln, sobald einer einen nie gelesenen Zusatzschluessel traegt —
+    # und entzieht das Paar dem Duplikat-Fang. Die Menge kommt aus dem Laeufer-Quelltext, nicht
+    # aus einer zweiten Liste; der Meta-Test darunter haelt beide Richtungen zusammen.
+    params = {k: v for k, v in (c.get("params") or {}).items() if k in _gelesene_params()}
     pol = params.get("policy")
     if isinstance(pol, str) and pol not in ("none", "default"):
         pf = d / pol
@@ -178,3 +194,22 @@ def test_meta_nur_die_policy_verschieden_ist_eine_andere_eingabe(tmp_path):
               _fall_anlegen(tmp_path, "e-counter", "counter_proof", "{}", {"policy": "y.json"},
                             {"y.json": "{}"})]
     assert _gleiche_eingabe_in_beiden_rollen(gleich), "gleiche Policy-Bytes unter anderem Namen"
+
+
+def test_jeder_param_schluessel_des_korpus_wird_vom_laeufer_gelesen():
+    """DIE GEGENRICHTUNG des Eingabeschluessels: ein Parameter, den ein Fall traegt und der
+    Laeufer nie liest, ist ein Autorenfehler des Falls — er sieht aus wie eine Eingabe und
+    aendert nichts. Ohne diesen Test koennte ein solcher Schluessel still hinzukommen und den
+    Duplikat-Fang genau so aushebeln, wie es Linse 2 gemessen hat."""
+    gelesen = _gelesene_params()
+    assert {"expectedSubjectDigest", "policy"} <= gelesen, gelesen
+    fremd = {}
+    for d in sorted(x for x in KORPUS.iterdir() if x.is_dir()):
+        cj = d / "case.json"
+        if not cj.is_file():
+            continue
+        c = json.loads(cj.read_text(encoding="utf-8"))
+        for k in (c.get("params") or {}):
+            if k not in gelesen:
+                fremd.setdefault(k, []).append(d.name)
+    assert not fremd, f"params-Schluessel, die der Laeufer nie liest: {fremd}"

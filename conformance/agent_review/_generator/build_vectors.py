@@ -505,7 +505,8 @@ env_alt_v01 = AR.emit_agent_review(BASE, sk, legacy_v01=True)
 schreibe("agent-review-v02-positive-control-legacy-v01-is-marked-legacy", "positive_control", "A2",
          {"versionStatus": "legacy"},
          "Ein v0.1-Receipt bleibt lesbar (A2). Durch die Weiche `verify_agent_review_any` traegt das "
-         "Ergebnis `predicateVersionStatus: legacy` UND den Reason Code AGENT_REVIEW_LEGACY_V01 — "
+         "Ergebnis `predicateVersionStatus: legacy` UND den Hinweiscode AGENT_REVIEW_LEGACY_V01 in "
+         "advisory_codes (nicht in reason_codes: die Altfassung ist kein Fehlschlag) — "
          "und `ok` ist genau das, was der byte-gepinnte v0.1-Verifizierer direkt sagt. Der Laeufer "
          "misst beides gegen dieselbe Eingabe; eine Weiche, die das Urteil nachbessert, faellt hier.",
          envelope=env_alt_v01, input_name="envelope.json", attribution=_A5_ATTR,
@@ -556,8 +557,9 @@ schreibe("agent-review-v02-positive-control-default-policy-decides-accept", "pos
 # A3 (2) — Gegenbeweis: ohne Policy wird nichts entschieden, und das steht im Ergebnis.
 schreibe("agent-review-v02-counter-proof-without-policy-nothing-is-decided", "counter_proof", "A3",
          {"policyDecision": None},
-         "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Reason Code "
-         "POLICY_NOT_EVALUATED (A3). Die Achse wurde nicht gefahren und sagt das; ein Verifizierer, "
+         "Ohne benannte Policy traegt das Ergebnis `policy_decision: null` und den Hinweiscode "
+         "POLICY_NOT_EVALUATED in advisory_codes — nicht in reason_codes, denn die Achse ist nicht "
+         "durchgefallen, sie wurde nicht gefahren (A3). Sie sagt das; ein Verifizierer, "
          "der sich eine Policy ausdaechte, naehme dem Leser die Entscheidung ab, die ihm gehoert. Die "
          "Entschaerfung ist die Policy selbst: mit ihr wird derselbe Fall `accept`.",
          obj=V02_BASE, input_name="predicate.json", attribution=_A5_ATTR, predicate_version="v0.2",

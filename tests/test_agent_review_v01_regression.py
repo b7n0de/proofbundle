@@ -107,7 +107,7 @@ def test_v01_receipt_wird_als_legacy_ausgewiesen(name):
     r = ar.verify_agent_review_any(umschlag, _schluessel(),
                                    expected_subject_digest=e["subject_digest_aus_nutzlast"])
     status = r.get("predicateVersionStatus") or r.get("predicate_version_status")
-    codes = r.get("reason_codes") or r.get("reasonCodes") or []
+    codes = r.get("advisory_codes") or []
     assert status == "legacy" or "AGENT_REVIEW_LEGACY_V01" in codes, (
         f"{name}: weder predicateVersionStatus=legacy noch AGENT_REVIEW_LEGACY_V01 — "
         f"Status {status!r}, Codes {codes!r}")

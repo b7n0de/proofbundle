@@ -100,13 +100,16 @@ def test_ein_unlesbarer_umschlag_wirft_nicht_sondern_urteilt():
 def test_die_weiche_kennzeichnet_die_altfassung():
     r = AR.verify_agent_review_any(_umschlag(AR.AGENT_REVIEW_PREDICATE_TYPE), b"\0" * 32)
     assert r["predicateVersionStatus"] == "legacy"
-    assert AR.AGENT_REVIEW_LEGACY_V01 in r["reason_codes"]
+    assert AR.AGENT_REVIEW_LEGACY_V01 in r["advisory_codes"]
+    assert AR.AGENT_REVIEW_LEGACY_V01 not in (r.get("reason_codes") or []), (
+        "die Altfassung ist kein Fehlschlag — reason_codes traegt nur fatale Codes (F7)")
 
 
 def test_die_weiche_kennzeichnet_die_aktuelle_fassung():
     r = AR.verify_agent_review_any(_umschlag(AR.AGENT_REVIEW_PREDICATE_TYPE_V02), b"\0" * 32)
     assert r["predicateVersionStatus"] == "current"
     assert AR.AGENT_REVIEW_LEGACY_V01 not in (r.get("reason_codes") or [])
+    assert AR.AGENT_REVIEW_LEGACY_V01 not in (r.get("advisory_codes") or [])
 
 
 def test_die_weiche_bessert_das_urteil_ihrer_fassung_nicht_nach():

@@ -323,6 +323,14 @@ UNBEWEGT_BEGRUENDET = {
     # statt ueber den Code.
     "policy_name": "Identitaet der Policy, kein Urteil; die Matrix fuehrt genau eine benannte",
     "policy_digest": "Fassung der Policy, kein Urteil; bewegt sich erst mit einer zweiten Policy",
+    # ── seit dem 05.09.2026 (Linse 1 auf PR 185, F1) ───────────────────────────────────────────
+    # `time_consistency_ok` haengt an den timeClaims IM DOKUMENT (zwei einander widersprechende
+    # reviewCompleted-Zeiten), nicht am Aufruf — dieselbe Klasse wie findings_root_ok. Dass sie
+    # `ok` wirklich kippt, misst tests/test_linsen_pr185_funde.py am Dokument.
+    # `time_policy_decision` bewegt sich erst mit einer Policy, die einen `time`-Block fuehrt; die
+    # Matrix fuehrt genau die benannte Standard-Policy, und die hat keinen.
+    "time_consistency_ok": "haengt an den timeClaims im Dokument, nicht am Aufruf; eigene Testdatei",
+    "time_policy_decision": "bewegt sich erst mit einer Policy, die `time` fuehrt; die Matrix fuehrt genau eine benannte ohne",
 }
 
 #: Werte, die NICHT als Urteil zaehlen: Sammelbehaelter und das Urteil selbst.

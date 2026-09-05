@@ -182,8 +182,11 @@ def test_v02_mit_reviewCompleted_selfDeclared_wird_akzeptiert():
     """
     _, r = _lauf_v02(_pred_v02(timeClaims=REVIEW_CLAIM))
     assert r["ok"] is True, f"ohne Policy darf kein Fehler erfunden werden: {r.get('errors')[:3]}"
-    assert AR.POLICY_NOT_EVALUATED in (r.get("reason_codes") or []), (
+    assert AR.POLICY_NOT_EVALUATED in (r.get("advisory_codes") or []), (
         "die nicht gefahrene Achse MUSS sichtbar sein — sonst liest sie sich wie bestanden")
+    assert AR.POLICY_NOT_EVALUATED not in (r.get("reason_codes") or []), (
+        "ok=True und ein Code in reason_codes widersprechen sich: die Liste traegt nur fatale "
+        "Codes (Doku-Tabelle; Linse 1 auf PR 185, F7)")
     assert ((r.get("automation") or {}).get("safeForAutomation")) is not True, (
         "ohne Policy darf eine Maschine NICHT handeln duerfen — hier blockt die Achse")
     assert r["event_time_status"] == "SELF_DECLARED"
@@ -330,6 +333,7 @@ def test_v02_mit_der_standard_policy_faellt_eine_benannte_entscheidung():
     assert r["policy_name"] == AR.STANDARD_POLICY_NAME
     assert r["policy_digest"] == pol["_digest"], "der Digest der Policy gehoert ins Ergebnis"
     assert AR.POLICY_NOT_EVALUATED not in (r.get("reason_codes") or [])
+    assert AR.POLICY_NOT_EVALUATED not in (r.get("advisory_codes") or [])
     # DIE SPERRE HAENGT AN DER AUTOMATION, NICHT AN `ok` — und diese Zeile stand zuerst falsch.
     # `insufficient_evidence` heisst: die Policy LIEF und konnte nicht entscheiden. Das ist eine
     # Aussage ueber die Beweislage der Policy, nicht ueber die Stimmigkeit des Belegs; ein Beleg

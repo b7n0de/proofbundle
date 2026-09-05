@@ -76,4 +76,5 @@ def test_ohne_policy_ist_es_die_ANDERE_lage():
     r = AR.verify_agent_review_v02(env, PK, expected_subject_digest=digest)
     codes = [getattr(e, "code", None) for e in (r.get("errors") or [])]
     assert "POLICY_NOT_EVALUABLE" not in codes, codes
-    assert AR.POLICY_NOT_EVALUATED in (r.get("reason_codes") or []), r.get("reason_codes")
+    assert AR.POLICY_NOT_EVALUATED in (r.get("advisory_codes") or []), r.get("advisory_codes")
+    assert AR.POLICY_NOT_EVALUATED not in (r.get("reason_codes") or []), r.get("reason_codes")

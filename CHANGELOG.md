@@ -19,13 +19,69 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `automation.safeForAutomation` is false — the axis was not evaluated and says so. `ok` itself is
   unaffected unless a policy actively rejects (`policy_decision == "reject"`): a check that was
   never run is "not applicable", not "failed", and inventing a rejection for it would be a claim
-  about something unmeasured. The named standard policy lives in
-  `conformance/agent_review/policies/default_v1.json` and its digest is reported, so a later
-  reading can say what the decision was made against.
+  about something unmeasured. The named standard policy ships inside the package as
+  `proofbundle/policies/agent-review-default-v1.json` (the copy under
+  `conformance/agent_review/policies/default_v1.json` is byte-identical and kept so by a test), and
+  its digest is reported, so a later reading can say what the decision was made against.
 - `agent-review/v0.1` is unchanged and stays readable. Its verifier is byte-pinned to the 5.1.0
   source; the six published receipts under `receipts/agent_review/` verify as before, and a result
   from the new dispatcher `verify_agent_review_any` carries `predicateVersionStatus: legacy` plus the
   `AGENT_REVIEW_LEGACY_V01` reason code.
+- **A time conflict is fatal, and no policy can accept it.** Measured by a review lens on
+  2026-09-05: a v0.2 predicate with two contradicting `reviewCompleted` time claims verified with
+  `ok=True` and `safeForAutomation=True` under the shipped standard policy. The module said
+  `CONFLICT` "always" rejects — in `evaluate_time_policy`, which nothing in the verifier called;
+  the verifier only evaluated the limitation policy, which reads no time axis. The result now
+  carries `time_consistency_ok`, a `CONFLICT` on the event or observation axis adds the fatal
+  reason code `TIME_CLAIMS_CONFLICT`, sets `ok` to false and blocks automation. A policy file may
+  additionally carry a `time` block (`{"kind": "freshness" | "ttl" | "certificate_validity" |
+  "currentness" | "existence"}`); it is then evaluated with `evaluate_time_policy`, reported as
+  `time_policy_decision`, and the stricter of the two policy decisions wins. The standard policy
+  carries none, and says so (`time_policy_decision: null`).
+- **A policy file is validated before it decides.** Measured on 2026-09-05: `blocking:
+  "COVERAGE_PARTIAL"` (a string instead of a list) was read as a set of characters and blocked
+  nothing, and `require_coverage_status: "XPARTIALX"` turned the membership test into a substring
+  test — both accepted with empty `errors`, `warnings` and `reason_codes`. `load_policy` and
+  `evaluate_limitation_policy` now reject a policy whose `blocking`, `never_blocking` or
+  `require_coverage_status` is not a list, names an unknown code or status, or repeats one, and
+  whose `time` block names no known kind; a rejected policy reaches the verifier as
+  `POLICY_NOT_EVALUABLE` with `insufficient_evidence`, never as an accept.
+- **`verify_agent_review_any` no longer raises on a v0.1 envelope when given `policy=`.** The
+  dispatcher passed every keyword to whichever verifier the envelope's `predicateType` selected, so
+  the same call was a verdict for v0.2 and a raw `TypeError` for v0.1 — the sender chose which. An
+  argument no version knows is now a `TypeError` before the envelope is read, the same for both;
+  an argument only the other version knows is dropped, named in `warnings`, and marked with the
+  advisory code `ARGUMENT_NOT_APPLICABLE_TO_VERSION` (plus `POLICY_NOT_EVALUATED` and
+  `policy_decision: null` when it was the policy). The dispatcher also decodes the payload with the
+  same decoder as `dsse.verify_envelope`, so a url-safe base64 envelope that verifies directly no
+  longer comes back as `AGENT_REVIEW_ENVELOPE_UNREADABLE` through the dispatcher.
+- **Non-fatal codes moved to `advisory_codes`.** `POLICY_NOT_EVALUATED` (no policy given) and
+  `AGENT_REVIEW_LEGACY_V01` (a v0.1 receipt read through the dispatcher) describe an axis that was
+  not run and a version that is not current; neither makes `ok` false. They were listed in
+  `reason_codes`, which the documentation defines as fatal-only. They are now in `advisory_codes`;
+  `reason_codes` is empty for a valid receipt, as documented. Consumers that branched on
+  `POLICY_NOT_EVALUATED in reason_codes` must read `advisory_codes` instead (6.0.0 is the first
+  release with either code, so nothing published changes meaning).
+- **The disclosure renderers accept an explicit version, and read three markers instead of one.**
+  Measured on 2026-09-05: the renderers detected v0.2 only by `declaration.timeClaims`, which is
+  optional in v0.2 and absent from 10 of the 10 v0.2 predicates in the conformance corpus, so the
+  three v0.2 counter-proofs (`limitation-codes-are-required`,
+  `disclosure-core-digest-is-required`, `fixcommit-must-be-the-full-sha`) rendered under v0.1
+  rules. `render_disclosure_block`, `render_disclosure_line` and
+  `require_valid_agent_review_predicate_any` take `legacy_v01=` (an explicit answer wins); without
+  it, `timeClaims`, `limitationCodes` or `subjectContext.disclosureCoreDigest` select v0.2. The six
+  published v0.1 receipts carry none of the three.
+- **`attested_inference`: a mapping with unserialisable content is malformed evidence, not a
+  crash**, and `counts_as_own_domain` answers false for anything that is not a mapping. Both were
+  raw exceptions on hostile input at a public surface.
+- **`receipts/agent_review/` ships in the sdist**, so `tests/test_agent_review_v01_regression.py`
+  runs from the published package instead of skipping all 20 cases as repo-context (same class as
+  PB-2026-0717-02, PB-2026-0831-01 and PB-2026-0902-01).
+- **The `Receipt:` line of a published disclosure block is the sha256 of the receipt file as
+  published**, and this is now written down: it is what a reader can recompute with `sha256sum`.
+  `receipt_digest()` — the canonical digest that supersession (`priorDigest`) and
+  `resolve_receipt_chain` key on — is a different value. A correction must cite the canonical
+  digest, never the file hash from the block.
 - **The disclosure renderers read the predicate version from the predicate.** Measured on
   2026-09-04 while emitting the first real `agent-review/v0.2` receipt (PR 185):
   `render_disclosure_block` validated with the v0.1 rules and refused the predicate with

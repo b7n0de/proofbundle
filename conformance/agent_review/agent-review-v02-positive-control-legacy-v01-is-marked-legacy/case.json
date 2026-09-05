@@ -9,7 +9,7 @@
   "params": {
     "expectedSubjectDigest": "f2fca8ac146b3236c8f37533890f42350a8562a6426ec7d96c129e04de3c662a"
   },
-  "rationale": "Ein v0.1-Receipt bleibt lesbar (A2). Durch die Weiche `verify_agent_review_any` traegt das Ergebnis `predicateVersionStatus: legacy` UND den Reason Code AGENT_REVIEW_LEGACY_V01 \u2014 und `ok` ist genau das, was der byte-gepinnte v0.1-Verifizierer direkt sagt. Der Laeufer misst beides gegen dieselbe Eingabe; eine Weiche, die das Urteil nachbessert, faellt hier.",
+  "rationale": "Ein v0.1-Receipt bleibt lesbar (A2). Durch die Weiche `verify_agent_review_any` traegt das Ergebnis `predicateVersionStatus: legacy` UND den Hinweiscode AGENT_REVIEW_LEGACY_V01 in advisory_codes (nicht in reason_codes: die Altfassung ist kein Fehlschlag) \u2014 und `ok` ist genau das, was der byte-gepinnte v0.1-Verifizierer direkt sagt. Der Laeufer misst beides gegen dieselbe Eingabe; eine Weiche, die das Urteil nachbessert, faellt hier.",
   "role": "positive_control",
   "rule": "A2",
   "specRefs": [

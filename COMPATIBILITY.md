@@ -94,6 +94,10 @@ Currently labelled EXPERIMENTAL (see CHANGELOG and README for the authoritative 
 release):
 
 - **`relation/v0.1`** — the relation/lineage surface
+- **`agent-review/v0.2`** — the current agent-review predicate (see the table above; README says
+  the same). What the 6.0.0 deprecation above protects is the EMITTER ARGUMENT `v02=` on a shipped
+  function, not the predicate's status: the argument keeps working until a later MAJOR, the
+  predicate may still change.
 - **the `[experimental]` extra** — the TEE-attestation bridge, see
   [docs/EXPERIMENTAL_ENCLAVE.md](docs/EXPERIMENTAL_ENCLAVE.md)
 
