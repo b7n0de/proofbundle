@@ -231,6 +231,23 @@ class VerificationBudget:
                                unbounded cost — which is precisely what a DoS looks like.
 
                                8192 bits is astronomically generous: a real tree size is below ``2**64``.
+    * ``data_digests``      — data objects covered by ONE renewal sequence (``renewal.verify_sequence``'s
+                               ``data_digests`` argument). Found by Review Runde 2 (deep gate 6.0.0,
+                               L2-600-01 follow-up, B1): ``renewal_ats_chain`` bounds the chain-start COUNT,
+                               but every chain-start's covering digest re-appends the FULL (sorted, joined)
+                               data-digest tail (``_PraefixDeckung.deckung``) — unavoidable without changing
+                               the signed wire format (the data tail sits at a fixed position AFTER a
+                               VARYING prefix, so a standard incremental hash cannot skip re-processing it
+                               per chain-start; see ``_PraefixDeckung``'s own docstring). An unbounded
+                               ``data_digests`` therefore multiplies an ALREADY-bounded axis right back into
+                               an unbounded one: measured on this tree 2026-09-05 (Farmer, 24 cores, Python
+                               3.10.12, ``resource.getrusage``), 10,000 chain-starts (the ``renewal_ats_chain``
+                               limit) times 50,000 data digests cost 16.2s CPU, while the SAME 10,000
+                               chain-starts against a single data digest cost 0.04s. 2,000 is comfortably
+                               above any legitimate RFC-4998 archival batch this repo's examples use, and
+                               keeps the worst COMBINED case (``renewal_ats_chain`` x ``data_digests``, both
+                               at their limit) at ~0.63s CPU — under the per-dimension ceiling with margin,
+                               see ``tests/test_budget_kostenkurve.py``.
     """
 
     input_bytes: int = 8 * 1024 * 1024
@@ -243,6 +260,7 @@ class VerificationBudget:
     renewal_ats_chain: int = 10_000
     witnesses: int = 256
     int_bits: int = 8192
+    data_digests: int = 2_000
 
     def within(self, dimension: str, value: int) -> bool:
         """Non-raising: True iff ``value`` is within the named dimension's limit. Prefer this in a

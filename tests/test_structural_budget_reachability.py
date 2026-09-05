@@ -226,7 +226,8 @@ class StrukturBudgetErreichbarkeit(unittest.TestCase):
                               f"{modul}.py benutzt {dimension!r} nicht — der Ausschluss ist unbelegt")
 
     def test_eine_eigene_schranke_muss_ihre_KOSTEN_belegen(self):
-        """DIE ZWEITE HAELFTE DES BELEGS, und sie fehlte (deep gate 6.0.0, L2-600-01).
+        """DIE ZWEITE HAELFTE DES BELEGS, und sie fehlte zweimal (deep gate 6.0.0, L2-600-01, dann
+        Review Runde 2, B5).
 
         Dass eine Flaeche eine eigene Dimension traegt, sagt nur, dass eine ZAHL an der Eingabe
         begrenzt ist. Was diese Zahl KOSTET, sagt es nicht — und genau daran ist der Ausschluss
@@ -234,16 +235,37 @@ class StrukturBudgetErreichbarkeit(unittest.TestCase):
         zu, der 59,5 s Rechenzeit kostete, weil der geschuetzte Durchlauf quadratisch war. Ein
         Ausschluss von der generischen Schranke gilt deshalb nur, wenn die Kosten AM LIMIT der
         eigenen Dimension gemessen sind.
-        """
+
+        Review Runde 2, B5: die vorige Fassung pruefte das per ``assertIn(f'Dimension("{dimension}"',
+        kurve)`` gegen den QUELLTEXT von ``test_budget_kostenkurve.py`` — das besteht durch die
+        blosse ANWESENHEIT der Zeichenkette, auch als Kommentar, als tote/nie ausgefuehrte
+        Deklaration oder mit einer laengst roten Kurve daneben; ein Quelltext-Grep prueft die
+        Schreibweise, nicht die Sache. Hier wird ``test_budget_kostenkurve`` stattdessen IMPORTIERT
+        und seine ECHTE, gecachte ``_messung()`` fuer genau diese Dimension AUSGEFUEHRT — geprueft
+        wird das tatsaechlich gemessene Ergebnis (Reichweite und CPU-Obergrenze), nicht ein
+        Textmuster."""
         self.assertTrue(KOSTENKURVE.exists(),
                         f"{KOSTENKURVE.name} fehlt — dann ist keine eigene Schranke mehr belegt")
-        kurve = KOSTENKURVE.read_text(encoding="utf-8")
+        kurve_mod = importlib.import_module("test_budget_kostenkurve")
+        dimensionen_nach_name = {d.name: d for d in kurve_mod.DIMENSIONEN}
         for schluessel, (dimension, _grund) in _EIGENE_SCHRANKE.items():
             with self.subTest(flaeche=schluessel):
-                self.assertIn(f'Dimension("{dimension}"', kurve,
-                              f"{dimension!r} hat keine gemessene Kostenkurve in "
-                              f"{KOSTENKURVE.name} — der Ausschluss behauptet eine Kostenschranke, "
-                              "die niemand gemessen hat")
+                self.assertIn(
+                    dimension, dimensionen_nach_name,
+                    f"{dimension!r} hat keine Dimension in {kurve_mod.__name__}.DIMENSIONEN — der "
+                    "Ausschluss behauptet eine Kostenschranke, die niemand misst")
+                m = kurve_mod._messung(dimensionen_nach_name[dimension])
+                ist = m["reihe"][-1][0]
+                self.assertGreaterEqual(
+                    ist, 0.95 * m["limit"],
+                    f"{dimension!r}: die gemessene Kurve in {kurve_mod.__name__} erreicht nur {ist} "
+                    f"von {m['limit']} — misst nicht den teuersten zugelassenen Fall")
+                self.assertLessEqual(
+                    m["kosten_am_limit_max"], kurve_mod.GRENZE_S,
+                    f"{dimension!r}: {m['kosten_am_limit_max']:.3f} s (Maximum ueber "
+                    f"{kurve_mod.MAX_WIEDERHOLUNGEN} Laeufe) am Limit ({m['limit']}) ueberschreitet "
+                    f"die eigene Obergrenze {kurve_mod.GRENZE_S:.1f} s — der Ausschluss behauptet "
+                    "eine Kostenschranke, die die eigene Kurve nicht haelt")
 
     def test_ein_ausschluss_ohne_eintrag_verschwindet_nicht(self):
         """Die Gegenrichtung dazu: was NICHT in _EIGENE_SCHRANKE steht, muss den Riegel erreichen."""

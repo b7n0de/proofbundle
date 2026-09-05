@@ -121,6 +121,29 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
         self.assertTrue(res.ok, [str(c) for c in res.checks if not c.ok])
         self.assertFalse(any(c.name == "renewal:budget" for c in res.checks))
 
+    def test_data_digests_count_capped(self):
+        """Review Runde 2, B1 (L2-600-01 follow-up): ``data_digests`` multiplies the ALREADY-capped
+        ``renewal_ats_chain`` axis right back into an unbounded one (measured: 10,000 chain-starts x
+        50,000 data digests cost 16.2s CPU) — same shape of guard as ``renewal_ats_chain`` above, its
+        own dimension, its own named check."""
+        from proofbundle.renewal import ArchiveTimeStamp
+        from proofbundle.renewal import verify_sequence as _verify_sequence
+        over = DEFAULT_BUDGET.data_digests + 1
+        daten = ["%064x" % i for i in range(over)]
+        seq = [[ArchiveTimeStamp("sha256", "a" * 64, 1)]]
+        res = _verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        self.assertFalse(res.ok)
+        self.assertTrue(any("renewal:budget:data_digests" in c.name and "budget.data_digests" in c.detail
+                            for c in res.checks), [str(c) for c in res.checks])
+
+    def test_data_digests_count_within_budget_unaffected(self):
+        from proofbundle.renewal import build_initial_sequence
+        from proofbundle.renewal import verify_sequence as _verify_sequence
+        seq = build_initial_sequence(["a" * 64], hash_alg="sha256", time=1000)
+        res = _verify_sequence(seq, ["a" * 64], allow_unauthenticated_anchor=True)
+        self.assertTrue(res.ok, [str(c) for c in res.checks if not c.ok])
+        self.assertFalse(any(c.name == "renewal:budget:data_digests" for c in res.checks))
+
 
 class TestInputBytesBudgetEnforced(unittest.TestCase):
     """The cheap, universally-safe input_bytes cap wired into every DSSE verify_* entry point

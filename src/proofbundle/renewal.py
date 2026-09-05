@@ -451,6 +451,31 @@ class _PraefixDeckung:
     Zeichenkette ist, und ein ``signatures``-Feld ohne (alg, base64)-Paare; eine implausibel GROSSE
     ``.time`` kommt nicht bis hierher, die faengt der Magnitude-Check weiter oben mit einem eigenen
     Rueckgabepunkt ab.
+
+    DIE OFFENE ACHSE, JETZT GESCHLOSSEN (Review Runde 2, B1). ``data_digests`` traegt am Kettenanfang
+    denselben Daten-Schwanz — konstant ueber den ganzen Durchlauf, aber an JEDEM Kettenanfang neu an
+    den (kopierten) Hash-Zustand angehaengt (``deckung()`` unten), weil ein Standard-Hash keinen fixen
+    Suffix vor einem VARIIERENDEN Praefix ueberspringen kann, ohne die Bytes erneut zu verarbeiten —
+    das waere nur mit einer anderen Drahtform (Daten ZUERST, Tokens DANACH) vermeidbar, und das
+    braeche jede bestehende Signatur. Ein unbegrenztes ``data_digests`` multiplizierte deshalb die
+    bereits begrenzte ``renewal_ats_chain``-Achse zurueck in eine unbegrenzte: 10.000 Kettenanfaenge
+    (das ``renewal_ats_chain``-Limit) mal 50.000 Datendigests kosteten gemessen 16,2 s Rechenzeit.
+    ``budget.data_digests`` (2.000) schliesst das jetzt als EIGENE Dimension, siehe
+    ``tests/test_budget_kostenkurve.py``.
+
+    DIE SPEICHERFORMEL (Review Runde 2, B3), deterministisch und gemessen (``tracemalloc``, siehe
+    dieselbe Datei): der ZUSAETZLICHE Speicher dieses Durchlaufs ist O(A) Hash-Zustaende fester Groesse
+    (``A`` = Zahl der angemeldeten Algorithmen, durch ``HASH_REGISTRY`` auf eine kleine Konstante
+    begrenzt — ``h.copy()`` dupliziert nur den internen Zustand, nie die bereits verarbeiteten Bytes)
+    PLUS O(D) fuer ``self._daten_bytes`` (D = Bytes von ``data_digests``, sortiert und verbunden, GENAU
+    EINMAL gecacht in ``_daten()``) — UNABHAENGIG von der Zahl der Kettenanfaenge: kein Token, kein
+    Praefix-Byte wird je zusaetzlich zu den laufenden Hash-Zustaenden aufbewahrt. Gemessen bestaetigt:
+    10.000 Kettenanfaenge gegen einen Datendigest kosten ~2,43 MiB Spitzenverbrauch (dominiert von der
+    Check-Liste in ``VerificationResult``, ein vorbestehender, von dieser Klasse unabhaengiger
+    Mechanismus), 10.000 Kettenanfaenge gegen 2.000 Datendigests ~2,60 MiB — die Differenz waechst mit
+    D, nicht mit der Kettenanfangszahl. Zeit multipliziert sich also ueber diese beiden Achsen (siehe
+    oben), Speicher NICHT — zwei verschiedene Kostenarten mit unterschiedlichem Verhalten, keine
+    Annahme, dass eine begrenzte Zeit automatisch begrenzten Speicher bedeutet oder umgekehrt.
     """
 
     def __init__(self, data_digests: Sequence[str], hash_algs: "Iterable[str]", *,
@@ -810,6 +835,20 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             "renewal:budget", False,
             f"sequence has {len(flat)} ArchiveTimeStamp entries (> budget.renewal_ats_chain="
             f"{DEFAULT_BUDGET.renewal_ats_chain}) — refusing (DoS guard, Finding 15b)"))
+        return result
+
+    # Review Runde 2, B1 (L2-600-01 follow-up): renewal_ats_chain bounds the chain-start COUNT, but each
+    # chain-start's covering digest re-appends the FULL data-digest tail (_PraefixDeckung.deckung) — an
+    # UNBOUNDED data_digests axis multiplies an already-bounded axis right back into an unbounded one.
+    # Measured on this tree 2026-09-05: 10,000 chain-starts (the renewal_ats_chain limit) x 50,000 data
+    # digests cost 16.2s CPU; the same 10,000 chain-starts against ONE data digest cost 0.04s. Refuse
+    # BEFORE the covering-check loop, same shape as the renewal_ats_chain guard just above.
+    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):
+        result.checks.append(Check(
+            "renewal:budget:data_digests", False,
+            f"data_digests has {len(data_digests)} entries (> budget.data_digests="
+            f"{DEFAULT_BUDGET.data_digests}) — refusing (DoS guard, data_digests axis, "
+            "Review Runde 2 B1)"))
         return result
 
     # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
