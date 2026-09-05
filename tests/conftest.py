@@ -282,6 +282,31 @@ def _wurzel_relative_pfade(quelle: str, tiefe: int | None = None) -> set[str]:
     return gefunden
 
 
+def _dieser_baum_ist_das_repo(wurzel: pathlib.Path) -> bool:
+    """Is ``wurzel`` ITSELF the root of a git work tree — not merely a directory inside one?
+
+    ``git -C X rev-parse --is-inside-work-tree`` says yes for any subdirectory of any repository, which
+    is the wrong question here: an extracted sdist under ``vendor/`` of a consumer's checkout is inside
+    a work tree that has nothing to do with it. ``--show-toplevel`` names WHICH tree, and only when that
+    equals ``wurzel`` do this repository's ignore rules describe these files (L6-600-01).
+
+    Three outcomes collapse to False on purpose (no git, not a repository, an enclosing repository):
+    all three mean "the ignore rule cannot speak about this tree", and the caller's fail-safe for that
+    is the stricter pre-fix behaviour, never a lenient one."""
+    import subprocess  # noqa: PLC0415 - only on this path
+    try:
+        r = subprocess.run(["git", "-C", str(wurzel), "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if r.returncode != 0:
+        return False
+    try:
+        return pathlib.Path(r.stdout.strip()).resolve() == pathlib.Path(wurzel).resolve()
+    except (OSError, ValueError):
+        return False
+
+
 def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
     """Is this absent path a BUILD OUTPUT rather than a source path the sdist pruned?
 
@@ -302,7 +327,18 @@ def _ist_bauartefakt(wurzel: pathlib.Path, rel: str) -> bool:
     the old rule is what we want — an absent path there really does mean "not shipped". Any failure
     (git missing, not a repo, non-zero exit) therefore falls back to "not a build artifact", which
     keeps the previous, stricter behaviour.
-    """
+
+    THE QUESTION IS ASKED OF THIS TREE, NEVER OF AN ENCLOSING ONE (deep gate 2026-09-05, finding
+    L6-600-01, P2). ``git -C <sdist root> check-ignore`` answers from whatever repository CONTAINS the
+    directory — and a downstream packager extracts an sdist exactly where one does: ``vendor/``,
+    ``build/``, ``.tox/`` inside their own checkout. There every path is reported ignored, so every
+    pruned path read as "unbuilt build artifact", the derived skip switched off, and the shipped suite
+    ran 40 tests it cannot pass from a distributed artifact (measured: 40 failed under a gitignored
+    dir, 1 under a non-ignored one, 0 in a plain dir — same sdist bytes, three different answers).
+    The ignore rule is only OUR discriminator when the repository asking is OUR tree, so the toplevel
+    is compared first. Not our tree means no git answer at all, which is the stricter old behaviour."""
+    if not _dieser_baum_ist_das_repo(wurzel):
+        return False
     import subprocess  # noqa: PLC0415 - only on this path
     try:
         r = subprocess.run(["git", "-C", str(wurzel), "check-ignore", "-q", rel],

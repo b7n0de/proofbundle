@@ -13,7 +13,7 @@ subject digest is a free-floating value an issuer can set to anything, a verifie
 subject actually corresponds to the predicate it is stapled to — an attacker could graft a trusted-looking
 subject onto a different predicate. Subject binding closes that gap.
 
-## DERIVED vs EXTERNAL_ATTESTED
+## DERIVED vs EXTERNAL_ATTESTED vs AMBIGUOUS
 
 - `derive_subject_digest(predicate)` = **SHA-256 over the RFC-8785 (JCS) canonical bytes of the predicate**.
 - `classify_subject(statement)` re-derives that digest and compares it to the declared subject digest:
@@ -22,8 +22,19 @@ subject onto a different predicate. Subject binding closes that gap.
   - **`EXTERNAL_ATTESTED`** — an override, a tamper, or a malformed subject (`matches = False`, fail-closed).
     The subject is asserting something OTHER than "I am the digest of this predicate", and the verifier is told
     so explicitly rather than silently trusting it.
+  - **`AMBIGUOUS`** — the `subject` array carries MORE THAN ONE entry (`matches = False`, fail-closed). Which
+    object the statement speaks about is undecided, and no entry is silently taken. Absent and ambiguous are
+    different defects: nothing to speak about vs. undecided which, so they keep different modes.
 - `require_derived_subject(statement)` raises `SubjectBindingError` on anything that is not `DERIVED` — for the
   strict path where only a self-describing subject is acceptable.
+
+**Why AMBIGUOUS exists (deep gate 2026-09-05, finding L4-02).** `classify_subject` read `subject[0]`. For a
+statement carrying `[derived, foreign]` that comparison succeeds, so the verifier reported `DERIVED`, passed
+`require_derived_subject`, and an action-outcome reached `safeForAutomation: true` — while the SAME bytes
+attached as a `--with-related` target had been reported `ambiguous` by the resolver since PB-2026-0717-01. The
+verdict was also order-dependent (`[foreign, derived]` failed), which is how the defect announced itself: the
+same two subjects and the same predicate cannot honestly produce two verdicts. The count now decides before any
+entry is read, so the classification is order-invariant by construction.
 
 ## Nested schema closure
 

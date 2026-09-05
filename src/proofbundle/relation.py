@@ -155,7 +155,9 @@ def require_valid_relationships(value: Any) -> None:
 # one STANDALONE with the existing machinery; this module never re-implements crypto. An
 # attached target is described by an AttachedTarget mapping:
 #     {"verified": bool,                     # target verified standalone (its own crypto)
-#      "relationships": list | None}         # the target's OWN edges (for the chain walk)
+#      "relationships": list | None,         # the target's OWN edges (for the chain walk)
+#      "payload_malformed": str | None}      # L4-01: the strict parser's reason when the SIGNED payload
+#                                            #   is not a well-formed statement (hard FAIL at any hop)
 # keyed by its content-root hex in `related`.
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -301,6 +303,11 @@ def verify_relationship_edges(
             if not isinstance(target, dict):
                 entry["resolution"] = LINEAGE_FAIL
                 entry["errors"].append("relation:attached_target_malformed")
+            elif _target_payload_malformed(target) is not None:
+                # L4-01: the resolver could not parse the target's SIGNED payload strictly. That is a
+                # finding about the target (its bytes fail standalone), never "no edges, subject absent".
+                entry["resolution"] = LINEAGE_FAIL
+                entry["errors"].append(_target_payload_malformed(target))
             elif target.get("verified") is not True:
                 # Fail-closed: an ATTACHED target that does not verify standalone is a
                 # hard FAIL (present-and-wrong), unlike an absent one (declared-only).
@@ -393,6 +400,12 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
         if not isinstance(node, dict):
             return ("relation:ancestor_attached_target_malformed: an ATTACHED ancestor is not a "
                     "well-formed target object (present-and-wrong is a hard FAIL at any hop)")
+        # L4-01 (deep gate 2026-09-05): the SAME payload gate as on the receipt's own edge, at every hop.
+        # A malformed payload used to arrive here as "verified, relationships=None" and end the path
+        # honestly at the horizon — exactly the hop an attacker inserts to hide a failing ancestor.
+        _payload_err = _target_payload_malformed(node)
+        if _payload_err is not None:
+            return f"relation:ancestor_edge: {_payload_err}"
         if node.get("verified") is not True:
             return ("relation:ancestor_verification_failed: an ATTACHED ancestor does not verify "
                     "standalone (present-and-wrong is a hard FAIL at any hop, exactly as for the "
@@ -487,6 +500,28 @@ CODE_RELATION_TARGET_SUBJECT_MISMATCH = "RELATION_TARGET_SUBJECT_MISMATCH"
 CODE_RELATION_TARGET_SUBJECT_MISSING = "RELATION_TARGET_SUBJECT_MISSING"
 CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS = "RELATION_TARGET_SUBJECT_AMBIGUOUS"
 CODE_RELATION_TARGET_SUBJECT_MALFORMED = "RELATION_TARGET_SUBJECT_MALFORMED"
+
+# Deep gate 2026-09-05, finding L4-01 (P1): an ATTACHED target whose signed payload the strict parser refuses
+# (duplicate key, NaN, BOM, non-canonical, not an object) is `attached_target_malformed` — a hard FAIL at
+# every hop, with the same stable wire code in Python and Rust. Before this the resolver swallowed the parse
+# failure into "verified, no edges, subject absent", and a chain hidden behind a duplicate `predicate` key
+# walked to VERIFIED while the same bytes failed standalone (parser-differential at the resolver seam).
+CODE_RELATION_TARGET_MALFORMED = "RELATION_TARGET_MALFORMED"
+
+
+def _target_payload_malformed(target: dict) -> str | None:
+    """The resolver's typed verdict that an attached target's PAYLOAD is not a well-formed statement.
+
+    ``payload_malformed`` is set by :func:`proofbundle.cli._load_related` (and any foreign resolver that
+    follows the AttachedTarget contract) to the strict parser's reason. A ``subject_digest_state`` of
+    ``"malformed"`` alone is NOT this condition (that state also names a single subject with a bad digest,
+    which is the subject-pin's business); only the explicit payload verdict FAILs the whole target."""
+    reason = target.get("payload_malformed")
+    if reason is None or reason is False:
+        return None
+    return (f"relation:attached_target_malformed ({CODE_RELATION_TARGET_MALFORMED}): an ATTACHED target's "
+            f"signed payload is not a well-formed statement — {reason if isinstance(reason, str) else 'rejected'}"
+            " (present-and-malformed is a hard FAIL at any hop; the same bytes fail standalone)")
 
 
 def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:

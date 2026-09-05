@@ -72,6 +72,12 @@ _NAME_PATTERN = re.compile(
     # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
     # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
     r"|split_key_binding|holder_key_from_cnf"
+    # 2026-09-05, Tiefen-Gate-Fund L4-02: `subject_cardinality` liest die Subjektzahl aus einem vom
+    # AUFRUFER gelieferten Statement und entscheidet damit, ob ueberhaupt gebunden werden darf. Sie
+    # faellt in keine Praefix-Familie und ist trotzdem ein Verbraucher unvertrauter Eingabe — also in
+    # den NENNER, nicht daneben. Der Populations-Riegel hat sie beim ersten Lauf gemeldet; das ist
+    # genau die Bewegung, die er erzwingen soll.
+    r"|subject_cardinality"
     # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
     # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
     # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —

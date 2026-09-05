@@ -92,11 +92,34 @@ def test_die_wahrheit_im_bericht_bleibt_unveraendert():
 
 def test_nur_dieser_eine_fehlschlag_wird_umgedeutet():
     """ENGE. Ein kaputtes oder nicht vertrauenswuerdiges Receipt bleibt FAIL, auch auf einem PR —
-    sonst waere aus einer Praezisierung eine Abschaltung geworden. Gepruefte Eigenschaft: die
-    Umdeutung haengt am Wortlaut des Tor-Grundes, nicht am Ereignis allein."""
+    sonst waere aus einer Praezisierung eine Abschaltung geworden.
+
+    ERSETZT (Tiefen-Gate 2026-09-05, Fund L5-G6-01, P2). Hier stand ein QUELLTEXT-Vergleich:
+
+        assert '_laeuft_auf_pull_request() and "no valid pre-tag audit RECEIPT" in' in quelle
+
+    Er behauptete die Enge und mass sie nicht. Genau die Zeile, die er als Beleg zitierte, WAR der
+    Defekt: der Satz „no valid pre-tag audit RECEIPT" steht im Tor-Grund bei Abwesenheit UND bei
+    Ablehnung, also wurden ein fremder Signierer, eine manipulierte Signatur, ein kopiertes
+    5.0.0-Receipt und eine unlesbare Datei auf einem PR alle vier zu NOT_APPLICABLE — und dieser Test
+    war dabei gruen, weil die zitierte Zeichenkette ja dastand. Ein Test, der den Prueflig nach dem
+    Wortlaut absucht, den er abschaffen soll, kann nicht bemerken, dass der Wortlaut stimmt und das
+    Verhalten falsch ist.
+
+    Gemessen wird jetzt die Bindung an das TYPISIERTE Feld; das Verhalten ueber alle vier
+    Ablehnungsformen steht in tests/test_pretag_gate_state_typed_l5_g6_01.py.
+    """
     quelle = SKRIPT.read_text(encoding="utf-8")
-    assert '_laeuft_auf_pull_request() and "no valid pre-tag audit RECEIPT" in' in quelle, (
-        "die Umdeutung ist nicht mehr an den konkreten Grund gebunden")
+    assert '_laeuft_auf_pull_request() and r.get("state") == "absent"' in quelle, (
+        "die Umdeutung haengt nicht mehr am typisierten Zustand des Tors")
+    # NUR CODE-ZEILEN, und der Grund ist beim Schreiben dieses Tests aufgetreten: der Kommentar, der
+    # den Fund erklaert, ZITIERT die alte Regel woertlich. Ein Griff ueber die ganze Datei fand das
+    # Zitat und meldete einen Rueckfall, den es nicht gibt — dieselbe Klasse wie der Fund selbst
+    # (eine Entscheidung an einem Textvorkommen statt an der Sache), diesmal im Pruefwerkzeug.
+    codezeilen = "\n".join(z for z in quelle.splitlines() if not z.lstrip().startswith("#"))
+    assert '"no valid pre-tag audit RECEIPT" in' not in codezeilen, (
+        "die Prosa-Verengung ist zurueck — ein abgelehntes Receipt erbt wieder die Nachsicht "
+        "der Abwesenheit")
 
 
 def test_jede_zeile_traegt_einen_namen_vor_ihrem_kuerzel():

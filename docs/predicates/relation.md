@@ -84,8 +84,17 @@ content root. Per edge:
 - **DECLARED_UNRESOLVED** — edge well-formed, target not attached. Explicitly NOT an error,
   but never more than "declared" — no PASS upgrade, ever.
 - **FAIL** — structural error (incl. the non-hex-digest never-raise case), unknown relation,
-  attached-but-unverified target (present-and-wrong beats absent), cycle, or depth > 32.
+  attached-but-unverified target (present-and-wrong beats absent), an attached target whose signed
+  PAYLOAD is not a well-formed statement (`RELATION_TARGET_MALFORMED`), cycle, or depth > 32.
 - **NOT_EVALUATED** — no profile present.
+
+"Verified STANDALONE" covers the payload as well as the signature, and it binds at every hop
+(deep gate 2026-09-05, finding L4-01): the resolver parses an attached target's payload with the SAME
+strict, canonical oracle the standalone verify path uses. A payload the oracle refuses — a duplicate JSON
+key, NaN, a BOM, a non-canonical spelling, a non-object — makes the target `attached_target_malformed`,
+never "verified with no edges". Before that, a failing ancestry hidden behind a duplicated `predicate` key
+verified as VERIFIED in both shipped verifiers while the same bytes failed standalone: the chain's verdict
+depended on which parser read a hop, and the hop's author chooses the bytes.
 
 Invariants: `lineage` NEVER feeds `cryptoValid` in either direction (proven by test — a
 forged envelope never computes lineage, and a lineage FAIL never flips `crypto_ok`).
