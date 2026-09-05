@@ -26,7 +26,7 @@ from __future__ import annotations
 import base64
 import functools
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -62,6 +62,7 @@ __all__ = [
 
 _CONFIRMED = "confirmed"
 _SEP = "\n"
+_SEP_B = _SEP.encode()
 
 
 def _as_dict(v):
@@ -410,6 +411,124 @@ def _cover_prior_and_data(prior: Sequence[ArchiveTimeStamp], data_digests: Seque
     return compute_digest(_SEP.join(items).encode(), hash_alg, allow_deprecated=allow_deprecated)
 
 
+class _PraefixDeckung:
+    """Dieselbe Deckung wie ``_cover_prior_and_data``, ueber einen WACHSENDEN Praefix — in linearer Zeit.
+
+    DER FUND (deep gate 6.0.0, L2-600-01, P2). ``verify_sequence`` traegt seit Finding 15b eine
+    Schranke gegen Ueberlastung: ``budget.renewal_ats_chain`` = 10.000 ArchiveTimeStamp. Die Schranke
+    feuert korrekt — und begrenzte trotzdem nichts, weil der Durchlauf DAHINTER quadratisch war. Jeder
+    Kettenanfang deckt ALLE vorherigen ATS (RFC 4998), und ``_cover_prior_and_data`` baute diese
+    Tokenliste fuer jeden Kettenanfang neu. Gemessen auf diesem Baum am 2026-09-05: 10.000 Eintraege —
+    der GROESSTE ZUGELASSENE Wert, denn ``budget.within`` prueft ``value <= limit`` — kosteten 59,5 s
+    Rechenzeit aus rund 1,26 MB Eingabe, waehrend der erste ABGEWIESENE Wert mit 10.001 Eintraegen in
+    0,002 s zurueckkam. Eine Schranke gegen die LAENGE der Eingabe begrenzt die Kosten nur, solange der
+    geschuetzte Durchlauf linear ist.
+
+    DIE FORM DES FIXES. Die gehashten BYTES bleiben Zeichen fuer Zeichen dieselben —
+    ``_SEP.join([token je vorherigem ATS] + sorted(data_digests))``. Nur der Weg dorthin ist anders: ein
+    Praefix waechst ausschliesslich am Ende, und ein Hash-Zustand, der ihn schon gefressen hat, laesst
+    sich kopieren (``hashlib``-Objekte koennen ``copy()``). Also je ATS EINMAL fuettern, je Kettenanfang
+    eine Kopie plus den (immer gleichen) Daten-Schwanz: aus O(n^2) wird O(n). Dass beide Wege
+    byte-identisch rechnen, ist nicht behauptet, sondern gegen den naiven Weg als Orakel geprueft
+    (``tests/test_renewal_praefix_deckung_orakel.py``) — waere es nicht so, wuerde jede existierende
+    Sequenz aufhoeren zu verifizieren.
+
+    WARUM DIE ALGORITHMEN VORHER FESTSTEHEN MUESSEN. Ein Hash-Zustand laesst sich nur vorwaerts fuellen;
+    ein erst spaet angeforderter Algorithmus haette den Praefix nie gesehen, und ihn nachzubauen
+    braeuchte die Praefix-BYTES — genau den Speicher, den diese Form vermeidet. Der Aufrufer nennt die
+    Algorithmen deshalb vorab; es sind genau die der Kettenanfaenge, denn nur die fragen eine Deckung an.
+    Zuerst wurden schlicht alle sieben Registry-Eintraege mitgefuehrt: dieselbe Ordnung, aber sieben mal
+    die Token-Bytes, und im teuersten zulaessigen Fall (10.000 ATS mit einer 8192-Bit-``time``) waren das
+    gemessen 0,224 s statt 0,013 s. Wer eine nicht genannte Kennung anfragt, bekommt eine typisierte
+    Absage — kein stiller Fehldigest.
+
+    FEHLER-REIHENFOLGE. ``_cover_prior_and_data`` prueft in dieser Reihenfolge: erst die Datendigests,
+    dann die Tokens, zuletzt den Hash-Algorithmus. Diese Reihenfolge ist hier nachgebaut, damit dieselbe
+    Eingabe dieselbe Fehlermeldung bekommt. Ein Token, das wirft, vergiftet den Praefix: der naive Weg
+    wirft dann bei JEDEM spaeteren Kettenanfang erneut, weil er die Liste jedes Mal neu baut — hier
+    wird derselbe Fehler gemerkt und unveraendert erneut geworfen. Die Formen, die diesen Durchlauf
+    ueberhaupt erreichen, sind eine ``.time``, die keine Zahl ist, ein ``sig_alg``, das keine
+    Zeichenkette ist, und ein ``signatures``-Feld ohne (alg, base64)-Paare; eine implausibel GROSSE
+    ``.time`` kommt nicht bis hierher, die faengt der Magnitude-Check weiter oben mit einem eigenen
+    Rueckgabepunkt ab.
+    """
+
+    def __init__(self, data_digests: Sequence[str], hash_algs: "Iterable[str]", *,
+                 allow_deprecated: bool = False) -> None:
+        self._data_digests = data_digests
+        self._allow_deprecated = allow_deprecated
+        self._daten_geprueft = False
+        self._daten_fehler: Optional[ProofBundleError] = None
+        self._daten_bytes = b""
+        self._daten_leer = True
+        self._token_fehler: Optional[ProofBundleError] = None
+        self._praefix_leer = True
+        self._laufend: dict = {}
+        for alg in hash_algs:
+            try:
+                spec = resolve_hash_alg(alg, allow_deprecated=allow_deprecated)
+            except ProofBundleError:
+                continue        # ein nicht aufloesbarer Algorithmus faellt in deckung() an derselben
+                                # Stelle wie bisher — hier wird nur kein Zustand dafuer angelegt
+            self._laufend.setdefault(spec.id, spec.new())
+
+    def aufnehmen(self, ats: ArchiveTimeStamp) -> None:
+        """Ein weiteres ATS an den Praefix haengen — in genau der Reihenfolge des Durchlaufs."""
+        if self._token_fehler is not None:
+            return                      # der Praefix ist vergiftet; weiterfuettern aenderte nichts mehr
+        try:
+            roh = ats.token().encode()
+        except ProofBundleError as exc:
+            self._token_fehler = exc
+            return
+        for h in self._laufend.values():
+            if not self._praefix_leer:
+                h.update(_SEP_B)
+            h.update(roh)
+        self._praefix_leer = False
+
+    def deckung(self, hash_alg: str) -> str:
+        """Der gedeckte Digest eines Kettenanfangs AN DIESER STELLE des Durchlaufs.
+
+        Mit leerem Praefix ist das ``_cover_data(data_digests, hash_alg)`` (der allererste ATS), mit
+        gefuelltem ``_cover_prior_and_data(bisherige, data_digests, hash_alg)``. Ein Ausdruck, zwei
+        Faelle, weil ``_cover_data(d, a)`` genau ``_cover_prior_and_data([], d, a)`` ist.
+        """
+        daten = self._daten()                                       # 1. die Datendigests
+        if self._token_fehler is not None:                          # 2. die Tokens der vorherigen ATS
+            raise self._token_fehler
+        spec = resolve_hash_alg(hash_alg, allow_deprecated=self._allow_deprecated)   # 3. der Algorithmus
+        laufend = self._laufend.get(spec.id)
+        if laufend is None:
+            # Der Aufrufer hat diese Kennung nicht angemeldet, also hat kein Zustand den Praefix
+            # gesehen. Lieber eine typisierte Absage (der Cover-Check macht daraus einen fail-closed
+            # Check) als ein Digest ueber einen unvollstaendigen Praefix, der zufaellig passen koennte.
+            raise RenewalError(
+                f"internal: no prefix state for hash algorithm {_rs(spec.id)} — the covering walk must "
+                "declare every chain-start algorithm up front (fail-closed)")
+        h = laufend.copy()
+        if not self._daten_leer:
+            if not self._praefix_leer:
+                h.update(_SEP_B)
+            h.update(daten)
+        return h.hexdigest()
+
+    def _daten(self) -> bytes:
+        """Die Datendigests EINMAL pruefen, sortieren und verbinden — nicht je Kettenanfang erneut."""
+        if not self._daten_geprueft:
+            self._daten_geprueft = True
+            try:
+                _validate_digests(self._data_digests)
+                sortiert = sorted(self._data_digests)
+                self._daten_leer = not sortiert
+                self._daten_bytes = _SEP.join(sortiert).encode()
+            except ProofBundleError as exc:
+                self._daten_fehler = exc
+        if self._daten_fehler is not None:
+            raise self._daten_fehler
+        return self._daten_bytes
+
+
 def _make_ats(hash_alg: str, covered: str, time: int, anchor_status: str,
               sig_alg: str, signers: Optional[dict], *,
               renewal_seed_evidence_class: str = "") -> ArchiveTimeStamp:
@@ -743,7 +862,15 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # 3) covering: walk each chain; the first ATS of chain 0 covers the data, the first ATS of every
     #    later chain covers (all ATS before it) + data, and each subsequent ATS in a chain covers the
     #    prior ATS's token.
-    seen_before: list[ArchiveTimeStamp] = []
+    #    L2-600-01 (deep gate 6.0.0): dieser Durchlauf war quadratisch INNERHALB der Schranke, die ihn
+    #    begrenzen sollte — jeder Kettenanfang baute die Tokenliste aller vorherigen ATS neu. Die
+    #    Deckung waechst nur am Ende, also wird sie inkrementell mitgefuehrt (_PraefixDeckung): gleiche
+    #    Bytes, gleiche Fehlerreihenfolge, aus O(n^2) wird O(n). Gemessen am Limit 10.000: 59,5 s -> 0,04 s.
+    # Die Kennungen der Kettenanfaenge sind genau die, die eine Praefix-Deckung anfragen. Der
+    # isinstance-Filter steht VOR dem Mengenaufbau: eine unhashbare hash_alg (list/dict) wuerde sonst
+    # hier roh werfen, statt wie bisher als EINZELNER fail-closed Cover-Check zu erscheinen.
+    _start_algs = {c[0].hash_alg for c in sequence if c and isinstance(c[0].hash_alg, str)}
+    deckung = _PraefixDeckung(data_digests, _start_algs, allow_deprecated=True)
     covering_ok = True
     for ci, chain in enumerate(sequence):
         for ai, a in enumerate(chain):
@@ -752,11 +879,8 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                 # an unknown/absent algorithm raises HashAlgError → this ATS fails closed (no crash).
                 if not (isinstance(a.covered_digest, str) and _HEXRE.match(a.covered_digest)):
                     raise HashAlgError("covered digest is not lowercase hex")
-                if ai == 0 and ci == 0:
-                    expect = _cover_data(data_digests, a.hash_alg, allow_deprecated=True)
-                elif ai == 0:
-                    expect = _cover_prior_and_data(seen_before, data_digests, a.hash_alg,
-                                                   allow_deprecated=True)
+                if ai == 0:
+                    expect = deckung.deckung(a.hash_alg)
                 else:
                     prior = chain[ai - 1]
                     expect = compute_digest(prior.token().encode(), a.hash_alg, allow_deprecated=True)
@@ -766,14 +890,14 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                 covering_ok = False
                 result.checks.append(Check(f"renewal:cover:c{ci}a{ai}", False,
                                            f"covered digest not verifiable: {exc}"))
-                seen_before.append(a)
+                deckung.aufnehmen(a)
                 continue
             if a.covered_digest != expect:
                 covering_ok = False
                 result.checks.append(Check(
                     f"renewal:cover:c{ci}a{ai}", False,
                     "covered digest does not recompute (a break in the sequence or tampered data)"))
-            seen_before.append(a)
+            deckung.aufnehmen(a)
     if covering_ok:
         result.checks.append(Check("renewal:cover", True,
                                    "every ATS covers its prior objects; data recomputes"))

@@ -46,10 +46,23 @@ _EIGENE_SCHRANKE = {
         "renewal_ats_chain",
         "nimmt list[list[ArchiveTimeStamp]] — TYPISIERTE Objekte, kein rohes geparstes JSON. Die "
         "Elemente sind per Shape-Guard ArchiveTimeStamp-Instanzen; enforce_structural_budget wuerde "
-        "ueber sie hinweglaufen (weder str noch dict noch list) und nur die Listenlaenge messen, die "
-        "renewal_ats_chain bereits fachlich und schaerfer begrenzt. Der Einbau haette diesen Riegel "
-        "gruen gemacht, ohne irgendetwas zu schuetzen."),
+        "ueber sie hinweglaufen (weder str noch dict noch list) und nur die Listenlaenge messen, und "
+        "die gegen json_nodes = 200.000, also 20-fach LOSER als die eigene Dimension. Der Einbau "
+        "haette diesen Riegel gruen gemacht, ohne irgendetwas zu schuetzen. — WAS HIER FRUEHER ZU "
+        "VIEL STAND (korrigiert 2026-09-05, deep gate 6.0.0, L2-600-01): der Satz nannte die Kette "
+        "'bereits fachlich und schaerfer begrenzt' und meinte damit auch die KOSTEN. Gemessen war "
+        "das falsch — am groessten zugelassenen Wert (10.000; die Pruefung ist value <= limit) "
+        "kostete der Durchlauf 59,5 s Rechenzeit, waehrend 10.001 Eintraege in 0,002 s abgewiesen "
+        "wurden. Eine Zahlenschranke ist erst dann eine Kostenschranke, wenn die Kosten AN IHR "
+        "gemessen sind. Genau das ist die Bedingung, die dieser Ausschluss jetzt traegt, und sie "
+        "wird unten gegen tests/test_budget_kostenkurve.py geprueft."),
 }
+
+# Die Kostenkurve, gegen die eine eigene Schranke belegt wird. Ihr eigener Test
+# `test_keine_dimension_ohne_last` leitet die Menge der gemessenen Dimensionen aus
+# `VerificationBudget` ab — deshalb genuegt hier der Nachweis, dass die Datei die Dimension nennt:
+# dass die Menge VOLLSTAENDIG ist, sichert sie selbst.
+KOSTENKURVE = pathlib.Path(__file__).resolve().parent / "test_budget_kostenkurve.py"
 
 
 def _lokal_gebunden(fn: ast.AST) -> set[str]:
@@ -211,6 +224,26 @@ class StrukturBudgetErreichbarkeit(unittest.TestCase):
                 quelle = (QUELLE / f"{modul}.py").read_text(encoding="utf-8")
                 self.assertIn(dimension, quelle,
                               f"{modul}.py benutzt {dimension!r} nicht — der Ausschluss ist unbelegt")
+
+    def test_eine_eigene_schranke_muss_ihre_KOSTEN_belegen(self):
+        """DIE ZWEITE HAELFTE DES BELEGS, und sie fehlte (deep gate 6.0.0, L2-600-01).
+
+        Dass eine Flaeche eine eigene Dimension traegt, sagt nur, dass eine ZAHL an der Eingabe
+        begrenzt ist. Was diese Zahl KOSTET, sagt es nicht — und genau daran ist der Ausschluss
+        hier gescheitert: `renewal_ats_chain` = 10.000 feuerte korrekt und liess trotzdem einen Fall
+        zu, der 59,5 s Rechenzeit kostete, weil der geschuetzte Durchlauf quadratisch war. Ein
+        Ausschluss von der generischen Schranke gilt deshalb nur, wenn die Kosten AM LIMIT der
+        eigenen Dimension gemessen sind.
+        """
+        self.assertTrue(KOSTENKURVE.exists(),
+                        f"{KOSTENKURVE.name} fehlt — dann ist keine eigene Schranke mehr belegt")
+        kurve = KOSTENKURVE.read_text(encoding="utf-8")
+        for schluessel, (dimension, _grund) in _EIGENE_SCHRANKE.items():
+            with self.subTest(flaeche=schluessel):
+                self.assertIn(f'Dimension("{dimension}"', kurve,
+                              f"{dimension!r} hat keine gemessene Kostenkurve in "
+                              f"{KOSTENKURVE.name} — der Ausschluss behauptet eine Kostenschranke, "
+                              "die niemand gemessen hat")
 
     def test_ein_ausschluss_ohne_eintrag_verschwindet_nicht(self):
         """Die Gegenrichtung dazu: was NICHT in _EIGENE_SCHRANKE steht, muss den Riegel erreichen."""
