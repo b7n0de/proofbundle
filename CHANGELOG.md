@@ -28,6 +28,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `b64_strict` (bundle fields, keys) and `b64_dsse` (envelopes) without `.trim()`, `b64url_nopad` without
   padding tolerance. **Behaviour change:** an UNPADDED DSSE `payload`/`sig` is now refused by Python as it
   already was by Rust; the padded url-safe spelling the spec mandates still verifies.
+- **A Trust Pack role applies to the key that signed, never to a self-declared keyId** (finding
+  L1-600-02, P2 fail-open). `verify_outcome_receipt(..., trust_pack=)` reported `executor_role_trusted=True`
+  and `safeForAutomation=True` for an outcome signed by a fresh key whose predicate merely claimed
+  `executor.keyId = root-0`. It now binds the keyId to the verifying key against `keys[keyId].publicKey`
+  (`outcome.pack_key_binds_signer`; `executor_trusted_by_role(..., public_key=)`), reports
+  `executor_key_bound` and the blocker `KEY_ID_NOT_BOUND_TO_SIGNER`. On the receiver side a
+  `receiver_attestation_resolver` may return the referenced statement's 32-byte signer key; when the pack
+  names key material for a `receiverKeyId`, promotion to `INDEPENDENTLY_ATTESTED` and
+  `receiver_role_trusted` require that key to match (`receiver_key_bound`); a bare `True` no longer binds a
+  label the pack names. Callers without a trust pack are unchanged.
 
 ## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 

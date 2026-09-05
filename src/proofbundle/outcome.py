@@ -238,16 +238,51 @@ def outcome_execution_proven(predicate: Any) -> bool | None:
 _OUTCOME_EXECUTOR_ROLE = "outcomeExecutors"
 
 
-def executor_trusted_by_role(executor: Any, trust_pack: dict) -> bool:
-    """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role and is NOT
-    revoked. ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — the caller is
+def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool:
+    """True iff ``trust_pack.keys[key_id].publicKey`` decodes to exactly ``public_key`` — the 32 raw
+    Ed25519 bytes the receipt was VERIFIED under. Deep gate 2026-09-05, finding L1-600-02 (P2, fail-open):
+    a role check that only asks "is this keyId a member of the role" trusts a LABEL the signer wrote into
+    its own predicate. A receipt signed by any key and carrying ``executor.keyId = root-0`` read as a
+    trusted executor and reached ``safeForAutomation=true``, although the pack carried root-0's real
+    key material next to the role. The invariant: a role from the pack applies only to the key that
+    actually signed. A hybrid key binds through its Ed25519 leg (``publicKey``); an ``mldsa65`` key cannot
+    have signed an Ed25519 DSSE envelope, so it never binds. A keyId without key material in the pack
+    cannot be bound and is False (the pack contract requires every role key id in ``keys``).
+
+    Never raises on malformed input."""
+    if not isinstance(trust_pack, dict) or not isinstance(key_id, str) or not key_id:
+        return False
+    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+        return False
+    keys = trust_pack.get("keys")
+    kv = keys.get(key_id) if isinstance(keys, dict) else None
+    if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+        return False
+    if kv.get("alg", "ed25519") not in ("ed25519", "hybrid-ed25519-mldsa65"):
+        return False
+    from ._wire_b64 import decode_b64  # noqa: PLC0415
+    try:
+        raw = decode_b64(kv["publicKey"])
+    except (ValueError, TypeError):
+        return False
+    return len(raw) == 32 and raw == bytes(public_key)
+
+
+def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
+    """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
+    revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
+    supplied — that key id's ``keys[keyId].publicKey`` IS the signing key (:func:`pack_key_binds_signer`).
+    ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — the caller is
     responsible for having separately verified its own signature/threshold via
     ``trust_pack.verify_trust_pack`` (mirrors how ``policy`` elsewhere in this repo is caller-trusted local
-    config that verify_* never re-verifies itself). This function checks ROLE MEMBERSHIP only; it never
-    re-derives trust in the pack itself.
+    config that verify_* never re-verifies itself). Without ``public_key`` this is a ROLE MEMBERSHIP
+    check only (a label check); ``verify_outcome_receipt`` always passes the signing key, so the role
+    verdict it reports is bound to the key that signed, never to a self-declared keyId (deep gate
+    2026-09-05, L1-600-02).
 
-    Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, or a revoked key are all
-    False — never a silent pass. Never raises on malformed input."""
+    Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, a revoked key, or a
+    keyId whose pack key material is absent or differs from the signing key are all False — never a
+    silent pass. Never raises on malformed input."""
     if not isinstance(executor, dict) or not isinstance(trust_pack, dict):
         return False
     key_id = executor.get("keyId")
@@ -260,6 +295,8 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict) -> bool:
         return False
     revoked = trust_pack.get("revoked")
     if isinstance(revoked, list) and key_id in revoked:
+        return False
+    if public_key is not None and not pack_key_binds_signer(key_id, trust_pack, public_key):
         return False
     return True
 
@@ -437,12 +474,12 @@ def _empty_result() -> dict:
         # Finding 01 / Finding 03 (2026-07 verify-layer hardening, additive): executor_role_trusted is None
         # unless a trust_pack is supplied (outcomeExecutors role membership); automation/evidence_levels are
         # computed at the end of verify — none of these three change the fields above.
-        "executor_role_trusted": None, "automation": None, "evidence_levels": None,
+        "executor_role_trusted": None, "executor_key_bound": None, "automation": None, "evidence_levels": None,
         # Finding 16 (additive): receiver_bound mirrors decision.py's evidence_bound (digest-shape only,
         # None when receiverRefs is absent/empty); receiver_role_trusted is None unless BOTH trust_pack and
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
         # OPTIONAL supplementary evidence, not core to the outcome's own validity — see verify docstring).
-        "receiver_bound": None, "receiver_role_trusted": None,
+        "receiver_bound": None, "receiver_role_trusted": None, "receiver_key_bound": None,
         "lineage": None, "lineage_ok": None,
         # WP-B (3.4.0): the relations trust-policy verdict on the OUTCOME path — identical gate + codes
         # as the decision path; None until a relations policy is supplied. policy_ok is the relations
@@ -653,11 +690,27 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # Finding 01: independent attestation of executor.id via the trust pack's outcomeExecutors role
         # (docs/predicates/action-outcome.md §7 "open, not yet built" — now closed additively).
         if trust_pack is not None:
-            r["executor_role_trusted"] = executor_trusted_by_role(predicate.get("executor"), trust_pack)
-            if not r["executor_role_trusted"]:
+            _ex = predicate.get("executor")
+            _member = executor_trusted_by_role(_ex, trust_pack)
+            # Deep gate 2026-09-05, L1-600-02: membership of a self-declared keyId is a LABEL. The role
+            # applies only if the pack's key material for that keyId IS the key this receipt was just
+            # verified under (crypto_ok above). Otherwise: not trusted, and a NAMED blocker so a consumer
+            # can tell "wrong signer for this keyId" from "keyId not in the role".
+            _bound = _member and pack_key_binds_signer(
+                _ex.get("keyId") if isinstance(_ex, dict) else None, trust_pack, public_key)
+            r["executor_role_trusted"] = bool(_member and _bound)
+            if not _member:
                 r["errors"].append(
                     "executor.keyId is not a non-revoked member of the trust pack's outcomeExecutors role "
                     "(fail-closed — independent executor attestation requested via trust_pack but not met)")
+            elif not _bound:
+                r["executor_key_bound"] = False
+                r["errors"].append(
+                    "KEY_ID_NOT_BOUND_TO_SIGNER: executor.keyId is a member of outcomeExecutors, but the trust "
+                    "pack's key material for that keyId is not the key this receipt verified under — a "
+                    "self-declared keyId is a label, not a signer (fail-closed)")
+            else:
+                r["executor_key_bound"] = True
 
         # Finding 03 (additive): classify the same execution-proof digest(s) onto the EvidenceLevel ladder.
         # OR semantics (mirrors outcome_execution_proven: either digest satisfies the claim) — the STRONGER
@@ -690,24 +743,80 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # receiverKeyId is present AND distinct from the executor — never on a resolver-says-signed alone.
             _executor = predicate.get("executor")
             _executor_key_id = _executor.get("keyId") if isinstance(_executor, dict) else None
+            # L1-600-02 (receiver half): when a trust pack names key material for a receiverKeyId, the
+            # label is bound to the signer the resolver reports (32-byte key) — a bare True never binds.
+            # The resolver's answers are remembered per entry so receiver_role_trusted below judges the
+            # same evidence the ladder did, without calling the caller's resolver twice.
+            _recv_answers: dict[int, Any] = {}
+
+            def _remembering_resolver(idx: int):
+                if receiver_attestation_resolver is None:
+                    return None
+
+                def _f(d):
+                    res = receiver_attestation_resolver(d)
+                    _recv_answers[idx] = res
+                    return res
+                return _f
+
+            def _expected_key(x):
+                if trust_pack is None or not isinstance(x, dict):
+                    return None
+                kid = x.get("receiverKeyId")
+                keys = trust_pack.get("keys") if isinstance(trust_pack, dict) else None
+                kv = keys.get(kid) if isinstance(keys, dict) and isinstance(kid, str) else None
+                if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+                    return None
+                from ._wire_b64 import decode_b64  # noqa: PLC0415
+                try:
+                    raw = decode_b64(kv["publicKey"])
+                except (ValueError, TypeError):
+                    return None
+                return raw if len(raw) == 32 else None
+
             r["evidence_levels"]["receiverRefs"] = _assurance.evidence_ladder_best(*[
                 _assurance.classify_receiver_corroboration(
                     x.get("digest") if isinstance(x, dict) else None,
                     evidence_resolver=evidence_resolver,
-                    independent_attestation_resolver=receiver_attestation_resolver,
+                    independent_attestation_resolver=_remembering_resolver(i),
                     executor_key_id=_executor_key_id,
-                    receiver_key_id=x.get("receiverKeyId") if isinstance(x, dict) else None)
-                for x in _recv
+                    receiver_key_id=x.get("receiverKeyId") if isinstance(x, dict) else None,
+                    expected_receiver_public_key=_expected_key(x))
+                for i, x in enumerate(_recv)
             ])
             # Finding 16: outcomeReceivers role membership (mirrors executor_role_trusted, but NEVER wired
             # into the aggregate `ok` below — receiverRefs is optional supplementary evidence; an untrusted-
             # labeled receiver only affects the strength classification above, not the outcome's own core
-            # verdict, see the verify docstring).
+            # verdict, see the verify docstring). L1-600-02: membership of a LABEL is reported as trusted
+            # only if no signer key contradicts it; when the resolver returned the signer key it must be the
+            # pack's key for that receiverKeyId, and a bound entry is recorded in receiver_key_bound.
             if trust_pack is not None:
-                r["receiver_role_trusted"] = any(
-                    receiver_trusted_by_role(x.get("receiverKeyId") if isinstance(x, dict) else None,
-                                             trust_pack)
-                    for x in _recv)
+                _trusted = False
+                _rbound: bool | None = None
+                for i, x in enumerate(_recv):
+                    _kid = x.get("receiverKeyId") if isinstance(x, dict) else None
+                    if not receiver_trusted_by_role(_kid, trust_pack):
+                        continue
+                    _ans = _recv_answers.get(i)
+                    if isinstance(_ans, (bytes, bytearray)):
+                        if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
+                            _trusted = True
+                            _rbound = True
+                        else:
+                            _rbound = False if _rbound is None else _rbound
+                            r["errors"].append(
+                                "KEY_ID_NOT_BOUND_TO_SIGNER: receiverRefs[%d].receiverKeyId is a member of "
+                                "outcomeReceivers, but the referenced statement is signed by a different key than "
+                                "the trust pack holds for it (advisory: receiverRefs never gates ok)" % i)
+                    else:
+                        _trusted = True
+                        if _rbound is None:
+                            r["warnings"].append(
+                                "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
+                                "was resolved to bind it (return the 32-byte signer key from "
+                                "receiver_attestation_resolver to bind the label)" % i)
+                r["receiver_role_trusted"] = _trusted
+                r["receiver_key_bound"] = _rbound
         else:
             r["evidence_levels"]["receiverRefs"] = None
 
@@ -841,6 +950,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # correctly (its policy dimension IS policy_ok); mirror the effect here: clamp on policy_ok is False,
     # name the blocker (the relations code(s), else POLICY_FAILED), and clear referencesResolved on a real
     # relations violation. Only ever ADDS a blocker (never turns it true); a satisfied/absent policy is untouched.
+    if isinstance(r.get("automation"), dict) and r.get("executor_key_bound") is False:
+        # L1-600-02: the policy dimension already reads executor_role_trusted=False (blocked); name WHY.
+        _blk_kid = r["automation"].setdefault("automationBlockers", [])
+        if "KEY_ID_NOT_BOUND_TO_SIGNER" not in _blk_kid:
+            _blk_kid.append("KEY_ID_NOT_BOUND_TO_SIGNER")
+        r["automation"]["safeForAutomation"] = False
     if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
         _blk = r["automation"].setdefault("automationBlockers", [])
         # NB: a distinct name from the `_codes` SET bound earlier in this function (the relations-violation
