@@ -216,7 +216,7 @@ class SvrShapeAndProperties(unittest.TestCase):
             self.assertNotIn("\x1b", out)
 
     def test_library_verdict_carries_the_shape(self):
-        from proofbundle.intoto import svr_predicate_shape, verify_svr_dsse
+        from proofbundle.intoto import classify_svr_predicate_shape, verify_svr_dsse
         with tempfile.TemporaryDirectory() as d:
             fx = _Fixtures(d)
             env = json.loads(Path(fx.svr({"properties": 5})).read_text(encoding="utf-8"))
@@ -224,9 +224,9 @@ class SvrShapeAndProperties(unittest.TestCase):
             self.assertIs(res["ok"], False)
             self.assertIs(res["predicate_shape_ok"], False)
             self.assertIn("properties", res["content_root_detail"])
-        self.assertEqual(svr_predicate_shape({"predicate": {"properties": ["a"]}}), (True, ""))
-        self.assertFalse(svr_predicate_shape({"predicate": [1]})[0])
-        self.assertFalse(svr_predicate_shape(None)[0])
+        self.assertEqual(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}}), (True, ""))
+        self.assertFalse(classify_svr_predicate_shape({"predicate": [1]})[0])
+        self.assertFalse(classify_svr_predicate_shape(None)[0])
 
 
 class TimestampOverflowFamily(unittest.TestCase):

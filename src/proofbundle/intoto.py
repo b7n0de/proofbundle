@@ -614,7 +614,7 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
-def svr_predicate_shape(statement: Any) -> tuple[bool, str]:
+def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     """Structural check of an SVR Statement's predicate — the shape every consumer dereferences.
 
     RT-06 (deep gate 2026-09-05, L3-600-06): a VALIDLY SIGNED SVR whose ``predicate`` was a list, or whose
@@ -623,7 +623,13 @@ def svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     the bytes have the shape the consumer is about to walk. So the shape is checked HERE, as part of the
     library verdict, and a consumer never has to guess. Returns ``(ok, detail)``; ``detail`` is empty
     when ok. Deliberately narrow: only what svr/v0.1 declares (predicate object, ``properties`` a list of
-    strings, ``verifier`` an object when present, ``timeCreated`` a string when present)."""
+    strings, ``verifier`` an object when present, ``timeCreated`` a string when present).
+
+    NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
+    function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
+    so it belongs in the never-raise denominator — and the ``classify_`` family is how that denominator is
+    built. Widening the allowlist by one bespoke name would have put it beside the property instead of
+    under it; the family test now fuzzes this function like every sibling."""
     if not isinstance(statement, dict):
         return False, "statement is not a JSON object"
     predicate = statement.get("predicate")
@@ -667,7 +673,7 @@ def verify_svr_dsse(envelope: dict, public_key: bytes, *,
     # RT-06 (L3-600-06): the predicate SHAPE is part of the verdict. A signed statement whose predicate
     # is not what svr/v0.1 declares is not an SVR that verified — ``ok`` stays False and the reason is
     # named, so no consumer prints PASS and then walks a list that is an int.
-    shape_ok, shape_detail = svr_predicate_shape(statement)
+    shape_ok, shape_detail = classify_svr_predicate_shape(statement)
     res["predicate_shape_ok"] = shape_ok
     if not shape_ok:
         res["ok"] = False
