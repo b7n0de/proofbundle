@@ -45,7 +45,21 @@ def _open_input(path, *, binary: bool = False):
     ``os.stat`` reads metadata only and never blocks, so refuse anything that is not a regular file up front.
     The raised ``BundleFormatError`` is mapped to a clean exit 2 by ``main()``'s backstop. Use this for every
     untrusted verify INPUT read; operator OUTPUT files (``--out``) and the operator's own emit payloads do not
-    need it (they are the operator's own destination/data, not hostile input)."""
+    need it (they are the operator's own destination/data, not hostile input).
+
+    Review Runde 2, Framing Auflage A3 (2026-09-05): der Text-Zweig oeffnete bisher mit
+    ``open(path, encoding="utf-8")`` — ``newline=None`` (der Vorgabewert) schaltet Pythons universelle
+    Zeilenumwandlung EIN, die JEDES ``\\r\\n``/``\\r`` beim Lesen STILL zu ``\\n`` macht, und der fehlende
+    ``errors=`` liess ein ungueltiges UTF-8-Byte mit einer rohen ``UnicodeDecodeError`` AN DIESER Stelle
+    scheitern — BEVOR ``_split_signed_note`` je eine Zeile sieht. Beides ist genau die Klasse, die diese
+    Lane schliesst: eine zweite, STILLE Drahtform derselben Datei, erzeugt an der DEKODIERSTELLE, nicht am
+    Parser. Jetzt: ``newline=""`` erhaelt jedes ``\\r``/``\\r\\n`` byte-genau (JSON behandelt ``\\r`` ohnehin
+    als unwesentlichen Zwischenraum, RFC 8259 — kein bestehender JSON-Verbraucher aendert sein Verhalten),
+    und ``errors="surrogateescape"`` (der Python-eigene, verlustfreie Weg, beliebige Bytes durch einen
+    ``str`` zu reichen, PEP 383) laesst ein ungueltiges Byte zu GENAU EINEM einsamen Surrogaten werden.
+    ``_split_signed_note`` hat diesen Fall LAENGST typisiert vorgesehen (``_SURROGAT_RE``): das typisierte
+    ``BundleFormatError`` des Parsers entscheidet jetzt, nicht mehr die Dekodierstelle davor. Roh-Bytes,
+    nicht Zeichenketten, durch BEIDE CLI-Wege gemessen: ``tests/test_note_cli_transport_bytegenau.py``."""
     import os  # noqa: PLC0415
     import stat as _stat  # noqa: PLC0415
     if not isinstance(path, (str, bytes, os.PathLike)):
@@ -53,7 +67,9 @@ def _open_input(path, *, binary: bool = False):
     st = os.stat(path)   # metadata only — does not block on a FIFO, does not read a device
     if not _stat.S_ISREG(st.st_mode):
         raise BundleFormatError("input path is not a regular file (fail-closed: FIFO/device/socket refused)")
-    return open(path, "rb") if binary else open(path, encoding="utf-8")
+    if binary:
+        return open(path, "rb")
+    return open(path, encoding="utf-8", errors="surrogateescape", newline="")
 
 
 # The honest "what => OK means / does not mean" block — surfaced in `verify --matrix` and always in
