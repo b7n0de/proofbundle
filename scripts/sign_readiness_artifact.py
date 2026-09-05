@@ -16,26 +16,46 @@ WHAT IT ADDS to a raw measurement artifact (e.g. what ``fuzz_soak.py`` writes):
     signer_role    the role the signing key speaks for
     signature      ed25519 over the RFC-8785 canonical bytes of everything above
 
-``tree_digest`` is the same quantity a pre-tag receipt binds: sha256 over the sorted
-``git ls-tree HEAD`` lines EXCLUDING ``audit_artifacts/`` — so signed evidence can live inside that
-directory without binding itself.
+``tree_digest`` is the same quantity a pre-tag receipt binds, narrowed for the deliberately-mutable
+release-evidence files: sha256 over the sorted ``git ls-tree -r HEAD`` lines EXCLUDING exactly the
+paths in :data:`MUTABLE_EVIDENCE_RELS` — the artifacts a release run writes AS PART of measuring
+them. Everything else under ``audit_artifacts/`` (the trust anchor, the class ledger, prior
+releases' historical records) IS part of the bound tree (deep gate 2026-09-05, NACHTRAG2 Teil C
+Auflage C3: "audit_artifacts nicht pauschal aus dem Baumdigest ausschliessen" — a whole-directory
+exclusion let a key be introduced in the very build path it would go on to authorise, invisibly to
+this binding).
 
-THREE MODES, the same signed body in all three (mirrors scripts/pre_tag_receipt.py, and for the same
-reason: the release private key lives on the owner's machine, never on the build host).
+TWO MODES, the same signed body in both (mirrors scripts/pre_tag_receipt.py's split, and for the
+same reason: the release private key lives on the owner's machine, never on the build host) —
+NEITHER of which ever reads a private key on this machine:
 
-  inline    --privkey-file: build the body, sign here, write the artifact.
   emit      --emit-payload P --context-out C: write the canonical bytes to P and the body to C.
-            NO private key is read. The key holder signs P; the build host assembles.
+            NO private key is read, here or anywhere in this script. The key holder signs P
+            out of band; the build host then assembles.
   assemble  --assemble --context-in C --sig-file S --signer-pubkey B --out A: wrap body + signature.
             Self-checks the signature and REFUSES on a mismatch, so a bad pair never reaches disk.
 
-Usage (inline):
+WHY THERE IS NO THIRD, INLINE MODE (deep gate 2026-09-05, Runde 2, Auflage C9 — this is the fix, not
+a design note about a removed feature). A prior revision of this script also accepted
+``--privkey-file`` and signed the body ITSELF, in the same process that built it. That is
+self-certification: a signature only means "an independent party attests this" when the party
+holding the key is not the party that produced and shaped what gets signed. Once
+``--privkey-file`` shipped in this repo's tree (``MANIFEST.in`` grafts ``scripts/``, so this file
+ships in the sdist), the capability to self-certify shipped too — whether or not anyone ever
+invoked it. There is now no code path in this file, reachable by any flag, that reads a private
+key. The only way admissible evidence comes to exist is: this script builds the canonical bytes
+(``emit``), something OUTSIDE this process and this host signs them, and this script assembles the
+result — checking the signature itself before it ever touches disk.
+
+Usage (keyless, both steps run — possibly on different hosts):
   sign_readiness_artifact.py --in audit_artifacts/600/fuzz_soak_latest.json \\
-      --out audit_artifacts/600/fuzz_soak_latest.json \\
       --producer-tool scripts/fuzz_soak.py --producer-tool-version 6.0.0 \\
       --input-digest <sha256 of the corpus> --signer-role release-runner \\
       --sdist dist/proofbundle-6.0.0.tar.gz --wheel dist/proofbundle-6.0.0-py3-none-any.whl \\
-      --privkey-file /secrets/readiness_ed25519.b64
+      --emit-payload /tmp/payload.bin --context-out /tmp/context.json
+  # ... the key holder signs /tmp/payload.bin out of band, producing sig.b64 ...
+  sign_readiness_artifact.py --assemble --context-in /tmp/context.json --sig-file sig.b64 \\
+      --signer-pubkey <base64 pubkey> --out audit_artifacts/600/fuzz_soak_latest.json
 """
 from __future__ import annotations
 
@@ -56,6 +76,27 @@ if str(REPO / "src") not in sys.path:
 #: The unsigned wrapper. Everything else in the artifact is inside the signed body.
 SIGNATURE_KEY = "signature"
 
+#: Release-evidence files that legitimately change AS PART OF producing them for this exact
+#: candidate — excluded from the tree digest so writing one does not retroactively change the tree
+#: it just bound (the circular-reference problem: the digest cannot include a file whose own
+#: content is "the digest of this tree").
+#:
+#: NOTHING ELSE is exempted. Before this fix, the whole ``audit_artifacts/`` directory was excluded
+#: as one non-recursive ``git ls-tree`` entry — which also hid ``readiness_trusted_pubkeys.txt``
+#: (the trust anchor read by ``scripts/audit_candidate_matrix.py``) from the binding. A key added
+#: to that anchor in the SAME commit as the candidate it would go on to authorise was therefore
+#: invisible to ``tree_digest`` — the exact self-authorisation shape Auflage C3 (Runde 2) names.
+#: Recursive ``git ls-tree -r HEAD`` plus this narrow, explicit allowlist closes that while still
+#: letting a soak/differential run write its own result file without invalidating its own binding.
+#:
+#: SHARED BY NAME with ``scripts/audit_candidate_matrix.py`` (which imports this module rather than
+#: re-deriving its own list): a producer and a gate that excluded DIFFERENT paths would silently
+#: stop agreeing on what a candidate binds, and neither side would notice.
+MUTABLE_EVIDENCE_RELS = (
+    "audit_artifacts/360/fuzz_soak_latest.json",
+    "audit_artifacts/360/rust_differential_matrix.json",
+)
+
 
 def pyproject_version(repo: Path) -> str | None:
     try:
@@ -74,13 +115,15 @@ def head_commit(repo: Path) -> str:
     return r.stdout.strip()
 
 
-def tree_digest(repo: Path) -> str:
-    """The quantity the gate recomputes: sha256 over sorted `git ls-tree HEAD`, minus audit_artifacts."""
-    r = subprocess.run(["git", "-C", str(repo), "ls-tree", "HEAD"],
+def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS) -> str:
+    """The quantity the gate recomputes: sha256 over sorted, RECURSIVE `git ls-tree HEAD`, minus
+    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) — never a whole directory."""
+    r = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
                        capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
         raise SystemExit(f"cannot read the tree in {repo}: {r.stderr.strip()}")
-    zeilen = [ln for ln in r.stdout.splitlines() if not ln.endswith("\taudit_artifacts")]
+    suffixe = tuple(f"\t{p}" for p in exclude)
+    zeilen = [ln for ln in r.stdout.splitlines() if not ln.endswith(suffixe)]
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
@@ -116,16 +159,6 @@ def build_body(measurement: dict, *, repo: Path, version: str, producer_tool: st
     body["signer_role"] = signer_role
     body["produced_at"] = produced_at
     return body
-
-
-def sign_body(body: dict, privkey_b64: str) -> dict:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
-    priv = Ed25519PrivateKey.from_private_bytes(base64.b64decode(privkey_b64))
-    pub_b64 = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
-    out = dict(body)
-    out[SIGNATURE_KEY] = {"alg": "ed25519", "public_key_b64": pub_b64,
-                          "sig_b64": base64.b64encode(priv.sign(canonical_bytes(body))).decode()}
-    return out
 
 
 def assemble(body: dict, sig_b64: str, signer_pubkey_b64: str) -> dict:
@@ -177,8 +210,6 @@ def main(argv=None) -> int:
     p.add_argument("--sdist-sha256", default=None, help="instead of --sdist, when only the digest is at hand")
     p.add_argument("--wheel-sha256", default=None)
     p.add_argument("--produced-at", default=None, help="RFC-3339 UTC; default: now, measured here")
-    p.add_argument("--privkey-file", type=Path, default=None,
-                   help="base64 ed25519 private key (32 raw bytes) — a runner secret, never in the repo")
     p.add_argument("--emit-payload", type=Path, default=None,
                    help="keyless: write the canonical bytes here (needs --context-out)")
     p.add_argument("--context-out", type=Path, default=None)
@@ -200,7 +231,7 @@ def main(argv=None) -> int:
         return 0
 
     _need(args, ["in", "producer-tool", "producer-tool-version", "input-digest", "signer-role"],
-          "emit/inline")
+          "emit")
     version = args.version or pyproject_version(repo)
     if not version:
         raise SystemExit("cannot read the release version from pyproject.toml — pass --version")
@@ -216,22 +247,17 @@ def main(argv=None) -> int:
                       input_digest=args.input_digest, signer_role=args.signer_role,
                       sdist_sha256=sdist, wheel_sha256=wheel, produced_at=produced_at)
 
-    if args.emit_payload is not None:
-        _need(args, ["context-out"], "emit")
-        args.emit_payload.parent.mkdir(parents=True, exist_ok=True)
-        args.emit_payload.write_bytes(canonical_bytes(body))
-        args.context_out.parent.mkdir(parents=True, exist_ok=True)
-        args.context_out.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n",
-                                    encoding="utf-8")
-        print(f"emitted payload -> {args.emit_payload}  body -> {args.context_out}")
-        return 0
-
-    _need(args, ["privkey-file"], "inline")
-    artefakt = sign_body(body, args.privkey_file.read_text(encoding="utf-8").strip())
-    out = args.out or args.quelle
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(artefakt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"wrote signed, candidate-bound evidence -> {out}")
+    # KEINE dritte, inline Signierform mehr (Auflage C9, Runde 2). Wer signieren will, laesst diesen
+    # Prozess NUR die kanonischen Bytes emittieren (--emit-payload) und packt die extern erzeugte
+    # Signatur ueber --assemble zusammen. Ein privater Schluessel wird an keiner Stelle dieses
+    # Skripts mehr gelesen.
+    _need(args, ["emit-payload", "context-out"], "emit")
+    args.emit_payload.parent.mkdir(parents=True, exist_ok=True)
+    args.emit_payload.write_bytes(canonical_bytes(body))
+    args.context_out.parent.mkdir(parents=True, exist_ok=True)
+    args.context_out.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n",
+                                encoding="utf-8")
+    print(f"emitted payload -> {args.emit_payload}  body -> {args.context_out}")
     return 0
 
 

@@ -103,11 +103,23 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True)
 
 
+#: Dieselben zwei Pfade wie `sign_readiness_artifact.MUTABLE_EVIDENCE_RELS` — hier als eigene,
+#: unabhaengige Konstante, NICHT importiert, damit das Orakel nicht an derselben Quelle haengt wie
+#: der Code, den es prueft.
+_UNABHAENGIG_AUSGESCHLOSSEN = ("audit_artifacts/360/fuzz_soak_latest.json",
+                               "audit_artifacts/360/rust_differential_matrix.json")
+
+
 def _baum_digest(repo: Path) -> str:
     """Dieselbe Groesse, die das Tor nachrechnet — bewusst UNABHAENGIG hier nachgebaut, damit das
-    Orakel nicht die Funktion aufruft, die es prueft."""
-    out = _git(repo, "ls-tree", "HEAD").stdout
-    zeilen = [ln for ln in out.splitlines() if not ln.endswith("\taudit_artifacts")]
+    Orakel nicht die Funktion aufruft, die es prueft.
+
+    NACH C3 (Runde 2): rekursiv (`ls-tree -r`), und ausgeschlossen sind nur die NAMENTLICH bekannten
+    mutablen Evidenzpfade — nicht mehr der ganze Ordner `audit_artifacts`. Ein eingecheckter
+    Vertrauensanker darunter ist damit Teil der Baumkennung."""
+    out = _git(repo, "ls-tree", "-r", "HEAD").stdout
+    suffixe = tuple(f"\t{p}" for p in _UNABHAENGIG_AUSGESCHLOSSEN)
+    zeilen = [ln for ln in out.splitlines() if not ln.endswith(suffixe)]
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
@@ -212,6 +224,15 @@ def matrix_zellen():
         ("kandidat_ohne_wheel", _mut(lambda b: b["candidate"].pop("wheel_sha256", None)), True),
         ("kandidat_commit_unformig",
          _mut(lambda b: b["candidate"].__setitem__("commit", "nicht-hex")), True),
+        # AUFLAGE C1 (Runde 2): ein FORMGUELTIGER, aber beliebiger Commitstring darf nicht genuegen.
+        ("kandidat_falscher_commit",
+         _mut(lambda b: b["candidate"].__setitem__("commit", "0" * 40)), True),
+        # AUFLAGE C2 (Runde 2): freie Digest-Eingaben (auch formgueltige) erzeugen keinen Nachweis —
+        # nachgerechnet wird gegen die ECHTEN Dateien in dist/, die die Fixture ablegt.
+        ("kandidat_falscher_sdist_digest",
+         _mut(lambda b: b["candidate"].__setitem__("sdist_sha256", "f" * 64)), True),
+        ("kandidat_falscher_wheel_digest",
+         _mut(lambda b: b["candidate"].__setitem__("wheel_sha256", "e" * 64)), True),
         ("erzeuger_fehlt", _mut(lambda b: b.pop("producer", None)), True),
         ("werkzeugversion_fehlt", _mut(lambda b: b["producer"].pop("tool_version", None)), True),
         ("eingabe_digest_fehlt", _mut(lambda b: b.pop("input_digest", None)), True),
@@ -228,14 +249,38 @@ def matrix_zellen():
     ]
 
 
+def _lege_dist_ab(repo: Path, version: str) -> tuple[str, str]:
+    """Legt ECHTE sdist/wheel-Dateien in ``dist/`` ab (ungetrackt — C2 liest sie von der Platte,
+    nie ueber git) und liefert ihre TATSAECHLICHEN sha256-Digests.
+
+    AUFLAGE C2 (Runde 2): das Tor rechnet Distributions-Digests jetzt aus den echten Dateien nach,
+    statt eine freie Zeichenkette zu glauben. Ohne diese Hilfsfunktion wuerden alle „guten" Zellen
+    unten DATA_BLOCKED statt PASS — sie muessten dann etwas beweisen, das sie nicht mehr fingieren
+    duerfen."""
+    dist = repo / "dist"
+    dist.mkdir(parents=True, exist_ok=True)
+    sdist_bytes = f"fake sdist bytes for the klasse-a fixture, {version}\n".encode()
+    wheel_bytes = f"fake wheel bytes for the klasse-a fixture, {version}\n".encode()
+    (dist / f"proofbundle-{version}.tar.gz").write_bytes(sdist_bytes)
+    (dist / f"proofbundle-{version}-py3-none-any.whl").write_bytes(wheel_bytes)
+    return hashlib.sha256(sdist_bytes).hexdigest(), hashlib.sha256(wheel_bytes).hexdigest()
+
+
 @pytest.fixture(scope="module")
 def welt():
-    """Ein echter kleiner git-Baum mit EINGECHECKTEM Vertrauensanker.
+    """Ein echter kleiner git-Baum mit EINGECHECKTEM Vertrauensanker, echten dist/-Dateien und
+    ZWEI Commits.
 
     Warum ein echter Baum: der Anker wird aus dem COMMITTETEN Blob gelesen und die Baumkennung
     gegen ``git ls-tree HEAD`` nachgerechnet. Beides in einem tmp-Verzeichnis ohne git zu messen
     hiesse, die Umgebung statt der Evidenz zu pruefen — dann waere jede Zelle DATA_BLOCKED und die
     Matrix saehe gruen aus, ohne irgendetwas ueber die Evidenz zu sagen.
+
+    WARUM ZWEI COMMITS (Auflage C3, Runde 2): der ERSTE Commit traegt NUR den Anker, der ZWEITE
+    (= ``welt["commit"]``, = HEAD) den Kandidaten. Ein Anker, dessen einzige committete Geschichte
+    der Kandidaten-Commit selbst ist, waere SELBSTREGISTRIERT — genau die Zelle, gegen die
+    ``test_ein_anker_im_selben_commit_wie_der_kandidat_ist_selbstregistrierung`` unten misst. Waere
+    dieser Baum hier eincommittig, waere jede „gute" Zelle unten selbst eine Instanz jenes Fundes.
     """
     if not _KRYPTO:
         pytest.skip("cryptography fehlt")
@@ -247,14 +292,18 @@ def welt():
         schluessel = Ed25519PrivateKey.generate()
         pub = base64.b64encode(schluessel.public_key().public_bytes_raw()).decode()
         fremd = Ed25519PrivateKey.generate()
-        (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
         (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
         (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
             "# test anchor\n" + pub + "\n", encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
+        (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "candidate")
+        sdist_sha256, wheel_sha256 = _lege_dist_ab(td, VERSION)
         yield {"repo": td, "key": schluessel, "pub": pub, "foreign": fremd,
-               "commit": _git(td, "rev-parse", "HEAD").stdout.strip(), "tree": _baum_digest(td)}
+               "commit": _git(td, "rev-parse", "HEAD").stdout.strip(), "tree": _baum_digest(td),
+               "sdist_sha256": sdist_sha256, "wheel_sha256": wheel_sha256}
     finally:
         shutil.rmtree(td, ignore_errors=True)
 
@@ -263,7 +312,7 @@ def _rumpf(welt, gut: dict) -> dict:
     b = copy.deepcopy(gut)
     b["version"] = VERSION
     b["candidate"] = {"commit": welt["commit"], "tree_digest": welt["tree"],
-                      "sdist_sha256": "a" * 64, "wheel_sha256": "b" * 64}
+                      "sdist_sha256": welt["sdist_sha256"], "wheel_sha256": welt["wheel_sha256"]}
     b["producer"] = {"tool": "scripts/fuzz_soak.py", "tool_version": VERSION}
     b["input_digest"] = "c" * 64
     b["signer_role"] = "release-runner"
@@ -388,8 +437,9 @@ def test_ohne_eingecheckten_anker_ist_makellose_evidenz_ungueltig(welt):
             "# no keys pinned yet\n", encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "leer")
+        sdist_sha256, wheel_sha256 = _lege_dist_ab(td, VERSION)
         eigene = {"repo": td, "commit": _git(td, "rev-parse", "HEAD").stdout.strip(),
-                  "tree": _baum_digest(td)}
+                  "tree": _baum_digest(td), "sdist_sha256": sdist_sha256, "wheel_sha256": wheel_sha256}
         ziel = td / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
         ziel.parent.mkdir(parents=True, exist_ok=True)
         ziel.write_text(json.dumps(_signiere(_rumpf(eigene, _SOAK_GUT), welt["key"]), indent=2),
@@ -400,6 +450,89 @@ def test_ohne_eingecheckten_anker_ist_makellose_evidenz_ungueltig(welt):
         verdikt, grund = m.c6_2_recorded_soak_clean()
         assert verdikt == m.FAIL, f"ein Repo ohne Anker liess Evidenz zu: {verdikt} {grund}"
         assert "trusted key" in grund
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+@_braucht_krypto
+def test_ein_anker_im_selben_commit_wie_der_kandidat_ist_selbstregistrierung():
+    """Auflage C3 (Runde 2): ein Schluessel, dessen einzige committete Geschichte der Kandidaten-
+    Commit selbst ist, ist SELBSTREGISTRIERT statt vorab festgelegt — auch wenn Signatur,
+    Kandidatenbindung, Provenienz und Frische sonst makellos sind.
+
+    Das ist genau die Lage, gegen die ``ein Schluessel, der im selben ungeschuetzten Baupfad
+    eingefuehrt wird, darf keine Evidenz desselben Pfads autorisieren`` (C3) gerichtet ist: derselbe
+    Bauprincipal, der den Kandidaten baut, koennte im selben Commit auch einen neuen vertrauten
+    Schluessel einfuehren und sich damit selbst freigeben. Die `welt`-Fixture haelt Anker und
+    Kandidat deshalb in ZWEI Commits auseinander; dieser Test ist die Gegenprobe mit nur EINEM."""
+    td = Path(tempfile.mkdtemp(prefix="klasse_a_anker_im_kandidatencommit_"))
+    try:
+        start = subprocess.run(["git", "init", "-q", str(td)], capture_output=True, text=True)
+        if start.returncode != 0:
+            pytest.skip("git ist hier nicht benutzbar")
+        schluessel = Ed25519PrivateKey.generate()
+        pub = base64.b64encode(schluessel.public_key().public_bytes_raw()).decode()
+        (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
+        (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
+        # EIN Commit traegt Anker UND Kandidat zugleich.
+        (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
+            "# test anchor\n" + pub + "\n", encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m",
+             "anchor+candidate in one commit")
+        sdist_sha256, wheel_sha256 = _lege_dist_ab(td, VERSION)
+        eigene = {"repo": td, "commit": _git(td, "rev-parse", "HEAD").stdout.strip(),
+                  "tree": _baum_digest(td), "sdist_sha256": sdist_sha256, "wheel_sha256": wheel_sha256}
+        ziel = td / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text(json.dumps(_signiere(_rumpf(eigene, _SOAK_GUT), schluessel), indent=2),
+                        encoding="utf-8")
+        m = _matrix_modul()
+        m.REPO = td
+        m.VERSION_UNDER_TEST = VERSION
+        verdikt, grund = m.c6_2_recorded_soak_clean()
+        assert verdikt == m.FAIL, (
+            f"ein im selben Commit wie der Kandidat eingefuehrter Anker wurde zugelassen: "
+            f"{verdikt} {grund}")
+        assert "same commit" in grund or "self-registered" in grund, (
+            f"FAIL kam aus einem anderen Grund als der Selbstregistrierung: {grund}")
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
+@_braucht_krypto
+def test_ein_anker_in_einem_frueheren_commit_bleibt_zulaessig():
+    """ANTI-PARITAET zum Test oben: ein Fix, der JEDEN Anker ablehnt (nicht nur den im selben
+    Commit), waere wertlos. Zwei Commits wie bei ``welt`` — dieselbe Form, eigens nachgebaut, damit
+    dieser Test nicht von der `welt`-Fixture abhaengt."""
+    td = Path(tempfile.mkdtemp(prefix="klasse_a_anker_frueher_"))
+    try:
+        start = subprocess.run(["git", "init", "-q", str(td)], capture_output=True, text=True)
+        if start.returncode != 0:
+            pytest.skip("git ist hier nicht benutzbar")
+        schluessel = Ed25519PrivateKey.generate()
+        pub = base64.b64encode(schluessel.public_key().public_bytes_raw()).decode()
+        (td / "audit_artifacts").mkdir(parents=True, exist_ok=True)
+        (td / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(
+            "# test anchor\n" + pub + "\n", encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
+        (td / "pyproject.toml").write_text(f'[project]\nversion = "{VERSION}"\n', encoding="utf-8")
+        _git(td, "add", "-A")
+        _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "candidate")
+        sdist_sha256, wheel_sha256 = _lege_dist_ab(td, VERSION)
+        eigene = {"repo": td, "commit": _git(td, "rev-parse", "HEAD").stdout.strip(),
+                  "tree": _baum_digest(td), "sdist_sha256": sdist_sha256, "wheel_sha256": wheel_sha256}
+        ziel = td / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text(json.dumps(_signiere(_rumpf(eigene, _SOAK_GUT), schluessel), indent=2),
+                        encoding="utf-8")
+        m = _matrix_modul()
+        m.REPO = td
+        m.VERSION_UNDER_TEST = VERSION
+        verdikt, grund = m.c6_2_recorded_soak_clean()
+        assert verdikt == m.PASS, (
+            f"ein Anker aus einem FRUEHEREN Commit wurde trotzdem abgelehnt: {verdikt} {grund}")
     finally:
         shutil.rmtree(td, ignore_errors=True)
 
@@ -422,6 +555,53 @@ def test_ein_nicht_messbarer_baum_ist_DATA_BLOCKED_und_nie_ein_bestehen(welt):
         assert verdikt != m.PASS
     finally:
         shutil.rmtree(td, ignore_errors=True)
+
+
+def _c4_probe(welt, rumpf: dict):
+    """Legt ``rumpf`` (signiert mit dem Ankerschluessel) als C6.2-Evidenz ab und liefert deren
+    Urteil — der gemeinsame Aufbau fuer die drei C4-Tests unten."""
+    ziel = welt["repo"] / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    ziel.write_text(json.dumps(_signiere(rumpf, welt["key"]), indent=2), encoding="utf-8")
+    m = _matrix_modul()
+    m.REPO = welt["repo"]
+    m.VERSION_UNDER_TEST = VERSION
+    return m.c6_2_recorded_soak_clean(), m
+
+
+@_braucht_krypto
+def test_c4_fehlendes_ok_feld_ist_ein_gestaendnis(welt):
+    """Auflage C4 (Runde 2): ``ok`` wurde nur geprueft, WENN es ueberhaupt vorkam (``12c:498–500``)
+    — ein Artefakt OHNE ``ok``-Feld ging bislang unbeanstandet durch die Zulassung."""
+    rumpf = _rumpf(welt, _SOAK_GUT)
+    del rumpf["ok"]
+    (verdikt, grund), m = _c4_probe(welt, rumpf)
+    assert verdikt == m.FAIL, f"ein fehlendes ok-Feld wurde zugelassen: {verdikt} {grund}"
+    assert "ok" in grund
+
+
+@_braucht_krypto
+def test_c4_fehlendes_fehlerfeld_ist_ein_gestaendnis(welt):
+    """Auflage C4 (Runde 2): ein fehlendes Fehlerfeld wurde bislang UEBERSPRUNGEN
+    (``12c:501–515``) statt geprueft — ein Artefakt ohne ``untriaged_crash_count`` behauptete
+    implizit 0 Abstuerze, ohne es je zu sagen."""
+    rumpf = _rumpf(welt, _SOAK_GUT)
+    del rumpf["untriaged_crash_count"]
+    (verdikt, grund), m = _c4_probe(welt, rumpf)
+    assert verdikt == m.FAIL, f"ein fehlendes Pflicht-Fehlerfeld wurde zugelassen: {verdikt} {grund}"
+    assert "untriaged_crash_count" in grund
+
+
+@_braucht_krypto
+def test_c4_falsch_typisierter_konsistenzzaehler_ist_ein_gestaendnis(welt):
+    """Auflage C4 (Runde 2): die Konsistenzpruefung griff nur, wenn BEIDE Seiten schon den
+    erwarteten Typ hatten (``12c:516–520``) — ein Zaehler als String statt int wurde
+    stillschweigend uebergangen, statt als Typfehler zu gelten."""
+    rumpf = _rumpf(welt, _SOAK_GUT)
+    rumpf["untriaged_crash_count"] = "0"          # richtiger Wert, falscher Typ
+    (verdikt, grund), m = _c4_probe(welt, rumpf)
+    assert verdikt == m.FAIL, (
+        f"ein falsch typisierter Konsistenzzaehler wurde zugelassen: {verdikt} {grund}")
 
 
 @_braucht_krypto
@@ -457,34 +637,16 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
 
     Gefahren wird ``scripts/sign_readiness_artifact.py`` als PROZESS, nicht als Import: so wird
     dieselbe Kommandozeile gemessen, die ein Laeufer spaeter tippt.
+
+    SEIT AUFLAGE C9 (Runde 2) GIBT ES KEINEN INLINE-MODUS MEHR: der Erzeuger kennt nur noch den
+    schluessellosen Weg (``--emit-payload`` + ``--assemble``), und genau der wird hier gefahren —
+    kein ``--privkey-file`` liegt mehr vor, weil das Flag nicht mehr existiert.
     """
     m = _matrix_modul()
     roh = welt["repo"] / "roh_soak.json"
     roh.write_text(json.dumps(_SOAK_GUT, indent=2), encoding="utf-8")
-    key_datei = welt["repo"] / "privkey.b64"
-    key_datei.write_text(
-        base64.b64encode(welt["key"].private_bytes_raw()).decode() + "\n", encoding="utf-8")
-    ziel = welt["repo"] / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
-    ziel.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
-         "--repo", str(welt["repo"]), "--in", str(roh), "--out", str(ziel),
-         "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
-         "--input-digest", "d" * 64, "--signer-role", "release-runner",
-         "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
-         "--privkey-file", str(key_datei)],
-        capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, f"der Erzeuger scheiterte: {r.stdout}\n{r.stderr}"
     m.REPO = welt["repo"]
     m.VERSION_UNDER_TEST = VERSION
-    verdikt, grund = m.c6_2_recorded_soak_clean()
-    assert verdikt == m.PASS, (
-        f"das Tor lehnt ab, was sein eigener Erzeuger herstellt: {grund}\n{r.stdout}")
-    gebaut = json.loads(ziel.read_text(encoding="utf-8"))
-    for feld in ("candidate", "producer", "input_digest", "signer_role", "produced_at", "signature"):
-        assert feld in gebaut, f"der Erzeuger legt {feld} nicht an"
-    assert gebaut["candidate"]["tree_digest"] == welt["tree"]
-    assert gebaut["candidate"]["commit"] == welt["commit"]
 
     # ── DIE SCHLUESSELLOSE ZWEITEILUNG, und sie wird gefahren statt nur beschrieben ──────────────
     # Der Freigabe-Schluessel liegt beim Owner, nicht auf dem Bauwirt. Deshalb gibt es emit/assemble
@@ -492,12 +654,15 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     nutzlast = welt["repo"] / "payload.bin"
     kontext = welt["repo"] / "context.json"
     ziel2 = welt["repo"] / "audit_artifacts" / "360" / "fuzz_soak_latest.json"
+    ziel2.parent.mkdir(parents=True, exist_ok=True)
     r2 = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
          "--repo", str(welt["repo"]), "--in", str(roh),
          "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
          "--input-digest", "d" * 64, "--signer-role", "release-runner",
-         "--sdist-sha256", "a" * 64, "--wheel-sha256", "b" * 64,
+         # AUFLAGE C2 (Runde 2): keine frei erfundenen Digest-Strings mehr — das Tor rechnet
+         # sdist/wheel jetzt aus den ECHTEN Dateien in dist/ nach (von der Fixture abgelegt).
+         "--sdist-sha256", welt["sdist_sha256"], "--wheel-sha256", welt["wheel_sha256"],
          "--emit-payload", str(nutzlast), "--context-out", str(kontext)],
         capture_output=True, text=True, timeout=120)
     assert r2.returncode == 0, f"emit scheiterte: {r2.stdout}\n{r2.stderr}"
@@ -510,6 +675,11 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
          "--signer-pubkey", welt["pub"], "--out", str(ziel2)],
         capture_output=True, text=True, timeout=120)
     assert r3.returncode == 0, f"assemble scheiterte: {r3.stdout}\n{r3.stderr}"
+    gebaut = json.loads(ziel2.read_text(encoding="utf-8"))
+    for feld in ("candidate", "producer", "input_digest", "signer_role", "produced_at", "signature"):
+        assert feld in gebaut, f"der Erzeuger legt {feld} nicht an"
+    assert gebaut["candidate"]["tree_digest"] == welt["tree"]
+    assert gebaut["candidate"]["commit"] == welt["commit"]
     verdikt2, grund2 = m.c6_2_recorded_soak_clean()
     assert verdikt2 == m.PASS, f"die schluessellos zusammengesetzte Evidenz wird abgelehnt: {grund2}"
 
@@ -525,7 +695,7 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
     assert not (welt["repo"] / "darf_nicht_entstehen.json").exists(), \
         "ein schlechtes Paar wurde trotzdem geschrieben"
 
-    for p in (key_datei, roh, nutzlast, kontext, sig):
+    for p in (roh, nutzlast, kontext, sig):
         p.unlink(missing_ok=True)
 
 
@@ -601,19 +771,52 @@ def test_jeder_freigabeentscheidende_artefaktleser_geht_ueber_den_einen_pfad():
     """INVENTAR (Auflage C2): kein freigabeentscheidender Leser darf an der Zulassung vorbeilesen.
 
     Gemessen am Quelltext, nicht behauptet: ``_json_artifact`` — der ungepruefte Rohleser — darf in
-    keiner Funktion mehr vorkommen, die eine freigabeentscheidende Evidenz-Zeile traegt. C10.2 liest
-    ``docs/readiness_pack/index.json`` weiterhin so, ist dort aber an das Pack-Manifest gebunden und
-    steht mit dieser Grenze im eigenen Test.
+    keiner Funktion mehr vorkommen, die eine freigabeentscheidende Evidenz-Zeile traegt.
+
+    C10.2 liest ``docs/readiness_pack/index.json`` weiterhin ueber ``_json_artifact`` — aber sie ist
+    seit Runde 2 (Auflage C5) INFORMATIV, nicht mehr freigabeentscheidend (siehe
+    ``test_das_inventar_stimmt_mit_checks_und_admission_fn_ueberein`` unten), und diese Grenze steht
+    darum NICHT mehr in der ``entscheidend``-Menge, die diese Funktion prueft.
     """
     quelle = (REPO / "scripts" / "audit_candidate_matrix.py").read_text(encoding="utf-8")
     m = _matrix_modul()
     entscheidend = {cid for cid, *_ in m.CHECKS} - set(m._INFORMATIVE_CHECKS)
-    assert {"C6.2", "C6.3", "C8.2", "C9.1", "C10.2"} <= entscheidend
+    assert {"C6.2", "C6.3", "C8.2", "C9.1"} <= entscheidend
+    assert "C10.2" not in entscheidend, \
+        "C10.2 ist wieder freigabeentscheidend, aber ihr Zulassungspfad wurde nicht mitgehaertet"
     for fn in ("c6_2_recorded_soak_clean", "c6_3_full_24h", "c8_2_differential_agrees"):
         koerper = _code_ohne_doku(quelle, fn)
         assert "_json_artifact(" not in koerper, f"{fn} liest noch am Zulassungspfad vorbei"
         assert "_signed_versioned_artifact(" in koerper or "_soak_artifact()" in koerper, \
             f"{fn} benutzt den Zulassungspfad nicht"
+
+
+def test_das_inventar_stimmt_mit_checks_und_admission_fn_ueberein():
+    """AUFLAGE C6 (Runde 2): das explizite Inventar ``EVIDENCE_ADMISSION_INVENTORY`` deckt genau
+    C6.2, C6.3, C8.2, C8.3, C9.1 und C10.2 — nicht nur drei davon wie der vorige Test — und jede
+    Zeile zeigt auf eine tatsaechlich existierende Funktion, deren Zugehoerigkeit zu
+    ``_INFORMATIVE_CHECKS`` mit ihrem eigenen ``release_deciding``-Feld uebereinstimmt.
+
+    Eine dokumentierte Ausnahme darf nicht still dieselbe Freigabestaerke behalten (Auflage C6,
+    zweiter Satz): C10.2 muss hier ausdruecklich ``release_deciding: False`` UND in
+    ``_INFORMATIVE_CHECKS`` stehen — beides, nicht nur eines von beiden."""
+    m = _matrix_modul()
+    inventar = {e["id"]: e for e in m.EVIDENCE_ADMISSION_INVENTORY}
+    assert set(inventar) == {"C6.2", "C6.3", "C8.2", "C8.3", "C9.1", "C10.2"}, sorted(inventar)
+    check_ids = {cid for cid, *_ in m.CHECKS}
+    for cid, eintrag in inventar.items():
+        assert cid in check_ids, f"{cid} steht im Inventar, aber nicht in CHECKS"
+        fn = getattr(m, eintrag["admission_fn"], None)
+        assert callable(fn), f"{cid} zeigt auf {eintrag['admission_fn']!r} — existiert nicht als Funktion"
+        ist_informativ = cid in m._INFORMATIVE_CHECKS
+        assert eintrag["release_deciding"] == (not ist_informativ), (
+            f"{cid}: release_deciding={eintrag['release_deciding']} widerspricht "
+            f"_INFORMATIVE_CHECKS-Mitgliedschaft ({ist_informativ})")
+        assert eintrag["property"].strip(), f"{cid} hat keine behauptete Eigenschaft"
+        assert eintrag["evidence_kind"].strip(), f"{cid} hat keine Evidenzart"
+    # Und die konkrete, in Runde 2 verlangte Ausnahme steht wirklich sichtbar da:
+    assert inventar["C10.2"]["release_deciding"] is False
+    assert "C10.2" in m._INFORMATIVE_CHECKS
 
 
 def test_c9_1_leitet_sein_urteil_nicht_mehr_aus_prosa_ab():

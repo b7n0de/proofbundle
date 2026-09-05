@@ -67,7 +67,19 @@ _NON_FAIL = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, NOT_APPLICABLE}
 # non-emptiness, not a behaviour — 7 of them passed on pure lexical decoys incl. a NEGATED sentence. A
 # presence proxy cannot GRANT release readiness, so they are INFORMATIVE (reported, never release-
 # deciding). ``audit_candidate_ready`` is computed only over the release-deciding checks.
-_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}
+#
+# C10.2 JOINED THIS SET Runde 2, Auflage C5 (2026-09-05) — A DOCUMENTED, VISIBLE DOWNGRADE, NOT A
+# SILENT ONE. `c10_2_slot_filled` reads `docs/readiness_pack/index.json`, a HAND-MAINTAINED reviewer
+# table with no candidate/producer/input-digest binding and no pinned-identity signature (its own
+# self-receipt is explicitly ADVISORY — see `readiness_pack_manifest.py`). The review offered two
+# ways to close this: rebuild it as candidate-bound signed pack evidence (every `delivers` entry
+# checked for existence/digest/type/candidate-reference/role), or remove it from the release-
+# deciding lines. Building a second signing subsystem for one slot, on top of the one this lane
+# just hardened for C6.2/C6.3/C8.2, would be a second, differently-shaped trust mechanism shipped
+# under time pressure — exactly the risk Auflage C6 warns against ("eine dokumentierte Ausnahme
+# darf nicht still dieselbe Freigabestaerke behalten"). So: informative, and said so here, in the
+# inventory (`EVIDENCE_ADMISSION_INVENTORY` below) and in the check's own docstring — never silent.
+_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}
 _KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
 
@@ -330,31 +342,70 @@ def _trust_anchor(repo: Path) -> tuple[list[str], str]:
     return keys, ("ok" if keys else "empty")
 
 
+def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> bool:
+    """True iff the trust anchor file was last modified in EXACTLY the commit ``head_sha`` names.
+
+    AUFLAGE C3 (Runde 2): „ein Schluessel, der im selben ungeschuetzten Baupfad eingefuehrt wird,
+    darf keine Evidenz desselben Pfads autorisieren". `_trust_anchor` reads the anchor from the
+    COMMITTED blob, which stops a dirty checkout from injecting a key — but it does NOT stop the
+    SAME commit that introduces a new trusted key from also being the candidate that key goes on to
+    authorise. A key pinned in an ANCESTOR commit is fine (that is the whole point of "eingecheckt");
+    a key whose only committed history is the very commit it would authorise is not pre-registered
+    at all, it is self-registered.
+
+    False (never blocks) when the relation cannot be measured here (no git, the path has never been
+    committed) — an unmeasurable relation is a job for ``_trust_anchor``'s own empty/unmeasurable
+    states, not for this one, so this function never invents a verdict from silence.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo), "log", "-1", "--format=%H", "HEAD", "--",
+             READINESS_TRUST_ANCHOR_REL],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if r.returncode != 0 or not r.stdout.strip():
+        return False
+    return r.stdout.strip() == head_sha
+
+
 def _live_tree_digest(repo: Path) -> tuple[str | None, str]:
     """``(digest, grund)`` des lebenden Baums — dieselbe Groesse, die ein Pre-Tag-Receipt bindet.
 
-    Bewusst die Form aus ``pre_tag_receipt_lib.subject_tree_digest`` (sha256 ueber die sortierten
-    ``git ls-tree HEAD``-Zeilen OHNE ``audit_artifacts``), damit eine Evidenz IN diesem Verzeichnis
-    liegen kann, ohne sich selbst zu binden. Hier aber GEWACHT: schlaegt git fehl, ist das Ergebnis
-    ``None`` und nicht der Digest der leeren Zeichenkette — sonst verglichen wir stillschweigend
-    gegen nichts."""
+    RUFT ``sign_readiness_artifact.tree_digest`` AUF, statt sie ein zweites Mal zu implementieren
+    (Auflage C3, Runde 2): ein Erzeuger und ein Tor, die getrennt entscheiden, was von der
+    Baumkennung ausgeschlossen ist, koennten leise auseinanderlaufen, und keine Seite wuerde es
+    bemerken — das genaue Gegenteil von "an das Artefakt binden". Vorher schloss diese Funktion den
+    GANZEN Ordner ``audit_artifacts`` non-rekursiv aus; das versteckte auch den eingecheckten
+    Vertrauensanker vor der Bindung. Jetzt: rekursiv, und nur die zwei namentlich bekannten
+    mutablen Evidenzpfade sind ausgeschlossen (``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS``).
+
+    Schlaegt git fehl, ist das Ergebnis ``None`` und nicht der Digest der leeren Zeichenkette —
+    sonst verglichen wir stillschweigend gegen nichts."""
     try:
-        r = subprocess.run(["git", "-C", str(repo), "ls-tree", "HEAD"],
-                           capture_output=True, text=True, timeout=10)
+        import sign_readiness_artifact as sra            # noqa: PLC0415
+    except ImportError as exc:
+        return None, f"sign_readiness_artifact is not importable here ({type(exc).__name__})"
+    try:
+        return sra.tree_digest(repo), "measured"
+    except SystemExit as exc:
+        return None, str(exc)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"git is not usable here ({type(exc).__name__})"
-    if r.returncode != 0:
-        return None, f"git ls-tree HEAD failed here (exit {r.returncode})"
-    zeilen = [ln for ln in r.stdout.splitlines() if not ln.endswith("\taudit_artifacts")]
-    return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest(), "measured"
 
 
-def _artifact_signature_ok(artifact: dict, trusted: list[str], anchor_state: str) -> tuple[str, str]:
+def _artifact_signature_ok(artifact: dict, trusted: list[str], anchor_state: str, *,
+                           repo: Path | None = None) -> tuple[str, str]:
     """``(zustand, grund)`` fuer die Attestierung EINES Artefakts.
 
     REIHENFOLGE MIT ABSICHT: erst alles, was OHNE Anker entscheidbar ist (Algorithmus, base64,
     Kanonisierung, die Mathematik der Signatur), dann die Zugehoerigkeit zum Anker. Sonst waere eine
     kaputt gerechnete Signatur in einem Baum ohne Anker nur „nicht messbar" statt widerlegt.
+
+    ``repo`` ist optional NUR aus Rueckwaertskompatibilitaet zur Signatur; jeder produktive Aufrufer
+    uebergibt ihn. Fehlt er (z.B. ein direkter Testaufruf ohne Baum), wird die Auflage-C3-Pruefung
+    „Anker nicht im selben Commit wie der Kandidat eingefuehrt" uebersprungen statt zu raten — sie
+    braucht einen echten Baum, um etwas zu messen.
     """
     import base64                                        # noqa: PLC0415
     sig = artifact.get("signature")
@@ -394,7 +445,46 @@ def _artifact_signature_ok(artifact: dict, trusted: list[str], anchor_state: str
     if pub_b64 not in trusted:
         return ART_UNTRUSTED, ("the signing key is not in the committed trusted set "
                                f"(signer={pub_b64[:12]}...)")
+    # AUFLAGE C3 (Runde 2): der Anker darf nicht im selben Commit eingefuehrt worden sein, den er
+    # gerade autorisiert — sonst koennte derselbe ungeschuetzte Bauprincipal Schluessel und
+    # Kandidat in einer Kette einfuehren. Nur geprueft, wenn ein Baum uebergeben wurde UND der
+    # Kandidat selbst einen Commit nennt (die Kandidatenbindung prueft dessen Form/Ident separat);
+    # ohne beides gibt es nichts, woran „derselbe Commit" gemessen werden koennte.
+    if repo is not None:
+        kandidat_commit = (artifact.get("candidate") or {}).get("commit")
+        if isinstance(kandidat_commit, str) and _HEX40.fullmatch(kandidat_commit) \
+                and _anchor_last_touched_at_head(repo, kandidat_commit):
+            return ART_UNTRUSTED, (
+                f"the trust anchor at {READINESS_TRUST_ANCHOR_REL} was last modified in "
+                f"commit {kandidat_commit[:12]}… — the SAME commit this artifact binds as its "
+                "candidate. A key introduced in the same unprotected build path it goes on to "
+                "authorise is self-registered, not pre-registered; pin it in an ancestor commit "
+                "first")
     return ART_VERIFIED, "signed by a committed trusted key, signature verifies"
+
+
+def _live_commit(repo: Path) -> tuple[str | None, str]:
+    """``(commit, grund)`` — dasselbe ``git rev-parse HEAD``, das der Erzeuger bindet. ``None`` bei
+    einem Git-Fehler, nie ein geratener Wert."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"git is not usable here ({type(exc).__name__})"
+    if r.returncode != 0:
+        return None, f"git rev-parse HEAD failed here (exit {r.returncode})"
+    return r.stdout.strip(), "measured"
+
+
+#: Distributionsdateien, aus denen C2 tatsaechlich nachrechnet — die neueste je Endung, damit ein
+#: liegen gebliebener alter Bau in `dist/` keinen frisch gebauten Kandidaten unbemerkt ueberdeckt.
+def _dist_files(repo: Path) -> tuple[Path | None, Path | None]:
+    dist = repo / "dist"
+    if not dist.is_dir():
+        return None, None
+    sdists = sorted(dist.glob("*.tar.gz"), key=lambda p: p.stat().st_mtime)
+    wheels = sorted(dist.glob("*.whl"), key=lambda p: p.stat().st_mtime)
+    return (sdists[-1] if sdists else None), (wheels[-1] if wheels else None)
 
 
 def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
@@ -414,6 +504,20 @@ def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
     if fehlend:
         return ART_CANDIDATE_UNBOUND, ("the candidate binding is incomplete or malformed: "
                                        f"{', '.join(fehlend)}")
+    # AUFLAGE C1 (Runde 2): ein formgueltiger, aber BELIEBIGER Commitstring darf nicht genuegen —
+    # nachgerechnet gegen den tatsaechlichen, vorab durch `git rev-parse HEAD` festgelegten
+    # Quellcommit dieses Baums. ERLAUBTE RELATION: exakte Gleichheit. Die Evidenzdatei selbst wird
+    # NIE committet, bevor sie gelesen wird (sie liegt im Arbeitsbaum, `_signed_versioned_artifact`
+    # liest sie von der Platte, nicht aus git) — es gibt in diesem Mechanismus deshalb keinen
+    # spaeteren, von HEAD verschiedenen "Evidenzcommit"; der Kandidat IST der aktuelle HEAD, oder
+    # die Evidenz ist ueber einen anderen Baustand und darf diesen hier nicht entscheiden.
+    live_commit, commit_grund = _live_commit(repo)
+    if live_commit is None:
+        return ART_UNMEASURABLE_HERE, f"the candidate commit cannot be read here: {commit_grund}"
+    if kandidat["commit"] != live_commit:
+        return ART_CANDIDATE_UNBOUND, (f"the artifact binds commit {kandidat['commit'][:12]}… but "
+                                       f"HEAD here is {live_commit[:12]}… — a well-formed but "
+                                       f"arbitrary commit string is not a binding")
     live, grund = _live_tree_digest(repo)
     if live is None:
         return ART_UNMEASURABLE_HERE, f"the candidate tree digest cannot be recomputed here: {grund}"
@@ -421,6 +525,27 @@ def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
         return ART_CANDIDATE_UNBOUND, (f"the artifact binds tree {kandidat['tree_digest'][:12]}… but "
                                        f"this tree is {live[:12]}… — evidence about another candidate "
                                        f"cannot decide this one")
+    # AUFLAGE C2 (Runde 2): sdist/wheel-Digests werden aus den TATSAECHLICH gebauten Dateien
+    # nachgerechnet, nicht als freie Eingabe geglaubt. Fehlen die gebauten Dateien, ist das eine
+    # Aussage ueber die UMGEBUNG (kein frischer Bau vorhanden) — DATA_BLOCKED, nie ein Bestehen aus
+    # unverifizierten Strings.
+    sdist_p, wheel_p = _dist_files(repo)
+    if sdist_p is None or wheel_p is None:
+        return ART_UNMEASURABLE_HERE, (
+            "the candidate sdist/wheel digests cannot be recomputed here: dist/*.tar.gz and "
+            "dist/*.whl are not both present — build the candidate first "
+            "(`python scripts/build_reproducible.py --outdir dist`); an un-recomputed digest is "
+            "not evidence")
+    live_sdist = hashlib.sha256(sdist_p.read_bytes()).hexdigest()
+    live_wheel = hashlib.sha256(wheel_p.read_bytes()).hexdigest()
+    if kandidat["sdist_sha256"] != live_sdist:
+        return ART_CANDIDATE_UNBOUND, (
+            f"the artifact claims sdist sha256 {kandidat['sdist_sha256'][:12]}… but the built "
+            f"sdist here ({sdist_p.name}) is {live_sdist[:12]}… — a free digest string is not proof")
+    if kandidat["wheel_sha256"] != live_wheel:
+        return ART_CANDIDATE_UNBOUND, (
+            f"the artifact claims wheel sha256 {kandidat['wheel_sha256'][:12]}… but the built "
+            f"wheel here ({wheel_p.name}) is {live_wheel[:12]}… — a free digest string is not proof")
     return None
 
 
@@ -470,7 +595,9 @@ def _freshness_error(body: dict, *, jetzt: datetime | None = None) -> tuple[str,
     return None
 
 
-def _signed_versioned_artifact(rel: str, version: str, *, counters: tuple[str, ...] = (),
+def _signed_versioned_artifact(rel: str, version: str, *,
+                               counters: dict[str, int] | tuple[str, ...] = (),
+                               positive_numeric: tuple[str, ...] = (),
                                failure_fields: tuple[str, ...] = (),
                                consistency_pairs: tuple[tuple[str, str], ...] = (),
                                schema: str | None = None, ok_field: str | None = "ok",
@@ -483,16 +610,29 @@ def _signed_versioned_artifact(rel: str, version: str, *, counters: tuple[str, .
     Rumpf unter ``signed_body`` — ohne den Signatur-Umschlag, so dass ein nicht mitsignierten Feld
     auf diesem Weg gar nicht erst existiert (P-A7). ``_artifact_verdict`` uebersetzt alles andere.
 
-    * ``counters`` — Arbeitszaehler, die vorhanden und > 0 sein muessen (P-A5). Ein Lauf, der nichts
-      getan hat, kann nicht zeigen, dass nichts kaputt ist.
-    * ``failure_fields`` — die eigenen Fehlerfelder. Nichtleer/ungleich null = die Evidenz meldet ihr
-      eigenes Scheitern, und das wird geehrt statt uebergangen (P-A6).
-    * ``consistency_pairs`` — (Liste, Zaehler): widersprechen sie einander, ist die Evidenz in sich
-      widerlegt. Genau daran fiel D4: ``untriaged_crash_count=0`` neben nichtleerer
-      ``untriaged_crashes``-Liste.
-    * ``ok_field`` — das Selbsturteil. Steht es auf etwas anderem als ``True``, ist es ein
-      Gestaendnis und keine Evidenz.
+    AUFLAGE C4 (Runde 2): jedes hier genannte Feld ist VERPFLICHTEND und TYPGENAU. Fehlt es oder
+    hat es den falschen Typ, ist das ein Gestaendnis wie jeder andere Widerspruch — nicht ein Feld,
+    das man ausliess und damit ungeprueft liess.
+
+    * ``counters`` — Zaehlfelder: nichtnegative GANZZAHLEN (kein Float, keine Bool) mit einem
+      ZEILENSPEZIFISCHEN Mindestwert. Als ``dict[name, mindestwert]`` uebergeben; ein reines
+      Namens-Tupel (Rueckwaertskompatibilitaet) bedeutet Mindestwert 1 fuer jeden Namen — die alte
+      "muss > 0 sein"-Regel. Fehlt ein Feld, hat den falschen Typ oder unterschreitet seinen
+      Mindestwert, ist das ein Gestaendnis (P-A5): ein Lauf, der nichts (Nachweisbares) getan hat,
+      kann nicht zeigen, dass nichts kaputt ist.
+    * ``positive_numeric`` — Messfelder, die keine reinen Zaehler sind (z.B. eine Dauer in Sekunden)
+      und darum Ganzzahl ODER Gleitkommazahl sein duerfen, aber ebenso VERPFLICHTEND vorhanden,
+      typgenau und ``> 0`` sein muessen.
+    * ``failure_fields`` — die eigenen Fehlerfelder. VERPFLICHTEND vorhanden; nichtleer/ungleich
+      null = die Evidenz meldet ihr eigenes Scheitern, und das wird geehrt statt uebergangen (P-A6).
+    * ``consistency_pairs`` — (Liste, Zaehler): beide VERPFLICHTEND und typgenau (Liste/Dict bzw.
+      Ganzzahl); widersprechen sie einander, ist die Evidenz in sich widerlegt. Genau daran fiel D4:
+      ``untriaged_crash_count=0`` neben nichtleerer ``untriaged_crashes``-Liste.
+    * ``ok_field`` — das Selbsturteil. VERPFLICHTEND vorhanden (wenn nicht ``None``); steht es auf
+      etwas anderem als ``True`` oder fehlt es, ist es ein Gestaendnis und keine Evidenz.
     """
+    if not isinstance(counters, dict):
+        counters = {feld: 1 for feld in counters}
     basis = Path(repo) if repo is not None else REPO
     p = basis / rel
     leer = {"signed_body": None, "unverified": None, "source_digest": None}
@@ -542,19 +682,35 @@ def _signed_versioned_artifact(rel: str, version: str, *, counters: tuple[str, .
     if fehler is not None:
         return _nein(fehler)
     ohne_arbeit = []
-    for feld in counters:
+    for feld, mindest in counters.items():
         wert = rumpf.get(feld)
-        if isinstance(wert, bool) or not isinstance(wert, (int, float)) or wert <= 0:
+        if feld not in rumpf:
+            ohne_arbeit.append(f"{feld} is missing (mandatory counter)")
+        elif isinstance(wert, bool) or not isinstance(wert, int):
+            ohne_arbeit.append(f"{feld}={wert!r} (must be a non-negative integer, not {type(wert).__name__})")
+        elif wert < 0:
+            ohne_arbeit.append(f"{feld}={wert!r} (must be non-negative)")
+        elif wert < mindest:
+            ohne_arbeit.append(f"{feld}={wert!r} (below the required minimum {mindest})")
+    for feld in positive_numeric:
+        wert = rumpf.get(feld)
+        if feld not in rumpf:
+            ohne_arbeit.append(f"{feld} is missing (mandatory)")
+        elif isinstance(wert, bool) or not isinstance(wert, (int, float)) or wert <= 0:
             ohne_arbeit.append(f"{feld}={wert!r}")
     if ohne_arbeit:
         return _nein((ART_VACUOUS,
-                      f"records no work ({', '.join(ohne_arbeit)}) — a signed 'ok' over zero counters "
-                      f"is not evidence"))
+                      f"records no work ({', '.join(ohne_arbeit)}) — a signed 'ok' over zero/missing "
+                      f"counters is not evidence"))
     gestaendnis = []
-    if ok_field is not None and ok_field in rumpf and rumpf.get(ok_field) is not True:
-        gestaendnis.append(f"{ok_field}={rumpf.get(ok_field)!r}")
+    if ok_field is not None:
+        if ok_field not in rumpf:
+            gestaendnis.append(f"{ok_field} is missing (mandatory)")
+        elif rumpf.get(ok_field) is not True:
+            gestaendnis.append(f"{ok_field}={rumpf.get(ok_field)!r}")
     for feld in failure_fields:
         if feld not in rumpf:
+            gestaendnis.append(f"{feld} is missing (mandatory failure field)")
             continue
         wert = rumpf[feld]
         if isinstance(wert, bool):
@@ -566,17 +722,22 @@ def _signed_versioned_artifact(rel: str, version: str, *, counters: tuple[str, .
         elif isinstance(wert, (list, dict, str)):
             if len(wert) > 0:
                 gestaendnis.append(f"{feld} carries {len(wert)} entr(y/ies)")
-        elif wert is not None:
-            gestaendnis.append(f"{feld}={wert!r}")
+        else:
+            gestaendnis.append(f"{feld}={wert!r} has an unexpected type {type(wert).__name__}")
     for liste, zaehler in consistency_pairs:
         w_l, w_z = rumpf.get(liste), rumpf.get(zaehler)
-        if isinstance(w_l, (list, dict)) and isinstance(w_z, int) and not isinstance(w_z, bool):
-            if len(w_l) != w_z:
-                gestaendnis.append(f"{liste} has {len(w_l)} entr(y/ies) but {zaehler}={w_z}")
+        if not isinstance(w_l, (list, dict)):
+            gestaendnis.append(f"{liste}={w_l!r} is missing or not a list/dict (mandatory for the "
+                               f"{liste}/{zaehler} consistency check)")
+        elif not isinstance(w_z, int) or isinstance(w_z, bool):
+            gestaendnis.append(f"{zaehler}={w_z!r} is missing or not an integer (mandatory for the "
+                               f"{liste}/{zaehler} consistency check)")
+        elif len(w_l) != w_z:
+            gestaendnis.append(f"{liste} has {len(w_l)} entr(y/ies) but {zaehler}={w_z}")
     if gestaendnis:
         return _nein((ART_SELF_REPORTED_FAILURE, f"contradicts its own pass: {'; '.join(gestaendnis)}"))
     trusted, anker = _trust_anchor(basis)
-    zustand, grund = _artifact_signature_ok(art, trusted, anker)
+    zustand, grund = _artifact_signature_ok(art, trusted, anker, repo=basis)
     if zustand != ART_VERIFIED:
         return _nein((zustand, grund))
     return {"state": ART_VERIFIED, "detail": f"{rel}: {grund}", "signed_body": rumpf,
@@ -615,6 +776,30 @@ def _ci_falsey_if(cond) -> bool:
         c = cond.strip().lower().replace("${{", "").replace("}}", "").strip()
         return c in ("false", "0")
     return False
+
+
+def _ci_continues_on_error(node: dict) -> bool:
+    """True iff a job/step declares ``continue-on-error: true`` (or the ``${{ true }}`` /
+    ``'true'`` spellings GitHub Actions also accepts).
+
+    AUFLAGE C7 (Runde 2): a job or step that continues on error cannot BLOCK the workflow no matter
+    what its ``run:`` does — the same disabling effect as ``if: false``, just the other side of
+    "ran but was ignored" instead of "did not run". ci.yml legitimately uses this on genuinely
+    advisory jobs (``branch-base``, ``rust-parity``); what must never happen is the DECISIVE
+    test/build/use step inheriting that shape and still being read as "declared and enabled"."""
+    cond = node.get("continue-on-error")
+    if cond is True:
+        return True
+    if isinstance(cond, str):
+        c = cond.strip().lower().replace("${{", "").replace("}}", "").strip()
+        return c in ("true", "1")
+    return False
+
+
+#: Flaggen, die aus einem `python -m build`/`-m pip` einen NICHT-ausfuehrenden Aufruf machen (nur
+#: die Hilfe wird gedruckt, oder gefragt wird, ohne etwas zu tun) — Auflage C7 (Runde 2): ein Aufruf
+#: mit einer dieser Flaggen deklariert KEINEN Bau, auch wenn das Modul ``build``/``pip`` heisst.
+_NICHT_AUSFUEHREND = {"--help", "-h"}
 
 
 def _is_real_test_invocation(argv: list[str]) -> bool:
@@ -687,9 +872,11 @@ def _ci_workflow_facts(ci_text: str) -> tuple[bool, bool]:
 
     named_ci — the parsed document's top-level ``name`` is 'CI' (a commented-out ``# name: CI`` does
     not count, because YAML parsing drops comments).
-    has_executing_test_step — at least one NON-disabled job has a NON-disabled step whose ``run:``
-    executes the test suite (see ``_ci_run_is_test``). An ``if: false`` job or step is skipped, so a
-    real pytest command inside a disabled job is correctly ignored."""
+    has_executing_test_step — at least one NON-disabled, NON-continue-on-error job has a
+    NON-disabled, NON-continue-on-error step whose ``run:`` executes the test suite (see
+    ``_ci_run_is_test``). An ``if: false`` job or step is skipped, so a real pytest command inside a
+    disabled job is correctly ignored. AUFLAGE C7 (Runde 2): so is ``continue-on-error: true`` — a
+    step that cannot fail the build declares nothing decisive, however real its ``run:`` is."""
     import yaml  # noqa: PLC0415 — parse the workflow, never a file-wide substring scan
     try:
         doc = yaml.safe_load(ci_text)
@@ -702,10 +889,12 @@ def _ci_workflow_facts(ci_text: str) -> tuple[bool, bool]:
     jobs = doc.get("jobs")
     if isinstance(jobs, dict):
         for job in jobs.values():
-            if not isinstance(job, dict) or _ci_falsey_if(job.get("if")):
+            if not isinstance(job, dict) or _ci_falsey_if(job.get("if")) \
+                    or _ci_continues_on_error(job):
                 continue
             for step in job.get("steps") or []:
-                if not isinstance(step, dict) or _ci_falsey_if(step.get("if")):
+                if not isinstance(step, dict) or _ci_falsey_if(step.get("if")) \
+                        or _ci_continues_on_error(step):
                     continue
                 run = step.get("run")
                 if isinstance(run, str) and _ci_run_is_test(run):
@@ -754,19 +943,22 @@ def _run_touches_distribution(run: str) -> tuple[bool, bool]:
             if kopf in ("echo", "printf", ":", "true", "false"):
                 continue
             rest = [a.lower() for a in argv[1:]]
-            if kopf in _DIST_BUILDER_HEADS:
+            # AUFLAGE C7 (Runde 2): `python -m build --help` prints usage and builds nothing; it
+            # must not count as a declared build just because the module is named `build`.
+            hilfe_nur = bool(_NICHT_AUSFUEHREND & set(rest))
+            if kopf in _DIST_BUILDER_HEADS and not hilfe_nur:
                 baut = True
             elif re.fullmatch(r"python[0-9.]*", kopf):
-                if "-m" in argv[1:]:
+                if "-m" in argv[1:] and not hilfe_nur:
                     mi = argv.index("-m", 1)
                     mod = argv[mi + 1].lower() if mi + 1 < len(argv) else ""
                     if mod == "build":
                         baut = True
                     elif mod == "pip" and _DIST_ARTIFACT.search(cmd):
                         benutzt = True
-                if any(a.endswith(_DIST_BUILDER_SCRIPTS) for a in rest):
+                if any(a.endswith(_DIST_BUILDER_SCRIPTS) for a in rest) and not hilfe_nur:
                     baut = True
-            elif kopf in _DIST_CONSUMERS and _DIST_ARTIFACT.search(cmd):
+            elif kopf in _DIST_CONSUMERS and _DIST_ARTIFACT.search(cmd) and not hilfe_nur:
                 benutzt = True
     return baut, benutzt
 
@@ -788,6 +980,19 @@ def _published_artifact_leg_facts(text: str) -> tuple[bool, bool]:
     YAML-Parsen loescht Kommentare, ``if: false`` schaltet Job und Schritt ab, und gezaehlt wird nur,
     was ein ``run:`` wirklich AUSFUEHRT — dieselbe Bauform, die ``_ci_workflow_facts`` fuer die
     Fliessband-Datei schon traegt.
+
+    AUFLAGE C7 (Runde 2), ZWEI WEITERE HAERTUNGEN:
+
+    * ``continue-on-error: true`` auf Job ODER Schritt zaehlt wie ``if: false`` NICHT — ein Schritt,
+      der den Lauf nicht scheitern lassen kann, deklariert nichts Entscheidendes, egal wie real sein
+      ``run:`` aussieht.
+    * BAU und BENUTZUNG muessen im SELBEN Job stehen, nicht nur irgendwo in der Datei. Vorher wurden
+      beide global ueber ALLE Jobs ODER-verknuepft: ein Job, der nur baut, und ein voellig
+      unverbundener zweiter Job, der zufaellig ``pip install dist/...`` in einem anderen
+      Zusammenhang ausfuehrt, haetten zusammen ``True, True`` ergeben — ohne dass ein einziger Job
+      tatsaechlich den gebauten Artefakt benutzt (fehlender Artefaktfluss). Das reale
+      ``hermetic-cleanroom``-Bein baut UND installiert im selben Job; diese Engführung bildet genau
+      das ab und nichts Schwaecheres.
     """
     import yaml  # noqa: PLC0415 — parse the workflow, never a file-wide substring scan
     try:
@@ -796,22 +1001,26 @@ def _published_artifact_leg_facts(text: str) -> tuple[bool, bool]:
         return False, False
     if not isinstance(doc, dict):
         return False, False
-    baut = benutzt = False
     jobs = doc.get("jobs")
-    if isinstance(jobs, dict):
-        for job in jobs.values():
-            if not isinstance(job, dict) or _ci_falsey_if(job.get("if")):
+    if not isinstance(jobs, dict):
+        return False, False
+    for job in jobs.values():
+        if not isinstance(job, dict) or _ci_falsey_if(job.get("if")) or _ci_continues_on_error(job):
+            continue
+        job_baut = job_benutzt = False
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict) or _ci_falsey_if(step.get("if")) \
+                    or _ci_continues_on_error(step):
                 continue
-            for step in job.get("steps") or []:
-                if not isinstance(step, dict) or _ci_falsey_if(step.get("if")):
-                    continue
-                run = step.get("run")
-                if not isinstance(run, str):
-                    continue
-                b, u = _run_touches_distribution(run)
-                baut = baut or b
-                benutzt = benutzt or u
-    return baut, benutzt
+            run = step.get("run")
+            if not isinstance(run, str):
+                continue
+            b, u = _run_touches_distribution(run)
+            job_baut = job_baut or b
+            job_benutzt = job_benutzt or u
+        if job_baut and job_benutzt:
+            return True, True
+    return False, False
 
 
 def c1_1_two_ci_gates(repo: Path = REPO):
@@ -968,7 +1177,11 @@ def _soak_artifact():
     return _signed_versioned_artifact(
         _SOAK_ARTIFACT_REL, VERSION_UNDER_TEST,
         schema=_SOAK_SCHEMA,
-        counters=("iterations", "parsers_soaked", "elapsed_seconds"),
+        # AUFLAGE C4 (Runde 2): `iterations`/`parsers_soaked` sind reine Zaehlfelder (Ganzzahl, > 0).
+        # `elapsed_seconds` ist eine gemessene Dauer (`round(elapsed, 3)` in fuzz_soak.py — ein
+        # Float) und gehoert deshalb zu `positive_numeric`, nicht zu den ganzzahligen `counters`.
+        counters={"iterations": 1, "parsers_soaked": 1},
+        positive_numeric=("elapsed_seconds",),
         failure_fields=("untriaged_crashes", "untriaged_crash_count",
                         "false_accepts", "false_accept_count"),
         consistency_pairs=(("untriaged_crashes", "untriaged_crash_count"),
@@ -1267,6 +1480,15 @@ def _readiness_index_manifest_binding(repo: Path) -> tuple[bool, str]:
 def c10_2_slot_filled():
     """Der Bereitschafts-Slot dieser Version — GEDECKT und mit Inhalt, nicht nur mit dem Wort.
 
+    SEIT RUNDE 2 (Auflage C5, 2026-09-05) INFORMATIV, NICHT MEHR FREIGABEENTSCHEIDEND — sichtbar in
+    ``_INFORMATIVE_CHECKS`` und im Inventar ``EVIDENCE_ADMISSION_INVENTORY``, nicht still. Der
+    Gegenleser bot zwei Wege: diese Zeile zu kandidatsgebundener signierter Pack-Evidenz ausbauen
+    (jeder ``delivers``-Eintrag mit Existenz/Digest/Typ/Kandidatenbezug/Rolle geprueft), oder sie aus
+    den entscheidenden Zeilen nehmen. Der erste Weg braeuchte eine ZWEITE Signierkette fuer einen
+    einzelnen Slot, gebaut unter demselben Zeitdruck wie die gerade gehaertete erste — genau das
+    Risiko, vor dem Auflage C6 warnt. Diese Zeile bleibt darum bestehen (sie ist immer noch strikt
+    mehr als das Wort „filled"), zaehlt aber nicht mehr zur Freigabeentscheidung.
+
     NACHBAR DERSELBEN KLASSE (Sweep 2026-09-05). Die Zeile war
     ``slot.get("status") == "filled"``: ein handgetipptes Wort in einer handgepflegten Tabelle
     entschied ueber die Freigabe. Zwei Dinge fehlten — die BINDUNG des Index an das Pack-Manifest
@@ -1471,6 +1693,47 @@ CHECKS = [
     ("C12.2", 12, "internal audit pack: 0 open P0/P1", c12_2_audit_pack_zero_p0p1),
     ("EXT.1", 0, "external human audit (the one remaining gate)", ext_1_external_audit),
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# AUFLAGE C6 (Runde 2, 2026-09-05): EXPLIZITE ZUORDNUNG statt Prosa-Beschreibung.
+#
+# Jede der sechs Zeilen, deren Bestehen unmittelbar von ABGELEGTER (nicht selbst gemessener)
+# Evidenz abhaengt, mit ihrer behaupteten Eigenschaft, ihrer Evidenzart und der Funktion, die
+# tatsaechlich zulaesst. Eine ausfuehrbare Struktur statt einer Tabelle in einem Kommentar, weil
+# eine Tabelle in einem Kommentar von der Zulassungsfunktion abweichen kann, ohne dass irgendetwas
+# rot wird — `tests/test_freigabe_evidenz_provenienz_l5_g7_02.py::
+# test_das_inventar_stimmt_mit_checks_und_admission_fn_ueberein` prueft genau das.
+#
+# ``release_deciding`` MUSS mit der Mitgliedschaft in ``_INFORMATIVE_CHECKS`` uebereinstimmen — das
+# ist die "eine dokumentierte Ausnahme darf nicht still dieselbe Freigabestaerke behalten"-Haelfte
+# von C6: C10.2 ist HIER als ``False`` sichtbar, nicht nur in einem Mengen-Literal weiter oben.
+EVIDENCE_ADMISSION_INVENTORY = (
+    {"id": "C6.2", "property": "recorded fuzz-soak for this candidate: 0 untriaged crash, "
+                                "0 false-accept",
+     "evidence_kind": "signed_versioned_artifact", "admission_fn": "c6_2_recorded_soak_clean",
+     "release_deciding": True},
+    {"id": "C6.3", "property": "a full 24h soak artifact is present, attested and candidate-bound",
+     "evidence_kind": "signed_versioned_artifact", "admission_fn": "c6_3_full_24h",
+     "release_deciding": True},
+    {"id": "C8.2", "property": "Python<->Rust differential agrees on every recorded vector, "
+                                "population matches its own claim",
+     "evidence_kind": "signed_versioned_artifact", "admission_fn": "c8_2_differential_agrees",
+     "release_deciding": True},
+    {"id": "C8.3", "property": "every PENDING Rust surface states its own documented reason "
+                                "in the registry (not just a keyword in a prose file)",
+     "evidence_kind": "structural_registry_read", "admission_fn": "c8_3_pending_documented",
+     "release_deciding": True},
+    {"id": "C9.1", "property": "two independently built sdists (this tree) are byte-identical",
+     "evidence_kind": "self_measured_structured_result", "admission_fn": "c9_1_two_sdists_identical",
+     "release_deciding": True},
+    {"id": "C10.2", "property": "the version-under-test readiness slot is filled with named, "
+                                 "manifest-covered delivered evidence",
+     "evidence_kind": "index_manifest_binding (ADVISORY — the pack's own self-receipt uses an "
+                       "ephemeral key, no pinned candidate-bound signer exists for this slot today)",
+     "admission_fn": "c10_2_slot_filled",
+     "release_deciding": False},
+)
 
 
 def _env() -> dict:
