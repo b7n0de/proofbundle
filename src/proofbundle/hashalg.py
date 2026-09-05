@@ -28,6 +28,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Optional
 
+from .budget import render_safe
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -102,12 +103,14 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
             "a hash algorithm id is required — proofbundle never defaults a missing hash to SHA-256")
     spec = HASH_REGISTRY.get(alg_id)
     if spec is None:
+        # deep gate 2026-09-05 (L3-600-01, hashalg member): the id comes from an untrusted digests map; a
+        # huge int (or a tuple holding one) tripped the int->str cap inside this message as a raw ValueError.
         raise UnknownHashAlg(
-            f"unknown hash algorithm {alg_id!r} — not in the allowed registry "
+            f"unknown hash algorithm {render_safe(alg_id)} — not in the allowed registry "
             f"({', '.join(sorted(HASH_REGISTRY))})")
     if spec.status == "deprecated" and not allow_deprecated:
         raise DeprecatedHashAlg(
-            f"hash algorithm {alg_id!r} is deprecated and rejected by default; a legacy verifier must "
+            f"hash algorithm {render_safe(alg_id)} is deprecated and rejected by default; a legacy verifier must "
             "opt in explicitly (allow_deprecated=True)")
     return spec
 
@@ -164,14 +167,16 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
         try:
             spec = resolve_hash_alg(alg_id, allow_deprecated=True)
         except HashAlgError as exc:
-            result.checks.append(Check(f"hashalg:{alg_id}", False, str(exc)))
+            # the Check NAME renders the untrusted key too (quote=False keeps 'hashalg:sha256' byte-identical
+            # for every real id; only an unrenderable/huge key is described instead of printed)
+            result.checks.append(Check(f"hashalg:{render_safe(alg_id, quote=False)}", False, str(exc)))
             continue
         actual = compute_digest(data, alg_id, allow_deprecated=True)
         match = isinstance(expected, str) and actual == expected.lower()
         detail = "digest matches" if match else "digest mismatch"
         if match and spec.status == "deprecated":
             detail = "digest matches but algorithm is deprecated (does not carry a PASS on its own)"
-        result.checks.append(Check(f"hashalg:{alg_id}", match, detail))
+        result.checks.append(Check(f"hashalg:{render_safe(alg_id, quote=False)}", match, detail))
         if match and spec.status == "current":
             current_ok += 1
 

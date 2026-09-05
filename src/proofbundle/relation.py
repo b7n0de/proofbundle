@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .budget import render_keys_safe
 from .errors import ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -85,7 +86,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
     if not isinstance(obj, dict):
         errors.append(f"{path} must be an object {{digestAlgorithm, digest}}")
         return
-    unknown = sorted(set(obj) - set(_DIGEST_ALLOWED))
+    unknown = render_keys_safe(set(obj) - set(_DIGEST_ALLOWED))
     if unknown:
         errors.append(f"{path} unknown field(s) {unknown} (fail-closed)")
     alg = obj.get("digestAlgorithm")
@@ -119,7 +120,7 @@ def validate_relationships(value: Any) -> list[str]:
         if not isinstance(edge, dict):
             errors.append(f"{path} must be a JSON object")
             continue
-        unknown = sorted(set(edge) - set(_EDGE_ALLOWED))
+        unknown = render_keys_safe(set(edge) - set(_EDGE_ALLOWED))
         if unknown:
             errors.append(f"{path} unknown field(s) {unknown} (fail-closed)")
         for req in _EDGE_REQUIRED:

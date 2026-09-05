@@ -42,6 +42,7 @@ import binascii
 import hashlib
 from typing import Callable, Optional
 
+from .budget import render_keys_safe, render_safe
 from .errors import BundleFormatError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -214,7 +215,8 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         raise BundleFormatError(f"anchor exceeds the verification budget (fail-closed): {exc}") from exc
     unknown = set(anchor) - _ANCHOR_KEYS
     if unknown:
-        raise BundleFormatError(f"anchor has unknown field(s) {sorted(unknown)}")
+        # deep gate 2026-09-05 (L3-600-03 class): name the keys rendered, never sort raw mixed-type keys
+        raise BundleFormatError(f"anchor has unknown field(s) {render_keys_safe(unknown)}")
     atype = anchor.get("type")
     target = anchor.get("target")
     out = {"ok": False, "warn": False, "status": "fail", "type": atype, "target": target, "detail": ""}
@@ -230,7 +232,10 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         return out
     if not isinstance(atype, str) or not is_member(atype, _VERIFIERS):
         # Unknown type is a FAIL, not a SKIP — an anchor we cannot check must never pass silently.
-        out["detail"] = (f"no verifier registered for anchor type {atype!r} "
+        # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): `{atype!r}` rendered the untrusted value raw;
+        # a huge int here tripped the int->str cap as a raw ValueError out of verify_anchor(s) and the public
+        # never-raise decision.verify_decision_receipt(anchors=...). Bounded renderer, never raw.
+        out["detail"] = (f"no verifier registered for anchor type {render_safe(atype)} "
                          "(install proofbundle[anchors] or register the extension type)")
         return out
     expected_root = _as_dict(target_roots).get(target)  # adversarial re-audit r5: target_roots kwarg (None/int) fail-closed
@@ -303,7 +308,7 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     anchor into a pass: a hard-failing anchor still aggregates to FAIL."""
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
-            f"require_target must be one of {ANCHOR_TARGETS}, got {require_target!r}")
+            f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")
     if require_target is not None and not require:
         require = "any"   # a target requirement IS an anchor requirement (mirrors --anchor-type)
     if not anchors:
@@ -332,7 +337,7 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
                        if r["ok"] and not r["warn"] and (want is None or r["type"] == want)
                        and _target_ok(r)]
         if not matched:
-            tgt = f" with target {require_target!r}" if require_target is not None else ""
+            tgt = f" with target {render_safe(require_target)}" if require_target is not None else ""
             detail = (f"--require-anchor {require}{tgt} (--allow-pending): no verifying or pending anchor of that type/target"
                       if allow_pending else
                       f"--require-anchor {require}{tgt}: no verifying anchor of that type/target")

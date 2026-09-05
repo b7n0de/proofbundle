@@ -29,7 +29,7 @@ from typing import Optional, Union
 
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -176,7 +176,10 @@ def _require_int(obj: dict, key: str, field: str) -> int:
 def _reject_unknown(obj: dict, allowed: set, field: str) -> None:
     extra = set(obj) - allowed
     if extra:
-        raise BundleFormatError(f"unknown field(s) in {field}: {sorted(extra)}")
+        # deep gate 2026-09-05 (L3-600-03): `sorted(extra)` ordered the RAW keys, and two unknown keys of
+        # incomparable types ({5: 1, "zzz": 1} on the direct-dict path) raised a raw TypeError BEFORE the
+        # typed error that names them was built. Render first, sort the rendered names — never raises.
+        raise BundleFormatError(f"unknown field(s) in {field}: {render_keys_safe(extra)}")
 
 
 def _require_hash_alg(mk: dict) -> str:
@@ -195,7 +198,9 @@ def _require_hash_alg(mk: dict) -> str:
             "every proofbundle emitter since v1.6 writes this field automatically.")
     hash_alg = mk["hash_alg"]
     if hash_alg != "sha256-rfc6962":
-        raise UnsupportedError(f"merkle hash_alg {hash_alg!r} not supported in v0.1")
+        # deep gate 2026-09-05 (L3-600-01): the rejection must not fail harder than the check — a huge int
+        # here tripped the int->str cap inside this f-string as a raw ValueError. Bounded renderer instead.
+        raise UnsupportedError(f"merkle hash_alg {render_safe(hash_alg)} not supported in v0.1")
     return hash_alg
 
 
@@ -301,7 +306,8 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
-        raise UnsupportedError(f"unsupported schema {schema!r}, expected {SCHEMA!r}")
+        # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): render the untrusted value bounded, never raw.
+        raise UnsupportedError(f"unsupported schema {render_safe(schema)}, expected {SCHEMA!r}")
     _reject_unknown(bundle, _TOP_KEYS, "bundle")
     # WP-A7: the anchors field stays UNVERIFIED here (crypto verdict identical with/without it),
     # but its STRUCTURE follows the published JSON Schema — in a v0.1 bundle `target` is the enum
@@ -317,7 +323,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             tgt = entry.get("target")
             if tgt not in ("receipt", "preRegistration"):
                 raise BundleFormatError(
-                    f"anchors[{i}].target {tgt!r} is not allowed in a proofbundle/v0.1 bundle "
+                    f"anchors[{i}].target {render_safe(tgt)} is not allowed in a proofbundle/v0.1 bundle "
                     "(receipt|preRegistration only; 'statement' is for detached decision evidence)")
 
     result = VerificationResult()
@@ -328,7 +334,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     _reject_unknown(sig, _SIG_KEYS, "signature")
     alg = sig.get("alg")
     if alg != "ed25519":
-        raise UnsupportedError(f"signature alg {alg!r} not supported in v0.1")
+        raise UnsupportedError(f"signature alg {render_safe(alg)} not supported in v0.1")
     pub = _b64d(_require(sig, "public_key_b64", "signature.public_key_b64"), "signature.public_key_b64")
     raw_sig = _b64d(_require(sig, "sig_b64", "signature.sig_b64"), "signature.sig_b64")
     sig_ok = verify_ed25519(pub, raw_sig, payload)
