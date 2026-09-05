@@ -472,6 +472,27 @@ Count for 3c (6 rules of §6.1 and §6.2 since -01): same 0 · similar 1 · diff
   and its limits without naming the commits; the commits are the author's, from the mail of 2026-09-05. No
   adapter exists on our side and the fixture was not run here; the pins are recorded so that a later run has
   something to be measured against.
+- **Kind: adapter-reproduction, measured 2026-09-05 on the frozen head `049b3195` of 6.0.0.** The pins above
+  were used: `scripts/interop/cedulon_leaked_refusal_adapter.py` reads the three fixture files, refuses any
+  bytes whose sha256 is not the pinned one, and translates the single decision line (`verdict: silent`,
+  ref `leak-1`) and the single sent line under the same ref into a `decision-receipt/v0.1` and an
+  `action-outcome/v0.1` with `execution_proven`, cell by cell after Tables 3a and 3b, with two throwaway
+  test keys so that role separation is a real check. Seven cells fall on NICHT MESSBAR because those tables
+  say NO COUNTERPART, and the adapter records them instead of inventing a value. Result: `decision verify`
+  exit 0 (`CRYPTO: OK`, `STRUCTURE: OK`), `outcome verify --strict --expected-decision-ref … --decision-maker-id …`
+  exit 0 with `ok: true`, `decision_bound: true`, `role_separation_ok: true`, `execution_proven: true`, and no
+  field or warning of the twenty-one in the JSON result naming the bound decision's verdict. The same D1
+  picture as our own pair of 2026-09-04, now on someone else's frozen bytes; the one reading the adapter adds,
+  that this channel's `silent` is a refusal, rests on the companion's own reader reporting
+  `effect-against-refusal` on this row (`EXTERNAL_REVIEW.md` Round 10 at `e26f50f`) and is recorded as an
+  assumption in the adapter's report. The two other readers' verdicts are theirs and are not re-stated here.
+- **Interop row, offered in the form used for a foreign implementation report, not sent anywhere.** Text as it
+  would read: *"b7n0de, adapter reproduction. It wrote a third adapter for the frozen `leaked-refusal` fixture
+  at `06c3119`, mapping the two lines onto its own signed decision and outcome predicates cell by cell against
+  its published mapping, and measured its own verifier on the pair on 5 September 2026: the pair verifies
+  clean, exit 0, with the bound decision carrying a refusal, because that verifier does not read the verdict on
+  the outcome path. Prior art: none claimed."* Whether this row is offered to anyone is an owner decision and
+  has not been taken.
 
 ### What a reader could do with our pair of receipts under the Cedulon profile, and what not
 
