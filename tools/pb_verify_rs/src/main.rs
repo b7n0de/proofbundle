@@ -138,11 +138,27 @@ fn dsse_pae(payload_type: &str, body: &[u8]) -> Vec<u8> {
     out
 }
 
-fn b64_std(s: &str) -> Result<Vec<u8>, String> {
-    // DSSE emits standard base64; accept standard, fall back to url-safe (spec allows either on verify).
+// Wire-form canonicality (deep gate 2026-09-05, L1-600-01 / RT-08): a signed artefact has EXACTLY ONE
+// accepted wire form, and this verifier must agree with the Python verifier about the same file.
+// `base64` 0.22's STANDARD / URL_SAFE engines already refuse non-canonical pad bits and missing
+// padding; what this file used to add on top was `.trim()`, which accepted surrounding whitespace
+// that Python refuses -- the disagreement measured in the other direction. No trimming anywhere.
+//
+// Two helpers, because two formats have two rules:
+//  * `b64_strict`: standard alphabet only (native bundle fields, public keys, Merkle roots).
+//  * `b64_dsse`: standard OR url-safe, both padded and canonical -- the DSSE envelope spec allows
+//    either alphabet for `payload` and `signatures[].sig` and says nothing about padding, so RFC 4648
+//    padding is required (mirror of Python `_wire_b64.decode_b64_either`).
+fn b64_strict(s: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
-        .decode(s.trim())
-        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s.trim()))
+        .decode(s)
+        .map_err(|e| format!("base64 decode failed: {e}"))
+}
+
+fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
         .map_err(|e| format!("base64 decode failed: {e}"))
 }
 
@@ -174,10 +190,10 @@ fn verify_dsse(
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
-    let body = b64_std(payload_b64)?;
+    let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
-    let pk_bytes = b64_std(pubkey_b64)?;
+    let pk_bytes = b64_strict(pubkey_b64)?;
     let pk_arr: [u8; 32] = pk_bytes
         .as_slice()
         .try_into()
@@ -192,7 +208,7 @@ fn verify_dsse(
         let Some(sig_b64) = s.get("sig").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(sig_bytes) = b64_std(sig_b64) else {
+        let Ok(sig_bytes) = b64_dsse(sig_b64) else {
             continue;
         };
         let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
@@ -292,8 +308,11 @@ fn root_from_inclusion(
 }
 
 fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
+    // JWS compact segments (RFC 7515 section 2): url-safe alphabet WITHOUT padding. A padded segment is
+    // a second wire form of the same bytes and is refused here as in Python `decode_b64url` (the old
+    // `trim_end_matches('=')` accepted both spellings).
     base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(s.trim_end_matches('='))
+        .decode(s)
         .map_err(|e| format!("base64url decode failed: {e}"))
 }
 
@@ -339,7 +358,7 @@ fn verify_sdjwt_issuer(
         return Ok(false);
     }
     // issuer Ed25519 signature over the signing input `header_b64.payload_b64`.
-    let pk = b64_std(issuer_pub_b64)?;
+    let pk = b64_strict(issuer_pub_b64)?;
     let pk_arr: [u8; 32] = pk
         .as_slice()
         .try_into()
@@ -401,7 +420,7 @@ fn verify_bundle(
         .get("payload_b64")
         .and_then(|v| v.as_str())
         .ok_or("missing payload_b64")?;
-    let payload = b64_std(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
+    let payload = b64_strict(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
 
     let sig = b.get("signature").ok_or("missing signature")?;
     let pub_b64 = sig
@@ -412,13 +431,13 @@ fn verify_bundle(
         .get("sig_b64")
         .and_then(|v| v.as_str())
         .ok_or("missing signature.sig_b64")?;
-    let pk = b64_std(pub_b64)?;
+    let pk = b64_strict(pub_b64)?;
     let pk_arr: [u8; 32] = pk
         .as_slice()
         .try_into()
         .map_err(|_| "public key not 32 bytes")?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
-    let sb = b64_std(sig_b64)?;
+    let sb = b64_strict(sig_b64)?;
     let sa: [u8; 64] = sb
         .as_slice()
         .try_into()
@@ -443,11 +462,11 @@ fn verify_bundle(
         .ok_or("missing merkle.inclusion_proof_b64")?;
     let mut proof = Vec::new();
     for p in proof_list {
-        proof.push(b64_std(
+        proof.push(b64_strict(
             p.as_str().ok_or("inclusion proof entry not a string")?,
         )?);
     }
-    let root = b64_std(
+    let root = b64_strict(
         mk.get("root_b64")
             .and_then(|v| v.as_str())
             .ok_or("missing merkle.root_b64")?,
@@ -462,7 +481,7 @@ fn verify_bundle(
     // relying-party root authentication (P0-A): the stated root is not signed, so a supplied
     // expectation must match bit-exactly.
     if let Some(er) = expected_root {
-        if root != b64_std(er)? {
+        if root != b64_strict(er)? {
             return Ok(false);
         }
     }
@@ -537,7 +556,7 @@ fn verify_trust_pack_threshold(
         .get("payload")
         .and_then(|v| v.as_str())
         .ok_or("envelope has no string payload")?;
-    let body = b64_std(payload_b64)?;
+    let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
     let statement = strict_parse(&body)?;
@@ -596,7 +615,7 @@ fn verify_trust_pack_threshold(
         let Some(pub_b64) = kv.get("publicKey").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(pk_bytes) = b64_std(pub_b64) else {
+        let Ok(pk_bytes) = b64_strict(pub_b64) else {
             continue;
         };
         let Ok(pk_arr): Result<[u8; 32], _> = pk_bytes.as_slice().try_into() else {
@@ -611,7 +630,7 @@ fn verify_trust_pack_threshold(
         let Some(sig_b64) = entry.get("sig").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(sig_bytes) = b64_std(sig_b64) else {
+        let Ok(sig_bytes) = b64_dsse(sig_b64) else {
             continue;
         };
         let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
@@ -1109,8 +1128,8 @@ fn successor_warning(
 }
 
 fn keys_equal(a_b64: &str, b_b64: &str) -> bool {
-    let da = base64::engine::general_purpose::STANDARD.decode(a_b64.trim());
-    let db = base64::engine::general_purpose::STANDARD.decode(b_b64.trim());
+    let da = base64::engine::general_purpose::STANDARD.decode(a_b64);
+    let db = base64::engine::general_purpose::STANDARD.decode(b_b64);
     match (da, db) {
         (Ok(ra), Ok(rb)) => ra.len() == 32 && ra == rb,
         _ => false,
@@ -1257,7 +1276,7 @@ fn load_related(
             .get("payload")
             .and_then(|v| v.as_str())
             .ok_or("related has no payload")?;
-        let body = b64_std(payload_b64)?;
+        let body = b64_dsse(payload_b64)?;
         let root_hex = statement_content_root_hex(&body);
         // Pin the in-toto payloadType exactly like Python _load_related (cli.py:1241-1242): a related
         // target carrying the WRONG payloadType is attached-but-unverified, never authenticated.
@@ -1288,7 +1307,7 @@ fn load_related(
         }
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
         let verified_under =
-            base64::engine::general_purpose::STANDARD.encode(b64_std(verify_key_b64)?);
+            base64::engine::general_purpose::STANDARD.encode(b64_strict(verify_key_b64)?);
         related.insert(
             root_hex,
             TargetInfo {
@@ -1323,7 +1342,7 @@ fn run_verify_relation(
     let Some(payload_b64) = envelope.get("payload").and_then(|v| v.as_str()) else {
         return (2, "null".into());
     };
-    let Ok(body) = b64_std(payload_b64) else {
+    let Ok(body) = b64_dsse(payload_b64) else {
         return (2, "null".into());
     };
     let Ok(statement) = strict_parse(&body) else {
@@ -1389,7 +1408,7 @@ fn run_verify_relation(
         if let Some(relations) = pol.get("relations") {
             if relations.is_object() {
                 let succ_key = base64::engine::general_purpose::STANDARD
-                    .encode(b64_std(pub_b64).unwrap_or_default());
+                    .encode(b64_strict(pub_b64).unwrap_or_default());
                 let mut viol = evaluate_relations_policy(relations, &lineage, &succ_key);
                 // Standalone self-assertion gate (relation-statement only): reject_retracted /
                 // reject_superseded fire on the statement's OWN verified edge.

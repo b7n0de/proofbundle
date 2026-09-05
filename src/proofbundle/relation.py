@@ -31,6 +31,7 @@ from typing import Any
 
 from .errors import ProofBundleError
 from ._membership import is_member
+from ._wire_b64 import decode_b64
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -493,12 +494,11 @@ def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
     """Byte-equality of two base64 Ed25519 keys AFTER decode — never a string/keyId compare (the
     formal keyid-alias gegenmodell, 2026-07-15: two different b64 encodings, or a keyId alias, must
     never read as the same key). Fail-closed: an undecodable value is never equal to anything."""
-    import base64  # noqa: PLC0415
     if not isinstance(a_b64, str) or not isinstance(b_b64, str):
         return False
     try:
-        ra = base64.b64decode(a_b64, validate=True)
-        rb = base64.b64decode(b_b64, validate=True)
+        ra = decode_b64(a_b64)
+        rb = decode_b64(b_b64)
     except (ValueError, TypeError):
         return False
     return len(ra) == 32 and ra == rb

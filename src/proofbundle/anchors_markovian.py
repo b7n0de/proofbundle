@@ -28,9 +28,9 @@ Register it explicitly (that it is not a core built-in is the point of a third-p
 """
 from __future__ import annotations
 
-import base64
 import binascii
 import hashlib
+from ._wire_b64 import decode_b64
 from typing import Optional
 
 ANCHOR_TYPE = "markovian-provenance/v1"
@@ -102,7 +102,7 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
 
     # 5. Bitcoin time: delegate to the built-in OpenTimestamps verifier (compose, don't reinvent)
     try:
-        ots_proof = base64.b64decode(ots_b64, validate=True)
+        ots_proof = decode_b64(ots_b64)
     except (ValueError, binascii.Error):
         return _fail("bad_fields", "markovian ots field is not valid base64")
     try:

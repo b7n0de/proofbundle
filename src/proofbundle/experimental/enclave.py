@@ -51,7 +51,7 @@ from typing import Optional
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
 from ..signature import verify_ed25519
-from .._wire_b64 import decode_b64url
+from .._wire_b64 import decode_b64, decode_b64url
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
            "issue_enclave_attestation"]
@@ -80,7 +80,7 @@ def enclave_binding_for(bundle: dict) -> str:
     if not isinstance(bundle, dict) or "payload_b64" not in bundle:
         raise BundleFormatError("enclave_binding_for needs a bundle dict with payload_b64")
     try:
-        payload = base64.b64decode(bundle["payload_b64"], validate=True)
+        payload = decode_b64(bundle["payload_b64"])
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("bundle.payload_b64 is not valid base64") from exc
     return _b64url(hashlib.sha256(_BINDING_DOMAIN + payload).digest())

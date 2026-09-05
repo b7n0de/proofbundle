@@ -18,7 +18,6 @@ Design invariants:
 
 from __future__ import annotations
 
-import base64
 import copy
 import hmac
 import re
@@ -30,6 +29,7 @@ from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
+from ._wire_b64 import decode_b64
 
 __all__ = ["POLICY_SCHEMA", "POLICY_PURPOSES", "PolicyError", "load_policy", "evaluate_policy",
            "explain_policy", "lint_policy", "policy_warnings", "policy_expired",
@@ -86,9 +86,8 @@ def _validate_pinned_ed25519_pubkey(b64: str, ctx: str) -> None:
     with no private key — forgery of a trusted identity without a secret. Rejects the whole low-order
     class by the y-value (sign-independent) plus the non-canonical (y >= p) class, so no encoding variant
     slips past. Raises PolicyError."""
-    import base64  # noqa: PLC0415
     try:
-        raw = base64.b64decode(b64, validate=True)
+        raw = decode_b64(b64)
     except Exception as exc:  # noqa: BLE001
         raise PolicyError(f"{ctx} public_key_b64 is not valid base64") from exc
     if len(raw) != 32:
@@ -229,7 +228,7 @@ def _validate_root_b64(value, where: str) -> None:
     if not isinstance(value, str):
         raise PolicyError(f"{where} must be a base64 string")
     try:
-        raw = base64.b64decode(value, validate=True)
+        raw = decode_b64(value)
     except (ValueError, TypeError) as exc:
         raise PolicyError(f"{where} is not valid standard base64 — a trusted_roots/checkpoint root "
                           "pin must be well-formed (fail-closed, own error, never a silent "
@@ -267,7 +266,7 @@ def _validate_checkpoint_entry(entry, idx: int) -> None:
     if not isinstance(sig, str) or not sig:
         raise PolicyError(f"{where}.signature must be a non-empty base64 string")
     try:
-        base64.b64decode(sig, validate=True)
+        decode_b64(sig)
     except (ValueError, TypeError) as exc:
         raise PolicyError(f"{where}.signature is not valid base64") from exc
     for tkey in ("issuedAt", "validUntil"):
@@ -815,7 +814,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if trusted_checkpoints:
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
-            stated_root = base64.b64decode(stated_root_b64, validate=True) \
+            stated_root = decode_b64(stated_root_b64) \
                 if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
@@ -828,7 +827,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 reasons.append(f"[{i}] {cp_reason}")
                 continue
             try:
-                entry_root = base64.b64decode(entry["root"], validate=True)
+                entry_root = decode_b64(entry["root"])
             except (ValueError, TypeError):
                 reasons.append(f"[{i}] pinned root is not decodable")   # load_policy prevents this
                 continue
@@ -870,13 +869,13 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         via_expected = ra_check is not None and ra_check.ok
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
-            stated_root = base64.b64decode(stated_root_b64, validate=True) if isinstance(stated_root_b64, str) else b""
+            stated_root = decode_b64(stated_root_b64) if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
         via_trusted = False
         for tr in trusted_roots:
             try:
-                cand = base64.b64decode(tr, validate=True)
+                cand = decode_b64(tr)
             except (ValueError, TypeError):
                 continue   # a malformed trusted_root never matches (fail-closed)
             if stated_root and hmac.compare_digest(stated_root, cand):
@@ -1228,7 +1227,7 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
         if parsed is not None and current > parsed:
             return False, "trusted checkpoint expired (validUntil is in the past)"
     try:
-        root = base64.b64decode(entry["root"], validate=True)
+        root = decode_b64(entry["root"])
         keyname = entry["checkpointSigner"].split("+", 1)[0]
         note = checkpoint_note(entry["origin"], entry["treeSize"], root)
         signed_note = f"{note}\n— {keyname} {entry['signature']}\n"

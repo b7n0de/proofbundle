@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .errors import BundleFormatError, UnsupportedError
 from .signature import verify_ed25519
-from ._wire_b64 import decode_b64
+from ._wire_b64 import decode_b64, decode_b64_c2sp
 
 __all__ = ["checkpoint_note", "key_id", "vkey", "sign_checkpoint", "verify_checkpoint",
            "root_bytes_from_b64", "cosign_key_id", "cosign_vkey", "cosign_checkpoint",
@@ -201,7 +201,7 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
     if not _witness_name_wellformed(name):
         raise BundleFormatError("vkey name must be a printable-ASCII identity without spaces or invisible characters")
     try:
-        keymat = base64.b64decode(keymat_b64, validate=True)
+        keymat = decode_b64_c2sp(keymat_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("vkey key material is not valid base64") from exc
     if len(keymat) != 33 or keymat[0] != sig_type:
@@ -256,7 +256,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
-        root = base64.b64decode(root_b64, validate=True)
+        root = decode_b64_c2sp(root_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
     # DEEP-GATE 4.0.0 re-gate (D2/D3): the note-text encode was ABOVE this block, so a lone/unpaired
@@ -296,7 +296,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         if lname != name:
             continue
         try:
-            payload = base64.b64decode(payload_b64, validate=True)
+            payload = decode_b64_c2sp(payload_b64)
         except (ValueError, TypeError):
             continue
         if len(payload) < 4:
@@ -315,7 +315,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
 def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
     """Decode a bundle's standard-base64 Merkle root to raw bytes (for feeding into checkpoint_note)."""
     try:
-        return base64.b64decode(root_b64, validate=True)
+        return decode_b64_c2sp(root_b64)
     except (ValueError, TypeError):
         return None
 
@@ -402,7 +402,7 @@ def _note_text_of(signed_note: str) -> str:
             or (size_s != "0" and size_s.startswith("0")) or int(size_s) >= 2 ** 64:
         raise BundleFormatError("checkpoint tree size must be a uint64 ASCII decimal with no leading zeros")
     try:
-        base64.b64decode(root_b64, validate=True)
+        decode_b64_c2sp(root_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
     return note_text
@@ -516,7 +516,7 @@ def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
         raise BundleFormatError("signed note must end with a newline")
     lines = note_text.split("\n")
     origin, size_s, root_b64 = lines[0], lines[1], lines[2]
-    root = base64.b64decode(root_b64, validate=True)
+    root = decode_b64_c2sp(root_b64)
     pubkey = witness_signer.public_key().public_bytes_raw()
     msg = _mldsa_cosigned_message(witness_name, timestamp, origin, int(size_s), root)
     sig = witness_signer.sign(msg)
@@ -546,7 +546,7 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
         raise BundleFormatError(
             "witness vkey name must be a printable-ASCII identity without spaces or invisible characters")
     try:
-        keymat = base64.b64decode(keymat_b64, validate=True)
+        keymat = decode_b64_c2sp(keymat_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("vkey key material is not valid base64") from exc
     try:
@@ -589,7 +589,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
     if len(size_s) > 20 or (size_s != "0" and (size_s.startswith("0") or not (size_s.isascii() and size_s.isdigit()))):
         raise BundleFormatError("checkpoint tree size must be ASCII decimal with no leading zeros")
     try:
-        root = base64.b64decode(root_b64, validate=True)
+        root = decode_b64_c2sp(root_b64)
     except (ValueError, TypeError) as exc:
         raise BundleFormatError("checkpoint root is not valid standard base64") from exc
 
@@ -617,7 +617,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
         if lname != name:
             continue
         try:
-            payload = base64.b64decode(payload_b64, validate=True)
+            payload = decode_b64_c2sp(payload_b64)
         except (ValueError, TypeError):
             continue
         if len(payload) != blob_len:             # keyID[4] ‖ u64 ts ‖ signature — exact length

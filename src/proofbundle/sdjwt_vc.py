@@ -27,7 +27,7 @@ from typing import Any
 
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
-from ._wire_b64 import decode_b64url
+from ._wire_b64 import decode_b64, decode_b64url
 from ._membership import is_member
 
 SD_JWT_VC_TYP = "dc+sd-jwt"
@@ -140,7 +140,7 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
                 "(SSRF-safe), fail-closed")
         else:
             try:
-                raw = base64.b64decode(entry["bytes_b64"], validate=True)
+                raw = decode_b64(entry["bytes_b64"])
                 got = "sha256-" + base64.b64encode(hashlib.sha256(raw).digest()).decode("ascii")
                 r["metadata_integrity_ok"] = (got == entry["integrity"])
             except Exception:  # noqa: BLE001

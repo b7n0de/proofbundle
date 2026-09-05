@@ -36,6 +36,7 @@ from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
 from .signature import verify_ed25519
+from ._wire_b64 import decode_b64
 
 # ATS signature algorithms (the RFC-4998 TimeStampToken role, B3↔B5 wiring). A renewal may UPGRADE the
 # algorithm (ed25519 → hybrid → mldsa65) so the signature layer migrates toward PQ before it weakens.
@@ -306,7 +307,7 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
 
     def _dec(part: str) -> bytes:
         try:
-            return base64.b64decode(sigmap.get(part, ""), validate=True)
+            return decode_b64(sigmap.get(part, ""))
         except (ValueError, TypeError):
             return b""
 
