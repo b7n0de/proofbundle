@@ -224,8 +224,10 @@ is that a class declares its choice so a verifier does not have to guess.
 
 - [CSOAI-ORG/inspect-receipts](https://github.com/CSOAI-ORG/inspect-receipts) at `cc8d6219` (tree identical to PR head
   `ef2ec277`), measured 2026-09-05 in [issue #147](https://github.com/b7n0de/proofbundle/issues/147) with the same probes
-  as at `397ae3ad`: R1 holds (0 of 6 vectors diverge against `jcs.canonicalize` and `rfc8785`), R4 holds, the trust
-  anchor is the emitter's field; R2 holds for a present foreign schema id and not for an absent one; R3 does not hold.
+  as at `397ae3ad`: R1 is met (0 of 6 vectors diverge against `jcs.canonicalize` and `rfc8785`), R4 is met, the trust
+  anchor is the emitter's field; R2 is met for a present foreign schema id (the verifier answers UNCHECKABLE, its own
+  outcome) and not met for an absent one (the verifier answers VALID); R3 is not met (`binding_checked` is reported
+  without a digest to compare).
   Measured, not certified.
 
 ## How to cite this profile
