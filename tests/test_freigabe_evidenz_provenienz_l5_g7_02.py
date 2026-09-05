@@ -935,7 +935,13 @@ class TestErlaubteEvidenzRelation:
         """DER FALL, DEN DIE GEGENLESUNG REPRODUZIERT HAT. Der Lauf committet nach dem Signieren
         seine eigene Ergebnisdatei — genau einen Pfad aus MUTABLE_EVIDENCE_RELS — und die Bindung
         muss das ueberleben, weil sie ihn selbst zusagt."""
-        import sign_readiness_artifact as sra
+        # NICHT `import sign_readiness_artifact` — der Name ist nur deshalb aufloesbar, weil ein
+        # frueherer `spec_from_file_location`-Aufruf das Modul unter ihm in `sys.modules`
+        # hinterlaesst. Gemessen (un-Gegenlesung C3b, 2026-09-06): weder `tests/conftest.py`
+        # noch `pyproject.toml` setzen `sys.path` oder `pythonpath`. Der Test haengt damit an
+        # der Reihenfolge, in der die Suite laeuft, nicht an seiner eigenen Vorbereitung —
+        # gruen heute, bei jeder Umsortierung ein ImportError. Dieselbe Datei hat einen Lader.
+        sra = _sra_modul()
         td, kandidat = self._baum()
         try:
             head = self._committe(td, sra.MUTABLE_EVIDENCE_RELS[0], '{"ok": true}\n', "evidenz")

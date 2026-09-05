@@ -235,3 +235,54 @@ nachlauf: kein Ledger) — also genau die Handarbeit, die die Klasse eigentlich 
 Vergabe-Werkzeug in einer release-nahen Lane einzufuehren waere mehr Risiko als Nutzen; es gehoert
 nach 6.0.0. Bis dahin faengt der Riegel das Ergebnis, und diese Zeile haelt fest, dass die Ursache
 noch steht.
+
+---
+
+## KLASSE-G-2026-0906 — Eine Liste, die ein Verzeichnis-`graft` ersetzt, entscheidet unvollstaendig
+
+**Verletzte Invariante.** Wer eine pauschale Auslieferungs-Vollmacht (`graft <ordner>`) durch eine
+ausdrueckliche Liste ersetzt, uebernimmt damit die Entscheidung fuer JEDE Datei, die die Vollmacht
+getragen hat — jede Sprache, jede Tiefe, jede Konsumentenbeziehung. Eine Teilmenge zu entscheiden
+und den Rest unerwaehnt zu lassen ist nicht "strenger als vorher", sondern eine stille Aenderung
+des Lieferumfangs: der Ordner ist ja noch da, die Skripte sind da, und die Abwesenheit faellt erst
+beim Anwender zur Laufzeit auf.
+
+**ODC.** defect_type = assignment (unvollstaendige Ersetzungsmenge) · trigger = coverage/variation
+(Sprache, Verzeichnistiefe, Namensform) · source_layer = packaging.
+
+**Wie es auffiel — und WIE OFT, denn das ist der Kern.** Die Owner-Auflage OA-8b1a31cc4f ersetzte
+`graft scripts` durch eine Liste. Dieselbe Klasse schlug danach VIERMAL zu, jedes Mal an einer
+anderen Dimension, und jedes Mal fand sie ein anderes Werkzeug:
+
+| # | Dimension | gefunden von | Wirkung |
+|---|---|---|---|
+| 1 | Sprache: der Riegel entschied nur ueber `*.py` | Probe-Merge, Vollsuite rot | vier Dateien aus dem sdist, zwei davon von ausgelieferten Skripten gelesen |
+| 2 | Tiefe: `iterdir()` statt rekursiv | Review-Linse 1 | `scripts/git-hooks/pre-commit` von KEINER Fassung entschieden |
+| 3 | Namensform: Pfadvergleich statt Basisname | Review-Linse 2 | ein `include scripts/nested/pre_tag_receipt.py` haette das schluessel-lesende Skript ausgeliefert |
+| 4 | Sprache, zweite Runde: der Schluessel-Detektor las nur `.py` | Review-Linse 3 | ein Shell-Skript mit `python3 -c "...from_private_bytes..."` waere unsichtbar |
+
+Der erste Fix schloss die Klasse an der Stelle, an der sie gesehen wurde, und nannte sich schon
+"die Klasse". Er war es nicht. Genau dafuer ist die Gegenlesung da.
+
+**Wo die Klasse jetzt lebt.** `tests/test_sdist_ohne_signierwerkzeug.py`:
+`test_jede_datei_unter_scripts_ist_in_manifest_entschieden` (rekursiv, alle Sprachen, begruendete
+Ausschlussmenge), `_fehlende_datendateien` + `test_ein_ausgeliefertes_skript_bekommt_seine_
+datendateien_mit` (Geschwisterdateien am Syntaxbaum), `test_kein_ausgeliefertes_nicht_python_skript_
+liest_einen_privaten_schluessel` (zweiter Korb der Fixture). Dazu
+`tests/test_sdist_packaging_361.py::test_scripts_ship_by_an_explicit_list_not_by_a_graft`
+(Basisnamen-Vergleich, `graft scripts` darf nicht zurueckkehren).
+
+**Orakel.** Vier Meta-Tests, alle mit Pflanzung und Gegenrichtung. Der wichtigste ist
+`test_meta_eine_entfernte_datendatei_wird_wirklich_gefunden`: seine erste Fassung war selbst eine
+Tautologie (`name in gebraucht - ohne` ist algebraisch `name in gebraucht`, weil `ohne` den Namen
+per Konstruktion nie enthaelt) und wurde von Linse 2 durch Streichen des Terms widerlegt — der Test
+blieb gruen. Deshalb ruft der Meta-Test jetzt die PRIMAERLOGIK mit manipulierter Eingabe, statt
+danebenzurechnen.
+
+**Ehrliche Grenzen, beide angenommen und nicht abgestellt.** (1) Der Geschwister-Detektor sieht nur
+die `/`-Idiom-Form; `os.path.join` oder ein reiner String-Zugriff entgehen ihm. Jede Erweiterung
+darauf zaehlt die blosse ERWAEHNUNG wieder mit — `audit_candidate_matrix.py:1570` nennt die
+Registry in einem Meldungstext, ohne sie zu lesen —, und genau davor schuetzt die AST-Form.
+(2) Dieselbe Konstruktion steht im selben MANIFEST.in fuer `docs/` (Einzelpfad-`include` statt
+`graft docs`) ohne symmetrischen Riegel. Eigene Flaeche, release-nah nicht nebenbei; hier notiert,
+damit sie nicht verloren geht.
