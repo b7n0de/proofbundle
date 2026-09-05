@@ -192,6 +192,7 @@ proofbundle is a small offline receipt layer that complements, rather than repla
 
 - [INTEROP.md](https://github.com/b7n0de/proofbundle/blob/main/INTEROP.md) compares the boundaries tool by tool.
 - [docs/RECEIPT_ENVELOPE_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RECEIPT_ENVELOPE_PROFILE.md) defines the portable envelope profile.
+- A second implementation, [CSOAI-ORG/inspect-receipts](https://github.com/CSOAI-ORG/inspect-receipts), was measured against R1 to R4 of that profile in [issue #147](https://github.com/b7n0de/proofbundle/issues/147) on 2026-09-05 at commit `cc8d6219`; the result is recorded in the profile.
 - [docs/IN_TOTO_PROFILE.md](https://github.com/b7n0de/proofbundle/blob/main/docs/IN_TOTO_PROFILE.md) describes the in-toto mapping.
 - [docs/SCITT_CPB_MAPPING.md](https://github.com/b7n0de/proofbundle/blob/main/docs/SCITT_CPB_MAPPING.md) records the SCITT mapping.
 - [docs/RELATED_WORK.md](https://github.com/b7n0de/proofbundle/blob/main/docs/RELATED_WORK.md) holds the research neighbourhood.
