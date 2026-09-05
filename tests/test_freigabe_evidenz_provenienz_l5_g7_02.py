@@ -935,12 +935,12 @@ class TestErlaubteEvidenzRelation:
         """DER FALL, DEN DIE GEGENLESUNG REPRODUZIERT HAT. Der Lauf committet nach dem Signieren
         seine eigene Ergebnisdatei — genau einen Pfad aus MUTABLE_EVIDENCE_RELS — und die Bindung
         muss das ueberleben, weil sie ihn selbst zusagt."""
-        # NICHT `import sign_readiness_artifact` — der Name ist nur deshalb aufloesbar, weil ein
-        # frueherer `spec_from_file_location`-Aufruf das Modul unter ihm in `sys.modules`
-        # hinterlaesst. Gemessen (un-Gegenlesung C3b, 2026-09-06): weder `tests/conftest.py`
-        # noch `pyproject.toml` setzen `sys.path` oder `pythonpath`. Der Test haengt damit an
-        # der Reihenfolge, in der die Suite laeuft, nicht an seiner eigenen Vorbereitung —
-        # gruen heute, bei jeder Umsortierung ein ImportError. Dieselbe Datei hat einen Lader.
+        # Der Lader dieser Datei, wie an den anderen drei Stellen auch. Hier stand vorher ein
+        # `import sign_readiness_artifact as sra`; der war NICHT falsch — die Zeilen 46-50
+        # legen `scripts/` auf Modulebene auf `sys.path`, der Import trug sich also selbst.
+        # Ich hatte das als Defekt gemeldet, nachdem ich `conftest.py` und `pyproject.toml`
+        # geprueft hatte und nicht diese Datei. Die Zeile bleibt trotzdem so: eine Datei mit
+        # EINEM Weg zu ihrem Modul ist leichter zu lesen als eine mit zweien.
         sra = _sra_modul()
         td, kandidat = self._baum()
         try:
