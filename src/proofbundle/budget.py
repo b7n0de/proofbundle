@@ -296,6 +296,29 @@ class VerificationBudget:
                                unter der Drei-Achsen-Latte auf einer ruhigeren Maschine) und weist die
                                Kombination aller Maxima ab. Legitime Nutzung liegt Groessenordnungen
                                darunter: der groesste Datendigest-Satz im ganzen Repo ist EINER.
+
+    WAS DIESE SCHRANKEN SIND UND WAS SIE NICHT SIND — und diese Unterscheidung ist keine Feinheit,
+    sondern die Auflage A2 aus Nachtrag 3, weil eine falsche Lesart hier einen Verifier zu einer
+    Formatautoritaet macht, die er nicht ist.
+
+    ``data_digests = 2000`` ist eine RESSOURCEN- UND KOMPATIBILITAETSGRENZE DIESES VERIFIERS. Sie
+    sagt: mehr als 2.000 Datendigests in einem ATS lehnt DIESE Implementierung ab, weil die Arbeit
+    dahinter linear waechst und die Kostenlatte sonst reisst. Sie sagt AUSDRUECKLICH NICHT, dass ein
+    ATS mit mehr Datendigests gegen RFC 4998 verstiesse. Das Format kennt diese Grenze nicht; eine
+    Evidence Record mit 5.000 Datendigests ist ein gueltiger Evidence Record, den dieses Werkzeug
+    nicht verarbeitet.
+
+    WARUM DAS HIER STEHT UND NICHT NUR IM BERICHT: eine frueherer Fassung dieser Herleitung behauptete,
+    2.000 liege "ueber jeder legitimen RFC-4998-Nutzung". Das war eine Aussage ueber die NORM, gestuetzt
+    auf eine Stichprobe aus einem einzigen Repository — und der Diff hat sie zu Recht zurueckgenommen.
+    Was gemessen ist, ist die Nutzung HIER (165 Aufrufstellen in 15 Dateien, keine mit mehr als einer
+    Handvoll Digests) und die Kosten DORT (D=1 -> 0,087 s … D=4.000 -> 1,468 s). Aus beidem folgt eine
+    Politik dieses Werkzeugs, keine Eigenschaft des Formats.
+
+    FUER EINEN NUTZER heisst das: wer diese Grenze reisst, hat nicht notwendig ein kaputtes ATS,
+    sondern eines, das ausserhalb der Auslegung dieses Verifiers liegt. Die Ablehnung nennt deshalb
+    die Dimension und ihren Wert, damit erkennbar bleibt, WELCHE Politik gegriffen hat. Dasselbe gilt
+    fuer ``renewal_ats_chain``, ``witnesses`` und ``renewal_work``.
     """
 
     input_bytes: int = 8 * 1024 * 1024

@@ -81,6 +81,7 @@ import json
 import math
 import resource
 import sys
+import pathlib
 import tracemalloc
 
 import pytest
@@ -200,6 +201,61 @@ def _speicher_peak(ruf) -> int:
     finally:
         tracemalloc.stop()
     return peak
+
+
+def _prozess_spitze(ruf) -> tuple[int, str]:
+    """``(spitze_bytes, messweg)`` — die SPITZE DES GANZEN PROZESSES, nicht nur der Python-Objekte.
+
+    WARUM ZUSAETZLICH ZU ``tracemalloc`` (Review Runde 3, Abschnitt 6, und Nachtrag 3 Teil A2).
+    ``tracemalloc`` startet ERST beim Aufruf und zaehlt NUR Python-Allokationen. Damit fehlt zweierlei:
+    die Eingabe, die vor dem Start schon aufgebaut ist (bei D=2000 Digests und N=10.000 ATS ist das
+    nicht wenig), und alles, was ausserhalb des Python-Allokators liegt — die Hash-Implementierungen
+    in ``hashlib`` allozieren nativ. Der Gegenleser nannte genau das: "``tracemalloc`` startet jedoch
+    erst nach Aufbau von Sequenz und Datendigests und misst Python-Allokationen, nicht die gesamte
+    Prozessspitze einschliesslich Eingabe, nativer Bibliotheken und RSS."
+
+    GEMESSEN WIRD ``VmHWM`` aus ``/proc/self/status`` — der High Water Mark des Resident Set Size,
+    den der Kernel fuehrt. Er ist monoton und deckt den GANZEN Prozess ab, also auch alles, was vor
+    diesem Aufruf entstand. Genau deshalb wird die Differenz zum Stand VOR dem Aufruf berichtet UND
+    der absolute Wert: die Differenz sagt, was dieser Lauf zusaetzlich brauchte, der absolute Wert,
+    wie hoch der Prozess insgesamt stand. Beide Zahlen zusammen sind ehrlich, eine allein nicht.
+
+    EHRLICHE GRENZE, und sie ist der Grund, warum ``tracemalloc`` bleibt und nicht ersetzt wird:
+    ``VmHWM`` faellt NIE. Ein frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und
+    die Differenz ist dann null, obwohl der aktuelle Lauf Speicher braucht. Er misst also eine
+    OBERGRENZE des Prozesses, keine Zurechnung an diesen Aufruf. ``tracemalloc`` kann die Zurechnung,
+    ``VmHWM`` die Vollstaendigkeit — deshalb stehen beide im Rohausgang, mit ihrem jeweiligen Messweg.
+
+    Ohne ``/proc`` (nicht-Linux) gibt es keinen Wert und keine Schaetzung, sondern die Auskunft, dass
+    hier nicht gemessen werden kann.
+    """
+    def hwm() -> int | None:
+        try:
+            for zeile in pathlib.Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
+                if zeile.startswith("VmHWM:"):
+                    return int(zeile.split()[1]) * 1024
+        except OSError:
+            return None
+        return None
+
+    vorher = hwm()
+    if vorher is None:
+        try:
+            ruf()
+        except ProofBundleError:
+            pass
+        return -1, "NICHT MESSBAR: /proc/self/status VmHWM ist hier nicht lesbar (kein Linux?)"
+    try:
+        ruf()
+    except ProofBundleError:
+        pass
+    nachher = hwm()
+    if nachher is None:                                        # pragma: no cover
+        return -1, "NICHT MESSBAR: VmHWM war vorher lesbar, nachher nicht"
+    return nachher - vorher, (
+        f"VmHWM aus /proc/self/status: vorher {vorher} B, nachher {nachher} B, "
+        f"Differenz {nachher - vorher} B — Obergrenze des GANZEN Prozesses, faellt nie, "
+        f"deshalb ist die Differenz eine untere Schranke des Bedarfs dieses Laufs")
 
 
 def _arbeit(ruf) -> int:
@@ -443,6 +499,12 @@ def _messung(dim: Dimension) -> dict:
     kosten_am_limit_max, _ = _zeit_max(ruf_am_limit)
     # Spitzenverbrauch (Review Runde 2, B3): derselbe Aufruf am Limit, diesmal unter tracemalloc.
     speicher_peak = _speicher_peak(ruf_am_limit)
+    # ZWEITER MESSWEG (Review Runde 3, Nachtrag 3 Teil A2): die Spitze des GANZEN Prozesses. Der
+    # Aufruf wird dafuer NEU gebaut — `ruf_am_limit` haelt seine Eingabe fest, und die soll bei
+    # dieser Messung mitzaehlen, nicht schon vorher stehen. Das ist der Unterschied, den der
+    # Gegenleser benannt hat: tracemalloc startet nach dem Aufbau, VmHWM kennt ihn.
+    ruf_fuer_rss, _ = dim.baue(limit)
+    prozess_spitze, spitze_messweg = _prozess_spitze(ruf_fuer_rss)
     m = {
         "limit": limit,
         "reihe": reihe,
@@ -451,6 +513,8 @@ def _messung(dim: Dimension) -> dict:
         "kosten_am_limit": reihe[-1][1],
         "kosten_am_limit_max": kosten_am_limit_max,
         "speicher_peak_am_limit": speicher_peak,
+        "prozess_spitze_am_limit": prozess_spitze,
+        "prozess_spitze_messweg": spitze_messweg,
         "exponent_zeit": _exponent([(n, k) for n, k, _ in reihe]),
         "exponent_arbeit": _exponent(arbeit),
         "arbeit_empfindlich": (arbeit[-1][1] >= ARBEIT_EMPFINDLICH * max(arbeit[0][1], 1)),
@@ -523,6 +587,36 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         assert peak <= SPEICHER_GRENZE_BYTES, (
             f"{dim.name}: {peak / 1024 / 1024:.2f} MiB Spitzenverbrauch (tracemalloc) am groessten "
             f"zugelassenen Wert ({m['limit']}), Obergrenze {SPEICHER_GRENZE_BYTES / 1024 / 1024:.0f} MiB")
+
+    @pytest.mark.parametrize("dim", DIMENSIONEN, ids=IDS)
+    def test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt(self, dim):
+        """AUFLAGE A2 (Nachtrag 3): Speicher zusaetzlich als PROZESSSPITZE, Eingabeaufbau eingeschlossen.
+
+        Der Gegenleser hat den Grund benannt: ``tracemalloc`` startet erst beim Aufruf und zaehlt nur
+        Python-Allokationen — die Eingabe, die vorher schon steht, und alles Native (``hashlib``
+        alloziert ausserhalb des Python-Allokators) fehlen darin. ``VmHWM`` aus ``/proc/self/status``
+        kennt beides.
+
+        WAS HIER GEPRUEFT WIRD, ist bewusst NICHT eine zweite Obergrenze. ``VmHWM`` faellt nie: ein
+        frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und die Differenz waere dann
+        null, obwohl der Lauf Speicher braucht. Eine Schranke darauf waere abhaengig von der
+        Reihenfolge der Tests — ein Riegel, der von der Laufreihenfolge abhaengt, misst die Umgebung
+        und nicht die Eigenschaft. Geprueft wird deshalb, dass die Zahl UEBERHAUPT ERHOBEN ist, dass
+        sie ihren Messweg mitfuehrt, und dass sie kein stiller Ausfall ist: ``-1`` heisst hier
+        ausdruecklich "nicht messbar" und traegt den Grund im Messweg.
+        """
+        m = _messung(dim)
+        assert "prozess_spitze_am_limit" in m, "die Prozessspitze wird gar nicht erhoben"
+        weg = m["prozess_spitze_messweg"]
+        assert isinstance(weg, str) and weg, "die Prozessspitze nennt ihren Messweg nicht"
+        spitze = m["prozess_spitze_am_limit"]
+        if spitze == -1:
+            assert "NICHT MESSBAR" in weg, (
+                f"{dim.name}: die Prozessspitze meldet -1 ohne den Grund zu nennen: {weg!r}")
+        else:
+            assert spitze >= 0, f"{dim.name}: negative Prozessspitze {spitze}"
+            assert "VmHWM" in weg, (
+                f"{dim.name}: ein Wert ohne den Messweg, der ihn erzeugt hat: {weg!r}")
 
 
 class TestKostenkurve:
