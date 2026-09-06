@@ -231,6 +231,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
   by a witnessed checkpoint (SPEC 7d).
 
+### Known limitation of the 6.0.0 artefacts (N15)
+
+The wheel of 6.0.0 is bit-reproducible — twice from the same tree and once built from the shipped sdist, all three `836ad41c3edf95b0eabaeab3f88c123ef53d420e5ce7391cc718512b1563d23b`; the sdist is not. Cause, measured to the byte: the sdist path of setuptools 84.0.0 (`setuptools/_distutils/archive_util.py::make_tarball`, which calls `tar.add(base_dir, filter=_set_uid_gid)` and normalises uid and gid but not mtime) does not honour `SOURCE_DATE_EPOCH`; the variable occurs exactly once in the whole setuptools tree, in the vendored wheel writer (`setuptools/_vendor/wheel/wheelfile.py:53`). Each archive therefore carries a pax header with the wall clock at sub-second precision (`mtime=1788677386.9856253` against `mtime=1788677387.890626`), and the differing number of decimals changes the pax record length by one byte, which cascades into the header checksum and the compressed size (1,973,086 against 1,973,102 bytes). The CONTENT of both builds is identical: 898 files on each side, no path present on only one side, no path with differing content, inventory digest `04a9e0cd1e55b5548931014f68a0c7a296e676845ad51b48dd3ff60b9ba6ccc7` in both. Owner decision 2026-09-06: 6.0.0 ships with this sdist and the non-reproducibility is named here rather than played down; the build-backend change is a 6.1 item with its own measurement and no time pressure.
+
+It is recorded as `N15` in `RESTRISIKO_600.md` with the same wording, and repeated here so that a
+reader of the release notes does not have to open the residual-risk register to learn it.
+
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
 ### Moved from `[Unreleased]` on 2026-09-02, because the release ships it
