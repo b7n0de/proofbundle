@@ -45,6 +45,13 @@ decides (`POLICY_NOT_EVALUABLE`), never read as a permissive one. Non-fatal note
 a valid receipt. The six published v0.1 receipts verify as before; the full list is in the
 [CHANGELOG](https://github.com/b7n0de/proofbundle/blob/main/CHANGELOG.md).
 
+> **Release status**
+>
+> The closing audit verdict for 6.0.0 was `FIX_FIRST`, not `WITHSTANDS_DEEPGATE`. Three findings
+> were confirmed and stay open; they are published in [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md),
+> together with the scope each statement of that round holds over — the mutation gate measured 2537
+> of 3702 tests, the parity gate 68 of 68 source files.
+
 ## New in 5.1.0
 
 [proofbundle 5.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v5.1.0) adds a new receipt kind for disclosing AI agent involvement and review in pull requests and issues.

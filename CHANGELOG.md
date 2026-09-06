@@ -216,6 +216,35 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   sha256 that the pre-tag receipt pins as `audit_output_digest`, so an edit there would have
   broken the attestation for the sake of a paragraph.
 
+- **A trust anchor's `not_after` now actually expires, on the register path too — and the register
+  body has an age.** Two halves of one mechanism, landed together because either alone is a promise
+  that only half holds. Measured on 2026-09-06: `_autorisierte_schluessel` read `not_after` from the
+  anchor and never evaluated it, filtering on `role` alone. With `not_after=2000-01-01` the key
+  stayed authorised and `C12.2` reported PASS — while the shipped anchor says, in its own words,
+  that the field is "the last day this key may produce evidence, compared against the artifact's
+  `produced_at`", and the role `readiness_und_register_signierer_600` covers `C12.2` explicitly. A
+  revocation by lowering `not_after` would have been inert and looked effective; that is the
+  direction in which an error costs most. The deadline is now compared against the evidence's own
+  measurement time — `produced_at` for the readiness artifacts, `generated_at` for the register —
+  never against "now", because evidence from yesterday does not become inadmissible just because the
+  matrix runs today. **The second half closes the way around the first:** the signature covers
+  `generated_at`, so a holder of a revoked key could have back-dated a register into the window
+  where the key was still valid. The register body therefore now carries the same 180-day window and
+  future-skew guard the readiness artifacts already had, and a `generated_at` that cannot be read at
+  all is `REGISTER_STALE`, fail-closed — an unmeasurable freshness is never a satisfied one.
+  Catch-proof, both directions and both halves: without the fix `not_after=2000-01-01` yields 1
+  authorised key and PASS, with it 0 and FAIL; `not_after=2099-12-31` still yields 1, so the filter
+  is not simply always-reject; `generated_at` at 2020-01-01, absent, or in the future each become
+  `REGISTER_STALE`; and the real tree with the real register stays PASS, 20 of 20 evaluated. Reading
+  `generated_at` from the not-yet-verified register to pick the key set is safe by direction: it can
+  only SHRINK the authorised set, so tampering with it locks the tamperer out rather than in.
+
+  **Where this commit sits in the order of measurement, stated because it matters.** The mutation
+  run and the closing deep-gate round (verdict `FIX_FIRST`) both ran on `a62d8cb4`. This change
+  landed afterwards, on the owner's decision of 2026-09-06 (card `OA-89f05b70cd`, option A with four
+  conditions). **No gate round has seen it.** It is guarded by its own catch-proof and by the suite,
+  not by a round — a named gap in the evidence is better than an unnamed one in the guard.
+
 - **The findings register decides a release only if the trust anchor authorises its signer, and only
   for the version it names.** Two holes closed together. The register verifier used to carry its own
   pinned key inside the module, so the artefact and the thing that authorised it lived in the same
@@ -246,7 +275,43 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Known limitation of the 6.0.0 artefacts (N15)
 
-The wheel of 6.0.0 is bit-reproducible — twice from the same tree and once built from the shipped sdist, all three `836ad41c3edf95b0eabaeab3f88c123ef53d420e5ce7391cc718512b1563d23b`; the sdist is not. Cause, measured to the byte: the sdist path of setuptools 84.0.0 (`setuptools/_distutils/archive_util.py::make_tarball`, which calls `tar.add(base_dir, filter=_set_uid_gid)` and normalises uid and gid but not mtime) does not honour `SOURCE_DATE_EPOCH`; the variable occurs exactly once in the whole setuptools tree, in the vendored wheel writer (`setuptools/_vendor/wheel/wheelfile.py:53`). Each archive therefore carries a pax header with the wall clock at sub-second precision (`mtime=1788677386.9856253` against `mtime=1788677387.890626`), and the differing number of decimals changes the pax record length by one byte, which cascades into the header checksum and the compressed size (1,973,086 against 1,973,102 bytes). The CONTENT of both builds is identical: 898 files on each side, no path present on only one side, no path with differing content, inventory digest `04a9e0cd1e55b5548931014f68a0c7a296e676845ad51b48dd3ff60b9ba6ccc7` in both. Owner decision 2026-09-06: 6.0.0 ships with this sdist and the non-reproducibility is named here rather than played down; the build-backend change is a 6.1 item with its own measurement and no time pressure.
+Both distributions of 6.0.0 are **bit-reproducible as shipped**, and this section states the
+property with the path to recompute it rather than a digest, because a digest written inside the
+tree that produces the artefact is a fixed point nobody can hold: changing the number changes the
+tree, the tree changes the artefact, the artefact changes the number. The digests of what is
+actually delivered belong in the `SHA256SUMS` of the GitHub Release, outside the tree — the same
+place 5.1.0 publishes them.
+
+**How a reader checks it.** Export `SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"`, then run
+`python scripts/build_reproducible.py --outdir dist` followed by `python -m build --wheel --outdir
+dist` — exactly the two lines `.github/workflows/release.yml` runs. Do it twice into two separate
+directories and compare with `sha256sum`. Measured on this candidate: both runs byte-identical, for
+the wheel and for the sdist. Note that `SOURCE_DATE_EPOCH` is bound to the HEAD commit time, so a
+checkout at a different commit legitimately yields different digests; reproducibility here means
+"the same tree twice", not "the same number forever".
+
+**About the sdist, in four statements, because the earlier wording accused this release of something
+it does not do.** First: the sdist that ships is the NORMALISED one — `release.yml` builds it with
+`scripts/build_reproducible.py`, never the raw `python -m build --sdist` output — and it came out
+byte-identical across two independent runs. Second: the RAW setuptools output is genuinely not
+bit-reproducible, and the cause is measured to the byte — the sdist path of setuptools 84.0.0
+(`setuptools/_distutils/archive_util.py::make_tarball`, which calls `tar.add(base_dir,
+filter=_set_uid_gid)` and normalises uid and gid but not mtime) does not honour
+`SOURCE_DATE_EPOCH`; the variable occurs exactly once in the whole setuptools tree, in the vendored
+wheel writer (`setuptools/_vendor/wheel/wheelfile.py:53`). Each raw archive therefore carries a pax
+header with the wall clock at sub-second precision, and the differing number of decimals changes
+the pax record length by one byte, which cascades into the header checksum and the compressed size.
+Third: whoever builds this project with plain setuptools instead of the shipped path will therefore
+NOT reproduce, and that is said here plainly rather than left for them to discover. Fourth: the
+normalisation exists precisely for this reason, and `tests/test_reproducible_build_361.py` has
+asserted it since 3.3.1.
+
+Owner decision 2026-09-06 (card `OA-b94f677926`, option A): the concrete wheel digest comes out of
+this entry, the property with its recomputation path takes its place, and the delivered digest goes
+where it is not circular. The earlier wording said "the sdist is not [bit-reproducible]" — true of
+the raw intermediate, false of what is delivered. A false self-accusation is as wrong as an
+overclaim, only in the other direction. The build-backend change remains a 6.1 item with its own
+measurement and no time pressure.
 
 It is recorded as `N15` in `RESTRISIKO_600.md` with the same wording, and repeated here so that a
 reader of the release notes does not have to open the residual-risk register to learn it.

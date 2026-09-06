@@ -75,7 +75,7 @@ include Makefile
 # den Probe-Merge der vier Lanes). `graft scripts` lieferte ALLES unter dem Ordner aus; die erste
 # Fassung dieser Liste entschied nur ueber `*.py`, und damit fielen fuenf Dateien still heraus.
 # Zwei davon liest ein AUSGELIEFERTES Skript (`rust_parity_gate.py:58` die Registry,
-# `mutation_check.py:626` die Gewichte), zwei ruft ein AUSGELIEFERTES Makefile-Ziel
+# `mutation_check.py:716` die Gewichte), zwei ruft ein AUSGELIEFERTES Makefile-Ziel
 # (`make demo`, `make demo-tamper`). Ein Skript ohne seine Datendatei ist kein Skript.
 #
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
