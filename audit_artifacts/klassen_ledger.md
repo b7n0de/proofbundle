@@ -126,3 +126,40 @@ repo-weiter Sweep auf denselben Formulierungsfehler ("Zusicherung X erreicht dur
 NICHT gefahren — `tests/test_wire_bytes_strict.py`s verwandte, aber semantisch andere Aussage (ein
 base64-FELD hat wirklich nur eine kanonische Kodierung, keine Mengengleichheit ueber Umformungen einer
 ganzen Note) liegt ausserhalb des Auftrags dieser Lane und wurde nicht angefasst.
+
+---
+
+## KLASSE-D-2026-0906 — Eine strukturelle Sicherung, die in Wahrheit eine Textsuche ist
+
+**Warum dieser Eintrag existiert.** Nicht wegen eines Defekts, sondern wegen einer BEHAUPTUNG.
+Review Runde 3 wertet die Rust-Sicherung als „ERFUELLT fuer den heutigen Bestand, die neue Sicherung
+selbst ist nur TEILWEISE strukturell" und Nachtrag 3 (Teil A1) verlangt, das hier festzuhalten. Der
+Eintrag ist also die Grenze eines Riegels, nicht sein Fehlschlag — und genau diese Sorte Eintrag
+fehlt in Ledgern am haeufigsten, weil ein funktionierender Riegel niemanden zwingt, ihn zu schreiben.
+
+**Die Invariante, um die es geht.** `tests/test_tools_baum_kein_zweiter_note_parser.py` soll rot
+werden, sobald im `tools`-Baum ein zweiter Note-Parser entsteht. Ein Parser ist aber eine
+FAEHIGKEIT, und Faehigkeiten stehen nicht im Text — sie ergeben sich aus dem, was ein Programm mit
+seiner Eingabe tut. Der Riegel misst statt dessen zwei Oberflaechen: ein Vokabular (Note-, Checkpoint-
+und Signaturbegriffe) und eine Bauform (das Literal `\n\n` UND eine Em-Dash-Schreibweise im selben
+File). Beides ist Text.
+
+**Was er deshalb NICHT faengt, ausgeschrieben statt angedeutet.** Einen Parser, der seine beiden
+Konstanten zur Laufzeit zusammensetzt (`"\n" + "\n"`, `char(0x2014)`); einen, der sie aus einer
+Datendatei oder einem anderen Modul importiert; einen, der eine andere Kodierung waehlt; einen, der
+das Notenformat ohne diese Merkmale implementiert. Eine echte strukturelle Antwort waere eine
+Sprach- oder Datenflussanalyse ueber den Rust-Baum — die gibt es hier nicht, und sie zu behaupten
+waere teurer als sie zu bauen: ein Riegel, dem man mehr zutraut als er kann, ersetzt eine offene
+Frage durch eine falsche Sicherheit.
+
+**Was er dafuer WIRKLICH leistet, ebenfalls gemessen.** Das reproduzierbare Inventar
+(`33_RUST_INVENTAR_48159022.txt`) belegt den HEUTIGEN Bestand: vier Rust-Dateien, keine
+Note-Flaeche. Die Bauform-Schicht kam hinzu, nachdem eine Review-Linse die reine Vokabelsuche mit
+einem neutral benannten Parser widerlegt hatte — der steht seither als Fixture im Test. Und drei
+Meta-Tests halten fest, dass jedes Merkmal FUER SICH nicht genuegt und die Bauform im echten Baum
+null zusaetzliche Treffer erzeugt. Der Riegel ist also nicht wertlos; er ist ein Fruehwarner gegen
+die naheliegende Wiederkehr, nicht ein Beweis der Abwesenheit.
+
+**ODC.** defect_type = checking (Oberflaeche statt Eigenschaft) · trigger = coverage/variation ·
+source_layer = test-oracle. **Zustand: OFFEN als Grenze**, nicht als Fund — sie wird geschlossen,
+wenn ein Rust-Parser tatsaechlich entsteht und dann eine Analyse verlangt, die diesen Namen verdient.
