@@ -36,10 +36,30 @@
 #               and refuses a mismatch: the ANCHOR decides what a key attests, not the artifact
 #               that wants to be admitted. Use one role per purpose (e.g. `release-runner`), never
 #               a catch-all — the point of the field is that it can fail to match.
-#   not_after   last day this key may produce evidence, compared against the artifact's
-#               `produced_at` (the moment of MEASUREMENT), not against "now". Evidence that was
-#               lawful yesterday does not become inadmissible because the matrix runs today, and
-#               evidence produced after the window does not become lawful by being read early.
+#   not_after   last day this key may produce evidence. Checked against TWO deadlines, and both
+#               must hold: the artifact's `produced_at` (evidence produced AFTER the window is
+#               inadmissible — it does not become lawful by being read early) AND the day the gate
+#               runs (an expired key admits nothing NOW).
+#
+#               THE SECOND DEADLINE WAS ADDED ON 2026-09-06, and this paragraph said the opposite
+#               before: "compared against the artifact's produced_at, not against 'now'. Evidence
+#               that was lawful yesterday does not become inadmissible because the matrix runs
+#               today." The first half is true; the conclusion is not. `produced_at` is written by
+#               the SAME holder that signs, and the signature covers it — so a holder of an expired
+#               private half simply writes a date inside the window. MEASURED that day against this
+#               exact mechanism with a throwaway keypair: honest produced_at -> untrusted,
+#               produced_at backdated into the window -> verified. The reachable corridor was as
+#               wide as the evidence freshness window (180 days from the day after expiry).
+#               A self-asserted time cannot establish WHEN a signature was made; that is what
+#               trusted timestamps (RFC 3161) exist for. Without one, the only sound reading is
+#               that the window must be open now, too.
+#
+#               WHAT IT COSTS, stated plainly: after a key expires, evidence it signed becomes
+#               inadmissible here — including evidence that was produced lawfully. That is the same
+#               trade as code signing without a timestamp, and it is affordable here because this
+#               gate judges a CANDIDATE with fresh measurement (evidence is capped at 180 days by
+#               the freshness check either way), not an archive. To keep releasing past a key's
+#               window, roll the key — that is the intended move.
 #
 # The stricter format costs nothing today precisely BECAUSE this file is empty: there is no
 # existing entry a tighter reading would break. That is why the format is fixed now — later, every
@@ -91,6 +111,10 @@
 # Schluessel und Kandidat in einem Zug einfuehrt, hat sich selbst registriert. Ein eigener Commit
 # VOR dem Merge macht ihn zum Vorfahren jedes spaeteren Kandidaten und damit vorab festgelegt.
 #
-# not_after 2027-09-06: ein Jahr ab heute, Owner-Vorgabe. Verglichen wird gegen `produced_at` der
-# Evidenz, also gegen den Zeitpunkt der MESSUNG — nicht gegen "jetzt".
+# not_after 2027-09-06: ein Jahr ab heute, Owner-Vorgabe. Geprueft wird gegen ZWEI Fristen (siehe
+# das Zeilenformat oben): gegen `produced_at` der Evidenz UND gegen den Tag, an dem das Tor laeuft.
+# Am 06.09.2026 aendert die zweite Frist an keinem Verdikt etwas — 2027-09-06 liegt in der Zukunft,
+# gemessen ueber alle 33 Pruefungen der Matrix, vorher wie nachher identisch. Sie wirkt ab
+# 2027-09-07 und schliesst das Fenster, in dem ein Halter der abgelaufenen privaten Haelfte durch
+# Rueckdatierung noch 180 Tage lang Evidenz haette einreichen koennen.
 iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8= role=readiness_und_register_signierer_600 not_after=2027-09-06
