@@ -299,7 +299,7 @@ def welt():
             # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
             # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
             # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
-            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            "# test anchor\n" + pub + " role=readiness_und_register_signierer_600 not_after=2099-12-31\n",
             encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
@@ -331,7 +331,7 @@ def _rumpf(welt, gut: dict) -> dict:
                       "sdist_sha256": welt["sdist_sha256"], "wheel_sha256": welt["wheel_sha256"]}
     b["producer"] = {"tool": "scripts/fuzz_soak.py", "tool_version": VERSION}
     b["input_digest"] = "c" * 64
-    b["signer_role"] = "release-runner"
+    b["signer_role"] = "readiness_und_register_signierer_600"
     # Auflage C3, dritter Teil (2026-09-06): ein gueltiges Artefakt bindet den Ankerzustand,
     # unter dem es entstand. Der Rumpf holt ihn ueber DIESELBE Funktion, die der Erzeuger
     # benutzt — ein nachgebauter Digest im Test wuerde nur die Nachbildung pruefen.
@@ -501,7 +501,7 @@ def test_ein_anker_im_selben_commit_wie_der_kandidat_ist_selbstregistrierung():
             # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
             # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
             # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
-            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            "# test anchor\n" + pub + " role=readiness_und_register_signierer_600 not_after=2099-12-31\n",
             encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m",
@@ -545,7 +545,7 @@ def test_ein_anker_in_einem_frueheren_commit_bleibt_zulaessig():
             # unterschreiben darf, aber nicht WOFUER und BIS WANN, und liess signer_role als
             # Selbstauskunft des Erzeugers stehen. Die Frist ist fern, damit dieser Baum
             # keine Zeitbombe wird; die Fristpruefung hat eigene, enge Faelle.
-            "# test anchor\n" + pub + " role=release-runner not_after=2099-12-31\n",
+            "# test anchor\n" + pub + " role=readiness_und_register_signierer_600 not_after=2099-12-31\n",
             encoding="utf-8")
         _git(td, "add", "-A")
         _git(td, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "anchor")
@@ -691,7 +691,7 @@ def test_der_erzeuger_erzeugt_genau_das_was_das_tor_zulaesst(welt):
         [sys.executable, str(REPO / "scripts" / "sign_readiness_artifact.py"),
          "--repo", str(welt["repo"]), "--in", str(roh),
          "--producer-tool", "scripts/fuzz_soak.py", "--producer-tool-version", VERSION,
-         "--input-digest", "d" * 64, "--signer-role", "release-runner",
+         "--input-digest", "d" * 64, "--signer-role", "readiness_und_register_signierer_600",
          # AUFLAGE C2 (Runde 2): keine frei erfundenen Digest-Strings mehr — das Tor rechnet
          # sdist/wheel jetzt aus den ECHTEN Dateien in dist/ nach (von der Fixture abgelegt).
          "--sdist-sha256", welt["sdist_sha256"], "--wheel-sha256", welt["wheel_sha256"],
@@ -780,7 +780,7 @@ def test_der_anker_unterscheidet_leer_von_nicht_messbar(welt):
     # also genau den Zustand, den die Auflage abgeschafft hat.
     assert zustand == "ok", (zustand, schluessel)
     assert set(schluessel) == {welt["pub"]}, (zustand, schluessel)
-    assert schluessel[welt["pub"]] == {"role": "release-runner", "not_after": "2099-12-31"}, \
+    assert schluessel[welt["pub"]] == {"role": "readiness_und_register_signierer_600", "not_after": "2099-12-31"}, \
         schluessel[welt["pub"]]
 
     leer = Path(tempfile.mkdtemp(prefix="anker_leer_"))
@@ -1035,7 +1035,7 @@ class TestAnkerTraegtRolleUndFrist:
     greift, und dass sie legitime Evidenz nicht abweist.
     """
 
-    ROLLE = "release-runner"
+    ROLLE = "readiness_und_register_signierer_600"
 
     @staticmethod
     def _anker(text):
@@ -1049,15 +1049,65 @@ class TestAnkerTraegtRolleUndFrist:
         wirkungslos bleibt."""
         assert self._anker("# nur ein Kommentar\nAAAABBBBCCCC\n") == {}
 
+    #: Ein ECHTER Schluessel als Fixture, nicht `AAAA`. Bis zum 06.09.2026 stand hier ueberall die
+    #: Zeichenkette `AAAA`, und die Tests waren gruen — weil der Leser das Schluesselmaterial gar
+    #: nicht ansah. Review Runde 3, Abschnitt 3, Punkt 3 hat genau das verlangt: kanonisches Base64
+    #: mit genau 32 dekodierten Bytes. Ein Fixture, das die neue Pruefung nicht bestehen KANN, haette
+    #: die Tests in einen Zustand gebracht, in dem sie die Verschaerfung als Fehler melden.
+    ECHTER_PUB = base64.b64encode(b"\x01" * 32).decode("ascii")
+
     def test_eine_halbe_zeile_autorisiert_nichts(self):
         """Rolle ohne Frist oder Frist ohne Rolle ist keine halbe Autorisierung, sondern keine."""
-        assert self._anker("AAAA role=release-runner\n") == {}
-        assert self._anker("AAAA not_after=2099-12-31\n") == {}
+        assert self._anker(f"{self.ECHTER_PUB} role={self.ROLLE}\n") == {}
+        assert self._anker(f"{self.ECHTER_PUB} not_after=2099-12-31\n") == {}
 
     def test_eine_vollstaendige_zeile_wird_gelesen(self):
         """Gegenrichtung: ein Parser, der alles verwirft, ist kein Parser."""
-        a = self._anker("# Kopf\nAAAA role=release-runner not_after=2099-12-31\n")
-        assert a == {"AAAA": {"role": "release-runner", "not_after": "2099-12-31"}}
+        a = self._anker(f"# Kopf\n{self.ECHTER_PUB} role={self.ROLLE} not_after=2099-12-31\n")
+        assert a == {self.ECHTER_PUB: {"role": self.ROLLE, "not_after": "2099-12-31"}}
+
+    def test_schluesselmaterial_wird_geprueft_nicht_geglaubt(self):
+        """AUFLAGE A3 (Nachtrag 3): kanonisches Base64 ueber genau 32 Byte, sonst nichts.
+
+        Vier Wege an einem echten Schluessel vorbei, alle vier muessen scheitern. Ohne diese Zeile
+        legte eine Zeile wie `AAAA role=… not_after=…` einen "Schluessel" an, den keine Signatur je
+        treffen kann — der Anker behauptete damit etwas ueber Material, das er nie angesehen hat.
+        """
+        for roh, warum in (
+            ("AAAA", "zu kurz, keine 32 Byte"),
+            (base64.b64encode(b"\x02" * 31).decode(), "31 Byte statt 32"),
+            (base64.b64encode(b"\x03" * 33).decode(), "33 Byte statt 32"),
+            ("nicht+base64!!!!" + "A" * 27 + "=", "Alphabetfremdes Zeichen"),
+        ):
+            assert self._anker(f"{roh} role={self.ROLLE} not_after=2099-12-31\n") == {}, warum
+
+    def test_dubletten_und_unbekanntes_lassen_die_zeile_fallen(self):
+        """Eine Zeile, die zweimal `role=` traegt, sagt nicht, WELCHE Rolle gilt — und wer sie
+        schreibt, hat sie auch nicht entschieden. Vorher gewann still die letzte."""
+        assert self._anker(
+            f"{self.ECHTER_PUB} role={self.ROLLE} role=anderes not_after=2099-12-31\n") == {}
+        assert self._anker(
+            f"{self.ECHTER_PUB} role={self.ROLLE} not_after=2099-12-31 extra=x\n") == {}
+        # und derselbe Schluessel in ZWEI Zeilen: beide fallen, weil die zweite die erste sonst
+        # still ueberschriebe und niemand sagen kann, welche Frist gilt
+        assert self._anker(
+            f"{self.ECHTER_PUB} role={self.ROLLE} not_after=2099-12-31\n"
+            f"{self.ECHTER_PUB} role={self.ROLLE} not_after=2020-01-01\n") == {}
+
+    def test_eine_unbekannte_rolle_autorisiert_nichts(self):
+        """Die Rolle muss aus der vorab festgelegten Liste kommen. Eine freie Zeichenkette bindet
+        nichts — sie sagt nur, dass irgendwo dasselbe Wort noch einmal steht."""
+        assert self._anker(
+            f"{self.ECHTER_PUB} role=irgendwas-erfundenes not_after=2099-12-31\n") == {}
+
+    def test_die_frist_ist_ein_datum_kein_text(self):
+        """`9999-99-99` sortierte lexikalisch hinter jedes echte Datum und waere nie abgelaufen.
+        Ein Ablaufdatum, das nicht ablaufen kann, ist keins."""
+        for schlecht in ("9999-99-99", "2027-13-01", "morgen", "2027-09", ""):
+            assert self._anker(
+                f"{self.ECHTER_PUB} role={self.ROLLE} not_after={schlecht}\n") == {}, schlecht
+        assert self._anker(
+            f"{self.ECHTER_PUB} role={self.ROLLE} not_after=2027-09-06\n"), "die Gegenrichtung traegt nicht"
 
     @_braucht_krypto
     def test_eine_fremde_rolle_wird_abgewiesen(self, welt):
@@ -1090,7 +1140,7 @@ class TestAnkerTraegtRolleUndFrist:
         Dafuer bekommt dieser Test einen eigenen Baum mit einer engen Frist — die Modul-Fixture
         traegt bewusst eine ferne, damit sie keine Zeitbombe wird."""
         m = _matrix_modul()
-        eng = m._anker_zeilen_lesen(welt["pub"] + " role=release-runner not_after=2020-01-01\n")
+        eng = m._anker_zeilen_lesen(welt["pub"] + " role=readiness_und_register_signierer_600 not_after=2020-01-01\n")
         assert eng, "Vorbedingung: die enge Ankerzeile ist lesbar"
         koerper = _rumpf(welt, {})              # produced_at liegt eine Stunde in der Vergangenheit
         art = _signiere(koerper, welt["key"])

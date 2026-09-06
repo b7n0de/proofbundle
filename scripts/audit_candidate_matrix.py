@@ -32,6 +32,8 @@ Exit 0 iff ``audit_candidate_ready``; ``--strict`` additionally requires ``fully
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import functools
 import hashlib
 import json
@@ -348,6 +350,52 @@ def _trust_anchor(repo: Path) -> tuple[dict, str]:
 #: ist keine Rolle.
 _ANKER_FELDER = ("role", "not_after")
 
+#: Die ZULAESSIGEN Rollen, und wofuer jede steht. Review Runde 3, Abschnitt 3, Punkt 3: eine Rolle
+#: muss "einer vorab festgelegten Liste und den zulaessigen Artefaktschemata beziehungsweise
+#: Check-IDs zugeordnet sein". Eine freie Zeichenkette als Rolle bindet nichts — sie sagt nur, dass
+#: irgendwo dasselbe Wort noch einmal steht. Der Wert je Rolle ist die Menge der Check-IDs, fuer
+#: die ein unter ihr signiertes Artefakt ueberhaupt in Frage kommt; ``None`` heisst ausdruecklich
+#: "fuer alle" und ist bewusst NICHT vergeben, damit niemand versehentlich eine Generalvollmacht
+#: einfuehrt.
+#: DIE NAMEN SIND GEMESSEN, NICHT ERFUNDEN. Die erste Fassung dieser Liste trug drei ausgedachte
+#: Rollen (`readiness-soak`, `readiness-parity`, `readiness-release`) — und liess damit die
+#: einzige Rolle fallen, die dieses Repository wirklich benutzt. Gemessen im Testbaum: sechs
+#: Stellen schreiben `role=release-runner`, keine schreibt etwas anderes. Eine Allowlist, die den
+#: Bestand nicht kennt, ist kein Riegel, sondern ein Ausfall.
+_ANKER_ROLLEN: dict[str, frozenset[str]] = {
+    # OWNER-ENTSCHEID (Nachtrag 3, Teil A5, order_id
+    # QITEM-PB-600-LAUF4-FIX-FIRST-VIER-LANES-NACHLAUF-LAUF5-01, Revision 4): fuer 6.0.0 gilt
+    # derselbe Schluessel wie fuer 5.0.0, und seine Signierpolitik ist ausdruecklich eng — er
+    # signiert die drei Bereitschaftsartefakte und den Registerkoerper, nichts sonst.
+    "readiness_und_register_signierer_600": frozenset({"C6.2", "C6.3", "C8.2"}),
+}
+
+#: Base64 in kanonischer Form fuer genau 32 Bytes: 43 Zeichen aus dem Standardalphabet plus genau
+#: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
+#: faengt zusaetzlich Alphabetfremdes, und der Vergleich der Rueckkodierung faengt die nicht
+#: kanonischen Varianten, bei denen die letzten Bits ungleich null sind.
+_ANKER_B64 = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+
+
+def _anker_pubkey_ok(pub: str) -> bool:
+    """Ist ``pub`` kanonisches Base64 ueber genau 32 Byte Ed25519-Material?
+
+    DREI PRUEFUNGEN, und jede faengt etwas anderes: die Form (Alphabet und Laenge), die
+    Dekodierbarkeit mit ``validate=True`` (Alphabetfremdes, das die Regex nicht sieht, etwa in einer
+    laengeren Zeile) und die Kanonizitaet ueber die Rueckkodierung. Ohne die dritte waeren mehrere
+    verschiedene Zeichenketten derselbe Schluessel — und ein Anker, in dem ein Schluessel unter zwei
+    Namen steht, ist genau die Mehrdeutigkeit, die er ausschliessen soll.
+    """
+    if not _ANKER_B64.match(pub):
+        return False
+    try:
+        roh = base64.b64decode(pub, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    if len(roh) != 32:
+        return False
+    return base64.b64encode(roh).decode("ascii") == pub
+
 
 def _anker_zeilen_lesen(roh: str) -> dict:
     """``{pubkey_b64: {"role": str, "not_after": str}}`` aus dem Ankertext.
@@ -366,6 +414,7 @@ def _anker_zeilen_lesen(roh: str) -> dict:
     nichts autorisieren.
     """
     aus: dict = {}
+    gesehen: set[str] = set()
     for zeile in roh.splitlines():
         z = zeile.strip()
         if not z or z.startswith("#"):
@@ -374,19 +423,50 @@ def _anker_zeilen_lesen(roh: str) -> dict:
         if len(teile) < 1 + len(_ANKER_FELDER):
             continue                      # nackte base64-Zeile: altes Format, nicht mehr gueltig
         pub, rest = teile[0], teile[1:]
-        felder = {}
+        # SCHLUESSELMATERIAL (Runde 3, Punkt 3). Vorher wurde ``pub`` ungeprueft als Schluesselname
+        # uebernommen: eine Zeile `nicht-base64 role=x not_after=y` legte einen "Schluessel" an, den
+        # keine Signatur je treffen kann — harmlos im Ergebnis, aber der Anker behauptete damit
+        # etwas ueber Material, das er nie angesehen hat.
+        if not _anker_pubkey_ok(pub):
+            continue
+        felder: dict[str, str] = {}
+        doppelt = False
         for stueck in rest:
             if "=" not in stueck:
-                continue
+                doppelt = True            # ein Feld ohne `=` ist kein Feld — die Zeile ist unklar
+                break
             k, _, v = stueck.partition("=")
-            felder[k.strip()] = v.strip()
-        if not all(felder.get(f) for f in _ANKER_FELDER):
-            continue                      # unvollstaendig: keine halbe Autorisierung
+            k, v = k.strip(), v.strip()
+            # DUBLETTEN UND UNBEKANNTES fallen, statt still zu ueberschreiben oder mitzufahren.
+            # `role=a role=b` hatte vorher schlicht `b` ergeben — die Zeile sagt aber nicht, welche
+            # Rolle gilt, und wer sie schreibt, hat sie auch nicht entschieden.
+            if k in felder or k not in _ANKER_FELDER:
+                doppelt = True
+                break
+            felder[k] = v
+        if doppelt or not all(felder.get(f) for f in _ANKER_FELDER):
+            continue                      # unvollstaendig oder mehrdeutig: keine halbe Autorisierung
+        if felder["role"] not in _ANKER_ROLLEN:
+            continue                      # unbekannte Rolle autorisiert nichts
+        # FRIST ALS DATUM, nicht als Zeichenkette. `not_after=9999-99-99` sortierte vorher lexikalisch
+        # hinter jedes echte Datum und haette damit nie abgelaufen — ein Ablaufdatum, das nicht
+        # ablaufen kann, ist keins.
+        try:
+            datetime.strptime(felder["not_after"], "%Y-%m-%d")
+        except ValueError:
+            continue
+        # EIN SCHLUESSEL, EINE ZEILE. Zwei Zeilen fuer denselben Schluessel widersprechen sich
+        # potenziell in Rolle oder Frist; die zweite ueberschrieb vorher still die erste. Beide
+        # fallen, denn welche gelten soll, steht nirgends.
+        if pub in gesehen:
+            aus.pop(pub, None)
+            continue
+        gesehen.add(pub)
         aus[pub] = {f: felder[f] for f in _ANKER_FELDER}
     return aus
 
 
-def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> bool:
+def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> tuple[bool | None, str]:
     """True iff the trust anchor file was last modified in EXACTLY the commit ``head_sha`` names.
 
     AUFLAGE C3 (Runde 2): „ein Schluessel, der im selben ungeschuetzten Baupfad eingefuehrt wird,
@@ -397,20 +477,33 @@ def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> bool:
     a key whose only committed history is the very commit it would authorise is not pre-registered
     at all, it is self-registered.
 
-    False (never blocks) when the relation cannot be measured here (no git, the path has never been
-    committed) — an unmeasurable relation is a job for ``_trust_anchor``'s own empty/unmeasurable
-    states, not for this one, so this function never invents a verdict from silence.
+    DREI ZUSTAENDE, nicht zwei (Review Runde 3, Abschnitt 3, Punkt 4). Die erste Fassung gab bei
+    einem Git-Fehler, fehlender Historie oder nicht aufloesbarem Pfad ``False`` zurueck — also
+    dieselbe Antwort wie „nachweislich NICHT im Kandidatencommit geaendert". Das ist fail-open an
+    genau der Stelle, die Selbstregistrierung verhindern soll: wo nichts messbar ist, sah der
+    Aufrufer ein „alles in Ordnung". Der Gegenleser hat es benannt, und er hat recht — die
+    Unmessbarkeit einer Sicherheitsrelation ist nie ihre Erfuellung.
+
+    ``True``  – der Anker wurde zuletzt in genau diesem Commit geaendert (Selbstregistrierung)
+    ``False`` – gemessen: zuletzt in einem ANDEREN Commit geaendert (der zulaessige Fall)
+    ``None``  – hier nicht messbar; der Aufrufer macht daraus DATA_BLOCKED, nie ein Bestehen
     """
     try:
         r = subprocess.run(
             ["git", "-C", str(repo), "log", "-1", "--format=%H", "HEAD", "--",
              READINESS_TRUST_ANCHOR_REL],
             capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    if r.returncode != 0 or not r.stdout.strip():
-        return False
-    return r.stdout.strip() == head_sha
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"git is not usable here ({type(exc).__name__})"
+    if r.returncode != 0:
+        return None, f"git log failed here (exit {r.returncode})"
+    if not r.stdout.strip():
+        return None, (f"{READINESS_TRUST_ANCHOR_REL} has no commit history reachable from HEAD — "
+                      "whether the key predates the candidate cannot be decided here")
+    letzter = r.stdout.strip()
+    if letzter == head_sha:
+        return True, f"last modified in {letzter[:12]}…, the candidate commit itself"
+    return False, f"last modified in {letzter[:12]}…, an earlier commit than the candidate"
 
 
 def _live_tree_digest(repo: Path) -> tuple[str | None, str]:
@@ -561,14 +654,21 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     # ohne beides gibt es nichts, woran „derselbe Commit" gemessen werden koennte.
     if repo is not None:
         kandidat_commit = (artifact.get("candidate") or {}).get("commit")
-        if isinstance(kandidat_commit, str) and _HEX40.fullmatch(kandidat_commit) \
-                and _anchor_last_touched_at_head(repo, kandidat_commit):
-            return ART_UNTRUSTED, (
-                f"the trust anchor at {READINESS_TRUST_ANCHOR_REL} was last modified in "
-                f"commit {kandidat_commit[:12]}… — the SAME commit this artifact binds as its "
-                "candidate. A key introduced in the same unprotected build path it goes on to "
-                "authorise is self-registered, not pre-registered; pin it in an ancestor commit "
-                "first")
+        if isinstance(kandidat_commit, str) and _HEX40.fullmatch(kandidat_commit):
+            selbst, hist_grund = _anchor_last_touched_at_head(repo, kandidat_commit)
+            if selbst is None:
+                # NICHT MESSBAR IST KEINE FREIGABE (Runde 3, Punkt 4). Vorher fiel dieser Fall mit
+                # dem gemessenen Nicht-Selbstregistriert-Fall zusammen und liess durch.
+                return ART_UNMEASURABLE_HERE, (
+                    f"whether the trust anchor at {READINESS_TRUST_ANCHOR_REL} was pre-registered "
+                    f"cannot be measured here: {hist_grund}")
+            if selbst:
+                return ART_UNTRUSTED, (
+                    f"the trust anchor at {READINESS_TRUST_ANCHOR_REL} was last modified in "
+                    f"commit {kandidat_commit[:12]}… — the SAME commit this artifact binds as its "
+                    "candidate. A key introduced in the same unprotected build path it goes on to "
+                    "authorise is self-registered, not pre-registered; pin it in an ancestor commit "
+                    f"first ({hist_grund})")
     return ART_VERIFIED, "signed by a committed trusted key, signature verifies"
 
 
@@ -587,13 +687,51 @@ def _live_commit(repo: Path) -> tuple[str | None, str]:
 
 #: Distributionsdateien, aus denen C2 tatsaechlich nachrechnet — die neueste je Endung, damit ein
 #: liegen gebliebener alter Bau in `dist/` keinen frisch gebauten Kandidaten unbemerkt ueberdeckt.
-def _dist_files(repo: Path) -> tuple[Path | None, Path | None]:
+def _dist_files(repo: Path, version: str | None = None) -> tuple[Path | None, Path | None, str]:
+    """``(sdist, wheel, grund)`` — ueber IDENTITAET, nicht ueber den Zeitstempel.
+
+    DIE ALTE FASSUNG NAHM DIE JUENGSTE DATEI (Review Runde 3, Abschnitt 3, Punkt 7). „Eine
+    Distribution ist durch Name, Version und Digest bestimmt, nicht durch den juengsten
+    Dateizeitstempel." Der Satz trifft genau: `mtime` ist ein Nebeneffekt des Dateisystems, keine
+    Eigenschaft des Pakets. Ein `touch` auf ein altes Wheel, ein Rebuild in anderer Reihenfolge, ein
+    kopiertes Archiv aus einem anderen Baum — jedes davon verschiebt die Kandidatenidentitaet, ohne
+    dass irgendwo etwas Falsches steht. Und weil das Ergebnis danach gegen die signierten Digests
+    geprueft wird, sah ein solcher Fehlgriff aus wie ein Digest-Konflikt und nicht wie das, was er
+    ist: die falsche Datei angesehen.
+
+    ZULAESSIG IST GENAU EIN VERSIONSPASSENDES PAAR. Gesucht werden Dateien, deren Name die Version
+    des Kandidaten traegt (die Namenskonvention aus PEP 427/625: `proofbundle-<version>.tar.gz`,
+    `proofbundle-<version>-*.whl`). Gibt es davon mehr als eine je Art, ist die Identitaet
+    MEHRDEUTIG — und Mehrdeutigkeit wird gemeldet, nicht durch eine Sortierregel aufgeloest. Gibt
+    es keine, fehlt der Bau. Beides ist eine Aussage ueber die UMGEBUNG und fuehrt beim Aufrufer zu
+    DATA_BLOCKED, nie zu einem Bestehen.
+
+    Aeltere Distributionen anderer Versionen im selben `dist` stoeren dadurch nicht mehr: sie
+    tragen eine andere Version im Namen und kommen gar nicht erst in die Auswahl.
+    """
+    # DIE VERSION WIRD BEIM AUFRUF AUFGELOEST, nicht beim Definieren. Die erste Fassung schrieb
+    # `version: str = VERSION_UNDER_TEST` in die Signatur — Python bindet einen Vorgabewert einmal,
+    # zur Definitionszeit, und jede spaetere Aenderung des Modulwerts kam nie an. Gemessen: die
+    # Testbaeume setzen `m.VERSION_UNDER_TEST` auf 9.9.9 und legen passende Distributionen ab; die
+    # Auswahl suchte trotzdem nach 6.0.0 und meldete DATA_BLOCKED. Ein Wert, der zur Definitionszeit
+    # einfriert, folgt dem Zustand nicht — dieselbe Klasse wie eine fest geschriebene Versionszahl,
+    # gegen die `test_die_matrix_liest_dieselbe_zahl_statt_sie_zu_tippen` in diesem Repo schon steht.
+    marke = (version if version is not None else VERSION_UNDER_TEST).strip()
     dist = repo / "dist"
     if not dist.is_dir():
-        return None, None
-    sdists = sorted(dist.glob("*.tar.gz"), key=lambda p: p.stat().st_mtime)
-    wheels = sorted(dist.glob("*.whl"), key=lambda p: p.stat().st_mtime)
-    return (sdists[-1] if sdists else None), (wheels[-1] if wheels else None)
+        return None, None, "dist/ does not exist — nothing was built here"
+    sdists = [q for q in sorted(dist.glob("*.tar.gz")) if f"-{marke}.tar.gz" in q.name]
+    wheels = [q for q in sorted(dist.glob("*.whl")) if f"-{marke}-" in q.name]
+    if len(sdists) > 1 or len(wheels) > 1:
+        return None, None, (
+            f"dist/ is ambiguous for version {marke}: "
+            f"{[q.name for q in sdists]} / {[q.name for q in wheels]} — a candidate is identified by "
+            "name, version and digest, not by the newest timestamp; build into a clean dist/")
+    if not sdists or not wheels:
+        vorhanden = sorted(q.name for q in dist.iterdir() if q.is_file())
+        return None, None, (
+            f"dist/ carries no version-{marke} sdist/wheel pair (present: {vorhanden or 'nothing'})")
+    return sdists[0], wheels[0], f"exactly one version-{marke} pair: {sdists[0].name}, {wheels[0].name}"
 
 
 def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[bool | None, str]:
@@ -666,12 +804,18 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
                   f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)}")
 
 
-def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
+def _candidate_binding_error(body: dict, repo: Path,
+                             version: str | None = None) -> tuple[str, str] | None:
     """``(zustand, grund)`` wenn die Kandidatenbindung fehlt/nicht passt, sonst ``None``.
 
     Auflage C1 des Gegenlesers: ein Vergleich der Zeichenkette „6.0.0" bindet KEINEN Kandidaten. Ein
     Release-Kandidat ist ein Baum plus zwei Distributionen; die Evidenz muss genau den benennen.
     """
+    # DIE VERSION REIST MIT, statt aus dem Modul geholt zu werden. Sie steht beim Aufrufer schon
+    # fest — er hat gerade geprueft, dass die Evidenz auf genau diese Version lautet —, und die
+    # Distributionsauswahl braucht dieselbe. Sie stattdessen aus `VERSION_UNDER_TEST` zu lesen
+    # hiesse, in einer Kette zwei Quellen fuer denselben Wert zu fuehren; gemessen fiel genau das
+    # auf, als ein Test die Version als Argument uebergab und die Auswahl weiter die Modulzahl las.
     kandidat = body.get("candidate")
     if not isinstance(kandidat, dict):
         return ART_CANDIDATE_UNBOUND, "the artifact carries no `candidate` block"
@@ -730,13 +874,12 @@ def _candidate_binding_error(body: dict, repo: Path) -> tuple[str, str] | None:
     # nachgerechnet, nicht als freie Eingabe geglaubt. Fehlen die gebauten Dateien, ist das eine
     # Aussage ueber die UMGEBUNG (kein frischer Bau vorhanden) — DATA_BLOCKED, nie ein Bestehen aus
     # unverifizierten Strings.
-    sdist_p, wheel_p = _dist_files(repo)
+    sdist_p, wheel_p, dist_grund = _dist_files(repo, version)
     if sdist_p is None or wheel_p is None:
         return ART_UNMEASURABLE_HERE, (
-            "the candidate sdist/wheel digests cannot be recomputed here: dist/*.tar.gz and "
-            "dist/*.whl are not both present — build the candidate first "
-            "(`python scripts/build_reproducible.py --outdir dist`); an un-recomputed digest is "
-            "not evidence")
+            f"the candidate sdist/wheel digests cannot be recomputed here: {dist_grund} — build the "
+            "candidate first (`python scripts/build_reproducible.py --outdir dist`); an "
+            "un-recomputed digest is not evidence")
     live_sdist = hashlib.sha256(sdist_p.read_bytes()).hexdigest()
     live_wheel = hashlib.sha256(wheel_p.read_bytes()).hexdigest()
     if kandidat["sdist_sha256"] != live_sdist:
@@ -873,7 +1016,7 @@ def _signed_versioned_artifact(rel: str, version: str, *,
         return _nein((ART_VERSION_UNBOUND,
                       f"is scoped to {gefunden!r}, the version under test is {version!r} — evidence "
                       f"about another release cannot decide this one"))
-    fehler = _candidate_binding_error(rumpf, basis)
+    fehler = _candidate_binding_error(rumpf, basis, version)
     if fehler is not None:
         return _nein(fehler)
     fehler = _provenance_error(rumpf)
@@ -1116,8 +1259,60 @@ _DIST_BUILDER_HEADS = {"pyproject-build"}
 _DIST_BUILDER_SCRIPTS = ("build_reproducible.py",)
 
 
-def _run_touches_distribution(run: str) -> tuple[bool, bool]:
-    """``(baut, benutzt)`` ueber EIN ``run:``-Skript, kommandoweise auf dem AUSGEFUEHRTEN Kopf.
+def _pfad_norm(p: str) -> str:
+    """Ein Ordnerpfad in Vergleichsform: ohne fuehrendes ``./``, ohne Schraegstrich am Ende."""
+    q = p.strip().strip("'\"")
+    while q.startswith("./"):
+        q = q[2:]
+    return q.rstrip("/") or "."
+
+
+#: Die Flaggen, mit denen die bekannten Bauwege ihr Ausgabeverzeichnis nennen. Fehlt eine, gilt die
+#: Voreinstellung ``dist`` — das ist die Konvention von ``python -m build`` und von
+#: ``scripts/build_reproducible.py``, und sie zu raten waere hier falsch: sie ist dokumentiert.
+_AUSGABE_FLAGGEN = ("--outdir", "-o", "--wheel-dir", "--sdist-dir")
+
+
+def _ausgabeordner(argv: list[str]) -> str:
+    """WOHIN baut dieses Kommando? Aus der Flagge, sonst die dokumentierte Voreinstellung."""
+    for i, a in enumerate(argv):
+        if a in _AUSGABE_FLAGGEN and i + 1 < len(argv):
+            return _pfad_norm(argv[i + 1])
+        for f in _AUSGABE_FLAGGEN:
+            if a.startswith(f + "="):
+                return _pfad_norm(a.split("=", 1)[1])
+    return "dist"
+
+
+def _artefakt_ordner(argv: list[str]) -> set[str]:
+    """AUS WELCHEM Ordner nimmt dieses Kommando eine Distribution?
+
+    Gesucht wird je Argument, ob es auf eine Distribution zeigt (``.tar.gz``, ``.whl`` oder ein
+    Pfad unter einem Verzeichnis) — der ORDNERTEIL davon ist die Antwort. Ein Argument ohne
+    Verzeichnisanteil (``proofbundle-6.0.0.whl`` im Arbeitsverzeichnis) ergibt ``.``.
+    """
+    aus: set[str] = set()
+    for a in argv[1:]:
+        roh = a.strip("'\"")
+        if not (roh.endswith(".whl") or roh.endswith(".tar.gz") or "/" in roh):
+            continue
+        if not _DIST_ARTIFACT.search(roh):
+            continue
+        aus.add(_pfad_norm(roh.rsplit("/", 1)[0]) if "/" in roh else ".")
+    return aus
+
+
+def _run_touches_distribution(run: str) -> list[tuple[str, str]]:
+    """Die Kommandos EINES ``run:``-Skripts als geordnete Liste ``(art, ordner)``.
+
+    ART IST ``baut`` ODER ``benutzt``, ORDNER ist der Pfad, um den es geht — und die REIHENFOLGE
+    bleibt erhalten. Das ist die Aenderung aus Review Runde 3, Abschnitt 3, Punkt 6: vorher gab
+    diese Funktion zwei Wahrheitswerte zurueck, und der Aufrufer verknuepfte sie im selben Job mit
+    UND. Damit genuegte „irgendein Buildbefehl neben irgendeinem Zugriff auf dist/" — ein Job, der
+    zuerst ein altes Wheel installiert und spaeter in einen anderen Ordner baut, bestand. Gleich-
+    zeitigkeit im selben Job ist keine Datenflussrelation.
+
+    Das Alte steht weiter darunter:
 
     Dieselbe Zerlegung wie ``_ci_run_is_test``: Shell-Kommentare fallen weg, jedes durch ``;``/``&&``/
     ``||``/``|`` getrennte Kommando wird einzeln beurteilt, fuehrende ``VAR=wert``-Zuweisungen werden
@@ -1128,7 +1323,7 @@ def _run_touches_distribution(run: str) -> tuple[bool, bool]:
     erkennen hiesse Makefile/tox-Konfiguration zu parsen). Das ist dieselbe dokumentierte Grenze, die
     ``_is_real_test_invocation`` fuer ``make test``/``tox`` traegt.
     """
-    baut = benutzt = False
+    schritte: list[tuple[str, str]] = []
     for roh in run.splitlines():
         m = re.search(r"(?:^|\s)#", roh)
         zeile = roh[:m.start()] if m else roh
@@ -1148,20 +1343,22 @@ def _run_touches_distribution(run: str) -> tuple[bool, bool]:
             # must not count as a declared build just because the module is named `build`.
             hilfe_nur = bool(_NICHT_AUSFUEHREND & set(rest))
             if kopf in _DIST_BUILDER_HEADS and not hilfe_nur:
-                baut = True
+                schritte.append(("baut", _ausgabeordner(argv)))
             elif re.fullmatch(r"python[0-9.]*", kopf):
                 if "-m" in argv[1:] and not hilfe_nur:
                     mi = argv.index("-m", 1)
                     mod = argv[mi + 1].lower() if mi + 1 < len(argv) else ""
                     if mod == "build":
-                        baut = True
+                        schritte.append(("baut", _ausgabeordner(argv)))
                     elif mod == "pip" and _DIST_ARTIFACT.search(cmd):
-                        benutzt = True
+                        for o in _artefakt_ordner(argv):
+                            schritte.append(("benutzt", o))
                 if any(a.endswith(_DIST_BUILDER_SCRIPTS) for a in rest) and not hilfe_nur:
-                    baut = True
+                    schritte.append(("baut", _ausgabeordner(argv)))
             elif kopf in _DIST_CONSUMERS and _DIST_ARTIFACT.search(cmd) and not hilfe_nur:
-                benutzt = True
-    return baut, benutzt
+                for o in _artefakt_ordner(argv):
+                    schritte.append(("benutzt", o))
+    return schritte
 
 
 def _published_artifact_leg_facts(text: str) -> tuple[bool, bool]:
@@ -1208,7 +1405,9 @@ def _published_artifact_leg_facts(text: str) -> tuple[bool, bool]:
     for job in jobs.values():
         if not isinstance(job, dict) or _ci_falsey_if(job.get("if")) or _ci_continues_on_error(job):
             continue
-        job_baut = job_benutzt = False
+        # ALLE Kommandos des Jobs in AUSFUEHRUNGSREIHENFOLGE, ueber die Schritte hinweg. Der
+        # Artefaktfluss ist eine Aussage ueber ein VORHER und ein NACHHER; eine Menge kennt keins.
+        kette: list[tuple[str, str]] = []
         for step in job.get("steps") or []:
             if not isinstance(step, dict) or _ci_falsey_if(step.get("if")) \
                     or _ci_continues_on_error(step):
@@ -1216,11 +1415,16 @@ def _published_artifact_leg_facts(text: str) -> tuple[bool, bool]:
             run = step.get("run")
             if not isinstance(run, str):
                 continue
-            b, u = _run_touches_distribution(run)
-            job_baut = job_baut or b
-            job_benutzt = job_benutzt or u
-        if job_baut and job_benutzt:
-            return True, True
+            kette.extend(_run_touches_distribution(run))
+        # DIE RELATION, und sie ist die ganze Auflage: es gibt einen Bau nach `P` und DANACH eine
+        # Benutzung AUS `P`. Ein spaeterer Bau in einen anderen Ordner hilft nicht, eine fruehere
+        # Installation aus `P` auch nicht — beides war vorher ein Bestehen.
+        for i, (art_i, ordner_i) in enumerate(kette):
+            if art_i != "baut":
+                continue
+            for art_j, ordner_j in kette[i + 1:]:
+                if art_j == "benutzt" and ordner_j == ordner_i:
+                    return True, True
     return False, False
 
 
@@ -1280,8 +1484,10 @@ def c1_1_two_ci_gates(repo: Path = REPO):
     if named_ci and has_test_step:
         return PASS, ("two CI gate CONFIGURATIONS are declared and enabled: ci.yml (name: CI + an "
                       "enabled run: step declaring a pytest/unittest invocation) + "
-                      "published-artifact-gate.yml (an enabled run: step declaring a distribution "
-                      "build and one declaring use of the built distribution). This is configuration "
+                      "published-artifact-gate.yml (one non-fault-tolerant job in which a build "
+                      "writes to a directory and a LATER command in the same job consumes a "
+                      "distribution from THAT directory — declared artifact flow, not mere "
+                      "coexistence of a build and some access to dist/). This is configuration "
                       "presence, NOT evidence that either workflow ran for this candidate — that "
                       f"would need a signed, candidate-bound run record [ci.yml sha256 {ci_d[:12]}…, "
                       f"published-artifact-gate.yml sha256 {pub_d[:12]}…]")

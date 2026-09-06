@@ -291,7 +291,15 @@ def test_gate_meta_unverbundene_jobs_wurden_vorher_faelschlich_zugelassen():
                     continue
                 run = step.get("run")
                 if isinstance(run, str):
-                    b, u = m._run_touches_distribution(run)
+                    # `_run_touches_distribution` liefert seit A6 (Nachtrag 3) eine GEORDNETE Liste
+                    # `(art, ordner)` statt zweier Wahrheitswerte — die Reihenfolge ist der ganze
+                    # Punkt der Haertung. Die Vorfassung wird hier deshalb aus der neuen Zerlegung
+                    # nachgebaut: sie wirft Ordner und Reihenfolge weg und ODER-verknuepft, genau
+                    # wie frueher. Der Nachbau bleibt damit das, was er sein soll — die ALTE Regel,
+                    # ausgedrueckt in den heutigen Bausteinen.
+                    schritte = m._run_touches_distribution(run)
+                    b = any(art == "baut" for art, _ in schritte)
+                    u = any(art == "benutzt" for art, _ in schritte)
                     baut, benutzt = baut or b, benutzt or u
         return baut, benutzt
 
@@ -304,6 +312,55 @@ def test_gate_meta_unverbundene_jobs_wurden_vorher_faelschlich_zugelassen():
         _lege_workflows(Path(td), _UNVERBUNDENE_JOBS)
         verdikt, grund = m.c1_1_two_ci_gates(repo=Path(td))
     assert verdikt == m.FAIL, f"unverbundene Jobs (je eine Haelfte) wurden zugelassen: {grund}"
+
+
+#: DIE ZWEI FAELLE, DIE DER REVIEWER WOERTLICH NANNTE (Runde 3, Abschnitt 2, "Die C1-Relation"):
+#: "Ein Job kann zuerst ein altes Wheel installieren und spaeter in einen anderen Ordner bauen und
+#: trotzdem bestehen." Beides ist Gleichzeitigkeit im selben Job — und Gleichzeitigkeit ist keine
+#: Datenflussrelation. Beide Attrappen bestanden die jobweise Fassung von Runde 2.
+_UMGEKEHRTE_REIHENFOLGE = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: pip install dist/proofbundle-alt-py3-none-any.whl
+      - run: python -m build
+"""
+
+_ANDERER_ORDNER = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: python -m build --outdir out
+      - run: pip install dist/proofbundle-alt-py3-none-any.whl
+"""
+
+
+def test_gate_meta_koexistenz_im_selben_job_reicht_nicht_mehr():
+    """AUFLAGE A6 (Nachtrag 3): Artefaktfluss statt Koexistenz.
+
+    Die jobweise Engfuehrung aus Runde 2 verlangte Bau UND Benutzung im SELBEN Job — aber ohne
+    Reihenfolge und ohne Pfadgleichheit. Genau die zwei Luecken nennt Runde 3, und genau sie stehen
+    hier als Attrappe. Die dritte Zeile ist die Gegenrichtung: ein ECHTER Fluss muss weiter
+    bestehen, sonst waere die Haertung nur eine Verweigerung.
+    """
+    m = _matrix()
+    assert m._published_artifact_leg_facts(_UMGEKEHRTE_REIHENFOLGE) != (True, True), (
+        "erst installieren, dann bauen gilt als Artefaktfluss — die Reihenfolge wird nicht gemessen")
+    assert m._published_artifact_leg_facts(_ANDERER_ORDNER) != (True, True), (
+        "Bau nach out/ und Benutzung aus dist/ gilt als Artefaktfluss — der Pfad wird nicht gemessen")
+    echt = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: python -m build --outdir out
+      - run: pip install out/proofbundle-6.0.0-py3-none-any.whl
+"""
+    assert m._published_artifact_leg_facts(echt) == (True, True), (
+        "ein echter Fluss in einen anderen Ordner wird abgewiesen — die Pruefung misst den "
+        "Ordnernamen statt der Relation")
 
 
 # ── Auflage C5: dieselbe Klasse auf der Nachbarflaeche pre_tag_audit_gate ─────────────────────
