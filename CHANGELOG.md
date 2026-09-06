@@ -382,6 +382,41 @@ reader:
 - **68 of 68 files.** The parity gate's population on this candidate is complete. This is the one
   figure here that is not a subset, and it is what keeps `N17` below the release-stopping bar.
 
+**The distribution digests in the readiness artifacts are the CANDIDATE BUILD ON `a382eae` — not the
+published package.** Owner decision of 2026-09-06 (card `OA-b92bd4ff84`, option A with three naming
+conditions), after the following measurement, which was made *before* anything was signed:
+
+`SOURCE_DATE_EPOCH` is taken from the HEAD commit's time, and the tag sits on a later commit than
+the build. Measured in a real clone with two worktrees:
+
+| Head | epoch | sdist sha256 | wheel sha256 |
+|---|---|---|---|
+| `a382eae` (candidate build) | 1788709947 | `c4490ac46c80474c…` | `58759ce9add58a95…` |
+| one commit later, touching **only** `audit_artifacts/` | 1788710469 | `168d1e4c351a1695…` | `be66743a1b4dc344…` |
+
+Both differ, at identical byte size (1 958 351 / 540 910): the content is the same, only the
+embedded timestamps move. `audit_artifacts/` is not in the package at all — 0 of 1055 sdist entries,
+0 of 82 wheel entries, `MANIFEST.in` says `prune audit_artifacts` — so a later evidence commit
+changes nothing but the clock. A control build of `a382eae` in the clone reproduced the real build's
+digests exactly, so the measurement measures what it claims to.
+
+Three things follow, and they are stated here rather than left to be inferred:
+
+1. **What the fields name.** `candidate.sdist_sha256` and `candidate.wheel_sha256` in the readiness
+   artifacts identify the **candidate build on `a382eae`**. They are not a statement about the
+   artifact published to PyPI or attached to the GitHub release.
+2. **Where the published digest is.** The digests of the *shipped* artifacts are in the release's
+   `SHA256SUMS`, outside this tree — the same separation `N15` established for the wheel digest.
+3. **What the gate does with them.** Both fields are MANDATORY parts of the candidate binding, and
+   `audit_candidate_matrix` recomputes them from the files present in `dist/` at gate time — never
+   from a fresh build. They are therefore a binding between *evidence and candidate*, not an
+   assurance about the package a user installs. `release.yml` does not invoke the candidate matrix
+   at all; `ci.yml` does.
+
+The cleaner mechanism — pinning `SOURCE_DATE_EPOCH` to the candidate commit instead of HEAD, so the
+published package carries the same digests — is a change to the release path itself and is deferred
+to the 6.1 collection release by the same owner decision.
+
 **What "0 open P0/P1" can and cannot say — and why this sentence is here at all.** The structured,
 signed register `audit_artifacts/findings_register_361.json` holds **20 entries as of its
 `generated_at` = `2026-09-06T10:27:05Z`**: 13 closed, 7 open, 0 open P0/P1. That count is a state

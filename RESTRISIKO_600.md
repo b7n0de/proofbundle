@@ -233,6 +233,26 @@ that described a tree that no longer existed. The shared shape is always the sam
 an excerpt, phrased as a verdict over the whole.** The honest form names the excerpt in the same
 sentence as the verdict, which is what this section does for the register.
 
+## The distribution digests name the candidate build, not the package (owner card `OA-b92bd4ff84`)
+
+The readiness artifacts bind `candidate.sdist_sha256` and `candidate.wheel_sha256`. **Those two
+values identify the candidate build on `a382eae`.** They are not a statement about the artifact
+published to PyPI or attached to the release; **the digests of the shipped artifacts are in the
+release's `SHA256SUMS`**, outside this tree.
+
+Measured before signing anything, in a real clone with two worktrees: `SOURCE_DATE_EPOCH` comes from
+the HEAD commit's time, so a build on the commit the tag carries yields *different* digests than the
+build on `a382eae` — `168d1e4c…`/`be66743a…` versus `c4490ac4…`/`58759ce9…` — at identical byte size,
+because only the embedded timestamps move. `audit_artifacts/` is not in the package at all
+(`MANIFEST.in`: `prune audit_artifacts`), so a later evidence commit changes the clock and nothing
+else.
+
+Both fields are MANDATORY parts of the candidate binding, and the gate recomputes them from the
+files in `dist/` at gate time, never from a fresh build — so they bind *evidence to candidate*, and
+must not be read as an assurance about the installed package. Pinning the epoch to the candidate
+commit is the cleaner mechanism and is deferred to 6.1 by the same owner decision, because it
+changes the release path itself.
+
 ## Honest limit of this file
 
 Written by the same agent that made the changes, before the closing round, from measurements
