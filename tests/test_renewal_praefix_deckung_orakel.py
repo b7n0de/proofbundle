@@ -9,11 +9,28 @@ in 0,002 s abgewiesen. Der Durchlauf fuehrt den Hash-Zustand jetzt inkrementell 
 (``_PraefixDeckung``) und ist linear.
 
 WAS HIER GEPRUEFT WIRD, UND WAS NICHT. Diese Datei prueft NICHT die Laufzeit — das tut
-``test_budget_kostenkurve.py``. Sie prueft das ERGEBNIS gegen ein unabhaengiges Orakel: die naiven
-Funktionen ``_cover_data`` / ``_cover_prior_and_data`` sind unveraendert geblieben (``renew_hashtree``
-benutzt sie weiter), also rechnet der Referenz-Durchlauf hier mit ANDEREM Code dieselbe Wahrheit aus.
-Waeren die Bytes auch nur an einer Stelle andere, wuerde jede existierende Sequenz aufhoeren zu
-verifizieren — ein schneller Verifizierer, der etwas anderes verifiziert, ist kein Fortschritt.
+``test_budget_kostenkurve.py``. Sie prueft das ERGEBNIS gegen ein REGRESSIONSORAKEL (Review Runde 2,
+B6 — siehe naechster Absatz fuer die Namenskorrektur): die naiven Funktionen ``_cover_data`` /
+``_cover_prior_and_data`` sind unveraendert geblieben (``renew_hashtree`` benutzt sie weiter), also
+rechnet der Referenz-Durchlauf hier mit ANDEREM Code dieselbe Wahrheit aus. Waeren die Bytes auch nur
+an einer Stelle andere, wuerde jede existierende Sequenz aufhoeren zu verifizieren — ein schneller
+Verifizierer, der etwas anderes verifiziert, ist kein Fortschritt.
+
+REGRESSIONSORAKEL, NICHT UNABHAENGIGES ORAKEL (Review Runde 2, B6 — Korrektur). Diese Datei hiess den
+naiven Vergleich bis 2026-09-05 an mehreren Stellen "ein unabhaengiges Orakel". Das war zu grosszuegig
+benannt: Referenz UND Pruefling teilen sich denselben Modul-Namensraum, dieselben Datentypen
+(``ArchiveTimeStamp``), dieselbe Hashaufloesung (``hashalg.compute_digest`` / ``resolve_hash_alg``)
+und dieselbe Tokenisierung (``ArchiveTimeStamp.token()``). Was dieser Vergleich WIRKLICH faengt: einen
+OPTIMIERUNGSFEHLER — eine Stelle, an der ``_PraefixDeckung`` etwas ANDERES berechnet als die (nie
+angefasste) naive Fassung, obwohl beide dieselbe Absicht verfolgen. Was er NICHT faengt: einen Fehler,
+den BEIDE Fassungen gleichermassen teilen — eine falsch verstandene Deckungsformel, eine falsche
+Trennzeichen-Wahl, eine falsche Hashfunktion —, weil ein solcher Fehler in ``_cover_data`` /
+``_cover_prior_and_data`` SELBST sitzen wuerde und der Referenz-Durchlauf ihn treu nachrechnet. Fuer
+GENAU diesen Rest-Fall siehe ``TestUnabhaengigesModellDerDeckungsrelation`` unten: ein kleines,
+CODE-unabhaengiges Modell (reines ``hashlib``, kein Aufruf von ``_cover_data``, ``token()`` oder
+``compute_digest``), das die im Modul-Docstring DOKUMENTIERTE Drahtform nachbaut. Auch dieses Modell
+ist nicht unabhaengig von der SPEZIFIKATION (proofbundle ist hier eine JSON-native Neuinterpretation
+von RFC 4998, kein ASN.1-Referenzformat existiert) — nur vom CODE.
 
 KORPUS STATT PUNKTVORLAGE. Verglichen wird nicht eine Sequenz, sondern eine erzeugte Menge: echte
 Erneuerungsketten (Zeitstempel- und Hashbaum-Erneuerung, signiert und unsigniert, ueber mehrere
@@ -28,6 +45,8 @@ sondern als Zaehlung: ``token()``-Aufrufe je ATS. Vorher n*(n-1)/2 + n, nachher 
 haengt nicht von der Maschine, der Last oder dem Wetter ab.
 """
 from __future__ import annotations
+
+import hashlib
 
 import pytest
 
@@ -49,13 +68,15 @@ from proofbundle.renewal import (
 NULL = "aa" * 32
 
 
-# --------------------------------------------------------------------------- das unabhaengige Orakel
+# --------------------------------------------------------------------------- das Regressionsorakel
 def _referenz_cover_checks(sequence, data_digests) -> list:
     """Der Deckungs-Durchlauf in seiner NAIVEN Form — Wort fuer Wort die Fassung von vor L2-600-01.
 
     Sie ruft ``_cover_data`` / ``_cover_prior_and_data`` auf, also den Code, den der Fix NICHT
-    angefasst hat. Damit ist das hier ein unabhaengiges Orakel und keine Wiederholung derselben
-    Rechnung mit denselben Zeilen.
+    angefasst hat — ein wirksames Differenzial gegen einen OPTIMIERUNGSFEHLER in
+    ``_PraefixDeckung``. Kein unabhaengiges Orakel (Review Runde 2, B6, siehe Modul-Kopf): Referenz
+    und Pruefling teilen Datentypen, Hashaufloesung und Tokenisierung, also faengt dieser Vergleich
+    keinen Fehler, den beide Fassungen gleichermassen teilen.
     """
     seen_before: list = []
     ausgabe: list = []
@@ -300,3 +321,72 @@ class TestAngemeldeteAlgorithmen:
         res = verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
         assert not any("no prefix state" in c.detail for c in res.checks), \
             [str(c) for c in res.checks]
+
+
+class TestUnabhaengigesModellDerDeckungsrelation:
+    """Review Runde 2, B6: ein KLEINES, wirklich CODE-unabhaengiges Modell der Deckungsrelation.
+
+    Ruft KEINE proofbundle-Hilfsfunktion auf, die die Deckung selbst berechnet — nicht
+    ``_cover_data``, nicht ``_cover_prior_and_data``, nicht ``ArchiveTimeStamp.token()``, nicht
+    ``hashalg.compute_digest``. Stattdessen wird die im Modul-Docstring von ``renewal.py``
+    DOKUMENTIERTE Drahtform direkt aus ``hashlib`` nachgebaut: ``token()`` einer unsignierten ATS ist
+    ``f"{hash_alg}:{covered_digest}:{time}"`` (aus dem Code gelesen, nicht aus ``token()`` selbst
+    aufgerufen), und eine Kettenanfangs-Deckung ist der Hash von
+    ``"\\n".join(vorherige_tokens + sorted(data_digests))``.
+
+    EHRLICHE GRENZE (No-Fake). Dieses Modell ist unabhaengig vom CODE, nicht von der SPEZIFIKATION:
+    das Drahtformat selbst stammt aus dem Docstring dieses Moduls, weil proofbundle hier eine
+    JSON-native Neuinterpretation von RFC 4998 ist — kein ASN.1-Referenzformat existiert, gegen das
+    sich unabhaengig pruefen liesse. Ein Fehler in der DOKUMENTIERTEN Formel selbst faellt keinem der
+    beiden Orakel dieser Datei auf; nur ein Fehler in der UMSETZUNG (ob in
+    ``_cover_prior_and_data``, in ``_PraefixDeckung`` oder — anders als beim Regressionsorakel oben —
+    auch ein Fehler, den BEIDE teilen, so lange er von diesem unabhaengigen Modell abweicht) wird
+    hier gefangen. Der Regressionsvergleich oben bleibt daneben bestehen: er prueft weit mehr Faelle
+    (den ganzen KORPUS, jede Praefixlaenge), aber gegen denselben Code; dieses Modell prueft wenige
+    Faelle, dafuer gegen KEINEN.
+    """
+
+    @staticmethod
+    def _erwartete_kettenanfangs_deckung(praefix_tokens: list, data_digests: list, hashlib_name: str) -> str:
+        teile = list(praefix_tokens) + sorted(data_digests)
+        payload = "\n".join(teile).encode() if teile else b""
+        return hashlib.new(hashlib_name, payload).hexdigest()
+
+    def test_initiale_deckung_ueber_hashlib_direkt(self):
+        """Kein vorheriges ATS, ein Datendigest, sha256 — der einfachste Fall."""
+        seq = build_initial_sequence([NULL], hash_alg="sha256", time=1000)
+        erwartet = self._erwartete_kettenanfangs_deckung([], [NULL], "sha256")
+        assert seq[0][0].covered_digest == erwartet
+        # UND die zu pruefende Flaeche selbst akzeptiert diese Sequenz.
+        res = verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
+        assert res.ok, [str(c) for c in res.checks if not c.ok]
+
+    def test_hashtree_erneuerung_deckung_ueber_hashlib_direkt(self):
+        """Ein Hashbaum-Renewal nach einem Zeitstempel-Renewal, sha512 — deckt eine ECHTE
+        Kettenanfangs-Deckung mit nicht-leerem Praefix ab.
+
+        Dieselben Datendigests durchgehend (wie ``_echte_kette`` oben): ``verify_sequence`` nimmt
+        GENAU EINEN ``data_digests``-Parameter fuer den GANZEN Aufruf und legt ihn an JEDEN
+        Kettenanfang an — andere Datendigests bei EINEM ``renew_hashtree`` waeren ein Bruch, der
+        genau der KORPUS-Fall ``"echte kette, andere datendigests"`` oben absichtlich abdeckt."""
+        seq = build_initial_sequence([NULL], hash_alg="sha256", time=1000)
+        seq = renew_timestamp(seq, time=2000)
+        seq = renew_hashtree(seq, [NULL], new_hash_alg="sha512", time=3000)
+        # Die Praefix-Tokens der ersten beiden ATS UNABHAENGIG als f-strings nachgebaut (nicht
+        # .token() aufgerufen) — dieselbe Formel, die renewal.py fuer eine unsignierte ATS dokumentiert.
+        t0 = f"sha256:{seq[0][0].covered_digest}:1000"
+        t1 = f"sha256:{seq[0][1].covered_digest}:2000"
+        erwartet = self._erwartete_kettenanfangs_deckung([t0, t1], [NULL], "sha512")
+        assert seq[1][0].covered_digest == erwartet
+        res = verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
+        assert res.ok, [str(c) for c in res.checks if not c.ok]
+
+    def test_mehrere_datendigests_werden_sortiert_gehasht(self):
+        """Unsortiert uebergeben, sortiert erwartet — deckt die Sortierung unabhaengig ab, nicht nur
+        ueber denselben ``sorted()``-Aufruf wie die Referenz."""
+        unsortiert = ["ff" * 32, "00" * 32, "aa" * 32]
+        seq = build_initial_sequence(unsortiert, hash_alg="sha3-256", time=42)
+        erwartet = self._erwartete_kettenanfangs_deckung([], unsortiert, "sha3_256")
+        assert seq[0][0].covered_digest == erwartet
+        res = verify_sequence(seq, unsortiert, allow_unauthenticated_anchor=True)
+        assert res.ok, [str(c) for c in res.checks if not c.ok]

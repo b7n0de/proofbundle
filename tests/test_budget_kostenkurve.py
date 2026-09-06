@@ -43,9 +43,21 @@ Maschine (Lastmittel 27 bei 24 Kernen, also unter voller Konkurrenz) der Zeit-Ex
 teuersten LINEAREN Dimensionen je 9 mal erhoben: ``renewal_ats_chain`` 0,960 bis 1,132,
 ``json_nodes`` 0,975 bis 1,097. Der schlechteste von 18 Werten war 1,132. 1,2 laesst diesem Rauschen
 Platz und trennt trotzdem sauber von der gemessenen Kurve VOR dem Fix (1,99). Damit der Abstand
-nicht von der Tagesform abhaengt, ist jeder Punkt zusaetzlich das MINIMUM aus mehreren Laeufen
-(siehe ``_zeit_min``) — Rauschen addiert nur, also ist das Minimum der beste Schaetzer der wahren
-Kosten.
+nicht von der Tagesform abhaengt, ist jeder Punkt der EXPONENTEN-Reihe zusaetzlich das MINIMUM aus
+mehreren Laeufen (siehe ``_zeit_min``) — Rauschen addiert nur, also ist das Minimum der beste
+Schaetzer der wahren KURVENFORM. Fuer die CPU-OBERGRENZE selbst gilt das NICHT (Review Runde 2, B4,
+siehe ``_zeit_max``): ein Minimum ist der guenstigste Fall, nicht der schlimmste, und ein
+DoS-Gate braucht die andere Richtung — deshalb entscheidet ``kosten_am_limit_max`` (Maximum aus
+9 Laeufen), nicht ``kosten_am_limit`` (Minimum, weiter fuer die Kurvenform benutzt).
+
+REFERENZUMGEBUNG (Review Runde 2, B4 — genannt, nicht nur im Kopf einmal erwaehnt). Farmer, 24 Kerne,
+Linux 6.8.0-138, CPython 3.10.12. Zum Zeitpunkt dieser Nachbesserung (2026-09-05, ca. 22:5xZ) war die
+Maschine SELBST GESAETTIGT: Lastmittel 1-Minute rund 10-24 bei 24 Kernen, ein Sprachmodellserver und
+ein Erntehelfer belegten davon rund zwoelf Kerne dauerhaft. Genau deshalb ist Rechenzeit
+(``resource.getrusage``, misst NUR diesen Prozess) und nicht Wanduhrzeit die Messgroesse, und genau
+deshalb ist ein MAXIMUM/hohes Quantil ueber mehrere Laeufe (B4) und nicht das Minimum der richtige
+Schaetzer fuer eine Obergrenze: das Minimum blendet Fremdlast weg, eine Obergrenze soll sie gerade
+nicht wegblenden.
 
 EHRLICHE GRENZE, ZWEI STUECK. (a) Gemessen wird EINE Maschine (Farmer, 24 Kerne, Python 3.10). Die
 Zahlen sind Obergrenzen mit Reserve, kein Benchmark. Eine schnellere Maschine macht jede Zusicherung
@@ -53,11 +65,12 @@ hier nur sicherer; eine langsamere verschiebt alle Werte gleichmaessig, und die 
 ueberall mindestens Faktor 10 Luft — ausser im teuersten kombinierten Fall, der eigens benannt ist.
 (b) Die Zusicherung ist EINDIMENSIONAL und kann es nicht anders sein: sie spricht ueber den groessten
 ZUGELASSENEN Wert, und den gibt es nur, wo ein Limit steht. Eine Achse OHNE Limit faellt durch — und
-genau so eine multipliziert hier eine begrenzte: ``verify_sequence``s ``data_digests`` hat keine
-Dimension, und 10.000 ATS (am Limit) mal 50.000 Datendigests kosten gemessen 15,9 s. Das ist als
-eigener Befund festgehalten (RENEWAL-DATA-DIGESTS-OHNE-DIMENSION-MULTIPLIZIERT-DIE-ATS-SCHRANKE-01)
-und wird von dieser Datei ausdruecklich NICHT gedeckt. Wer das hier fuer eine Gesamtaussage haelt,
-liest mehr, als gemessen wurde.
+genau so eine multiplizierte hier eine begrenzte, bis Review Runde 2 (B1): ``verify_sequence``s
+``data_digests`` hatte keine Dimension, und 10.000 ATS (am Limit) mal 50.000 Datendigests kosteten
+gemessen 15,9 s (nachgemessen 2026-09-05 unter aktueller Last: 16,2 s). Das ist jetzt GESCHLOSSEN —
+``budget.data_digests`` = 2.000, gemessen als eigene Dimension unten UND als eigene KOMBINATION
+gegen ``renewal_ats_chain`` an beiden Limits gleichzeitig (``KOMBIS``, ``renewal_ats_chain x
+data_digests``) — nicht als spaeterer, von dieser Datei ausdruecklich ungedeckter Befund.
 """
 from __future__ import annotations
 
@@ -68,6 +81,8 @@ import json
 import math
 import resource
 import sys
+import pathlib
+import tracemalloc
 
 import pytest
 
@@ -78,6 +93,7 @@ from proofbundle.budget import DEFAULT_BUDGET as B
 from proofbundle.budget import VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import ProofBundleError
+from proofbundle.hashalg import HASH_REGISTRY
 from proofbundle.renewal import ArchiveTimeStamp
 from proofbundle.trust_pack import validate_trust_pack_predicate
 
@@ -90,12 +106,30 @@ EXPONENT_MAX = 1.2
 RESERVE_S = GRENZE_S / 50.0
 # So viel muss die Arbeitszaehlung ueber die 8-fache Eingabe wachsen, um als empfindlich zu gelten.
 ARBEIT_EMPFINDLICH = 2.0
+# Jede benannte Dimension einer KOMBINATION muss mindestens so viel Prozent ihres eigenen Limits
+# erreichen (Review Runde 2, B2) — sonst behauptet der Kombi-Test eine Grenzlast, die er gar nicht baut.
+KOMBI_ERREICHT_MIN = 0.95
+# Spitzenverbrauch (tracemalloc, Review Runde 2, B3): grosszuegige, gemessene Obergrenze. Der groesste
+# hier beobachtete Einzelwert ist json_nodes mit ~14,1 MiB (200.000 kleine int-Objekte in einer Liste);
+# 32 MiB laesst dem mehr als das Doppelte Luft und faengt trotzdem eine echte Speicher-Vervielfachung
+# (siehe TestObergrenzeAmGroesstenZugelassenenWert.test_speicher_am_limit_unter_der_grenze und
+# TestKombinierteAchsen.test_kombi_speicher_bleibt_unter_der_grenze).
+SPEICHER_GRENZE_BYTES = 32 * 1024 * 1024
 
 HEX32 = "aa" * 32
+
+#: Die aktuellen Registry-Algorithmen, deterministisch geordnet — die Kennungen, die ein
+#: Kettenanfang tragen kann, ohne dass der Hash-Resolver sie ablehnt.
+_AKTUELLE_ALGS = sorted(n for n, s in HASH_REGISTRY.items() if s.status == "current")
 # So oft wird ein billiger Punkt wiederholt; genommen wird das MINIMUM. Ein teurer Punkt braucht das
 # nicht — bei 60 s Messwert aendert ein Cache-Miss nichts, und die Wiederholung kostete dort Minuten.
 WIEDERHOLUNGEN = 3
 WIEDERHOLEN_UNTER_S = 0.2
+# CPU-OBERGRENZE (Review Runde 2, B4): eine FESTE Zahl Laeufe, dann das MAXIMUM — nicht das Minimum.
+# Ein Minimum schaetzt die guenstigste Ausfuehrung; ein DoS-Gate muss die teuerste tolerierbare
+# Ausfuehrung kennen. 9 Laeufe, weil das dieselbe Stichprobengroesse ist, mit der EXPONENT_MAX oben
+# bereits kalibriert wurde (je 9 Laeufe je Dimension, siehe Kopf).
+MAX_WIEDERHOLUNGEN = 9
 
 
 def _cpu() -> float:
@@ -129,6 +163,99 @@ def _zeit_min(ruf):
         d2, erg = _zeit(ruf)
         dauer = min(dauer, d2)
     return dauer, erg
+
+
+def _zeit_max(ruf, n: int = MAX_WIEDERHOLUNGEN):
+    """CPU-OBERGRENZE (Review Runde 2, B4): das MAXIMUM aus einer FESTEN Zahl Laeufe — nicht das
+    Minimum.
+
+    ``_zeit_min`` ist der richtige Schaetzer fuer die KURVENFORM (Exponent): Rauschen kann Rechenzeit
+    nur hinzufuegen, nie abziehen, also naehert das Minimum die intrinsische Kosten der Berechnung an.
+    Eine CPU-OBERGRENZE fuer ein DoS-Gate fragt aber etwas anderes: nicht "wie billig KANN dieser Fall
+    sein", sondern "wie teuer WAR er, in den Laeufen, die ich gesehen habe" — und dafuer ist das
+    Minimum der FALSCHE Wert, er versteckt genau die Streuung (Cache-Verdraengung, Scheduling,
+    GC-Pausen, fremde Last auf den anderen Kernen), vor der die Obergrenze schuetzen soll. Deshalb
+    IMMER alle ``n`` Laeufe (keine fruehe Rueckkehr wie bei ``_zeit_min``), und das Maximum entscheidet.
+    """
+    dauer = 0.0
+    erg = None
+    for _ in range(n):
+        d, erg = _zeit(ruf)
+        dauer = max(dauer, d)
+    return dauer, erg
+
+
+def _speicher_peak(ruf) -> int:
+    """Gemessener Spitzenverbrauch in Bytes (Review Runde 2, B3): ``tracemalloc`` zaehlt nur
+    PYTHON-Objektallokationen waehrend ``ruf()`` — deterministischer als Peak-RSS (das den ganzen
+    Prozess inklusive Interpreter-Rauschen mitmisst), und genau die Groesse, die eine Speicherformel
+    ueber ``_PraefixDeckung`` / die Parser-Flaechen vorhersagen kann. Eine ``ProofBundleError`` ist wie
+    bei ``_zeit`` ein ERGEBNIS, kein Fehlschlag der Messung."""
+    tracemalloc.start()
+    try:
+        try:
+            ruf()
+        except ProofBundleError:
+            pass
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak
+
+
+def _prozess_spitze(ruf) -> tuple[int, str]:
+    """``(spitze_bytes, messweg)`` — die SPITZE DES GANZEN PROZESSES, nicht nur der Python-Objekte.
+
+    WARUM ZUSAETZLICH ZU ``tracemalloc`` (Review Runde 3, Abschnitt 6, und Nachtrag 3 Teil A2).
+    ``tracemalloc`` startet ERST beim Aufruf und zaehlt NUR Python-Allokationen. Damit fehlt zweierlei:
+    die Eingabe, die vor dem Start schon aufgebaut ist (bei D=2000 Digests und N=10.000 ATS ist das
+    nicht wenig), und alles, was ausserhalb des Python-Allokators liegt — die Hash-Implementierungen
+    in ``hashlib`` allozieren nativ. Der Gegenleser nannte genau das: "``tracemalloc`` startet jedoch
+    erst nach Aufbau von Sequenz und Datendigests und misst Python-Allokationen, nicht die gesamte
+    Prozessspitze einschliesslich Eingabe, nativer Bibliotheken und RSS."
+
+    GEMESSEN WIRD ``VmHWM`` aus ``/proc/self/status`` — der High Water Mark des Resident Set Size,
+    den der Kernel fuehrt. Er ist monoton und deckt den GANZEN Prozess ab, also auch alles, was vor
+    diesem Aufruf entstand. Genau deshalb wird die Differenz zum Stand VOR dem Aufruf berichtet UND
+    der absolute Wert: die Differenz sagt, was dieser Lauf zusaetzlich brauchte, der absolute Wert,
+    wie hoch der Prozess insgesamt stand. Beide Zahlen zusammen sind ehrlich, eine allein nicht.
+
+    EHRLICHE GRENZE, und sie ist der Grund, warum ``tracemalloc`` bleibt und nicht ersetzt wird:
+    ``VmHWM`` faellt NIE. Ein frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und
+    die Differenz ist dann null, obwohl der aktuelle Lauf Speicher braucht. Er misst also eine
+    OBERGRENZE des Prozesses, keine Zurechnung an diesen Aufruf. ``tracemalloc`` kann die Zurechnung,
+    ``VmHWM`` die Vollstaendigkeit — deshalb stehen beide im Rohausgang, mit ihrem jeweiligen Messweg.
+
+    Ohne ``/proc`` (nicht-Linux) gibt es keinen Wert und keine Schaetzung, sondern die Auskunft, dass
+    hier nicht gemessen werden kann.
+    """
+    def hwm() -> int | None:
+        try:
+            for zeile in pathlib.Path("/proc/self/status").read_text(encoding="utf-8").splitlines():
+                if zeile.startswith("VmHWM:"):
+                    return int(zeile.split()[1]) * 1024
+        except OSError:
+            return None
+        return None
+
+    vorher = hwm()
+    if vorher is None:
+        try:
+            ruf()
+        except ProofBundleError:
+            pass
+        return -1, "NICHT MESSBAR: /proc/self/status VmHWM ist hier nicht lesbar (kein Linux?)"
+    try:
+        ruf()
+    except ProofBundleError:
+        pass
+    nachher = hwm()
+    if nachher is None:                                        # pragma: no cover
+        return -1, "NICHT MESSBAR: VmHWM war vorher lesbar, nachher nicht"
+    return nachher - vorher, (
+        f"VmHWM aus /proc/self/status: vorher {vorher} B, nachher {nachher} B, "
+        f"Differenz {nachher - vorher} B — Obergrenze des GANZEN Prozesses, faellt nie, "
+        f"deshalb ist die Differenz eine untere Schranke des Bedarfs dieses Laufs")
 
 
 def _arbeit(ruf) -> int:
@@ -243,6 +370,45 @@ def _last_renewal_ats_chain(n):
     return (lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)), n
 
 
+def _last_data_digests(n):
+    """Review Runde 2, B1: die Kettenanfangs-ANZAHL bleibt bei EINEM ATS — sonst wuerde diese
+    Einzel-Achse denselben Produkt-Effekt messen, den erst die KOMBINATION (unten,
+    ``renewal_ats_chain x data_digests``) belegen soll."""
+    daten = ["%064x" % i for i in range(n)]
+    seq = [[ArchiveTimeStamp("sha256", HEX32, 1)]]
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), n
+
+
+def _last_renewal_work(n):
+    """Die PRODUKT-Dimension: ATS mal Datendigests mal Kettenanfangs-Algorithmen.
+
+    Eine Produktdimension hat keine eigene Eingabeachse, die man einfach hochdreht — der Zielwert
+    muss aus drei Faktoren zusammengesetzt werden, von denen JEDER seine eigene Schranke hat
+    (``renewal_ats_chain``, ``data_digests``, und die Registry begrenzt die Algorithmen). Wuerde
+    man nur die ATS hochdrehen, feuerte deren Achse zuerst und diese Kurve maesse den falschen
+    Riegel. Deshalb: Datendigests fest am eigenen Limit, ATS skaliert, und erst wenn die ATS-Achse
+    ueberliefe, kommt ein weiterer Algorithmus dazu.
+
+    Gerundet wird zur richtigen SEITE der Grenze: ein Zielwert unterhalb des Limits darf nicht
+    versehentlich darueber landen (sonst prueft der Randtest bei ``limit - 1`` eine Ablehnung, die
+    er nicht erwartet), einer oberhalb nicht darunter."""
+    D = B.data_digests
+    A = 2
+    ueber = n > B.renewal_work
+    def _n_ats(a):
+        roh = (-(-n // (D * a))) if ueber else (n // (D * a))
+        return max(1, roh)
+    N = _n_ats(A)
+    while N > B.renewal_ats_chain and A < len(_AKTUELLE_ALGS):
+        A += 1
+        N = _n_ats(A)
+    N = min(N, B.renewal_ats_chain)
+    algs = _AKTUELLE_ALGS[:A]
+    daten = ["%064x" % i for i in range(D)]
+    seq = [[ArchiveTimeStamp(algs[i % A], HEX32, i + 1)] for i in range(N)]
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), N * D * A
+
+
 def _last_witnesses(n):
     keys = {f"k-{i}": {"publicKey": base64.b64encode(
         generate_signer().public_key().public_bytes_raw()).decode()} for i in range(n)}
@@ -272,6 +438,16 @@ class Dimension:
     was: str
     baue: object
     zugelassen: object
+    #: Wie viele EINGABEACHSEN diese Dimension gleichzeitig an ihre Grenze treibt. Fuer eine
+    #: gewoehnliche Achse ist das 1, und die Obergrenze ist ``GRENZE_S``. Eine PRODUKT-Dimension
+    #: (``renewal_work`` = ATS x Datendigests x Algorithmen) treibt definitionsgemaess mehrere
+    #: zugleich; ihre Obergrenze ist deshalb ``achsen * GRENZE_S`` — dieselbe Rechnung, die
+    #: ``test_kombi_bleibt_unter_der_summe_der_obergrenzen`` fuer die Kombinationen schon macht.
+    #: Ohne dieses Feld waere eine Produktdimension entweder unmessbar oder gezwungen, ihre
+    #: Schranke unter den Wert zu druecken, bei dem die bestehende Zwei-Achsen-Kombination noch
+    #: messbar ist — das haette einen echten Kostentest entwertet, um einen Zahlenvergleich zu
+    #: retten.
+    achsen: int = 1
 
 
 DIMENSIONEN = [
@@ -288,6 +464,11 @@ DIMENSIONEN = [
     Dimension("witnesses", "trust_pack.validate_trust_pack_predicate", _last_witnesses,
               lambda r: not any("budget.witnesses" in e for e in r)),
     Dimension("int_bits", "merkle.verify_inclusion", _last_int_bits, lambda r: r is True),
+    Dimension("data_digests", "renewal.verify_sequence", _last_data_digests,
+              lambda r: not any(c.name == "renewal:budget:data_digests" for c in r.checks)),
+    Dimension("renewal_work", "renewal.verify_sequence", _last_renewal_work,
+              lambda r: not any(c.name == "renewal:budget:renewal_work" for c in r.checks),
+              achsen=3),
 ]
 
 _MESSUNGEN: dict = {}
@@ -309,12 +490,31 @@ def _messung(dim: Dimension) -> dict:
         ruf, ist = dim.baue(n)
         dauer, erg = _zeit_min(ruf)
         rand[n] = (ist, dauer, dim.zugelassen(erg))
+    # CPU-OBERGRENZE (Review Runde 2, B4): eine SEPARATE Messung, nur fuer den Ceiling-Test unten,
+    # mit dem MAXIMUM aus MAX_WIEDERHOLUNGEN Laeufen — nicht mit dem Minimum aus `rand`/`reihe` oben.
+    # Die Kurvenform (Exponent) bleibt beim Minimum (die richtige Schaetzung fuer "wie guenstig kann
+    # es sein"); die Obergrenze fragt "wie teuer WAR es tatsaechlich", und dafuer ist das Maximum die
+    # konservative, DoS-Gate-taugliche Antwort (siehe ``_zeit_max``-Docstring).
+    ruf_am_limit, _ = dim.baue(limit)
+    kosten_am_limit_max, _ = _zeit_max(ruf_am_limit)
+    # Spitzenverbrauch (Review Runde 2, B3): derselbe Aufruf am Limit, diesmal unter tracemalloc.
+    speicher_peak = _speicher_peak(ruf_am_limit)
+    # ZWEITER MESSWEG (Review Runde 3, Nachtrag 3 Teil A2): die Spitze des GANZEN Prozesses. Der
+    # Aufruf wird dafuer NEU gebaut — `ruf_am_limit` haelt seine Eingabe fest, und die soll bei
+    # dieser Messung mitzaehlen, nicht schon vorher stehen. Das ist der Unterschied, den der
+    # Gegenleser benannt hat: tracemalloc startet nach dem Aufbau, VmHWM kennt ihn.
+    ruf_fuer_rss, _ = dim.baue(limit)
+    prozess_spitze, spitze_messweg = _prozess_spitze(ruf_fuer_rss)
     m = {
         "limit": limit,
         "reihe": reihe,
         "arbeit": arbeit,
         "rand": rand,
         "kosten_am_limit": reihe[-1][1],
+        "kosten_am_limit_max": kosten_am_limit_max,
+        "speicher_peak_am_limit": speicher_peak,
+        "prozess_spitze_am_limit": prozess_spitze,
+        "prozess_spitze_messweg": spitze_messweg,
         "exponent_zeit": _exponent([(n, k) for n, k, _ in reihe]),
         "exponent_arbeit": _exponent(arbeit),
         "arbeit_empfindlich": (arbeit[-1][1] >= ARBEIT_EMPFINDLICH * max(arbeit[0][1], 1)),
@@ -360,16 +560,63 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
 
     @pytest.mark.parametrize("dim", DIMENSIONEN, ids=IDS)
     def test_kosten_am_limit_unter_der_obergrenze(self, dim):
+        """CPU-OBERGRENZE aus dem MAXIMUM von ``MAX_WIEDERHOLUNGEN`` Laeufen (Review Runde 2, B4) —
+        nicht aus dem Minimum. Referenzumgebung siehe Modul-Kopf (Farmer, 24 Kerne, aktuell gesaettigt)."""
         m = _messung(dim)
         limit = m["limit"]
-        k = m["rand"][limit][1]
+        k = m["kosten_am_limit_max"]
         drei = " | ".join(f"n={n}: {m['rand'][n][1]:.4f} s "
                           f"({'zugelassen' if m['rand'][n][2] else 'abgewiesen'})"
                           for n in (limit - 1, limit, limit + 1))
-        assert k <= GRENZE_S, (
-            f"{dim.name}: {k:.3f} s Rechenzeit am groessten zugelassenen Wert ({limit}), "
-            f"Obergrenze {GRENZE_S:.1f} s. Die Schranke laesst mehr zu, als sie zu begrenzen "
-            f"behauptet — genau der Fund L2-600-01.\n  die drei Punkte um das Limit: {drei}")
+        latte = dim.achsen * GRENZE_S
+        assert k <= latte, (
+            f"{dim.name}: {k:.3f} s Rechenzeit (Maximum aus {MAX_WIEDERHOLUNGEN} Laeufen) am groessten "
+            f"zugelassenen Wert ({limit}), Obergrenze {latte:.1f} s "
+            f"({dim.achsen} Achse{'n' if dim.achsen > 1 else ''} an ihrer Grenze). Die Schranke "
+            f"laesst mehr zu, als "
+            f"sie zu begrenzen behauptet — genau der Fund L2-600-01.\n  "
+            f"die drei Punkte um das Limit (Minimum, nur zur Einordnung): {drei}")
+
+    @pytest.mark.parametrize("dim", DIMENSIONEN, ids=IDS)
+    def test_speicher_am_limit_unter_der_grenze(self, dim):
+        """Spitzenverbrauch (Review Runde 2, B3): ``tracemalloc`` am groessten zugelassenen Wert, nicht
+        nur Zeit. Die Formel fuer ``renewal_ats_chain``/``data_digests`` steht im Modul-Docstring von
+        ``renewal._PraefixDeckung`` und wird hier gegen den echten Wert gehalten, nicht nur behauptet."""
+        m = _messung(dim)
+        peak = m["speicher_peak_am_limit"]
+        assert peak <= SPEICHER_GRENZE_BYTES, (
+            f"{dim.name}: {peak / 1024 / 1024:.2f} MiB Spitzenverbrauch (tracemalloc) am groessten "
+            f"zugelassenen Wert ({m['limit']}), Obergrenze {SPEICHER_GRENZE_BYTES / 1024 / 1024:.0f} MiB")
+
+    @pytest.mark.parametrize("dim", DIMENSIONEN, ids=IDS)
+    def test_die_prozessspitze_wird_gemessen_und_ihr_messweg_genannt(self, dim):
+        """AUFLAGE A2 (Nachtrag 3): Speicher zusaetzlich als PROZESSSPITZE, Eingabeaufbau eingeschlossen.
+
+        Der Gegenleser hat den Grund benannt: ``tracemalloc`` startet erst beim Aufruf und zaehlt nur
+        Python-Allokationen — die Eingabe, die vorher schon steht, und alles Native (``hashlib``
+        alloziert ausserhalb des Python-Allokators) fehlen darin. ``VmHWM`` aus ``/proc/self/status``
+        kennt beides.
+
+        WAS HIER GEPRUEFT WIRD, ist bewusst NICHT eine zweite Obergrenze. ``VmHWM`` faellt nie: ein
+        frueherer, groesserer Lauf im selben Prozess hebt ihn dauerhaft, und die Differenz waere dann
+        null, obwohl der Lauf Speicher braucht. Eine Schranke darauf waere abhaengig von der
+        Reihenfolge der Tests — ein Riegel, der von der Laufreihenfolge abhaengt, misst die Umgebung
+        und nicht die Eigenschaft. Geprueft wird deshalb, dass die Zahl UEBERHAUPT ERHOBEN ist, dass
+        sie ihren Messweg mitfuehrt, und dass sie kein stiller Ausfall ist: ``-1`` heisst hier
+        ausdruecklich "nicht messbar" und traegt den Grund im Messweg.
+        """
+        m = _messung(dim)
+        assert "prozess_spitze_am_limit" in m, "die Prozessspitze wird gar nicht erhoben"
+        weg = m["prozess_spitze_messweg"]
+        assert isinstance(weg, str) and weg, "die Prozessspitze nennt ihren Messweg nicht"
+        spitze = m["prozess_spitze_am_limit"]
+        if spitze == -1:
+            assert "NICHT MESSBAR" in weg, (
+                f"{dim.name}: die Prozessspitze meldet -1 ohne den Grund zu nennen: {weg!r}")
+        else:
+            assert spitze >= 0, f"{dim.name}: negative Prozessspitze {spitze}"
+            assert "VmHWM" in weg, (
+                f"{dim.name}: ein Wert ohne den Messweg, der ihn erzeugt hat: {weg!r}")
 
 
 class TestKostenkurve:
@@ -408,56 +655,165 @@ class TestKostenkurve:
 
 
 # --------------------------------------------------------------------------- kombinierte Achsen
+# Review Runde 2, B2: jeder Baustein gibt jetzt (Aufruf, ``erreicht``) zurueck — ``erreicht`` ist ein
+# dict {Budget-Dimension: tatsaechlich gebauter Wert}, damit ``TestKombinierteAchsen`` PRUEFEN kann,
+# dass jede benannte Achse wirklich an ihrem Limit steht, statt es nur zu behaupten.
 def _kombi_renewal_x_int_bits():
     gross = 2 ** (B.int_bits - 1)
     seq = [[ArchiveTimeStamp("sha256", HEX32, gross + i)] for i in range(B.renewal_ats_chain)]
-    return lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)
+    erreicht = {"renewal_ats_chain": len(seq), "int_bits": gross.bit_length()}
+    return (lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)), erreicht
 
 
 def _kombi_renewal_x_algorithmen():
     algs = ["sha256", "sha512", "sha3-256", "sha3-512", "sha384"]
     seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)]
            for i in range(B.renewal_ats_chain)]
-    return lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)
+    # "5 hash-algorithmen" ist keine Budget-Dimension (die Menge ist durch HASH_REGISTRY auf eine
+    # kleine Konstante begrenzt, siehe renewal._PraefixDeckung) — hier wird nur renewal_ats_chain
+    # gegen die eigene Dimension geprueft.
+    erreicht = {"renewal_ats_chain": len(seq)}
+    return (lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)), erreicht
+
+
+def _kombi_renewal_x_data_digests():
+    """Review Runde 2, B1: GENAU der Fall, den diese Lane selbst als 15,9 s / 16,2 s Befund gemessen
+    hat (siehe Modul-Kopf und ``budget.VerificationBudget.data_digests``) — jetzt als Kombination mit
+    BEIDEN Achsen an ihrem eigenen Limit, nicht als spaeterer, von dieser Datei ungedeckter Befund."""
+    daten = ["%064x" % i for i in range(B.data_digests)]
+    seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(B.renewal_ats_chain)]
+    erreicht = {"renewal_ats_chain": len(seq), "data_digests": len(daten)}
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
+
+
+def _kombi_renewal_x_data_digests_x_algorithmen():
+    """DIE DRITTE ACHSE (Gegenlesung 2026-09-05, Linse 3 von 6). Die beiden Kombinationen darueber
+    lassen je einen Faktor auf 1 stehen: die Algorithmen-Kombi haelt D=1, die Datendigest-Kombi haelt
+    A=1. Genau dazwischen lag die Luecke — ``_PraefixDeckung`` haelt je Kettenanfangs-Algorithmus einen
+    eigenen laufenden Hash-Zustand, und jedes ATS-Token wandert in JEDEN davon.
+
+    Gemessen am 2026-09-05 (Farmer, 24 Kerne, Lastmittel 51, Maximum aus 3 Laeufen) bei vollen ATS-
+    und Datendigest-Achsen: A=1 0,813 s · A=2 1,577 s · A=3 1,944 s · A=5 3,621 s. Die Latte liegt bei
+    drei Achsen auf ``3 * GRENZE_S`` = 3,0 s, der A=5-Fall reisst sie — und keine Einzelachse meldet
+    etwas, weil jede fuer sich eingehalten ist.
+
+    Diese Kombination faehrt deshalb den GROESSTEN vom Produktbudget noch ZUGELASSENEN Fall
+    (``budget.renewal_work``), nicht den abgewiesenen: was die Schranke verbietet, kann kein
+    Kostentest mehr messen. Dass der abgewiesene Fall wirklich abgewiesen wird, prueft
+    ``TestProduktbudget`` weiter unten."""
+    algs = ["sha256", "sha512"]                      # zwei Kettenanfangs-Kennungen
+    daten = ["%064x" % i for i in range(B.data_digests)]
+    n = B.renewal_work // (len(daten) * len(algs))   # so viele ATS, wie das Produktbudget zulaesst
+    n = min(n, B.renewal_ats_chain)
+    seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)] for i in range(n)]
+    erreicht = {"renewal_work": n * len(daten) * len(algs)}
+    return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
 
 
 def _kombi_merkle_x_int_bits():
-    n = B.merkle_path
-    idx = 2 ** (B.int_bits - 1)
-    beweis = [bytes([i % 251]) * 32 for i in range(n)]
+    """POPCOUNT-Konstruktion (Review Runde 2, B2). ``root_from_inclusion``s fn/sn-Arithmetik verbraucht,
+    wenn ``leaf_index == tree_size - 1`` (fn und sn bleiben dann fuer den ganzen Lauf gleich), pro
+    Beweisglied GENAU einen zusammenhaengenden Block aus Endnullen-plus-folgender-Eins von
+    ``leaf_index``s Binaerdarstellung — die Zahl der noetigen (und einzig gueltigen) Beweisglieder ist
+    also exakt ``popcount(leaf_index)``, reproduzierbar gemessen: 255 Glieder wirft "proof too short",
+    257 wirft "proof too long", genau 256 geht durch. Die vorige Fassung nutzte ``beweis[:1]`` (ein
+    Element), weil sie ``idx = 2**(int_bits-1)`` waehlte — GENAU EIN gesetztes Bit, also ist dort ein
+    einzelnes Element das einzig gueltige Mass, ein laengerer Beweis waere IMMER ``ValueError``
+    gewesen, nicht nur ungeprueft. Mit einem ZWEITEN Bitblock (``merkle_path - 1`` tiefe Einsen unter
+    dem hohen int_bits-Bit) hat ``idx`` weiter ``int_bits`` Bits (die Bitlaenge zaehlt nur die
+    hoechste Eins) UND ``popcount(idx) == merkle_path`` — beide Achsen gleichzeitig an ihrem Limit."""
+    idx = (1 << (B.int_bits - 1)) + ((1 << (B.merkle_path - 1)) - 1)
     groesse = idx + 1
-    wurzel = merkle.root_from_inclusion(idx, groesse, merkle.leaf_hash(b"x"), beweis[:1])
-    return lambda: pb.verify_inclusion(b"x", idx, groesse, beweis[:1], wurzel)
+    beweis = [bytes([i % 251]) * 32 for i in range(B.merkle_path)]
+    wurzel = merkle.root_from_inclusion(idx, groesse, merkle.leaf_hash(b"x"), beweis)
+    erreicht = {"int_bits": idx.bit_length(), "merkle_path": len(beweis)}
+    return (lambda: pb.verify_inclusion(b"x", idx, groesse, beweis, wurzel)), erreicht
 
 
 def _kombi_signatures_x_input_bytes():
-    nutz = json.dumps({"x": "a" * 900_000}).encode()
+    """UMBENANNT auf die tatsaechlich erreichbare Achse (Review Runde 2, B2 — Name im ``KOMBIS``-Eintrag
+    unten bleibt ``signatures x string_len``, nicht mehr ``x input_bytes``).
+
+    ``dsse._payload_bytes`` ruft ``enforce_structural_budget`` auf dem GANZEN Envelope-Dict auf, BEVOR
+    es seinen eigenen ``len(payload) > input_bytes``-Vergleich macht — und dieser generische Walk
+    prueft JEDEN String (auch ``envelope["payload"]`` selbst) gegen ``string_len`` (1.000.000), das
+    unter ``DEFAULT_BUDGET`` KLEINER ist als ``input_bytes`` (8.388.608). Ein base64-Payload laenger
+    als ``string_len`` faellt deshalb IMMER zuerst auf den generischen Check — ``input_bytes`` ist fuer
+    dieses Feld ueber ``verify_envelope`` gar nicht erreichbar. Reproduziert: ein Payload mit rund
+    8,39 MB base64-Laenge wirft ``BundleFormatError: ... string_len = 8388604 > limit 1000000``, lange
+    bevor der ``input_bytes``-Vergleich ueberhaupt gelesen wird. Die VORIGE Fassung dieser Kombination
+    (900.000 Nutzbytes, rund 1,2 MB base64) traf denselben generischen ``string_len``-Check schon —
+    nur wurde das nie sichtbar, weil ``_zeit`` eine ``ProofBundleError`` als Ergebnis nimmt statt als
+    Fehlschlag: sie mass eine SOFORTIGE Ablehnung, keine Grenzlast. Diese Fassung behauptet nur noch,
+    was sie tatsaechlich baut: ``signatures`` an seinem Limit, ``string_len`` an SEINEM (des
+    base64-Payloads) Limit — und verifiziert wirklich (``ok=True``), keine Ablehnung."""
+    ziel_b64 = 999_996                          # durch 4 teilbar -> kein Padding, exakt reproduzierbar
+    nutz = b"a" * (3 * (ziel_b64 // 4))
     echt = dsse.sign_envelope(nutz, _SK, payload_type="application/x.pb-kostenkurve")
     env = dict(echt)
     env["signatures"] = [{"sig": "AA=="} for _ in range(B.signatures - 1)] + list(echt["signatures"])
-    return lambda: dsse.verify_envelope(env, _PUB)
+    erreicht = {"signatures": len(env["signatures"]), "string_len": len(env["payload"])}
+    return (lambda: dsse.verify_envelope(env, _PUB)), erreicht
 
 
 def _kombi_parser_alle_achsen():
+    """Review Runde 2, B2: alle DREI benannten Achsen tatsaechlich >= 95 % ihres Limits, als
+    ``erreicht`` GEPRUEFT statt nur behauptet.
+
+    TIEFEN-KORREKTUR gegenueber der vorigen Fassung (gefunden beim Nachbauen, reproduzierbar): die
+    vorige Fassung wickelte ``kern`` (selbst schon eine Liste) in ``tief - 1`` weitere Listen — das
+    macht ``kern`` zu Tiefe ``tief`` und seine BLATT-Strings zu Tiefe ``tief + 1``. Der Tiefen-Walk in
+    ``_strict_json._enforce_structural_budget`` zaehlt aber JEDEN Knoten inklusive der Blaetter, nicht
+    nur Container, und schlaegt bei ``tiefe > json_depth`` fehl — die vorige Fassung warf deshalb bei
+    JEDEM Lauf ``BundleFormatError: JSON nesting is too deep`` und mass, wie bei der
+    Signatur-Kombination oben, eine sofortige Ablehnung statt einer Grenzlast. Mit ``tief - 2``
+    Wickel-Ebenen sitzen die Blaetter GENAU auf Tiefe ``json_depth`` (zugelassen, nicht ueberschritten,
+    reproduziert: ``tief - 1`` Wickel-Ebenen werfen weiterhin, ``tief - 2`` nicht)."""
     tief = B.json_depth
-    kern = json.dumps(["a" * 500_000] * 15)
-    txt = "[" * (tief - 1) + kern + "]" * (tief - 1)
-    return lambda: loads_strict(txt)
+    leaf_len = 999_000                          # >= 95 % von string_len, echt kleiner als string_len
+    anzahl = 8                                  # 8 Blaetter dieser Laenge erreichen >= 95 % von input_bytes
+    kern = json.dumps(["a" * leaf_len] * anzahl)
+    txt = "[" * (tief - 2) + kern + "]" * (tief - 2)
+    erreicht = {"input_bytes": len(txt), "json_depth": tief, "string_len": leaf_len}
+    return (lambda: loads_strict(txt)), erreicht
 
 
 KOMBIS = [
     ("renewal_ats_chain x int_bits", 2, _kombi_renewal_x_int_bits),
     ("renewal_ats_chain x 5 hash-algorithmen", 2, _kombi_renewal_x_algorithmen),
+    ("renewal_ats_chain x data_digests", 2, _kombi_renewal_x_data_digests),
     ("merkle_path x int_bits", 2, _kombi_merkle_x_int_bits),
-    ("signatures x input_bytes", 2, _kombi_signatures_x_input_bytes),
+    ("signatures x string_len", 2, _kombi_signatures_x_input_bytes),
+    ("renewal_ats_chain x data_digests x hash-algorithmen", 3,
+     _kombi_renewal_x_data_digests_x_algorithmen),
     ("input_bytes x json_depth x string_len", 3, _kombi_parser_alle_achsen),
 ]
+
+_KOMBI_MESSUNGEN: dict = {}
+
+
+def _kombi_messung(name: str, bau) -> dict:
+    """Wie ``_messung`` fuer ``DIMENSIONEN``: einmal bauen und ausfuehren, mehrfach zusichern."""
+    if name in _KOMBI_MESSUNGEN:
+        return _KOMBI_MESSUNGEN[name]
+    fn, erreicht = bau()
+    dauer_max, _ = _zeit_max(fn)
+    speicher = _speicher_peak(fn)
+    m = {"erreicht": erreicht, "dauer_max": dauer_max, "speicher_peak": speicher}
+    _KOMBI_MESSUNGEN[name] = m
+    return m
 
 
 class TestKombinierteAchsen:
     """Eine Dimension allein ist nicht der teuerste zugelassene Fall. Zwei Achsen, jede an ihrem
     Limit, sind zwei Budgets — die Obergrenze ist deshalb ihre SUMME, nicht ihr Maximum. Das ist eine
     Regel, keine an das Ergebnis angepasste Zahl.
+
+    Review Runde 2, B1+B2: jede Kombination muss (a) jede benannte Dimension nachweislich zu
+    mindestens ``KOMBI_ERREICHT_MIN`` erreichen — sonst behauptet sie eine Grenzlast, die sie gar
+    nicht baut (genau der Fund an ``merkle_path x int_bits``, ``signatures x input_bytes`` und dem
+    Parser-Kombi) —, und (b) unter der Summe ihrer Obergrenzen bleiben, gemessen als MAXIMUM aus
+    ``MAX_WIEDERHOLUNGEN`` Laeufen (B4, dieselbe Begruendung wie bei den Einzeldimensionen oben).
 
     Der teuerste hier gemessene Fall ist ``renewal_ats_chain x int_bits``: 10.000 ATS mit einer
     8192-Bit-``time``. Sein Anteil ist zu ~0,61 s das einmalige Rendern dieser Zahlen nach dezimal
@@ -466,25 +822,187 @@ class TestKombinierteAchsen:
     """
 
     @pytest.mark.parametrize("name,achsen,bau", KOMBIS, ids=[k[0] for k in KOMBIS])
+    def test_kombi_erreicht_jede_benannte_dimension(self, name, achsen, bau):
+        """B2: eine Last, die ihre eigenen Achsen nicht erreicht, prueft nichts — siehe Modul-Docstring
+        der drei korrigierten Bausteine oben fuer die reproduzierten Gegenbeispiele."""
+        m = _kombi_messung(name, bau)
+        for dim_name, wert in m["erreicht"].items():
+            limit = getattr(B, dim_name)
+            assert wert >= KOMBI_ERREICHT_MIN * limit, (
+                f"{name}: Dimension {dim_name} erreicht nur {wert} von {limit} "
+                f"({wert / limit:.1%}, mindestens {KOMBI_ERREICHT_MIN:.0%} gefordert) — der Kombi-Test "
+                "misst nicht, was er behauptet")
+
+    @pytest.mark.parametrize("name,achsen,bau", KOMBIS, ids=[k[0] for k in KOMBIS])
     def test_kombi_bleibt_unter_der_summe_der_obergrenzen(self, name, achsen, bau):
-        dauer, _ = _zeit_min(bau())
+        m = _kombi_messung(name, bau)
+        dauer = m["dauer_max"]
         assert dauer <= achsen * GRENZE_S, (
-            f"{name}: {dauer:.3f} s Rechenzeit, Obergrenze {achsen * GRENZE_S:.1f} s "
-            f"({achsen} Achsen an ihrem Limit)")
+            f"{name}: {dauer:.3f} s Rechenzeit (Maximum aus {MAX_WIEDERHOLUNGEN} Laeufen), Obergrenze "
+            f"{achsen * GRENZE_S:.1f} s ({achsen} Achsen an ihrem Limit)")
+
+    @pytest.mark.parametrize("name,achsen,bau", KOMBIS, ids=[k[0] for k in KOMBIS])
+    def test_kombi_speicher_bleibt_unter_der_grenze(self, name, achsen, bau):
+        """Spitzenverbrauch der Kombination (Review Runde 2, B3) — dieselbe Obergrenze wie fuer eine
+        einzelne Dimension: keine der hier gebauten Kombinationen soll mehr als eine einzelne
+        Dimension am Limit im Speicher kosten, sonst multiplizieren sich Achsen auch im Speicher."""
+        m = _kombi_messung(name, bau)
+        peak = m["speicher_peak"]
+        assert peak <= SPEICHER_GRENZE_BYTES, (
+            f"{name}: {peak / 1024 / 1024:.2f} MiB Spitzenverbrauch (tracemalloc), Obergrenze "
+            f"{SPEICHER_GRENZE_BYTES / 1024 / 1024:.0f} MiB")
 
 
 class TestBericht:
     def test_zahlen_ausgeben(self, capsys):
         """Kein Urteil, nur die Zahlen — sichtbar mit ``pytest -s``. Ein Riegel, dessen Messwerte
         niemand sehen kann, wird beim naechsten Zweifel neu erfunden statt nachgelesen."""
-        zeilen = ["", f"{'Dimension':<20}{'Limit':>10}{'CPU@L':>9}{'Exp(Zeit)':>11}"
-                      f"{'Exp(Arbeit)':>13}{'Arbeit empf.':>14}  Flaeche"]
+        zeilen = ["", f"{'Dimension':<20}{'Limit':>10}{'CPU@L(min)':>11}{'CPU@L(max9)':>12}"
+                      f"{'Speicher@L':>12}{'Exp(Zeit)':>11}{'Exp(Arbeit)':>13}{'Arbeit empf.':>14}  Flaeche"]
         for d in DIMENSIONEN:
             m = _messung(d)
             zeilen.append(
-                f"{d.name:<20}{m['limit']:>10}{m['rand'][m['limit']][1]:>9.4f}"
+                f"{d.name:<20}{m['limit']:>10}{m['rand'][m['limit']][1]:>11.4f}"
+                f"{m['kosten_am_limit_max']:>12.4f}{m['speicher_peak_am_limit'] / 1024:>10.1f}KiB"
                 f"{m['exponent_zeit']:>11.2f}{m['exponent_arbeit']:>13.2f}"
                 f"{str(m['arbeit_empfindlich']):>14}  {d.was}")
+        zeilen.append("")
+        zeilen.append(f"{'Kombination':<45}{'CPU(max9)':>11}{'Speicher':>12}  erreicht")
+        for name, achsen, bau in KOMBIS:
+            m = _kombi_messung(name, bau)
+            erreicht_str = ", ".join(f"{k}={v}" for k, v in m["erreicht"].items())
+            zeilen.append(
+                f"{name:<45}{m['dauer_max']:>10.4f}s{m['speicher_peak'] / 1024 / 1024:>10.2f}MiB  "
+                f"{erreicht_str}")
         with capsys.disabled():
             print("\n".join(zeilen))
-        assert len(zeilen) == len(DIMENSIONEN) + 2
+        assert len(zeilen) == len(DIMENSIONEN) + len(KOMBIS) + 4
+
+
+class TestProduktbudget:
+    """Die dritte Achse, zweiseitig geprueft (Gegenlesung 2026-09-05, Linse 3 von 6).
+
+    Ein Riegel, der nur zeigt, dass er bei absurder Eingabe feuert, hat die Haelfte bewiesen. Die
+    andere Haelfte ist, dass er bei legitimer Eingabe schweigt — und dass er wirklich am PRODUKT
+    haengt und nicht an einer Achse, die zufaellig mitlaeuft.
+    """
+
+    @staticmethod
+    def _budget_checks(r):
+        return [c for c in r.checks if c.name.startswith("renewal:budget")]
+
+    def test_die_dimension_existiert_und_ist_erreichbar(self):
+        assert isinstance(B.renewal_work, int) and B.renewal_work > 0
+        assert B.within("renewal_work", B.renewal_work)
+        assert not B.within("renewal_work", B.renewal_work + 1)
+
+    def test_alle_fuenf_aktuellen_algorithmen_an_vollen_achsen_werden_abgewiesen(self):
+        """Der gemessene Fall: 10.000 ATS x 2.000 Datendigests x 5 Kettenanfangs-Algorithmen kostete
+        3,621 s gegen eine Drei-Achsen-Latte von 3,0 s. Er muss VOR der Arbeit abgewiesen werden —
+        weshalb dieser Test in Millisekunden zurueckkommt und nicht in Sekunden."""
+        algs = [n for n, s in HASH_REGISTRY.items() if s.status == "current"]
+        assert len(algs) >= 5, f"Vorbedingung: mindestens 5 aktuelle Algorithmen, gefunden {algs}"
+        daten = ["%064x" % i for i in range(B.data_digests)]
+        seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)]
+               for i in range(B.renewal_ats_chain)]
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        treffer = self._budget_checks(r)
+        assert treffer, "kein Budget-Check auf die gemessene Kombination"
+        assert not treffer[0].ok
+        assert "renewal_work" in treffer[0].detail
+        assert not r.ok
+
+    def test_jede_einzelachse_ist_dabei_eingehalten(self):
+        """Der Beweis, dass das Produkt eine EIGENE Aussage ist: beide Achsen melden nichts."""
+        assert B.within("renewal_ats_chain", B.renewal_ats_chain)
+        assert B.within("data_digests", B.data_digests)
+        assert not B.within("renewal_work",
+                            B.renewal_ats_chain * B.data_digests * 5)
+
+    def test_eine_legitime_sequenz_kommt_am_riegel_vorbei(self):
+        """Gegenrichtung. Ein Riegel, der immer feuert, misst nichts. Der groesste Datendigest-Satz
+        im ganzen Repo ist EINER — legitime Nutzung liegt Groessenordnungen unter dem Produkt."""
+        daten = ["%064x" % i for i in range(4)]
+        seq = pb.build_initial_sequence(daten, hash_alg="sha256", time=100)
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        assert not self._budget_checks(r), "das Produktbudget feuert auf einer legitimen Sequenz"
+        assert r.ok, [(c.name, c.ok, c.detail) for c in r.checks if not c.ok]
+
+    def test_meta_ein_kuenstlich_kleines_budget_faengt_dieselbe_sequenz(self, monkeypatch):
+        """Haengt die Abweisung wirklich am Produkt? Wird die Decke auf 1 gesetzt, muss dieselbe
+        harmlose Sequenz fallen — und zwar mit der renewal_work-Meldung, nicht mit einer anderen."""
+        import proofbundle.budget as budget_mod
+        monkeypatch.setattr(budget_mod, "DEFAULT_BUDGET",
+                            budget_mod.VerificationBudget(renewal_work=1))
+        daten = ["%064x" % i for i in range(4)]
+        seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(3)]
+        r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        treffer = self._budget_checks(r)
+        assert treffer and not treffer[0].ok
+        assert "renewal_work" in treffer[0].detail
+
+
+class TestSpeicherUeberN:
+    """B3, nachgebessert (Owner-Auflage 2026-09-05): der Beleg gehoert auf die Achse, ueber die er
+    etwas aussagt.
+
+    Die erste Fassung belegte "der Speicher waechst UNABHAENGIG von der Zahl der Kettenanfaenge" mit
+    zwei Messpunkten, die N festhielten und D variierten. Das ist die falsche Achse: wer die
+    Unabhaengigkeit von N behauptet, muss N variieren. Nachgemessen am 2026-09-05 mit festem D:
+    N=10 -> 0,27 MiB · N=100 -> 0,27 · N=1.000 -> 0,36 · N=5.000 -> 1,30 · N=10.000 -> 2,48 MiB.
+
+    Der Speicher WAECHST also mit N — nur nicht in ``_PraefixDeckung`` (deren Formel O(A)+O(D) stimmt),
+    sondern in der Check-Liste von ``VerificationResult``, die je ATS einen Eintrag bekommt. Dieser
+    Test behauptet deshalb NICHT die widerlegte Unabhaengigkeit, sondern nagelt das TATSAECHLICHE
+    Verhalten fest: monoton in N, absolut unter der Grenze, und der Zuwachs bleibt in derselben
+    Groessenordnung wie die Zahl der Eintraege. Waechst er kuenftig schneller, ist das eine
+    Regression, die hier auffaellt statt in einem Docstring zu stehen.
+    """
+
+    D_FEST = 200          # klein genug fuer einen Suitenlauf, gross genug fuer einen echten Datenschwanz
+    N_REIHE = (100, 1_000, 5_000)
+
+    @staticmethod
+    def _peak_bytes(n, d):
+        daten = ["%064x" % i for i in range(d)]
+        seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(n)]
+        gc.collect()
+        tracemalloc.start()
+        pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
+        _, spitze = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return spitze
+
+    def test_speicher_ist_monoton_in_n_und_bleibt_unter_der_grenze(self):
+        gemessen = {n: self._peak_bytes(n, self.D_FEST) for n in self.N_REIHE}
+        werte = [gemessen[n] for n in self.N_REIHE]
+        assert werte == sorted(werte), f"nicht monoton in N: {gemessen}"
+        for n, b in gemessen.items():
+            assert b <= SPEICHER_GRENZE_BYTES, (
+                f"N={n}, D={self.D_FEST}: {b/1024/1024:.2f} MiB Spitzenverbrauch, Grenze "
+                f"{SPEICHER_GRENZE_BYTES/1024/1024:.0f} MiB")
+
+    def test_der_zuwachs_je_ats_bleibt_in_seiner_groessenordnung(self):
+        """Die eigentliche Regressionsschranke. Der Zuwachs von der kleinsten zur groessten
+        Kettenanfangszahl geteilt durch die Zahl zusaetzlicher ATS ist der Speicher, den EIN ATS
+        kostet — bei der gemessenen Kurve rund 250 Byte je Eintrag. 4 KiB je ATS laesst reichlich
+        Luft nach oben und faengt trotzdem eine Regression, die das Wachstum um eine
+        Groessenordnung verschoebe (etwa weil wieder Tokens aufbewahrt wuerden statt nur gehasht)."""
+        klein, gross = self.N_REIHE[0], self.N_REIHE[-1]
+        zuwachs = self._peak_bytes(gross, self.D_FEST) - self._peak_bytes(klein, self.D_FEST)
+        je_ats = zuwachs / (gross - klein)
+        assert je_ats <= 4096, (
+            f"{je_ats:.0f} Byte zusaetzlicher Spitzenverbrauch je ArchiveTimeStamp (von N={klein} auf "
+            f"N={gross}, D={self.D_FEST}) — erwartet wird die Groessenordnung eines Check-Eintrags, "
+            "nicht die eines aufbewahrten Tokens oder Praefix-Bytes")
+
+    def test_die_gegenrichtung_der_datenschwanz_kostet_auch_etwas(self):
+        """Anti-Tautologie: waere der Speicher von D voellig unabhaengig, wuerde der Test oben auch
+        gruen bleiben, wenn ``_daten_bytes`` gar nicht existierte. Bei festem N muss ein groesserer
+        Datenschwanz mehr kosten — sonst misst diese Klasse nicht, was sie zu messen glaubt."""
+        n = 1_000
+        klein = self._peak_bytes(n, 1)
+        gross = self._peak_bytes(n, 2_000)
+        assert gross > klein, (
+            f"D=2000 kostet nicht mehr als D=1 (beide {klein} Byte) — der Datenschwanz taucht im "
+            "Spitzenverbrauch gar nicht auf, die Messung greift also nicht an der erwarteten Stelle")

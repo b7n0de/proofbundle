@@ -109,3 +109,33 @@ on the subject digest, so that rename does not affect binding.
 The current release line as a whole carries a status boundary of its own (audit-candidate **BETA**),
 stated per release in the CHANGELOG. A BETA line still follows the table above; the label says how
 much external assurance exists, not how freely the interface may move.
+
+## Resource limits are ours, not the format's
+
+`proofbundle` refuses inputs that exceed a set of resource budgets
+(`src/proofbundle/budget.py`). The largest of them today:
+
+| Budget | Value | What it bounds |
+|---|---|---|
+| `renewal_ats_chain` | 10 000 | archive time stamps in one evidence record |
+| `data_digests` | 2 000 | data digests handed to one `verify_sequence` call |
+| `renewal_work` | 40 000 000 | the PRODUCT of ATS × data digests × chain-start algorithms |
+| `witnesses` | 256 | witnesses in one transparency proof |
+| `merkle_path` | 256 | nodes on one inclusion path |
+
+**These are limits of THIS VERIFIER, not limits of RFC 4998 or of any other specification we
+implement.** An evidence record with 5 000 data digests is a valid evidence record; this tool does
+not process it. If a budget rejects your input, the rejection names the dimension and its value, so
+you can tell a resource policy apart from a malformed input.
+
+Why this distinction is written down rather than left implicit: an earlier draft of the
+`data_digests` rationale claimed that 2 000 lies "above any legitimate RFC 4998 use". That was a
+statement about the STANDARD, resting on a sample from a single repository — and it was withdrawn.
+What is measured is the usage here and the cost curve there; what follows from both is a policy of
+this tool, not a property of the format. A verifier that presents its own ceiling as the format's
+ceiling teaches its users something false about the standard.
+
+**Changing a budget is not a breaking change** under the table above: budgets are a safety floor
+against resource exhaustion, and raising or lowering one does not alter the wire format, the public
+API or the meaning of any receipt. A build that needs a different ceiling can pass its own
+`Budget(...)` where the API accepts one; the defaults are what an unconfigured verifier uses.
