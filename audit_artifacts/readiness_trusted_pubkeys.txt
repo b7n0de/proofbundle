@@ -1,2 +1,2 @@
-# test anchor (F3a: garbage role, not in _ANKER_ROLLEN)
-ahIC0V4lUq9PDCoP3ODHAhg8p6zZl+gC1sWkre9bdj8= role=not_a_real_role not_after=2099-01-01
+# test anchor (F3b: known role that excludes C12.2 by design)
+ahIC0V4lUq9PDCoP3ODHAhg8p6zZl+gC1sWkre9bdj8= role=planted_readiness_only_no_register not_after=2099-01-01
