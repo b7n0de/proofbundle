@@ -87,7 +87,15 @@ class RegisterVersionBinding(unittest.TestCase):
         # Dieser Test misst das Verhalten des FREIGABEENTSCHEIDENDEN Aufrufers, also holt er die
         # Schluessel aus derselben Quelle wie C12.2, statt unbunden zu rufen und den Fehlschlag der
         # falschen Stufe zuzuschreiben.
-        erlaubt, _grund = acm._autorisierte_schluessel(REPO, "C12.2")
+        # MESSZEITPUNKT IST PFLICHT (fail-closed seit der Gegenlesung vom 2026-09-06).
+        # Uebergeben wird derselbe Wert, den der produktive Aufrufer benutzt: das
+        # `generated_at` des Registerkoerpers. Ohne ihn autorisiert der Anker niemanden,
+        # und dieser Test haette dann eine Sperre gemessen statt der Sache, um die es
+        # ihm geht.
+        _reg = json.loads((REPO / "audit_artifacts" / "findings_register_361.json")
+                          .read_text(encoding="utf-8"))
+        erlaubt, _grund = acm._autorisierte_schluessel(REPO, "C12.2",
+                                                      gemessen_am=_reg.get("generated_at"))
         r = self.fr.verify_and_count(REPO, expected_version=acm.VERSION_UNDER_TEST,
                                      authorised_pubkeys=erlaubt)
         if self.real.get("version") == acm.VERSION_UNDER_TEST:

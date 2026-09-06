@@ -27,6 +27,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 import unittest
 from pathlib import Path
 
@@ -159,11 +160,50 @@ class RegisterSchluesselKommtAusDemAnker(unittest.TestCase):
             self.assertNotEqual(zustand, m.PASS)
 
     def test_im_echten_baum_autorisiert_der_anker_genau_einen_schluessel(self):
-        """Gegenprobe zum vorigen Test: hier IST etwas messbar, sonst misst der Riegel nichts."""
-        erlaubt, grund = m._autorisierte_schluessel(REPO, "C12.2")
+        """Gegenprobe zum vorigen Test: hier IST etwas messbar, sonst misst der Riegel nichts.
+
+        MESSZEITPUNKT IST JETZT PFLICHT. Diese Pruefung rief `_autorisierte_schluessel` frueher OHNE
+        `gemessen_am` und erwartete trotzdem einen autorisierten Schluessel — sie hielt damit die
+        alte fail-open-Lesart fest, in der ohne Messzeitpunkt gar nicht gefiltert wurde. Die
+        Pflicht-Gegenlesung hat diese Lesart am 2026-09-06 verworfen: ein Aufrufer, der den
+        Parameter vergisst, bekaeme sonst abgelaufene Schluessel. Der Test uebergibt die Zeit jetzt
+        und misst dieselbe Sache; die fail-closed-Haelfte steht als eigener Test daneben, damit
+        beide Richtungen belegt sind."""
+        erlaubt, grund = m._autorisierte_schluessel(
+            REPO, "C12.2", gemessen_am=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
         self.assertIsNotNone(erlaubt, grund)
         self.assertEqual(len(erlaubt), 1, f"{grund}: erwartet genau der Owner-Ankerschluessel")
         self.assertNotIn(FRUEHERER_PIN, erlaubt)
+
+    def test_ohne_messzeitpunkt_autorisiert_der_echte_anker_niemanden(self):
+        """Die andere Richtung derselben Regel, am ECHTEN Anker gemessen.
+
+        Ohne diese Haelfte koennte der Test darueber auch dann gruen sein, wenn die Funktion den
+        Messzeitpunkt gar nicht beachtet. Der Grund MUSS `fail-closed` sagen, sonst ist von aussen
+        nicht unterscheidbar, ob hier bewusst gesperrt oder etwas kaputt ist."""
+        erlaubt, grund = m._autorisierte_schluessel(REPO, "C12.2")
+        self.assertEqual(erlaubt, set(), f"ohne Messzeitpunkt wurde autorisiert: {grund}")
+        self.assertIn("fail-closed", grund)
+
+    def test_eine_nicht_kanonisch_geschriebene_frist_autorisiert_nichts(self):
+        """Der Fund der Gegenlesung: `strptime` ist tolerant, der Zeichenvergleich war es nicht.
+
+        `not_after=2026-9-6` parst klaglos, und `"2026-10-05" > "2026-9-6"` ist False — ein
+        ABGELAUFENER Schluessel war damit im vierten Quartal autorisiert, ohne jede Rueckdatierung
+        und mit voellig ehrlicher Evidenz. Geprueft wird an der Lesestelle: eine unkanonisch
+        geschriebene Frist darf gar nicht erst in den Anker gelangen."""
+        pub = next(iter(m._trust_anchor(REPO)[0]))
+        for frist in ("2026-9-6", "2026-09-9", "2026-1-1", "9999-99-99"):
+            with self.subTest(not_after=frist):
+                gelesen = m._anker_zeilen_lesen(
+                    f"{pub} role=readiness_und_register_signierer_600 not_after={frist}\n")
+                self.assertEqual(gelesen, {},
+                                 f"not_after={frist!r} kam in den Anker — der Zeichenvergleich "
+                                 f"haette daraus eine Autorisierung gemacht")
+        # Anti-Paritaet: die kanonische Form MUSS durchkommen, sonst sperrt der Riegel alles.
+        gelesen = m._anker_zeilen_lesen(
+            f"{pub} role=readiness_und_register_signierer_600 not_after=2027-09-06\n")
+        self.assertEqual(len(gelesen), 1, "die kanonische Form wurde mitverworfen")
 
 
 class DerErzeugerLiestKeinenPrivatenSchluessel(unittest.TestCase):

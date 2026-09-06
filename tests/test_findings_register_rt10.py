@@ -48,7 +48,15 @@ class TestFindingsRegisterVerify(unittest.TestCase):
         Tor, damit hier keine dritte Wahrheit entsteht.
         """
         import audit_candidate_matrix as m  # noqa: PLC0415
-        erlaubt, _ = m._autorisierte_schluessel(REPO, "C12.2")
+        # MESSZEITPUNKT IST PFLICHT (fail-closed seit der Gegenlesung vom 2026-09-06).
+        # Uebergeben wird derselbe Wert, den der produktive Aufrufer benutzt: das
+        # `generated_at` des Registerkoerpers. Ohne ihn autorisiert der Anker niemanden,
+        # und dieser Test haette dann eine Sperre gemessen statt der Sache, um die es
+        # ihm geht.
+        _reg = json.loads((REPO / "audit_artifacts" / "findings_register_361.json")
+                          .read_text(encoding="utf-8"))
+        erlaubt, _ = m._autorisierte_schluessel(REPO, "C12.2",
+                                               gemessen_am=_reg.get("generated_at"))
         return erlaubt or set()
 
     def _run_with(self, register_obj, authorised=None):

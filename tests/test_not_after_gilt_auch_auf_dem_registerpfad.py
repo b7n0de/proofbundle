@@ -271,3 +271,52 @@ class NotAfterAufDemArtefaktpfad(unittest.TestCase):
         z2, grund2 = self.acm._artifact_signature_ok(spaet, trusted, zustand, repo=repo)
         self.assertNotEqual(z2, self.acm.ART_VERIFIED,
                             f"Evidenz von NACH dem Ablauf wurde zugelassen ({grund2})")
+
+
+class DieErsteFristAlleinGemessen(unittest.TestCase):
+    """DIE LUECKE, DIE DIE MUTATIONSLINSE FAND: kein Test unterschied `>` von `>=`.
+
+    Die Fangnachweise oben setzen die Frist in die VERGANGENHEIT. Dort schlaegt aber immer schon die
+    ZWEITE Frist zu (`heute > frist`), und die erste (`gemessen_am > frist`) wird nie zum Zuenglein.
+    Gemessen: ein eingepflanztes `>` -> `>=` an der ersten Vergleichsstelle liess die GESAMTE
+    Testdatei gruen. Ein Grenzfehler genau dort waere unsichtbar gewesen.
+
+    Diese Klasse legt die Frist deshalb in die ZUKUNFT — dann schweigt die zweite Frist, und die
+    erste entscheidet allein. Geprueft werden die drei Tage um die Grenze: davor, GENAU AUF der
+    Frist (muss durchgehen, `not_after` heisst 'letzter zulaessiger Tag') und einen Tag danach
+    (muss sperren).
+    """
+
+    def setUp(self):
+        self.acm = _load("acm_grenze", "scripts/audit_candidate_matrix.py")
+        self.addCleanup(lambda: sys.modules.pop("acm_grenze", None))
+        from datetime import datetime, timedelta, timezone
+        self.frist = (datetime.now(timezone.utc) + timedelta(days=30)).date()
+        zuordnung, zustand = self.acm._trust_anchor(REPO)
+        self.assertEqual(zustand, "ok", "ohne lesbaren Anker misst hier nichts")
+        anker = {pub: dict(feld, not_after=self.frist.strftime("%Y-%m-%d"))
+                 for pub, feld in zuordnung.items()}
+        original = self.acm._trust_anchor
+        self.acm._trust_anchor = lambda repo: (anker, "ok")
+        self.addCleanup(lambda: setattr(self.acm, "_trust_anchor", original))
+
+    def _am_tag(self, versatz: int) -> str:
+        from datetime import timedelta
+        return (self.frist + timedelta(days=versatz)).strftime("%Y-%m-%dT12:00:00Z")
+
+    def test_evidenz_GENAU_am_letzten_tag_ist_noch_zulaessig(self):
+        """`not_after` ist der LETZTE zulaessige Tag, nicht der erste unzulaessige.
+
+        Diese Haelfte stirbt an `>` -> `>=`; ohne sie ist der Off-by-one unsichtbar."""
+        erlaubt, grund = self.acm._autorisierte_schluessel(REPO, "C12.2", gemessen_am=self._am_tag(0))
+        self.assertTrue(erlaubt, f"Evidenz vom Fristtag selbst wurde gesperrt ({grund})")
+
+    def test_evidenz_einen_tag_nach_der_frist_ist_unzulaessig(self):
+        """Die andere Seite derselben Grenze — stirbt an `>` -> `>=` NICHT, aber an einem
+        entfernten Vergleich. Beide Haelften zusammen pinnen die Grenze auf genau einen Tag."""
+        erlaubt, grund = self.acm._autorisierte_schluessel(REPO, "C12.2", gemessen_am=self._am_tag(1))
+        self.assertEqual(erlaubt, set(), f"Evidenz von NACH der Frist wurde zugelassen ({grund})")
+
+    def test_evidenz_einen_tag_vor_der_frist_ist_zulaessig(self):
+        erlaubt, grund = self.acm._autorisierte_schluessel(REPO, "C12.2", gemessen_am=self._am_tag(-1))
+        self.assertTrue(erlaubt, f"Evidenz von vor der Frist wurde gesperrt ({grund})")

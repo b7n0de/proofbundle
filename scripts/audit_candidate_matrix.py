@@ -41,7 +41,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -442,25 +442,42 @@ def _autorisierte_schluessel(repo: Path, check_id: str, *,
                        f"anwendbar, und ein nicht anwendbarer Sicherheitsfilter autorisiert "
                        f"niemanden (fail-closed; {len(passend)} Schluessel haetten die Rolle fuer "
                        f"{check_id})")
-    # Zeichenvergleich der ersten zehn Stellen: beide Formen sind ISO-8601-Praefixe, und ein
-    # Kalendertagsvergleich braucht keine Zeitzonenrechnung, die der Anker gar nicht hergibt.
-    tag = str(gemessen_am)[:10]
-    heute = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # DATUMSVERGLEICH, KEIN ZEICHENVERGLEICH. Hier stand: "Zeichenvergleich der ersten zehn
+    # Stellen: beide Formen sind ISO-8601-Praefixe" — eine unbelegte Annahme ueber feste Breite,
+    # die die eigene Ankervalidierung nicht erzwang. Zwei Linsen der Pflicht-Gegenlesung haben sie
+    # am 2026-09-06 unabhaengig widerlegt: `not_after=2026-9-6` parst mit `strptime` klaglos, und
+    # `"2026-10-05" > "2026-9-6"` ist False, weil '1' < '9' an Stelle 5 steht. Ein ABGELAUFENER
+    # Schluessel war damit im vierten Quartal autorisiert — ohne Rueckdatierung, mit voellig
+    # ehrlicher Evidenz. Der Riegel sitzt jetzt an der Lesestelle (nur kanonisches `%Y-%m-%d`
+    # ueberlebt) und hier wird mit `date`-Objekten verglichen, damit die Breitenannahme gar nicht
+    # mehr existiert. Ein unlesbarer Messzeitpunkt autorisiert niemanden (fail-closed).
+    tag_roh = str(gemessen_am)[:10]
+    try:
+        tag = datetime.strptime(tag_roh, "%Y-%m-%d").date()
+    except ValueError:
+        return set(), (f"Messzeitpunkt {gemessen_am!r} traegt kein lesbares Kalenderdatum "
+                       f"(erwartet YYYY-MM-DD…) — ohne Datum ist die Frist nicht anwendbar, und ein "
+                       f"nicht anwendbarer Sicherheitsfilter autorisiert niemanden (fail-closed)")
+    heute_d = datetime.now(timezone.utc).date()
+    heute = heute_d.strftime("%Y-%m-%d")
     erlaubt, abgelaufen = set(), []
     for pub in passend:
-        frist = str(zuordnung[pub].get("not_after", ""))[:10]
-        if not frist:
-            erlaubt.add(pub)
-            continue
-        if tag > frist:
-            abgelaufen.append(f"{pub[:12]}…(not_after={frist}, Evidenz von {tag})")
-        elif heute > frist:
+        frist_d = _frist_datum(zuordnung[pub])
+        frist = str(zuordnung[pub].get("not_after", ""))
+        if frist_d is None:
+            # Kein geparstes Datum heisst: diese Zeile kam nicht durch `_anker_zeilen_lesen` (etwa
+            # ein direkt gebautes Test-Mapping). Frueher stand hier `erlaubt.add(pub)` fuer eine
+            # fehlende Frist — eine Autorisierung aus fehlender Information. Fail-closed.
+            abgelaufen.append(f"{pub[:12]}…(ohne pruefbare Frist — nicht autorisiert)")
+        elif tag > frist_d:
+            abgelaufen.append(f"{pub[:12]}…(not_after={frist}, Evidenz von {tag_roh})")
+        elif heute_d > frist_d:
             abgelaufen.append(f"{pub[:12]}…(not_after={frist}, heute {heute} — widerrufen)")
         else:
             erlaubt.add(pub)
     schwanz = f", {len(abgelaufen)} abgelaufen: {abgelaufen}" if abgelaufen else ""
     return erlaubt, (f"{len(erlaubt)} Schluessel im Anker autorisiert fuer {check_id} "
-                     f"(Ankerzustand {zustand}, gemessen_am={tag}, heute={heute}{schwanz})")
+                     f"(Ankerzustand {zustand}, gemessen_am={tag_roh}, heute={heute}{schwanz})")
 
 #: Base64 in kanonischer Form fuer genau 32 Bytes: 43 Zeichen aus dem Standardalphabet plus genau
 #: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
@@ -543,10 +560,32 @@ def _anker_zeilen_lesen(roh: str) -> dict:
         # FRIST ALS DATUM, nicht als Zeichenkette. `not_after=9999-99-99` sortierte vorher lexikalisch
         # hinter jedes echte Datum und haette damit nie abgelaufen — ein Ablaufdatum, das nicht
         # ablaufen kann, ist keins.
+        #
+        # ZWEITE HAELFTE DERSELBEN KLASSE, gefunden von der Pflicht-Gegenlesung am 2026-09-06 und
+        # von zwei Linsen unabhaengig belegt. Die Pruefung oben schloss den EINEN Fall
+        # (`9999-99-99`) und liess den Rest der Klasse offen: `strptime` ist tolerant und nimmt
+        # `2026-9-6` klaglos an. Die Vergleiche weiter unten waren aber ZEICHENvergleiche auf
+        # `[:10]`, und die setzen feste Breite voraus. GEMESSEN:
+        #
+        #     "2026-10-05" > "2026-9-6"   -> False   (weil '1' < '9' an Stelle 5)
+        #     Kalender:      05.10. liegt NACH dem 06.09.
+        #
+        # Damit genuegte eine plausible, von der eigenen Validierung akzeptierte Schreibweise im
+        # Anker, um einen ABGELAUFENEN Schluessel zu autorisieren — ohne jede Rueckdatierung, mit
+        # voellig ehrlicher Evidenz, jedes Jahr im vierten Quartal. Beide Fristen fielen zusammen,
+        # weil beide denselben Vergleich benutzten.
+        #
+        # Der Riegel sitzt jetzt an der LESESTELLE und nicht an den Vergleichen: hier wird die
+        # Kanonizitaet erzwungen (nur nullgepolstertes `%Y-%m-%d` ueberlebt) UND das geparste Datum
+        # abgelegt, damit kein Leser mehr in Versuchung kommt, Zeichen zu vergleichen. Eine
+        # abweichende Schreibweise VERSCHWINDET wie jede andere Formverletzung — die sichere
+        # Richtung, der Aufrufer sieht weniger Schluessel, nie mehr.
         try:
-            datetime.strptime(felder["not_after"], "%Y-%m-%d")
+            _frist = datetime.strptime(felder["not_after"], "%Y-%m-%d").date()
         except ValueError:
             continue
+        if _frist.strftime("%Y-%m-%d") != felder["not_after"]:
+            continue                      # nicht kanonisch geschrieben (z.B. `2026-9-6`)
         # EIN SCHLUESSEL, EINE ZEILE. Zwei Zeilen fuer denselben Schluessel widersprechen sich
         # potenziell in Rolle oder Frist; die zweite ueberschrieb vorher still die erste. Beide
         # fallen, denn welche gelten soll, steht nirgends.
@@ -556,6 +595,31 @@ def _anker_zeilen_lesen(roh: str) -> dict:
         gesehen.add(pub)
         aus[pub] = {f: felder[f] for f in _ANKER_FELDER}
     return aus
+
+
+def _frist_datum(feld: dict) -> date | None:
+    """Die Frist eines Ankereintrags als Kalenderdatum — oder ``None``, wenn sie das nicht hergibt.
+
+    EINE QUELLE, STRENG GELESEN. Eine erste Fassung legte das geparste Datum als ZWEITES Feld
+    (``not_after_date``) neben den String. Das war eine zweite Wahrheitsquelle, und sie ist sofort
+    auseinandergelaufen: ein Test, der nur ``not_after`` ueberschrieb, hatte danach einen String,
+    der 2000 sagte, und ein Datum, das 2027 sagte — die Pruefung las das Datum und liess einen
+    "abgelaufenen" Schluessel durch. Zwei gekoppelte Felder, von denen ein Aufrufer nur eines setzt,
+    sind kein Detail, sondern die naechste Instanz derselben Klasse. Deshalb wird hier bei JEDER
+    Benutzung aus dem String geparst.
+
+    STRENG heisst: nur die kanonische, nullgepolsterte Form ``YYYY-MM-DD``. `strptime` allein
+    genuegt nicht — es nimmt ``2026-9-6`` an, und genau diese Schreibweise hat am 2026-09-06 in der
+    Pflicht-Gegenlesung einen abgelaufenen Schluessel autorisiert, weil die Vergleiche damals
+    ZEICHEN verglichen (``"2026-10-05" > "2026-9-6"`` ist False). Alles Unkanonische ergibt ``None``,
+    und ``None`` autorisiert nichts.
+    """
+    roh = str(feld.get("not_after", ""))
+    try:
+        d = datetime.strptime(roh, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return d if d.strftime("%Y-%m-%d") == roh else None
 
 
 def _anchor_last_touched_at_head(repo: Path, head_sha: str) -> tuple[bool | None, str]:
@@ -748,19 +812,48 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     # _EVIDENCE_MAX_AGE_DAYS begrenzt: eine historische Nachpruefung alter Evidenz ist NICHT die
     # Aufgabe dieser Matrix, sie beurteilt einen Kandidaten mit frischer Messung. Wer nach Ablauf
     # weiter freigeben will, rollt den Schluessel — das ist die vorgesehene Bewegung.
+    # ZWEITE WIDERLEGUNG DERSELBEN STELLE, 2026-09-06. Hier stand: "Beide Formen sind
+    # ISO-8601-Praefixe; ein Zeichenvergleich der ersten zehn Stellen ordnet Kalendertage korrekt."
+    # Die erste Haelfte ist eine Annahme, keine Zusicherung — die Ankervalidierung erzwang keine
+    # feste Breite. Eine Linse der Pflicht-Gegenlesung hat daraus einen Bypass OHNE Rueckdatierung
+    # gebaut: mit `not_after=2026-9-6` im Anker und einem voellig EHRLICHEN produced_at im vierten
+    # Quartal ("2026-10-05" > "2026-9-6" ist False) lieferte diese Funktion `verified` fuer einen
+    # abgelaufenen Schluessel. Jetzt gilt beides: die Lesestelle laesst nur kanonisches `%Y-%m-%d`
+    # durch, und hier wird mit `date`-Objekten verglichen.
+    #
+    # ZEITZONE, ausgesprochen statt vorausgesetzt: `produced_at` MUSS RFC3339 mit literalem `Z`
+    # sein. Der produktive Aufrufer erzwingt das schon ueber `_provenance_error`, aber diese
+    # Funktion wird auch direkt gerufen (Tests, kuenftige Aufrufer) — und ein Offset wie `+09:00`
+    # liesse `[:10]` das ORTS- statt des UTC-Kalendertags liefern, also eine falsche Sperre oder
+    # eine falsche Freigabe je nach Vorzeichen. Deshalb wird die Form hier selbst geprueft, statt
+    # sich auf einen Aufrufer zu verlassen, dessen Vorleistung nirgends als Vertrag stand.
     frist = erlaubt["not_after"]
+    frist_d = _frist_datum(erlaubt)
     erzeugt = artifact.get("produced_at")
     if not isinstance(erzeugt, str) or not erzeugt:
         return ART_UNTRUSTED, ("the artifact names no produced_at, so its signing key's validity "
                                f"window (not_after={frist}) cannot be applied to it")
-    # Beide Formen sind ISO-8601-Praefixe; ein Zeichenvergleich der ersten zehn Stellen ordnet
-    # Kalendertage korrekt, ohne eine Zeitzonenrechnung zu erfinden, die der Anker nicht hergibt.
-    if erzeugt[:10] > frist[:10]:
+    if not _RFC3339_Z.match(erzeugt):
+        return ART_UNTRUSTED, (
+            f"produced_at={erzeugt!r} is not an RFC3339 UTC 'Z' timestamp — a local-offset form "
+            "would make the calendar-day comparison against the key's window read the wrong day, "
+            "so the window cannot be applied (fail-closed)")
+    if frist_d is None:
+        return ART_UNTRUSTED, (
+            f"the anchor entry for this key carries no parsed not_after date (raw {frist!r}) — "
+            "without one the validity window cannot be applied (fail-closed)")
+    try:
+        erzeugt_d = datetime.strptime(erzeugt[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return ART_UNTRUSTED, (f"produced_at={erzeugt!r} carries no readable calendar date, so the "
+                               f"key's validity window (not_after={frist}) cannot be applied")
+    if erzeugt_d > frist_d:
         return ART_UNTRUSTED, (
             f"the artifact was produced at {erzeugt} but the anchor limits this key to "
             f"not_after={frist} — evidence signed after a key's window is not admissible")
-    heute = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if heute > frist[:10]:
+    heute_d = datetime.now(timezone.utc).date()
+    heute = heute_d.strftime("%Y-%m-%d")
+    if heute_d > frist_d:
         return ART_UNTRUSTED, (
             f"the anchor limits this key to not_after={frist} and today is {heute} — the window is "
             f"closed NOW, so this key admits nothing, whatever produced_at={erzeugt} the artifact "
