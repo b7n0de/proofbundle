@@ -271,6 +271,53 @@ def _version_binding_error(register: dict, expected_version: str | None) -> str 
     return None
 
 
+#: Wie alt ein Registerkoerper hoechstens sein darf, gemessen an seinem eigenen ``generated_at``.
+#: DIESELBE ZAHL wie das Evidenzfenster der Bereitschaftsartefakte (audit_candidate_matrix
+#: ``_EVIDENCE_MAX_AGE_DAYS``), und das ist kein Zufall: die zwei Pruefungen sind EIN Mechanismus.
+#:
+#: WARUM ES SIE UEBERHAUPT BRAUCHT (Owner-Karte OA-89f05b70cd, Auflage 1, 2026-09-06). Die
+#: Gueltigkeitsfrist ``not_after`` eines Ankerschluessels wird gegen den MESSZEITPUNKT der Evidenz
+#: verglichen, nicht gegen "jetzt" — sonst wuerde Evidenz von gestern unzulaessig, bloss weil die
+#: Matrix heute laeuft. Genau daraus entsteht aber eine Rueckdatierungs-Luecke: wer einen
+#: widerrufenen Schluessel haelt, koennte ein Register mit einem alten ``generated_at`` signieren und
+#: damit in das Fenster zurueckreichen, in dem der Schluessel noch galt. Das Fenster hier begrenzt,
+#: wie weit dieses Zurueckreichen ueberhaupt tragen kann. Ohne die Frische waere die Fristpruefung
+#: eine Zusicherung, die nur teilweise gilt — und eine halb geltende Zusicherung ist die Klasse, die
+#: dieses Repository durchgehend als Fehler behandelt.
+_REGISTER_MAX_AGE_DAYS = 180
+#: Uhren laufen auseinander; eine Minute Vorlauf ist kein Betrug, eine Stunde waere einer.
+_REGISTER_FUTURE_SKEW_MINUTES = 5
+
+CODE_REGISTER_STALE = "REGISTER_STALE"
+
+
+def _freshness_error(register: dict, *, jetzt=None) -> str | None:
+    """``None`` wenn der Registerkoerper frisch genug ist, sonst der Grund.
+
+    Drei Zustaende, wie ueberall in dieser Datei: fehlend/unlesbar ist NICHT dasselbe wie alt, und
+    beides ist nicht dasselbe wie frisch. Ein ``generated_at``, das gar nicht lesbar ist, faellt
+    fail-closed — eine unmessbare Frische ist nie eine erfuellte."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    zeit = register.get("generated_at")
+    if not isinstance(zeit, str) or not zeit:
+        return (f"{CODE_REGISTER_STALE}: the register names no generated_at, so its age cannot be "
+                "measured — an unmeasurable freshness is never a satisfied one")
+    form = "%Y-%m-%dT%H:%M:%S.%f%z" if "." in zeit else "%Y-%m-%dT%H:%M:%S%z"
+    try:
+        erzeugt = datetime.strptime(zeit.replace("Z", "+0000"), form)
+    except ValueError as exc:
+        return f"{CODE_REGISTER_STALE}: generated_at={zeit!r} is not a usable timestamp: {exc}"
+    jetzt = jetzt or datetime.now(timezone.utc)
+    if erzeugt > jetzt + timedelta(minutes=_REGISTER_FUTURE_SKEW_MINUTES):
+        return (f"{CODE_REGISTER_STALE}: generated_at={zeit} lies in the future — a register cannot "
+                "predate its own run")
+    if erzeugt < jetzt - timedelta(days=_REGISTER_MAX_AGE_DAYS):
+        alter = (jetzt - erzeugt).days
+        return (f"{CODE_REGISTER_STALE}: generated_at={zeit} is {alter} days old, past the declared "
+                f"{_REGISTER_MAX_AGE_DAYS}-day window")
+    return None
+
+
 def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None,
                      authorised_pubkeys: set[str] | None = None) -> dict:
     """Fail-closed verify + count. Returns a verdict dict; never raises on a bad register.
@@ -306,6 +353,14 @@ def verify_and_count(repo: Path | str = REPO, expected_version: str | None = Non
     version_err = _version_binding_error(register, expected_version)
     if version_err is not None:
         return {"ok": False, "reason": version_err, "open_ids": [], **triple,
+                "register_version": register.get("version"), "source_digest": source_digest}
+    # NACH der Versionsbindung, VOR der Zaehlung: ein Register, das ueber die richtige Fassung
+    # spricht, aber aus dem Vorleben stammt, ist so wenig eine Aussage ueber heute wie eines ueber
+    # die falsche Fassung. Siehe die Herleitung bei _REGISTER_MAX_AGE_DAYS — diese Pruefung ist die
+    # zweite Haelfte der Fristpruefung, nicht ein zusaetzlicher Einfall.
+    frische_err = _freshness_error(register)
+    if frische_err is not None:
+        return {"ok": False, "reason": frische_err, "open_ids": [], **triple,
                 "register_version": register.get("version"), "source_digest": source_digest}
     findings = register.get("findings")
     if not isinstance(findings, list) or not findings:

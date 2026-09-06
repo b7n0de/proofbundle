@@ -381,20 +381,59 @@ _ANKER_ROLLEN: dict[str, frozenset[str]] = {
 }
 
 
-def _autorisierte_schluessel(repo: Path, check_id: str) -> tuple[set[str] | None, str]:
+def _autorisierte_schluessel(repo: Path, check_id: str, *,
+                             gemessen_am: str | None = None) -> tuple[set[str] | None, str]:
     """``(schluessel, grund)`` — wer darf fuer ``check_id`` unterschreiben?
 
     ``None`` heisst NICHT MESSBAR (kein git, kein lesbarer Anker) und ist beim Aufrufer
     fail-closed; ein LEERES Set heisst gemessen „niemand". Die Unterscheidung ist dieselbe wie
     ueberall in dieser Datei: eine unmessbare Sicherheitsrelation ist nie ihre Erfuellung.
+
+    ``gemessen_am`` ist der Messzeitpunkt der Evidenz, gegen den ``not_after`` geprueft wird —
+    ``produced_at`` bei den Bereitschaftsartefakten, ``generated_at`` beim Registerkoerper.
+    NICHT gegen "jetzt": Evidenz von gestern wird nicht unzulaessig, bloss weil die Matrix heute
+    laeuft. Das ist derselbe Vergleich, den ``_artifact_signature_ok`` fuer die Artefakte schon
+    fuehrt.
+
+    WARUM DIESER PARAMETER HINZUKAM (Owner-Karte OA-89f05b70cd, Option A, 2026-09-06). Diese
+    Funktion las ``not_after`` und wertete es NIE aus — sie filterte allein ueber ``role``. Fuer
+    C6.2/C6.3/C8.2 fiel das nicht auf, weil dort ``_artifact_signature_ok`` die Frist zusaetzlich
+    selbst prueft. Fuer C12.2 gab es diese zweite Instanz nicht: gemessen mit
+    ``not_after=2000-01-01`` blieb der Schluessel autorisiert und die Zeile meldete PASS. Der
+    ausgelieferte Vertrauensanker sagt woertlich das Gegenteil („last day this key may produce
+    evidence, compared against the artifact's produced_at"), und die Rolle
+    ``readiness_und_register_signierer_600`` deckt laut Rollentabelle ausdruecklich auch C12.2.
+    Ein Widerruf ueber das Absenken von ``not_after`` waere damit wirkungslos gewesen und haette
+    wirksam ausgesehen — und genau das ist die Richtung, in der ein Fehler am teuersten ist.
+
+    OHNE ``gemessen_am`` wird die Frist NICHT geprueft, und der Grund sagt es. Das ist kein
+    stilles Zurueckfallen: ein Aufrufer, der keinen Messzeitpunkt hat, kann die Frist nicht
+    anwenden, und eine erfundene Zeit waere schlimmer als eine benannte Luecke. Der einzige
+    freigabeentscheidende Aufrufer (C12.2) uebergibt ihn.
     """
     zuordnung, zustand = _trust_anchor(repo)
     if zustand == "unmeasurable":
         return None, "der Vertrauensanker ist hier nicht lesbar"
-    erlaubt = {pub for pub, feld in zuordnung.items()
+    passend = {pub for pub, feld in zuordnung.items()
                if check_id in _ANKER_ROLLEN.get(feld.get("role", ""), frozenset())}
+    if gemessen_am is None:
+        return passend, (f"{len(passend)} Schluessel im Anker autorisiert fuer {check_id} "
+                         f"(Ankerzustand {zustand}; not_after NICHT geprueft — kein Messzeitpunkt "
+                         f"uebergeben)")
+    # Zeichenvergleich der ersten zehn Stellen: beide Formen sind ISO-8601-Praefixe, und ein
+    # Kalendertagsvergleich braucht keine Zeitzonenrechnung, die der Anker gar nicht hergibt.
+    # Dieselbe Bauform wie bei den Artefakten, damit die zwei Pfade nicht auseinanderlaufen.
+    tag = str(gemessen_am)[:10]
+    erlaubt, abgelaufen = set(), []
+    for pub in passend:
+        frist = str(zuordnung[pub].get("not_after", ""))[:10]
+        if frist and tag > frist:
+            abgelaufen.append(f"{pub[:12]}…(not_after={frist})")
+        else:
+            erlaubt.add(pub)
+    schwanz = f", {len(abgelaufen)} abgelaufen: {abgelaufen}" if abgelaufen else ""
     return erlaubt, (f"{len(erlaubt)} Schluessel im Anker autorisiert fuer {check_id} "
-                     f"(Ankerzustand {zustand})")
+                     f"(Ankerzustand {zustand}, gemessen_am={tag}{schwanz})")
 
 #: Base64 in kanonischer Form fuer genau 32 Bytes: 43 Zeichen aus dem Standardalphabet plus genau
 #: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
@@ -2085,7 +2124,28 @@ def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
     # Zeile die autorisierten Schluessel an, und zwar aus demselben Ankerleser, den auch C6.2,
     # C6.3 und C8.2 benutzen. Ist der Anker hier nicht lesbar, ist das DATA_BLOCKED und keine
     # Freigabe: eine unmessbare Vertrauensbasis ist nie eine erfuellte.
-    erlaubt, anker_grund = _autorisierte_schluessel(repo, "C12.2")
+    # DER MESSZEITPUNKT KOMMT AUS DEM REGISTER SELBST, und zwar VOR jeder Pruefung (Owner-Karte
+    # OA-89f05b70cd, 2026-09-06). Das sieht nach Zirkel aus und ist keiner: gelesen wird ein noch
+    # ungeprueftes Feld, aber ausschliesslich, um die erlaubte Schluesselmenge zu VERKLEINERN. Diese
+    # Richtung ist sicher — wer den Wert manipuliert, kann sich damit hoechstens selbst aussperren,
+    # nie eine zusaetzliche Autorisierung erschleichen. Fehlt oder verrutscht das Feld, bleibt der
+    # Tag leer und die Frist wird nicht angewandt; die Frischepruefung in `findings_register`
+    # faengt denselben Fall eine Stufe spaeter fail-closed ab.
+    #
+    # DIE RUECKDATIERUNG IST DER GRUND FUER DIE ZWEITE HAELFTE. Wer einen widerrufenen Schluessel
+    # haelt, koennte ein Register mit altem `generated_at` signieren und in das Fenster
+    # zurueckreichen, in dem der Schluessel noch galt — die Signatur deckt das Feld ja mit ab. Was
+    # das begrenzt, ist nicht diese Zeile, sondern das Alterfenster in `findings_register`. Die
+    # zwei Pruefungen sind EIN Mechanismus, und deshalb sind sie zusammen gelandet.
+    gemessen_am = None
+    try:
+        _vorab = json.loads((repo / "audit_artifacts" / "findings_register_361.json")
+                            .read_text(encoding="utf-8"))
+        if isinstance(_vorab, dict) and isinstance(_vorab.get("generated_at"), str):
+            gemessen_am = _vorab["generated_at"]
+    except (OSError, ValueError):
+        gemessen_am = None
+    erlaubt, anker_grund = _autorisierte_schluessel(repo, "C12.2", gemessen_am=gemessen_am)
     if erlaubt is None:
         return DATA_BLOCKED, (f"the trust basis for the findings register cannot be read here: "
                               f"{anker_grund}")

@@ -169,6 +169,37 @@ class TestAuditCandidateMatrix(unittest.TestCase):
             self.m.CHECKS[:] = orig
 
 
+def _repo_mit_vertrauensanker(td) -> Path:
+    """Macht aus einem leeren Verzeichnis ein git-Repo MIT committetem Vertrauensanker.
+
+    WARUM ES DEN HELFER GIBT (2026-09-06). Die C12.2-Tests dieser Klasse messen die
+    REGISTER-Diskriminierung: fehlt das Register, ist es manipuliert, ist es von einem fremden
+    Schluessel signiert. Sie bauten dafuer ein blankes ``tempfile.TemporaryDirectory()``. Das genuegte,
+    solange ``c12_2_audit_pack_zero_p0p1`` direkt das Register-JSON las. Seit die Zeile ihre
+    autorisierten Schluessel aus dem COMMITTETEN Vertrauensanker holt (``git show HEAD:…``), faellt ein
+    Verzeichnis ohne ``.git`` schon eine Stufe FRUEHER — mit ``DATA_BLOCKED``, und zwar zu Recht: eine
+    unmessbare Vertrauensbasis ist nie eine erfuellte. Die Tests bekamen damit die richtige Antwort auf
+    die falsche Frage.
+
+    Ein Test, der eine Eigenschaft messen will, muss ALLES bereitstellen, was der Pruefling braucht,
+    AUSSER dem, was gerade unter Test steht. Der Helfer stellt genau die Vertrauensbasis bereit — er
+    kopiert den ECHTEN committeten Anker des Repositoriums, erfindet also keinen —, und laesst das
+    Register selbst unberuehrt, damit weiterhin dieses die Entscheidung traegt.
+    """
+    import subprocess
+    ziel = Path(td)
+    art = ziel / "audit_artifacts"
+    art.mkdir(parents=True, exist_ok=True)
+    quelle = Path(REPO) / "audit_artifacts" / "readiness_trusted_pubkeys.txt"
+    (art / "readiness_trusted_pubkeys.txt").write_bytes(quelle.read_bytes())
+    lauf = lambda *a: subprocess.run(["git", "-C", str(ziel), *a], capture_output=True, timeout=20)
+    lauf("init", "-q")
+    lauf("add", "audit_artifacts/readiness_trusted_pubkeys.txt")
+    lauf("-c", "user.email=fixture@local", "-c", "user.name=fixture",
+         "commit", "-q", "-m", "fixture: der Vertrauensanker, damit das REGISTER entscheidet")
+    return ziel
+
+
 class TestCheckDiscrimination(unittest.TestCase):
     """Per-check red/green discrimination (FIX 3): each check must FAIL when its own obligation is
     genuinely broken/absent, not only pass in aggregate. Modelled on
@@ -238,8 +269,8 @@ class TestCheckDiscrimination(unittest.TestCase):
         # RT-10: absence of the register is FAIL, not PASS and not PENDING (assertion-by-absence guard).
         # A fabricated '0 open P0/P1' note in a bare .md no longer grants anything — only the register counts.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "worklog.md").write_text("# notes\n\nWorked on 3.6.1. 0 open P0/P1 issues.\n")
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
@@ -259,8 +290,8 @@ class TestCheckDiscrimination(unittest.TestCase):
         # weiterhin die SIGNATUR misst und nicht die neue Versionsbindung (L5-G6-02) — sonst waere er
         # vakuoes: auch ohne jede Signaturpruefung rot, und niemand haette es bemerkt.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(reg))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
@@ -288,12 +319,22 @@ class TestCheckDiscrimination(unittest.TestCase):
                                "public_key_b64": base64.b64encode(pub).decode(),
                                "sig_b64": base64.b64encode(k.sign(canonical.canonicalize_statement(body))).decode()}
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(forged))
             verdict, detail = self.m.c12_2_audit_pack_zero_p0p1(repo=Path(td))
             self.assertEqual(verdict, self.m.FAIL, detail)
-            self.assertIn("pinned", detail.lower())
+            # AN DEN TYPISIERTEN CODE GEBUNDEN, NICHT AN PROSA (2026-09-06). Hier stand
+            # `assertIn("pinned", …)`. Das Wort beschrieb den modul-eigenen Pin in
+            # `findings_register.py` — genau den, den Teil F entfernt hat: die autorisierten
+            # Schluessel reisen seither aus dem committeten Vertrauensanker an. Die Ablehnung ist
+            # unveraendert richtig, nur ihre Begruendung heisst jetzt anders. Ein Test, der eine
+            # Zusicherung an ein Wort der Meldung haengt, misst die Formulierung und bricht, sobald
+            # jemand sie praezisiert — dieselbe Klasse, gegen die diese Datei anderswo selbst
+            # argumentiert ("a gate distinguishes ABSENT from REJECTED by a typed field, never by a
+            # message string"). Geprueft wird deshalb der Code, den der Leser wirklich vergibt.
+            import findings_register as _fr
+            self.assertIn(_fr.CODE_REGISTER_UNAUTHORISED_KEY.lower(), detail.lower())
 
     # --- 6-lens reverify: the four named adversarial variants, each must catch the fake (live) ---
 
@@ -304,8 +345,8 @@ class TestCheckDiscrimination(unittest.TestCase):
         # it; sort order across the tree can no longer let a foreign file win).
         import pre_tag_audit_gate as pta
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
-            art.mkdir(parents=True)
             (art / "000_marker_fake.md").write_text(  # '000_' sorts before '360/' in an rglob
                 "# six-lens adversarial notes touching 3.6.0\n\n**0 open P0 / P1.**\n")
             # C12.1: the existence locator finds no version-scoped record, evaluate() is not ok
@@ -320,6 +361,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         # version-scoped .md carrying '0 open P0/P1' grants NOTHING now — with no signed register present,
         # C12.2 is FAIL. This is the anti-gaming improvement: a stale/forged .md can no longer mask reality.
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             rec = Path(td) / "audit_artifacts" / "360"
             rec.mkdir(parents=True)
             (rec / "pre_tag_adversarial_audit_360.md").write_text(
@@ -418,6 +460,7 @@ class TestCheckDiscrimination(unittest.TestCase):
         # record — the anchor is the exact directory '360', never a raw substring.
         import pre_tag_audit_gate as pta
         with tempfile.TemporaryDirectory() as td:
+            _repo_mit_vertrauensanker(td)
             art = Path(td) / "audit_artifacts"
             sib = art / "1360"
             sib.mkdir(parents=True)
