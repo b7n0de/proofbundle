@@ -80,8 +80,17 @@ MUTATIONS = [
      "recomputed_b64 = stated_b64",
      "cli --verbose: fake recomputed root", True),
     # v1.3 — tlog-proof / ML-DSA / status list
+    # 2026-09-05: die Zielzeile auf den heutigen Quelltext gezogen. Das deep gate ersetzte am
+    # selben Tag den direkten `hmac.compare_digest(computed, log_res["root"])`-Vergleich durch
+    # `merkle.verify_inclusion(...)` (ein Orakel, das zusaetzlich die merkle_path-Kappe, die
+    # int_bits-Schranke und die Typboeden traegt, siehe tlogproof.py); der Operator nannte
+    # weiter den alten Wortlaut und war damit STALE — er meldete eine Luecke im PRUEFER, nicht
+    # im Code (`GAP [tlogproof: inclusion check disabled] pattern not found`). Ersatz
+    # mitgezogen; das Verdikt bleibt dasselbe (Inklusion komplett deaktiviert) — belegt in
+    # einem Wegwerfbaum als KILLED gegen die Baseline, nicht nur behauptet.
     ("src/proofbundle/tlogproof.py",
-     'inclusion_ok = hmac.compare_digest(computed, log_res["root"])',
+     'inclusion_ok = merkle.verify_inclusion(\n'
+     '                leaf_data, parsed["index"], log_res["tree_size"], parsed["proof"], log_res["root"])',
      "inclusion_ok = True",
      "tlogproof: inclusion check disabled", True),
     ("src/proofbundle/tlogproof.py",
