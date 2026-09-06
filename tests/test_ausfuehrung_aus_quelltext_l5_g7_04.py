@@ -28,6 +28,7 @@ ENTFERNUNG behauptet, erteilte das Bestehen fuer das Vorhandensein.
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -136,10 +137,32 @@ _ATTRAPPEN = [
      "name: published-artifact-gate\non: [push]\n"
      "jobs:\n  cleanroom:\n    steps:\n"
      "      - run: pip install dist/proofbundle.tar.gz\n"),
+    # AUFLAGE C7 (Runde 2): drei weitere Attrappen fuer die drei neu gehaerteten Luecken.
+    ("unverbundene_jobs",
+     "name: published-artifact-gate\non: [push]\n"
+     "jobs:\n"
+     "  builder:\n    steps:\n"
+     "      - run: python -m build --sdist --outdir dist\n"
+     "  installer:\n    steps:\n"
+     "      - run: pip install dist/proofbundle.tar.gz\n"),
+    ("nur_hilfe_text",
+     "name: published-artifact-gate\non: [push]\n"
+     "jobs:\n  cleanroom:\n    steps:\n"
+     "      - run: python -m build --help\n"
+     "      - run: pip install dist/proofbundle.tar.gz\n"),
+    ("bau_mit_continue_on_error",
+     "name: published-artifact-gate\non: [push]\n"
+     "jobs:\n  cleanroom:\n    continue-on-error: true\n    steps:\n"
+     "      - run: python -m build --sdist --outdir dist\n"
+     "      - run: pip install dist/proofbundle.tar.gz\n"),
     ("nur_ein_name_der_das_bein_behauptet",
      "name: sdist cleanroom published artifact gate\non: [push]\njobs: {}\n"),
     ("kein_yaml_dokument", "this is not a mapping at all\n"),
 ]
+
+#: Zwei unverbundene Jobs, je einer haelfte — eigens benannt, weil der Gate-Meta-Test unten die
+#: VORFASSUNG der Pruefung direkt dagegen misst (nicht nur ueber die Attrappen-Parametrisierung).
+_UNVERBUNDENE_JOBS = next(t for n, t in _ATTRAPPEN if n == "unverbundene_jobs")
 
 
 def _lege_workflows(td: Path, veroeffentlicht: str, ci: str = _ECHTE_CI) -> Path:
@@ -247,6 +270,99 @@ def test_gate_meta_die_attrappen_faengen_den_eingepflanzten_defekt():
         "gerade der gemessene Live-Fall trifft die alte Zeile nicht mehr"
 
 
+@_braucht_yaml
+def test_gate_meta_unverbundene_jobs_wurden_vorher_faelschlich_zugelassen():
+    """GATE-META-TEST, Auflage C7 (Runde 2): eine nachgebaute VORFASSUNG von
+    ``_published_artifact_leg_facts`` — baut/benutzt global ODER-verknuepft ueber ALLE Jobs, statt
+    je Job gefordert — haette zwei unverbundene Jobs (je einer Haelfte) faelschlich als
+    "Bau UND Benutzung deklariert" gelesen. Ohne diesen Test waere die Jobweite Engfuehrung unten
+    unbewiesen: sie koennte durch einen spaeteren Umbau leise wieder aufgeweicht werden."""
+    import yaml
+    m = _matrix()
+
+    def vorfassung(text: str) -> tuple[bool, bool]:
+        doc = yaml.safe_load(text)
+        baut = benutzt = False
+        for job in (doc.get("jobs") or {}).values():
+            if not isinstance(job, dict):
+                continue
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict):
+                    continue
+                run = step.get("run")
+                if isinstance(run, str):
+                    # `_run_touches_distribution` liefert seit A6 (Nachtrag 3) eine GEORDNETE Liste
+                    # `(art, ordner)` statt zweier Wahrheitswerte — die Reihenfolge ist der ganze
+                    # Punkt der Haertung. Die Vorfassung wird hier deshalb aus der neuen Zerlegung
+                    # nachgebaut: sie wirft Ordner und Reihenfolge weg und ODER-verknuepft, genau
+                    # wie frueher. Der Nachbau bleibt damit das, was er sein soll — die ALTE Regel,
+                    # ausgedrueckt in den heutigen Bausteinen.
+                    schritte = m._run_touches_distribution(run)
+                    b = any(art == "baut" for art, _ in schritte)
+                    u = any(art == "benutzt" for art, _ in schritte)
+                    baut, benutzt = baut or b, benutzt or u
+        return baut, benutzt
+
+    assert vorfassung(_UNVERBUNDENE_JOBS) == (True, True), (
+        "die nachgebaute Vorfassung erkennt die zwei Haelften nicht mehr — der Fund ist an dieser "
+        "Attrappe nicht mehr reproduzierbar")
+    assert m._published_artifact_leg_facts(_UNVERBUNDENE_JOBS) != (True, True), (
+        "die gehaertete, jobweise Fassung laesst unverbundene Jobs immer noch durch")
+    with tempfile.TemporaryDirectory() as td:
+        _lege_workflows(Path(td), _UNVERBUNDENE_JOBS)
+        verdikt, grund = m.c1_1_two_ci_gates(repo=Path(td))
+    assert verdikt == m.FAIL, f"unverbundene Jobs (je eine Haelfte) wurden zugelassen: {grund}"
+
+
+#: DIE ZWEI FAELLE, DIE DER REVIEWER WOERTLICH NANNTE (Runde 3, Abschnitt 2, "Die C1-Relation"):
+#: "Ein Job kann zuerst ein altes Wheel installieren und spaeter in einen anderen Ordner bauen und
+#: trotzdem bestehen." Beides ist Gleichzeitigkeit im selben Job — und Gleichzeitigkeit ist keine
+#: Datenflussrelation. Beide Attrappen bestanden die jobweise Fassung von Runde 2.
+_UMGEKEHRTE_REIHENFOLGE = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: pip install dist/proofbundle-alt-py3-none-any.whl
+      - run: python -m build
+"""
+
+_ANDERER_ORDNER = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: python -m build --outdir out
+      - run: pip install dist/proofbundle-alt-py3-none-any.whl
+"""
+
+
+def test_gate_meta_koexistenz_im_selben_job_reicht_nicht_mehr():
+    """AUFLAGE A6 (Nachtrag 3): Artefaktfluss statt Koexistenz.
+
+    Die jobweise Engfuehrung aus Runde 2 verlangte Bau UND Benutzung im SELBEN Job — aber ohne
+    Reihenfolge und ohne Pfadgleichheit. Genau die zwei Luecken nennt Runde 3, und genau sie stehen
+    hier als Attrappe. Die dritte Zeile ist die Gegenrichtung: ein ECHTER Fluss muss weiter
+    bestehen, sonst waere die Haertung nur eine Verweigerung.
+    """
+    m = _matrix()
+    assert m._published_artifact_leg_facts(_UMGEKEHRTE_REIHENFOLGE) != (True, True), (
+        "erst installieren, dann bauen gilt als Artefaktfluss — die Reihenfolge wird nicht gemessen")
+    assert m._published_artifact_leg_facts(_ANDERER_ORDNER) != (True, True), (
+        "Bau nach out/ und Benutzung aus dist/ gilt als Artefaktfluss — der Pfad wird nicht gemessen")
+    echt = """\
+name: nothing
+jobs:
+  eins:
+    steps:
+      - run: python -m build --outdir out
+      - run: pip install out/proofbundle-6.0.0-py3-none-any.whl
+"""
+    assert m._published_artifact_leg_facts(echt) == (True, True), (
+        "ein echter Fluss in einen anderen Ordner wird abgewiesen — die Pruefung misst den "
+        "Ordnernamen statt der Relation")
+
+
 # ── Auflage C5: dieselbe Klasse auf der Nachbarflaeche pre_tag_audit_gate ─────────────────────
 #
 # GEMESSEN, nicht behauptet. `_positive_audit_marker` schliesst aus PROSA auf ein Ereignis (der
@@ -277,21 +393,89 @@ def test_c5_die_prosa_marke_traegt_kein_freigabeentscheidendes_verdikt():
     assert mit["changelog_is_presentational"] is True
 
 
+def _aufrufer_von(quelle: str, aufgerufene_funktion: str) -> list[str]:
+    """Fuer JEDEN Aufruf ``aufgerufene_funktion(...)`` im Modul: der Name der Top-Level-Funktion,
+    in deren Rumpf der Aufruf per AST steht (oder ``"<modul>"`` auf Modulebene).
+
+    AUFLAGE C8 (Runde 2): der Aufrufer wird per AST bestimmt, NICHT lexikalisch. Die Vorfassung
+    dieses Tests schnitt Zeilen als TEXT aus und bildete daraus per String-Suche
+    (``quelle.split(z)[0].rsplit("def ", 1)[-1]``), ob ``audit_records_for`` „davor" vorkommt — ein
+    Ausdruck, den ein ``... or True`` am Ende unwiderruflich immer wahr machte, unabhaengig vom
+    Ergebnis der String-Suche selbst. Diese Funktion baut stattdessen den echten Syntaxbaum und
+    verfolgt die Funktionsverschachtelung; ein Aufruf in einem Kommentar oder String-Literal
+    existiert darin gar nicht erst."""
+    baum = ast.parse(quelle)
+
+    class _Sucher(ast.NodeVisitor):
+        def __init__(self):
+            self.pfad: list[str] = ["<modul>"]
+            self.treffer: list[str] = []
+
+        def _mit_rahmen(self, knoten):
+            self.pfad.append(knoten.name)
+            self.generic_visit(knoten)
+            self.pfad.pop()
+
+        def visit_FunctionDef(self, knoten):
+            self._mit_rahmen(knoten)
+
+        def visit_AsyncFunctionDef(self, knoten):
+            self._mit_rahmen(knoten)
+
+        def visit_Call(self, knoten):
+            if isinstance(knoten.func, ast.Name) and knoten.func.id == aufgerufene_funktion:
+                self.treffer.append(self.pfad[-1])
+            self.generic_visit(knoten)
+
+    sucher = _Sucher()
+    sucher.visit(baum)
+    return sucher.treffer
+
+
 def test_c5_die_marke_hat_ausser_der_darstellung_nur_test_aufrufer():
-    """INVENTAR der Aufrufer, am Quelltext gemessen: `_positive_audit_marker` wird in der Produktion
-    nur von `audit_records_for` (einem Fund-LOKALISIERER) und von der ausgewiesen darstellenden
-    Zeile in `evaluate()` benutzt. Faende sich ein dritter Aufrufer, waere das ein neuer Befund
-    dieser Klasse — und dieser Test nennt ihn."""
+    """INVENTAR der Aufrufer, PER AST gemessen (Auflage C8, Runde 2): `_positive_audit_marker` wird
+    in der Produktion nur von `audit_records_for` (einem Fund-LOKALISIERER) und von der ausgewiesen
+    darstellenden Zeile in `evaluate()` benutzt. Faende sich ein dritter Aufrufer, waere das ein
+    neuer Befund dieser Klasse — und dieser Test nennt ihn, ueber die tatsaechliche Zuordnung im
+    Syntaxbaum, nicht ueber eine Zeichenketten-Suche, die ein ``or True`` unwiderruflich bestehen
+    liess (der Fund selbst, siehe Docstring von ``_aufrufer_von``)."""
     quelle = (REPO / "scripts" / "pre_tag_audit_gate.py").read_text(encoding="utf-8")
-    aufrufe = [z.strip() for z in quelle.splitlines()
-               if "_positive_audit_marker(" in z and not z.strip().startswith(("#", '"', "def "))
-               and "``" not in z]
-    assert len(aufrufe) == 2, f"unerwartete Aufrufmenge: {aufrufe}"
-    assert any("audit_records_for" in quelle.split(z)[0].rsplit("def ", 1)[-1] or True
-               for z in aufrufe)
-    assert any("changelog_ok" in z for z in aufrufe), "die darstellende Zeile fehlt"
+    aufrufer = _aufrufer_von(quelle, "_positive_audit_marker")
+    assert len(aufrufer) == 2, f"unerwartete Aufrufmenge: {aufrufer}"
+    assert sorted(aufrufer) == ["audit_records_for", "evaluate"], (
+        f"ein Aufrufer ausserhalb der bekannten zwei Funktionen: {aufrufer} — das ist ein neuer "
+        "Befund dieser Klasse, keine Bestaetigung des alten")
+    # Die darstellende Zeile steht wirklich IN evaluate() und nennt ihr Feld.
+    aufrufe_zeilen = [z.strip() for z in quelle.splitlines() if "_positive_audit_marker(" in z
+                      and not z.strip().startswith(("#", '"', "def "))]
+    assert any("changelog_ok" in z for z in aufrufe_zeilen), "die darstellende Zeile fehlt"
     # Und der Verdikt-Pfad nennt sie nicht: `ok` wird aus `verified` gebildet.
     koerper = quelle.split("def evaluate(", 1)[1]
     assert "ok = bool(verified)" in koerper
     assert koerper.index("ok = bool(verified)") < koerper.index("changelog_ok = "), \
         "das Verdikt wird nach der Prosa gebildet — dann koennte es an ihr haengen"
+
+
+def test_gate_meta_ein_dritter_aufrufer_wird_per_ast_erkannt():
+    """GATE-META-TEST (Auflage C8, Runde 2): ein NACHGEBAUTES Modul mit einem dritten Aufrufer
+    ausserhalb der bekannten zwei Funktionen muss ``_aufrufer_von`` als DREI verschiedene Aufrufer
+    zeigen — sonst misst die Sicherung die Klasse nicht. Und die Gegenprobe: das nachgebaute
+    ``... or True`` haette JEDE Aufrufmenge als bestehend behauptet, auch eine falsche."""
+    boesartig = (
+        "def audit_records_for(x):\n"
+        "    return _positive_audit_marker(x)\n"
+        "\n"
+        "def evaluate(x):\n"
+        "    changelog_ok = _positive_audit_marker(x)\n"
+        "    return changelog_ok\n"
+        "\n"
+        "def _ein_dritter_versteckter_aufrufer(x):\n"
+        "    return _positive_audit_marker(x)\n"
+    )
+    aufrufer = _aufrufer_von(boesartig, "_positive_audit_marker")
+    assert len(aufrufer) == 3, f"der Detektor sieht nicht alle drei Aufrufer: {aufrufer}"
+    assert sorted(aufrufer) == sorted(
+        ["audit_records_for", "evaluate", "_ein_dritter_versteckter_aufrufer"])
+    # Die Gegenprobe: der ALTE, durch `... or True` immer wahre Ausdruck haette hier ebenfalls
+    # bestanden — er pruefte nie etwas, das von der Aufrufmenge abhing.
+    assert (True or False) is True  # dokumentiert, was `... or True` tatsaechlich bedeutet: konstant wahr
