@@ -6,7 +6,7 @@
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
     "python": "3.10.12"
   },
-  "total_relation_vectors": 40,
+  "total_relation_vectors": 42,
   "all_agree": true,
   "rows": [
     {
@@ -815,6 +815,29 @@
       "rust_reproduces_expectation": true
     },
     {
+      "caseId": "relation-target-subject-ambiguous",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
       "caseId": "relation-target-subject-correct-pass",
       "kind": "decision_relation",
       "expected": {
@@ -839,6 +862,29 @@
     },
     {
       "caseId": "relation-target-subject-mismatch",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "MALFORMED",
+        "lineage": "FAIL",
+        "policyVerdict": null
+      },
+      "python_exit": 2,
+      "rust_exit": 2,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-target-subject-missing",
       "kind": "decision_relation",
       "expected": {
         "exitClass": "MALFORMED",
@@ -929,5 +975,25 @@
       "agree_python_rust": true,
       "rust_reproduces_expectation": true
     }
-  ]
+  ],
+  "version": "6.0.0",
+  "candidate": {
+    "commit": "e660667944c49a38129a8e7e14779e30dbdc319b",
+    "tree_digest": "cf260a3880d18f1e2cfb8e655df03ae95b33ab9c08ab919c8c330c5d44afea92",
+    "sdist_sha256": "c4490ac46c80474cfcaa5d784073f59924b9135e0dfbfaf1bba87c02c4382d95",
+    "wheel_sha256": "58759ce9add58a95f8d4c44721aa4fda2f11c7448781ca559dfc6b79e6e46cbd"
+  },
+  "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
+  "producer": {
+    "tool": "tools/pb_verify_rs/crosscheck.py",
+    "tool_version": "6.0.0"
+  },
+  "input_digest": "b10d904b327c0d2faf277b122b8a84c812f65c54743b0ee359e84315790fc692",
+  "signer_role": "readiness_und_register_signierer_600",
+  "produced_at": "2026-09-06T16:10:42Z",
+  "signature": {
+    "alg": "ed25519",
+    "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
+    "sig_b64": "iEEKZY6ELlnoy9HZKmcg7zjyHX8cAoY6MvjBVyh+belGcrFH9DbhJH95V2FDVCg13i3UMpexcoCoQI+JwK74BQ=="
+  }
 }
