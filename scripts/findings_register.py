@@ -33,9 +33,26 @@ if str(REPO / "src") not in sys.path:
 
 REGISTER_REL = "audit_artifacts/findings_register_361.json"
 
-# Pinned root of trust (committed): the ed25519 public key the register MUST be signed by. Rotating the key
-# is a deliberate, reviewed change to THIS constant — a register signed by any other key fails closed.
-PINNED_PUBKEY_B64 = "RJPyprKWbAUi0kTKNTLP6MESoz40dYNJDN1xxRNGv2o="
+# KEIN GEPINNTER SCHLUESSEL MEHR IN DIESER DATEI (Teil F, 2026-09-06).
+#
+# WAS HIER STAND UND WARUM ES FALSCH WAR. Bis hierher hielt dieses Modul eine eigene Konstante
+# ``PINNED_PUBKEY_B64`` — einen Schluessel, dessen private Haelfte auf dem BAUHOST lag und der mit
+# ``scripts/gen_findings_register.py`` im selben Prozess erzeugt und verwendet wurde, der das
+# Register baute. Daneben fuehrt das Repositorium seit Teil A5 einen Owner-autorisierten
+# Vertrauensanker (``audit_artifacts/readiness_trusted_pubkeys.txt``), und die Owner-Entscheidung
+# dazu (Karte OA-e10ba2ba39, 2026-09-06) sagt woertlich: der Ankerschluessel signiert „ausschliesslich
+# Bereitschaftsartefakte C6.2, C6.3, C8.2 und den Registerkoerper … Private Haelfte bleibt beim Owner
+# am Mac, nichts davon auf dem Farmer."
+#
+# Zwei Quellen fuer dieselbe Frage „wer darf das Register beglaubigen" — und sie sagten
+# Verschiedenes: der Anker nannte den Owner-Schluessel, die Konstante hier einen anderen. Gemessen
+# am 2026-09-06 auf Kandidat a62d8cb liefen beide nebeneinander, ohne dass irgendetwas sie
+# verglich. Deshalb gibt es hier keine zweite Quelle mehr: die autorisierten Schluessel REIST der
+# Aufrufer an, und der Aufrufer ist das Tor, das den Anker ohnehin schon streng liest.
+#
+# ``authorised_pubkeys=None`` heisst NICHT „nimm irgendeinen" — es heisst „der Aufrufer hat nicht
+# gebunden", und das ist fail-closed. Ein Register ohne benannte Autorisierung entscheidet nichts.
+CODE_REGISTER_UNAUTHORISED_KEY = "REGISTER_UNAUTHORISED_KEY"
 
 _GATING_SEVERITIES = {"P0", "P1"}
 # 6-lens gate L5-01: severity is DENY-by-default (like status) — a string severity whose normalized form is
@@ -57,15 +74,27 @@ def _canonical_bytes(body: dict) -> bytes:
     return canonical.canonicalize_statement(body)
 
 
-def _signature_ok(register: dict) -> tuple[bool, str]:
+def _signature_ok(register: dict, authorised_pubkeys: set[str] | None) -> tuple[bool, str]:
     sig = register.get("signature")
     if not isinstance(sig, dict):
         return False, "register carries no signature block"
     if sig.get("alg") != "ed25519":
         return False, f"unexpected signature alg {sig.get('alg')!r}"
     pub_b64 = sig.get("public_key_b64")
-    if pub_b64 != PINNED_PUBKEY_B64:
-        return False, "register public key does not match the pinned root of trust"
+    # DIE AUTORISIERUNG KOMMT VON AUSSEN, und ihr Fehlen ist ein Nein. Ein leeres Set und None
+    # bedeuten dasselbe Ergebnis (fail-closed), aber NICHT dasselbe: None heisst „nicht gebunden",
+    # ein leeres Set heisst „gebunden, und der Anker autorisiert niemanden fuer diese Zeile". Beide
+    # Gruende stehen ausgeschrieben, damit ein Leser sie unterscheiden kann.
+    if authorised_pubkeys is None:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the caller passed no authorised key set — "
+                       "an unbound caller does not decide a release (fail-closed)")
+    if not authorised_pubkeys:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the trust anchor authorises no key for this "
+                       "check — nobody may sign the register (fail-closed)")
+    if not isinstance(pub_b64, str) or pub_b64 not in authorised_pubkeys:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the register is signed by "
+                       f"{str(pub_b64)[:16]}…, which the trust anchor does not authorise for this "
+                       "check")
     try:
         pub = base64.b64decode(pub_b64)
         raw_sig = base64.b64decode(sig.get("sig_b64", ""))
@@ -242,7 +271,8 @@ def _version_binding_error(register: dict, expected_version: str | None) -> str 
     return None
 
 
-def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None) -> dict:
+def verify_and_count(repo: Path | str = REPO, expected_version: str | None = None,
+                     authorised_pubkeys: set[str] | None = None) -> dict:
     """Fail-closed verify + count. Returns a verdict dict; never raises on a bad register.
 
     ``expected_version`` binds the register's SIGNED ``version`` field to the version under test
@@ -266,7 +296,7 @@ def verify_and_count(repo: Path | str = REPO, expected_version: str | None = Non
     if not isinstance(register, dict) or register.get("schema") != "proofbundle.findings_register.v1":
         return {"ok": False, "reason": "register has the wrong schema (fail-closed)",
                 "open_ids": [], **triple, "source_digest": source_digest}
-    sig_ok, sig_detail = _signature_ok(register)
+    sig_ok, sig_detail = _signature_ok(register, authorised_pubkeys)
     if not sig_ok:
         return {"ok": False, "reason": f"register signature invalid: {sig_detail} (fail-closed)",
                 "open_ids": [], **triple, "source_digest": source_digest}
@@ -331,9 +361,44 @@ def _pyproject_version(repo: Path) -> str | None:
     return m.group(1) if m else None
 
 
+def _autorisierte_schluessel_vom_tor(repo: Path, check_id: str = "C12.2") -> set[str] | None:
+    """Die fuer ``check_id`` autorisierten Schluessel — aus DEM Anker-Leser des Tors, nicht aus einem zweiten.
+
+    WARUM DER IMPORT HIER DRIN STEHT und nicht oben: ``audit_candidate_matrix`` importiert dieses
+    Modul (``import findings_register as fr``). Ein Import in der Gegenrichtung auf Modulebene waere
+    ein Zyklus. Die CLI ist der einzige Ort, der ihn braucht — sie wird von niemandem importiert —,
+    und sie holt ihn erst, wenn sie laeuft. Der Bibliothekspfad bleibt damit azyklisch: wer
+    ``verify_and_count`` aufruft, REICHT die Schluessel an, und das ist das Tor.
+
+    Rueckgabe ``None`` heisst NICHT MESSBAR (die Matrix ist hier nicht importierbar, der Anker nicht
+    lesbar) — der Aufrufer macht daraus fail-closed, nie ein Bestehen.
+    """
+    import sys as _sys  # noqa: PLC0415
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import audit_candidate_matrix as m  # noqa: PLC0415
+    except Exception:                        # noqa: BLE001 - kein Importfehler darf hier ein Urteil faellen
+        return None
+    try:
+        # `_trust_anchor` liefert (Schluessel, Zustand) und liest den COMMITTETEN Blob — nicht den
+        # Arbeitsbaum. Genau diese Wahl ist der Grund, den Leser des Tors zu nehmen statt einen
+        # eigenen: ein schmutziger Checkout koennte sonst einen Schluessel einlegen und sich selbst
+        # beglaubigen. `zustand` != "ok" heisst NICHT MESSBAR beziehungsweise LEER, und beides ist
+        # hier dasselbe Ergebnis wie ein leeres Set: niemand ist autorisiert.
+        schluessel, zustand = m._trust_anchor(repo)
+    except Exception:                        # noqa: BLE001
+        return None
+    if zustand == "unmeasurable":
+        return None
+    return {pub for pub, feld in schluessel.items()
+            if check_id in m._ANKER_ROLLEN.get(feld.get("role", ""), frozenset())}
+
+
 def main(argv=None) -> int:
-    # Die CLI bindet gegen die ausgeliefernde Identitaet, sonst misst sie etwas anderes als das Tor.
-    r = verify_and_count(REPO, expected_version=_pyproject_version(REPO))
+    # Die CLI bindet gegen die ausgeliefernde Identitaet, sonst misst sie etwas anderes als das Tor —
+    # und sie bindet gegen den ANKER, sonst misst sie eine andere Vertrauensbasis als das Tor.
+    r = verify_and_count(REPO, expected_version=_pyproject_version(REPO),
+                         authorised_pubkeys=_autorisierte_schluessel_vom_tor(REPO))
     print(json.dumps(r, indent=2, ensure_ascii=False))
     return 0 if r["ok"] else 1
 

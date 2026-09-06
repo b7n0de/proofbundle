@@ -40,15 +40,36 @@ class TestFindingsRegisterVerify(unittest.TestCase):
         self.fr = _load("fr_rt10", "scripts/findings_register.py")
         self.real = REPO / "audit_artifacts" / "findings_register_361.json"
 
-    def _run_with(self, register_obj):
+    def _autorisiert(self) -> set:
+        """Die Schluessel, die der ANKER fuer die Registerzeile erteilt — eine Quelle, nicht zwei.
+
+        Seit Teil F (2026-09-06) fuehrt `findings_register` keinen eigenen Pin mehr; wer prueft,
+        reicht die autorisierten Schluessel an. Die Tests holen sie ueber denselben Weg wie das
+        Tor, damit hier keine dritte Wahrheit entsteht.
+        """
+        import audit_candidate_matrix as m  # noqa: PLC0415
+        erlaubt, _ = m._autorisierte_schluessel(REPO, "C12.2")
+        return erlaubt or set()
+
+    def _run_with(self, register_obj, authorised=None):
         with tempfile.TemporaryDirectory() as td:
             art = Path(td) / "audit_artifacts"
             art.mkdir(parents=True)
             (art / "findings_register_361.json").write_text(json.dumps(register_obj))
-            return self.fr.verify_and_count(Path(td))
+            return self.fr.verify_and_count(
+                Path(td), authorised_pubkeys=self._autorisiert() if authorised is None else authorised)
 
     def test_control_real_register_verifies(self):
-        r = self.fr.verify_and_count(REPO)
+        """Das COMMITTETE Register traegt eine Signatur, die der Anker autorisiert.
+
+        DIESER TEST IST DIE NAHTSTELLE DER ZEREMONIE, und er sagt vor der Signatur ehrlich Nein:
+        bis der Owner den 6.0.0-Registerkoerper am Mac unterschrieben hat, liegt hier noch das
+        alte, vom Bauhost-Schluessel signierte 3.6.1-Register, und der Anker autorisiert diesen
+        Schluessel nicht. Rot heisst hier also 'die Zeremonie ist noch nicht gelaufen' — nicht
+        'der Riegel ist kaputt'. Gruen wird er mit dem assemblierten Register, keinen Schritt
+        frueher.
+        """
+        r = self.fr.verify_and_count(REPO, authorised_pubkeys=self._autorisiert())
         self.assertTrue(r["ok"], r["reason"])
         self.assertEqual(r["open_ids"], [])
         self.assertGreater(r["evaluated_count"], 0)
@@ -86,7 +107,7 @@ class TestFindingsRegisterVerify(unittest.TestCase):
             ],
         }
         orig = self.fr._signature_ok
-        self.fr._signature_ok = lambda register: (True, "bypassed for wiring test")
+        self.fr._signature_ok = lambda register, authorised=None: (True, "bypassed for wiring test")
         try:
             r = self._run_with(reg)
         finally:
@@ -110,7 +131,11 @@ class TestFindingsRegisterVerify(unittest.TestCase):
         }
         r = self._run_with(forged)
         self.assertFalse(r["ok"])
-        self.assertIn("pinned", r["reason"].lower())
+        # Der Grund heisst seit Teil F (2026-09-06) nicht mehr "pinned": es gibt keinen zweiten Pin
+        # in diesem Modul mehr, sondern die Autorisierung aus dem Vertrauensanker. Die AUSSAGE ist
+        # dieselbe geblieben — ein fremder Schluessel traegt das Register nicht —, nur ihre Quelle
+        # ist jetzt eine statt zwei.
+        self.assertIn(self.fr.CODE_REGISTER_UNAUTHORISED_KEY, r["reason"])
 
 
 class TestResolveCurrent(unittest.TestCase):
@@ -171,7 +196,7 @@ class TestResolveCurrent(unittest.TestCase):
         real = Path(REPO) / "audit_artifacts" / "findings_register_361.json"
         body = {k: v for k, v in json.loads(real.read_text(encoding="utf-8")).items() if k != "signature"}
         orig = self.fr._signature_ok
-        self.fr._signature_ok = lambda register: (True, "bypassed for wiring test")
+        self.fr._signature_ok = lambda register, authorised=None: (True, "bypassed for wiring test")
         try:
             for hidden in ("P0​", "​P0", "​", "P0 ", "XYZ", "", "critical"):
                 reg = dict(body)

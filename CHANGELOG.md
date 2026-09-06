@@ -216,6 +216,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   sha256 that the pre-tag receipt pins as `audit_output_digest`, so an edit there would have
   broken the attestation for the sake of a paragraph.
 
+- **The findings register decides a release only if the trust anchor authorises its signer, and only
+  for the version it names.** Two holes closed together. The register verifier used to carry its own
+  pinned key inside the module, so the artefact and the thing that authorised it lived in the same
+  place; the authorised set now travels in from the caller, read from
+  `audit_artifacts/readiness_trusted_pubkeys.txt` with the anchor's `role=` field deciding which
+  check a key may speak for. A caller that passes no set is refused with
+  `REGISTER_UNAUTHORISED_KEY` — an unbound caller does not decide a release — rather than falling
+  back on a module default. And the signed `version` of the register is bound to the version under
+  test: measured on 049b3195, a register signed `3.6.1` and generated 2026-07-18 reported PASS for
+  6.0.0, as did one signed `0.0.1` and one with no version field at all; the signature was valid in
+  every case, because nothing compared the two numbers. The generator gained the same emit/assemble
+  split the pre-tag receipt already had, so the release signature is produced where the private key
+  lives and never on the build host.
 - **The mutation gate now compares two numbers from the same test set.** `baseline` and the
   closing run used the full suite while each mutant ran without the excluded module, so
   `red > baseline` weighed two different sets against each other. The bias ran toward false

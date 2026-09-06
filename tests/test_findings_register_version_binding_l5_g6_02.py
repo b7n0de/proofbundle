@@ -71,14 +71,25 @@ class RegisterVersionBinding(unittest.TestCase):
         path has its own tests; what is measured here is the BINDING, so only that one step is
         bypassed — and the real, signed register is used for the control."""
         orig = self.fr._signature_ok
-        self.fr._signature_ok = lambda register: (True, "bypassed: this test measures the binding")
+        # Zweiter Parameter seit Teil F (2026-09-06): die Autorisierung reist von aussen an, statt
+        # aus einem modul-eigenen Pin zu kommen. Die Attrappe nimmt ihn entgegen und ignoriert ihn
+        # — sie umgeht ja gerade diesen Schritt.
+        self.fr._signature_ok = lambda register, authorised=None: (
+            True, "bypassed: this test measures the binding")
         self.addCleanup(lambda: setattr(self.fr, "_signature_ok", orig))
 
     def test_the_committed_register_does_not_decide_a_different_release(self):
         """THE FINDING, on the real committed artefact and the real version under test."""
         acm = _load("acm_l5g602", "scripts/audit_candidate_matrix.py")
         self.addCleanup(lambda: sys.modules.pop("acm_l5g602", None))
-        r = self.fr.verify_and_count(REPO, expected_version=acm.VERSION_UNDER_TEST)
+        # SEIT TEIL F reist die Autorisierung von aussen an, und der Aufrufer OHNE Schluesselsatz
+        # faellt schon an der Signaturstufe (REGISTER_UNAUTHORISED_KEY) — vor jeder Versionsfrage.
+        # Dieser Test misst das Verhalten des FREIGABEENTSCHEIDENDEN Aufrufers, also holt er die
+        # Schluessel aus derselben Quelle wie C12.2, statt unbunden zu rufen und den Fehlschlag der
+        # falschen Stufe zuzuschreiben.
+        erlaubt, _grund = acm._autorisierte_schluessel(REPO, "C12.2")
+        r = self.fr.verify_and_count(REPO, expected_version=acm.VERSION_UNDER_TEST,
+                                     authorised_pubkeys=erlaubt)
         if self.real.get("version") == acm.VERSION_UNDER_TEST:
             self.assertTrue(r["ok"], r["reason"])            # a 6.0.0 register exists: bound and equal
         else:
@@ -118,7 +129,15 @@ class RegisterVersionBinding(unittest.TestCase):
 
     def test_an_unbound_caller_is_visibly_unbound(self):
         """Three states: bound-and-equal, bound-and-mismatched, never-compared. The library path may
-        stay unbound; it must SAY so, so a reader cannot mistake it for a checked binding."""
+        stay unbound; it must SAY so, so a reader cannot mistake it for a checked binding.
+
+        SEIT TEIL F wird die SIGNATUR frueher geprueft als die Version, und ein Aufrufer ohne
+        autorisierte Schluessel faellt schon dort. Damit dieser Test weiter misst, was er meint —
+        die SICHTBARKEIT der fehlenden Versionsbindung —, wird hier nur die Signaturstufe umgangen.
+        Das ist derselbe, bereits dokumentierte Kunstgriff wie in `_bypass_signature`: eine Stufe
+        wird ausgeklammert, WEIL eine andere gemessen werden soll, und das steht dabei.
+        """
+        self._bypass_signature()
         r = self.fr.verify_and_count(REPO)
         self.assertFalse(r["version_bound"])
         self.assertEqual(r["register_version"], self.real.get("version"))
@@ -143,10 +162,18 @@ class RegisterVersionBinding(unittest.TestCase):
             self.assertTrue(r["ok"], "the pre-fix shape no longer reproduces — the meta-test is blind")
         finally:
             self.fr._version_binding_error = orig
-        r2 = self.fr.verify_and_count(self._repo_with({k: v for k, v in self.real.items()
-                                                       if k != "signature"}),
-                                      expected_version="6.0.0")
-        self.assertFalse(r2["ok"], "with the binding in place the same register must be refused")
+        # DAS FREMDE REGISTER WIRD HIER GEBAUT, NICHT IM BAUM VORAUSGESETZT (Fix 2026-09-06).
+        # Vorher stand hier ``self.real`` — also der committete Registerstand. Das MASS damit den
+        # Zufall, dass im Baum gerade ein 3.6.1-Register lag: als die Zeremonie das echte
+        # 6.0.0-Register einsetzte, wurde derselbe Aufruf zulaessig und die Zusicherung schlug fehl,
+        # obwohl die Bindung genau richtig arbeitete. Ein Test, dessen Fixture der Zustand des
+        # Repositories ist, misst diesen Zustand und nicht seine Eigenschaft — und er bricht genau
+        # dann, wenn das Repository in Ordnung gebracht wird. Der fremde Stand wird deshalb
+        # ausdruecklich konstruiert.
+        fremd = dict({k: v for k, v in self.real.items() if k != "signature"}, version="3.6.1")
+        r2 = self.fr.verify_and_count(self._repo_with(fremd), expected_version="6.0.0")
+        self.assertFalse(r2["ok"], "with the binding in place a foreign register must be refused")
+        self.assertIn(self.fr.CODE_REGISTER_VERSION_MISMATCH, r2["reason"])
 
 
 if __name__ == "__main__":  # pragma: no cover

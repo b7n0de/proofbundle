@@ -367,8 +367,34 @@ _ANKER_ROLLEN: dict[str, frozenset[str]] = {
     # QITEM-PB-600-LAUF4-FIX-FIRST-VIER-LANES-NACHLAUF-LAUF5-01, Revision 4): fuer 6.0.0 gilt
     # derselbe Schluessel wie fuer 5.0.0, und seine Signierpolitik ist ausdruecklich eng — er
     # signiert die drei Bereitschaftsartefakte und den Registerkoerper, nichts sonst.
-    "readiness_und_register_signierer_600": frozenset({"C6.2", "C6.3", "C8.2"}),
+    # C12.2 GEHOERT DAZU, und dass es fehlte, war ein Widerspruch zum Satz drei Zeilen darueber.
+    # Die Owner-Karte OA-e10ba2ba39 (2026-09-06T00:05:57Z) nennt die Signierpolitik woertlich:
+    # „ausschliesslich Bereitschaftsartefakte C6.2, C6.3, C8.2 UND DEN REGISTERKOERPER". Die
+    # Registerzeile heisst C12.2. Sie stand hier nicht, waehrend `scripts/findings_register.py`
+    # gleichzeitig einen ZWEITEN, eigenen Schluessel pinnte, dessen private Haelfte auf dem
+    # Bauhost lag — zwei Quellen fuer dieselbe Frage, die Verschiedenes sagten, und nichts verglich
+    # sie. Gemessen und unabhaengig gegengelesen am 2026-09-06 (un-Nachpruefung TA3B, ACCEPT:
+    # „Der Kommentar und der Rollenname versprechen Register-Signatur; die Implementierung liefert
+    # sie nicht"). Seither gibt es nur noch DIESE Quelle: findings_register hat keinen eigenen Pin
+    # mehr und bekommt die autorisierten Schluessel vom Aufrufer gereicht.
+    "readiness_und_register_signierer_600": frozenset({"C6.2", "C6.3", "C8.2", "C12.2"}),
 }
+
+
+def _autorisierte_schluessel(repo: Path, check_id: str) -> tuple[set[str] | None, str]:
+    """``(schluessel, grund)`` — wer darf fuer ``check_id`` unterschreiben?
+
+    ``None`` heisst NICHT MESSBAR (kein git, kein lesbarer Anker) und ist beim Aufrufer
+    fail-closed; ein LEERES Set heisst gemessen „niemand". Die Unterscheidung ist dieselbe wie
+    ueberall in dieser Datei: eine unmessbare Sicherheitsrelation ist nie ihre Erfuellung.
+    """
+    zuordnung, zustand = _trust_anchor(repo)
+    if zustand == "unmeasurable":
+        return None, "der Vertrauensanker ist hier nicht lesbar"
+    erlaubt = {pub for pub, feld in zuordnung.items()
+               if check_id in _ANKER_ROLLEN.get(feld.get("role", ""), frozenset())}
+    return erlaubt, (f"{len(erlaubt)} Schluessel im Anker autorisiert fuer {check_id} "
+                     f"(Ankerzustand {zustand})")
 
 #: Base64 in kanonischer Form fuer genau 32 Bytes: 43 Zeichen aus dem Standardalphabet plus genau
 #: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
@@ -2051,11 +2077,24 @@ def c12_2_audit_pack_zero_p0p1(repo: Path = REPO):
     # zwei Hauptversionen zurueck, als Aussage ueber die heutige. Ein Register mit `0.0.1` oder ganz
     # ohne Versionsfeld ging genauso durch. Die Signatur war immer gueltig; das war nie die Frage.
     # L6-01 hat diese Klasse fuer den PIN geschlossen — hier ist sie fuer das ARTEFAKT geschlossen.
+    #
+    # DIE VERTRAUENSBASIS KOMMT AUS DEM ANKER, nicht aus einem zweiten Pin (Teil F, 2026-09-06).
+    # `findings_register` hielt bis hierher eine eigene Konstante mit einem Schluessel, dessen
+    # private Haelfte auf dem Bauhost lag; der Anker dieses Repositoriums nannte einen anderen.
+    # Welcher galt, entschied niemand — die zwei Quellen wurden nie verglichen. Jetzt reicht DIESE
+    # Zeile die autorisierten Schluessel an, und zwar aus demselben Ankerleser, den auch C6.2,
+    # C6.3 und C8.2 benutzen. Ist der Anker hier nicht lesbar, ist das DATA_BLOCKED und keine
+    # Freigabe: eine unmessbare Vertrauensbasis ist nie eine erfuellte.
+    erlaubt, anker_grund = _autorisierte_schluessel(repo, "C12.2")
+    if erlaubt is None:
+        return DATA_BLOCKED, (f"the trust basis for the findings register cannot be read here: "
+                              f"{anker_grund}")
     import findings_register as fr
-    r = fr.verify_and_count(repo, expected_version=VERSION_UNDER_TEST)
+    r = fr.verify_and_count(repo, expected_version=VERSION_UNDER_TEST, authorised_pubkeys=erlaubt)
     triple = (f"population_size={r['population_size']} evaluated_count={r['evaluated_count']} "
               f"source_digest={r['source_digest']} version_bound={r.get('version_bound')} "
-              f"register_version={r.get('register_version')!r} version_under_test={VERSION_UNDER_TEST!r}")
+              f"register_version={r.get('register_version')!r} version_under_test={VERSION_UNDER_TEST!r} "
+              f"anchor={anker_grund}")
     return (PASS if r["ok"] else FAIL), f"{r['reason']} [{triple}]"
 
 

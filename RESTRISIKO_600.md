@@ -143,6 +143,41 @@ carries the break in one sentence; the readiness slot for 6.0.0 is filled and th
 candidate matrix was green on the pull request head `5657a98`; the CI of PR 186 was green on all
 33 checks before the merge; the CAP-1 branch is outside the tree.
 
+## Added after the closing round, on an explicit owner instruction (2026-09-06)
+
+**This section is an exception to the rule three sections above, and it names itself as one.** That
+rule says a finding of the closing round is "never an edit of this file". Its stated reason is the
+freeze plus the fact that the pre-tag receipt binds this file by sha256. Both premises changed by
+owner decision on 2026-09-06: the ceremony opened the tree for the register commit, the release
+note and the rebuilt distributions, and the receipt does not exist yet. The owner then asked for
+this file explicitly. So the edit is authorised rather than assumed — and it adds no finding text
+to the pre-round record above, which stands unchanged as R1-R7 and N1-N15.
+
+**Where the closing round is recorded.** The verdict is `FIX_FIRST`; no `WITHSTANDS_DEEPGATE` is
+claimed for 6.0.0. The round's own record — verdict, the three confirmed findings with their
+measurements, the scope each statement holds over, and the one operator whose outcome is not
+measurable — lives in [`audit_artifacts/600/README.md`](audit_artifacts/600/README.md), next to the
+receipt, where 5.1.0 recorded it too. The `## [6.0.0]` section of `CHANGELOG.md` carries the same
+facts for a reader who never opens this file.
+
+**The structured, signed carrier is the register, not this prose.** `audit_artifacts/findings_register_361.json`
+(the path is historical; the register inside is version-bound and states `6.0.0`) holds 20 entries:
+13 closed, 7 open — `N14`, `N15`, `N16`, `N17`, `N18`, `N19`, `N20` — and **0 open P0/P1**. It is
+signed with the release anchor key, and `audit_candidate_matrix` check `C12.2` counts from those
+structured fields, never from a sentence here. If this section and the register ever disagree, the
+register is the one that decides.
+
+**The five entries this round added, in one line each**, so that a reader of the residual-risk
+record does not have to open a second file to learn that they exist:
+
+| Id | In one line | Closed where |
+|---|---|---|
+| N16 | The published composite action interpolates two untrusted inputs straight into a `run:` shell body; byte-identical to the public `v1.0.0` tag, so 6.0.0 neither creates nor removes it | follow-up release; the ref decision is outward-facing and needs its own owner GO |
+| N17 | The parity gate swallows an unparseable source file and then rules from the ABSENCE of complaints over what is left; on this candidate the population is complete (68 of 68) | follow-up release |
+| N18 | `pip install <sdist> && pytest` without the `[test]` extras is RED, not skipped, while `pyproject.toml` promises "clean skips" | follow-up release: honour the promise or reword it |
+| N19 | The mutation gate collects with `unittest discover` and therefore measures 2537 of 3702 tests; 59 of 252 test files are invisible to that collector | follow-up release: move the collector |
+| N20 | One mutation operator is NOT MEASURABLE rather than killed or survived — it removes the resource ceiling under test and the run reached 111 GiB resident before being stopped deliberately | follow-up release: bound the operator |
+
 ## Honest limit of this file
 
 Written by the same agent that made the changes, before the closing round, from measurements
