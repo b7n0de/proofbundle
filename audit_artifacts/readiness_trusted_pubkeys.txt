@@ -1,2 +1,2 @@
-# test anchor (F4: key with not_after deep in the past)
-VnYfaH4QhDgS3gcqJeYe9OG4fvqPJ6hwTgXu2wZLyog= role=readiness_und_register_signierer_600 not_after=2000-01-01
+# test anchor (F4-followup: freshness of the register body itself, valid-forever key)
+Zz49x51n1tDO1mqwcb+oWzHaTnJWHH747gOH0Ho8IbI= role=readiness_und_register_signierer_600 not_after=2099-01-01
