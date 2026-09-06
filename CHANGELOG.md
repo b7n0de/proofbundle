@@ -276,11 +276,22 @@ reader:
   sees only methods of `unittest.TestCase`; 59 of 252 test files carry pytest functions only and
   are invisible to that collector. Every mutation statement of this run holds over that subset and
   not over the suite (`N19`).
-- **94 of 182 classes.** That is how many entries of the adversarial class ledger were closed at
-  the time of this run — closed meaning a live regression guard AND a plant-and-must-catch meta
-  test, both as distinct in-repo test nodes. The remaining entries declare, per entry, why they are
-  not. A reader recomputing this today will read 94 of 183: the run itself produced one further
-  class, and it is counted in the denominator from the moment it was written.
+- **The coverage of the class-ledger replay: NOT MEASURABLE, and an earlier draft of this section
+  said otherwise.** That draft carried "94 of 182 classes" here. The pairing is withdrawn because
+  the two numbers do not count the same kind of thing: **94** counts CLASSES whose status is
+  `class_closed`; **182** counts the pytest NODES the replay executes. Measured on 2026-09-06: the
+  ledger holds 183 effective classes, 94 of them closed, and all 94 carry both evidence fields as
+  real in-repo nodes; the node set is 182 rather than 2 x 94 = 188 because six nodes are shared
+  between classes. It read as a ratio only because the effective class count happened to be 182 as
+  well, until this round's own class was written.
+  What is well defined, with its definition beside it: **94 of 183 ledger classes carry in-repo
+  runnable evidence** — a class counts iff its status is `class_closed`, which the validator grants
+  only for two DISTINCT in-repo pytest nodes, a live regression guard and a plant-and-must-catch
+  meta test. The other 89 carry no runnable test, and all 89 state why; none is unexplained. That
+  is a property of the ledger's contents. It is NOT the replay's coverage and must not be read as
+  one: the replay set is DEFINED by the closed status, so the ratio cannot say how much assurance
+  the replay leaves unchecked. Answering that would require knowing the class population is
+  complete, which is exactly what is not measured.
 - **68 of 68 files.** The parity gate's population on this candidate is complete. This is the one
   figure here that is not a subset, and it is what keeps `N17` below the release-stopping bar.
 
