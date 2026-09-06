@@ -418,7 +418,33 @@ def test_die_matrix_erteilt_kein_einziges_bestehen(welt, leser):
             # DIE EINE ZELLE, deren richtige Antwort je Pflicht ANDERS lautet — und sie wird deshalb
             # je Pflicht festgeschrieben statt mit „nicht PASS" durchgewinkt. Sonst waere
             # `absent_ist_umgebung` ein Feld, das wie ein Riegel aussieht und keiner ist.
+            #
+            # AUSNAHME C8.2, UND SIE IST GEMESSEN, NICHT GEWAEHLT (2026-09-06). Fuer C8.2 haengt die
+            # richtige Antwort nicht nur an der Pflicht, sondern am ZUSTAND DER MASCHINE: ohne
+            # gebautes Rust-Binary kann diese Umgebung die Matrix gar nicht erzeugen (DATA_BLOCKED),
+            # mit Binary hat sie schlicht niemand gefahren (FAIL). Genau so steht es im Code
+            # (`c8_2_differential_agrees`), und genau das hat der Test bisher NICHT abgebildet: er
+            # schrieb DATA_BLOCKED fest.
+            #
+            # GEMESSEN, wie es auffiel: die Vollsuite auf 4161985 wurde hier rot, dieselbe Suite auf
+            # 85d204b nicht. Ursache ist keine Codeaenderung, sondern
+            # `tools/pb_verify_rs/target/release/pb_verify_rs` — ein UNGETRACKTES Bauartefakt, das
+            # ein frueherer Test IM SELBEN LAUF um 02:13:47 erzeugt hat. Danach meldet
+            # `_rust_parity()["binary_available"]` True, und C8.2 antwortet richtigerweise FAIL.
+            #
+            # Der Test misst deshalb jetzt dieselbe Groesse wie der Code, statt sie vorwegzunehmen.
+            # Das ist KEINE Abschwaechung: die Aussage „nie PASS" und der Zwang, zwischen
+            # Umgebungsmangel und Befund zu unterscheiden, bleiben beide — nur die Erwartung folgt
+            # dem gemessenen Zustand, statt einen davon zu behaupten. Dieselbe Klasse wie N13 im
+            # Restrisiko-Register: ein Ergebnis, das von Laufzeitzustand ausserhalb des Prueflings
+            # abhaengt, muss den Zustand LESEN statt ihn anzunehmen.
             erwartet = m.DATA_BLOCKED if leser.absent_ist_umgebung else m.FAIL
+            if leser.cid == "C8.2":
+                try:
+                    binaer_da = bool(m._rust_parity().get("binary_available"))
+                except Exception:                        # noqa: BLE001 — Gate kaputt = nicht messbar
+                    binaer_da = False
+                erwartet = m.FAIL if binaer_da else m.DATA_BLOCKED
             assert verdikt == erwartet, (
                 f"{leser.cid}/fehlend meldete {verdikt}, erwartet {erwartet}: eine fehlende Evidenz "
                 f"heisst bei dieser Pflicht "
@@ -474,6 +500,102 @@ def test_ohne_eingecheckten_anker_ist_makellose_evidenz_ungueltig(welt):
         assert "trusted key" in grund
     finally:
         shutil.rmtree(td, ignore_errors=True)
+
+
+def test_die_ankerhistorie_hat_DREI_zustaende_nicht_zwei():
+    """AUFLAGE A4 (Nachtrag 3): „Fangnachweis mit gepflanztem Git-Fehler."
+
+    DIE LUECKE, DIE DIESER TEST SCHLIESST, und sie stand zwei Stunden offen: die Dreizustaendigkeit
+    wurde gebaut (Commit 1311498), der vom Auftrag ausdruecklich verlangte Fangnachweis nicht. Ein
+    Mechanismus ohne den Nachweis, dass er im gepflanzten Fall wirklich greift, ist eine Behauptung
+    ueber Code — genau die Sorte, gegen die diese ganze Runde steht.
+
+    WARUM DER DRITTE ZUSTAND NOETIG IST. Die erste Fassung gab bei einem Git-Fehler, fehlender
+    Historie oder nicht aufloesbarem Pfad ``False`` zurueck — also DIESELBE Antwort wie
+    „nachweislich NICHT im Kandidatencommit geaendert", und das ist ein Bestehen. Fail-open an
+    genau der Stelle, die Selbstregistrierung verhindern soll: wo nichts messbar war, sah der
+    Aufrufer ein „in Ordnung". Die Unmessbarkeit einer Sicherheitsrelation ist nie ihre Erfuellung.
+
+    GEPFLANZT WIRD EIN ECHTER GIT-FEHLER, kein simulierter: ein Verzeichnis ohne Repository. Das
+    ist der Fall, den ein Consumer wirklich erzeugt, wenn er das Paket ausserhalb eines Checkouts
+    auspackt.
+    """
+    m = _matrix_modul()
+    leer = Path(tempfile.mkdtemp(prefix="anker_ohne_git_"))
+    try:
+        selbst, grund = m._anchor_last_touched_at_head(leer, "a" * 40)
+        assert selbst is None, (
+            f"ohne git-Repo kam ein URTEIL heraus statt 'nicht messbar': {selbst} / {grund}")
+        assert grund, "der dritte Zustand nennt seinen Grund nicht"
+    finally:
+        shutil.rmtree(leer, ignore_errors=True)
+
+    # ZWEITER GEPFLANZTER FALL: ein echtes Repository, in dem die Ankerdatei nie committet wurde.
+    # Auch hier ist die Relation nicht messbar — es gibt keine Historie, gegen die man sie haelte.
+    ohne_datei = Path(tempfile.mkdtemp(prefix="anker_ohne_historie_"))
+    try:
+        start = subprocess.run(["git", "init", "-q", str(ohne_datei)], capture_output=True, text=True)
+        if start.returncode != 0:
+            pytest.skip("git ist hier nicht benutzbar")
+        (ohne_datei / "irgendwas.txt").write_text("x\n", encoding="utf-8")
+        _git(ohne_datei, "add", "-A")
+        _git(ohne_datei, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "ohne anker")
+        kopf = _git(ohne_datei, "rev-parse", "HEAD").stdout.strip()
+        selbst, grund = m._anchor_last_touched_at_head(ohne_datei, kopf)
+        assert selbst is None, (
+            f"ohne Ankerhistorie kam ein Urteil heraus statt 'nicht messbar': {selbst} / {grund}")
+    finally:
+        shutil.rmtree(ohne_datei, ignore_errors=True)
+
+
+@_braucht_krypto
+def test_ohne_git_erteilt_der_ganze_weg_keine_freigabe_und_zwar_frueher():
+    """DIE ANDERE HAELFTE — und sie sagt etwas ANDERES, als ich zuerst annahm.
+
+    Die Absicht war: eine nicht messbare Ankerhistorie muss beim AUFRUFER zu DATA_BLOCKED fuehren.
+    Gemessen kommt dort ``candidate_unbound`` heraus, und zwar aus einem Grund, der die Sache selbst
+    betrifft: ``_artifact_signature_ok`` prueft VOR der Ankerhistorie, ob das Artefakt einen
+    ``trust_anchor_digest`` traegt — und dieser Digest wird aus dem COMMITTETEN Ankerblob gebildet.
+    Ohne git gibt es keinen committeten Blob, der Digest ist leer, und die fruehere Pruefung greift.
+
+    DARAUS FOLGT EINE EHRLICHE EINSCHRAENKUNG, die hier stehen muss statt in einem Bericht: der
+    dritte Zustand von ``_anchor_last_touched_at_head`` ist ueber DIESEN Weg nicht erreichbar,
+    solange git ganz fehlt — nicht weil er falsch waere, sondern weil eine vorgelagerte Pruefung
+    dieselbe Faehigkeit braucht und zuerst zuschlaegt. Die Dreizustaendigkeit bleibt richtig: sie
+    ist die Verteidigung der FUNKTION gegen ihren eigenen fail-open, und der Test darueber misst sie
+    direkt. Was sie NICHT ist, ist ein Riegel, der sich am ganzen Weg zeigt.
+
+    WAS DIESER TEST DESHALB FESTHAELT: ohne git erteilt der ganze Weg KEINE Freigabe. Welcher
+    Nicht-Freigabe-Zustand genau herauskommt, ist hier zweitrangig und ausdruecklich als
+    ``candidate_unbound`` benannt, damit ein spaeterer Umbau, der daraus ein VERIFIED macht,
+    auffaellt. Die Zeile ist damit schwaecher als ihr erster Entwurf — und ehrlich, statt eine
+    Wirkung zu behaupten, die der Code an dieser Stelle nicht hat.
+    """
+    m = _matrix_modul()
+    schluessel = Ed25519PrivateKey.generate()
+    pub = base64.b64encode(schluessel.public_key().public_bytes_raw()).decode()
+    zeile = "# test anchor\n" + pub + " role=readiness_und_register_signierer_600 not_after=2099-12-31\n"
+    ohne_git = Path(tempfile.mkdtemp(prefix="freigabe_ohne_git_"))
+    try:
+        (ohne_git / "audit_artifacts").mkdir(parents=True, exist_ok=True)
+        (ohne_git / "audit_artifacts" / "readiness_trusted_pubkeys.txt").write_text(zeile, encoding="utf-8")
+        kandidat = {"repo": ohne_git, "commit": "b" * 40, "tree": "c" * 40,
+                    "sdist_sha256": "d" * 64, "wheel_sha256": "e" * 64}
+        koerper = _rumpf(kandidat, {})
+        koerper["trust_anchor_digest"] = _sra_modul().trust_anchor_digest(ohne_git)
+        art = _signiere(koerper, schluessel)
+        trusted = m._anker_zeilen_lesen(zeile)
+        assert trusted, "Vorbedingung: die Ankerzeile ist lesbar"
+        verdikt, grund = m._artifact_signature_ok(art, trusted, "ok", repo=ohne_git)
+        assert verdikt != m.ART_VERIFIED, (
+            f"ohne git erteilte der Weg eine Freigabe: {verdikt} / {grund}")
+        assert verdikt == m.ART_CANDIDATE_UNBOUND, (
+            f"der gemessene Zustand hat sich geaendert: {verdikt} statt candidate_unbound ({grund}). "
+            "Das ist kein Fehler, aber es gehoert nachgezogen — der Docstring dieses Tests erklaert, "
+            "WARUM hier nicht DATA_BLOCKED steht, und diese Erklaerung waere dann ueberholt")
+        assert "trust_anchor_digest" in grund, f"der Grund benennt die zuerst greifende Pruefung nicht: {grund}"
+    finally:
+        shutil.rmtree(ohne_git, ignore_errors=True)
 
 
 @_braucht_krypto
