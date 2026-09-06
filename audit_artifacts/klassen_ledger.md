@@ -286,3 +286,60 @@ Registry in einem Meldungstext, ohne sie zu lesen —, und genau davor schuetzt 
 (2) Dieselbe Konstruktion steht im selben MANIFEST.in fuer `docs/` (Einzelpfad-`include` statt
 `graft docs`) ohne symmetrischen Riegel. Eigene Flaeche, release-nah nicht nebenbei; hier notiert,
 damit sie nicht verloren geht.
+
+---
+
+## KLASSE-H-2026-0906 — Gleichzeitigkeit im selben Job als Datenflussrelation gelesen
+
+**Warum dieser Eintrag existiert.** Nachtrag 3, Teil A6, verlangt ausdruecklich: „Entweder echten
+Artefaktfluss binden … oder den PASS-Wortlaut auf die geprueste syntaktische Koexistenz verengen.
+**Die Wahl im Ledger begruenden.**" Hier steht die Wahl und ihr Grund.
+
+**Die verletzte Invariante.** Eine Aussage der Form „dieser Job baut die Distribution UND benutzt
+sie" behauptet eine RELATION zwischen zwei Ereignissen — das eine erzeugt, was das andere
+verbraucht. Eine Menge kennt aber kein Vorher und kein Nachher, und ein Ordnername ist kein Pfad.
+Wer beide Haelften nur ZUSAMMEN im selben Job verlangt, hat die Relation durch ihre schwaechste
+notwendige Bedingung ersetzt.
+
+**ODC.** defect_type = checking (Relation durch Koexistenz ersetzt) · trigger = sequencing ·
+source_layer = release-gate (CI-Deklarationsanalyse).
+
+**Wie es auffiel.** Review Runde 3, Abschnitt 2, „Die C1-Relation": „Im selben Job genuegt aber
+weiterhin irgendein Buildbefehl neben irgendeinem Zugriff auf `dist/…`; Reihenfolge, Pfadgleichheit
+und Uebergabe des gerade gebauten Artefakts werden nicht nachgewiesen. Ein Job kann zuerst ein altes
+Wheel installieren und spaeter in einen anderen Ordner bauen und trotzdem bestehen." Beide Faelle
+sind nachgebaut und bestanden die Fassung aus Runde 2.
+
+**DIE WAHL, und warum sie so ausfiel.** Genommen wurde der ERSTE Weg — echten Artefaktfluss binden —
+und nicht die Verengung des Wortlauts. Drei Gruende, in dieser Reihenfolge:
+
+1. Die schwaechere Aussage waere fuer C1.1 fast wertlos gewesen. „In einer Workflow-Datei stehen
+   irgendwo ein Buildbefehl und irgendwo ein Zugriff auf dist/" ist kaum mehr als „die Datei ist
+   nicht leer" — eine Zeile, die praktisch nie rot wird, misst nichts.
+2. Die Information war bereits DA. `_run_touches_distribution` zerlegte den `run:`-Text ohnehin
+   kommandoweise; sie warf Reihenfolge und Ordner nur weg. Die Haertung nimmt nichts Neues auf, sie
+   hoert auf wegzuwerfen — das ist billiger und weniger fehleranfaellig als eine neue Analyse.
+3. Der echte Workflow erfuellt die staerkere Aussage. Das `hermetic-cleanroom`-Bein baut und
+   installiert im selben Job in derselben Reihenfolge. Eine Verengung des Wortlauts haette also die
+   Aussage geschwaecht, ohne dass der Baum sie gebraucht haette.
+
+**Wo die Klasse jetzt lebt.** `scripts/audit_candidate_matrix.py`: `_run_touches_distribution`
+liefert eine GEORDNETE Liste `(art, ordner)` statt zweier Wahrheitswerte; `_ausgabeordner` liest das
+Ziel aus `--outdir`/`-o` (sonst die dokumentierte Voreinstellung `dist`), `_artefakt_ordner` den
+Ordnerteil des konsumierten Archivs; `_published_artifact_leg_facts` verlangt einen Bau nach `P` und
+DANACH eine Benutzung aus `P` im selben nicht fehlertoleranten Job. Der PASS-Wortlaut von C1.1 sagt
+das jetzt auch.
+
+**Orakel.** `tests/test_ausfuehrung_aus_quelltext_l5_g7_04.py`:
+`test_gate_meta_koexistenz_im_selben_job_reicht_nicht_mehr` haelt die zwei Attrappen des Reviewers
+fest UND die Gegenrichtung (ein echter Fluss in einen anderen Ordner muss weiter bestehen, sonst
+waere die Haertung nur eine Verweigerung). Der aeltere Gate-Meta-Test baut die Vorfassung aus der
+neuen Zerlegung nach und bleibt damit das, was er sein soll: die ALTE Regel in den heutigen
+Bausteinen.
+
+**Ehrliche Grenze.** Die Erkennung bleibt eine Positivliste von Kommandokoepfen (`python -m build`,
+`pyproject-build`, `build_reproducible.py`, `pip`/`tar`/`unzip`/`twine`). `make sdist` oder
+`tox -e build` werden weiterhin NICHT erkannt — sie zu erkennen hiesse Makefile- und tox-Konfiguration
+zu parsen. Das ist dieselbe dokumentierte Grenze, die der Nachbar `_is_real_test_invocation` schon
+traegt, und sie ist hier nicht groesser geworden: was vorher nicht als Bau galt, gilt auch jetzt
+nicht als Bau.

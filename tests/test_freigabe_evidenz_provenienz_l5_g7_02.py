@@ -34,10 +34,12 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -881,6 +883,82 @@ def test_c9_1_leitet_sein_urteil_nicht_mehr_aus_prosa_ab():
     r = br.measure_reproducible.__doc__ or ""
     assert "STRUKTURIERT" in r or "strukturiert" in r
     assert br.MEASUREMENT_SCHEMA == "proofbundle.reproducible_sdist_check.v1"
+
+
+class TestDistributionsIdentitaet:
+    """AUFLAGE A7 (Nachtrag 3), Fangnachweis mit einer absichtlich JUENGEREN Fremddatei in dist.
+
+    Der Reviewer schrieb: „Eine Distribution ist durch Name, Version und Digest bestimmt, nicht durch
+    den juengsten Dateizeitstempel." Die alte Auswahl nahm `sorted(..., key=mtime)[-1]` — ein `touch`
+    auf ein fremdes Archiv haette damit die Kandidatenidentitaet verschoben, ohne dass irgendwo etwas
+    Falsches steht. Der Fehlgriff sah danach aus wie ein Digest-Konflikt und nicht wie das, was er
+    ist: die falsche Datei angesehen.
+    """
+
+    def _dist(self, dateien: list[tuple[str, float]]) -> Path:
+        td = Path(tempfile.mkdtemp(prefix="dist_identitaet_"))
+        (td / "dist").mkdir()
+        for name, alter in dateien:
+            f = td / "dist" / name
+            f.write_bytes(name.encode())
+            os.utime(f, (time.time() + alter, time.time() + alter))
+        return td
+
+    def test_eine_juengere_fremddatei_verschiebt_die_identitaet_nicht(self):
+        """DER FANGNACHWEIS. Das richtige Paar ist alt, die Fremddatei ist JUENGER — unter der
+        mtime-Regel haette sie gewonnen."""
+        m = _matrix_modul()
+        td = self._dist([
+            (f"proofbundle-{VERSION}.tar.gz", -3600),
+            (f"proofbundle-{VERSION}-py3-none-any.whl", -3600),
+            ("proofbundle-9.9.9.tar.gz", +3600),            # eine Stunde JUENGER, fremde Version
+            ("proofbundle-9.9.9-py3-none-any.whl", +3600),
+        ])
+        try:
+            sdist, wheel, grund = m._dist_files(td, VERSION)
+            assert sdist is not None and wheel is not None, grund
+            assert VERSION in sdist.name and VERSION in wheel.name, (
+                f"die juengere Fremddatei hat die Auswahl verschoben: {sdist.name} / {wheel.name}")
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_zwei_paare_derselben_version_sind_MEHRDEUTIG_statt_sortierbar(self):
+        """Mehrdeutigkeit wird GEMELDET, nicht durch eine Sortierregel aufgeloest. Eine zweite
+        passende Datei heisst, dass niemand mehr sagen kann, welche veroeffentlicht werden soll —
+        und diese Frage darf keine Heuristik beantworten."""
+        m = _matrix_modul()
+        td = self._dist([
+            (f"proofbundle-{VERSION}.tar.gz", 0),
+            (f"proofbundle-{VERSION}-py3-none-any.whl", 0),
+            (f"proofbundle-{VERSION}-py2-none-any.whl", +60),
+        ])
+        try:
+            sdist, wheel, grund = m._dist_files(td, VERSION)
+            assert sdist is None and wheel is None, "zwei passende Wheels wurden stillschweigend sortiert"
+            assert "ambiguous" in grund, f"die Mehrdeutigkeit wird nicht benannt: {grund!r}"
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_ohne_passendes_paar_ist_es_die_UMGEBUNG_nicht_die_evidenz(self):
+        """Kein Bau da heisst DATA_BLOCKED, nicht FAIL — eine Aussage ueber diese Maschine, nicht
+        ueber den Kandidaten. Die Gegenrichtung zum Fangnachweis: der Riegel darf nicht einfach
+        immer None liefern."""
+        m = _matrix_modul()
+        td = self._dist([("proofbundle-1.0.0.tar.gz", 0), ("proofbundle-1.0.0-py3-none-any.whl", 0)])
+        try:
+            sdist, wheel, grund = m._dist_files(td, VERSION)
+            assert sdist is None and wheel is None
+            assert "no version" in grund and VERSION in grund, grund
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+        gut = self._dist([(f"proofbundle-{VERSION}.tar.gz", 0),
+                          (f"proofbundle-{VERSION}-py3-none-any.whl", 0)])
+        try:
+            sdist, wheel, grund = m._dist_files(gut, VERSION)
+            assert sdist is not None and wheel is not None, (
+                f"das saubere Paar wird abgewiesen — der Riegel liefert immer None: {grund}")
+        finally:
+            shutil.rmtree(gut, ignore_errors=True)
 
 
 class TestErlaubteEvidenzRelation:
