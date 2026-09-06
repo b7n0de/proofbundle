@@ -348,6 +348,24 @@ def test_die_matrix_erteilt_kein_einziges_bestehen(welt, leser):
             # je Pflicht festgeschrieben statt mit „nicht PASS" durchgewinkt. Sonst waere
             # `absent_ist_umgebung` ein Feld, das wie ein Riegel aussieht und keiner ist.
             erwartet = m.DATA_BLOCKED if leser.absent_ist_umgebung else m.FAIL
+            if leser.cid == "C8.2":
+                # DIESE ZELLE HAENGT AM ZUSTAND DER MASCHINE, nicht nur an der Pflicht: ohne
+                # gebautes Rust-Binary kann die Umgebung die Matrix gar nicht erzeugen
+                # (DATA_BLOCKED), mit Binary hat sie schlicht niemand gefahren (FAIL). Genau so
+                # steht es in `c8_2_differential_agrees` — der Test schrieb bisher DATA_BLOCKED
+                # fest und mass damit die UMGEBUNG statt der Eigenschaft.
+                #
+                # GEMESSEN 2026-09-06: dieselbe Suite wurde auf einem Kopf rot und auf einem
+                # anderen nicht, ohne dass sich der Code geaendert haette. Ursache ist
+                # `tools/pb_verify_rs/target/release/pb_verify_rs` — ein UNGETRACKTES Bauartefakt,
+                # das ein FRUEHERER TEST IM SELBEN LAUF erzeugt. Danach kippt die Antwort.
+                # Dieselbe Klasse wie N13 im Restrisiko-Register: ein Ergebnis, das von
+                # Laufzeitzustand ausserhalb des Prueflings abhaengt, muss den Zustand LESEN.
+                try:
+                    binaer_da = bool(m._rust_parity().get("binary_available"))
+                except Exception:                        # noqa: BLE001 — Gate kaputt = nicht messbar
+                    binaer_da = False
+                erwartet = m.FAIL if binaer_da else m.DATA_BLOCKED
             assert verdikt == erwartet, (
                 f"{leser.cid}/fehlend meldete {verdikt}, erwartet {erwartet}: eine fehlende Evidenz "
                 f"heisst bei dieser Pflicht "
