@@ -238,6 +238,58 @@ The wheel of 6.0.0 is bit-reproducible — twice from the same tree and once bui
 It is recorded as `N15` in `RESTRISIKO_600.md` with the same wording, and repeated here so that a
 reader of the release notes does not have to open the residual-risk register to learn it.
 
+### Adversarial pre-tag audit: verdict FIX_FIRST, and the scope each statement holds over
+
+The adversarial deep gate ran a closing round on this candidate (DEEP, six lenses, seven
+iterations). Its verdict is **FIX_FIRST**, and **no `WITHSTANDS_DEEPGATE` is claimed for 6.0.0**.
+Three findings were confirmed. All three are recorded as open entries in `RESTRISIKO_600.md`, and
+all three are closed in the follow-up release rather than here — an owner decision, made with the
+findings in view:
+
+- **N16 (P2)** — `action/action.yml:35-36` interpolates `${{ inputs.version }}` and
+  `${{ inputs.extras }}` directly into a `run:` shell body, while the step one line below routes
+  `inputs.command` through `env:` and says in a comment why it does so. Measured, and it decides
+  the ordering: the file is byte-identical to the version at the public tag `v1.0.0` (`a8aca8cd`,
+  sha256 prefix `91cfcdc4ecbab94c` on both sides), exactly one commit has ever touched it, and that
+  commit is an ancestor of this candidate. 6.0.0 does not introduce the injection, and releasing
+  6.0.0 does not remove it. Measured separately: a fix on `main` alone would not reach the
+  documented users either — `INTEGRATIONS.md` pins `action@v1.0.0`, no moving major tag exists, and
+  the one channel that does update by itself (the composite action's `pip install proofbundle`)
+  does not carry `action.yml` at all; the sdist and the wheel contain zero copies of it.
+- **N17 (P2)** — `scripts/rust_parity_gate.py` swallows an unparseable or unreadable source file
+  and then derives its verdict from the ABSENCE of complaints over the resulting population, so a
+  release-deciding check can report PASS over a population that shrank quietly. On this candidate
+  the population is complete — 68 of 68 files under `src/proofbundle` parse and read, and the gate
+  reports `registry_integrity_ok: true` with `untracked`, `orphaned` and `stale` all empty. What is
+  open is the capability, not its occurrence.
+- **N18 (P2)** — `pip install <sdist> && pytest` WITHOUT the `[test]` extras is RED, not skipped,
+  while the shipped `pyproject.toml` promises that a bare install "degrades to clean skips".
+  Measured: 1 failed, 3075 passed, 482 skipped. Either the promise is kept or the wording in
+  `pyproject.toml` is corrected; that choice belongs to the follow-up release, and until it is made
+  the promise is the thing that is wrong, not the test.
+
+**The scope each of these statements holds over.** Three figures, named here rather than left to be
+inferred, because a verdict that rules over an excerpt without saying so cannot be checked by a
+reader:
+
+- **2537 of 3702 tests.** The mutation gate collects its population with `unittest discover`, which
+  sees only methods of `unittest.TestCase`; 59 of 252 test files carry pytest functions only and
+  are invisible to that collector. Every mutation statement of this run holds over that subset and
+  not over the suite (`N19`).
+- **94 of 182 classes.** That is how many entries of the adversarial class ledger were closed at
+  the time of this run — closed meaning a live regression guard AND a plant-and-must-catch meta
+  test, both as distinct in-repo test nodes. The remaining entries declare, per entry, why they are
+  not. A reader recomputing this today will read 94 of 183: the run itself produced one further
+  class, and it is counted in the denominator from the moment it was written.
+- **68 of 68 files.** The parity gate's population on this candidate is complete. This is the one
+  figure here that is not a subset, and it is what keeps `N17` below the release-stopping bar.
+
+`N20` records a mutation operator whose outcome is NOT MEASURABLE rather than killed or survived:
+the operator removes the very resource ceiling under test, and the mutated run reached 111 GiB
+resident (88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the
+OOM killer. Not measurable is its own state; it is not counted as a kill and not counted as a
+survivor.
+
 ## [5.1.0] - 2026-08-31 (the profile a stranger can read · MINOR)
 
 ### Moved from `[Unreleased]` on 2026-09-02, because the release ships it
