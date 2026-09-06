@@ -464,3 +464,58 @@ die alte Fassung nicht sah. Die Umbenennung dieser Runde: framing2s `D-2026-0906
 **Ehrliche Grenze, unveraendert.** Geschlossen ist weiterhin nur die ERKENNUNG, jetzt auf der
 richtigen Groesse. Die VERGABE bleibt Handarbeit ohne Werkzeug — und dieser Nachtrag ist der Beleg,
 dass Handarbeit hier ein zweites Mal versagt hat, nicht ein erstes.
+
+---
+
+## KLASSE-J-2026-0906 — Eine Pruefmenge deckt ein Verzeichnis vollstaendig ab und ein anderes gar nicht, und die Gesamtzahl verdeckt es
+
+**Verletzte Invariante.** Eine Pruefmenge, deren Ergebnis als Aussage ueber DEN BAUM gefuehrt wird
+(hier: „Stufe 6 bestanden"), muss ihre Deckung je Flaeche kennen. Eine Gesamtzahl ist keine Deckung:
+88 Operatoren klingen nach viel und sagen nichts darueber, ob sie sich auf einer Flaeche ballen und
+eine andere gar nicht beruehren. Solange niemand je Verzeichnis zaehlt, ist eine ungedeckte Flaeche
+von einer gedeckten nicht zu unterscheiden — und der Lauf meldet trotzdem gruen.
+
+**ODC.** defect_type = checking (Deckungsaussage ohne Deckungsmessung) · trigger = coverage/variation
+ueber Verzeichnisse · source_layer = mutation-gate.
+
+**Wie es auffiel, und die Zahlen sind gemessen, nicht erinnert.** Nachtrag 3, Teil D2, nennt sieben
+Pflichtflaechen fuer den Mutationslauf der Stufe 6. Der Inventar-Abgleich dieser sieben gegen die
+Operatorenliste am 06.09.2026 ergab: **0 von 7 hatten einen Operator**, waehrend alle 7 Flaechen im
+Baum vorhanden und damit baubar waren. Die Verteilung der damals 88 Operatoren:
+
+| Wurzel | Operatoren vorher | Operatoren nachher |
+|---|---|---|
+| `src/` | 88 | 94 |
+| `scripts/` | **0** | 5 |
+| `MANIFEST.in` | **0** | 1 |
+
+Nach Dateien gerechnet: `src/` hat 68 Python-Dateien, 31 davon tragen mindestens einen Operator
+(45,6 %). `scripts/` hat 30 Python-Dateien, **eine** davon trug einen (3,3 %).
+
+**Warum das mehr ist als eine Luecke dieses Releases.** Unter `scripts/` liegt
+`audit_candidate_matrix.py` — die Matrix, die ueber die FREIGABE entscheidet. Jede
+Stufe-6-Aussage der bisherigen Runden galt damit fuer die Bibliothek und NICHT fuer die
+Entscheidungsflaeche daneben, ohne dass das irgendwo stand. Ein Mutationslauf ueber 88 Operatoren
+sah vollstaendig aus; er war es fuer `src/`, und fuer `scripts/` war er nie eine Messung. Das ist
+kein falsches Ergebnis — es ist ein Bereich, ueber den nie eine Frage gestellt wurde.
+
+**Wo die Klasse jetzt lebt.** `scripts/mutation_check.py`: zwoelf neue Operatoren, davon fuenf auf
+`scripts/audit_candidate_matrix.py`, zwei auf `budget.py`/`renewal.py`-Achsen und einer auf
+`MANIFEST.in`. Jedes Ziel-Literal ist vor der Aufnahme auf GENAU EIN Vorkommen geprueft; bei D2-4
+war das nicht akademisch, denn die naheliegende Zeile kommt zweimal vor (in
+`_anchor_last_touched_at_head` und in `_evidenz_relation_erlaubt`).
+
+**Orakel.** Die Stale-Pruefung ueber ALLE 100 Operatoren, strenger als „findet er sein Ziel": sie
+verlangt genau einen Treffer, weil ein Operator mit mehreren Treffern mehr mutiert als er behauptet
+und damit ebenso wenig ein Stufe-6-Beleg ist wie einer mit null Treffern. Ergebnis am 06.09.2026:
+0 stale, 0 mehrfach.
+
+**Ehrliche Grenze — die Klasse ist halb geschlossen, und die zweite Haelfte ist benannt.** Geschlossen
+ist die INSTANZ: die sieben Pflichtflaechen haben jetzt Operatoren. NICHT geschlossen ist die Klasse
+selbst, denn es gibt weiterhin **keine Deckungspruefung je Verzeichnis**. `scripts/` steht heute bei
+5 Operatoren auf 30 Dateien; nichts im Baum wuerde bemerken, wenn ein neues Verzeichnis mit
+freigabeentscheidendem Code entstuende und keinen einzigen Operator bekaeme. Die Frage, ob die
+Operatorenmenge je Verzeichnis eine ausfuehrbare Deckungsschranke braucht (und welche Schwelle sie
+truege, ohne zur Dauerbeschwerde zu werden), ist als Owner-Punkt fuer 6.1 vorgemerkt und wird hier
+NICHT nebenbei entschieden. Bis dahin faengt der Inventar-Abgleich der jeweils beauftragten
+Pflichtflaechen das Ergebnis, und diese Zeile haelt fest, dass die Ursache noch steht.
