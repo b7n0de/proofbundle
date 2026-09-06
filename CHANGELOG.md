@@ -350,10 +350,19 @@ findings in view:
 inferred, because a verdict that rules over an excerpt without saying so cannot be checked by a
 reader:
 
-- **2537 of 3702 tests.** The mutation gate collects its population with `unittest discover`, which
-  sees only methods of `unittest.TestCase`; 59 of 252 test files carry pytest functions only and
-  are invisible to that collector. Every mutation statement of this run holds over that subset and
-  not over the suite (`N19`).
+- **2537 of 3702 tests, measured at `59d0679`.** The mutation gate collects its population with
+  `unittest discover`, which sees only methods of `unittest.TestCase`; 59 of 252 test files carry
+  pytest functions only and are invisible to that collector. Every mutation statement of this run
+  holds over that subset and not over the suite (`N19`).
+
+  **The commit is part of the figure, and here is why.** The suite kept growing after that
+  measurement: the closing-round fixes added test files, so a re-count on the tagged tree returns a
+  larger denominator (3727 collected at the time of writing, 254 test files). The ratio the mutation
+  gate ruled over is a property of *the tree it ran on*, not of the release, and a bare number here
+  would silently claim otherwise — the same stale-metric failure that `tests/test_docs_truth.py`
+  exists to prevent for `README.md`, just outside that test's scope. The figure therefore names its
+  commit. A reader who wants today's number runs
+  `python -B -m unittest discover -s tests` (the gate's own invocation) against the tagged tree.
 - **The coverage of the class-ledger replay: NOT MEASURABLE, and an earlier draft of this section
   said otherwise.** That draft carried "94 of 182 classes" here. The pairing is withdrawn because
   the two numbers do not count the same kind of thing: **94** counts CLASSES whose status is
