@@ -33,6 +33,42 @@ Beiwerk; Berichte, Commits und Belege verweisen mit „Klasse D".
 Deshalb prueft dieser Test die Eindeutigkeit jetzt auf dem Buchstaben, und der Gate-Meta-Test
 pflanzt eine Dublette mit ABWEICHENDEM Datum — genau der Fall, den die erste Fassung nicht sah.
 
+DRITTE FASSUNG, wenige Minuten spaeter, nach einem Fund der Gegenlesung — und der Fund trifft
+etwas Grundsaetzlicheres als die zwei davor. Die zweite Fassung erkannte eine Ueberschrift nur in
+GENAU einer Form: zwei Rautenzeichen, Grossbuchstaben, Gedankenstrich oder Bindestrich, kein
+fuehrendes Leerzeichen. Ein zweiter Eintrag mit einem EN-DASH (U+2013 `–` statt U+2014 `—`) oder
+mit `###` war fuer den Riegel schlicht nicht vorhanden — und was nicht vorhanden ist, kollidiert
+mit nichts. Zwei echte Klassen unter `D` ergaben PASS, empirisch nachgebaut.
+
+Die Klasse dahinter heisst NICHT ERKANNT IST NICHT ABWESEND, und sie ist die teuerste Bauform
+eines jeden Musters: ein Riegel, der seinen Gegenstand nach einer engen Form sucht, meldet bei
+jeder Abweichung Ruhe statt Alarm. Die Antwort ist deshalb nicht eine weitere Form in der Regex —
+die naechste Schreibweise faende sie wieder nicht. Die Antwort ist ein ZWEITES, ABSICHTLICH WEITES
+Muster: was wie eine Klassenueberschrift AUSSIEHT, muss von der strengen Form auch erfasst werden.
+Jede Zeile, die das weite Muster trifft und das strenge verfehlt, ist ein Befund mit Namen —
+nicht eine Leerstelle. Der Ledger darf dann keine Zeile mehr enthalten, die der Riegel uebersieht,
+ohne dass er das sagt.
+
+Was diese Fassung ausdruecklich NICHT tut: die Schreibweise vereinheitlichen oder tolerieren. Eine
+Ueberschrift in abweichender Form faellt weiterhin durch — sie faellt nur nicht mehr STILL.
+
+WAS BEWUSST NICHT GEBAUT WURDE, und warum es hier steht statt in einem Kopf. Die zweite Fassung
+hatte einen Test, der zwei ZWEIGE verglich (`framing2` plus den damaligen `matrix2`-Stand) und
+damit eine FRUEHWARNUNG war: er haette die Kollision gesehen, solange sie noch in zwei getrennten
+Zweigen schlummerte, vor dem Merge. Dieser Test ist durch einen ersetzt, der den Ledger IM BAUM
+misst. Das ist eine echte Einbusse, und sie wurde in Kauf genommen:
+
+Die Fruehwarnung zu verallgemeinern hiesse, dass der Test die MENGE DER VORHANDENEN ZWEIGE liest.
+Damit haenge sein Ergebnis an Laufzeitzustand ausserhalb des Prueflings — dasselbe Zustandsbild wie
+`N13` im Restrisiko-Register, wo ein Knoten rot oder gruen wird, je nachdem was neben ihm auf der
+Maschine liegt. Ein Riegel gegen stille Kollisionen, der selbst nichtdeterministisch wird, tauscht
+ein bekanntes Problem gegen ein schlechteres.
+
+Geblieben ist die Kreuz-Zweig-PRUEFUNG in `TestGegenDenEchtenVorfall`: sie baut dieselbe
+Verschmelzung nach, aber gegen FESTE Commit-Kennungen. Ein Vorfall aendert sich nicht mehr, eine
+Zweigmenge schon. Was fehlt, ist damit nur die Warnung fuer KUENFTIGE, noch nicht gemergte Zweige —
+und die faengt der Merge selbst, weil dort seit dieser Runde der weite Detektor mitlaeuft.
+
 WAS ER MISST, und was ausdruecklich nicht: er prueft die EINDEUTIGKEIT der Kennungen, nicht ihre
 Reihenfolge und nicht ihre Vollstaendigkeit. Ein Ledger darf Luecken haben (eine Lane, die B nahm
 und verworfen wurde, hinterlaesst eine) — was er nicht darf, ist denselben Namen zweimal tragen.
@@ -48,8 +84,35 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 LEDGER = REPO / "audit_artifacts" / "klassen_ledger.md"
 
-#: Eine Ledger-Ueberschrift: ``## KLASSE-<Buchstabe>-<JJJJ>-<MMTT> — <Titel>``
+#: Eine Ledger-Ueberschrift, STRENG: ``## KLASSE-<Buchstabe>-<JJJJ>-<MMTT> — <Titel>``
 _UEBERSCHRIFT = re.compile(r"^## (KLASSE-[A-Z]+-\d{4}-\d{4})\s*(?:—|-)\s*(.+)$", re.M)
+
+#: Und dasselbe ABSICHTLICH WEIT: alles, was wie eine Klassenueberschrift aussieht. Beliebig viele
+#: Rautenzeichen, fuehrender Weissraum, Gross- oder Kleinschreibung, jede Strichart (Em-Dash,
+#: En-Dash, Bindestrich, Geviert-, Halbgeviertstrich), Titel optional. Dieses Muster ist NICHT der
+#: Vertrag — es ist der Detektor fuer Zeilen, die der Vertrag uebersehen wuerde.
+_UEBERSCHRIFT_WEIT = re.compile(r"^[ \t]*#{1,6}[ \t]*(KLASSE[-_][A-Za-z]+[-_]\d{2,4}[-_]\d{2,4})",
+                                re.M | re.IGNORECASE)
+
+
+def fast_ueberschriften(text: str) -> list[str]:
+    """Zeilen, die wie eine Klassenueberschrift AUSSEHEN — streng oder nicht."""
+    return [m.group(0).strip() for m in _UEBERSCHRIFT_WEIT.finditer(text)]
+
+
+def uebersehene_ueberschriften(text: str) -> list[str]:
+    """Was das weite Muster sieht und das strenge nicht. Jede davon ist ein Befund.
+
+    Der Vergleich laeuft ueber die ZEILENNUMMER, nicht ueber die Kennung: zwei Eintraege
+    koennen dieselbe Kennung tragen (genau der Fall, den dieser Test sucht), und ein
+    Mengenvergleich ueber Kennungen wuerde den zweiten wieder verschlucken.
+    """
+    streng = {text[:m.start()].count("\n") for m in _UEBERSCHRIFT.finditer(text)}
+    aus = []
+    for m in _UEBERSCHRIFT_WEIT.finditer(text):
+        if text[:m.start()].count("\n") not in streng:
+            aus.append(m.group(0).strip())
+    return aus
 
 
 def kennungen(text: str) -> list[tuple[str, str]]:
@@ -92,6 +155,45 @@ def test_jede_kennung_bezeichnet_genau_eine_klasse(ledger_text):
               "stille Korrektur aussieht.")
 
 
+def test_keine_ueberschrift_entgeht_dem_strengen_muster(ledger_text):
+    """DER RIEGEL GEGEN 'NICHT ERKANNT IST NICHT ABWESEND'.
+
+    Ohne ihn ist die Eindeutigkeitspruefung daneben nur so gut wie ihre Schreibweise: ein
+    Eintrag mit En-Dash oder `###` faellt aus der Erkennung, kollidiert mit nichts und laesst
+    den Riegel gruen. Hier wird verlangt, dass die WEITE und die STRENGE Sicht dieselbe Menge
+    von Zeilen sehen. Weichen sie ab, ist die abweichende Zeile benannt — sie verschwindet nicht.
+    """
+    uebersehen = uebersehene_ueberschriften(ledger_text)
+    assert not uebersehen, (
+        "Diese Zeile(n) sehen aus wie eine Klassenueberschrift, werden vom strengen Muster aber "
+        "NICHT erfasst — und was nicht erfasst wird, kollidiert mit nichts:\n  "
+        + "\n  ".join(uebersehen)
+        + "\nSchreib sie in der kanonischen Form `## KLASSE-<Buchstabe>-<JJJJ>-<MMTT> — <Titel>` "
+          "(zwei Rautenzeichen, Grossbuchstaben, Gedankenstrich).")
+
+
+def test_der_weite_detektor_sieht_die_abweichenden_formen(ledger_text):
+    """META-TEST zum Riegel darueber. Ein Detektor, der die Abweichung nicht sieht, macht den
+    Riegel zur Zierde. Hier werden die vier gemessenen Umgehungsformen gepflanzt und verlangt,
+    dass jede einzeln auffaellt."""
+    formen = {
+        "En-Dash statt Gedankenstrich": "## KLASSE-Q-2026-0906 – Ein Titel mit genug Zeichen",
+        "drei Rautenzeichen":           "### KLASSE-Q-2026-0906 — Ein Titel mit genug Zeichen",
+        "fuehrendes Leerzeichen":       "  ## KLASSE-Q-2026-0906 — Ein Titel mit genug Zeichen",
+        "Kleinschreibung":              "## KLASSE-q-2026-0906 — Ein Titel mit genug Zeichen",
+    }
+    for name, zeile in formen.items():
+        gepflanzt = ledger_text + "\n\n" + zeile + "\n\nText.\n"
+        uebersehen = uebersehene_ueberschriften(gepflanzt)
+        assert uebersehen, f"die Form '{name}' wurde NICHT als uebersehene Ueberschrift erkannt"
+        assert any("KLASSE" in u.upper() for u in uebersehen), (name, uebersehen)
+    # Gegenrichtung: die KANONISCHE Form darf nicht als uebersehen gelten, sonst waere der
+    # Detektor eine Dauerbeschwerde und niemand laese ihn mehr.
+    kanonisch = ledger_text + "\n\n## KLASSE-Q-2026-0906 — Ein Titel mit genug Zeichen\n\nText.\n"
+    assert not uebersehene_ueberschriften(kanonisch), (
+        "die kanonische Form wurde als uebersehen gemeldet — der Detektor schlaegt immer an")
+
+
 def test_jede_kennung_traegt_einen_titel(ledger_text):
     """Eine Kennung ohne Titel ist ein Platzhalter, kein Ledger-Eintrag — und ein Platzhalter, den
     jemand spaeter fuellt, ist genau die Stelle, an der zwei Lanes wieder kollidieren."""
@@ -129,7 +231,12 @@ def test_der_riegel_sieht_eine_dublette_mit_ABWEICHENDEM_datum(ledger_text):
         f"volle Kennung statt des Buchstabens. Gezaehlt: {dict(z)}")
     # Gegenrichtung: ein FREIER Buchstabe darf nicht als Dublette gelten, sonst waere der Riegel
     # nur eine Verweigerung.
-    frei = next(c for c in "ZYXWVU" if c not in {buchstabe(k) for k, _ in paare})
+    belegt = {buchstabe(k) for k, _ in paare}
+    frei = next((c for c in "ZYXWVUTSRQPONMLKJIHGFEDCBA" if c not in belegt), None)
+    assert frei is not None, (
+        "kein freier Buchstabe mehr im Alphabet — dann ist die Gegenrichtung dieses Meta-Tests "
+        "nicht mehr messbar, und das ist selbst ein Befund am Vergabeschema, kein Testfehler. "
+        f"Belegt: {sorted(belegt)}")
     harmlos = ledger_text + f"\n\n## KLASSE-{frei}-1999-0101 — eine echte neue Klasse\n\nText.\n"
     z2 = Counter(buchstabe(k) for k, _ in kennungen(harmlos))
     assert z2[frei] == 1, f"ein freier Buchstabe wurde als Dublette gezaehlt: {dict(z2)}"
