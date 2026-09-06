@@ -508,6 +508,87 @@ MUTATIONS = [
      "        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None",
      "        pinned = target_pin.get(_rel)",
      "relation: R7-2b unhashable relation target-lookup guard disabled (dict-key TypeError)", True),
+
+    # ------------------------------------------------------------------------------------------
+    # DIE ZWOELF OPERATOREN DER STUFE 6 FUER 6.0.0 (Nachtrag 3, Teil D2, 2026-09-06).
+    #
+    # WARUM SIE HIER FEHLTEN, und das ist der eigentliche Befund: die 88 Operatoren darueber liegen
+    # samtlich auf `src/proofbundle/*`. Auf `scripts/audit_candidate_matrix.py` — der Matrix, die
+    # ueber die FREIGABE entscheidet und die vier der sieben D2-Auflagen adressieren — lag KEINER.
+    # Ebenso keiner auf `budget.py`, `MANIFEST.in` und `sign_readiness_artifact.py`. Ein Mutationslauf
+    # ueber 88 Operatoren sah damit vollstaendig aus und liess die gesamte Release-Entscheidungsflaeche
+    # ungeprueft. Gemessen 2026-09-06 mit einem Inventar-Abgleich der sieben Pflichtflaechen gegen die
+    # Liste: 0 von 7 hatten einen Operator, alle 7 Flaechen sind im Baum vorhanden, also baubar.
+    #
+    # JEDES ZIEL-LITERAL IST VOR DER AUFNAHME AUF EINDEUTIGKEIT GEPRUEFT (genau ein Vorkommen im Baum).
+    # Bei D2-4 war das nicht akademisch: die naheliegende Zeile
+    # `return None, f"git is not usable here ({type(exc).__name__})"` kommt ZWEIMAL vor, in
+    # `_anchor_last_touched_at_head` und in `_evidenz_relation_erlaubt`. Ein Operator darauf haette
+    # je nach Reihenfolge das falsche Ziel getroffen oder als stale gegolten.
+
+    # D2-1 · der bytegenaue CLI-Eingang. Ohne `newline=""` normalisiert Python CRLF still, ohne
+    # `surrogateescape` wirft ein ungueltiges Byte, statt bis zur typisierten Parserablehnung zu tragen.
+    ("src/proofbundle/cli.py",
+     '    return open(path, encoding="utf-8", errors="surrogateescape", newline="")',
+     '    return open(path, encoding="utf-8", errors="surrogateescape")',
+     "cli: newline='' am Eingang entfernt — CRLF wird still normalisiert", True),
+    ("src/proofbundle/cli.py",
+     '    return open(path, encoding="utf-8", errors="surrogateescape", newline="")',
+     '    return open(path, encoding="utf-8", newline="")',
+     "cli: surrogateescape am Eingang entfernt — ungueltige Bytes werfen statt zu tragen", True),
+
+    # D2-2 · die drei Achsen der Erneuerungskette und der Zeitpunkt ihrer Pruefung.
+    ("src/proofbundle/budget.py",
+     "    data_digests: int = 2_000",
+     "    data_digests: int = 2_000_000_000",
+     "budget: data_digests-Schranke praktisch entfernt", True),
+    ("src/proofbundle/budget.py",
+     "    renewal_work: int = 40_000_000",
+     "    renewal_work: int = 40_000_000_000_000",
+     "budget: renewal_work-Riegel praktisch entfernt", True),
+    ("src/proofbundle/renewal.py",
+     "    _arbeit = len(flat) * max(1, len(data_digests)) * max(1, len(_start_algs))",
+     "    _arbeit = len(flat) * max(1, len(data_digests))",
+     "renewal: Faktor fuer Kettenanfangsalgorithmen aus dem Produkt entfernt", True),
+    ("src/proofbundle/renewal.py",
+     '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     "renewal: data_digests-Pruefung VOR der Deckungsarbeit abgeschaltet", True),
+
+    # D2-3 · die Evidenzcommit-Relation. Ohne die Pfadeinschraenkung genuegt ein beliebiger Nachfahr.
+    ("scripts/audit_candidate_matrix.py",
+     "    fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))",
+     "    fremd = []",
+     "matrix: Evidenzrelation auf beliebige Pfade aufgeweicht", True),
+
+    # D2-4 · DATA_BLOCKED gegen fail-open. Der dritte Zustand ist der ganze Sinn der Auflage.
+    ("scripts/audit_candidate_matrix.py",
+     '        return None, f"git log failed here (exit {r.returncode})"',
+     '        return False, f"git log failed here (exit {r.returncode})"',
+     "matrix: Anker-Historie bei Git-Fehler fail-open statt DATA_BLOCKED", True),
+
+    # D2-5 · Distributionsidentitaet und die Freigabestaerke von C10.2.
+    ("scripts/audit_candidate_matrix.py",
+     "    if len(sdists) > 1 or len(wheels) > 1:",
+     "    if False and (len(sdists) > 1 or len(wheels) > 1):",
+     "matrix: Mehrdeutigkeit in dist/ wird nicht mehr abgewiesen", True),
+    ("scripts/audit_candidate_matrix.py",
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     "matrix: C10.2 wieder freigabeentscheidend hochgestuft", True),
+
+    # D2-6 · das ausgeschlossene Signierskript zurueck in den sdist.
+    ("MANIFEST.in",
+     "include scripts/pre_tag_receipt_lib.py",
+     "include scripts/pre_tag_receipt_lib.py\ninclude scripts/pre_tag_receipt.py",
+     "packaging: pre_tag_receipt.py wieder in den sdist aufgenommen", True),
+
+    # D2-7 · Artefaktfluss gegen Koexistenz. `kette` statt `kette[i + 1:]` heisst: die Benutzung darf
+    # wieder VOR dem Bau liegen — genau die Attrappe, die Review Runde 3 vorgefuehrt hat.
+    ("scripts/audit_candidate_matrix.py",
+     "            for art_j, ordner_j in kette[i + 1:]:",
+     "            for art_j, ordner_j in kette:",
+     "matrix: Reihenfolge im Artefaktfluss fallen gelassen — Koexistenz genuegt wieder", True),
 ]
 
 
