@@ -37,21 +37,128 @@ def _lauf(event: str | None) -> subprocess.CompletedProcess:
                           cwd=str(REPO), env=env, timeout=300)
 
 
+def _gueltige_quittung_liegt_vor() -> bool:
+    """UNABHAENGIGES ORAKEL — es fragt NICHT das Tor, das hier geprueft wird.
+
+    Es rechnet selbst nach, was „gueltig" heisst: die Datei existiert, ist lesbares JSON, ihr
+    ``subject_tree_digest`` ist der DIESES Baums, ihr Signierschluessel steht im COMMITTETEN
+    Vertrauensanker, und die Signatur verifiziert ueber genau die kanonischen Bytes. Faellt eine
+    dieser Bedingungen, ist die Antwort False — nie „unbekannt, also ja".
+    """
+    import base64
+    import json
+    sys.path.insert(0, str(REPO / "scripts"))
+    from pre_tag_receipt_lib import canonical_bytes, load_trusted_pubkeys, subject_tree_digest
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    p = REPO / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json"
+    if not p.is_file():
+        return False
+    try:
+        r = json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return False
+    if r.get("subject_tree_digest") != subject_tree_digest(REPO):
+        return False                      # bindet einen ANDEREN Baum
+    pub = r.get("signer_pubkey")
+    if pub not in load_trusted_pubkeys(REPO):
+        return False                      # fremder Signierer
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
+            base64.b64decode(r["signature"]), canonical_bytes(r))
+    except Exception:                     # noqa: BLE001 — jede Ablehnung ist eine Ablehnung
+        return False
+    return True
+
+
 @pytest.mark.parametrize("event", [None, "", "push", "release", "workflow_dispatch", "schedule",
                                    "Pull_Request", "pull-request", "pull_requestX"])
-def test_ausserhalb_eines_pull_request_bleibt_die_zeile_scharf(event):
-    """DER MUTANT. Nur die woertliche Zeichenkette schaltet um — eine andere Schreibweise, ein
-    leerer Wert, eine fehlende Variable und jedes andere Ereignis lassen die Pruefung scharf.
-    Die Richtung ist Absicht: eine unbekannte Umgebung darf ein Release-Tor nicht abschalten."""
+def test_ausserhalb_eines_pull_request_haengt_c12_1_an_der_GUELTIGKEIT(event):
+    """DER MUTANT, praezisiert am 2026-09-06 auf Owner-Auflage — und STRENGER als vorher.
+
+    DIE ALTE FASSUNG NAGELTE EINEN UEBERGANGSZUSTAND FEST. Sie sicherte zu, dass C12.1 ausserhalb
+    eines Pull Requests UNTER FAIL steht. Das war wahr, solange keine Quittung existierte, und
+    wurde in dem Augenblick falsch, in dem die Zeremonie GELANG: der Owner signierte die
+    Pre-Tag-Quittung, sie lag im Baum, C12.1 bestand zu Recht — und der Test fiel zehnmal, ohne dass
+    irgendetwas kaputt war. Ein Test, den der Erfolg der geprueften Sache rot macht, misst einen
+    Weltzustand und keine Eigenschaft; von aussen ist er von einem echten Rueckfall nicht zu
+    unterscheiden und lehrt jeden Leser, an Rot vorbeizugehen.
+
+    DIE OWNER-AUFLAGE, woertlich: „C12.1 darf nur bestehen, wenn eine Quittung da ist UND sie
+    gueltig ist, also Signatur prueft und diesen Kandidaten bindet. Sonst faellt sie."
+
+    Das ist NICHT die weiche Fassung. Die weiche waere gewesen, nur noch zu pruefen, dass die
+    Verengung nicht greift — damit haette eine UNGUELTIGE Quittung C12.1 bestehen lassen. Hier
+    haengt das Urteil an der Gueltigkeit, gemessen von einem Orakel, das das Tor nicht fragt.
+
+    ZWEI ZUSICHERUNGEN, beide in JEDEM Weltzustand wahr:
+      1. ausserhalb der woertlichen Zeichenkette ``pull_request`` kollabiert C12.1 NIE auf ``n.a.``;
+      2. C12.1 besteht GENAU DANN, wenn eine gueltige Quittung vorliegt — sonst faellt sie.
+    """
     r = _lauf(event)
-    assert r.returncode == 1, (
-        f"GITHUB_EVENT_NAME={event!r} hat die Pruefung entschaerft (rc={r.returncode})\n"
-        + r.stdout[-600:])
-    # DIE ZEILE SELBST, nicht irgendeine FAIL-Zeile: in einer Umgebung, in der ohnehin etwas
-    # anderes faellt, waere `"[FAIL ]" in stdout` auch dann wahr, wenn C12.1 entschaerft ist.
-    assert [z for z in r.stdout.splitlines()
-            if z.startswith("  [FAIL ]") and "C12.1" in z], (
-        f"C12.1 steht nicht unter FAIL — die Pruefung ist entschaerft\n{r.stdout[-600:]}")
+    zeilen = [z for z in r.stdout.splitlines() if "C12.1" in z]
+    assert zeilen, f"C12.1 kommt im Bericht gar nicht vor\n{r.stdout[-600:]}"
+
+    # 1 — DIE ZEILE SELBST, nicht irgendeine n.a.-Zeile: in einem Bericht, in dem ohnehin etwas
+    # anderes `n.a.` ist, waere `"[ n.a.]" in stdout` auch dann wahr, wenn C12.1 scharf blieb.
+    entschaerft = [z for z in zeilen if z.startswith("  [ n.a.]")]
+    assert not entschaerft, (
+        f"GITHUB_EVENT_NAME={event!r} hat C12.1 auf 'nicht anwendbar' verengt — die Verengung "
+        f"gehoert AUSSCHLIESSLICH auf das woertliche 'pull_request'\n{entschaerft}")
+
+    # 2 — das Urteil haengt an der GUELTIGKEIT, nicht an der Anwesenheit und nicht am Weltzustand.
+    unter_fail = [z for z in zeilen if z.startswith("  [FAIL ]")]
+    if _gueltige_quittung_liegt_vor():
+        assert not unter_fail, (
+            "eine GUELTIGE Quittung liegt vor (Signatur prueft, bindet diesen Baum) und C12.1 "
+            f"faellt trotzdem — das Tor liest sie nicht\n{unter_fail}")
+    else:
+        assert unter_fail, (
+            "KEINE gueltige Quittung — C12.1 MUSS fallen. Sie tut es nicht, also besteht ein "
+            f"Release-Tor ohne Beleg\n{r.stdout[-600:]}")
+
+
+def test_ANTI_PARITAET_das_orakel_unterscheidet_ueberhaupt():
+    """OHNE DIESE HAELFTE waere ein Orakel, das IMMER True sagt, oben gruen — und die zweite
+    Zusicherung wertlos. Geprueft wird an KOPIEN im Speicher, der Kandidatenbaum wird NICHT
+    angefasst: ein Test, der den Baum mutiert, den er misst, ist der Fehler von heute frueh."""
+    import base64
+    import json
+    sys.path.insert(0, str(REPO / "scripts"))
+    from pre_tag_receipt_lib import canonical_bytes, load_trusted_pubkeys, subject_tree_digest
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    p = REPO / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json"
+    if not p.is_file():
+        pytest.skip("keine Quittung im Baum — die Unterscheidungsprobe braucht eine echte Vorlage")
+    echt = json.loads(p.read_text(encoding="utf-8"))
+
+    def prueft(r: dict) -> bool:
+        if r.get("subject_tree_digest") != subject_tree_digest(REPO):
+            return False
+        pub = r.get("signer_pubkey")
+        if pub not in load_trusted_pubkeys(REPO):
+            return False
+        try:
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
+                base64.b64decode(r["signature"]), canonical_bytes(r))
+        except Exception:  # noqa: BLE001
+            return False
+        return True
+
+    assert prueft(echt), "die echte Quittung wird abgelehnt — dann misst das Orakel nichts"
+
+    # a) ein veraendertes signiertes Feld: die Signatur deckt es nicht mehr
+    manipuliert = dict(echt, produced_at="1999-01-01T00:00:00Z")
+    assert not prueft(manipuliert), "ein veraendertes signiertes Feld wurde akzeptiert"
+
+    # b) eine Quittung, die einen ANDEREN Baum bindet
+    fremder_baum = dict(echt, subject_tree_digest="0" * 64)
+    assert not prueft(fremder_baum), "eine Quittung fuer einen fremden Baum wurde akzeptiert"
+
+    # c) ein fremder Signierer, dessen Schluessel nicht im Anker steht
+    fremd = dict(echt, signer_pubkey=base64.b64encode(b"\x01" * 32).decode())
+    assert not prueft(fremd), "ein nicht verankerter Signierer wurde akzeptiert"
 
 
 def _fail_zeilen(stdout: str) -> list[str]:
@@ -72,10 +179,28 @@ def test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen():
     ueber C12.1 sagt — naemlich wenn keine ANDERE Zeile faellt.
     """
     r = _lauf("pull_request")
-    assert "[ n.a.]" in r.stdout, r.stdout[-600:]
-    assert "nicht anwendbar vor dem Tag" in r.stdout
     fails = _fail_zeilen(r.stdout)
+    # DIESELBE PRAEZISIERUNG WIE OBEN, am 2026-09-06 aus demselben Anlass. Dieser Test nagelte den
+    # Uebergangszustand von der ANDEREN Seite fest: er unterstellte, dass auf einem Pull Request
+    # KEINE Quittung existiert, und verlangte deshalb unbedingt eine `n.a.`-Zeile. Sobald eine
+    # GUELTIGE Quittung im Baum liegt, besteht C12.1 auch auf einem PR — es gibt dann gar kein
+    # `n.a.` mehr, und der Test fiel, obwohl die Verengung genau richtig arbeitete.
+    #
+    # Die Eigenschaft ist in beiden Weltzustaenden dieselbe und wird hier so geschrieben:
+    # auf einem Pull Request steht C12.1 NIE unter FAIL. OB sie `n.a.` traegt oder `ok`, entscheidet
+    # die Quittung — `n.a.` genau dann, wenn keine gueltige vorliegt.
     assert not [z for z in fails if "C12.1" in z], f"C12.1 steht trotzdem unter FAIL:\n{fails}"
+    if _gueltige_quittung_liegt_vor():
+        assert not [z for z in r.stdout.splitlines()
+                    if z.startswith("  [ n.a.]") and "C12.1" in z], (
+            "eine GUELTIGE Quittung liegt vor — dann ist C12.1 anwendbar und BESTEHT; ein `n.a.` "
+            "waere die Verengung an der falschen Stelle")
+    else:
+        assert [z for z in r.stdout.splitlines()
+                if z.startswith("  [ n.a.]") and "C12.1" in z], (
+            f"KEINE gueltige Quittung auf einem PR — dann MUSS C12.1 `n.a.` tragen statt zu "
+            f"fallen, das ist der ganze Zweck der Verengung\n{r.stdout[-600:]}")
+        assert "nicht anwendbar vor dem Tag" in r.stdout
     if not fails:
         assert r.returncode == 0, (
             f"keine FAIL-Zeile, trotzdem rc={r.returncode} — dann haelt C12.1 den Lauf an\n"
