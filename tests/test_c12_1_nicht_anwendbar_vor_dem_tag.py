@@ -220,7 +220,9 @@ def test_ANTI_PARITAET_das_orakel_unterscheidet_ueberhaupt():
                  gate_source_digest=gate_src, audit_exit_code=0)
     ok_basis, grund_basis = pruef(basis)
     # DIE REPARATUR KANN EIN NO-OP SEIN, und dann ist die Annahme darueber falsch, nicht die Regel.
-    # Gemessen am 07.09.2026 in der Vollsuite gegen den eingefrorenen Kandidaten: die Quittung im
+    # Gemessen am 07.09.2026 gegen den Kopf f8f3e6285305fe439f6b05755b39f6d292fb76e2, den die
+    # Quittung im Baum damals band — nach einem spaeteren Commit gilt das nicht mehr, dann ist
+    # `basis != echt` und die Zusicherung greift wieder. Damals: die Quittung im
     # Baum band GENAU diesen Kopf, diese Version, diesen Gate-Digest und `audit_exit_code=0`, also
     # war `basis` BITGLEICH mit `echt` — und `verify_receipt` akzeptierte sie voellig zu Recht.
     # Der Test meldete daraufhin „die Signatur deckt die Felder nicht" an einer Stelle, an der die
@@ -284,10 +286,27 @@ def test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen():
       ABWESEND  -> `n.a.`, nicht FAIL   (das ist die Verengung, um die es geht)
       ABGELEHNT -> FAIL, nicht `n.a.`   (die Nachsicht gilt nicht einem bekannt schlechten Artefakt)
       GUELTIG   -> weder FAIL noch `n.a.`
-    Der Ausgangscode wird nur dort geprueft, wo er ueberhaupt etwas ueber C12.1 sagt — naemlich
-    wenn keine ANDERE Zeile faellt.
+    Der Ausgangscode wird GAR NICHT mehr geprueft; er ist global und sagt ueber diese eine Zeile
+    nichts. An seine Stelle tritt die Anwesenheit der C12.1-Zeile im Bericht — sie unterscheidet
+    einen Lauf, der geurteilt hat, von einem, der nicht stattgefunden hat.
     """
     r = _lauf("pull_request")
+    # EIN TOTALABSTURZ DARF NICHT DURCHKOMMEN. Gegenlesung 07.09.2026, Linse 1, VERDIKT REJECT,
+    # mit lauffaehigem Gegenbeispiel: im Zweig GUELTIG stehen NUR Zusicherungen der Form
+    # `assert not ...`. Bei leerem stdout — etwa ein ImportError vor der ersten Druckzeile, rc=1 —
+    # sind beide LEER-WAHR, und der Test bestuende, obwohl das Tor gar nicht gelaufen ist. Genau
+    # in dem Zustand mit dem hoechsten Einsatz: der Owner hat signiert, der Tag steht bevor.
+    # Der entfernte Nachsatz auf `rc == 0` war in diesem Zweig der einzige Schutz dagegen. Seine
+    # gemessene Ursache (rc=1 bei leerem `_na`) rechtfertigt eine EINSCHRAENKUNG, nicht die
+    # Streichung — die Linse hat recht, und die Zeile hier ersetzt ihn praezise: sie verlangt,
+    # dass der Bericht ueberhaupt eine C12.1-Zeile traegt, und haengt dabei NICHT am globalen
+    # Ausgangscode. Die beiden anderen Zweige schuetzen sich selbst, weil sie Anwesenheit
+    # verlangen. Register: ZWEIG-MIT-NUR-NEGATIVEN-ZUSICHERUNGEN-IST-LEER-WAHR-01.
+    c121_zeilen = [z for z in r.stdout.splitlines() if "C12.1" in z]
+    assert c121_zeilen, (
+        f"C12.1 kommt im Bericht gar nicht vor — rc={r.returncode}, stdout {len(r.stdout)} B. "
+        "Das ist kein Urteil ueber C12.1, sondern ein Lauf, der nicht stattgefunden hat\n"
+        + r.stdout[-600:])
     fails = _fail_zeilen(r.stdout)
     c121_fail = [z for z in fails if "C12.1" in z]
     c121_na = [z for z in r.stdout.splitlines() if z.startswith("  [ n.a.]") and "C12.1" in z]
