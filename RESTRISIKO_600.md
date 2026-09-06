@@ -259,3 +259,42 @@ Written by the same agent that made the changes, before the closing round, from 
 taken on 2026-09-05 at `658ed063` and from the 5.1.0 record. It lists what is known to be open; it
 does not list what no lens has looked for yet. Coverage of the measurements above is one
 interpreter (CPython 3.10) and one platform; the Rust counter implementation was not run.
+
+## Three matrix lines are RED because their binding broke, not because a measurement failed (owner instruction 2026-09-07, path A)
+
+Measured on 2026-09-07 with `PYTHONPATH=src python scripts/audit_candidate_matrix.py --json`
+against head `ca2478d8f4dda53f25df4ee6a3dbe9ea462a7159`: **28 PASS, 4 FAIL, 1 EXTERNAL_PENDING**,
+`version_pin` `bound`. Three of the four FAILs are the lines below; the fourth was C12.1, and it is
+closed by the receipt this release carries.
+
+- **C6.2** — `audit_artifacts/360/fuzz_soak_latest.json` binds commit `9e742bfa989e`, and the head
+  measured against was `ca2478d8f4dd`. The gate allows a bound commit only when every path changed
+  since it lies inside the mutable-evidence set.
+- **C6.3** — the same artefact, `audit_artifacts/360/fuzz_soak_latest.json`, binds commit
+  `9e742bfa989e` against head `ca2478d8f4dd`. C6.3 additionally stays `DATA_BLOCKED` for 6.0.0 on
+  its own merits: the recorded soak is a 300 s smoke, not the full 24 h artefact, and the artefact
+  says so itself via `is_full_soak_24h=false`.
+- **C8.2** — `audit_artifacts/360/rust_differential_matrix.json` binds commit `9e742bfa989e`
+  against head `ca2478d8f4dd`.
+
+**These three are binding breaks caused by the two freeze commits, not substantive defects.** The
+two freeze commits landed the fixes the required gate demanded — three `ruff` violations, and three
+assertions in one test file that had nailed transitional states down as invariants. Neither commit
+touched the measurements these artefacts carry; both moved the head they are bound to.
+
+Why they were not re-signed: `subject_tree_digest` (the receipt) excludes the whole top-level
+`audit_artifacts` entry and is therefore unchanged by any commit into it, while `tree_digest` (the
+readiness artefacts) excludes recursively exactly the two mutable paths — and a receipt committed
+under `audit_artifacts/600/` is not one of them. **There is no commit order in which both bind the
+head they are checked at.** Re-signing the readiness artefacts would require a second owner
+signature after the receipt commit; the owner decided one signature round (2026-09-07, path A) and
+required this section instead. The tag path is not affected: `.github/workflows/release.yml` line 76
+runs `pre_tag_audit_gate.py --repo . --version <v> --strict` as its only audit check, and the
+candidate matrix does not run there.
+
+**A number in this section that a later commit makes stale.** `ca2478d8f4dd` was the head when the
+matrix was run; committing this very section moves the head again. The statement is therefore
+written as a *measurement with its date and object*, not as a claim about the current head. What
+stays true regardless is the part that carries the finding: the three artefacts bind
+`9e742bfa989e`, and every head after it is a later one. Register entry:
+`ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01`.
