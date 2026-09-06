@@ -45,4 +45,29 @@
 # existing entry a tighter reading would break. That is why the format is fixed now — later, every
 # tightening would be a break.
 
-# (no keys pinned yet)
+# ── 6.0.0 ─────────────────────────────────────────────────────────────────────────────────────
+# OWNER-AUTORISIERUNG: Auftrag 20260905T234500Z, order_id
+# QITEM-PB-600-LAUF4-FIX-FIRST-VIER-LANES-NACHLAUF-LAUF5-01, Revision 4, Teil A5. Karte
+# OA-e10ba2ba39, vom Owner mit Option 1 quittiert ("Anker jetzt anlegen, eigener Commit").
+#
+# DERSELBE SCHLUESSEL WIE 5.0.0, und das ist eine Entscheidung, keine Bequemlichkeit: die private
+# Haelfte liegt seit dem 27.08.2026 in der Owner-Verwahrung am Mac und war noch nie auf einem
+# Bauhost. Ein NEUER Schluessel muesste dort erst erzeugt werden — und der Ort, an dem er entsteht,
+# ist genau die Frage, um die es bei Selbstbeglaubigung geht. Die oeffentliche Haelfte steht seit
+# Commit 71a9fac im Baum (audit_artifacts/pre_tag_trusted_pubkeys.txt) und ist hier NACHGERECHNET:
+# kanonisches Base64, 32 dekodierte Bytes.
+#
+# SIGNIERPOLITIK, eng und ausgeschrieben: dieser Schluessel signiert ausschliesslich die drei
+# Bereitschaftsartefakte C6.2, C6.3 und C8.2 sowie den Registerkoerper, jeweils gebunden an
+# Kandidatencommit, Baumdigest und die beiden Distributionsdigests. Er signiert KEIN
+# Pre-Tag-Receipt — dafuer gibt es den getrennten Anker in pre_tag_trusted_pubkeys.txt, und die
+# Trennung ist Absicht (zwei Vertrauensanker, zwei Geltungsbereiche).
+#
+# WARUM DIESE ZEILE IN EINEM EIGENEN COMMIT STEHT: `_anchor_last_touched_at_head` weist einen
+# Schluessel ab, dessen einzige committete Geschichte der Kandidatencommit selbst ist — wer
+# Schluessel und Kandidat in einem Zug einfuehrt, hat sich selbst registriert. Ein eigener Commit
+# VOR dem Merge macht ihn zum Vorfahren jedes spaeteren Kandidaten und damit vorab festgelegt.
+#
+# not_after 2027-09-06: ein Jahr ab heute, Owner-Vorgabe. Verglichen wird gegen `produced_at` der
+# Evidenz, also gegen den Zeitpunkt der MESSUNG — nicht gegen "jetzt".
+iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8= role=readiness_und_register_signierer_600 not_after=2027-09-06
