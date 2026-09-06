@@ -83,3 +83,83 @@ zweite Aufrufer `audit_records_for` ist ein Lokalisierer ohne Produktionskonsume
 ist mit zwei Tests festgehalten, damit ein spaeteres Verdrahten auffaellt. Nebenbefund, nicht
 behoben: `attesting_records_for` / `attests_version` — die gehaertete Allowlist-Form aus L5-02 —
 haben ueberhaupt keinen Produktionsaufrufer.
+
+---
+
+## KLASSE-C-2026-0905 — Eine Zusicherung verkleinert ihre eigene Positivmenge, um eine Zahl zu erzwingen
+
+**Verletzte Invariante.** Eine Eigenschaftszusicherung ("die akzeptierte Menge entspricht der
+Referenzmenge") darf ihren Korpus nicht durch einen Ausschluss VOR dem Zaehlen auf das gewuenschte
+Ergebnis zurechtstutzen. Gueltige, von der Referenz-Spezifikation ausdruecklich zugelassene
+Umformungen desselben signierten Inhalts (hier: Umordnung des C2SP-Signaturblocks — eine MENGE ohne
+Reihenfolge — und eine zusaetzliche wohlgeformte Zeile eines unbekannten Schluessels, die note.Open
+ignoriert statt ablehnt) gehoeren in die POSITIVMENGE. Eine Formulierung wie "genau eine akzeptierte
+Drahtform", die nur durch Herausfiltern dieser gueltigen Formen wahr wird, behauptet mehr Praezision
+(globale Byte-Einzigkeit), als sie tatsaechlich zeigt (Mengengleichheit mit der Referenz).
+
+**ODC.** defect_type = assertion (Zusicherung praeziser als geprueft, false precision) · trigger =
+test-oracle/property specification · source_layer = test-Eigenschaftsformulierung + begleitender
+Docstring-Vertrag.
+
+**Wie es auffiel.** Externer Review Runde 2 (2026-09-05), Framing-Lane, Bedingung "Der Korpus darf
+nicht durch eine falsche Einzigkeitsaussage seine eigene Positivmenge verkleinern": der Reviewer
+zeigte an `tests/test_note_rahmung_kanonisch.py::test_eine_note_hat_genau_eine_angenommene_drahtform`,
+dass die Zaehlung `and not k.startswith("umordnung-") and not k.startswith("fremde-")` genau die
+gueltigen Positivfaelle aus der Menge nahm, BEVOR `len(formen) == 1` geprueft wurde — ohne den
+Ausschluss haette der Test seine eigene Zusicherung nicht mehr erfuellt.
+
+**Wo die Klasse jetzt lebt.** `src/proofbundle/checkpoint.py::_split_signed_note` (Docstring, die
+Formulierung "akzeptierte Menge entspricht der Referenzmenge innerhalb des erklaerten Vertrags" statt
+"genau eine Drahtform"); `tests/test_note_rahmung_kanonisch.py` (Moduldocstring plus
+`test_akzeptierte_menge_entspricht_referenzmenge_ohne_formausschluss`, ohne Ausschluss, mit expliziter
+Positivmengen-Zusicherung fuer Umordnungen und fremde wohlgeformte Zeilen).
+
+**Orakel.** Die Zaehlung haengt am extrahierten Notentext (`cp._split_signed_note(b)[0]`), nicht an den
+rohen Bytes der ganzen Nachricht — eine gueltige Umformung aendert per Konstruktion nur den
+Signaturblock, nie den Text, waehrend eine faelschlich angenommene ANDERE Note (verschobener
+Leerzeilenlauf, eingespeiste Klartextzeile) einen zweiten Textdigest erzeugen wuerde. Das macht die
+Zaehlung UNABHAENGIG vom Spezifikations-Orakel (das in derselben Lane, FUND 1-3 auf defda6a, nachweislich
+zeitweise dieselben zwei Fehler wie die Implementierung trug).
+
+**Ehrliche Grenzen.** Die Klasse ist bislang nur an dieser EINEN Note-Framing-Zusicherung behoben; ein
+repo-weiter Sweep auf denselben Formulierungsfehler ("Zusicherung X erreicht durch Vorfilterung") wurde
+NICHT gefahren — `tests/test_wire_bytes_strict.py`s verwandte, aber semantisch andere Aussage (ein
+base64-FELD hat wirklich nur eine kanonische Kodierung, keine Mengengleichheit ueber Umformungen einer
+ganzen Note) liegt ausserhalb des Auftrags dieser Lane und wurde nicht angefasst.
+
+---
+
+## KLASSE-D-2026-0906 — Eine strukturelle Sicherung, die in Wahrheit eine Textsuche ist
+
+**Warum dieser Eintrag existiert.** Nicht wegen eines Defekts, sondern wegen einer BEHAUPTUNG.
+Review Runde 3 wertet die Rust-Sicherung als „ERFUELLT fuer den heutigen Bestand, die neue Sicherung
+selbst ist nur TEILWEISE strukturell" und Nachtrag 3 (Teil A1) verlangt, das hier festzuhalten. Der
+Eintrag ist also die Grenze eines Riegels, nicht sein Fehlschlag — und genau diese Sorte Eintrag
+fehlt in Ledgern am haeufigsten, weil ein funktionierender Riegel niemanden zwingt, ihn zu schreiben.
+
+**Die Invariante, um die es geht.** `tests/test_tools_baum_kein_zweiter_note_parser.py` soll rot
+werden, sobald im `tools`-Baum ein zweiter Note-Parser entsteht. Ein Parser ist aber eine
+FAEHIGKEIT, und Faehigkeiten stehen nicht im Text — sie ergeben sich aus dem, was ein Programm mit
+seiner Eingabe tut. Der Riegel misst statt dessen zwei Oberflaechen: ein Vokabular (Note-, Checkpoint-
+und Signaturbegriffe) und eine Bauform (das Literal `\n\n` UND eine Em-Dash-Schreibweise im selben
+File). Beides ist Text.
+
+**Was er deshalb NICHT faengt, ausgeschrieben statt angedeutet.** Einen Parser, der seine beiden
+Konstanten zur Laufzeit zusammensetzt (`"\n" + "\n"`, `char(0x2014)`); einen, der sie aus einer
+Datendatei oder einem anderen Modul importiert; einen, der eine andere Kodierung waehlt; einen, der
+das Notenformat ohne diese Merkmale implementiert. Eine echte strukturelle Antwort waere eine
+Sprach- oder Datenflussanalyse ueber den Rust-Baum — die gibt es hier nicht, und sie zu behaupten
+waere teurer als sie zu bauen: ein Riegel, dem man mehr zutraut als er kann, ersetzt eine offene
+Frage durch eine falsche Sicherheit.
+
+**Was er dafuer WIRKLICH leistet, ebenfalls gemessen.** Das reproduzierbare Inventar
+(`33_RUST_INVENTAR_48159022.txt`) belegt den HEUTIGEN Bestand: vier Rust-Dateien, keine
+Note-Flaeche. Die Bauform-Schicht kam hinzu, nachdem eine Review-Linse die reine Vokabelsuche mit
+einem neutral benannten Parser widerlegt hatte — der steht seither als Fixture im Test. Und drei
+Meta-Tests halten fest, dass jedes Merkmal FUER SICH nicht genuegt und die Bauform im echten Baum
+null zusaetzliche Treffer erzeugt. Der Riegel ist also nicht wertlos; er ist ein Fruehwarner gegen
+die naheliegende Wiederkehr, nicht ein Beweis der Abwesenheit.
+
+**ODC.** defect_type = checking (Oberflaeche statt Eigenschaft) · trigger = coverage/variation ·
+source_layer = test-oracle. **Zustand: OFFEN als Grenze**, nicht als Fund — sie wird geschlossen,
+wenn ein Rust-Parser tatsaechlich entsteht und dann eine Analyse verlangt, die diesen Namen verdient.

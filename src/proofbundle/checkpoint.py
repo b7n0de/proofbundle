@@ -271,13 +271,20 @@ def _split_signed_note(signed_note: str, what: str = "signed note", *,
     DIE EIGENSCHAFT, die dieser Helfer herstellt — und zwar EINGESCHRAENKT, nicht absolut (Auflage A4:
     eine Zusicherung, die mehr behauptet, als sie prueft, ist genau der Fehler, den dieser Fix behebt):
     fuer Eingaben INNERHALB der deklarierten Grenzen (unterstuetzte Signaturtypen 0x01/0x04/0x06,
-    Budgets ``signatures``/``witnesses``/``merkle_path`` aus ``DEFAULT_BUDGET``, ``str``-Eingabe) ist die
-    Menge der byteverschiedenen Dateien, die eine ``verify_*``-Oberflaeche dieses Moduls annimmt,
-    dieselbe wie die der kanonischen C2SP-Rahmung. AUSSERHALB dieser Grenzen — ueber der Kappe, mit
-    einem Algorithmus, den dieser Build nicht kann — lehnt proofbundle typisiert ab, wo die Referenz
-    noch parst; das ist absichtlich STRENGER und wird nicht als Gleichheit behauptet. Dieselbe
-    Invariante wie ``_wire_b64`` fuer die base64-FELDER ("ein signiertes Artefakt, EINE akzeptierte
-    Drahtform") — hier eine Schicht hoeher, an der RAHMUNG.
+    Budgets ``signatures``/``witnesses``/``merkle_path`` aus ``DEFAULT_BUDGET``, ``str``-Eingabe) gilt
+    Mengengleichheit: DIE AKZEPTIERTE MENGE ENTSPRICHT DER REFERENZMENGE INNERHALB DES ERKLAERTEN
+    VERTRAGS — jede Bytefolge, die eine ``verify_*``-Oberflaeche dieses Moduls annimmt, nimmt auch die
+    kanonische C2SP-Rahmung an, und umgekehrt. Review Runde 2 (2026-09-05, Auflage A2) korrigiert hier
+    bewusst eine zu starke Vorgaengerformulierung ("genau EINE akzeptierte Drahtform"): eine gueltige
+    Umordnung des Signaturblocks und eine wohlgeformte Zeile eines UNBEKANNTEN Schluessels sind nach der
+    Referenz GUELTIGE, verschiedene Bytefolgen DESSELBEN signierten Textes — sie gehoeren in die
+    Referenzmenge und damit in die akzeptierte Menge, nicht aus ihr heraus. "Eine Note hat genau eine
+    Drahtform" waere falsch verkuerzt: es waere nur wahr, wenn man Umordnungen und fremde wohlgeformte
+    Zeilen aus der Zaehlung ausschliesst, um die Zahl eins zu erzwingen — und genau das darf eine
+    Zusicherung nicht tun (Test-Auflage, siehe ``tests/test_note_rahmung_kanonisch.py``). AUSSERHALB der
+    deklarierten Grenzen — ueber der Kappe, mit einem Algorithmus, den dieser Build nicht kann — lehnt
+    proofbundle typisiert ab, wo die Referenz noch parst; das ist absichtlich STRENGER und wird nicht als
+    Gleichheit behauptet. Ledger-Eintrag: ``audit_artifacts/klassen_ledger.md`` KLASSE-C-2026-0905.
 
     Der Vertrag, Zeichen fuer Zeichen wie note.Open:
       1. Gueltiges UTF-8, und ausser dem Zeilenumbruch kein ASCII-Steuerzeichen UNTER 0x20 — genau
