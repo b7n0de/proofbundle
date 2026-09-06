@@ -978,8 +978,8 @@
   ],
   "version": "6.0.0",
   "candidate": {
-    "commit": "e660667944c49a38129a8e7e14779e30dbdc319b",
-    "tree_digest": "cf260a3880d18f1e2cfb8e655df03ae95b33ab9c08ab919c8c330c5d44afea92",
+    "commit": "9e742bfa989ee6d081c4aa73bde4a4384ea3cc0b",
+    "tree_digest": "4e4d0d4a4fc0d884aa4025ee68b762026301957af69b1415bbc29ac5e822dca7",
     "sdist_sha256": "c4490ac46c80474cfcaa5d784073f59924b9135e0dfbfaf1bba87c02c4382d95",
     "wheel_sha256": "58759ce9add58a95f8d4c44721aa4fda2f11c7448781ca559dfc6b79e6e46cbd"
   },
@@ -988,12 +988,12 @@
     "tool": "tools/pb_verify_rs/crosscheck.py",
     "tool_version": "6.0.0"
   },
-  "input_digest": "b10d904b327c0d2faf277b122b8a84c812f65c54743b0ee359e84315790fc692",
+  "input_digest": "239c52f73d6ebfb920d3847e545490ce775b67360e5c4f17cb26a79858e4ead6",
   "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-09-06T16:10:42Z",
+  "produced_at": "2026-09-06T21:04:57Z",
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "iEEKZY6ELlnoy9HZKmcg7zjyHX8cAoY6MvjBVyh+belGcrFH9DbhJH95V2FDVCg13i3UMpexcoCoQI+JwK74BQ=="
+    "sig_b64": "zmxHv6xJ/thBdiU8+f95Wa4zFyehPhREKVksq5pRF03Kc5MU109PBQAiV2KjLBYDPZQRnLCdLjky/0+NqhjfCQ=="
   }
 }
