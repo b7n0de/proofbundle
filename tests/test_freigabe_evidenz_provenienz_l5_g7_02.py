@@ -1409,7 +1409,8 @@ class TestAnkerdigestImArtefakt:
         sra = _sra_modul()
         d1 = sra.trust_anchor_digest(welt["repo"])
         assert d1 and len(d1) == 64, d1
-        import hashlib as _h, subprocess as _s
+        import hashlib as _h
+        import subprocess as _s
         roh = _s.run(["git", "-C", str(welt["repo"]), "show",
                       f"HEAD:{sra.TRUST_ANCHOR_REL}"], capture_output=True).stdout
         assert d1 == _h.sha256(roh).hexdigest(), "der Digest ist nicht sha256 des committeten Inhalts"

@@ -192,7 +192,8 @@ def _repo_mit_vertrauensanker(td) -> Path:
     art.mkdir(parents=True, exist_ok=True)
     quelle = Path(REPO) / "audit_artifacts" / "readiness_trusted_pubkeys.txt"
     (art / "readiness_trusted_pubkeys.txt").write_bytes(quelle.read_bytes())
-    lauf = lambda *a: subprocess.run(["git", "-C", str(ziel), *a], capture_output=True, timeout=20)
+    def lauf(*a):
+        return subprocess.run(["git", "-C", str(ziel), *a], capture_output=True, timeout=20)
     lauf("init", "-q")
     lauf("add", "audit_artifacts/readiness_trusted_pubkeys.txt")
     lauf("-c", "user.email=fixture@local", "-c", "user.name=fixture",
