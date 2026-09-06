@@ -382,6 +382,29 @@ reader:
 - **68 of 68 files.** The parity gate's population on this candidate is complete. This is the one
   figure here that is not a subset, and it is what keeps `N17` below the release-stopping bar.
 
+**What "0 open P0/P1" can and cannot say — and why this sentence is here at all.** The structured,
+signed register `audit_artifacts/findings_register_361.json` holds **20 entries as of its
+`generated_at` = `2026-09-06T10:27:05Z`**: 13 closed, 7 open, 0 open P0/P1. That count is a state
+**at that instant**, not a closure. The register's own preamble calls itself the SINGLE STRUCTURED
+SOURCE for the count without naming the time cut; the wording is right about *what it decides* and
+silent about *when it was taken*, and the signed artifact cannot be changed any more, so the
+correction lives here.
+
+It matters because the review lane kept running after the signature and found four more, one of
+them a **P1**: `not_after` was never evaluated on the register path, so an expired anchor key kept
+the ability to sign the register — a revocation by lowering `not_after` would have looked effective
+and done nothing. It is closed, in `7eba21e` and its two corrections `3385d80` and `2ba939b`, and
+it is a code path changed **after** the mutation run and after the closing round; no gate round saw
+it. The other three are P2/P2/P3 and stay open; each has its own row in
+[`RESTRISIKO_600.md`](RESTRISIKO_600.md).
+
+So, plainly: **zero open P0 and P1 speaks only about the findings already found.** While that P1 was
+open and unknown, the register truthfully said 0 open P0/P1. This is the sixth instance of one class
+on a single day — a verdict over an excerpt phrased as a verdict over the whole — and this time it
+sits in the register itself. The honest form names the excerpt in the same sentence as the verdict,
+which is what this paragraph does. For 6.1 the register gets a field naming its own time cut and
+where later findings are recorded, so a machine reader does not have to take it out of prose.
+
 `N20` records a mutation operator whose outcome is NOT MEASURABLE rather than killed or survived:
 the operator removes the very resource ceiling under test, and the mutated run reached 111 GiB
 resident (88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the

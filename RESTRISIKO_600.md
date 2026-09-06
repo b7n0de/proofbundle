@@ -170,11 +170,21 @@ receipt, where 5.1.0 recorded it too. The `## [6.0.0]` section of `CHANGELOG.md`
 facts for a reader who never opens this file.
 
 **The structured, signed carrier is the register, not this prose.** `audit_artifacts/findings_register_361.json`
-(the path is historical; the register inside is version-bound and states `6.0.0`) holds 20 entries:
-13 closed, 7 open — `N14`, `N15`, `N16`, `N17`, `N18`, `N19`, `N20` — and **0 open P0/P1**. It is
-signed with the release anchor key, and `audit_candidate_matrix` check `C12.2` counts from those
-structured fields, never from a sentence here. If this section and the register ever disagree, the
-register is the one that decides.
+(the path is historical; the register inside is version-bound and states `6.0.0`) holds **20 entries
+as of `generated_at` = `2026-09-06T10:27:05Z`**: 13 closed, 7 open — `N14`, `N15`, `N16`, `N17`,
+`N18`, `N19`, `N20` — and **0 open P0/P1**. It is signed with the release anchor key, and
+`audit_candidate_matrix` check `C12.2` counts from those structured fields, never from a sentence
+here. If this section and the register ever disagree, the register is the one that decides.
+
+**The register is a STATE AT `generated_at`, not a closure — and its own preamble does not say so.**
+Its docstring calls it the SINGLE STRUCTURED SOURCE for the open-P0/P1 count without naming the
+time cut. That wording is correct about *what it decides* and silent about *when it was taken*, and
+the silence matters: the review lens kept running after the signature and found more. The signed
+artifact cannot be changed any more, so the correction lives here and in the release note, by owner
+decision of 2026-09-06 (card `OA-3aef42655d`, option A with four conditions). **Read the count as:
+20 entries, 0 open P0/P1, measured at 2026-09-06T10:27:05Z.** For 6.1 the register gets a field
+that names its own time cut and where later findings are recorded, so a machine reader does not
+have to take it out of prose.
 
 **The five entries this round added, in one line each**, so that a reader of the residual-risk
 record does not have to open a second file to learn that they exist:
@@ -187,6 +197,41 @@ record does not have to open a second file to learn that they exist:
 | N19 | The mutation gate collects with `unittest discover` and therefore measures 2537 of 3702 tests, **measured at `59d0679`**; 59 of 252 test files are invisible to that collector. The suite grew after that measurement (closing-round fixes added test files; 3727 collected / 254 files at the time of writing), so the figure names its commit rather than claiming a ratio for the tagged tree | follow-up release: move the collector |
 | N20 | One mutation operator is NOT MEASURABLE rather than killed or survived — it removes the resource ceiling under test and the run reached 111 GiB resident before being stopped deliberately | follow-up release: bound the operator |
 | N21 | **The release-deciding check `C12.2` flips PASS to FAIL on 2027-09-07 by design.** The closing-round fix makes an expired anchor key authorise nothing *now*, and the sole key carries `not_after=2027-09-06`. An empty authorised set is a FAIL, not `DATA_BLOCKED` — only an unreadable anchor is the latter — so from that day the audit matrix goes red until the key is rotated. This is the intended behaviour of a validity window and not a defect; it is listed because a gate that turns red on a calendar date must be written down before it does, not explained afterwards | rotate the key before 2027-09-06, or accept the red |
+
+## Found AFTER the register was signed (owner condition 2, card `OA-3aef42655d`)
+
+These were found by the mandatory review lane **after** `generated_at` = `2026-09-06T10:27:05Z`, so
+none of them is in the signed register. Each gets its own row — a collective line would hide which
+assurance each one touches. None of them changes the assurance **0 open P0/P1**: that count speaks
+about P0 and P1, and every entry here is P2 or P3.
+
+| Id | Severity | Assurance touched | What it is | State |
+|---|---|---|---|---|
+| A1 | P2 | Candidate binding: the readiness artifacts bind a `trust_anchor_digest` | The trust anchor lives in `audit_artifacts/`, the one directory the subject tree digest excludes. The anchor is therefore outside the digest that is supposed to pin the candidate's trust basis | open; follow-up release |
+| A2 | P2 | `C4.1`/`C4.2`: completeness of the population they rule over | Both read their result without reading the `population_complete` bound — the same shape as `N17`, one gate over. A verdict from an incomplete population reads like a verdict over all of it | open; follow-up release |
+| A3 | P3 | Evidence paths of the release-deciding checks | The evidence paths are hard-wired to `audit_artifacts/360` instead of being derived from the version under test. It works today because 6.0.0 reuses that directory; it silently reads the wrong release's evidence the moment it does not | open; follow-up release |
+| A4 | P1 | `C12.2`: which key may sign the register | `not_after` was never evaluated on the register path, so an expired anchor key kept the ability to sign the register — a revocation by lowering `not_after` would have looked effective and done nothing. **Closed**, in `7eba21e` and its two corrections `3385d80` and `2ba939b` | closed |
+
+**`A4` is a code path changed AFTER the mutation run and after the closing round** — the same
+disclosure the owner asked for in the earlier condition about `7eba21e`. No gate round saw it. What
+did see it: the mandatory review lane (which rejected the first attempt), four catch-proofs with
+planted defects, a before/after comparison of all 33 matrix checks with no verdict change, and the
+full test suite.
+
+## What "0 open P0/P1" can and cannot say (owner condition 4, card `OA-3aef42655d`)
+
+**Zero open P0 and P1 speaks only about the findings already found.** It is a statement about the
+contents of the register at its time cut, never about the tree. `A4` above proves the point in the
+sharpest possible way: it is a **P1**, it was found *after* the register was signed, and while it
+was open the register still said 0 open P0/P1 — truthfully, because nobody had found it yet.
+
+This is the sixth instance of one class on a single day, and this time it sits in the register
+itself. The other five: a mutation figure that ruled over a subset of the suite without saying so; a
+parity gate ruling from the absence of complaints; `C4.1`/`C4.2` ruling without the completeness
+bound; a coverage figure that paired a class count with a node count; and a test-count in the README
+that described a tree that no longer existed. The shared shape is always the same — **a verdict over
+an excerpt, phrased as a verdict over the whole.** The honest form names the excerpt in the same
+sentence as the verdict, which is what this section does for the register.
 
 ## Honest limit of this file
 
