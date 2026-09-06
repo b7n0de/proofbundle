@@ -37,38 +37,73 @@ def _lauf(event: str | None) -> subprocess.CompletedProcess:
                           cwd=str(REPO), env=env, timeout=300)
 
 
-def _gueltige_quittung_liegt_vor() -> bool:
-    """UNABHAENGIGES ORAKEL — es fragt NICHT das Tor, das hier geprueft wird.
+def _quittungslage() -> str:
+    """``GUELTIG`` | ``ABGELEHNT`` | ``ABWESEND`` | ``NICHT_MESSBAR`` — der Zustand der Quittungen im
+    Baum, gemessen OHNE das Tor zu fragen, dessen Matrixzeile hier geprueft wird.
 
-    Es rechnet selbst nach, was „gueltig" heisst: die Datei existiert, ist lesbares JSON, ihr
-    ``subject_tree_digest`` ist der DIESES Baums, ihr Signierschluessel steht im COMMITTETEN
-    Vertrauensanker, und die Signatur verifiziert ueber genau die kanonischen Bytes. Faellt eine
-    dieser Bedingungen, ist die Antwort False — nie „unbekannt, also ja".
+    ES RUFT DIE REGEL AUF, STATT SIE NACHZUBAUEN. Die erste Fassung baute die Gueltigkeit selbst
+    nach und prueste DREI Bedingungen: Baumbindung, Signierer im Anker, Ed25519-Signatur. Gemessen
+    am 06.09.2026 gegen die echten Produktionsfunktionen: ``verify_receipt`` prueft SIEBEN — dazu
+    ``schema``, ``version``, ``gate_source_digest`` und ``audit_exit_code``. Eine korrekt signierte
+    Quittung ueber einen FEHLGESCHLAGENEN Audit (``audit_exit_code=1``) galt dem Nachbau als
+    gueltig. Zwei Implementierungen derselben Regel driften auseinander; das ist hier gemessen,
+    nicht befuerchtet. Register: MEIN-GUELTIGKEITSORAKEL-IST-SCHWAECHER-ALS-DAS-TOR-VIER-FELDER-01.
+
+    DREI ZUSTAENDE, NICHT ZWEI. Das Tor unterscheidet ``absent`` / ``rejected`` / ``verified``, und
+    die Nachsicht auf einem Pull Request gilt AUSSCHLIESSLICH der Abwesenheit (Fund L5-G6-01 vom
+    05.09.2026). Ein Orakel mit nur zwei Zustaenden kann diese Zeile nicht pruefen — es hat die
+    Unterscheidung schon verloren, bevor der Vergleich beginnt.
+
+    DIESELBE MENGE WIE DAS TOR. Adressiert wird ueber ``_version_token`` und ``pyproject_version``
+    des Tors, und gelesen wird JEDE ``*.json`` unter dem Versionsordner — nicht die eine Datei, die
+    hier erwartet wird. Ein Orakel, das eine kleinere Menge betrachtet als der Prueflig, urteilt aus
+    einer stillschweigend verkleinerten Population; das ist genau die Klasse von N17 und von
+    L5G801, hier im eigenen Pruefwerkzeug vermieden. Adressierung ist nicht Urteil: das Urteil
+    kommt aus ``pre_tag_receipt_lib.verify_receipt``, nicht aus dem Tor.
     """
-    import base64
+    import hashlib
     import json
-    sys.path.insert(0, str(REPO / "scripts"))
-    from pre_tag_receipt_lib import canonical_bytes, load_trusted_pubkeys, subject_tree_digest
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    for p in (REPO / "scripts", REPO / "src"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from pre_tag_audit_gate import _version_token, pyproject_version
+    from pre_tag_receipt_lib import load_trusted_pubkeys, subject_tree_digest, verify_receipt
 
-    p = REPO / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json"
-    if not p.is_file():
-        return False
+    version = pyproject_version(REPO)
+    if not version:
+        return "NICHT_MESSBAR"          # nie „abwesend" — Unmessbarkeit ist ein eigener Zustand
+    # EIN UMGEBUNGSMANGEL IST KEINE ABLEHNUNG (Gegenlesung 06.09.2026). ``verify_receipt`` importiert
+    # ``proofbundle.signature`` ERST BEIM AUFRUF. Fehlt ``src`` auf dem Pfad, wirft es
+    # ModuleNotFoundError — und ein pauschales ``except Exception`` unten haette daraus ein
+    # „ungueltig" gemacht: falsches FAIL aus einem fehlenden Import. Das Tor hat fuer genau diese
+    # Klasse einen eigenen P1-A-Fix (pre_tag_audit_gate.py:276-284); hier wird sie NICHT als Urteil
+    # verkleidet, sondern als das gemeldet, was sie ist.
     try:
-        r = json.loads(p.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return False
-    if r.get("subject_tree_digest") != subject_tree_digest(REPO):
-        return False                      # bindet einen ANDEREN Baum
-    pub = r.get("signer_pubkey")
-    if pub not in load_trusted_pubkeys(REPO):
-        return False                      # fremder Signierer
-    try:
-        Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
-            base64.b64decode(r["signature"]), canonical_bytes(r))
-    except Exception:                     # noqa: BLE001 — jede Ablehnung ist eine Ablehnung
-        return False
-    return True
+        from proofbundle.signature import verify_ed25519  # noqa: F401
+    except Exception:                   # noqa: BLE001
+        return "NICHT_MESSBAR"
+    ordner = REPO / "audit_artifacts" / _version_token(version)
+    kandidaten = sorted(q for q in ordner.rglob("*.json") if q.is_file()) if ordner.is_dir() else []
+    if not kandidaten:
+        return "ABWESEND"
+    tree = subject_tree_digest(REPO)
+    gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+    trusted = load_trusted_pubkeys(REPO)
+    for q in kandidaten:
+        try:
+            r = json.loads(q.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, ValueError):
+            continue                     # da, aber unlesbar: eine ABLEHNUNG, keine Abwesenheit
+        if not isinstance(r, dict):
+            continue
+        try:
+            ok, _grund = verify_receipt(r, trusted_pubkeys=trusted, expected_version=version,
+                                        subject_tree_digest=tree, gate_source_digest=gate_src)
+        except Exception:                # noqa: BLE001 — NICHT MESSBAR ist keine Gueltigkeit
+            ok = False
+        if ok:
+            return "GUELTIG"
+    return "ABGELEHNT"
 
 
 @pytest.mark.parametrize("event", [None, "", "push", "release", "workflow_dispatch", "schedule",
@@ -107,58 +142,108 @@ def test_ausserhalb_eines_pull_request_haengt_c12_1_an_der_GUELTIGKEIT(event):
         f"gehoert AUSSCHLIESSLICH auf das woertliche 'pull_request'\n{entschaerft}")
 
     # 2 — das Urteil haengt an der GUELTIGKEIT, nicht an der Anwesenheit und nicht am Weltzustand.
+    lage = _quittungslage()
+    if lage == "NICHT_MESSBAR":
+        pytest.skip("die Version ist hier nicht lesbar — dann ist die Lage NICHT MESSBAR, und ein "
+                    "Urteil aus einer nicht messbaren Lage waere geraten")
     unter_fail = [z for z in zeilen if z.startswith("  [FAIL ]")]
-    if _gueltige_quittung_liegt_vor():
+    if lage == "GUELTIG":
         assert not unter_fail, (
             "eine GUELTIGE Quittung liegt vor (Signatur prueft, bindet diesen Baum) und C12.1 "
             f"faellt trotzdem — das Tor liest sie nicht\n{unter_fail}")
     else:
         assert unter_fail, (
-            "KEINE gueltige Quittung — C12.1 MUSS fallen. Sie tut es nicht, also besteht ein "
-            f"Release-Tor ohne Beleg\n{r.stdout[-600:]}")
+            f"Lage {lage} — C12.1 MUSS fallen. Sie tut es nicht, also besteht ein Release-Tor "
+            f"ohne Beleg\n{r.stdout[-600:]}")
 
 
 def test_ANTI_PARITAET_das_orakel_unterscheidet_ueberhaupt():
-    """OHNE DIESE HAELFTE waere ein Orakel, das IMMER True sagt, oben gruen — und die zweite
+    """OHNE DIESE HAELFTE waere ein Orakel, das IMMER dasselbe sagt, oben gruen — und die zweite
     Zusicherung wertlos. Geprueft wird an KOPIEN im Speicher, der Kandidatenbaum wird NICHT
-    angefasst: ein Test, der den Baum mutiert, den er misst, ist der Fehler von heute frueh."""
+    angefasst: ein Test, der den Baum mutiert, den er misst, ist der Fehler von heute frueh.
+
+    DIE ERSTE FASSUNG BRAUCHTE EINE GUELTIGE QUITTUNG ALS BASISFALL — und war damit genau in dem
+    Fenster rot, in dem die Zeremonie lebt. Gemessen am 06.09.2026 in der Vollsuite gegen den
+    eingefrorenen Kandidaten: die Quittung im Baum band einen frueheren Kopf, `assert prueft(echt)`
+    fiel, und der Test meldete einen Defekt an einer Stelle, an der keiner war. Das ist dieselbe
+    Klasse, die dieser Umbau beseitigen sollte — ein Uebergangszustand als Invariante festgenagelt —,
+    nur von der anderen Seite. Register: TEST-NAGELT-EINEN-UEBERGANGSZUSTAND-ALS-INVARIANTE-FEST-01.
+
+    DIE FASSUNG HIER BRAUCHT KEINEN GUELTIGEN BASISFALL. Sie repariert die Vorlage in genau den
+    Feldern, die NICHT die Signatur sind, und misst dann, ob die Regel fuer FUENF verschiedene
+    Defekte FUENF verschiedene Gruende nennt. Ein konstantes Orakel — immer True, immer False, oder
+    immer derselbe Grund — faellt hier in jedem Weltzustand. Das ist strenger als der alte
+    Basisfall und haengt nicht mehr davon ab, ob der Owner schon signiert hat.
+    """
     import base64
+    import hashlib
     import json
-    sys.path.insert(0, str(REPO / "scripts"))
-    from pre_tag_receipt_lib import canonical_bytes, load_trusted_pubkeys, subject_tree_digest
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    for p in (REPO / "scripts", REPO / "src"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from pre_tag_audit_gate import _version_token, pyproject_version
+    from pre_tag_receipt_lib import load_trusted_pubkeys, subject_tree_digest, verify_receipt
 
-    p = REPO / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json"
-    if not p.is_file():
-        pytest.skip("keine Quittung im Baum — die Unterscheidungsprobe braucht eine echte Vorlage")
-    echt = json.loads(p.read_text(encoding="utf-8"))
-
-    def prueft(r: dict) -> bool:
-        if r.get("subject_tree_digest") != subject_tree_digest(REPO):
-            return False
-        pub = r.get("signer_pubkey")
-        if pub not in load_trusted_pubkeys(REPO):
-            return False
+    version = pyproject_version(REPO)
+    if not version:
+        pytest.skip("die Version ist hier nicht lesbar — ohne sie gibt es keine Vorlage")
+    ordner = REPO / "audit_artifacts" / _version_token(version)
+    vorlagen = sorted(q for q in ordner.rglob("*.json") if q.is_file()) if ordner.is_dir() else []
+    echt = None
+    for q in vorlagen:
         try:
-            Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
-                base64.b64decode(r["signature"]), canonical_bytes(r))
-        except Exception:  # noqa: BLE001
-            return False
-        return True
+            kandidat = json.loads(q.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(kandidat, dict) and "signature" in kandidat and "signer_pubkey" in kandidat:
+            echt = kandidat
+            break
+    if echt is None:
+        pytest.skip("keine Quittung im Baum — die Unterscheidungsprobe braucht eine echte Vorlage")
 
-    assert prueft(echt), "die echte Quittung wird abgelehnt — dann misst das Orakel nichts"
+    tree = subject_tree_digest(REPO)
+    gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+    trusted = load_trusted_pubkeys(REPO)
 
-    # a) ein veraendertes signiertes Feld: die Signatur deckt es nicht mehr
-    manipuliert = dict(echt, produced_at="1999-01-01T00:00:00Z")
-    assert not prueft(manipuliert), "ein veraendertes signiertes Feld wurde akzeptiert"
+    def pruef(r: dict) -> tuple[bool, str]:
+        try:
+            return verify_receipt(r, trusted_pubkeys=trusted, expected_version=version,
+                                  subject_tree_digest=tree, gate_source_digest=gate_src)
+        except Exception as exc:  # noqa: BLE001
+            return False, f"verify_receipt raised {type(exc).__name__}"
 
-    # b) eine Quittung, die einen ANDEREN Baum bindet
-    fremder_baum = dict(echt, subject_tree_digest="0" * 64)
-    assert not prueft(fremder_baum), "eine Quittung fuer einen fremden Baum wurde akzeptiert"
+    # DIE BASIS: in allen Feldern ausser der Signatur auf DIESEN Baum gestellt. Sie muss fallen —
+    # die Signatur deckt die geaenderten Felder nicht mehr —, und ihr Grund muss sich von jedem
+    # Mutantengrund unterscheiden. Genau daran zeigt sich, dass die vorherigen Bedingungen alle
+    # passiert wurden und die Regel wirklich der Reihe nach prueft.
+    basis = dict(echt, subject_tree_digest=tree, version=version,
+                 gate_source_digest=gate_src, audit_exit_code=0)
+    ok_basis, grund_basis = pruef(basis)
+    assert not ok_basis, (
+        "eine Quittung, deren signierte Felder nachtraeglich auf diesen Baum gestellt wurden, wird "
+        "AKZEPTIERT — dann deckt die Signatur die Felder nicht, die sie decken soll")
 
-    # c) ein fremder Signierer, dessen Schluessel nicht im Anker steht
-    fremd = dict(echt, signer_pubkey=base64.b64encode(b"\x01" * 32).decode())
-    assert not prueft(fremd), "ein nicht verankerter Signierer wurde akzeptiert"
+    faelle = {
+        "fremder Baum": dict(basis, subject_tree_digest="0" * 64),
+        "nicht verankerter Signierer": dict(basis, signer_pubkey=base64.b64encode(b"\x01" * 32).decode()),
+        "fehlgeschlagener Audit": dict(basis, audit_exit_code=1),
+        "fremdes Schema": dict(basis, schema="nicht.unser.schema.v1"),
+        "fremde Version": dict(basis, version="0.0.0"),
+    }
+    gruende: dict[str, str] = {}
+    for name, r in faelle.items():
+        ok, grund = pruef(r)
+        assert not ok, f"{name}: die Regel hat eine erkennbar defekte Quittung AKZEPTIERT"
+        gruende[name] = grund
+
+    # DIE EIGENTLICHE ANTI-PARITAET: fuenf verschiedene Defekte, fuenf verschiedene Gruende, und
+    # keiner davon der Grund der Basis. Ein Orakel, das immer dasselbe sagt, faellt hier — und ein
+    # Orakel, das die Faelle zusammenwirft (etwa `audit_exit_code=1` gar nicht erst prueft), auch.
+    alle = dict(gruende, __basis__=grund_basis)
+    doppelt = {g for g in alle.values() if list(alle.values()).count(g) > 1}
+    assert not doppelt, (
+        "verschiedene Defekte fuehren zum SELBEN Grund — dann unterscheidet die Regel sie nicht:\n"
+        + "\n".join(f"  {k}: {v}" for k, v in alle.items()))
 
 
 def _fail_zeilen(stdout: str) -> list[str]:
@@ -174,33 +259,50 @@ def test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen():
     Defekt an einer Stelle, an der keiner ist. Gemessen am 04.09.2026 in der Cleanroom-Bahn von
     PR 181, an keinem anderen Ort reproduzierbar.
 
-    Geprueft wird deshalb, was die Aenderung wirklich behauptet: C12.1 traegt `n.a.` und steht
-    NICHT unter den FAIL-Zeilen. Der Ausgangscode wird nur dort geprueft, wo er ueberhaupt etwas
-    ueber C12.1 sagt — naemlich wenn keine ANDERE Zeile faellt.
+    DREI LAGEN, NICHT ZWEI (praezisiert am 06.09.2026). Die zweite Fassung sicherte UNBEDINGT zu,
+    dass C12.1 auf einem Pull Request nie unter FAIL steht. Das Tor unterscheidet aber drei
+    Zustaende, und die Nachsicht gilt AUSSCHLIESSLICH der Abwesenheit: eine ABGELEHNTE Quittung
+    bleibt auch auf einem Pull Request FAIL — das ist Fund L5-G6-01 vom 05.09.2026, im Nachbartest
+    woertlich als `# THE FINDING` kommentiert. Die unbedingte Zusicherung hat genau diese
+    Unterscheidung wieder eingeebnet und ist in der Vollsuite gegen den eingefrorenen Kandidaten
+    rot gefallen, waehrend das Tor voellig richtig arbeitete: die Quittung im Baum band einen
+    frueheren Kopf, das Tor sagte `rejected`, und der Test nannte das einen Defekt.
+
+    Geprueft wird deshalb die Entsprechung zwischen der LAGE der Quittungen und der Zeile:
+      ABWESEND  -> `n.a.`, nicht FAIL   (das ist die Verengung, um die es geht)
+      ABGELEHNT -> FAIL, nicht `n.a.`   (die Nachsicht gilt nicht einem bekannt schlechten Artefakt)
+      GUELTIG   -> weder FAIL noch `n.a.`
+    Der Ausgangscode wird nur dort geprueft, wo er ueberhaupt etwas ueber C12.1 sagt — naemlich
+    wenn keine ANDERE Zeile faellt.
     """
     r = _lauf("pull_request")
     fails = _fail_zeilen(r.stdout)
-    # DIESELBE PRAEZISIERUNG WIE OBEN, am 2026-09-06 aus demselben Anlass. Dieser Test nagelte den
-    # Uebergangszustand von der ANDEREN Seite fest: er unterstellte, dass auf einem Pull Request
-    # KEINE Quittung existiert, und verlangte deshalb unbedingt eine `n.a.`-Zeile. Sobald eine
-    # GUELTIGE Quittung im Baum liegt, besteht C12.1 auch auf einem PR — es gibt dann gar kein
-    # `n.a.` mehr, und der Test fiel, obwohl die Verengung genau richtig arbeitete.
-    #
-    # Die Eigenschaft ist in beiden Weltzustaenden dieselbe und wird hier so geschrieben:
-    # auf einem Pull Request steht C12.1 NIE unter FAIL. OB sie `n.a.` traegt oder `ok`, entscheidet
-    # die Quittung — `n.a.` genau dann, wenn keine gueltige vorliegt.
-    assert not [z for z in fails if "C12.1" in z], f"C12.1 steht trotzdem unter FAIL:\n{fails}"
-    if _gueltige_quittung_liegt_vor():
-        assert not [z for z in r.stdout.splitlines()
-                    if z.startswith("  [ n.a.]") and "C12.1" in z], (
+    c121_fail = [z for z in fails if "C12.1" in z]
+    c121_na = [z for z in r.stdout.splitlines() if z.startswith("  [ n.a.]") and "C12.1" in z]
+    lage = _quittungslage()
+    if lage == "NICHT_MESSBAR":
+        pytest.skip("die Version ist hier nicht lesbar — ein Urteil aus einer nicht messbaren Lage "
+                    "waere geraten")
+    if lage == "ABWESEND":
+        assert not c121_fail, f"KEINE Quittung, trotzdem faellt C12.1 auf einem PR:\n{fails}"
+        assert c121_na, (
+            "KEINE Quittung auf einem PR — dann MUSS C12.1 `n.a.` tragen statt zu fallen, das ist "
+            f"der ganze Zweck der Verengung\n{r.stdout[-600:]}")
+        assert "nicht anwendbar vor dem Tag" in r.stdout
+    elif lage == "ABGELEHNT":
+        assert c121_fail, (
+            "eine ABGELEHNTE Quittung liegt im Baum — dann MUSS C12.1 auch auf einem Pull Request "
+            "fallen. Die Nachsicht gilt der ABWESENHEIT, nie einem bekannt schlechten Artefakt "
+            f"(Fund L5-G6-01)\n{r.stdout[-600:]}")
+        assert not c121_na, (
+            f"eine ABGELEHNTE Quittung wurde auf `n.a.` verengt — genau die Luecke aus L5-G6-01\n{c121_na}")
+    else:
+        assert not c121_fail, (
+            "eine GUELTIGE Quittung liegt vor und C12.1 faellt trotzdem — das Tor liest sie nicht\n"
+            f"{c121_fail}")
+        assert not c121_na, (
             "eine GUELTIGE Quittung liegt vor — dann ist C12.1 anwendbar und BESTEHT; ein `n.a.` "
             "waere die Verengung an der falschen Stelle")
-    else:
-        assert [z for z in r.stdout.splitlines()
-                if z.startswith("  [ n.a.]") and "C12.1" in z], (
-            f"KEINE gueltige Quittung auf einem PR — dann MUSS C12.1 `n.a.` tragen statt zu "
-            f"fallen, das ist der ganze Zweck der Verengung\n{r.stdout[-600:]}")
-        assert "nicht anwendbar vor dem Tag" in r.stdout
     if not fails:
         assert r.returncode == 0, (
             f"keine FAIL-Zeile, trotzdem rc={r.returncode} — dann haelt C12.1 den Lauf an\n"
