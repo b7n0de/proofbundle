@@ -49,8 +49,10 @@ a valid receipt. The six published v0.1 receipts verify as before; the full list
 >
 > The closing audit verdict for 6.0.0 was `FIX_FIRST`, not `WITHSTANDS_DEEPGATE`. Three findings
 > were confirmed and stay open; they are published in [RESTRISIKO_600.md](https://github.com/b7n0de/proofbundle/blob/main/RESTRISIKO_600.md),
-> together with the scope each statement of that round holds over — the mutation gate measured 2537
-> of 3702 tests, the parity gate 68 of 68 source files.
+> together with the scope each statement of that round holds over: the mutation gate ran over a
+> measured subset of the suite, the parity gate over all 68 source files. Both figures are stated
+> in RESTRISIKO_600.md with the definition of what they count — this page deliberately carries no
+> test count, because one here goes stale with the next added test (`tests/test_docs_truth.py`).
 
 ## New in 5.1.0
 

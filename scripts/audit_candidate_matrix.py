@@ -406,34 +406,61 @@ def _autorisierte_schluessel(repo: Path, check_id: str, *,
     Ein Widerruf ueber das Absenken von ``not_after`` waere damit wirkungslos gewesen und haette
     wirksam ausgesehen — und genau das ist die Richtung, in der ein Fehler am teuersten ist.
 
-    OHNE ``gemessen_am`` wird die Frist NICHT geprueft, und der Grund sagt es. Das ist kein
-    stilles Zurueckfallen: ein Aufrufer, der keinen Messzeitpunkt hat, kann die Frist nicht
-    anwenden, und eine erfundene Zeit waere schlimmer als eine benannte Luecke. Der einzige
-    freigabeentscheidende Aufrufer (C12.2) uebergibt ihn.
+    OHNE ``gemessen_am`` wird KEIN Schluessel autorisiert, und der Grund sagt warum. Die erste
+    Fassung liess in diesem Fall ungefiltert durch und nannte das eine „benannte Grenze" — die
+    Pflicht-Gegenlesung hat das als fail-open zurueckgewiesen, und sie hat recht: ein Aufrufer, der
+    den Parameter vergisst oder aus einer aelteren Fassung stammt, bekaeme sonst abgelaufene
+    Schluessel. Ein Sicherheitsfilter, dessen Vorgabe das Nichtfiltern ist, ist kein Filter.
+
+    ZWEI FRISTEN, NICHT EINE, und der Grund steht in einer widerlegten eigenen Behauptung.
+    Geprueft wird gegen den Messzeitpunkt der Evidenz UND gegen heute:
+
+      * gegen ``gemessen_am``: Evidenz, die NACH dem Ablauf entstanden ist, ist unzulaessig. Das
+        ist die Semantik, die der Anker beschreibt.
+      * gegen HEUTE: ein widerrufener Schluessel darf die heutige Freigabe nicht autorisieren,
+        egal wie alt die Evidenz ist. Widerruf heisst „diesem Schluessel nicht mehr glauben", nicht
+        „ihm fuer kuenftige Evidenz nicht mehr glauben".
+
+    WARUM DIE ZWEITE FRIST DAZUKAM. Die erste Fassung prueft nur gegen ``gemessen_am`` und trug
+    dazu das Argument, das Lesen dieses Feldes aus dem noch ungepruefen Register sei sicher, weil es
+    die erlaubte Menge nur VERKLEINERN koenne. Das ist falsch, und die Gegenlesung hat es
+    ausfuehrbar widerlegt: mit ``not_after=2000-01-01`` und ehrlichem Messzeitpunkt sind null
+    Schluessel autorisiert — mit einem auf 1999 zurueckdatierten ``generated_at`` ist es wieder
+    einer. Die Signatur deckt ``generated_at`` mit ab, ein Halter eines widerrufenen Schluessels
+    kann es also frei waehlen. Die Rueckdatierung VERGROESSERT die Menge gegenueber dem ehrlichen
+    Zeitpunkt, und genau das ist der Vergleich, auf den es ankommt. Das Alterfenster im Register
+    begrenzt die Rueckdatierung auf 180 Tage, es schliesst sie nicht — deshalb die zweite Frist.
     """
+    from datetime import datetime, timezone                # noqa: PLC0415
     zuordnung, zustand = _trust_anchor(repo)
     if zustand == "unmeasurable":
         return None, "der Vertrauensanker ist hier nicht lesbar"
     passend = {pub for pub, feld in zuordnung.items()
                if check_id in _ANKER_ROLLEN.get(feld.get("role", ""), frozenset())}
     if gemessen_am is None:
-        return passend, (f"{len(passend)} Schluessel im Anker autorisiert fuer {check_id} "
-                         f"(Ankerzustand {zustand}; not_after NICHT geprueft — kein Messzeitpunkt "
-                         f"uebergeben)")
+        return set(), (f"kein Messzeitpunkt uebergeben — ohne ihn ist die Gueltigkeitsfrist nicht "
+                       f"anwendbar, und ein nicht anwendbarer Sicherheitsfilter autorisiert "
+                       f"niemanden (fail-closed; {len(passend)} Schluessel haetten die Rolle fuer "
+                       f"{check_id})")
     # Zeichenvergleich der ersten zehn Stellen: beide Formen sind ISO-8601-Praefixe, und ein
     # Kalendertagsvergleich braucht keine Zeitzonenrechnung, die der Anker gar nicht hergibt.
-    # Dieselbe Bauform wie bei den Artefakten, damit die zwei Pfade nicht auseinanderlaufen.
     tag = str(gemessen_am)[:10]
+    heute = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     erlaubt, abgelaufen = set(), []
     for pub in passend:
         frist = str(zuordnung[pub].get("not_after", ""))[:10]
-        if frist and tag > frist:
-            abgelaufen.append(f"{pub[:12]}…(not_after={frist})")
+        if not frist:
+            erlaubt.add(pub)
+            continue
+        if tag > frist:
+            abgelaufen.append(f"{pub[:12]}…(not_after={frist}, Evidenz von {tag})")
+        elif heute > frist:
+            abgelaufen.append(f"{pub[:12]}…(not_after={frist}, heute {heute} — widerrufen)")
         else:
             erlaubt.add(pub)
     schwanz = f", {len(abgelaufen)} abgelaufen: {abgelaufen}" if abgelaufen else ""
     return erlaubt, (f"{len(erlaubt)} Schluessel im Anker autorisiert fuer {check_id} "
-                     f"(Ankerzustand {zustand}, gemessen_am={tag}{schwanz})")
+                     f"(Ankerzustand {zustand}, gemessen_am={tag}, heute={heute}{schwanz})")
 
 #: Base64 in kanonischer Form fuer genau 32 Bytes: 43 Zeichen aus dem Standardalphabet plus genau
 #: ein Fuellzeichen. Die Laengenpruefung allein reicht nicht — ``b64decode`` mit ``validate=True``
@@ -697,10 +724,30 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
             f"this key to {erlaubt['role']!r} — the anchor decides what a key may speak for, not "
             "the artifact that wants to be admitted")
 
-    # GUELTIGKEITSZEIT, gemessen gegen den Zeitpunkt der MESSUNG (``produced_at``), nicht gegen
-    # "jetzt": ein Artefakt, das gestern rechtmaessig entstand, wird nicht dadurch ungueltig, dass
-    # heute jemand die Matrix faehrt — und eines, das nach Ablauf erzeugt wurde, wird nicht dadurch
-    # gueltig, dass es frueh genug gelesen wird.
+    # GUELTIGKEITSZEIT, gegen ZWEI Fristen. Die erste Fassung prueft nur gegen ``produced_at`` und
+    # begruendete das so: "ein Artefakt, das gestern rechtmaessig entstand, wird nicht dadurch
+    # ungueltig, dass heute jemand die Matrix faehrt". Der Satz ist richtig — und als alleinige
+    # Pruefung reicht er nicht, weil ``produced_at`` VOM SIGNIERER SELBST gewaehlt und mitsigniert
+    # wird. Wer die private Haelfte eines abgelaufenen Schluessels haelt, schreibt einen Zeitpunkt
+    # innerhalb des Fensters hinein und ist wieder autorisiert. GEMESSEN 2026-09-06 an genau dieser
+    # Stelle, mit einem Wegwerf-Schluesselpaar und not_after=2027-09-06, Pruefzeitpunkt 25 Tage nach
+    # Ablauf: ehrliches produced_at -> untrusted, um 30 Tage zurueckdatiertes produced_at ->
+    # verified. Der Korridor war genau so breit wie das Frischefenster (_EVIDENCE_MAX_AGE_DAYS),
+    # also 180 Tage ab dem Tag nach Ablauf.
+    #
+    # DIESELBE KLASSE stand am selben Tag auf dem Registerpfad (``_autorisierte_schluessel``) und
+    # wurde dort von der Pflicht-Gegenlesung widerlegt; Klasse
+    # ``gueltigkeitsfenster_gegen_selbstbehaupteten_zeitpunkt`` im Berkeley-Klassenledger. Ein
+    # selbstbehaupteter Zeitpunkt kann NICHT belegen, WANN signiert wurde — genau dafuer gibt es
+    # vertrauenswuerdige Zeitstempel (RFC 3161); ohne einen solchen ist die einzige tragfaehige
+    # Lesart, dass das Fenster auch JETZT offen sein muss.
+    #
+    # WAS DAS KOSTET, ehrlich: nach Ablauf eines Schluessels wird seine Evidenz hier unzulaessig,
+    # auch die rechtmaessig entstandene. Das ist derselbe Handel wie bei Code-Signaturen ohne
+    # Zeitstempel und hier bezahlbar, weil ``_freshness_error`` Evidenz ohnehin auf
+    # _EVIDENCE_MAX_AGE_DAYS begrenzt: eine historische Nachpruefung alter Evidenz ist NICHT die
+    # Aufgabe dieser Matrix, sie beurteilt einen Kandidaten mit frischer Messung. Wer nach Ablauf
+    # weiter freigeben will, rollt den Schluessel — das ist die vorgesehene Bewegung.
     frist = erlaubt["not_after"]
     erzeugt = artifact.get("produced_at")
     if not isinstance(erzeugt, str) or not erzeugt:
@@ -712,6 +759,14 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
         return ART_UNTRUSTED, (
             f"the artifact was produced at {erzeugt} but the anchor limits this key to "
             f"not_after={frist} — evidence signed after a key's window is not admissible")
+    heute = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if heute > frist[:10]:
+        return ART_UNTRUSTED, (
+            f"the anchor limits this key to not_after={frist} and today is {heute} — the window is "
+            f"closed NOW, so this key admits nothing, whatever produced_at={erzeugt} the artifact "
+            "claims for itself. A produced_at is written by the same holder that signs, so it "
+            "cannot establish WHEN the signature was made; without a trusted timestamp the only "
+            "sound reading is that an expired key authorises nothing. Roll the key and re-sign")
     # AUFLAGE C3 (Runde 2): der Anker darf nicht im selben Commit eingefuehrt worden sein, den er
     # gerade autorisiert — sonst koennte derselbe ungeschuetzte Bauprincipal Schluessel und
     # Kandidat in einer Kette einfuehren. Nur geprueft, wenn ein Baum uebergeben wurde UND der
