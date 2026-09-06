@@ -57,11 +57,34 @@
 # Commit 71a9fac im Baum (audit_artifacts/pre_tag_trusted_pubkeys.txt) und ist hier NACHGERECHNET:
 # kanonisches Base64, 32 dekodierte Bytes.
 #
-# SIGNIERPOLITIK, eng und ausgeschrieben: dieser Schluessel signiert ausschliesslich die drei
-# Bereitschaftsartefakte C6.2, C6.3 und C8.2 sowie den Registerkoerper, jeweils gebunden an
-# Kandidatencommit, Baumdigest und die beiden Distributionsdigests. Er signiert KEIN
-# Pre-Tag-Receipt — dafuer gibt es den getrennten Anker in pre_tag_trusted_pubkeys.txt, und die
-# Trennung ist Absicht (zwei Vertrauensanker, zwei Geltungsbereiche).
+# SIGNIERPOLITIK, eng und ausgeschrieben: dieser Schluessel signiert die drei
+# Bereitschaftsartefakte C6.2, C6.3 und C8.2, den Registerkoerper und das Pre-Tag-Receipt von
+# 6.0.0, jeweils gebunden an Kandidatencommit, Baumdigest und die beiden Distributionsdigests.
+#
+# WIE WEIT DIE TRENNUNG HEUTE WIRKLICH REICHT — gemessen am 06.09.2026, nicht behauptet. Eine
+# fruehere Fassung dieses Absatzes stand hier: dieser Schluessel signiere KEIN Pre-Tag-Receipt,
+# dafuer gebe es den getrennten Anker in pre_tag_trusted_pubkeys.txt, "zwei Vertrauensanker,
+# zwei Geltungsbereiche". Der Baum traegt diesen Satz nicht, und er wurde deshalb ersetzt:
+#
+#   * BEIDE Anker fuehren DENSELBEN Schluessel. iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=
+#     steht hier UND in audit_artifacts/pre_tag_trusted_pubkeys.txt. Eine private Haelfte erfuellt
+#     beide. Getrennt sind die DATEIEN, nicht die Schluessel.
+#   * Genau dieser Schluessel hat die Pre-Tag-Receipts von 5.0.0 und 5.1.0 signiert; `signer_pubkey`
+#     in audit_artifacts/500/pre_tag_receipt_v5.0.0.json und audit_artifacts/510/
+#     pre_tag_receipt_v5.1.0.json traegt denselben Wert. Der Satz war also schon falsch, als er
+#     geschrieben wurde.
+#   * Der Pre-Tag-Pfad prueft WEDER Rolle NOCH Frist: `role=` und `not_after=` werden nur auf
+#     DIESEM Anker ausgewertet (scripts/audit_candidate_matrix.py), nicht in
+#     scripts/pre_tag_receipt_lib.py oder scripts/pre_tag_audit_gate.py. Ein zweiter Schluessel
+#     dort wuerde auf dem Papier trennen und in der Mechanik nichts erzwingen.
+#
+# WAS STATTDESSEN GILT: ein Schluessel deckt beide Anker. Die Trennung der Geltungsbereiche
+# besteht heute ueber die Dateien und ueber diese Erklaerung, nicht ueber getrennte Prinzipale.
+# Die echte Trennung der Prinzipale — getrennter Schluessel plus Rollen- und Fristpruefung auch
+# auf dem Pre-Tag-Pfad — ist Teil E des Auftrags 20260906T092000Z und gehoert nach 6.1, nicht in
+# die 6.0.0-Zeremonie: ein Schluessel, der mitten in der Zeremonie entsteht, ist genau die Frage,
+# um die es bei Selbstbeglaubigung geht (Owner-Entscheid 06.09.2026, Karte OA-83d26f7eda,
+# Option A).
 #
 # WARUM DIESE ZEILE IN EINEM EIGENEN COMMIT STEHT: `_anchor_last_touched_at_head` weist einen
 # Schluessel ab, dessen einzige committete Geschichte der Kandidatencommit selbst ist — wer
