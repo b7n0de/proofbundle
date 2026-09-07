@@ -145,12 +145,27 @@ seven commits later. A round whose purpose was adding measuring points had let i
 record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
 per commit; the head gets named.
 
-| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) |
-|---|---|---|---|
-| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
-| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) | 51 files (+11637 / −189) |
-| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) | 12 files (+3577 / −262) |
-| **total** | **87 files** | **90 files** | **95 files** |
+| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` (**the frozen head**) |
+|---|---|---|---|---|
+| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
+| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) |
+| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) |
+| **total** | **87 files** | **90 files** | **95 files** | **95 files** |
+
+**A FILE CANNOT NAME THE SHA OF THE COMMIT THAT INTRODUCES IT, and pretending otherwise is how
+this table went stale twice.** The last column names `424c5e3`, the head the figures were MEASURED
+on. The frozen head is that commit's child — the one this record is part of — and its sha is
+recorded where it can be: in the pre-tag receipt, which binds the tree rather than describing it.
+
+That is not a gap, because the figures are INVARIANT across the step: the freeze commit changes
+`audit_artifacts/600/README.md` and nothing else, and `audit_artifacts/` is neither `src/` nor
+`tests/` nor `scripts/`. Recording the measurement therefore cannot disturb the measurement.
+Checkable, not asserted — `git diff --numstat 658ed063 <frozen head> -- src tests scripts` must
+return the same four figures, and the collector count below must be unchanged too. If either moved,
+something other than this record was committed, and the freeze was broken.
+
+The earlier columns stay. A record that silently replaces its own history is worth less than one
+that shows the drift it corrected.
 
 **Identity does not hold, and the count is not the point** — one changed file already breaks it.
 The canonical run covers no head of this line. That is not an interpretation; it is the condition
@@ -166,11 +181,15 @@ of `fix/mutationstor-sammler-sieht-alle-tests` (merge commit `733a8c4`, owner de
 asserting an absence after the thing arrived is exactly the drift this file was corrected for once
 already, one section above.
 
-`scripts/mutation_check.py` now collects with the normative runner. Measured on `5e9aa66` by
-**asking the collector**, the same call the gate makes:
+`scripts/mutation_check.py` now collects with the normative runner. Measured by **asking the
+collector**, the same call the gate makes (`_lauf_der_suite`: `pytest -q -p no:cacheprovider
+-p no:randomly`):
 
-    the gate's collector:  3820 tests across 259 files
-    blind:                 0 tests, 0 files
+    on `5e9aa66`:          3820 tests across 259 files, blind 0
+    on `424c5e3` (frozen): 3827 tests across 259 files, blind 0
+
+The seven added tests are the four that close the lens REJECT on the sdist-derivation guard plus
+three siblings; the file count is unchanged because they went into existing modules.
 
 The figures kept for comparison, each naming its head: 3736 / 2524 (25 % blind) on `22dc97b5`,
 3767 / 2571 (23 % blind, 59 files) on `68aa6f32`, and the collector's own commit message records
@@ -189,8 +208,8 @@ written, one is gone and one stands:
 
 * **Gone:** the collector no longer misses a quarter of the test files. It collects the full
   population, measured above.
-* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and this
-  head. One changed file already breaks it; ninety-five is not a closer call, only a louder one.
+* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and the
+  frozen head `424c5e3`. One changed file already breaks it; ninety-five is not a closer call, only a louder one.
 
 N11 states what follows when identity fails, and it is not "report and stop": the run **is
 repeated** against the head that gets tagged. That is the path taken here, on the owner's decision
