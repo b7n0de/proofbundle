@@ -35,6 +35,11 @@ CONFTEST = REPO / "tests" / "conftest.py"
 #: Die Module, deren Zahlen der Kopf von `conftest.py` WOERTLICH nennt. Sie stehen dort als Beleg
 #: fuer die Kostenaussage, also muessen sie gebunden sein — sonst belegt der Beleg nichts.
 #: Linse 3 hat mit genau diesen beiden ihren Messweg kalibriert; beide stimmten auf den Punkt.
+#: Kleinwerte, die im Kopf als STRUKTURANGABE stehen und keine wachsende Menge beziffern —
+#: "1 needed", "0 needed", "one commit". Sie sind keine Aggregatzahlen und veralten nicht mit der
+#: Suite. Bewusst kurz gehalten: jede Aufnahme hier ist eine Behauptung, dass die Zahl NICHT waechst.
+_ZAEHLBARE_KLEINWERTE = {0, 1, 3}
+
 _ZITIERTE_ZAHLEN = {
     "test_fork_pr_secret_isolation": 34,
     "test_audit_marker_line_wrap": 9,
@@ -109,14 +114,40 @@ def test_JEDE_zahl_im_kopf_ist_gebunden_oder_steht_nicht_da():
     ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)          # Messdaten
     ohne = re.sub(r"\b\d+\.\d+\.\d+\b", " ", ohne)             # Versionen
     ohne = re.sub(r"\bPKG-\d{4}-\d{4}-\d{2}\b", " ", ohne)       # Vorgangskennungen
-    gefunden = {int(z) for z in re.findall(r"\b(\d{2,})\b", ohne)}
-    ungebunden = sorted(gefunden - set(_ZITIERTE_ZAHLEN.values()))
+    # `\d+` STATT `\d{2,}` (Bestaetigungsrunde 2026-09-07, Linse 1). Die erste Fassung verlangte
+    # ZWEI Ziffern, und eine eingepflanzte einstellige Zahl ("8 more tests") blieb dadurch
+    # unsichtbar. Eine Zahl veraltet nicht erst ab zehn.
+    gefunden = {int(z) for z in re.findall(r"\b(\d+)\b", ohne)}
+    ungebunden = sorted(gefunden - set(_ZITIERTE_ZAHLEN.values()) - _ZAEHLBARE_KLEINWERTE)
     assert not ungebunden, (
         f"Der Kopf von conftest.py nennt Zahl(en), die an nichts gebunden sind: {ungebunden}. Jede "
         f"Zahl ueber eine Menge, die waechst, veraltet still — genau so ist die Kollateralzahl "
         f"zwischen dem 2026-09-02 und dem 2026-09-07 um mehr als das Doppelte gewandert, ohne dass "
         f"es jemandem auffiel. Entweder die Zahl bekommt eine Bindung in _ZITIERTE_ZAHLEN (mit "
         f"einem Fall, der sie gegen den Sammler misst), oder sie gehoert nicht in Prosa.")
+
+
+def test_die_zahl_gehoert_zu_IHREM_modul_und_nicht_irgendeinem():
+    """DIE PAARUNG, nicht die Mengenzugehoerigkeit (Bestaetigungsrunde 2026-09-07, Linse 1).
+
+    Die erste Fassung des Riegels oben pruefte, ob eine Zahl IN der Menge der gebundenen Werte
+    liegt. Damit galt eine Zahl auch dann als gebunden, wenn sie einem voellig anderen Modul
+    zugeschrieben wurde: "34 skipped" bei einem Modul, das gar keine 34 Tests hat, ging durch, weil
+    34 irgendwo gebunden ist. Gemessen von der Linse, Test blieb gruen.
+
+    Dieser Fall prueft, was gemeint war: steht die Zahl im Kopf DIREKT beim Namen ihres Moduls?
+    """
+    kopf = CONFTEST.read_text(encoding="utf-8").split('"""')[1]
+    for modul, erwartet in _ZITIERTE_ZAHLEN.items():
+        # Der Kopf nennt das Modul, und in derselben Klammer die Zahl. Gesucht wird das Paar,
+        # nicht die Zahl allein.
+        stelle = kopf.find(modul)
+        assert stelle >= 0, f"{modul} wird im Kopf gar nicht genannt — die Bindung zeigt ins Leere"
+        umfeld = kopf[stelle:stelle + 200]
+        assert re.search(rf"\b{erwartet}\s+skipped\b", umfeld), (
+            f"Im Kopf steht '{modul}', aber die zugehoerige Zahl {erwartet} nicht im selben Umfeld "
+            f"(200 Zeichen). Eine Zahl, die irgendwo im Text gebunden ist, aber beim falschen Modul "
+            f"steht, ist keine Bindung — sie ist eine Uebereinstimmung. Umfeld war: {umfeld[:120]!r}")
 
 
 def test_ANTI_PARITAET_der_riegel_faengt_eine_eingepflanzte_zahl():

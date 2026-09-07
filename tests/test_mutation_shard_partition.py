@@ -203,30 +203,78 @@ class DieGemeldeteZahlIstDieGEFAHRENEMenge(unittest.TestCase):
     addiert.
     """
 
-    def test_die_schlusszeile_nennt_die_menge_des_laufs_und_nicht_eine_zweite_rechnung(self):
-        """DER FANGNACHWEIS. Beide Stellen muessen aus DERSELBEN Quelle lesen; wird die Quelle
-        ersetzt, muss sich auch die gemeldete Zahl bewegen."""
-        gemeldet = {}
-        echt = (mc._run_operators, mc._prepare_workdir, mc._worktree_status,
-                mc._indizes_des_laufs, __builtins__["print"] if isinstance(__builtins__, dict)
-                else __builtins__.print)
-        mc._run_operators = lambda work, **kw: 0
-        mc._prepare_workdir = lambda root, work: None
-        mc._worktree_status = lambda root: ""
-        mc._indizes_des_laufs = lambda shard: [0, 1, 2]          # DREI Operatoren, nicht zehn
-        import builtins
-        builtins.print = lambda *a, **k: gemeldet.setdefault("zeilen", []).append(" ".join(map(str, a)))
+    def test_die_schlusszeile_nennt_die_menge_die_der_ECHTE_lauf_gefahren_hat(self):
+        """DER FANGNACHWEIS — ZWEITE FASSUNG, weil die erste blind war.
+
+        DIE ERSTE FASSUNG ERSETZTE `_run_operators` DURCH EINEN STUB. Damit prueft sie nur, woraus
+        `main()` seine Druckzeile liest — nie, woraus der ECHTE Lauf liest. Die Bestaetigungsrunde
+        (Lauf 5, Linse 1, 2026-09-07) hat genau das ausgenutzt: sie baute den historischen Fund
+        wieder ein (der Lauf rechnet ueber `partition()` round-robin, die Schlusszeile ueber
+        `_indizes_des_laufs`), und ALLE Faelle dieser Datei blieben gruen. Ein Stub an der Stelle,
+        deren Verhalten geprueft werden soll, prueft das Verhalten des Stubs.
+
+        Diese Fassung laesst `_run_operators` LAUFEN und faengt ab, welche Indizes es wirklich
+        anfasst. Die Schlusszeile muss dieselbe Menge nennen. Divergieren die beiden Quellen, faellt
+        der Fall — unabhaengig davon, welche Rechnung wo steht.
+        """
+        import builtins  # noqa: PLC0415
+        gemeldet: dict = {"zeilen": []}
+        gefahren: list = []
+
+        # Der Lauf wird ECHT gefahren, nur die teure Suite wird ersetzt: `_red_count` liefert eine
+        # konstante Roete, sodass jeder Operator sofort ein Urteil bekommt. Die Auswahl der
+        # Operatoren — das Gemessene — bleibt unberuehrt.
+        echt = (mc._red_count, mc._prepare_workdir, mc._worktree_status, builtins.print)
+        mutationen_original = mc.MUTATIONS
+
+        def _protokolliere(work, *a, **k):
+            return 0
+
+        def _lege_ziel_an(root, work):
+            """Der Wegwerfbaum bekommt genau die eine Datei, die die Operatoren anfassen — der
+            Lauf soll ECHT laufen, nur nicht das ganze Repo kopieren."""
+            ziel = work / "src" / "x.py"
+            ziel.parent.mkdir(parents=True, exist_ok=True)
+            ziel.write_text("\n".join(f"alt{i}" for i in range(20)) + "\n", encoding="utf-8")
+
         try:
-            mc.main(["--shard", "1/10"])
+            mc._red_count = _protokolliere
+            mc._prepare_workdir = _lege_ziel_an
+            mc._worktree_status = lambda root: ""
+            builtins.print = lambda *a, **k: gemeldet["zeilen"].append(" ".join(map(str, a)))
+            # Ein winziger Operatorensatz, damit der echte Lauf schnell durchlaeuft. Die Ziele
+            # existieren nicht — jeder Operator meldet GAP und wird trotzdem GEFAHREN, und genau
+            # die gefahrene MENGE ist der Gegenstand.
+            mc.MUTATIONS = [("src/x.py", f"alt{i}", f"neu{i}", f"op-{i}", True) for i in range(20)]
+            # Die Erwartung wird BERECHNET, SOLANGE die Liste die des Laufs ist. Ein Aufruf nach dem
+            # Wiederherstellen laege gegen die echten 100 Operatoren — der Vergleich wuerde dann
+            # etwas anderes messen als das Gefahrene.
+            erwartet = sorted(mc._indizes_des_laufs((2, 5)))
+            mc.main(["--shard", "2/5"])
         finally:
-            (mc._run_operators, mc._prepare_workdir, mc._worktree_status,
-             mc._indizes_des_laufs) = echt[:4]
-            builtins.print = echt[4]
-        schluss = [z for z in gemeldet.get("zeilen", []) if z.startswith("=>")]
-        self.assertTrue(schluss, "keine Schlusszeile ausgegeben")
-        self.assertIn("(3 operators", schluss[-1],
-                      f"Die Schlusszeile nennt nicht die gefahrene Menge: {schluss[-1]!r}. Sie "
-                      f"rechnet die Zahl ein zweites Mal aus, statt die des Laufs zu melden.")
+            mc.MUTATIONS = mutationen_original
+            mc._red_count, mc._prepare_workdir, mc._worktree_status, builtins.print = echt
+
+        # Was der ECHTE Lauf angefasst hat, steht in seinen eigenen shard-item-Zeilen.
+        gefahren = sorted(int(z.split()[1]) for z in gemeldet["zeilen"]
+                          if z.strip().startswith("shard-item"))
+        schluss = [z for z in gemeldet["zeilen"] if z.startswith("=>")]
+        self.assertTrue(schluss, f"keine Schlusszeile: {gemeldet['zeilen'][:5]}")
+        self.assertTrue(gefahren, "der Lauf hat seine Menge nicht ausgegeben")
+
+        # DIE MITGLIEDSCHAFT, NICHT DIE ANZAHL — und das ist die dritte Fassung dieses Falls.
+        # Die zweite verglich `len(gefahren)` gegen die Zahl in der Schlusszeile und blieb deshalb
+        # GRUEN, als der historische Fund wieder eingebaut wurde: beide Partitionsverfahren liefern
+        # gleich GROSSE Shards, nur mit anderen Operatoren darin. Gemessen an der echten Liste
+        # dieses Repos unterscheiden sich die Mitgliedschaften bei 10 von 10 Shards, die Groessen
+        # bei keinem einzigen. Eine Anzahl kann eine Partition nicht unterscheiden.
+        self.assertEqual(gefahren, erwartet, (
+            f"Der Lauf hat die Operatoren {gefahren} angefasst, `_indizes_des_laufs` liefert aber "
+            f"{erwartet}. Damit rechnen Lauf und Schlusszeile aus verschiedenen Quellen — genau der "
+            f"Fund, den dieser Fall binden soll."))
+        self.assertIn(f"({len(gefahren)} operators", schluss[-1], (
+            f"Die Schlusszeile nennt {schluss[-1]!r}, der Lauf hat aber {len(gefahren)} Operatoren "
+            f"angefasst."))
 
     def test_die_zwei_rechnungen_divergieren_nachweislich(self):
         """WARUM DAS KEIN KOSMETIK-FIX IST, gemessen statt behauptet: sobald die Operatorenzahl
@@ -364,7 +412,10 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
 
     @staticmethod
     def _gut(n: int = 10, gesamt: int = 100):
-        return {i: f"shard={i} operators={gesamt // n} total={gesamt}\n" for i in range(1, n + 1)}
+        """Zehn Shards, round-robin partitioniert — Groessen UND Mitgliedschaften."""
+        return {i: (f"shard={i} operators={gesamt // n} total={gesamt} "
+                    f"indizes={','.join(str(x) for x in range(i - 1, gesamt, n))}\n")
+                for i in range(1, n + 1)}
 
     def test_der_gute_fall_besteht(self):
         """Die Positivkontrolle. Ohne sie sagen die Faelle unten nur, dass immer etwas faellt."""
@@ -412,3 +463,64 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         r = self._fahre(shards)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("fehlende Shards", r.stdout + r.stderr)
+
+    def test_UEBERLAPPUNG_die_sich_mit_einer_LUECKE_aufhebt_wird_gefangen(self):
+        """DER FANGNACHWEIS ZU LINSE 1 DER BESTAETIGUNGSRUNDE (2026-09-07).
+
+        Bis zu diesem Fix prueft der Sammel-Job nur `Summe == Gesamtzahl`. Das ist notwendig und
+        NICHT hinreichend: acht Shards mit je zehn, einer mit fuenfzehn und einer mit fuenf ergeben
+        ebenfalls 100. Eine Ueberschneidung, die sich mit einer Luecke aufhebt, kommt so durch —
+        und genau das soll der Riegel verhindern.
+        """
+        # DIE KONSTRUKTION IST DER GANZE FALL, und der erste Versuch war falsch: er VERSCHOB fuenf
+        # Indizes von Shard 7 nach Shard 3. Eine Verschiebung ist aber weiterhin eine gueltige
+        # Partition — Summe 100, Vereinigung vollstaendig, disjunkt —, und der Riegel liess sie zu
+        # Recht durch. Gebraucht wird eine ECHTE Ueberlappung, die eine Luecke ausgleicht: Shard 3
+        # nimmt fuenf Indizes von Shard 7 DAZU, waehrend Shard 7 sie BEHAELT (Ueberlappung), und
+        # dafuer fallen Shard 7s andere fuenf ganz weg (Luecke). Summe bleibt 100.
+        s7 = [str(x) for x in range(6, 100, 10)]
+        shards = self._gut()
+        idx3 = [str(x) for x in range(2, 100, 10)] + s7[:5]     # 15, davon 5 doppelt
+        idx7 = s7[:5]                                            # 5, dieselben fuenf
+        shards[3] = f"shard=3 operators=15 total=100 indizes={','.join(idx3)}\n"
+        shards[7] = f"shard=7 operators=5 total=100 indizes={','.join(idx7)}\n"
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0, (
+            "Eine Ueberlappung, die sich mit einer Luecke aufhebt, kommt durch. Die Summe ist 100 "
+            "und stimmt — die Partition ist es nicht."))
+        self.assertIn("ueberschneiden", r.stdout + r.stderr)
+
+    def test_ein_shard_OHNE_mitgliedschaft_ist_nicht_nachrechenbar(self):
+        """Die Mitgliedschaft ist die Grundlage der Rechnung. Fehlt sie, ist die Aussage
+        'lueckenlos und ueberschneidungsfrei' nur behauptet — und das muss auffallen."""
+        shards = self._gut()
+        shards[6] = "shard=6 operators=10 total=100\n"      # kein indizes=
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("keine Mitgliedschaft", r.stdout + r.stderr)
+
+    def test_eine_LUECKE_ohne_ausgleichende_ueberlappung_wird_weiterhin_gefangen(self):
+        """Die Kontrolle in die andere Richtung: der alte Summenriegel muss weiter greifen."""
+        shards = self._gut()
+        idx9 = [str(x) for x in range(8, 100, 10)][:7]
+        shards[9] = f"shard=9 operators=7 total=100 indizes={','.join(idx9)}\n"
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Luecke", r.stdout + r.stderr)
+
+    def test_ANTI_PARITAET_die_echte_partition_dieses_repos_besteht(self):
+        """Ohne diesen Fall bestuenden die drei oben auch bei einem Riegel, der IMMER faellt.
+
+        Gefahren wird die WIRKLICHE Partition dieses Repos, so wie `_indizes_des_laufs` sie liefert —
+        nicht eine nachgebaute. Sie muss durchkommen.
+        """
+        g, _ = mc.lade_gewichte()
+        shards = {}
+        for i in range(1, 11):
+            idx = mc._indizes_des_laufs((i, 10), g)
+            shards[i] = (f"shard={i} operators={len(idx)} total={len(mc.MUTATIONS)} "
+                         f"indizes={','.join(str(x) for x in idx)}\n")
+        r = self._fahre(shards)
+        self.assertEqual(r.returncode, 0, (
+            f"Die echte Partition dieses Repos faellt am eigenen Riegel:\n{r.stdout}\n{r.stderr}"))
+        self.assertIn("Vereinigung vollstaendig und paarweise disjunkt", r.stdout)
