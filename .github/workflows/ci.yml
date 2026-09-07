@@ -262,7 +262,17 @@ jobs:
                | grep -oE '[0-9]+' | tail -1 || true)"
           gesamt="$(grep -oE 'total=[0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
                     | grep -oE '[0-9]+' | tail -1 || true)"
-          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0}" \
+          # DIE MITGLIEDSCHAFT WIRD MITGEMELDET, NICHT NUR IHRE GROESSE (Lauf 5, Linse 1, 2026-09-07).
+          # Der Sammel-Job unten prueft `Summe == Gesamtzahl`. Gemessen an diesem Repo faengt das den
+          # Fall NICHT, gegen den es antritt: gewichtete und round-robin-Partition liefern beide
+          # [10,10,10,10,10,10,10,10,10,10] und in beiden Faellen die Summe 100 — waehrend sich die
+          # MITGLIEDSCHAFTEN bei 10 von 10 Shards unterscheiden. Zwei Codestaende in einer Matrix
+          # kaemen so durch, und eine Ueberlappung, die sich mit einer Luecke aufhebt, ebenfalls.
+          # Die Indizes stehen im Log (`shard-item <idx> [<label>]`); sie werden hier uebertragen,
+          # damit der Sammel-Job Vereinigung und Disjunktheit RECHNEN kann statt sie zu glauben.
+          idx="$(grep -oE '^  shard-item [0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
+                 | grep -oE '[0-9]+' | sort -n | tr '\n' ',' | sed 's/,$//' || true)"
+          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
@@ -372,7 +382,33 @@ jobs:
             echo "::error::Summe der gefahrenen Operatoren $summe != $ERWARTET — die Partition hat eine Luecke oder eine Ueberschneidung"
             exit 1
           fi
-          echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, keine Luecke"
+          # DIE SUMME IST NOTWENDIG UND NICHT HINREICHEND, und bis 2026-09-07 stand hier nur sie.
+          # Gemessen: eine Ueberlappung, die sich mit einer Luecke aufhebt, geht durch (acht Shards
+          # mit je zehn, einer mit fuenfzehn, einer mit fuenf ergibt ebenfalls 100), und zwei
+          # verschiedene Partitionsverfahren liefern hier IDENTISCHE Groessen bei durchgehend
+          # verschiedener Mitgliedschaft. Erst die Indizes machen die Aussage "lueckenlos und
+          # ueberschneidungsfrei" pruefbar, statt sie aus der Summe zu erschliessen.
+          alle_idx=""
+          for i in $(seq 1 $K); do
+            f="mutation-shard-$i.txt"
+            teil="$(grep -oE 'indizes=[0-9,]*' "$f" | sed 's/indizes=//' || true)"
+            if [ -z "$teil" ]; then
+              echo "::error::Shard $i meldet keine Mitgliedschaft — die Partition ist dann nicht nachrechenbar, nur behauptet"
+              exit 1
+            fi
+            alle_idx="$alle_idx $(echo "$teil" | tr ',' ' ')"
+          done
+          n_gesamt="$(echo $alle_idx | tr ' ' '\n' | grep -c . || true)"
+          n_eindeutig="$(echo $alle_idx | tr ' ' '\n' | grep . | sort -n | uniq | wc -l)"
+          if [ "$n_gesamt" -ne "$n_eindeutig" ]; then
+            echo "::error::die Shards ueberschneiden sich: $n_gesamt gemeldete Indizes, davon nur $n_eindeutig verschiedene"
+            exit 1
+          fi
+          if [ "$n_eindeutig" -ne "$ERWARTET" ]; then
+            echo "::error::die Vereinigung deckt $n_eindeutig von $ERWARTET Operatoren — es fehlen welche"
+            exit 1
+          fi
+          echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, Vereinigung vollstaendig und paarweise disjunkt"
       - name: Wanduhr der Matrix aus den Job-Zeitstempeln
         # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
         # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht
