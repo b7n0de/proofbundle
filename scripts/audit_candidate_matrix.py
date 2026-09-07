@@ -330,25 +330,38 @@ def _trust_anchor(repo: Path) -> tuple[dict, str]:
     aus dem Arbeitsbaum koennte ein schmutziger Checkout einen Schluessel einlegen und sich selbst
     beglaubigen.
     """
+    # DIE UNTERSCHEIDUNG KOMMT AUS DEM EXIT-CODE, NICHT AUS DEM MELDUNGSTEXT (2026-09-07).
+    # Vorher entschied hier der Wortlaut der git-Fehlermeldung darueber, ob der Zustand "empty"
+    # oder "unmeasurable" ist. Die vier Wortlaute waren zwar GEMESSEN und nicht geraten, aber eine
+    # fremde Meldung bleibt kein Vertrag: der Aufruf setzte kein LC_ALL=C, also haette ein
+    # lokalisiertes git die Einordnung kippen lassen, und eine Umformulierung durch git haette
+    # dasselbe getan. `git show` bietet die Unterscheidung nicht an — alle vier Faelle enden mit
+    # 128. `git ls-tree` bietet sie an, und das ist GEMESSEN statt angenommen:
+    #   Pfad in HEAD      -> rc 0, eine Ausgabezeile
+    #   Pfad nicht in HEAD-> rc 0, KEINE Ausgabezeile
+    #   gar kein Repo     -> rc 128
+    #   Repo ohne Commit  -> rc 128
+    # Damit ist "das Repo checkt keinen Anker ein" von "hier ist nichts zu lesen" getrennt, ohne
+    # ein einziges Wort Fremdtext zu lesen.
+    try:
+        vorhanden = subprocess.run(
+            ["git", "-C", str(repo), "ls-tree", "HEAD", "--", READINESS_TRUST_ANCHOR_REL],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return {}, "unmeasurable"
+    if vorhanden.returncode != 0:
+        return {}, "unmeasurable"          # kein Repo, kein HEAD, kaputter Objektspeicher
+    if not vorhanden.stdout.strip():
+        return {}, "empty"                 # dieses Repo checkt keinen Anker ein
     try:
         r = subprocess.run(
             ["git", "-C", str(repo), "show", f"HEAD:{READINESS_TRUST_ANCHOR_REL}"],
             capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return [], "unmeasurable"
+        return {}, "unmeasurable"
     if r.returncode != 0:
-        stderr = (r.stderr or "").lower()
-        # „existiert nicht in HEAD" ist eine Aussage ueber das REPO (leer); alles andere — kein
-        # Repo, keine Referenz, kaputter Objektspeicher — ist eine ueber die UMGEBUNG. GEMESSEN
-        # 2026-09-05 mit git, statt die Wortlaute zu raten:
-        #   Pfad nicht im HEAD          -> "fatal: path '…' does not exist in 'HEAD'"
-        #   auf Platte, aber ungetrackt -> "fatal: path '…' exists on disk, but not in 'HEAD'"
-        #   gar kein Repo               -> "fatal: not a git repository (or any of the parent …)"
-        #   Repo ohne Commit            -> "fatal: invalid object name 'HEAD'."
-        # Die ersten beiden heissen „dieses Repo checkt keinen Anker ein", die letzten beiden
-        # „hier ist nichts zu lesen".
-        if "does not exist" in stderr or "exists on disk, but not in" in stderr:
-            return {}, "empty"
+        # ls-tree hat den Eintrag gesehen, show kann ihn nicht lesen: das ist die Umgebung,
+        # nicht der Bestand.
         return {}, "unmeasurable"
     zuordnung = _anker_zeilen_lesen(r.stdout)
     return zuordnung, ("ok" if zuordnung else "empty")

@@ -229,5 +229,105 @@ class DerErzeugerLiestKeinenPrivatenSchluessel(unittest.TestCase):
                          f"oder erzeugen — gefunden: {sorted(set(verboten))}")
 
 
+class DerAnkerzustandKommtAusExitCodes(unittest.TestCase):
+    """``_trust_anchor`` trennt "dieses Repo checkt keinen Anker ein" von "hier ist nichts zu
+    lesen" — und zwar OHNE einen Meldungstext von git zu lesen.
+
+    WARUM DAS ZAEHLT. Bis 2026-09-07 entschied hier der Wortlaut der git-Fehlermeldung
+    ("does not exist", "exists on disk, but not in"). Die vier Wortlaute waren gemessen, nicht
+    geraten — aber der Aufruf setzte kein ``LC_ALL=C``, also haette ein lokalisiertes git die
+    Einordnung kippen lassen, und eine Umformulierung durch git haette dasselbe getan.
+    ``git show`` bietet die Unterscheidung nicht an: alle vier Faelle enden mit 128. ``git
+    ls-tree`` bietet sie an, GEMESSEN: Pfad in HEAD -> rc 0 mit Ausgabe, Pfad nicht in HEAD
+    -> rc 0 OHNE Ausgabe, kein Repo -> rc 128, Repo ohne Commit -> rc 128.
+
+    Die Wirkung ist begrenzt und das wird hier festgehalten statt behauptet: beide Endzustaende
+    sind fail-closed, ein falscher PASS entstand aus der Verwechslung NICHT — falsch wurde die
+    Diagnose, nicht das Urteil.
+    """
+
+    def _repo(self) -> Path:
+        td = tempfile.TemporaryDirectory(prefix="anker-zustand-")
+        self.addCleanup(td.cleanup)
+        r = Path(td.name)
+        import subprocess                                          # noqa: PLC0415
+        for args in (["init", "-q"], ["config", "user.email", "t@t.local"],
+                     ["config", "user.name", "t"]):
+            subprocess.run(["git", "-C", str(r), *args], check=True, capture_output=True)
+        return r
+
+    @staticmethod
+    def _commit(repo: Path, *pfade: str) -> None:
+        import subprocess                                          # noqa: PLC0415
+        subprocess.run(["git", "-C", str(repo), "add", *pfade], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "x"],
+                       check=True, capture_output=True)
+
+    def test_kein_repo_ist_unmeasurable(self):
+        td = tempfile.TemporaryDirectory(prefix="kein-repo-")
+        self.addCleanup(td.cleanup)
+        self.assertEqual(m._trust_anchor(Path(td.name))[1], "unmeasurable")
+
+    def test_repo_ohne_commit_ist_unmeasurable(self):
+        """Kein HEAD heisst: hier ist nichts zu lesen — NICHT "das Repo checkt keinen Anker ein"."""
+        self.assertEqual(m._trust_anchor(self._repo())[1], "unmeasurable")
+
+    def test_repo_mit_commit_aber_ohne_anker_ist_empty(self):
+        """DIE UNTERSCHEIDUNG. Derselbe Rueckgabewert wie oben waere hier falsch: dieses Repo ist
+        lesbar, es checkt nur keinen Anker ein."""
+        r = self._repo()
+        (r / "irgendwas.txt").write_text("x\n", encoding="utf-8")
+        self._commit(r, "irgendwas.txt")
+        zuordnung, zustand = m._trust_anchor(r)
+        self.assertEqual(zustand, "empty")
+        self.assertEqual(zuordnung, {}, "der Rueckgabetyp ist ein dict, auch im leeren Fall")
+
+    def test_ein_git_das_nicht_englisch_spricht_kippt_die_einordnung_NICHT(self):
+        """DER EIGENTLICHE FANGNACHWEIS — und er fehlte zuerst.
+
+        Die vier Faelle darueber laufen mit der alten Meldungstext-Fassung GENAUSO gruen: bei
+        englischem git verhalten sich beide Formen gleich, und ein Test, der nur das misst, belegt
+        die Verbesserung nicht. Gemessen 2026-09-07, indem die alte Fassung transient
+        zurueckgelegt wurde: 4 passed, unveraendert.
+
+        Hier wird deshalb ein ``git`` gestellt, das auf ``ls-tree`` korrekt antwortet (rc 0, keine
+        Ausgabezeile = der Pfad ist nicht in HEAD) und auf ``show`` mit rc 128 und einer Meldung,
+        die die englischen Wortlaute NICHT enthaelt. Die alte Fassung las daraus "unmeasurable",
+        also einen Umgebungsmangel, wo in Wahrheit nur kein Anker eingecheckt ist. Die neue liest
+        gar keinen Text.
+        """
+        import os                                                  # noqa: PLC0415
+        import stat                                                # noqa: PLC0415
+        td = tempfile.TemporaryDirectory(prefix="git-stub-")
+        self.addCleanup(td.cleanup)
+        stub = Path(td.name) / "git"
+        stub.write_text(
+            "#!/bin/sh\n"
+            'case "$3" in\n'
+            "  ls-tree) exit 0 ;;\n"
+            '  show) echo "fatal: Pfad existiert nicht in HEAD" >&2; exit 128 ;;\n'
+            "esac\n"
+            "exit 1\n", encoding="utf-8")
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        alt = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{td.name}:{alt}"
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", alt))
+        zuordnung, zustand = m._trust_anchor(Path(td.name))
+        self.assertEqual(zustand, "empty",
+                         "die Einordnung darf nicht daran haengen, in welcher Sprache git spricht "
+                         "— ls-tree hat mit rc 0 und leerer Ausgabe bereits alles gesagt")
+        self.assertEqual(zuordnung, {})
+
+    def test_anker_auf_platte_aber_ungetrackt_ist_empty_nicht_unmeasurable(self):
+        """Der zweite der vier gemessenen git-Faelle: die Datei liegt da, aber nicht in HEAD."""
+        r = self._repo()
+        (r / "irgendwas.txt").write_text("x\n", encoding="utf-8")
+        self._commit(r, "irgendwas.txt")
+        ziel = r / m.READINESS_TRUST_ANCHOR_REL
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text("# ungetrackt\n", encoding="utf-8")
+        self.assertEqual(m._trust_anchor(r)[1], "empty",
+                         "eine ungetrackte Datei ist kein eingecheckter Anker — aber das Repo ist "
+                         "lesbar, also 'empty' und nicht 'unmeasurable'")
 if __name__ == "__main__":
     unittest.main()
