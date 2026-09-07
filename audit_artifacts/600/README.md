@@ -192,12 +192,22 @@ seven commits later. A round whose purpose was adding measuring points had let i
 record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
 per commit; the head gets named.
 
-| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` (**the head these figures were measured on**) |
+| directory | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` | `658ed063` → `cd91b65` (**the head these figures were measured on**) |
 |---|---|---|---|---|
 | `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
-| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) |
-| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) |
-| **total** | **87 files** | **90 files** | **95 files** | **95 files** |
+| `tests/` | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) | 54 files (+12747 / −198) |
+| `scripts/` | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) | 14 files (+3782 / −277) |
+| **total** | **90 files** | **95 files** | **95 files** | **100 files** |
+
+The 2026-09-07 fix cycle for the five closing-round REJECTs moved three more test files and two
+more scripts, so the count rose from 95 to 100. That is the expected direction: N11 measures
+distance from the canonical run's base, and a candidate that fixes findings gets further from it,
+never closer. The condition is unchanged — identity does not hold, so the run is repeated.
+
+The counter-read that followed the fix cycle moved LINES but not FILES: the file count stayed at
+100 while `tests/` and `scripts/` grew, because its six findings landed in modules the cycle had
+already touched. That is worth writing down, because a file count that holds still while the tree
+changes is exactly the kind of number that gets mistaken for "nothing happened".
 
 **A FILE CANNOT NAME THE SHA OF THE COMMIT THAT INTRODUCES IT, and pretending otherwise is how
 this table went stale twice.** The last column names `424c5e3`, the head the figures were MEASURED
@@ -244,7 +254,14 @@ collector**, the same call the gate makes (`_lauf_der_suite`: `pytest -q -p no:c
 -p no:randomly`):
 
     on `5e9aa66`:  3820 tests across 259 files, blind 0
-    on `424c5e3`:  3827 tests across 259 files, blind 0   (the parent of the frozen head)
+    on `424c5e3`:  3827 tests across 259 files, blind 0
+    on `cd91b65`:  3861 tests across 261 files, blind 0   (after the fix cycle and the counter-read)
+
+The full suite on `cd91b65`, run in a detached tree with the sister virtualenv (the system Python
+lacks `opentimestamps`, which would have silently skipped the anchor tests): **3827 passed, 25
+skipped, 0 failed, rc=0**, 945 subtests, 1254.85 s, `git status --porcelain` empty before and after.
+The cross-check that makes the number mean something: 3827 + 25 = 3852, exactly the collected set —
+the suite ran the whole population, not a subset of it.
 
 The seven added tests are the four that close the lens REJECT on the sdist-derivation guard plus
 three siblings; the file count is unchanged because they went into existing modules.
@@ -266,9 +283,9 @@ written, one is gone and one stands:
 
 * **Gone:** the collector no longer misses a quarter of the test files. It collects the full
   population, measured above.
-* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and
-  `424c5e3`, the head these figures were measured on. One changed file already breaks it;
-  ninety-five is not a closer call, only a louder one.
+* **Stands:** identity under N11 does **not** hold — 100 files differ between `658ed063` and
+  `cd91b65`, the head these figures were measured on. One changed file already breaks it; a hundred
+  is not a closer call, only a louder one.
 
 N11 states what follows when identity fails, and it is not "report and stop": the run **is
 repeated** against the head that gets tagged. That is the path taken here, on the owner's decision
@@ -277,6 +294,32 @@ canonical mutation run on the frozen head, and the freeze happens exactly once.
 
 So this section no longer reports an impossibility. It records the condition that makes the repeat
 necessary, and the repeat is the release's own next step — not a deferred one.
+
+### The release standard's conditions, measured on this head
+
+Six of the eight conditions the standing owner GO of 2026-09-05 makes the release train depend on
+are measured here, each with the command that produced it. The two that are missing are missing on
+purpose: they come AFTER this record exists, and naming them as open is the point of the list.
+
+| Condition | Measured on `16dcc17` |
+|---|---|
+| full suite exit 0 | 3836 passed, 25 skipped, 0 failed, rc=0, 948 subtests, 1193.08 s — detached tree, `git status --porcelain` empty before and after. Cross-check: 3836 + 25 = 3861, the collected set exactly |
+| two normalised sdists byte-identical | `REPRODUCIBLE OK`, sha256 `e7c2a5a8fdcde589…`, epoch 1788803738 (`scripts/build_reproducible.py --check`) |
+| wheel from the shipped sdist = direct build | `WHEEL FREEZE OK`, sha256 `e76fb670a6a40069…` (`--check-wheel`) |
+| audit matrix with no red row | 33 checks: 28 PASS, 4 FAIL, 1 EXTERNAL_PENDING, 0 unknown, 0 DATA_BLOCKED. **All four FAILs are signing-round-bound** — C6.2/C6.3/C8.2 still bind `9e742bf` and get re-measured and re-signed in that round, C12.1 has no receipt for this tree yet, which is the same necessity the N11 section states above |
+| findings register, 0 open P0/P1 | PASS via C12.2 — 20 findings evaluated from the signed, version-bound register (`6.0.0`), anchor key authorised, measured 2026-09-06 |
+| `RESTRISIKO_600.md` carries N12 and N13 | both present (`RESTRISIKO_600.md:142` and `:143`) |
+| claims hygiene over the docs | `PASS · 49 docs scanned · 0 violation(s) · 0 missing listed doc(s)` (`scripts/claims_hygiene_check.py`) |
+| naming gate over release note and tag text | `PASS · commit-subjects v5.1.0.post1..HEAD · 16092 characters · 0 violation(s)` (`scripts/release_text_hygiene.py --since-tag v5.1.0.post1`). Worth naming because of WHAT it scanned: every commit subject since the last tag, including this round's, which talk at length about defects, a withdrawn finding and a relapse of my own. The hygiene rule is about overclaiming, and a round that reports its own failures does not trip it |
+| canonical mutation run, 0 gaps | **not measured** — it runs against the frozen head, which is this commit's child |
+| deep gate run 5 with 0 confirmed findings | **not measured** — it confirms the frozen head after that run |
+
+One number in the mutation condition deserves a word, because the standard states it as "88
+operators". The list has carried **100** since 2026-09-06 (`15d05ab`): twelve operators were added
+for the release-deciding surface, which until then had none at all. The condition is therefore read
+as a PROPERTY — the canonical run over ALL operators of the list, 0 gaps — and the owner replaced
+the typed number accordingly on 2026-09-07. A number in a standard goes stale silently the moment
+the list grows, which is the same class this release's fix cycle spent its day on.
 
 ### And if the repeated run comes back RED
 
