@@ -43,8 +43,19 @@ _SIGNED_FIELDS = (
 #: aber eine Ausnahme, die mehr ausschliesst als sie muss, ist der Anfang derselben Klasse, die
 #: dieser Commit gerade schliesst. `_version_token` ist die Version ohne Punkte, beginnt also mit
 #: einer Ziffer; genau das verlangt das Muster jetzt auch vom Ordner.
+#: `+` UND `!` GEHOEREN IN DIE ZEICHENKLASSE (Gegenlesung 07.09.2026, ausgefuehrt). Die erste
+#: Verengung liess sie weg, und damit fiel eine PEP-440-Lokalversion aus dem Ausschluss:
+#: `_version_token("6.1.0+local")` ist `610+local`, das Muster traf nicht, die Quittung lag also IM
+#: eigenen Digest — zirkulaer, sie kann nie verifizieren. Gemessen ueber sechs Formen: 6.0.0,
+#: 6.1.0rc1, 6.1.0.post1 und 6.1.0-rc.1 fielen korrekt raus, `6.1.0+local` und `1!6.0.0` nicht.
+#: KORREKTUR AN DIESER BEGRUENDUNG, gemessen: der Defekt ist AELTER als die Verengung. Auch die
+#: vorige Fassung liess den Ordner frei (`[^/\t]+`), verlangte fuer den DATEINAMEN aber dieselbe
+#: Zeichenklasse ohne `+` — `pre_tag_receipt_v6.1.0+local.json` traf also schon vorher nicht. Eine
+#: Gegenlesung hat 13 PEP-440-Formen gegen beide Fassungen gefahren: 26 von 26 identisch. Die
+#: Verengung ist keine Regression; sie haette den Fall nur an einer zweiten Stelle wiederholt.
+#: Beide Stellen tragen jetzt `+` und `!`. Kein Sicherheitsloch (fail-closed), ein Funktionsdefekt.
 _RECEIPT_MUSTER = _re.compile(
-    r"audit_artifacts/[0-9][0-9A-Za-z.\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.\-]*\.json$")
+    r"audit_artifacts/[0-9][0-9A-Za-z.+!_\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.+!_\-]*\.json$")
 
 
 #: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
@@ -66,9 +77,15 @@ class BaumNichtLesbar(RuntimeError):
     Nicht-git-Ordner fahren, starben am Abbruch statt ein ``ok=False`` zu bekommen — ein
     Negativtest, der nicht mehr negativ urteilt, sondern stirbt.
 
-    Die Schwesterfunktion ``sign_readiness_artifact.tree_digest`` wirft weiterhin ``SystemExit``;
-    das ist dort richtig, weil sie nur aus einer CLI heraus laeuft und ein Abbruch dort das Urteil
-    IST. Der Unterschied ist der Aufrufer, nicht der Fehler.
+    Die Schwesterfunktion ``sign_readiness_artifact.tree_digest`` wirft weiterhin ``SystemExit``.
+    DIE ERSTE BEGRUENDUNG DAFUER WAR FALSCH und ist am 07.09.2026 von einer Gegenlesung widerlegt
+    worden: hier stand "sie laeuft nur aus einer CLI heraus". Sie laeuft auch aus einer Bibliothek —
+    ``audit_candidate_matrix._live_tree_digest`` ruft sie in Zeile 710. Was dort traegt, ist nicht
+    der Aufrufertyp, sondern dass genau dieser Aufrufer ``except SystemExit`` AUSDRUECKLICH faengt.
+    Die Trennung bleibt damit richtig, ihre Begruendung ist eine andere: eine Bibliotheksfunktion
+    darf ``BaseException`` nur werfen, wenn JEDER ihrer Aufrufer sie sichtbar abfaengt — und das ist
+    eine Eigenschaft, die man pruefen muss, keine, die man annehmen darf. Wer eine dritte
+    Aufrufstelle baut, bekommt sonst genau die Regression zurueck, die dieser Commit behebt.
     """
 
 
@@ -99,12 +116,33 @@ def subject_tree_digest(repo) -> str:
     """
     import hashlib  # noqa: PLC0415
     import subprocess as _sp  # noqa: PLC0415
+    # DIE AUSSCHLUSSMENGE KOMMT AUS DEM TORVERZEICHNIS, NICHT VOM ANFANG DES SUCHPFADS
+    # (Gegenlesung 07.09.2026, ausgefuehrt). `pre_tag_audit_gate.evaluate` legt `<repo>/src` auf
+    # `sys.path[0]`, damit `proofbundle.signature` importierbar ist. Ein schlichtes
+    # `from sign_readiness_artifact import ...` nimmt dann, was dort ZUERST liegt — und eine
+    # UNGETRACKTE Datei `src/sign_readiness_artifact.py` liegt dort, ohne im gemessenen HEAD zu
+    # stehen. Gemessen: mit geschatteter Ausschlussmenge blieb `subject_tree_digest` byteidentisch,
+    # waehrend eine committete `src/proofbundle/backdoor.py` im Baum lag, und das Tor sagte
+    # `ok=True, state=verified`. Der gepruefte Baum lieferte den Code, der ihn misst.
+    #
+    # Diese Datei liegt in `scripts/` neben `sign_readiness_artifact.py`. Also wird von DORT geladen,
+    # ueber den Pfad dieser Datei, statt ueber den Suchpfad. Das schliesst die Schattung fuer diese
+    # eine Groesse; die allgemeinere Frage (das Tor importiert `proofbundle.signature` aus dem
+    # beurteilten Baum) ist damit NICHT geschlossen und ist als eigener Befund gemeldet.
+    import importlib.util as _ilu  # noqa: PLC0415
+    _nachbar = Path(__file__).resolve().parent / "sign_readiness_artifact.py"
     try:
-        from sign_readiness_artifact import MUTABLE_EVIDENCE_RELS  # noqa: PLC0415
-    except ImportError as e:  # die Ausschlussmenge ist unbekannt -> KEIN Digest ueber die falsche Menge
+        _spec = _ilu.spec_from_file_location("_pre_tag_sra", _nachbar)
+        if _spec is None or _spec.loader is None:
+            raise ImportError(f"no loader for {_nachbar}")
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        MUTABLE_EVIDENCE_RELS = _mod.MUTABLE_EVIDENCE_RELS
+    except Exception as e:  # noqa: BLE001 — Ausschlussmenge unbekannt -> KEIN Digest ueber die falsche
         raise BaumNichtLesbar(
-            "the mutable-evidence set is not importable (sign_readiness_artifact) — the exclusion "
-            f"set would be a guess, and a digest over the wrong set is worse than none: {e}") from e
+            "the mutable-evidence set is not loadable from the gate's own directory "
+            f"({_nachbar}) — the exclusion set would be a guess, and a digest over the wrong set "
+            f"is worse than none: {type(e).__name__}: {e}") from e
     try:
         r = _sp.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
                     capture_output=True, text=True, timeout=10)
@@ -115,6 +153,21 @@ def subject_tree_digest(repo) -> str:
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
     lines = [ln for ln in r.stdout.splitlines()
              if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
+    # DIE STILLE LEERMESSUNG (Gegenlesung 07.09.2026, ausgefuehrt — und sie geht MITTEN durch die
+    # Formpruefung hindurch, die derselbe Commit eingezogen hat). `git -C <unterordner> ls-tree -r
+    # HEAD` endet mit rc=0 und LEERER Ausgabe, wenn unter dem Pfad nichts getrackt ist. Der Digest
+    # ist dann sha256("") = e3b0c442... — 64 Stellen Kleinhex, also FORMAL einwandfrei. Eine mit dem
+    # legitimen Schluessel darauf signierte Quittung verifizierte gemessen als
+    # `ok=true, state=verified`, und danach durfte sich JEDE Datei aendern, ohne den Digest zu
+    # bewegen. Die Formpruefung fragt nach der FORM des Wertes, nie nach seiner HERKUNFT; sie kann
+    # das hier also nicht fangen, und ein Riegel, der seine eigene Luecke nicht kennt, ist der
+    # gefaehrlichere. Ein Baum mit null Eintraegen ist kein Freigabekandidat.
+    if not lines:
+        raise BaumNichtLesbar(
+            f"the tree at {repo} has ZERO entries after the exclusions — `git ls-tree -r HEAD` "
+            "succeeded and returned nothing, which happens for a path inside a repository that "
+            "tracks no file there. The digest of an empty list is a well-formed sha256 and means "
+            "nothing; a candidate with no files is not a candidate")
     return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
 
 

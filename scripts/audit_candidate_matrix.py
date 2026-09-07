@@ -289,9 +289,12 @@ _CANDIDATE_FIELDS = (("commit", _HEX40), ("tree_digest", _HEX64),
                      ("sdist_sha256", _HEX64), ("wheel_sha256", _HEX64))
 
 #: Die Pflichtfelder der GATE-ZEILE, uebernommen aus dem Verdikt des entscheidenden Deep-Gate-Laufs.
-#: Form abgelesen am Lauf-4-Verdikt (`notes.gate_zeile`, 20 Felder); hier sind die verlangt, die die
-#: Zeile zu einer BINDUNG machen: welche Gate-Fassung, welche Workflow-Datei mit welchem Digest,
-#: welcher Modus, und welchen Kopf der Lauf beurteilt hat.
+#: Form abgelesen am Lauf-4-Verdikt (`notes.gate_zeile`, 20 Felder); hier sind die SECHS verlangt,
+#: die die Zeile zu einer BINDUNG machen: welche Gate-Fassung, welche Workflow-Datei mit welchem
+#: Digest, welcher Modus, welchen Kopf der Lauf beurteilt hat — und WIE ER AUSGING (`verdict`).
+#: Das sechste Feld kam am 07.09.2026 dazu; diese Aufzaehlung nannte danach noch vier Dinge und ein
+#: Erzeuger, der ihr folgte, haette ein Artefakt geliefert, das der Pruefer mit `gate_line_unbound`
+#: ablehnt. Eine Aufzaehlung neben einer Liste ist eine zweite Quelle und wandert nicht mit.
 _GATE_LINE_FIELDS = (("gate_version", None), ("workflow_datei", None),
                      ("workflow_sha256", _HEX64), ("modus", None), ("head", _HEX40),
                      ("verdict", None))

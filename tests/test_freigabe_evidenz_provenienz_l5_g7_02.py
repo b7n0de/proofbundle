@@ -131,7 +131,7 @@ def _baum_digest(repo: Path) -> str:
 # ── Die Gate-Zeile, Form abgelesen am Lauf-4-Verdikt ──────────────────────────────────────────
 #
 # `office/governance/deepgate_600_lauf3/gate_result_600_lauf4b_FIX_FIRST.json` traegt unter
-# `notes.gate_zeile` ein OBJEKT mit 20 Feldern. Verlangt werden hier die fuenf, die die Zeile zu
+# `notes.gate_zeile` ein OBJEKT mit 20 Feldern. Verlangt werden hier die SECHS, die die Zeile zu
 # einer BINDUNG machen. Der WERT fuer 6.0.0 entsteht erst im Release-Zug (Verdikt Lauf 5); geprueft
 # wird deshalb die FORM und die Bindung an den Kandidaten, nicht ein konkreter Digest.
 def _gate_zeile(commit: str, *, workflow_sha: str | None = None) -> dict:

@@ -81,7 +81,7 @@ jobs:
         # `claims_hygiene_check.py` scannt 49 Dokumente und laeuft in ci.yml — aber der Tag-Text ist
         # keine Datei im Baum, und die Release-Notiz entsteht weiter unten per
         # `generate_release_notes: true`, also erst bei GitHub aus PR-Titeln. Beide Texte gingen
-        # ungeprueft nach draussen, waehrend jede README-Zeile durch vierzig verbotene Wendungen muss.
+        # ungeprueft nach draussen, waehrend jede README-Zeile durch 37 verbotene Wendungen (gemessen: len(claims_hygiene_check._FORBIDDEN_RE)) muss.
         #
         # DIESELBE REGELMENGE, kein zweiter Pruefer: `release_text_hygiene.py` ruft
         # `claims_hygiene_check.scan_text`. Zwei Listen wuerden auseinanderdriften.

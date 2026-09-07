@@ -5,7 +5,7 @@ Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN am 2026-09-07 gab es
 Anspruchshygiene scannte 49 Dokumente, und `release.yml` erzeugt den Release-Text mit
 ``generate_release_notes: true`` — GitHub komponiert ihn aus PR-Titeln, er ist keine Datei im Baum
 und stand in keiner Scanmenge. Der Text, den ein Fremder als ERSTES liest, ging ungeprueft nach
-draussen, waehrend jede README-Zeile durch vierzig verbotene Wendungen muss.
+draussen, waehrend jede README-Zeile durch 37 verbotene Wendungen (gemessen: len(claims_hygiene_check._FORBIDDEN_RE)) muss.
 
 DER GEFAEHRLICHSTE FEHLER BEIM SCHLIESSEN DIESER LUECKE waere ein ZWEITER Pruefer mit eigener
 Musterliste. Zwei Listen driften auseinander, und dann verbietet die eine Flaeche, was die andere

@@ -167,6 +167,63 @@ class TestErsatzwertIstNichtBindbar:
         ok, reason = _check(_valid_receipt(priv, pub), [pub])
         assert ok, reason
 
+    def test_die_EIGENSCHAFT_statt_der_liste(self):
+        """Die Liste oben ist eine Liste. Diese Zusicherung ist die Eigenschaft.
+
+        GEMESSEN AM 2026-09-07 von einer Gegenlesung, und der Befund sass: ersetzt man die
+        Formpruefung durch genau die WORTLAUT-BLOCKLISTE, die der Commit als "beim naechsten
+        Ersatzwert stillschweigend zu kurz" verwirft, bleiben alle 35 Faelle GRUEN. Die Klasse
+        dokumentierte die Eigenschaft und band sie nicht — sie pruefte elf aufgezaehlte Werte, und
+        elf aufgezaehlte Werte faengt eine Blockliste genauso.
+
+        Hier werden die Werte ERZEUGT, nicht getippt: aus Bausteinen, die kein Aufzaehler kennen
+        kann. Ein kuenftiger Ersatzwert ("unmeasured", "n/a", "ERROR", was auch immer) faellt in
+        dieselbe Menge. Deterministisch geseedet, damit ein Fehlschlag reproduzierbar ist.
+        """
+        import random
+        import string
+
+        rng = random.Random(20260907)
+        hexziffern = "0123456789abcdef"
+        erzeugt: list[str] = []
+        for _ in range(60):
+            # falsche Laenge, richtige Zeichen
+            n = rng.choice([0, 1, 39, 40, 63, 65, 128])
+            erzeugt.append("".join(rng.choice(hexziffern) for _ in range(n)))
+        for _ in range(60):
+            # richtige Laenge, falsche Zeichen — an zufaelliger Stelle
+            s = list("".join(rng.choice(hexziffern) for _ in range(64)))
+            s[rng.randrange(64)] = rng.choice(string.ascii_uppercase + "ghijklmnopqrstuvwxyz"
+                                              + " \t\n-_+!/:.")
+            erzeugt.append("".join(s))
+        for _ in range(20):
+            # freie Woerter, wie ein Ersatzwert aussieht, den heute niemand kennt
+            erzeugt.append("".join(rng.choice(string.ascii_lowercase + "_-")
+                                   for _ in range(rng.randrange(1, 20))))
+
+        priv, pub = _keypair()
+        durchgerutscht = []
+        for wert in erzeugt:
+            r = _valid_receipt(priv, pub)
+            r["subject_tree_digest"] = wert
+            r["signature"] = base64.b64encode(priv.sign(canonical_bytes(r))).decode()
+            ok, _grund = _check(r, [pub], subject_tree_digest=wert)
+            if ok:
+                durchgerutscht.append(wert)
+        assert not durchgerutscht, (
+            f"{len(durchgerutscht)} von {len(erzeugt)} erzeugten Nicht-sha256-Werten waren bindbar, "
+            f"darunter {durchgerutscht[:3]!r} — die Pruefung haengt an einer Liste, nicht an der Form")
+
+        # Anti-Paritaet: der Generator muss auch echte Digests erzeugen koennen, sonst prueft er
+        # nur, dass alles abgelehnt wird.
+        echte = ["".join(rng.choice(hexziffern) for _ in range(64)) for _ in range(5)]
+        for wert in echte:
+            r = _valid_receipt(priv, pub)
+            r["subject_tree_digest"] = wert
+            r["signature"] = base64.b64encode(priv.sign(canonical_bytes(r))).decode()
+            ok, grund = _check(r, [pub], subject_tree_digest=wert)
+            assert ok, f"ein gueltiger sha256 {wert[:12]}… wurde abgelehnt: {grund}"
+
 
 class TestUnlesbarerBaumLaesstDasTorUrteilen:
     """Die Regression, die dieser Commit mitbringt und hier festnagelt.

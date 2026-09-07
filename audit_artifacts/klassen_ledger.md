@@ -571,3 +571,57 @@ Vergleich abgefangen (`if not gebunden` / `if not heute`) — sauber, und das Vo
 `_sha256_file` liefern `"unknown"` / `"unreadable"`, schreiben sie aber nur IN einen Beleg; kein
 Konsument rechnet sie nach (die Matrix ruft das Tor live auf). Kein Gleichheitsvergleich, andere
 Klasse — als erklaerte Grenze festgehalten, nicht als Defekt.
+
+
+---
+
+## KLASSE-F-2026-0907 — die FORM eines Wertes ist nicht seine HERKUNFT
+
+**Die verletzte Invariante.** Ein Tor darf keine Groesse annehmen, deren HERKUNFT es nicht
+kontrolliert hat — auch dann nicht, wenn ihre FORM einwandfrei ist. Formpruefung und
+Herkunftspruefung sind zwei Aussagen; eine Zusicherung, die nur die erste fuehrt, ist gegen die
+zweite blind, und die zweite ist die, an der ein Angreifer arbeitet.
+
+**Wie sie gefunden wurde.** Am 2026-09-07 schloss ein Fix eine Luecke, in der das Pre-Tag-Tor einen
+Ersatzwert (`"unknown"`) fuer einen nicht messbaren Baum in einen Gleichheitsvergleich gegen ein
+Feld gab, das der Gepruefte selbst schreibt. Der Fix prueft seither die FORM des erwarteten Wertes
+(64 Stellen Kleinhex). Fuenf adversariale Linsen am selben Tag fanden vier weitere Instanzen — und
+die schwerste geht MITTEN DURCH diesen neuen Riegel hindurch.
+
+**Vier Instanzen, alle ausgefuehrt gemessen.**
+
+| # | Instanz | warum die Formpruefung nicht traegt |
+|---|---|---|
+| F1 | `git ls-tree -r HEAD` auf einem Praefix ohne getrackte Datei endet mit rc=0 und LEERER Ausgabe; der Digest ist `sha256("")` | 64 Stellen Kleinhex — formal einwandfrei. Ende zu Ende: `ok=true, state=verified` ueber einen Baum, in dem sich danach jede Datei aendern darf |
+| F2 | `evaluate` legt `<repo>/src` auf `sys.path[0]`; eine UNGETRACKTE `src/sign_readiness_artifact.py` schattet die Ausschlussmenge | der Digest ist formal korrekt und wird ueber die falsche Menge gebildet; committete Backdoor im Baum, Tor sagt verified |
+| F3 | dieselbe Zeile laedt `proofbundle.signature` aus dem beurteilten Baum | die Signaturpruefung des Tors ist Code aus dem Pruefgegenstand; im Arbeitsbaum ersetztes `verify_ed25519 -> True` ergibt verified |
+| F4 | der Ersatzwert `"unknown"` selbst (die Ausgangsinstanz) | geschlossen ueber die Form — die EINZIGE der vier, bei der Form genuegt |
+
+**Warum F4 die Ausnahme ist und nicht die Regel.** Ein Ersatzwert ist ein Wert, den das Tor SELBST
+erzeugt; seine Herkunft ist bekannt, nur seine Aussagekraft fehlt. Formpruefung trifft ihn deshalb
+sauber. F1 bis F3 sind Werte, deren Herkunft eine ANDERE ist als die, die das Tor annimmt — und
+Form sagt darueber nichts.
+
+**Der Klassen-Fix, nicht der Instanz-Fix.** Drei getrennte Riegel, weil drei getrennte Herkuenfte:
+
+1. `subject_tree_digest` wirft `BaumNichtLesbar`, wenn nach den Ausschluessen NULL Eintraege
+   bleiben. Ein Kandidat ohne Dateien ist kein Kandidat.
+2. Die Ausschlussmenge wird ueber den PFAD der Bibliotheksdatei aus `scripts/` geladen, nicht ueber
+   den Suchpfad. Was das Tor zum Messen braucht, kommt aus dem Torverzeichnis.
+3. `proofbundle.signature` aus dem beurteilten Baum bleibt OFFEN und ist Owner-Entscheidung
+   (`OA-fec890738c`): die Kryptobibliothek des Tors ausserhalb des Pruefgegenstands zu pinnen
+   aendert das Vertrauensmodell des Release-Tors.
+
+**Orakel.** `tests/test_pre_tag_receipt_commit_flow.py::test_ein_baum_mit_null_eintraegen_ist_kein_digest`
+(muss werfen, mit Kontrolle in die Gegenrichtung) ·
+`tests/test_pre_tag_receipt_gate.py::TestErsatzwertIstNichtBindbar::test_die_EIGENSCHAFT_statt_der_liste`
+(140 ERZEUGTE Nicht-sha256-Werte plus Anti-Paritaet ueber echte Digests) ·
+`scripts/gate_qualification_harness.py::cc32` (der Ersatzwert-Pfad, mit dem Ersatzwert als
+ERWARTUNG statt als Receipt-Feld).
+
+**Die zweite Lehre, und sie ist unbequem.** Der Riegel gegen die Ausgangsinstanz war selbst eine
+Instanz derselben Klasse: die Testklasse, die "eine Erwartung ohne sha256-Form kann NIE binden"
+verspricht, zaehlte elf Werte AUF — und eine Wortlaut-Blockliste anstelle der Formpruefung
+ueberlebte sie vollstaendig (35 passed). Eine Zusicherung, die eine Eigenschaft behauptet und eine
+Liste prueft, ist gegen den Ersatz der Pruefart blind. Werte, die eine Eigenschaft belegen sollen,
+werden ERZEUGT, nicht getippt.

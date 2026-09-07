@@ -12,7 +12,7 @@ GEMESSEN am 2026-09-07: es gab keinen.
   * Der Tag-Text ebenso wenig.
 
 Damit ging der eine Text, den ein Fremder als ERSTES liest, ungeprueft nach draussen, waehrend
-jede README-Zeile durch vierzig verbotene Wendungen muss. Das ist die Luecke, nicht die Regel.
+jede README-Zeile durch 37 verbotene Wendungen (gemessen: len(claims_hygiene_check._FORBIDDEN_RE)) muss. Das ist die Luecke, nicht die Regel.
 
 EINE REGELMENGE, ZWEI EINGAENGE. Dieses Werkzeug bringt KEINE eigenen Muster mit. Es ruft
 ``claims_hygiene_check.scan_text`` — dieselbe Liste, dieselbe Negationsbehandlung, dieselben

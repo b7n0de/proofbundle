@@ -33,7 +33,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   only runs from a CLI, where the abort IS the verdict. The difference is the caller, not the error.
 
 - **The verdict allowlist has a near-miss case** (2026-09-07). Mutating `not in _GATE_VERDICTS_PASS`
-  into a prefix comparison survived the whole matrix unchanged (50 passed, before and after), which
+  into a prefix comparison survived the whole matrix unchanged — measured on `b9d35d4` with
+  `pytest -k "freigabe_evidenz or commit_flow"`, identical before and after. (The bare number that
+  stood here named no head and no command, and a gegenlesung measuring a different head with a
+  different selection got a different one. A count without its command is not reproducible.) It
   would have made `WITHSTANDS_DEEPGATE_PARTIALLY` a pass. The three existing cases test absence, a
   known fail value and a foreign word; none tested a value carrying the allowed constant as a
   prefix. A "partially withstood" is not a withstanding.
@@ -54,7 +57,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the ZIP entry. `normalize_wheel` now rewrites the finished archive with fixed modes and fixed
   timestamps, entry order untouched because `RECORD` sits last by convention; `release.yml` runs the
   same path via `--with-wheel`. Measured with isolation, the way the workflow builds:
-  `identical: true`, both digests `a009a9685613d52bed3cff3a4fbbe72ef39dfb7b27c59a92c9a970668f237a4f`.
+  `identical: true`. **The digest is deliberately not repeated here any more.** It read
+  `a009a968…` until 2026-09-07 and a gegenlesung could not reproduce it on any head of this
+  line (`68aa6f3` gives `deaedb1a…`, `c335b26` `062188c9…`, `0aca175` `bc806f89…`). The number
+  was not wrong when it was written; it was written without the two things that make a build
+  digest checkable — WHICH head and WHICH toolchain, and `build-system.requires` pins neither
+  setuptools nor wheel. A digest without those is a number, not evidence. The verdict
+  `identical: true` is the claim that carries, and it was confirmed on four heads.
   An earlier counter-check had ruled out `umask` as the cause: at `umask 022` both digests changed
   and stayed different.
 

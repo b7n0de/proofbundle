@@ -752,6 +752,23 @@ def cc32_pretag_check_coverage():
         "tampered_signature": tampered,             # #10: trusted signer, signature fails to verify
     }
     accepted = [k for k, r in cases.items() if _v(r, [pub])]
+
+    # ROUND 16 (2026-09-07): der ERSATZWERT-Pfad. Er unterscheidet sich von jedem Fall darueber
+    # darin, WO die verletzte Groesse herkommt: nicht aus der Quittung, sondern aus einer EINGABE des
+    # Tors. Kann das Tor den Baum nicht messen, setzt es "unknown" ein (`_gate_tree_digest`) — und
+    # eine mit dem legitimen Schluessel signierte Quittung, die genau diesen Ersatzwert traegt,
+    # verifizierte damit IMMER. Deshalb wird hier mit dem Ersatzwert als ERWARTUNG gefahren, nicht
+    # mit einem veraenderten Receipt-Feld: das ist der Pfad, den `_v` mit seinen festen Konstanten
+    # gar nicht erreichen kann.
+    for feld, ersatz in (("subject_tree_digest", "unknown"), ("gate_source_digest", "unreadable")):
+        r = _receipt(priv, pub, **{feld: ersatz})
+        kw = dict(trusted_pubkeys=[pub], expected_version=_VER,
+                  subject_tree_digest=_TREE, gate_source_digest=_GATE)
+        kw[feld] = ersatz
+        ok_e, _grund = verify_receipt(r, **kw)
+        if ok_e:
+            accepted.append(f"placeholder_{feld}")
+
     return (not accepted), ("all valid-except-one release-deciding receipts rejected"
                             if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
 

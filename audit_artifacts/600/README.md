@@ -1,43 +1,63 @@
 # Pre-tag audit artefacts for release 6.0.0
 
-## Status right now: the receipt does not exist yet, and the gate says so
+## Status right now: a receipt exists, and it no longer binds this head
+
+Corrected 2026-09-07. This section used to say "the receipt does not exist yet". It does — a
+receipt signed by the owner was committed in `c31adec` on 2026-09-06, and later re-committed in
+`9e742bf`. What is true is something narrower and more useful:
 
     $ python scripts/pre_tag_audit_gate.py --repo . --version 6.0.0
-    [pre-tag-audit] version=6.0.0 receipt-verified=False (NO_VALID_RECEIPT)
-    rc = 1
+    [pre-tag-audit] version=6.0.0 receipt-verified=False (NO_VALID_RECEIPT) tree=a862d6e45d51 trusted_keys=1
+      REJECTED audit_artifacts/600/pre_tag_receipt_v6.0.0.json:
+      receipt subject_tree_digest does not bind THIS tree ('877cd4f9…' != 'a862d6e4…')
 
-That is the correct state, not a defect. The receipt binds `subject_tree_digest`, and the tree is
-not final until the register commit and the rebuilt distributions are in. It is minted last, after
-everything else, and `.github/workflows/release.yml` runs the gate with `--strict` as the third
-step of its first job — so a tag pushed before the receipt exists fails before anything is built.
+Measured, so the reason is not guessed: the receipt binds `877cd4f98ffc8924`, which is the digest
+of `bf143a0` **under the pre-`b9d35d4` definition of `subject_tree_digest`**. Both halves of that
+sentence matter. The tree moved (thirteen commits since), and the definition moved with it — the
+old one excluded the whole `audit_artifacts/` directory, the current one excludes only the receipt
+file and the two mutable evidence paths. Under either definition this receipt does not bind the
+present head, so `rejected` is the correct state, not a defect.
 
-Order, fixed: land the code and the register, then mint the receipt, then tag.
+A receipt is minted last, after everything else, and `.github/workflows/release.yml` runs the gate
+with `--strict` as the third step of its first job — so a tag pushed before a binding receipt
+exists fails before anything is built. The present one will be re-minted at the frozen head.
+
+Order, fixed: land the code and the register, then mint the receipt, then tag. Since `b9d35d4`
+that order carries one more requirement, and it is load-bearing rather than incidental:
+**everything else under `audit_artifacts/<token>/` must be committed BEFORE the receipt is minted.**
+A note written beside the receipt afterwards now moves the digest and invalidates it.
 
 ## Why the receipt lives here and not next to the code
 
-`subject_tree_digest` is `git ls-tree HEAD` with the line for this directory removed. The exclusion
-removes the circular binding: adding the receipt here leaves the bound tree unchanged. The opposite
-is equally true — a change under `src/`, `scripts/` or any other top-level entry DOES move the tree
-and invalidates a signature taken before it.
+`subject_tree_digest` is a recursive `git ls-tree -r HEAD` minus exactly the receipt file itself
+and the two mutable evidence paths a release run rewrites while measuring. The exclusion removes the
+circular binding: adding the receipt here leaves the bound tree unchanged. The opposite is equally
+true — a change under `src/`, `scripts/`, or anywhere else including the rest of this directory,
+DOES move the tree and invalidates a signature taken before it.
 
-**One consequence of that exclusion is worth writing down, because a docstring in this repository
-currently says the opposite.** `pre_tag_receipt_lib.load_trusted_pubkeys` explains that it reads the
-trust anchor from the committed tree rather than the working tree — which is true and closes a real
-hole — and then concludes that "reading the committed blob binds it by the same digest". It does
-not. `audit_artifacts/pre_tag_trusted_pubkeys.txt` lives inside the excluded directory. Measured on
-2026-09-06 in a throwaway clone of this candidate, with a control in the opposite direction:
+**This paragraph used to say the opposite, and the hole it described was closed IN THIS RELEASE, not
+in the follow-up.** What stood here: `subject_tree_digest` is `git ls-tree HEAD` with the line for
+this directory removed, therefore `audit_artifacts/pre_tag_trusted_pubkeys.txt` — the file the gate
+reads to decide who may sign — lay outside the binding, and `load_trusted_pubkeys`'s docstring claim
+that "reading the committed blob binds it by the same digest" was false. The measurement printed
+here on 2026-09-06 was correct for that code.
 
-    digest before any change                 4c91c4746768e88262ce3b7067a32389e579ae195e6533a…
-    digest after committing to the anchor    4c91c4746768e88262ce3b7067a32389e579ae195e6533a…   same
-    digest after committing to README.md     a70cc3fa87fa76d8c60a63a6c8d126526276c75638d6f7b…   different
+`b9d35d4` changed the code, so the measurement no longer holds. Re-measured on this head, same
+three steps:
 
-So the trusted-key set is not covered by the digest the receipt commits to. Exploiting it requires
-the ability to commit to the release tree, which is the trust boundary this process already assumes,
-and no assurance made to a user of the package rests on it — that is why it did not stop 6.0.0. It
-is recorded as its own entry and the sentence is corrected in the follow-up release. The readiness
-side of this repository has already fixed the same thing the right way, and its shape is the
-remedy: `audit_candidate_matrix._live_tree_digest` excludes only the two named mutable evidence
+    digest before any change                 e9ba462912c3979d404a387e5fe702f6755f738b4c86fb…
+    digest after committing to the anchor    8de15f03280980b2c0f58f9511ea2894be643a2d2054dd…   different
+    digest after committing to README.md     fc0fa4007da9ff53e8db81cdda38197fe8cf8ead1b65b0…   different
+
+The trust anchor is inside the binding now, and the `load_trusted_pubkeys` docstring is correct
+again. The readiness side of this repository had already fixed the same thing the right way and was
+the model for it: `sign_readiness_artifact.tree_digest` excludes only the two named mutable evidence
 paths, recursively, instead of a whole directory.
+
+Why the correction is written out rather than silently applied: two documents of the same candidate
+said opposite things about the same quantity, and the wrong one sat next to the receipt. A reader
+who trusts the file closest to the artefact would have drawn the wrong conclusion about what the
+signature covers.
 
 ## What the audit outcome actually was
 
@@ -119,15 +139,22 @@ here it is negative, and that is precisely what it is for.
 
 Base of the canonical run: `658ed063` (*Merge pull request #186 from b7n0de/chore/version-6.0.0*).
 
-| directory | vs. today's candidate `5242b0c6` | vs. the original candidate `37eab913` |
+**Every number below names the head it was measured on, and that is the correction.** The table
+that stood here was headed *vs. today's candidate `5242b0c6`* — correct when written, and stale
+seven commits later. A round whose purpose was adding measuring points had let its own identity
+record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
+per commit; the head gets named.
+
+| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` (re-measured) |
 |---|---|---|
 | `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
-| `tests/` | 45 files (+10235 / −156) | 43 files (+9892 / −156) |
-| `scripts/` | 10 files (+3059 / −213) | 8 files (+2728 / −204) |
-| **total** | **87 files** | **83 files** |
+| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) |
+| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) |
+| **total** | **87 files** | **90 files** |
 
-**Identity does not hold.** The canonical run therefore covers neither head. That is not an
-interpretation; it is the condition N11 states.
+**Identity does not hold, and the count is not the point** — one changed file already breaks it.
+The canonical run covers no head of this line. That is not an interpretation; it is the condition
+N11 states, and it holds for every head this branch has had.
 
 ### The collector on this head is still partially blind
 
@@ -135,13 +162,17 @@ Independently of identity: `scripts/mutation_check.py` on this head still collec
 `unittest discover`, which sees only methods of `unittest.TestCase` — every plain test function is
 invisible to it. Measured on this tree:
 
-    pytest:            3736 tests across 256 files
-    unittest discover: 2524 tests across 193 files
-    blind:             1212 tests, 63 files — 25 % of the files
+    pytest:            3767 tests across 256 files
+    unittest discover: 2571 tests across 197 modules
+    blind:             1196 tests, 59 files — 23 % of the files
 
-Those numbers were measured on `22dc97b5`. They hold unchanged for `5242b0c6` as far as files are
-concerned: the difference between the two heads spans four files and neither adds nor removes a file
-under `tests/` — measured, not assumed.
+Measured on `68aa6f32`, and measured by ASKING THE COLLECTOR rather than by re-deriving it: the
+`unittest` figure comes from `lader.discover("tests", top_level_dir="tests")`, the same call
+`scripts/mutation_check.py` makes on line 627, so the number describes what the mutation gate
+actually sees and not what a similar command would see.
+
+The figures previously recorded here (3736 / 2524 / 25 %) were measured on `22dc97b5` and are kept
+for comparison. The blind share moved with the tree; the fact did not.
 
 The "scope each statement of this round holds over" section above reports **2537 of 3702** and
 **59 of 252** for `N19`; those were measured on `a62d8cb4`. They are not wrong, they describe a

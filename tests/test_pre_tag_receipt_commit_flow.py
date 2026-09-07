@@ -27,6 +27,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
 SRC = REPO / "src"
@@ -152,9 +154,14 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     Zwei Seiten, sonst waere gruen nichts wert: die ECHTE Quittungsstelle muss weiterhin
     unsichtbar bleiben, die erfundene muss sichtbar werden.
     """
-    import sys as _sys
-
-    _sys.path.insert(0, str(SCRIPTS))
+    # `sys` steht oben im Modul. Der Riegel
+    # `test_kein_test_haengt_an_einem_fremden_import_nebeneffekt` misst einen Aufruf, dessen
+    # Empfaenger WOERTLICH `sys` heisst (`ziel.value.id == "sys"`); ein `import sys as _sys` zaehlt
+    # dort nicht als Vorbereitung. Gemessen 07.09.2026: dieser Test war der einzige Treffer im
+    # ganzen Baum. Der Riegel hat recht — er misst die Wirkung, und eine Umbenennung macht die
+    # Vorbereitung fuer ihn unsichtbar. Ohne sie loest der Import nur auf, solange ein ANDERER Test
+    # den Pfad vorher gelegt hat: gruen im vollen Lauf, ImportError bei `-k` oder Einzellauf.
+    sys.path.insert(0, str(SCRIPTS))
     from pre_tag_receipt_lib import subject_tree_digest
 
     repo = tmp_path / "r"
@@ -195,3 +202,71 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     assert subject_tree_digest(repo) != zwischen, (
         "ein Pruefbericht im selben Versionsordner muss den Digest bewegen — sonst waere die "
         "Reihenfolge-Auflage in RESTRISIKO_600.md unbelegt und die Bindung wieder loechrig")
+
+
+def test_ein_baum_mit_null_eintraegen_ist_kein_digest(tmp_path):
+    """Die stille Leermessung — und sie geht MITTEN durch die Formpruefung hindurch.
+
+    `git -C <pfad> ls-tree -r HEAD` endet mit rc=0 und LEERER Ausgabe, wenn unter dem Pfad nichts
+    getrackt ist. Der Digest waere dann sha256("") = e3b0c442... — 64 Stellen Kleinhex, formal
+    einwandfrei. Gemessen von einer Gegenlesung am 2026-09-07, Ende zu Ende mit echtem Schluessel:
+    eine darauf signierte Quittung ergab `ok=true, state=verified` mit dem Grund "signed,
+    tree-bound, successful-audit receipt verified" — ueber einen Baum, in dem sich anschliessend
+    JEDE Datei aendern durfte, ohne den Digest zu bewegen.
+
+    Die Formpruefung kann das nicht fangen: sie fragt nach der FORM des Wertes, nie nach seiner
+    HERKUNFT. Deshalb ein eigener Riegel, und deshalb ein eigener Test — ohne ihn ueberlebte die
+    Mutation, die den Riegel wieder herausnimmt, die gesamte Suite (gemessen: 74 passed).
+    """
+    import sys as _s
+
+    _s.path.insert(0, str(SCRIPTS))
+    from pre_tag_receipt_lib import BaumNichtLesbar, subject_tree_digest
+
+    repo = tmp_path / "r"
+    unterordner = repo / "nichts_getrackt"
+    unterordner.mkdir(parents=True)
+    (repo / "datei.txt").write_text("basis\n")
+    _git(["init", "-q"], repo)
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "basis"], repo)
+
+    # Kontrolle: die Wurzel misst etwas.
+    voll = subject_tree_digest(repo)
+    assert len(voll) == 64 and voll != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    # Der Unterordner traegt keine getrackte Datei — `ls-tree` sagt rc=0 und nichts.
+    with pytest.raises(BaumNichtLesbar) as fehler:
+        subject_tree_digest(unterordner)
+    assert "ZERO entries" in str(fehler.value), str(fehler.value)
+
+
+def test_eine_lokale_version_faellt_aus_der_bindung(tmp_path):
+    """PEP 440 kennt `+local` und `1!epoch`. Das Muster muss sie kennen, sonst ist die Quittung
+    im eigenen Digest enthalten — zirkulaer, sie kann nie verifizieren.
+
+    Gemessen 2026-09-07: `6.1.0+local` und `1!6.0.0` fielen NICHT aus dem Ausschluss, weder in der
+    alten noch in der ersten verengten Fassung (die Zeichenklasse des DATEINAMENS kannte `+` und `!`
+    in beiden nicht). Kein Sicherheitsloch, ein Funktionsdefekt — und ohne diesen Test ueberlebte
+    die Mutation, die `+` und `!` wieder entfernt, die gesamte Suite (gemessen: 74 passed).
+    """
+    import sys as _s
+
+    _s.path.insert(0, str(SCRIPTS))
+    from pre_tag_receipt_lib import subject_tree_digest
+
+    repo = tmp_path / "r"
+    (repo / "audit_artifacts" / "610+local").mkdir(parents=True)
+    (repo / "datei.txt").write_text("basis\n")
+    _git(["init", "-q"], repo)
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "basis"], repo)
+    vorher = subject_tree_digest(repo)
+
+    (repo / "audit_artifacts" / "610+local" / "pre_tag_receipt_v6.1.0+local.json").write_text(
+        '{"a": 1}\n')
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "quittung fuer eine lokale version"], repo)
+    assert subject_tree_digest(repo) == vorher, (
+        "eine Quittung fuer eine PEP-440-Lokalversion liegt im eigenen Digest — zirkulaer, sie "
+        "kann nie verifizieren")

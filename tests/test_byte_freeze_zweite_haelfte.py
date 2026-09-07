@@ -80,12 +80,34 @@ def test_das_wheel_aus_dem_sdist_ist_bytegleich_mit_dem_direkt_gebauten():
     try:
         r = m.measure_wheel_from_sdist(m.head_commit_epoch())
     except (subprocess.CalledProcessError, RuntimeError, OSError) as fehler:
-        # NICHT MESSBAR, und das ist etwas anderes als GRUEN. Ein Bau, der in dieser Umgebung gar
-        # nicht laeuft (kein Netz fuer die Isolation, fehlende Build-Abhaengigkeiten), sagt nichts
-        # ueber die Eigenschaft. Er darf aber auch nicht als Verletzung gelten — sonst waere der
-        # Fall auf jedem Rechner ohne Netz dauerhaft rot und niemand laese ihn noch.
-        pytest.skip(f"der Bau laeuft in dieser Umgebung nicht ({type(fehler).__name__}: {fehler}) — "
-                    f"die Eigenschaft ist hier NICHT MESSBAR, nicht gruen")
+        # DREI KLASSEN, NICHT ZWEI — und die dritte ist der Grund, aus dem diese Zeilen umgeschrieben
+        # wurden (Gegenlesung 07.09.2026, ausgefuehrt).
+        #
+        # Was hier stand, machte aus JEDEM Fehlschlag einen skip. Eingespeist wurde der `RuntimeError`,
+        # den `_build_wheel` selbst wirft, wenn der Bau kein wheel produziert — also ein ECHTER
+        # Baudefekt: `2 skipped`, Zusicherung UND Anti-Paritaets-Kontrolle beide still. Die einzige
+        # Messstelle der zweiten Byte-Freeze-Haelfte haette einen kaputten Bau als "hier nicht
+        # messbar" gemeldet.
+        #
+        # Das ist woertlich die Klasse, die derselbe Kandidat in `c52884d` am Go-Differential
+        # geschlossen hat (`_beschaffungslage`: beschafft / nicht beschaffbar / WERKZEUG DEFEKT).
+        # Die Instanz wurde gefixt, der Nachbar in der eigenen neuen Datei derselben Linie nicht.
+        # Fix-the-class heisst, ihn im selben Durchgang mitzunehmen — hier nachgeholt.
+        #
+        # Getrennt wird nicht am Meldungstext, sondern an der FEHLERKLASSE: antwortet die
+        # Werkzeugkette selbst? Wenn `python -m build --version` laeuft, ist die Umgebung da, und
+        # ein Fehlschlag danach ist ein Defekt, kein Umgebungsproblem.
+        werkzeug = subprocess.run([sys.executable, "-m", "build", "--version"],
+                                  capture_output=True, text=True, timeout=120)
+        if werkzeug.returncode == 0:
+            raise AssertionError(
+                f"der Bau ist FEHLGESCHLAGEN, obwohl die Werkzeugkette antwortet "
+                f"(`python -m build --version` endete mit 0: {werkzeug.stdout.strip()[:60]}). "
+                f"Das ist ein Defekt, kein fehlendes Netz und keine fehlende Abhaengigkeit — "
+                f"{type(fehler).__name__}: {fehler}") from fehler
+        pytest.skip(f"die Bau-Werkzeugkette antwortet hier nicht (`python -m build --version` endete "
+                    f"mit {werkzeug.returncode}), der Bau scheiterte an "
+                    f"{type(fehler).__name__}: {fehler} — die Eigenschaft ist NICHT MESSBAR, nicht gruen")
     assert r["identical"], (
         f"Das wheel aus dem ausgelieferten sdist ist NICHT bytegleich mit dem direkt gebauten:\n"
         f"  direkt     {r['name_direct']}  {r['sha256_direct']}\n"
