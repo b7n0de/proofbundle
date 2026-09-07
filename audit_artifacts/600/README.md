@@ -7,9 +7,18 @@ receipt signed by the owner was committed in `c31adec` on 2026-09-06, and later 
 `9e742bf`. What is true is something narrower and more useful:
 
     $ python scripts/pre_tag_audit_gate.py --repo . --version 6.0.0
-    [pre-tag-audit] version=6.0.0 receipt-verified=False (NO_VALID_RECEIPT) tree=a862d6e45d51 trusted_keys=1
+    [pre-tag-audit] version=6.0.0 receipt-verified=False (NO_VALID_RECEIPT) tree=<this head> trusted_keys=1
       REJECTED audit_artifacts/600/pre_tag_receipt_v6.0.0.json:
-      receipt subject_tree_digest does not bind THIS tree ('877cd4f9…' != 'a862d6e4…')
+      receipt subject_tree_digest does not bind THIS tree ('877cd4f9…' != '<this head>…')
+
+**The tree digest is deliberately NOT pinned in this line, and that is a correction.** It used to
+read `tree=a862d6e45d51`, measured when written and stale fifteen commits later — the digest of
+`68aa6f32`, while the head this file sits on produced a different one. A `ls-tree`-derived digest
+changes with EVERY commit, this file's own included, so any value written here is wrong by the time
+it is committed. Two lenses of the closing round found it independently (L4 and L6, 2026-09-07).
+The receipt side is what stays quotable: `877cd4f9…` is a fixed field of the receipt file, not a
+measurement of the moving tree. Whoever wants the current value runs the command; that is what a
+command in a document is for.
 
 Measured, so the reason is not guessed: the receipt binds `877cd4f98ffc8924`, which is the digest
 of `bf143a0` **under the pre-`b9d35d4` definition of `subject_tree_digest`**. Both halves of that
@@ -111,6 +120,40 @@ it removes the very resource ceiling under test, and the mutated run reached 111
 (88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the OOM
 killer. Not measurable is its own state — not a kill, not a survivor.
 
+## The closing round ran a second time, and it was not a formality
+
+The first pass of the adversarial deep gate on this candidate produced `FIX_FIRST` (above). A
+second pass ran on 2026-09-07 against the frozen head `4c4f294`, six lenses, preregistered targets
+written down BEFORE any result. It returned five REJECTs. All of them are fixed on THIS head, each
+with a catch-test that is RED without the fix and green with it — a fix whose test passes either way
+has proven nothing.
+
+| Lens | What it broke | The fix, and the proof it works |
+|---|---|---|
+| L2 | `_RECEIPT_MUSTER` matched a path ENDING, not a path. A committed `src/proofbundle/audit_artifacts/1/pre_tag_receipt_v1.json` fell out of `subject_tree_digest` — digest byte-identical, gate still `verified`, nobody re-signed | Tab anchor at the path start (`pre_tag_receipt_lib.py`). Counter-run: 7 of 7 prefixes silently fell out of the binding without it. The neighbour in the same function (`MUTABLE_EVIDENCE_RELS`, `endswith("\t"+path)`) was anchored all along |
+| L5 | The kill signal came from free text: `re.search(r"(\d+) failed", blob)` took the FIRST match in stdout+stderr, and pytest dumps the failing test body — docstrings included — BEFORE the summary. A planted defect raised the true red count 1→2; the parser said 0 both times, verdict SURVIVED | The count now comes from `--junitxml`, a machine interface with fields instead of prose. The text path stays as a fallback and is itself anchored to the LAST summary line. End-to-end gate-meta test with a real pytest subprocess: two red tests must count as two |
+| L4 | Three divergences in this file: a tree digest fifteen commits stale, `424c5e3` called "the frozen head" three times when it is that head's PARENT, and a register named `findings_register_600` that does not exist | All three corrected above. The digest is no longer pinned at all — see the first section for why a value that changes with every commit cannot live in a committed file |
+| L6 | The rule for a RED repeated mutation run did not exist anywhere. Measured, not assumed: `pre_tag_audit_gate.py` contains no reference to mutation, and `mutation_check.py` does not appear in `release.yml` | Written out in the N11 section, including the honest limit that the release workflow does not enforce it |
+| L1 | (withstood its target) but found the wording that claimed a receipt binds a "sha" and did so in the present tense, for a receipt that does not exist yet | Corrected in the N11 section |
+
+**The class, not the five instances.** L2 and L5 are the same violated assumption at surfaces that
+share no code: *a string search decides a quantity that means a BOUNDARY*. A sweep over all 50
+`.search()` sites in `scripts/` and `src/` followed. It found one more live instance —
+`test_manifest_gate` read the collected-test count with the first match in a blob that carries
+diagnostics before the summary — and one latent sub-class: six scripts read the release version out
+of `pyproject.toml` with `(?m)^\s*version\s*=`, which anchors to a LINE and not to the `[project]`
+TOML section. That one is bound by a property test rather than rebuilt on the eve of a tag, and the
+test says so out loud. It also RETRACTED one of its own candidates: the diff hunk header looked like
+the same class, a fix was written, and the catch-test stayed green without it — so the fix came back
+out. A withdrawn finding belongs in a sweep as much as a confirmed one.
+
+**One more finding came out of reading rather than from a lens, and it was the blocking one.** The
+CI summary job that proves the mutation shards cover the whole operator list held its expectation as
+a typed constant, `ERWARTET=88`. Twelve operators were added on 2026-09-06 (`15d05ab`); the list has
+stood at 100 since. The guard that exists to find a GAP in the partition would have reported one at
+every complete run — including the canonical run this release needs next. The expectation now comes
+from the runs themselves, and the shards must agree on it.
+
 ## Why this round's findings are not edited into `RESTRISIKO_600.md`
 
 That file states the rule itself, in its own words: a finding of the closing round is a new
@@ -119,8 +162,12 @@ and a second top-level file would move the tree digest. So the round's outcome i
 next to the receipt, exactly where 5.1.0 recorded it. `RESTRISIKO_600.md` continues to hold what was
 known and open **before** the round, R1–R7 and N1–N15.
 
-The structured, signed carrier of the findings is `findings_register_600` — 20 entries, 13 closed,
-7 open, **0 open P0/P1**. That register, not any prose here, is what `C12.2` reads and counts.
+The structured, signed carrier of the findings is `audit_artifacts/findings_register_361.json` —
+20 entries, 13 closed, 7 open, **0 open P0/P1** (counted, not quoted). That register, not any prose
+here, is what `C12.2` reads and counts. **The name used to read `findings_register_600`, and no such
+file exists** (L4, 2026-09-07): the register is versioned by the finding-numbering scheme, not by the
+release token, and `scripts/findings_register.py:34` pins the real path. A reference that names a
+file which is not there cannot be checked by a reader — it can only be believed.
 
 ## One caveat about reading the receipt, carried over from 5.1.0 because it is still true
 
@@ -145,7 +192,7 @@ seven commits later. A round whose purpose was adding measuring points had let i
 record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
 per commit; the head gets named.
 
-| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` (**the frozen head**) |
+| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` (**the head these figures were measured on**) |
 |---|---|---|---|---|
 | `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
 | `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) |
@@ -154,8 +201,19 @@ per commit; the head gets named.
 
 **A FILE CANNOT NAME THE SHA OF THE COMMIT THAT INTRODUCES IT, and pretending otherwise is how
 this table went stale twice.** The last column names `424c5e3`, the head the figures were MEASURED
-on. The frozen head is that commit's child — the one this record is part of — and its sha is
-recorded where it can be: in the pre-tag receipt, which binds the tree rather than describing it.
+on. The frozen head is that commit's child — the one this record is part of.
+
+**What pins that child is NOT a commit sha in this file, and the previous wording got this wrong in
+two ways at once (L1, 2026-09-07).** It read "its sha is recorded where it can be: in the pre-tag
+receipt, which binds the tree". First: the receipt binds a `subject_tree_digest`, a sha256 over the
+`ls-tree` entries — 64 hex characters. A commit sha is a sha1, 40 characters. They are structurally
+different quantities, and calling one by the other's name invites a reader to compare values that
+can never match. Second, and worse: that sentence stood in the PRESENT tense while no receipt for
+this head existed. The three receipts in the tree attest earlier candidates; the one for the frozen
+head is minted in the signing round, AFTER this text is committed — which is exactly why the order
+in the first section is load-bearing. The argument the sentence was reaching for still holds, and
+only as a NECESSITY, not as a fact already accomplished: a file cannot contain the digest it is
+itself an input to, so the binding has to come afterwards.
 
 That is not a gap, because the figures are INVARIANT across the step: the freeze commit changes
 `audit_artifacts/600/README.md` and nothing else, and `audit_artifacts/` is neither `src/` nor
@@ -185,8 +243,8 @@ already, one section above.
 collector**, the same call the gate makes (`_lauf_der_suite`: `pytest -q -p no:cacheprovider
 -p no:randomly`):
 
-    on `5e9aa66`:          3820 tests across 259 files, blind 0
-    on `424c5e3` (frozen): 3827 tests across 259 files, blind 0
+    on `5e9aa66`:  3820 tests across 259 files, blind 0
+    on `424c5e3`:  3827 tests across 259 files, blind 0   (the parent of the frozen head)
 
 The seven added tests are the four that close the lens REJECT on the sdist-derivation guard plus
 three siblings; the file count is unchanged because they went into existing modules.
@@ -208,8 +266,9 @@ written, one is gone and one stands:
 
 * **Gone:** the collector no longer misses a quarter of the test files. It collects the full
   population, measured above.
-* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and the
-  frozen head `424c5e3`. One changed file already breaks it; ninety-five is not a closer call, only a louder one.
+* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and
+  `424c5e3`, the head these figures were measured on. One changed file already breaks it;
+  ninety-five is not a closer call, only a louder one.
 
 N11 states what follows when identity fails, and it is not "report and stop": the run **is
 repeated** against the head that gets tagged. That is the path taken here, on the owner's decision
@@ -218,3 +277,33 @@ canonical mutation run on the frozen head, and the freeze happens exactly once.
 
 So this section no longer reports an impossibility. It records the condition that makes the repeat
 necessary, and the repeat is the release's own next step — not a deferred one.
+
+### And if the repeated run comes back RED
+
+**This paragraph did not exist until 2026-09-07, and its absence was the finding** (deep gate lens 6,
+REJECT). The document said what happens — the run is repeated — and never what FOLLOWS when the
+repetition fails. A rule whose failure case is unwritten is not a rule; it is an expectation that
+whoever reads it at the wrong moment will improvise, under time pressure, alone.
+
+The rule, stated so it can be checked rather than remembered:
+
+**A red repeated run blocks the tag.** `scripts/mutation_check.py` exits 1 on any gap (a mutant that
+should die and survives, an equivalent mutant that starts dying, a run that leaves no verdict at
+all). That exit code is the verdict for THIS head, and a candidate whose anti-Goodhart layer reports
+a gap is not a candidate. There is no partial credit and no "carry it as a known risk": the gate
+exists precisely to answer whether the tests still kill broken implementations, and a gap is the
+answer NO.
+
+What follows a red run is a new iteration, not an exception: fix the gap, land it, freeze ONCE more,
+repeat the run against the new head. That is the same loop N11 already prescribes for a failed
+identity check, and it is the loop this release is in right now.
+
+**The honest limit, measured rather than assumed** (lens 6, `grep -n "mutation"
+scripts/pre_tag_audit_gate.py` → no hits; `mutation_check` does not appear in
+`.github/workflows/release.yml` at all): this rule is NOT enforced by the release workflow. The
+`--strict` pre-tag gate rules on the signed receipt and never reads a mutation result; the sharded
+mutation job is wired to CI for pull requests, not to the tag path. So the rule above is carried by
+the release procedure and by whoever runs it — a human checkpoint, and it is written down here
+instead of being assumed, which is the whole difference between a documented gap and an undocumented
+one. Wiring it into the tag path is a change to the release surface and belongs to the owner, not to
+a quiet edit made the day before a tag.

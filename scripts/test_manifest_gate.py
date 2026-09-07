@@ -44,6 +44,20 @@ _COLLECTED_RE = re.compile(r"(\d+)\s+tests?\s+collected")
 _ERROR_RE = re.compile(r"(\d+)\s+errors?\b")
 
 
+def _letzter_treffer(rx: "re.Pattern[str]", text: str):
+    """Der LETZTE Treffer im Text, zeilenweise von hinten — nicht der erste im Blob.
+
+    Eine Zahl, die ueber ein Gate entscheidet, gehoert in die Bilanzzeile des Laufs und nicht in
+    irgendeine Zeile, die zufaellig dieselbe Form hat. `re.search` liest von vorn, und vor der
+    Bilanz steht bei jedem Sammelfehler der Diagnosetext. Diese Funktion ist der Anker.
+    """
+    for zeile in reversed(text.splitlines()):
+        treffer = rx.search(zeile)
+        if treffer:
+            return treffer
+    return None
+
+
 def pytest_only_modules(tests_dir: Path) -> list[str]:
     """Every ``tests/test_*.py`` whose SOURCE does not import ``unittest`` — the class the legacy
     unittest-discover runner cannot see. Re-derived fresh each run (no hand-maintained list)."""
@@ -71,9 +85,15 @@ def collect_count(tests_dir: Path) -> tuple[int, int, str]:
         env={**_env()},
     )
     tail = "\n".join((proc.stdout or "").strip().splitlines()[-4:])
-    m = _COLLECTED_RE.search(proc.stdout or "")
+    # VON HINTEN, NICHT VON VORN — Klassen-Sweep 2026-09-07, dieselbe Klasse wie der Fund an
+    # `mutation_check._rote_aus_text` (deep gate Lauf 5, Linse 5). `re.search` ueber den GANZEN
+    # stdout nimmt den ERSTEN Treffer. Bei einem Sammelfehler steht vor der Bilanz der Traceback
+    # samt Testkoerper und Docstring, und dieses Korpus traegt summary-foermige Zahlen in
+    # Docstrings — eine davon entschiede dann ueber die Bodenpruefung dieses Tores. Die Bilanz
+    # ist die LETZTE passende Zeile; alles davor ist Diagnosetext.
+    m = _letzter_treffer(_COLLECTED_RE, proc.stdout or "")
     collected = int(m.group(1)) if m else -1
-    em = _ERROR_RE.search(proc.stdout or "")
+    em = _letzter_treffer(_ERROR_RE, proc.stdout or "")
     errors = int(em.group(1)) if em else 0
     # pytest exits non-zero on collection errors even with tests collected; treat that as errors>0.
     if proc.returncode not in (0,) and errors == 0 and collected >= 0:

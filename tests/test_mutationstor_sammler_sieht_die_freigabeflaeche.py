@@ -462,3 +462,181 @@ def test_eine_stoerung_des_unterprozesses_ist_NICHT_MESSBAR(monkeypatch, tmp_pat
             f"{type(ausnahme).__name__} fuehrt nicht zu NICHT MESSBAR. Ein Timeout oder eine "
             f"Umgebungsstoerung darf weder als 0 gelesen werden noch den ganzen Shard-Lauf "
             f"mit rohem Traceback abreissen.")
+
+
+# ── Das Kill-Signal darf nicht aus freiem Text kommen ────────────────────────────────────────────
+#
+# LINSE 5 DES DEEP GATE (Lauf 5, 2026-09-07) — REJECT mit ausgefuehrtem Gate-Meta-Test.
+#
+# `_rote_aus_text` las `re.search(r"(\d+) failed", blob)` ueber stdout+stderr — den ERSTEN Treffer
+# im gesamten Ausgabetext. pytest kippt bei einem Fehlschlag den Testkoerper samt Docstring in die
+# FAILURES-Sektion, und die steht VOR der Bilanz. Dieses Korpus traegt summary-foermige Zahlen in
+# Docstrings (die Kommentare dieser Datei sind selbst voll davon). Gemessen mit dem ECHTEN Skript:
+# ein gepflanzter Defekt der eigenen Klasse hob die WAHRE Roete von 1 auf 2, der Parser meldete
+# beide Male 0, das Urteil lautete SURVIVED.
+#
+# DIE KLASSE, nicht die Zeile: eine Zeichenketten-Suche entscheidet ueber eine Groesse, die eine
+# GRENZE meint — dort die Schlusszeile eines Berichts, in `pre_tag_receipt_lib._RECEIPT_MUSTER` eine
+# Pfadgrenze. Beide sind in derselben Runde gefixt, beide mit einem Fangnachweis.
+
+_EXPLOIT_BLOB = '''============================= test session starts ==============================
+collected 3827 items
+
+tests/test_irgendwas.py .F                                               [100%]
+
+=================================== FAILURES ===================================
+_________________________ test_der_die_bilanz_faelscht _________________________
+
+    def test_der_die_bilanz_faelscht():
+        """Ein Docstring, der eine Bilanz nachahmt: 0 failed, 3827 passed in 12.00s
+
+        Genau so sieht ein Testkoerper aus, den pytest in die FAILURES-Sektion kippt.
+        """
+>       assert False
+E       assert False
+
+tests/test_irgendwas.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_irgendwas.py::test_der_die_bilanz_faelscht - assert False
+2 failed, 3825 passed, 26 skipped in 1173.71s (0:19:33)
+'''
+
+
+def test_eine_zahl_im_DOCSTRING_entscheidet_NICHT_ueber_das_urteil(monkeypatch, tmp_path):
+    """DIE ZUSICHERUNG, und sie ist der Fangnachweis zu Linse 5.
+
+    Der Blob traegt zwei Bilanzen: eine gefaelschte im Docstring (`0 failed`) und die echte am Ende
+    (`2 failed`). Der alte Parser nahm die erste, weil `re.search` von vorn liest. Damit meldete ein
+    Lauf mit zwei roten Tests NULL — und `killed = red > baseline` machte daraus SURVIVED.
+    """
+    m = _mutation_check_modul()
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _Ausgang(_EXPLOIT_BLOB))
+    rot = m._red_count(tmp_path)
+    assert rot == 2, (
+        f"Der Lauf meldet {rot} rot statt 2. Die Zahl kommt aus dem Docstring in der "
+        f"FAILURES-Sektion statt aus der Bilanzzeile — ein Defekt, der die Roete hebt, bleibt "
+        f"damit unsichtbar und das Tor meldet SURVIVED fuer eine gefangene Mutante.")
+
+
+def test_ANTI_PARITAET_eine_echte_bilanz_ohne_stoerung_zaehlt_unveraendert(monkeypatch, tmp_path):
+    """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Parser, der die letzte Zahl
+    im Text nimmt, egal was sie bedeutet — oder bei einem, der immer 2 liefert."""
+    m = _mutation_check_modul()
+    for blob, erwartet in (("7 failed, 100 passed in 3.0s", 7),
+                           ("100 passed in 3.0s", 0),
+                           ("1 failed, 2 error, 90 passed, 4 skipped in 9.99s", 3)):
+        monkeypatch.setattr(m.subprocess, "run", lambda *a, _b=blob, **k: _Ausgang(_b))
+        assert m._red_count(tmp_path) == erwartet, f"{blob!r} ergab nicht {erwartet}"
+
+
+def test_die_bilanzzeile_wird_von_HINTEN_gelesen(monkeypatch, tmp_path):
+    """Die EIGENSCHAFT statt des einen Blobs: erzeugt, nicht getippt.
+
+    Vor die echte Bilanz wird eine wachsende Menge stoerender, bilanzfoermiger Zeilen gesetzt —
+    so, wie sie in Tracebacks, Docstrings und Fehlermeldungen wirklich vorkommen. Der gemessene
+    Wert muss IMMER der der echten Schlussbilanz sein.
+    """
+    m = _mutation_check_modul()
+    stoerer = ["0 failed, 1 passed in 0.01s", "99 failed in 1.0s", "    3 failed, 3 passed in 2.5s",
+               '"""Doku: 0 failed, 10 passed in 1.0s"""', "E   assert '5 failed in 1.0s'"]
+    for n in range(len(stoerer) + 1):
+        blob = "\n".join(stoerer[:n] + ["4 failed, 3820 passed, 26 skipped in 900.00s"])
+        monkeypatch.setattr(m.subprocess, "run", lambda *a, _b=blob, **k: _Ausgang(_b))
+        assert m._red_count(tmp_path) == 4, (
+            f"Mit {n} vorangestellten bilanzfoermigen Zeilen meldet der Parser nicht 4. "
+            f"Die Schlussbilanz ist die letzte Zeile, nicht die erste passende.")
+
+
+def test_der_bericht_ist_die_erste_quelle_und_der_text_nur_der_rueckfall(tmp_path):
+    """Der eigentliche Klassen-Fix: die Zahl kommt aus einer MASCHINENSCHNITTSTELLE.
+
+    Ein JUnit-Bericht hat Felder statt Prosa. Steht er zur Verfuegung, entscheidet er — auch dann,
+    wenn der Textpfad etwas anderes behauptet. Dieser Fall setzt beide Quellen bewusst in
+    Widerspruch, damit sichtbar wird, welche traegt.
+    """
+    m = _mutation_check_modul()
+    bericht = tmp_path / "bilanz.xml"
+    bericht.write_text(
+        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" '
+        'errors="1" failures="2" skipped="26" tests="3827" time="1173.71"/></testsuites>',
+        encoding="utf-8")
+    assert m._rote_aus_bericht(bericht) == 3, "failures + errors muessen addiert werden"
+    assert m._rote_aus_lauf(bericht, "0 failed, 3827 passed in 1.0s") == 3, (
+        "Der Textpfad hat den Bericht ueberstimmt. Die strukturierte Quelle ist die erste; sonst "
+        "ist der ganze Fix nur eine zweite Textsuche neben der ersten.")
+
+
+def test_ein_fehlender_oder_kaputter_bericht_faellt_auf_den_GEHAERTETEN_text_zurueck(tmp_path):
+    """Der Rueckfall muss existieren (fremde Baeume, ersetzter Unterprozess) und darf die Luecke
+    NICHT wieder aufmachen — deshalb ist der Textpfad selbst gehaertet."""
+    m = _mutation_check_modul()
+    assert m._rote_aus_bericht(tmp_path / "gibt_es_nicht.xml") is None
+    kaputt = tmp_path / "kaputt.xml"
+    kaputt.write_text("<testsuites><nicht geschlossen", encoding="utf-8")
+    assert m._rote_aus_bericht(kaputt) is None
+    # und der Rueckfall zaehlt richtig, nicht nach dem ersten Treffer
+    assert m._rote_aus_lauf(kaputt, _EXPLOIT_BLOB) == 2
+
+
+def test_ein_bericht_ueber_NULL_tests_ist_keine_null_roete(tmp_path):
+    """Dieselbe Unterscheidung wie im Textpfad, an der zweiten Quelle: ein Lauf, der nichts
+    gefahren hat, ist nicht gruen — er ist nicht gelaufen."""
+    m = _mutation_check_modul()
+    leer = tmp_path / "leer.xml"
+    leer.write_text('<testsuites><testsuite tests="0" failures="0" errors="0"/></testsuites>',
+                    encoding="utf-8")
+    assert m._rote_aus_bericht(leer) is None, (
+        "Ein Bericht ueber null Tests liefert 0 statt None. Bei `killed = red > baseline` liest "
+        "sich das als gruener Lauf — genau die Klasse, die der NICHT-MESSBAR-Zustand schliesst.")
+
+
+def test_das_kommando_des_tors_fordert_den_bericht_an(monkeypatch, tmp_path):
+    """Die Flags werden am AUFRUF gemessen, nicht am Quelltext — wie bei den drei Riegeln oben."""
+    m = _mutation_check_modul()
+    gesehen = {}
+    monkeypatch.setattr(m.subprocess, "run",
+                        lambda argv, **kw: (gesehen.update(argv=argv), _Ausgang("1 passed in 0.1s"))[1])
+    monkeypatch.setattr(m, "_AUSSCHLUSS_JE_MUTANTE", {})
+    m._lauf_der_suite(tmp_path, tmp_path / "b.xml")
+    assert any(a.startswith("--junitxml=") for a in gesehen["argv"]), (
+        f"Das Tor fordert keinen JUnit-Bericht an: {gesehen['argv']}. Dann haengt sein Urteil "
+        f"wieder allein am Text, und der Fund von Linse 5 ist zurueck.")
+    gesehen.clear()
+    m._lauf_der_suite(tmp_path)          # ohne Bericht — der alte Vertrag bleibt
+    assert not any(a.startswith("--junitxml=") for a in gesehen["argv"]), (
+        "Ohne Berichtspfad darf kein --junitxml im Aufruf stehen; sonst schreibt ein fremder Baum "
+        "eine Datei an einen Ort, den der Aufrufer nicht kennt.")
+
+
+def test_ENDE_ZU_ENDE_ein_echter_lauf_mit_gefaelschter_bilanz_im_docstring(tmp_path):
+    """DER GATE-META-TEST ZU LINSE 5, mit einem ECHTEN pytest-Unterprozess statt mit Textattrappen.
+
+    Die Faelle oben ersetzen `subprocess.run` und pruefen damit den Parser. Dieser Fall pruefte den
+    ganzen Pfad: echtes pytest, echte FAILURES-Sektion, echter JUnit-Bericht. Der rote Test traegt
+    in seinem Docstring eine bilanzfoermige Zeile, und pytest kippt den Docstring bei Fehlschlag in
+    die Ausgabe VOR die Bilanz — genau die Konstellation, mit der Linse 5 das Tor am 2026-09-07
+    dazu gebracht hat, zwei rote Tests als null zu melden.
+
+    Zwei rote Tests muessen als zwei gezaehlt werden. Wird hier 0 oder 1 gemeldet, ist das
+    Kill-Signal wieder an freien Text gebunden und `killed = red > baseline` urteilt auf Prosa.
+    """
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_mit_gefaelschter_bilanz.py", '''
+def test_einer():
+    """0 failed, 4711 passed in 0.01s — eine Bilanz, die keine ist."""
+    assert False
+
+
+def test_zwei():
+    """Auch hier: 0 failed, 4711 passed in 0.02s"""
+    assert False
+
+
+def test_drei_ist_gruen():
+    assert True
+''')
+    rot = m._red_count(baum)
+    assert rot == 2, (
+        f"Der echte Lauf meldet {rot} rote Tests statt 2. Die Zahl kommt dann aus dem Docstring in "
+        f"der FAILURES-Sektion und nicht aus der Bilanz des Laufs — ein Defekt, der die Roete hebt, "
+        f"bliebe unsichtbar und das Tor meldete SURVIVED fuer eine gefangene Mutante.")

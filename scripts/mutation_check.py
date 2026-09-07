@@ -713,7 +713,10 @@ def _red_count(work: Path) -> int | None:
     # unsichtbar, obwohl sie die Suite unveraendert startet — beim ersten Versuch am 02.09.2026
     # genau so gemessen: der Waechter meldete den Laeufer als VERSCHWUNDEN.
     try:
-        proc = _lauf_der_suite(work)
+        with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
+            bericht = Path(_b) / "bilanz.xml"
+            proc = _lauf_der_suite(work, bericht)
+            return _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr)
     except (subprocess.TimeoutExpired, OSError) as fehler:
         # NICHT NUR DER TIMEOUT. Die erste Fassung fing ausschliesslich `TimeoutExpired`; jede
         # andere Stoerung (fehlender Interpreter im schmalen PATH, Ressourcenfehler beim fork)
@@ -722,10 +725,9 @@ def _red_count(work: Path) -> int | None:
         # widersprach dem Muster, das dieser Diff sonst durchhaelt. Gefunden von der Gegenlesung.
         print(f"  ! Lauf nicht zu Ende gekommen ({type(fehler).__name__}): NICHT MESSBAR")
         return None
-    return _rote_aus_text(proc.stdout + "\n" + proc.stderr)
 
 
-def _lauf_der_suite(work: Path) -> subprocess.CompletedProcess:
+def _lauf_der_suite(work: Path, bericht: Path | None = None) -> subprocess.CompletedProcess:
     # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
     # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
     # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
@@ -749,6 +751,16 @@ def _lauf_der_suite(work: Path) -> subprocess.CompletedProcess:
          # baseline` haette `1 > 0` diese Mutante als GETOETET verbucht. Ein Mutant, der den
          # Import EINER Testdatei bricht, haette sich damit selbst als gefangen gemeldet.
          # Mit dem Flag laeuft die Suite zu Ende und der Sammelfehler zaehlt als das, was er ist.
+         # `--junitxml` IST DER EIGENTLICHE FIX GEGEN DAS KILL-SIGNAL AUS FREIEM TEXT (deep gate
+         # Lauf 5, Linse 5, REJECT mit ausgefuehrtem Gate-Meta-Test). Die Rote-Zahl entschied
+         # ueber KILLED/SURVIVED und kam aus `re.search(r"(\d+) failed", blob)` — dem ERSTEN
+         # Treffer im gesamten stdout+stderr. pytest kippt bei einem Fehlschlag den Testkoerper
+         # samt Docstring in die FAILURES-Sektion VOR die Bilanz, und dieses Korpus traegt
+         # summary-foermige Zahlen in Docstrings. Gemessen mit dem ECHTEN Skript: ein gepflanzter
+         # Defekt hob die WAHRE Roete von 1 auf 2, der Parser meldete beide Male 0, Urteil
+         # SURVIVED. Die Zahl kommt jetzt aus einer MASCHINENSCHNITTSTELLE statt aus Prosa;
+         # der Textpfad bleibt als Rueckfall und ist eigens gehaertet (siehe `_rote_aus_text`).
+         *([f"--junitxml={bericht}"] if bericht is not None else []),
          "--continue-on-collection-errors", "tests", *_ausschluss_args(work)],
         # `errors="replace"`: `text=True` dekodiert sonst strikt, und ein Kindprozess, der ein
         # einzelnes Nicht-UTF8-Byte ausgibt, wuerde den Lauf mit UnicodeDecodeError abreissen.
@@ -762,6 +774,75 @@ def _lauf_der_suite(work: Path) -> subprocess.CompletedProcess:
         timeout=1800,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
+
+
+def _rote_aus_bericht(bericht: Path) -> int | None:
+    """Die rote Zahl aus dem JUnit-Bericht — `failures` + `errors` der Testsuite.
+
+    KEIN TEXT, KEINE SUCHE, KEINE REIHENFOLGE. Der Bericht ist eine Schnittstelle mit Feldern;
+    ein Docstring in einem Traceback kann darin nichts bewegen. `None` heisst hier ausschliesslich
+    "diese Quelle traegt nichts" (Datei fehlt, unparsbar, kein testsuite-Element, null Tests) —
+    der Aufrufer faellt dann sichtbar auf den Textpfad zurueck, statt still eine 0 zu erfinden.
+    """
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+    if not bericht.is_file():
+        return None
+    try:
+        wurzel = ET.parse(bericht).getroot()
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"  ! JUnit-Bericht unlesbar ({type(exc).__name__}) — Rueckfall auf den Textpfad")
+        return None
+    # pytest schreibt <testsuites><testsuite .../></testsuites>; aeltere Fassungen auch nur
+    # <testsuite>. Beide Formen werden gelesen, damit die Quelle nicht an einer Version haengt.
+    knoten = [wurzel] if wurzel.tag == "testsuite" else list(wurzel.iter("testsuite"))
+    if not knoten:
+        print("  ! JUnit-Bericht ohne testsuite-Element — Rueckfall auf den Textpfad")
+        return None
+    try:
+        tests = sum(int(k.get("tests", 0)) for k in knoten)
+        rot = sum(int(k.get("failures", 0)) + int(k.get("errors", 0)) for k in knoten)
+    except (TypeError, ValueError) as exc:
+        print(f"  ! JUnit-Zahlen unbrauchbar ({exc}) — Rueckfall auf den Textpfad")
+        return None
+    if tests == 0:
+        # NULL TESTS IST KEINE NULL ROTE. Ein Lauf, der nichts gefahren hat, ist nicht gruen —
+        # er ist nicht gelaufen. Dieselbe Unterscheidung wie im Textpfad, an der zweiten Quelle.
+        return None
+    return rot
+
+
+def _bilanzzeile(text: str) -> str | None:
+    """Die LETZTE Bilanzzeile des Laufs — nicht der erste summary-foermige Treffer im Blob.
+
+    HIER SASS DER FUND VON LINSE 5. `re.search` liest von vorn, und vor der Bilanz steht bei
+    jedem Fehlschlag die FAILURES-Sektion mit dem Testkoerper — Docstrings eingeschlossen. Eine
+    Zahl, die in einem Docstring steht, entschied damit ueber ein Freigabe-Urteil.
+
+    Eine Bilanzzeile erkennt man an ZWEI Dingen zugleich: einer Zaehlung (`N failed`, `N passed`,
+    …) UND der Laufzeitangabe (`in 12.34s`), die pytest nur an die Bilanz haengt. Der Rahmen aus
+    `=` ist optional — unter `-q` fehlt er. Gelesen wird von HINTEN, weil die letzte Bilanz die
+    des abgeschlossenen Laufs ist.
+    """
+    zaehlung = re.compile(
+        r"\b\d+\s+(?:failed|errors?|passed|skipped|xfailed|xpassed|deselected|warnings?)\b")
+    laufzeit = re.compile(r"\bin\s+\d+(?:\.\d+)?s\b")
+    for zeile in reversed(text.splitlines()):
+        z = zeile.strip().strip("=").strip()
+        if not z or not laufzeit.search(z):
+            continue
+        if zaehlung.search(z) or "no tests ran" in z:
+            return z
+    return None
+
+
+def _rote_aus_lauf(bericht: Path, text: str) -> int | None:
+    """Das Urteil ueber einen Lauf: strukturierte Quelle zuerst, Textpfad als LAUTER Rueckfall."""
+    if re.search(r"^!+ Interrupted", text, re.M) or re.search(r"^INTERNALERROR", text, re.M):
+        # Der Abbruch-Riegel steht VOR beiden Quellen: ein abgebrochener Lauf ist nicht messbar,
+        # auch wenn er unterwegs Zahlen hinterlassen hat — in der XML wie im Text.
+        return None
+    aus_bericht = _rote_aus_bericht(bericht)
+    return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
 
 
 def _rote_aus_text(text: str) -> int | None:
@@ -783,10 +864,18 @@ def _rote_aus_text(text: str) -> int | None:
     # einem Traceback ausgibt, den Lauf faelschlich NICHT MESSBAR.
     if re.search(r"^!+ Interrupted", text, re.M) or re.search(r"^INTERNALERROR", text, re.M):
         return None
-    f = re.search(r"(\d+) failed", text)
-    e = re.search(r"(\d+) error", text)
+    # DER RUECKFALLPFAD, UND ER IST GEHAERTET STATT GEERBT (deep gate Lauf 5, Linse 5). Gesucht
+    # wird in der BILANZZEILE, nicht im ganzen Blob: `re.search` auf stdout+stderr nahm den ersten
+    # Treffer, und der stand bei jedem Fehlschlag in der FAILURES-Sektion — im Testkoerper, im
+    # Docstring, im Traceback. Ein Fix nur an der strukturierten Quelle haette diese Stelle als
+    # unbemerkten Zweitpfad stehen lassen, den jeder Bericht-Ausfall wieder scharf macht.
+    zeile = _bilanzzeile(text)
+    if zeile is None:
+        return None
+    f = re.search(r"(\d+) failed", zeile)
+    e = re.search(r"(\d+) error", zeile)
     rot = (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
-    if rot == 0 and not re.search(r"\d+ passed", text):
+    if rot == 0 and not re.search(r"\d+ passed", zeile):
         # KEIN "N passed" UND KEIN "N failed": die Bilanzzeile fehlt ganz. Der Lauf ist nicht
         # gruen — er ist nicht zu Ende gekommen (Sammelfehler, OOM-Kill, Timeout).
         #
@@ -901,6 +990,32 @@ def partition_gewichtet(labels: list[str], i: int, k: int,
     return sorted(koerbe[i - 1])
 
 
+def _indizes_des_laufs(shard: tuple[int, int] | None) -> list[int]:
+    """Die Operatorenmenge dieses Laufs — EINE Quelle fuer den Lauf UND fuer seine Schlusszeile.
+
+    WARUM DAS EINE FUNKTION IST. Die Schlusszeile nannte ihre Zahl aus `partition(...)`, also
+    IMMER round-robin, waehrend der Lauf seit der gewichteten Partition `partition_gewichtet(...)`
+    faehrt. Zwei Berechnungen derselben Groesse, und nur eine davon war die gemessene. Heute faellt
+    es nicht auf: 100 Operatoren auf 10 Shards gehen in beiden Verfahren glatt auf, gemessen
+    2026-09-07 ueber alle zehn Shards (10/10 in beiden). Sobald die Zahl der Operatoren nicht mehr
+    durch die Shardzahl teilbar ist ODER die Gewichte ungleich verteilen, meldet die Schlusszeile
+    eine Menge, die dieser Shard nie gefahren hat — und die Summenpruefung des Sammel-Jobs geht
+    trotzdem auf, weil sie dieselbe falsche Zahl addiert. Der Kommentar an der Schlusszeile warnt
+    woertlich vor genau diesem Fall ("ein Shard, der 88 operators meldet, obwohl er elf gefahren
+    hat"); die Rechnung darunter konnte ihn nicht einhalten.
+
+    Gefunden beim Volllesen fuer den Fix an `_rote_aus_text` — dieselbe Klasse, eine Stufe weiter:
+    eine Groesse wird NEU BERECHNET statt GEMESSEN, und die zweite Rechnung driftet von der ersten.
+    """
+    if shard is None:
+        return list(range(len(MUTATIONS)))
+    i, k = shard
+    gewichte, _grund = lade_gewichte()
+    # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin.
+    return (partition_gewichtet([m[3] for m in MUTATIONS], i, k, gewichte) if gewichte
+            else partition(len(MUTATIONS), i, k))
+
+
 def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     dauern: dict[str, float] = {}
     # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
@@ -930,21 +1045,17 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
                          "darf nicht wie ein Lauf ohne Befund aussehen")
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
-    gewichte, gewicht_grund = lade_gewichte()
+    _gewichte, gewicht_grund = lade_gewichte()
     print(f"partition: {gewicht_grund}")
-    if shard is None:
-        indizes = list(range(len(MUTATIONS)))
-    else:
+    # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
+    # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
+    # eine gewichtete Partition aus und waere keine.
+    indizes = _indizes_des_laufs(shard)
+    if shard is not None:
         i, k = shard
-        # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
-        # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
-        # eine gewichtete Partition aus und waere keine.
-        labels = [m[3] for m in MUTATIONS]
-        indizes = (partition_gewichtet(labels, i, k, gewichte) if gewichte
-                   else partition(len(MUTATIONS), i, k))
         # Die Partition wird AUSGEGEBEN (Index und Label), damit der Sammel-Job und ein Mensch
         # nachrechnen koennen, welche Operatoren dieser Shard getragen hat. Ein Shard, der seine
-        # Menge nicht nennt, laesst sich nicht gegen 88 aufaddieren.
+        # Menge nicht nennt, laesst sich nicht gegen die Gesamtzahl aufaddieren.
         print(f"shard {i}/{k}: {len(indizes)} von {len(MUTATIONS)} Operatoren")
         for idx in indizes:
             print(f"  shard-item {idx} [{MUTATIONS[idx][3]}]")
@@ -1067,12 +1178,21 @@ def main(argv: list[str] | None = None) -> int:
         for line in sorted(before - after):
             print(f"  - {line}")
         gaps += 1
-    n_gefahren = len(MUTATIONS) if shard is None else len(partition(len(MUTATIONS), *shard))
+    # DIESELBE QUELLE WIE DER LAUF, nicht eine zweite Rechnung ueber dieselbe Frage.
+    n_gefahren = len(_indizes_des_laufs(shard))
     # Die Schlusszeile nennt die GEFAHRENE Zahl, nicht die Gesamtzahl. Ein Shard, der "88
     # operators" meldet, obwohl er elf gefahren hat, macht die Summenpruefung des Sammel-Jobs
     # wertlos — sie wuerde jedes Mal aufgehen.
     _shard_txt = "" if shard is None else f" shard={shard[0]}/{shard[1]}"
-    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({n_gefahren} operators, {gaps} gap(s)){_shard_txt}")
+    # `total=` STEHT HIER, DAMIT ES NIRGENDWO SONST GETIPPT WERDEN MUSS (2026-09-07). Der
+    # Sammel-Job der CI prueft, ob die Shards zusammen die ganze Liste gefahren haben, und hielt
+    # seine Erwartung als Konstante `ERWARTET=88`. Am 2026-09-06 kamen zwoelf Operatoren dazu
+    # (`15d05ab`), die Liste steht seither auf 100 — die Konstante nicht. Der Riegel, der eine
+    # Luecke in der Partition finden soll, haette bei JEDEM vollstaendigen Lauf eine gemeldet, die
+    # es nicht gibt. Die Zahl kommt jetzt aus dem Lauf selbst; eine Erwartung, die man tippt, ist
+    # eine zweite Wahrheit ueber dieselbe Groesse.
+    print(f"=> {'OK' if gaps == 0 else 'FAILED'} ({n_gefahren} operators, {gaps} gap(s))"
+          f"{_shard_txt} total={len(MUTATIONS)}")
     return 0 if gaps == 0 else 1
 
 

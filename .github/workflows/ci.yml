@@ -242,11 +242,19 @@ jobs:
       - name: Record how many operators this shard actually ran
         # The count comes from the run's OWN closing line, not from the matrix index. A shard that
         # claims a number it did not run would make the summary's sum check pass every time.
+        #
+        # DIE GESAMTZAHL KOMMT MIT, und das ist der Fix vom 2026-09-07. Der Sammel-Job unten hielt
+        # sie als getippte Konstante `ERWARTET=88`; seit `15d05ab` (12 neue Operatoren) steht die
+        # Liste auf 100. Der Riegel gegen eine Luecke in der Partition haette bei jedem
+        # vollstaendigen Lauf eine gemeldet, die es nicht gibt. Eine Erwartung, die man tippt, ist
+        # eine zweite Wahrheit ueber dieselbe Groesse — sie kommt jetzt aus dem Lauf.
         if: always()
         run: |
           n="$(grep -oE '=> (OK|FAILED) \([0-9]+ operators' "$RUNNER_TEMP/mutation-shard.log" \
                | grep -oE '[0-9]+' | tail -1)"
-          echo "shard=${{ matrix.shard }} operators=${n:-0}" \
+          gesamt="$(grep -oE 'total=[0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
+                    | grep -oE '[0-9]+' | tail -1)"
+          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
@@ -275,8 +283,10 @@ jobs:
     # warum das Sharding die Aussage des Tores nicht verduennt. Er faellt bei DREI Dingen:
     #   1. ein Shard FEHLT       -> ein ausgefallener Job darf nicht als bestanden durchgehen
     #   2. ein Shard ist ROT     -> needs+always() sieht das Ergebnis jedes Shards
-    #   3. die Summe != 88       -> die Partition muss lueckenlos sein, gerechnet statt geglaubt
-    # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index.
+    #   3. die Summe != gesamt   -> die Partition muss lueckenlos sein, gerechnet statt geglaubt
+    #   4. die Shards sind sich ueber die Gesamtzahl uneinig -> zwei Codestaende in einer Matrix
+    # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index UND
+    # nicht aus einer hier getippten Konstante (siehe den Fix vom 2026-09-07 im Shard-Schritt).
     needs: [mutation]
     if: always()
     runs-on: ubuntu-latest
@@ -292,29 +302,43 @@ jobs:
         run: |
           set -euo pipefail
           K=10
-          ERWARTET=88
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::mutation matrix result=$MUTATION_RESULT — mindestens ein Shard ist rot"
             exit 1
           fi
           fehlend=""
           summe=0
+          gesamtwerte=""
           for i in $(seq 1 $K); do
             f="mutation-shard-$i.txt"
             if [ ! -f "$f" ]; then fehlend="$fehlend $i"; continue; fi
             n="$(grep -oE 'operators=[0-9]+' "$f" | grep -oE '[0-9]+')"
-            echo "shard $i: ${n:-0} Operatoren"
+            g="$(grep -oE 'total=[0-9]+' "$f" | grep -oE '[0-9]+')"
+            echo "shard $i: ${n:-0} von ${g:-0} Operatoren"
             summe=$((summe + ${n:-0}))
+            gesamtwerte="$gesamtwerte ${g:-0}"
           done
           if [ -n "$fehlend" ]; then
             echo "::error::fehlende Shards:$fehlend — ein fehlender Shard ist ROT, nicht gruen"
+            exit 1
+          fi
+          # Die Erwartung kommt aus den Laeufen. Sind sich die Shards uneinig, liefen zwei
+          # Codestaende in einer Matrix — dann sagt die Summe nichts, egal wie sie ausfaellt.
+          einig="$(echo $gesamtwerte | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+          if [ "$(echo $einig | wc -w)" -ne 1 ]; then
+            echo "::error::die Shards melden verschiedene Gesamtzahlen ($einig) — zwei Codestaende in einer Matrix"
+            exit 1
+          fi
+          ERWARTET="$(echo $einig | tr -d ' ')"
+          if [ "$ERWARTET" -eq 0 ]; then
+            echo "::error::kein Shard hat eine Gesamtzahl gemeldet — die Schlusszeile traegt kein total="
             exit 1
           fi
           if [ "$summe" -ne "$ERWARTET" ]; then
             echo "::error::Summe der gefahrenen Operatoren $summe != $ERWARTET — die Partition hat eine Luecke oder eine Ueberschneidung"
             exit 1
           fi
-          echo "mutation-summary OK: $K Shards, $summe Operatoren, keine Luecke"
+          echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, keine Luecke"
       - name: Wanduhr der Matrix aus den Job-Zeitstempeln
         # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
         # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht

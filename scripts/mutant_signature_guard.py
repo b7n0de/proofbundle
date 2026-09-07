@@ -100,6 +100,12 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
             path = raw[4:].strip()
             current = None if path == "/dev/null" else path.removeprefix("b/")
         elif raw.startswith("@@"):
+            # GEPRUEFT UND KEIN FUND (Klassen-Sweep 2026-09-07). Diese Suche sieht aus wie die
+            # Klasse "Suche ohne Anker entscheidet ueber eine Grenze", ist aber keine: der Hunk-Kopf
+            # hat die Form `@@ -alt,n +neu,m @@ <kontext>`, und `+neu` steht damit STRUKTURELL vor
+            # jedem `+` aus dem Kontextausschnitt. Ein Anker wurde gebaut und wieder entfernt, weil
+            # der Fangnachweis dazu gruen blieb — ein Fix ohne widerlegbaren Defekt ist keine
+            # Haertung, sondern eine Behauptung ueber eine Gefahr, die es hier nicht gibt.
             m = re.search(r"\+(\d+)", raw)
             lineno = int(m.group(1)) if m else 0
         elif raw.startswith("+") and not raw.startswith("+++"):

@@ -7,18 +7,39 @@ REPO / CI / Rust / docs LAYOUT — the contents of `.github/workflows`, the Rust
 DELIBERATELY prunes (it is not a Python-package artifact; shipping the 138M Rust tree or the CI configs
 in a Python sdist is a category error). Those tests are meaningless outside a git checkout, so they SKIP
 when the repo-only markers are absent (i.e. when running from an extracted sdist / installed wheel),
-turning 39 false runtime FAILURES into honest SKIPs (this said 25; measured 2026-09-02 it is 39 — the number was never re-derived after the suite grew) — the sdist then runs clean. In a real checkout (CI)
+turning false runtime FAILURES into honest SKIPs — the sdist then runs clean. In a real checkout (CI)
 every marker is present, NOTHING is skipped, and coverage is exactly as before (this file is a pure no-op
 in the repo). This is the No-Fake honest form of "self-testable" — with a MEASURED limit that this sentence
-# used to hide. It said "the package-level tests run". Measured 2026-09-02 by an adversarial
-# lens: 113 of them do NOT, because the skip is decided PER MODULE. One repo-touching test drags
-# 12 to 33 package-clean tests with it (`test_fork_pr_secret_isolation`: 34 skipped, 1 needed —
-# so 33 security-scanner tests never run from the package; `test_audit_marker_line_wrap`: 9
-# skipped, 0 needed — that module had already solved it per-test, three-state, and the blanket
-# skip overrides the better solution). The trade is deliberate and documented; what was NOT
-# honest was claiming the cost away. The honest form: the repo-layout tests announce themselves
-# as N/A, and 113 package-level tests are skipped WITH them. The
-repo-layout tests announce themselves as N/A rather than failing or being silently dropped.
+used to hide. It said "the package-level tests run". A share of them does NOT, because the skip is decided
+PER MODULE: one repo-touching test drags its package-clean siblings with it (`test_fork_pr_secret_isolation`:
+34 skipped, 1 needed — so 33 security-scanner tests never run from the package; `test_audit_marker_line_wrap`:
+9 skipped, 0 needed — that module had already solved it per-test, three-state, and the blanket skip overrides
+the better solution). The trade is deliberate and documented; what was NOT honest was claiming the cost away.
+The repo-layout tests announce themselves as N/A rather than failing or being silently dropped.
+
+TWO NUMBERS USED TO STAND HERE, AND BOTH HAD GONE STALE — the collateral-skip count as "113" and the
+false-failure count as "39", both measured 2026-09-02. Deep gate lens 3 re-measured them on the 6.0.0
+candidate (2026-09-07) and returned REJECT: the collateral count is **296**, a factor of 2.6, confirmed
+two independent ways (a real `pytest -rs` run out of the built sdist, and the derivation itself applied to
+the collected items). Ten test files created AFTER the measurement date carry 123 of those skips on their
+own — more than the whole number that stood here.
+
+The sharper point is not the drift, it is that this docstring PREDICTED it ("the number was never
+re-derived after the suite grew") and the prediction changed nothing: `tests/conftest.py` was edited four
+more times, twice on the day of the freeze, and no edit re-derived the figure. A warning that does not
+become a mechanism is a warning that will be right and useless.
+
+So the count is no longer typed here at all. It is DERIVED and BOUND by
+`tests/test_paketgrenze_zahlen_sind_abgeleitet.py`, which applies this module's own
+`modul_ist_repo_kontext` + `_REPO_CONTEXT_TESTS` to the collected suite. The number lives in the run, not
+in prose, and the day the suite grows it moves with it.
+
+THE FALSE-FAILURE COUNT IS NOT BOUND, and that is deliberate rather than forgotten. Measuring it means
+disabling the skip and actually RUNNING the affected tests; lens 3 tried, and
+`test_audit_candidate_360` alone spawns a real `audit_candidate_matrix.py` subprocess per case, so a full
+measurement runs over an hour. What IS established: it is a LOWER BOUND from 2026-09-02, and it has since
+grown — commit `29fb3af` added nine more measured runtime failures on 2026-09-07 without the figure moving.
+A bound that says "at least, as of this date" is honest; a precise-looking number nobody re-derives is not.
 """
 import pathlib
 

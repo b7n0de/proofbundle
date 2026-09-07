@@ -245,3 +245,86 @@ class TestUnlesbarerBaumLaesstDasTorUrteilen:
                 assert isinstance(e, BaumNichtLesbar), f"falscher Typ: {type(e).__name__}"
                 return
             pytest.fail(f"ein Nicht-git-Ordner lieferte einen Digest: {d!r}")
+
+
+class TestQuittungsMusterIstAnDieWurzelVerankert:
+    """Linse 2 des deep gate (Lauf 5, 2026-09-07) — REJECT mit ausgefuehrtem Exploit.
+
+    ``subject_tree_digest`` schliesst die Quittung aus der Bindung aus, weil sie in dem Baum liegt,
+    den sie bindet. Der Ausschluss lief ueber ``_RECEIPT_MUSTER.search(zeile)`` auf die GANZE
+    ``ls-tree``-Zeile (``<mode> <type> <sha>\\t<pfad>``), und das Muster hatte keinen Anker am
+    Pfadanfang. Jede Datei IRGENDWO im Baum, deren Pfad so endet, fiel damit still aus dem Digest —
+    gemessen: eine committete ``src/proofbundle/audit_artifacts/1/pre_tag_receipt_v1.json`` liess
+    den Digest BYTEIDENTISCH und das Tor weiter ``verified``, ohne dass jemand neu signiert haette.
+
+    Der Nachbar in derselben Funktion (``MUTABLE_EVIDENCE_RELS`` via ``endswith("\\t" + pfad)``) war
+    seit je verankert. Diese Faelle binden die Eigenschaft, nicht den einen Pfad.
+    """
+
+    @staticmethod
+    def _repo(tmp_path):
+        import subprocess  # noqa: PLC0415
+        def git(*a):
+            r = subprocess.run(["git", "-C", str(tmp_path), *a], capture_output=True, text=True)
+            assert r.returncode == 0, f"git {a}: {r.stderr}"
+        git("init", "-q")
+        git("config", "user.email", "t@t.t")
+        git("config", "user.name", "t")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", "basis")
+        return git
+
+    @staticmethod
+    def _lege_an(tmp_path, git, rel: str):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('{"schema": "erfunden"}\n', encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", f"add {rel}")
+
+    def test_eine_quittungsfoermige_datei_unter_src_faellt_NICHT_aus_der_bindung(self, tmp_path):
+        """DIE ZUSICHERUNG. Der Exploit-Pfad muss den Digest bewegen."""
+        from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+        git = self._repo(tmp_path)
+        vorher = subject_tree_digest(tmp_path)
+        self._lege_an(tmp_path, git, "src/proofbundle/audit_artifacts/1/pre_tag_receipt_v1.json")
+        nachher = subject_tree_digest(tmp_path)
+        assert nachher != vorher, (
+            "Eine committete Datei unter src/ hat den subject_tree_digest NICHT bewegt, weil ihr "
+            "Pfadende dem Quittungsmuster entspricht. Damit darf sich nach dem Signieren beliebiger "
+            "Inhalt an dieser Stelle aendern, ohne die Quittung zu brechen — der Ausschluss ist "
+            "eine Pfadgrenze, und eine ungeankerte Suche bindet keine Grenze.")
+
+    def test_ANTI_PARITAET_die_echte_quittung_faellt_weiterhin_heraus(self, tmp_path):
+        """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Muster, das NIE trifft —
+        dann enthielte der Digest die Quittung selbst und koennte nie berechnet werden."""
+        from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+        git = self._repo(tmp_path)
+        vorher = subject_tree_digest(tmp_path)
+        self._lege_an(tmp_path, git, "audit_artifacts/600/pre_tag_receipt_v6.0.0.json")
+        assert subject_tree_digest(tmp_path) == vorher, (
+            "Die echte Quittung an ihrem vorgesehenen Ort bewegt den Digest — dann bindet sie sich "
+            "selbst und ist zirkulaer, also nie verifizierbar. Der Ausschluss muss GENAU hier "
+            "greifen und nur hier.")
+
+    def test_die_EIGENSCHAFT_statt_des_einen_pfades(self, tmp_path):
+        """Die Faelle oben sind zwei Pfade. Das hier ist die Eigenschaft: NUR eine Datei direkt
+        unter ``audit_artifacts/<token>/`` an der Wurzel faellt heraus, jede tiefer geschachtelte
+        Wiederholung desselben Namens nicht. Erzeugt statt getippt, damit ein Praefix, an das heute
+        niemand denkt, in dieselbe Menge faellt."""
+        from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+        git = self._repo(tmp_path)
+        praefixe = ["src", "tests", "scripts/unter", "docs/a/b", "src/proofbundle/audit_artifacts",
+                    "a", "audit_artifacts/600/nested"]
+        durchgerutscht = []
+        for n, praefix in enumerate(praefixe):
+            vorher = subject_tree_digest(tmp_path)
+            self._lege_an(tmp_path, git,
+                          f"{praefix}/audit_artifacts/{600 + n}/pre_tag_receipt_v6.0.{n}.json")
+            if subject_tree_digest(tmp_path) == vorher:
+                durchgerutscht.append(praefix)
+        assert not durchgerutscht, (
+            f"{len(durchgerutscht)} von {len(praefixe)} Praefixen fielen still aus der Bindung: "
+            f"{durchgerutscht}. Der Ausschluss haengt dann am Pfad-ENDE statt an der Pfadgrenze.")
