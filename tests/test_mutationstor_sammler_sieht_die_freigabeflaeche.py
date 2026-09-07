@@ -200,8 +200,8 @@ def _mutation_check_modul():
 
 
 class _Ausgang:
-    def __init__(self, stdout: str, stderr: str = ""):
-        self.stdout, self.stderr, self.returncode = stdout, stderr, 1
+    def __init__(self, stdout: str, stderr: str = "", returncode: int = 1):
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
 
 
 def test_ein_lauf_ohne_bilanzzeile_ist_NICHT_MESSBAR_und_nicht_null(monkeypatch, tmp_path):
@@ -707,3 +707,214 @@ def test_verschachtelte_testsuite_knoten_werden_NICHT_doppelt_gezaehlt(tmp_path)
     assert m._rote_aus_bericht(b) == 2, (
         "Der innere testsuite-Knoten wird mitgezaehlt (2 + 1 = 3 statt 2). Eine getoetete Mutante "
         "liest sich dann als ueberlebend oder umgekehrt — die Zahl entscheidet das Urteil.")
+
+
+# ── Die Fuellbreite eines Banners ist keine Eigenschaft des Abbruchs ─────────────────────────────
+#
+# DIE un-GEGENLESUNG (2026-09-07, un_turbov1/qwen3.8:27b) hielt `_ABBRUCH_BANNER = ^!{5,} .* !{5,}$`
+# fuer einen Release-Blocker, weil pytest angeblich VIER Ausrufezeichen schreibe. Nachgemessen im
+# Laufpfad dieses Tors: der gewoehnliche Interrupt schreibt ZWANZIG je Seite, der Einwand traf so
+# nicht zu. Die Messung fand aber den echten Weg daneben — und der ist schlimmer.
+#
+# `TerminalWriter.sep` rechnet `N = max((breite - len(titel) - 2) // 2, 1)`. Die Fuellbreite haengt
+# also an der LAENGE DES TITELS, und `session.shouldstop` traegt einen beliebigen Text. Bei 80
+# Spalten faellt N unter fuenf, sobald der Titel laenger als 68 Zeichen ist; bei einem langen Grund
+# bleibt genau EIN Ausrufezeichen je Seite. AUSGEFUEHRT GEMESSEN mit echtem pytest: Banner mit
+# einem `!`, `_ABBRUCH_BANNER` griff nicht, `_rote_aus_lauf` las die Bilanz `1 failed, 1 passed`
+# und lieferte 1 — bei Basislinie 0 haette `1 > 0` die Mutante als GETOETET verbucht, obwohl der
+# Lauf abbrach. Ein falsches Gruen, erzeugt vom Sicherheitsnetz selbst.
+#
+# DIESELBE KLASSE WIE DEN GANZEN TAG: eine Zahl, die eine GRENZE meint, wird aus einer Groesse
+# gelesen, die etwas anderes misst. Der Fix nimmt sie aus einer MASCHINENSCHNITTSTELLE — dem
+# Rueckgabewert von pytest (2 Interrupted, 3 intern, 4 Aufruf) —, so wie `--junitxml` die rote Zahl
+# aus dem Text genommen hat. Die Bannerform bleibt als zweiter Riegel und ist auf `!+` geweitet.
+
+def test_die_BANNERFORM_faengt_auch_ein_schmales_banner(monkeypatch, tmp_path):
+    """ZUSICHERUNG AN DEN BANNER-RIEGEL, isoliert: OHNE Rueckgabewert traegt allein die Form.
+
+    ZWEIMAL UMGEBAUT, BEIDE MALE VON EINEM FANGNACHWEIS ERZWUNGEN, und der Weg gehoert zum Fall:
+    (1) Die erste Fassung benutzte `! Interrupted: <langer Grund> !` und traf damit den ALTEN
+        Wortlaut-Riegel `^!+ Interrupted` in `_rote_aus_text` — gruen ohne den Fix, also blind.
+    (2) Die zweite hiess "DIE ZUSICHERUNG" und gab rc=2 mit, band damit aber wieder nicht, was ihr
+        Name behauptete: die un-Gegenlesung (un_turbov1/qwen3.8:27b, 2026-09-07) rechnete vor, dass
+        derselbe Text auch das geweitete `^!+ .* !+$` trifft — bei isolierter Ruecknahme NUR des
+        Rueckgabewert-Riegels waere sie gruen geblieben. Mein Fangnachweis hatte BEIDE Teile
+        zugleich zurueckgenommen und konnte deshalb nicht sagen, welcher traegt.
+
+    DIE KLASSE, und sie ist die des ganzen Tages: eine Pruefung, die zwei Ursachen zusammen
+    aufhebt, misst keine von beiden. Jeder Riegel braucht eine Zusicherung, die bei SEINER
+    isolierten Ruecknahme faellt — dieser Fall gehoert der Bannerform (rc=None), der naechste dem
+    Rueckgabewert (kein Banner im Text).
+    """
+    m = _mutation_check_modul()
+    # EIN Ausrufezeichen je Seite: bei 80 Spalten faellt N unter fuenf ab 68 Zeichen Titel.
+    # rc=1 heisst "Tests rot, Lauf zu Ende" — der Rueckgabewert-Riegel greift hier ausdruecklich
+    # NICHT, damit allein die Form geprueft wird.
+    schmal = ("! _pytest.outcomes.Exit: abgebrochen, weil der Mutant die Umgebung unbrauchbar "
+              "gemacht hat und nichts mehr messbar ist !\n1 failed, 1 passed in 0.14s\n")
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _Ausgang(schmal, returncode=1))
+    assert m._red_count(tmp_path) is None, (
+        "Ein Banner mit EINEM Ausrufezeichen je Seite wird nicht als Abbruch erkannt. `!{5,}` "
+        "verlangte fuenf — eine Fuellbreite ist aber eine Funktion der Titel-Laenge und keine "
+        "Eigenschaft des Abbruchs.")
+
+
+def test_der_RUECKGABEWERT_traegt_das_urteil_auch_ohne_jedes_banner(monkeypatch, tmp_path):
+    """Die eigentliche Haertung, isoliert: OHNE Bannerzeile im Text traegt allein der rc.
+
+    Ohne diesen Fall waere nicht unterscheidbar, ob der Fall oben am rc oder an der geweiteten
+    Bannerform haengt — beide greifen dort zugleich, und ein Fix, dessen wirksamer Teil unbekannt
+    ist, ist kein gemessener Fix.
+    """
+    m = _mutation_check_modul()
+    ohne_banner = "1 failed, 1 passed in 0.14s\n"
+    for rc, erwartet in ((2, None), (3, None), (4, None), (1, 1), (0, 1)):
+        monkeypatch.setattr(m.subprocess, "run",
+                            lambda *a, _rc=rc, **k: _Ausgang(ohne_banner, returncode=_rc))
+        gemessen = m._red_count(tmp_path)
+        assert gemessen == erwartet, (
+            f"Rueckgabewert {rc} ergibt {gemessen!r} statt {erwartet!r}. 2/3/4 heissen 'der Lauf "
+            f"ist nicht zu Ende gekommen'; 0 und 1 sind gemessene Laeufe und behalten ihre Zahl.")
+
+
+def test_ANTI_PARITAET_der_rueckgabewert_riegel_nimmt_den_normalfall_NICHT_mit(monkeypatch, tmp_path):
+    """DIE KONTROLLE. Ohne sie bestuende die Zusicherung oben auch bei einem Riegel, der JEDEN Lauf
+    fuer nicht messbar erklaert — dann koennte das Tor nichts mehr toeten und waere stumm."""
+    m = _mutation_check_modul()
+    monkeypatch.setattr(m.subprocess, "run",
+                        lambda *a, **k: _Ausgang("3 failed, 3820 passed in 900.0s", returncode=1))
+    assert m._red_count(tmp_path) == 3, "ein zu Ende gelaufener roter Lauf muss seine Zahl behalten"
+    monkeypatch.setattr(m.subprocess, "run",
+                        lambda *a, **k: _Ausgang("3836 passed, 25 skipped in 1193.0s", returncode=0))
+    assert m._red_count(tmp_path) == 0, "ein gruener Lauf muss 0 ergeben, nicht None"
+
+
+def test_ENDE_ZU_ENDE_ein_echter_abbruch_mit_langem_grund(tmp_path):
+    """DER GATE-META-TEST, mit echtem pytest statt mit Textattrappen — so ist der Fund entstanden.
+
+    Ein conftest setzt `session.shouldstop` auf einen langen Grund. pytest bricht dann NACH dem
+    ersten roten Test ab, schreibt ein Banner mit genau EINEM Ausrufezeichen je Seite und trotzdem
+    eine Bilanzzeile. Vor der Haertung las das Tor daraus 1 und haette die Mutante bei Basislinie 0
+    als GETOETET verbucht.
+    """
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_bricht_mit_langem_grund_ab.py",
+                      "def test_eins():\n    assert True\n\n\n"
+                      "def test_zwei():\n    assert False\n\n\n"
+                      "def test_drei():\n    assert True\n")
+    (baum / "conftest.py").write_text(
+        "def pytest_runtest_protocol(item, nextitem):\n"
+        "    if item.name == 'test_zwei':\n"
+        "        item.session.shouldstop = (\n"
+        "            'abgebrochen, weil der Mutant die Umgebung unbrauchbar gemacht hat und ein '\n"
+        "            'Weiterlaufen keine Aussage mehr traegt')\n"
+        "    return None\n", encoding="utf-8")
+    rot = m._red_count(baum)
+    assert rot is None, (
+        f"Der abgebrochene Lauf liefert {rot} statt None. Das Banner traegt bei diesem Grund nur "
+        f"EIN Ausrufezeichen — eine Fuellbreite ist keine Eigenschaft des Abbruchs, und genau "
+        f"deshalb entscheidet jetzt der Rueckgabewert.")
+
+
+def test_JEDER_der_zwei_riegel_wird_von_MINDESTENS_einer_zusicherung_einzeln_gehalten(tmp_path):
+    """DER FANGNACHWEIS ALS ZUSICHERUNG — die Lehre der un-Gegenlesung, ausfuehrbar festgehalten.
+
+    Zwei Riegel entscheiden hier dasselbe: der Rueckgabewert und die Bannerform. Wer nur PRUEFT,
+    dass ein Abbruch NICHT MESSBAR ergibt, prueft die ODER-Verknuepfung — und merkt nicht, wenn
+    einer der beiden verschwindet. Genau das war der Fund: mein Fangnachweis nahm beide zugleich
+    zurueck, alle Faelle fielen, und die Ableitung "also binden sie den Fix" war falsch.
+
+    Dieser Fall nimmt JEDEN Riegel EINZELN zurueck (an einer Kopie des Moduls im Speicher, das
+    Original bleibt unberuehrt) und verlangt, dass fuer jeden mindestens eine Konstellation die
+    Roete verliert. Faellt er, ist ein Riegel ungehalten geworden und kann still entfernt werden.
+    """
+    m = _mutation_check_modul()
+    ohne_banner = "1 failed, 1 passed in 0.14s\n"
+    schmal = ("! _pytest.outcomes.Exit: abgebrochen, weil der Mutant die Umgebung unbrauchbar "
+              "gemacht hat und nichts mehr messbar ist !\n1 failed, 1 passed in 0.14s\n")
+    leer = tmp_path / "kein_bericht.xml"
+
+    # Beide da: beide Konstellationen sind NICHT MESSBAR.
+    assert m._rote_aus_lauf(leer, ohne_banner, 2) is None, "Vorbedingung: rc faengt den Fall ohne Banner"
+    assert m._rote_aus_lauf(leer, schmal, 1) is None, "Vorbedingung: die Form faengt das schmale Banner"
+
+    # (a) NUR den Rueckgabewert-Riegel zuruecknehmen -> der Fall ohne Banner muss die Roete sehen.
+    original_rcs = m._RC_NICHT_MESSBAR
+    try:
+        m._RC_NICHT_MESSBAR = frozenset()
+        assert m._rote_aus_lauf(leer, ohne_banner, 2) == 1, (
+            "Ohne den Rueckgabewert-Riegel bleibt der Fall ohne Bannerzeile trotzdem NICHT MESSBAR "
+            "— dann haelt ihn etwas anderes, und keine Zusicherung bindet ihn.")
+    finally:
+        m._RC_NICHT_MESSBAR = original_rcs
+
+    # (b) NUR die Bannerform zuruecknehmen (zurueck auf `!{5,}`) -> das schmale Banner muss durch.
+    import re as _re                                        # noqa: PLC0415
+    original_muster = m._ABBRUCH_BANNER
+    try:
+        m._ABBRUCH_BANNER = _re.compile(r"^!{5,} .* !{5,}$", _re.M)
+        assert m._rote_aus_lauf(leer, schmal, 1) == 1, (
+            "Mit der alten `!{5,}`-Form bleibt das schmale Banner trotzdem NICHT MESSBAR — dann "
+            "haelt es etwas anderes, und die Weitung auf `!+` ist von keiner Zusicherung gebunden.")
+    finally:
+        m._ABBRUCH_BANNER = original_muster
+
+    # Und zurueck: der Zustand des Moduls darf dieser Fall nicht hinterlassen.
+    assert m._rote_aus_lauf(leer, ohne_banner, 2) is None and m._rote_aus_lauf(leer, schmal, 1) is None
+
+
+def test_der_RUECKGABEWERT_schlaegt_den_BERICHT_und_das_ist_die_ganze_pointe(tmp_path):
+    """DIE PRAEZEDENZ SELBST ALS ZUSICHERUNG — gefunden von Linse B der Verify-Lane, 07.09.2026.
+
+    `_rote_aus_lauf` verspricht in seinem Docstring eine Reihenfolge: RUECKGABEWERT zuerst, dann die
+    strukturierte Quelle, dann der Text. GEMESSEN: kein Fall band diese Reihenfolge. Verschiebt man
+    den rc-Zweig hinter `_rote_aus_bericht` und macht ihn zum blossen Rueckfall, bleiben alle 45
+    Faelle der Datei GRUEN — weil keiner von ihnen gleichzeitig einen ECHTEN, nicht-leeren Bericht
+    UND ein rc aus der Nicht-Messbar-Menge liefert. Die vorhandenen Faelle benutzen dafuer einen
+    nicht existierenden Berichtspfad, wo `_rote_aus_bericht` ohnehin None gibt; die Reihenfolge
+    konnte sich dort nicht auswirken.
+
+    WARUM DAS TRAEGT UND NICHT NUR ORDENTLICH IST (Linse A, gemessen mit echtem pytest): die
+    JUnit-XML eines ABGEBROCHENEN Laufs ist wohlgeformt und traegt eine plausible Zahl —
+    `tests="2" failures="1" errors="0"` fuer einen Lauf, der seinen dritten Test nie fuhr. Die
+    strukturierte Quelle sagt NICHT, dass der Lauf abbrach; sie kann es gar nicht sagen. Der
+    Rueckgabewert ist das einzige Feld im ganzen Bild, das es sagt. Steht der Bericht davor, liest
+    das Tor die Teilzahl und verbucht bei Basislinie 0 eine KILLED-Mutante.
+
+    DIESELBE KLASSE WIE ZWEIMAL ZUVOR AN DIESEM ABEND, jetzt in ihrer dritten Gestalt: nicht die
+    Ruecknahme eines Riegels blieb ungeprueft, sondern ihr ZUSAMMENSPIEL. Ein Riegel kann
+    vorhanden, wirksam und trotzdem an der falschen Stelle sein.
+    """
+    m = _mutation_check_modul()
+    bericht = tmp_path / "abgebrochener_lauf.xml"
+    # Genau die Form, die Linse A aus einem echten Abbruch gemessen hat.
+    bericht.write_text(
+        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" '
+        'errors="0" failures="1" skipped="0" tests="2" time="0.15"/></testsuites>',
+        encoding="utf-8")
+    # Der Text traegt WEDER ein Banner NOCH INTERNALERROR NOCH eine zaehlbare Bilanz. Die letzte
+    # Eigenschaft kam aus der un-Gegenlesung (2026-09-07, Runde 2) und ist der Unterschied zwischen
+    # einer Gegenprobe und einer scheinbaren: mit "1 failed, 1 passed" haette die Gegenprobe unten
+    # auch bei einem KAPUTTEN `_rote_aus_bericht` bestanden, weil `_rote_aus_text` dieselbe 1 aus
+    # der Bilanzzeile liest. Sie haette dann bewiesen, dass IRGENDEINE Quelle 1 liefert — nicht,
+    # dass der BERICHT es tut. Ohne Bilanzzeile kann die 1 nur aus dem Bericht kommen.
+    text = "collected 2 items\n"
+
+    assert m._rote_aus_bericht(bericht) == 1, (
+        "Vorbedingung: der Bericht traegt eine ZAEHLBARE Zahl. Ohne sie prueft dieser Fall die "
+        "Praezedenz nicht, sondern nur, dass irgendetwas None ergibt.")
+    assert m._rote_aus_lauf(bericht, text, 2) is None, (
+        "Der BERICHT hat den Rueckgabewert ueberstimmt. Ein abgebrochener Lauf hinterlaesst eine "
+        "wohlgeformte JUnit-XML mit einer Teilzahl; nur der Rueckgabewert sagt, dass sie eine "
+        "Teilzahl IST. Steht die strukturierte Quelle davor, verbucht `killed = red > baseline` "
+        "bei Basislinie 0 eine gefangene Mutante fuer einen Lauf, der nie zu Ende kam.")
+
+    # GEGENPROBE, sonst bestuende der Fall auch bei einem `_rote_aus_lauf`, das immer None gibt:
+    # derselbe Bericht mit einem Rueckgabewert eines VOLLSTAENDIGEN Laufs muss die Zahl liefern.
+    assert m._rote_aus_text(text) is None, (
+        "Vorbedingung der Gegenprobe: der Text traegt KEINE zaehlbare Bilanz. Traegt er eine, kann "
+        "die Zahl unten aus ihm statt aus dem Bericht kommen, und die Gegenprobe isoliert nichts.")
+    assert m._rote_aus_lauf(bericht, text, 1) == 1, (
+        "Mit rc=1 (Tests rot, Lauf zu Ende) muss der BERICHT zaehlen — und nur er kann es hier, "
+        "weil der Text nichts Zaehlbares traegt. Sonst waere der Riegel oben kein Vorrang, sondern "
+        "ein Dauer-Nichtmessbar.")

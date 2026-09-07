@@ -94,6 +94,81 @@ class TestTestManifestGate(unittest.TestCase):
         mods = self.g.pytest_only_modules(REPO / "tests")
         self.assertTrue(all(m.startswith("test_") and m.endswith(".py") for m in mods))
 
+    def test_die_ERWARTUNG_kommt_aus_dem_BAUM_und_nicht_aus_einem_BODEN(self):
+        """OWNER-ANORDNUNG 2026-09-07, und sie ist dieselbe Regel wie beim Mutationslauf: die
+        Erwartung wird GEMESSEN, nicht getippt.
+
+        Der Boden (`min_pytest_only_modules`) prueft die GROESSE der Menge. Er kann eine FALSCHE
+        Menge derselben oder groesserer Groesse nicht bemerken: nimmt man das `not` aus der Regex,
+        waehlt sie die Gegenmenge — 199 statt 62 Module — und `ok` bleibt True, weil 199 einen
+        Boden von 5 mit Leichtigkeit nimmt. Eine Kennzahl steht dann fuer eine Menge.
+
+        Der Riegel ist jetzt die DIFFERENZ zweier unabhaengiger Ableitungen: die eine liest den
+        Quelltext als Zeichenkette, die andere als Syntaxbaum. Ein Import ist im Baum ein Knoten
+        und kein Textmuster; ein Fehler in der einen Lesart kann die andere nicht mitreissen. Es
+        steht keine Zahl in dieser Zusicherung — sie verlangt Einigkeit, nicht einen Wert.
+        """
+        regex_menge = set(self.g.pytest_only_modules(REPO / "tests"))
+        ast_menge = set(self.g.pytest_only_modules_ast(REPO / "tests"))
+        assert regex_menge, "Vorbedingung: die Regex-Ableitung findet ueberhaupt Module"
+        assert ast_menge, "Vorbedingung: die Syntaxbaum-Ableitung findet ueberhaupt Module"
+        self.assertEqual(regex_menge, ast_menge, (
+            f"Die zwei Ableitungen der pytest-only-Menge sind uneinig. Nur im Regex: "
+            f"{sorted(regex_menge - ast_menge)[:8]}; nur im Syntaxbaum: "
+            f"{sorted(ast_menge - regex_menge)[:8]}. Eine Klassifikation, die sich selbst "
+            f"widerspricht, ist keine — und ein Boden ueber der GROESSE haette es nicht bemerkt."))
+        # Und das Tor selbst muss die Uneinigkeit zu einem PROBLEM machen, nicht nur berichten.
+        r = self.g.evaluate()
+        self.assertNotIn("uneinig", " ".join(r["problems"]).lower(),
+                         f"das Tor meldet eine Uneinigkeit, die hier keine sein duerfte: {r['problems']}")
+        self.assertEqual(r["pytest_only_modules"], r["pytest_only_modules_ast"], (
+            "Das Tor berichtet zwei verschiedene Groessen fuer dieselbe Menge."))
+
+    def test_die_KLASSIFIKATION_selbst_ist_gebunden_positiv_und_negativ(self):
+        """DER FUND DES RIEGEL-SWEEPS (Owner-Auftrag 2026-09-07, P1): die Klassifikation war von
+        keinem Fall gebunden, nur ihr Ergebnis-UMFANG.
+
+        `pytest_only_modules` trennt Module OHNE unittest-Import (die der alte Sammler nicht sieht)
+        von denen MIT. GEMESSEN: nimmt man das `not` aus der Bedingung, waehlt sie die exakte
+        Gegenmenge — 199 Module statt 62 — und `evaluate()` meldet weiter `ok=True`, weil 199 den
+        Boden von 5 mit Leichtigkeit nimmt. Alle drei Faelle, die diese Funktion angeblich binden,
+        blieben gruen.
+
+        WARUM DIE VORHANDENEN FAELLE NICHT REICHEN, einzeln benannt: `test_real_floor_met` prueft
+        eine Zahl gegen einen Boden, `test_shrink_below_floor_is_caught` denselben Vergleich mit
+        einem unmoeglich hohen Boden, und `test_pytest_only_discovery_is_ast_derived` prueft nur,
+        dass die Treffer `test_*.py` heissen — nie, ob die RICHTIGEN Module getroffen sind. Ein
+        Boden mit 57 Kopffreiheit kann eine Fehlklassifikation nicht bemerken; er misst die Groesse
+        einer Menge und sagt nichts ueber ihre Mitglieder. Dieselbe Klasse wie die Summe im
+        Sammel-Job: eine KENNZAHL steht fuer eine MENGE.
+
+        Dieser Fall stellt beide Seiten her: ein Modul mit `import unittest` DARF NICHT erscheinen,
+        eines ohne MUSS. Ein Nur-Positiv-Test bindet nichts.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tests_dir = Path(td)
+            (tests_dir / "test_mit_unittest.py").write_text(
+                "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_x(self):\n"
+                "        self.assertTrue(True)\n", encoding="utf-8")
+            (tests_dir / "test_mit_from_unittest.py").write_text(
+                "from unittest import TestCase\n\n\nclass T(TestCase):\n"
+                "    def test_x(self):\n        assert True\n", encoding="utf-8")
+            (tests_dir / "test_nur_pytest.py").write_text(
+                "def test_x():\n    assert True\n", encoding="utf-8")
+            mods = set(self.g.pytest_only_modules(tests_dir))
+
+        self.assertIn("test_nur_pytest.py", mods, (
+            "Ein Modul OHNE unittest-Import gilt nicht als pytest-only. Genau diese Module sind "
+            "fuer den alten Sammler unsichtbar — sie zu uebersehen ist der Fund vom 2026-09-07 "
+            "(57 von 254 Dateien blind, darunter vollstaendig die Freigabeflaeche)."))
+        self.assertNotIn("test_mit_unittest.py", mods, (
+            "Ein Modul MIT `import unittest` gilt als pytest-only. Die Klassifikation ist dann "
+            "invertiert oder blind — und der Boden bemerkt es nicht, weil er nur die GROESSE der "
+            "Menge prueft, nicht ihre Mitglieder."))
+        self.assertNotIn("test_mit_from_unittest.py", mods, (
+            "Die `from unittest import ...`-Form wird nicht erkannt. Beide Importformen sind fuer "
+            "den alten Sammler sichtbar; nur eine davon zu pruefen bindet die halbe Bedingung."))
+
 
 class TestAuditCandidateMatrix(unittest.TestCase):
     def setUp(self):

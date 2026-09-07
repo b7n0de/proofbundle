@@ -328,3 +328,106 @@ class TestQuittungsMusterIstAnDieWurzelVerankert:
         assert not durchgerutscht, (
             f"{len(durchgerutscht)} von {len(praefixe)} Praefixen fielen still aus der Bindung: "
             f"{durchgerutscht}. Der Ausschluss haengt dann am Pfad-ENDE statt an der Pfadgrenze.")
+
+
+class TestDerVertrauensankerKommtAusDemCommittetenBaum:
+    """DER SCHWERSTE FUND DES RIEGEL-SWEEPS (Owner-Auftrag 2026-09-07, P0) — eine geschlossene
+    Sicherheitsluecke, die von NICHTS festgehalten wurde.
+
+    `load_trusted_pubkeys` liest den Vertrauensanker seit dem 2026-08-27 mit
+    `git show HEAD:audit_artifacts/pre_tag_trusted_pubkeys.txt` statt aus dem Arbeitsbaum. Der
+    eigene Docstring nennt den Grund: die Quittung bindet den COMMITTETEN Baum, also muss der
+    Anker aus demselben Baum kommen — sonst schmuggelt ein schmutziger Checkout einen Schluessel
+    ein (uncommittet, also ausserhalb des Digests) und beglaubigt sich selbst.
+
+    GEMESSEN 2026-09-07: KEIN Test unterscheidet die beiden Lesarten. Jede Fixture im Korpus
+    committet den Anker, bevor sie misst — damit ist Arbeitsbaum-Inhalt gleich HEAD-Inhalt in
+    jedem einzelnen Fall, und der Unterschied ist unsichtbar. Baut man die Funktion auf
+    Arbeitsbaum-Lesen zurueck, bleiben 64 Faelle gruen.
+
+    DER ANGRIFF WURDE GEFAHREN, nicht nur beschrieben: frisches Repo, ein legitimer Schluessel
+    committet; danach ein Angreifer-Schluessel UNCOMMITTET in die Arbeitsbaumdatei; der Angreifer
+    signiert ein Receipt auf den unveraenderten committeten Baum. Original: `ok=False, "receipt
+    signer_pubkey is not in the trusted set"`. Zurueckgebaut: `ok=True, "verified"`.
+
+    Diese Faelle binden die Lesart selbst. Faellt jemand beim Aufraeumen auf die Arbeitsbaumdatei
+    zurueck — der kuerzere, naheliegendere Weg —, faellt hier etwas, statt dass 64 gruene Tests
+    eine offene Tuer bescheinigen.
+    """
+
+    _LEGIT = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    _ANGREIFER = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+
+    @staticmethod
+    def _repo_mit_anker(tmp_path, anker_inhalt: str):
+        import subprocess  # noqa: PLC0415
+
+        def git(*a):
+            r = subprocess.run(["git", "-C", str(tmp_path), *a], capture_output=True, text=True)
+            assert r.returncode == 0, f"git {a}: {r.stderr}"
+
+        git("init", "-q")
+        git("config", "user.email", "t@t.t")
+        git("config", "user.name", "t")
+        (tmp_path / "audit_artifacts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
+            anker_inhalt, encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", "anker")
+        return git
+
+    def test_ein_UNCOMMITTETER_schluessel_im_arbeitsbaum_wird_NICHT_vertraut(self, tmp_path):
+        """DIE ZUSICHERUNG, und sie ist der gefahrene Angriff in einer Zeile."""
+        from pre_tag_receipt_lib import load_trusted_pubkeys  # noqa: PLC0415
+        self._repo_mit_anker(tmp_path, self._LEGIT + "\n")
+        # Der Angreifer haengt seinen Schluessel an — OHNE zu committen. Der committete Baum, den
+        # die Quittung bindet, bleibt dabei byteidentisch.
+        (tmp_path / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
+            self._LEGIT + "\n" + self._ANGREIFER + "\n", encoding="utf-8")
+
+        vertraut = load_trusted_pubkeys(tmp_path)
+        assert self._ANGREIFER not in vertraut, (
+            "Ein UNCOMMITTETER Schluessel aus dem Arbeitsbaum steht in der Vertrauensmenge. Damit "
+            "kann ein schmutziger Checkout eine Quittung selbst beglaubigen, die den SAUBEREN "
+            "committeten Baum bindet — der Digest bewegt sich nicht, weil die Aenderung nie "
+            "committet wurde. Genau diese Luecke wurde am 2026-08-27 geschlossen; dieser Fall ist "
+            f"der Riegel dagegen. Gelesen wurde: {vertraut}")
+        assert vertraut == [self._LEGIT], (
+            f"Der committete Anker wird nicht mehr richtig gelesen: {vertraut}. Der Riegel darf den "
+            f"legitimen Schluessel nicht mitnehmen — sonst ist er kein Riegel, sondern ein Ausfall.")
+
+    def test_ANTI_PARITAET_ein_COMMITTETER_zweitschluessel_wird_sehr_wohl_vertraut(self, tmp_path):
+        """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einer Funktion, die IMMER nur
+        den ersten Schluessel liefert oder gar nichts — dann waere der Anker nicht gehaertet,
+        sondern kaputt, und eine legitime Schluesselrotation unmoeglich."""
+        from pre_tag_receipt_lib import load_trusted_pubkeys  # noqa: PLC0415
+        git = self._repo_mit_anker(tmp_path, self._LEGIT + "\n")
+        (tmp_path / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
+            self._LEGIT + "\n" + self._ANGREIFER + "\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", "zweiter schluessel, diesmal COMMITTET")
+
+        vertraut = load_trusted_pubkeys(tmp_path)
+        assert vertraut == [self._LEGIT, self._ANGREIFER], (
+            f"Ein COMMITTETER zweiter Schluessel fehlt in der Vertrauensmenge: {vertraut}. Der "
+            f"Unterschied, den dieser Riegel macht, ist committet gegen uncommittet — nicht "
+            f"'ein Schluessel gegen zwei'.")
+
+    def test_der_anker_wird_aus_DEM_ref_gelesen_das_die_quittung_bindet(self, tmp_path):
+        """Die dritte Seite derselben Eigenschaft: der Anker haengt am REF, nicht an der Gegenwart.
+
+        Der Docstring der Funktion sagt, das Tor loese den Digest aus DEMSELBEN `HEAD` auf. Dieser
+        Fall haelt fest, dass `ref` wirklich durchschlaegt: gegen den ELTERN-Commit gelesen, darf
+        der spaeter hinzugefuegte Schluessel nicht erscheinen.
+        """
+        from pre_tag_receipt_lib import load_trusted_pubkeys  # noqa: PLC0415
+        git = self._repo_mit_anker(tmp_path, self._LEGIT + "\n")
+        (tmp_path / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
+            self._LEGIT + "\n" + self._ANGREIFER + "\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", "zweiter schluessel")
+
+        assert load_trusted_pubkeys(tmp_path, ref="HEAD~1") == [self._LEGIT], (
+            "Gegen HEAD~1 gelesen erscheint ein Schluessel, den es dort noch nicht gab — dann liest "
+            "die Funktion nicht das uebergebene ref, und die Bindung an den Baum der Quittung ist "
+            "eine Behauptung statt eines Mechanismus.")

@@ -283,6 +283,60 @@ def scan_text(raw: str, rel: str) -> list[dict]:
     return violations
 
 
+def release_flaeche_docs() -> list[str]:
+    """Die Dokumente der RELEASE-FLAECHE — ABGELEITET aus dem Baum, nicht getippt.
+
+    WARUM (Owner-Anordnung 2026-09-07, Riegel-Sweep P1): `_DEFAULT_DOCS` ist eine Aufzaehlung von
+    Pfaden, die ein Fremder liest. Der RELEASE-BELEG stand nicht darin — `audit_artifacts` kam im
+    ganzen Skript nicht vor. GEMESSEN am selben Tag: ein gepflanztes ``production-ready and
+    quantum-safe`` in ``audit_artifacts/600/README.md`` liess das Tor bei ``PASS · 49 docs
+    scanned`` — waehrend dasselbe Wort in einer Commit-Nachricht das Namensgate rot machte. Das
+    Tor war nicht kaputt; die Scanmenge deckte das Dokument nicht, in dem die Release-Behauptungen
+    stehen.
+
+    DIE KLASSE, NICHT DIE DREI NAMEN. Drei Pfade nachzutragen haette denselben Fehler beim naechsten
+    Release-Token wiederholt: ein `audit_artifacts/610/README.md` waere wieder draussen. Diese
+    Funktion LEITET die Menge ab — jedes Markdown unter ``audit_artifacts/`` und jedes
+    ``RESTRISIKO_*.md`` der Wurzel gehoert dazu, weil beides Release-Behauptungen traegt. Ein neuer
+    Beleg faellt damit automatisch in die Pruefung, ohne dass jemand daran denkt.
+
+    Die Menge ist nach Konstruktion nicht leer, solange ein Release-Beleg existiert; ist sie es,
+    faellt das im Vollstaendigkeits-Test auf (``tests/test_claims_hygiene_deckt_die_release_flaeche.py``).
+    """
+    aus: list[str] = []
+    verzeichnis = REPO / "audit_artifacts"
+    if verzeichnis.is_dir():
+        # NUR die Flaeche des AKTUELLEN Tokens. Ein erster Anlauf nahm `rglob("*.md")` ueber das
+        # ganze Verzeichnis und zog damit HISTORISCHE Belege (500er) und den Klassen-Ledger mit
+        # herein: gemessen 89 statt 49 Dokumente und 9 Treffer, davon acht auf "append-only" in
+        # Saetzen, die die eigene ARBEITSWEISE beschreiben ("dieser Ledger ist append-only") statt
+        # einem Fremden etwas ueber das Produkt zu versprechen. Die Regelmenge ist fuer
+        # Produktzusagen gebaut; sie auf ein Prozessprotokoll zu richten haette entweder die Regel
+        # aufgeweicht oder acht Fehlbefunde erzeugt — beides schlechter als eine praezise Menge.
+        # Das Token wird ABGELEITET (hoechster numerischer Ordner), nicht getippt: die naechste
+        # Release-Flaeche faellt von selbst hinein.
+        token = [q for q in verzeichnis.iterdir() if q.is_dir() and q.name.isdigit()]
+        if token:
+            aktuell = max(token, key=lambda q: int(q.name))
+            aus.extend(str(q.relative_to(REPO)) for q in sorted(aktuell.rglob("*.md")))
+    # Die Risiko-Register der Wurzel tragen Release-Aussagen und gehoeren derselben Flaeche an.
+    aus.extend(str(q.relative_to(REPO)) for q in sorted(REPO.glob("RESTRISIKO_*.md")))
+    return aus
+
+
+def standard_scan_set() -> list[str]:
+    """DIE Vorgabemenge — die getippte Liste PLUS die abgeleitete Release-Flaeche, ohne Doppelte.
+
+    EINE ABLEITUNG, ZWEI LESER (Riegel-Sweep 2026-09-07). `main()` und die Zusicherung in
+    `tests/test_claims_hygiene.py` brauchen dieselbe Groesse. Die Zusicherung verglich bislang gegen
+    `len(_DEFAULT_DOCS)` — eine getippte Zahl neben einer Menge, die sich mit der abgeleiteten
+    Release-Flaeche bewegt; sie fiel prompt mit `53 != 49`. Das ist dieselbe Klasse, gegen die dieser
+    ganze Zyklus antritt, und der Ausweg ist nicht eine groessere Zahl, sondern eine gemeinsame
+    Quelle: wer die Menge nachbaut, teilt beim naechsten Mal ihren Fehler.
+    """
+    return list(dict.fromkeys(_DEFAULT_DOCS + release_flaeche_docs()))
+
+
 def scan_file(path: Path) -> list[dict]:
     """Scan one doc. A read error (missing/unreadable) RAISES OSError — the caller decides; the gate
     treats it as a FAIL entry, never a silent skip (six-lens review: a listed-but-unreadable doc
@@ -384,7 +438,9 @@ def main(argv=None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     as_json = "--json" in args
     args = [a for a in args if a != "--json"]
-    rels = args or _DEFAULT_DOCS
+    # Die Vorgabemenge ist die getippte Liste PLUS die abgeleitete Release-Flaeche. Reihenfolge
+    # erhalten, Doppelte entfernt: ein Pfad, der in beiden steht, wird einmal gescannt.
+    rels = args or standard_scan_set()
     scan_cli = not args   # only on the DEFAULT run (an explicit path set scopes the request narrowly)
     violations = []
     scanned = []

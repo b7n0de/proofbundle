@@ -399,8 +399,14 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         assert "MUTATION_RESULT" in rumpf and "summe" in rumpf, "Rumpf nicht erkannt"
         return rumpf
 
-    def _fahre(self, shards: dict[int, str]):
-        """Den Block in einem Wegwerfordner fahren. shards: Nummer -> Dateiinhalt (fehlt = keine Datei)."""
+    def _fahre(self, shards: dict[int, str], ergebnis: str = "success"):
+        """Den Block in einem Wegwerfordner fahren. shards: Nummer -> Dateiinhalt (fehlt = keine Datei).
+
+        `ergebnis` IST EIN PARAMETER UND WAR ES NICHT (Riegel-Sweep auf Owner-Auftrag, 2026-09-07).
+        Er stand als "success" fest verdrahtet in ALLEN neun Faellen dieser Klasse — und damit war
+        der erste der drei dokumentierten Riegel des Sammel-Jobs ("ein Shard ist ROT") von keinem
+        einzigen gebunden. Gemessen: den ganzen `if`-Block entfernt, alle neun Faelle blieben gruen.
+        """
         import subprocess  # noqa: PLC0415
         import tempfile  # noqa: PLC0415
         with tempfile.TemporaryDirectory(prefix="sammeljob-") as d:
@@ -408,7 +414,7 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
                 Path(d, f"mutation-shard-{i}.txt").write_text(inhalt, encoding="utf-8")
             return subprocess.run(["bash", "-c", self._shell_block()], cwd=d,
                                   capture_output=True, text=True, timeout=120,
-                                  env={"MUTATION_RESULT": "success", "PATH": "/usr/bin:/bin"})
+                                  env={"MUTATION_RESULT": ergebnis, "PATH": "/usr/bin:/bin"})
 
     @staticmethod
     def _gut(n: int = 10, gesamt: int = 100):
@@ -416,6 +422,45 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
         return {i: (f"shard={i} operators={gesamt // n} total={gesamt} "
                     f"indizes={','.join(str(x) for x in range(i - 1, gesamt, n))}\n")
                 for i in range(1, n + 1)}
+
+    def test_ein_ROTER_shard_laesst_den_sammel_job_scheitern(self):
+        """DER RIEGEL, DEN KEIN FALL BAND (Riegel-Sweep auf Owner-Auftrag, 2026-09-07, P0).
+
+        Der Sammel-Job hat DREI dokumentierte Riegel: ein Shard fehlt, ein Shard ist ROT, die
+        Partition ist unvollstaendig. Zwei davon waren gebunden. Der mittlere nicht — weil alle
+        neun Faelle dieser Klasse `MUTATION_RESULT=success` fest verdrahtet mitgaben und die
+        Variable damit nie den Wert trug, gegen den der Riegel prueft.
+
+        WAS DAS BEDEUTET, und es ist die gefaehrlichste der drei Luecken: meldet ein Shard einen
+        UEBERLEBENDEN Mutanten, druckt `mutation_check.py` seine Schlusszeile trotzdem vollstaendig
+        (`total=`, `indizes=`). Summen- und Mitgliedschaftspruefung saehen eine saubere Partition
+        und meldeten OK. Der `MUTATION_RESULT`-Zweig ist die EINZIGE Stelle, die den roten Lauf
+        sieht — und sie war ungeprueft. Ein Tor, dessen Rot-Erkennung niemand testet, ist ein Tor,
+        das nur den Normalfall kennt.
+        """
+        r = self._fahre(self._gut(), ergebnis="failure")
+        self.assertEqual(r.returncode, 1, (
+            "Der Sammel-Job besteht, obwohl die Mutations-Matrix FAILURE meldet. Die Shard-Dateien "
+            "sind hier absichtlich makellos: eine vollstaendige, disjunkte Partition ueber 100 "
+            f"Operatoren. Genau so sieht ein Lauf aus, in dem eine Mutante UEBERLEBT hat.\n"
+            f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}"))
+        self.assertIn("mindestens ein Shard ist rot", r.stdout + r.stderr,
+                      "Der Job scheitert, aber nicht mit SEINER Meldung — dann faengt etwas anderes")
+
+    def test_ANTI_PARITAET_der_rot_riegel_nimmt_den_gruenen_lauf_NICHT_mit(self):
+        """Die Kontrolle: ohne sie bestuende der Fall oben auch bei einem Job, der IMMER scheitert.
+
+        Dieselbe makellose Shard-Menge, nur mit `success` — sie MUSS bestehen. Und ein dritter Wert
+        ist mitgeprueft, weil `!= "success"` mehr Zustaende kennt als `failure`: GitHub setzt bei
+        einer abgebrochenen Matrix `cancelled`, und der gehoert genauso gefangen.
+        """
+        self.assertEqual(self._fahre(self._gut(), ergebnis="success").returncode, 0,
+                         "der saubere Lauf scheitert am Rot-Riegel — dann ist er ein Dauerrot")
+        r = self._fahre(self._gut(), ergebnis="cancelled")
+        self.assertEqual(r.returncode, 1, (
+            "Eine ABGEBROCHENE Matrix (`cancelled`) besteht. Der Riegel prueft auf `!= success` und "
+            "muss deshalb jeden Nicht-Erfolg fangen, nicht nur `failure` — sonst waere er eine "
+            "Aufzaehlung statt einer Bedingung."))
 
     def test_der_gute_fall_besteht(self):
         """Die Positivkontrolle. Ohne sie sagen die Faelle unten nur, dass immer etwas faellt."""
