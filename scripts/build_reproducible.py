@@ -222,6 +222,45 @@ def _build_wheel(quelle: Path, outdir: Path, epoch: int, *, no_isolation: bool =
     return whls[-1]
 
 
+def _entpacke_sicher(tf: tarfile.TarFile, ziel: Path) -> None:
+    """Ein Archiv auspacken, OHNE dem Archiv zu glauben (CWE-22 / py/tarslip).
+
+    WARUM DAS HIER STEHT, obwohl das Archiv zwei Zeilen vorher selbst gebaut wurde: bis 2026-09-07
+    stand an der Aufrufstelle ``tf.extractall(...)`` mit einem ``noqa``-Kommentar und der
+    Begruendung "eigenes, soeben gebautes Archiv". Die Begruendung ist inhaltlich richtig und als
+    Schutz trotzdem nichts wert — sie ist ein Satz, kein Riegel. CodeQL hat die Stelle auf dem
+    Release-Kandidaten als ``py/tarslip`` mit hoher Schwere gemeldet (Alert 114, eingefuehrt von
+    Commit 0aca175 derselben Runde), und das zu Recht: wer den Bauweg aendert, aendert auch die
+    Herkunft dieses Archivs, und der Kommentar wandert nicht mit.
+
+    Geprueft wird JEDES Mitglied VOR der Extraktion, danach wird Mitglied fuer Mitglied ausgepackt
+    (nicht ``extractall``, damit kein ungeprueftes Mitglied durch einen spaeteren Umbau nachrutscht):
+
+      * nur regulaere Dateien und Verzeichnisse — keine Symlinks, keine Hardlinks, keine
+        Geraetedateien; ein Link kann aus dem Zielordner heraus zeigen, ohne dass sein eigener
+        Pfad das verraet,
+      * der AUFGELOESTE Zielpfad muss unter der Zielwurzel liegen; das faengt ``../``, absolute
+        Pfade und alles, was ueber Symlink-Ketten hinausfuehrt.
+
+    Faellt eine Pruefung, wird geworfen statt uebersprungen: ein Archiv, das so etwas enthaelt, ist
+    kein halb brauchbares Archiv, sondern ein Befund.
+    """
+    wurzel = ziel.resolve()
+    mitglieder = tf.getmembers()
+    for m in mitglieder:
+        if not (m.isfile() or m.isdir()):
+            raise RuntimeError(
+                f"archive member is neither a regular file nor a directory: {m.name!r} "
+                f"(type {m.type!r}) — refusing to extract")
+        p = (wurzel / m.name).resolve()
+        if p != wurzel and wurzel not in p.parents:
+            raise RuntimeError(
+                f"archive member escapes the extraction directory: {m.name!r} -> {p} "
+                f"(root {wurzel})")
+    for m in mitglieder:
+        tf.extract(m, wurzel)
+
+
 def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
     """Die zweite Haelfte des Byte-Freeze: wheel AUS DEM SDIST gegen wheel AUS DEM BAUM.
 
@@ -248,7 +287,7 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
         entpackt = arbeit / "aus"
         entpackt.mkdir()
         with tarfile.open(sdist, "r:gz") as tf:
-            tf.extractall(entpackt)           # noqa: S202 — eigenes, soeben gebautes Archiv
+            _entpacke_sicher(tf, entpackt)
         wurzeln = [q for q in entpackt.iterdir() if q.is_dir()]
         if len(wurzeln) != 1:
             raise RuntimeError(f"sdist entpackt nicht zu genau einem Wurzelordner: {wurzeln}")
