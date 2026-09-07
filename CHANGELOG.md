@@ -10,6 +10,45 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The wheel is canonicalised in the build path, so the second half of the byte freeze holds**
+  (2026-09-07). The release standard requires two byte-identical sdists AND a wheel built from the
+  shipped sdist that equals the directly built one. The second half was red: 82 entries per side,
+  zero content differences, 11 entries differing in file mode alone (`0o100664` against `0o100644`).
+  The cause is measured, not guessed: `normalize_sdist` sets every file in the sdist to `0o644`, the
+  same files carry `0o664` in the working tree, and the packer copies the source file's mode into
+  the ZIP entry. `normalize_wheel` now rewrites the finished archive with fixed modes and fixed
+  timestamps, entry order untouched because `RECORD` sits last by convention; `release.yml` runs the
+  same path via `--with-wheel`. Measured with isolation, the way the workflow builds:
+  `identical: true`, both digests `a009a9685613d52bed3cff3a4fbbe72ef39dfb7b27c59a92c9a970668f237a4f`.
+  An earlier counter-check had ruled out `umask` as the cause: at `umask 022` both digests changed
+  and stayed different.
+
+- **The second half of the byte freeze has a measuring point at all** (2026-09-07). It stood in the
+  fail-closed sentence of the release standard and nothing measured it: this script built no wheels,
+  no other tool under `scripts/` did either, and the audit matrix reads `candidate.wheel_sha256`
+  without recomputing it. A condition inside a fail-closed sentence with no measuring point counts
+  as green without ever having been measured. `build_reproducible.py --check-wheel` now measures it,
+  and it found a real defect on its first run.
+
+- **The skip decision of the Go differential comes from exit codes, not from a message text**
+  (2026-09-07). The test decided whether a failure was a network problem by looking for three
+  substrings in Go's stderr. That is fragile — a foreign tool's message is not a contract — and a
+  scanner read the host substring as a weak host check. Availability is now determined up front by
+  commands whose exit codes ARE the class, in three outcomes: obtained (offline, else over the
+  network), not obtainable (skip), tooling broken (hard failure). The third exists because a first
+  attempt turned EVERY failure of `go mod download` into a skip, which would have swallowed a
+  checksum mismatch against `go.sum` — an integrity signal — in a tool whose purpose is verifying
+  signatures. A named limit remains and is not fixed: with a cold cache Go discards a mismatching
+  download, the module directory never appears, and that case is indistinguishable from "no network"
+  without reading text.
+
+- **Tag text and release note pass through the same claim hygiene as the documents** (2026-09-07).
+  `claims_hygiene_check.py` scans 49 documents in CI, but the tag text is not a file in the tree and
+  the release note is composed by GitHub from pull request titles — both went out unchecked while
+  every README line had to pass forty forbidden phrases. `release_text_hygiene.py` calls
+  `claims_hygiene_check.scan_text`, the same rule set rather than a second list, and `release.yml`
+  runs it before the build.
+
 - **One signed artefact, ONE accepted wire form, and both shipped verifiers agree on it** (deep gate run
   3 on 049b3195, 2026-09-05, findings L1-600-01 and L1-600-03, class
   `canonicity_preserving_perturbation_accepted` / RT-08). `validate=True` alone refused foreign characters
@@ -283,10 +322,16 @@ actually delivered belong in the `SHA256SUMS` of the GitHub Release, outside the
 place 5.1.0 publishes them.
 
 **How a reader checks it.** Export `SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"`, then run
-`python scripts/build_reproducible.py --outdir dist` followed by `python -m build --wheel --outdir
-dist` — exactly the two lines `.github/workflows/release.yml` runs. Do it twice into two separate
-directories and compare with `sha256sum`. Measured on this candidate: both runs byte-identical, for
-the wheel and for the sdist. Note that `SOURCE_DATE_EPOCH` is bound to the HEAD commit time, so a
+`python scripts/build_reproducible.py --outdir dist --with-wheel` — exactly the one line
+`.github/workflows/release.yml` runs. Do it twice into two separate directories and compare with
+`sha256sum`. Measured on this candidate: both runs byte-identical, for the wheel and for the sdist.
+
+**This instruction changed on 2026-09-07, and following the old one would mislead you.** It used to
+name two lines, the second of them a bare `python -m build --wheel`. Since the wheel is canonicalised
+in the build path, that bare invocation produces an archive whose ZIP entries carry the mode of their
+source files — not what is shipped. A reader following the old wording would compute a digest that
+differs from the delivered wheel and could reasonably conclude the artefacts do not reproduce. The
+single line above is what the workflow runs and what produces the delivered bytes. Note that `SOURCE_DATE_EPOCH` is bound to the HEAD commit time, so a
 checkout at a different commit legitimately yields different digests; reproducibility here means
 "the same tree twice", not "the same number forever".
 

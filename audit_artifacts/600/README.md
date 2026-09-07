@@ -108,64 +108,54 @@ The structured, signed carrier of the findings is `findings_register_600` — 20
 every other value, so a valid receipt can only ever show `0` and therefore cannot express a verdict.
 The verdict is in `audit_command` in words, and in this file in detail.
 
-## N11, die Identitätsmessung — aufgezeichnet, weil ohne sie kein Lauf zählt
+## N11 identity measurement — recorded, because without it the run does not count
 
-Owner-Anordnung `OA-a8aec4079e`, wörtlich: *„Den kanonischen Lauf abwarten. Sein Ergebnis geht in die
-Zeremonie, und die Identitätsmessung nach N11 wird in `audit_artifacts/600/README.md` aufgezeichnet,
-so wie N11 es verlangt. Ohne diese Aufzeichnung gilt der Lauf auch dann nicht, wenn er grün ist."*
+N11 requires byte identity of `src/`, `tests/` and `scripts/` between the tree the canonical mutation
+run executed against and the head that gets tagged. Without it the run speaks about a different
+subject than the one being published. This record is required whether the outcome is green or not;
+here it is negative, and that is precisely what it is for.
 
-Hier steht sie. Sie fällt negativ aus, und das ist ihr Zweck.
+### Measured 2026-09-07
 
-### Was N11 verlangt
+Base of the canonical run: `658ed063` (*Merge pull request #186 from b7n0de/chore/version-6.0.0*).
 
-Byte-Identität von `src/`, `tests/` und `scripts/` zwischen dem Baum, auf dem der kanonische
-Mutationslauf lief, und dem Kopf, der getaggt wird. Ohne sie sagt der Lauf etwas über einen anderen
-Gegenstand als den, der veröffentlicht wird.
-
-### Gemessen 2026-09-07
-
-Basis des kanonischen Laufs: `658ed063` (*Merge pull request #186 from b7n0de/chore/version-6.0.0*,
-2026-09-05 04:37:26 +0200).
-
-| Verzeichnis | gegen den heutigen Kandidaten `5242b0c6` | gegen den ursprünglichen Kandidaten `37eab913` |
+| directory | vs. today's candidate `5242b0c6` | vs. the original candidate `37eab913` |
 |---|---|---|
-| `src/` | 32 Dateien (+1577 / −373) | 32 Dateien (+1577 / −373) |
-| `tests/` | 45 Dateien (+10235 / −156) | 43 Dateien (+9892 / −156) |
-| `scripts/` | 10 Dateien (+3059 / −213) | 8 Dateien (+2728 / −204) |
-| **Summe** | **87 Dateien** | **83 Dateien** |
+| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
+| `tests/` | 45 files (+10235 / −156) | 43 files (+9892 / −156) |
+| `scripts/` | 10 files (+3059 / −213) | 8 files (+2728 / −204) |
+| **total** | **87 files** | **83 files** |
 
-**Die Identität hält nicht.** Der kanonische Lauf gilt damit für keinen der beiden Köpfe — weder für
-den ursprünglichen Kandidaten noch für den heutigen. Das ist keine Auslegung, sondern die Bedingung,
-die N11 selbst formuliert.
+**Identity does not hold.** The canonical run therefore covers neither head. That is not an
+interpretation; it is the condition N11 states.
 
-### Und der Kopf trägt weiterhin den blinden Sammler
+### The collector on this head is still partially blind
 
-Unabhängig von der Identitätsfrage: `scripts/mutation_check.py` sammelt auf diesem Kopf nach wie vor
-mit `unittest discover`. Ein solcher Sammler sieht ausschließlich Methoden von `unittest.TestCase` —
-alles, was als schlichte Testfunktion geschrieben ist, ist für ihn nicht vorhanden. Gemessen:
+Independently of identity: `scripts/mutation_check.py` on this head still collects with
+`unittest discover`, which sees only methods of `unittest.TestCase` — every plain test function is
+invisible to it. Measured on this tree:
 
-    pytest:            3736 Tests aus 256 Dateien
-    unittest discover: 2524 Tests aus 193 Dateien
-    blind:             1212 Tests, 63 Dateien — 25 % der Dateien
+    pytest:            3736 tests across 256 files
+    unittest discover: 2524 tests across 193 files
+    blind:             1212 tests, 63 files — 25 % of the files
 
-Diese Zahlen wurden auf `22dc97b5` gemessen. Für `5242b0c6` gelten sie unverändert, soweit es die
-Dateien betrifft: der Unterschied zwischen beiden Köpfen umfasst vier Dateien und legt unter `tests/`
-weder eine an noch entfernt er eine — nachgemessen, nicht angenommen.
+Those numbers were measured on `22dc97b5`. They hold unchanged for `5242b0c6` as far as files are
+concerned: the difference between the two heads spans four files and neither adds nor removes a file
+under `tests/` — measured, not assumed.
 
-Der Abschnitt „The scope each statement of this round holds over" oben nennt für `N19` **2537 von
-3702** und **59 von 252**; diese Zahlen wurden auf `a62d8cb4` gemessen. Sie sind nicht falsch, sie
-gelten für einen anderen Baum. Für den heutigen Kopf sind es die Zahlen darüber, und der Anteil ist
-größer geworden, nicht kleiner.
+The "scope each statement of this round holds over" section above reports **2537 of 3702** and
+**59 of 252** for `N19`; those were measured on `a62d8cb4`. They are not wrong, they describe a
+different tree. For the present head the numbers are the ones above, and the blind share has grown,
+not shrunk.
 
-Ein Fix, der den Sammler auf pytest umstellt, existiert (`f023a590a6cf376d31f369a3c5a16482e7e0bc33`,
-Vollsuite ohne roten Fall, drei Gegenlesungen), liegt aber auf einem **anderen Zweig** und ist in
-diesem Kopf **nicht** enthalten — nachgemessen, nicht angenommen.
+A fix that moves the collector to pytest exists on a separate branch and is **not** contained in
+this head — measured, not assumed.
 
-### Was daraus folgt, ohne Beschönigung
+### What follows, without varnish
 
-Für die Mutationsbedingung des Release-Standards gibt es auf diesem Kopf kein gültiges Ergebnis:
-die Identität nach N11 hält nicht, und der Sammler, der ein Ergebnis erzeugen würde, sieht ein
-Viertel der Testdateien nicht. Beides zusammen heißt **NICHT MESSBAR**, nicht „grün" und nicht „rot".
+For the mutation condition of the release standard there is no valid result on this head: identity
+under N11 does not hold, and the collector that would produce a result does not see a quarter of the
+test files. Together that means **NOT MEASURABLE** — neither green nor red.
 
-Der Standard sagt für diesen Fall: anhalten und berichten. Genau das ist geschehen; diese Zeilen sind
-der Bericht an der Stelle, an der N11 ihn verlangt.
+The standard's instruction for this case is to stop and report. That is what happened; these lines
+are the report, in the place N11 asks for it.
