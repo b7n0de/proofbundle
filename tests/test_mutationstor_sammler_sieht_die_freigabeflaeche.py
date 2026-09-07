@@ -233,11 +233,17 @@ def test_der_wert_bei_fehlender_bilanz_wuerde_die_schwelle_gar_nicht_erreichen(m
     m = _mutation_check_modul()
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _Ausgang(""))
     wert = m._red_count(tmp_path)
-    baseline_dieses_repos = 14
-    assert wert is None or wert > baseline_dieses_repos, (
-        f"_red_count gibt bei fehlender Bilanzzeile {wert} zurueck. Das Urteil lautet "
-        f"`killed = red > baseline`, und die Baseline dieses Repos ist {baseline_dieses_repos} — "
-        f"ein Wert darunter wirkt NICHT und der Absturz liest sich weiter als SURVIVED.")
+    # DIE ZAHL 14 STAND HIER UND WAR AUS DER DOKUMENTATION UEBERNOMMEN, NICHT GEMESSEN. Die
+    # Basislinie dieses Baums ist am 2026-09-07 mit beiden Sammlern nachgemessen worden und
+    # betraegt 0 (alt `Ran 2534, rot=0`, neu `3675 passed, rot=0`). Das macht die Lage NICHT
+    # harmloser, sondern kehrt sie um: bei `killed = red > 0` liest sich jede positive Zahl als
+    # KILL. Ein abgestuerzter Lauf haette sich dann nicht als uebersehene Luecke gemeldet,
+    # sondern als GEFANGENE Mutante — ein falsches Gruen auf der Release-Seite statt eines
+    # falschen Rots. Deshalb ist hier jede Zahl falsch und nur der dritte Zustand richtig.
+    assert wert is None, (
+        f"_red_count gibt bei fehlender Bilanzzeile {wert} zurueck statt None. Bei der gemessenen "
+        f"Basislinie 0 dieses Baums verbucht `killed = red > baseline` jeden positiven Wert als "
+        f"KILL — ein Lauf, der gar nicht stattfand, meldete sich dann als gefangene Mutante.")
 
 
 def test_der_riegel_faellt_SICHER_wenn_der_sammler_selbst_scheitert(monkeypatch):
@@ -264,3 +270,195 @@ def test_ANTI_PARITAET_der_riegel_besteht_wenn_der_sammler_ALLES_sieht(monkeypat
     alle = {p.name for p in (REPO / "tests").glob("test_*.py")}
     monkeypatch.setattr(sys.modules[__name__], "_gesehene_dateien", lambda: alle)
     test_der_sammler_des_tors_sieht_JEDE_testdatei()   # muss ohne AssertionError durchlaufen
+
+
+# ── DIE ZUSICHERUNGEN, DIE WIRKLICH AM FIX HAENGEN ───────────────────────────────────────────────
+#
+# EINE GEGENLESUNG HAT DIE FAELLE OBEN VERWORFEN (VERDIKT REJECT, 2026-09-07), und der Beleg war
+# ausgefuehrt statt behauptet: sie setzte in einer Kopie den Sammler zurueck auf
+# `unittest.TestLoader().discover()` — also genau den Defekt, gegen den diese Datei laut ihrem
+# Docstring antritt — und ALLE Faelle blieben gruen.
+#
+# DER GRUND WAR EIN DENKFEHLER IM ORAKEL, nicht in der Messung. `_pytest_sammelt` und
+# `_gesehene_dateien` bauen ihr EIGENES `subprocess.run([..., "pytest", "--collect-only", ...])`.
+# Sie rufen `scripts/mutation_check.py` an keiner Stelle auf; `grep -rl "_lauf_der_suite" tests/`
+# fand im ganzen Repo keine Datei. Geprueft wurde ein DUPLIKAT des Sammlers, nicht der Sammler.
+# Ein Orakel, das die Implementierung nachbaut, teilt ihren Denkfehler — dieselbe Klasse, die in
+# diesem Repo schon zweimal steht.
+#
+# DIE FAELLE UNTEN BEHEBEN DAS: sie fahren `mutation_check._red_count` und `_lauf_der_suite`
+# SELBST. Faellt der Fix zurueck, fallen sie.
+
+def _mini_baum(tmp_path, dateiname: str, inhalt: str):
+    """Ein Miniaturbaum, den der ECHTE Sammler fahren kann."""
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    (tmp_path / "src").mkdir(exist_ok=True)
+    (tmp_path / "tests" / dateiname).write_text(inhalt, encoding="utf-8")
+    return tmp_path
+
+
+def test_der_ECHTE_sammler_des_moduls_sieht_eine_pytest_only_datei(tmp_path):
+    """DIE ZUSICHERUNG, die am Fix haengt — sie ruft mutation_check.py, nicht eine Nachbildung.
+
+    Eine Datei OHNE `unittest.TestCase` ist fuer `unittest discover` unsichtbar und fuer pytest
+    nicht. Sieht der Sammler des Tors sie, wird ihr roter Test gezaehlt; sieht er sie nicht, meldet
+    er 0 oder gar keine Bilanz. Genau diese Differenz ist der ganze Fund vom 2026-09-07.
+    """
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_nur_pytest_und_rot.py",
+                      "def test_der_rot_ist():\n    assert False, 'absichtlich rot'\n")
+    rot = m._red_count(baum)
+    assert rot is not None, (
+        "Der Lauf hinterliess keine Bilanzzeile. Unter `unittest discover` ist genau das die "
+        "Antwort auf einen Baum, der nur pytest-Funktionen enthaelt ('Ran 0 tests') — der Sammler "
+        "sieht die Datei also nicht. Unter pytest muss eine Bilanz dastehen.")
+    assert rot >= 1, (
+        f"Der Sammler des Moduls holt aus einer pytest-only Testdatei NICHTS: er meldet {rot} rot, "
+        f"obwohl die Datei einen Test enthaelt, der absichtlich faellt. Das ist der Zustand vom "
+        f"2026-09-07: 57 von 254 Dateien unsichtbar, darunter VOLLSTAENDIG die "
+        f"Release-Entscheidungsflaeche. Wer den Sammler zurueckdreht, faellt hier.")
+
+
+def test_ANTI_PARITAET_der_echte_sammler_meldet_eine_gruene_suite_als_gruen(tmp_path):
+    """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Sammler, der IMMER rot
+    meldet — dann waere jede Mutante 'getoetet' und das Tor in der anderen Richtung wertlos."""
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_nur_pytest_und_gruen.py",
+                      "def test_der_gruen_ist():\n    assert True\n")
+    assert m._red_count(baum) == 0, (
+        "Eine gruene pytest-only Suite wird als rot gemeldet. Ein Sammler, der Gesundes rot "
+        "faerbt, macht jede Mutante zum Kill — das Tor bestuende dann immer und pruefte nichts.")
+
+
+def test_jeder_ausschlusseintrag_zeigt_auf_eine_existierende_datei():
+    """DIE ZUSAGE ALS ZUSICHERUNG, an der Stelle, wo die Frage hingehoert: gegen DIESES Repo.
+
+    Gemessen 2026-09-07: `pytest --ignore=tests/gibt_es_nicht.py` bricht NICHT ab — rc=0, und alle
+    Tests laufen trotzdem. Ein Eintrag mit Tippfehler, ein umbenanntes Modul oder eines in einem
+    Unterordner schloesse also STILL nichts aus, waehrend der Kommentar am Ausschluss eine
+    Garantie behauptet. Eine unbelegte Zusage im Kommentar ist keine Zusage.
+
+    Ein erster Versuch liess das die LAUFZEIT pruefen und brach dabei zwei Faelle in
+    `test_mutation_isolation.py`, die ein winziges Fixture-Repo fahren: die Ausschlussmenge ist
+    eine Aussage ueber dieses Repo, nicht ueber jeden Baum. Deshalb steht sie hier.
+    """
+    m = _mutation_check_modul()
+    assert m._AUSSCHLUSS_JE_MUTANTE, (
+        "die Ausschlussmenge ist leer — dann prueft dieser Fall nichts, statt still zu bestehen")
+    ohne_ziel = [name for name in m._AUSSCHLUSS_JE_MUTANTE
+                 if not (REPO / "tests" / f"{name}.py").is_file()]
+    assert not ohne_ziel, (
+        f"Ausschlusseintrag/-eintraege ohne Ziel in diesem Repo: {ohne_ziel}. `--ignore` auf einen "
+        f"nicht existierenden Pfad ist ein stiller Nulleffekt: die genannte Datei laeuft im Tor "
+        f"weiter mit, und das Tor fuehre eine andere Menge als die, die es dokumentiert.")
+
+
+def test_ANTI_PARITAET_ein_erfundener_ausschlusseintrag_wuerde_auffallen():
+    """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch, wenn die Logik nie etwas faende."""
+    erfunden = "test_diesen_namen_gibt_es_nicht_0907"
+    assert not (REPO / "tests" / f"{erfunden}.py").is_file(), "Vorbedingung des Falls"
+    ohne_ziel = [n for n in (erfunden,) if not (REPO / "tests" / f"{n}.py").is_file()]
+    assert ohne_ziel == [erfunden], (
+        "Die Logik des Falls oben faengt einen eingepflanzten Eintrag ohne Ziel NICHT — dann "
+        "bestuende er nur, weil nichts zu finden war.")
+
+
+def test_ANTI_PARITAET_der_ausschluss_laeuft_durch_wenn_sein_ziel_da_ist(monkeypatch, tmp_path):
+    """Die Gegenrichtung: ohne sie bestuende der Fall oben auch bei einem Riegel, der IMMER haelt."""
+    m = _mutation_check_modul()
+    monkeypatch.setattr(m, "_AUSSCHLUSS_JE_MUTANTE", {"test_es_gibt_mich": "Grund"})
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    (tmp_path / "tests" / "test_es_gibt_mich.py").write_text("def test_x():\n    assert True\n",
+                                                             encoding="utf-8")
+    assert m._ausschluss_args(tmp_path) == ["--ignore=tests/test_es_gibt_mich.py"], (
+        "Ein vorhandenes Ziel wird nicht in ein --ignore uebersetzt — dann schliesst das Tor die "
+        "dokumentierte Datei gar nicht aus und der Riegel oben haelt einfach immer.")
+
+
+def test_das_kommando_des_tors_traegt_die_drei_riegel(monkeypatch, tmp_path):
+    """DIE FLAGS WERDEN AM AUFRUF GEMESSEN, nicht am Quelltext.
+
+    Die Gegenlesung hat angemerkt, dass `-p no:randomly` und `timeout=1800` von keinem Test
+    gehalten werden: ein versehentlicher Wegfall faellt nur per `grep` auf, also gar nicht. Dieser
+    Fall faengt die ARGUMENTE ab, mit denen `_lauf_der_suite` den Unterprozess wirklich startet.
+    """
+    m = _mutation_check_modul()
+    gesehen = {}
+
+    def falle(argv, **kw):
+        gesehen["argv"], gesehen["kw"] = argv, kw
+        return _Ausgang("1 passed in 0.1s")
+
+    monkeypatch.setattr(m.subprocess, "run", falle)
+    monkeypatch.setattr(m, "_AUSSCHLUSS_JE_MUTANTE", {})
+    m._lauf_der_suite(tmp_path)
+
+    argv, kw = gesehen["argv"], gesehen["kw"]
+    assert "pytest" in argv, (
+        f"Das Tor startet die Suite nicht ueber pytest: {argv}. Damit ist der Fund vom 2026-09-07 "
+        f"zurueck — und `_startet_suite` des Laeufer-Waechters klassifiziert diese Datei dann "
+        f"nicht mehr als pytest-Laeufer.")
+    for flag, warum in (
+            ("no:randomly", "ohne dieses Flag vergleicht das Tor zwei verschieden gefahrene "
+                            "Suiten; pytest-randomly ist in diesem Repo aktiv (K6)"),
+            ("--continue-on-collection-errors",
+             "ohne dieses Flag bricht pytest bei einem Sammelfehler die ganze Sitzung ab und "
+             "schreibt `1 error` — bei Basislinie 0 verbucht `red > baseline` das als KILL, "
+             "obwohl kein Test lief")):
+        assert flag in argv, f"{flag} fehlt im Aufruf des Tors: {warum}. Gemessen: {argv}"
+    assert kw.get("timeout") == 1800, (
+        f"Der Lauf hat keinen Timeout ({kw.get('timeout')!r}). Ausgerechnet der Operator, der die "
+        f"Ressourcendecke entfernt, kann haengen; ein Tor, dessen Unterprozess haengt, meldet "
+        f"nichts und haelt den ganzen Lauf an (K5).")
+    assert kw.get("errors") == "replace", (
+        "Der Lauf dekodiert strikt — ein einzelnes Nicht-UTF8-Byte aus dem Kindprozess reisst "
+        "ihn dann mit UnicodeDecodeError ab statt ihn als NICHT MESSBAR zu fuehren.")
+
+
+def test_ein_abgebrochener_lauf_MIT_zaehlbarer_zahl_ist_NICHT_MESSBAR(monkeypatch, tmp_path):
+    """DER SCHWERSTE FUND DER GEGENLESUNG, als Fall festgehalten.
+
+    pytest bricht bei einem Sammelfehler die GESAMTE Sitzung ab und schreibt trotzdem eine Zahl:
+    `1 error`. Der alte Riegel griff nur bei `rot == 0` — die Zahl kam also durch. Bei der
+    gemessenen Basislinie 0 dieses Baums haette `1 > 0` die Mutante als GETOETET verbucht,
+    obwohl von 3728 Tests keiner lief. Ein falsches Gruen, erzeugt vom Sicherheitsnetz selbst.
+    """
+    m = _mutation_check_modul()
+    abbruch = ("==================================== ERRORS ====================================\n"
+               "_______________________ ERROR collecting test_kaputt.py ________________________\n"
+               "!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n"
+               "1 error in 0.15s\n")
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _Ausgang(abbruch))
+    assert m._red_count(tmp_path) is None, (
+        "Ein von pytest abgebrochener Lauf liefert eine ZAHL statt None. Genau diese Zahl ist die "
+        "gefaehrlichste: sie ist klein, plausibel und steht fuer einen Lauf, in dem nichts lief.")
+
+
+def test_ANTI_PARITAET_ein_ZUENDE_gelaufener_lauf_mit_fehlern_zaehlt_weiter(monkeypatch, tmp_path):
+    """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Riegel, der jeden Lauf mit
+    dem Wort 'error' fuer nicht messbar erklaert — dann koennte das Tor nichts mehr toeten."""
+    m = _mutation_check_modul()
+    zuende = "2 failed, 1 error, 3670 passed, 25 skipped in 850.10s\n"
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _Ausgang(zuende))
+    assert m._red_count(tmp_path) == 3, (
+        "Ein Lauf, der ZU ENDE kam und dabei Fehler hatte, wird nicht mehr gezaehlt. Der Riegel "
+        "gegen den Abbruch darf den Normalfall nicht mitnehmen — sonst ist jede echte Roete "
+        "'nicht messbar' und das Tor stumm.")
+
+
+def test_eine_stoerung_des_unterprozesses_ist_NICHT_MESSBAR(monkeypatch, tmp_path):
+    """Der Fang-Pfad selbst, mit einer WIRKLICH geworfenen Ausnahme statt mit leerem stdout.
+
+    Die Gegenlesung hat angemerkt, dass der `except`-Zweig von keinem Test durchlaufen wird: die
+    vorhandenen Faelle pruefen nur den Text-Pfad. Hier wird geworfen.
+    """
+    m = _mutation_check_modul()
+    for ausnahme in (m.subprocess.TimeoutExpired(cmd="pytest", timeout=1800),
+                     OSError("kein Interpreter im PATH")):
+        def wirf(*a, _e=ausnahme, **k):
+            raise _e
+        monkeypatch.setattr(m.subprocess, "run", wirf)
+        assert m._red_count(tmp_path) is None, (
+            f"{type(ausnahme).__name__} fuehrt nicht zu NICHT MESSBAR. Ein Timeout oder eine "
+            f"Umgebungsstoerung darf weder als 0 gelesen werden noch den ganzen Shard-Lauf "
+            f"mit rohem Traceback abreissen.")
