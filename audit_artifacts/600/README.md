@@ -145,48 +145,57 @@ seven commits later. A round whose purpose was adding measuring points had let i
 record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
 per commit; the head gets named.
 
-| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` (re-measured) |
-|---|---|---|
-| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
-| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) |
-| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) |
-| **total** | **87 files** | **90 files** |
+| directory | `658ed063` → `5242b0c6` (as recorded 2026-09-07) | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) |
+|---|---|---|---|
+| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
+| `tests/` | 45 files (+10235 / −156) | 46 files (+10631 / −165) | 51 files (+11637 / −189) |
+| `scripts/` | 10 files (+3059 / −213) | 12 files (+3268 / −224) | 12 files (+3577 / −262) |
+| **total** | **87 files** | **90 files** | **95 files** |
 
 **Identity does not hold, and the count is not the point** — one changed file already breaks it.
 The canonical run covers no head of this line. That is not an interpretation; it is the condition
 N11 states, and it holds for every head this branch has had.
 
-### The collector on this head is still partially blind
+### The collector on this head is no longer blind — measured after the merge
 
-Independently of identity: `scripts/mutation_check.py` on this head still collects with
-`unittest discover`, which sees only methods of `unittest.TestCase` — every plain test function is
-invisible to it. Measured on this tree:
+**This section said the opposite until 2026-09-07, and the correction is the point of N11.** It
+read *"A fix that moves the collector to pytest exists on a separate branch and is **not** contained
+in this head — measured, not assumed."* That was true when written and became false with the merge
+of `fix/mutationstor-sammler-sieht-alle-tests` (merge commit `733a8c4`, owner decision on card
+`OA-1a00701d0f`, answer A: the collector goes in **before** the freeze). A record that keeps
+asserting an absence after the thing arrived is exactly the drift this file was corrected for once
+already, one section above.
 
-    pytest:            3767 tests across 256 files
-    unittest discover: 2571 tests across 197 modules
-    blind:             1196 tests, 59 files — 23 % of the files
+`scripts/mutation_check.py` now collects with the normative runner. Measured on `5e9aa66` by
+**asking the collector**, the same call the gate makes:
 
-Measured on `68aa6f32`, and measured by ASKING THE COLLECTOR rather than by re-deriving it: the
-`unittest` figure comes from `lader.discover("tests", top_level_dir="tests")`, the same call
-`scripts/mutation_check.py` makes on line 627, so the number describes what the mutation gate
-actually sees and not what a similar command would see.
+    the gate's collector:  3820 tests across 259 files
+    blind:                 0 tests, 0 files
 
-The figures previously recorded here (3736 / 2524 / 25 %) were measured on `22dc97b5` and are kept
-for comparison. The blind share moved with the tree; the fact did not.
+The figures kept for comparison, each naming its head: 3736 / 2524 (25 % blind) on `22dc97b5`,
+3767 / 2571 (23 % blind, 59 files) on `68aa6f32`, and the collector's own commit message records
+2565 / 3728 on the candidate at merge time. The blind share moved with the tree until the merge
+removed it; the numbers are kept because a share that vanishes is only credible next to the shares
+that preceded it.
 
-The "scope each statement of this round holds over" section above reports **2537 of 3702** and
-**59 of 252** for `N19`; those were measured on `a62d8cb4`. They are not wrong, they describe a
-different tree. For the present head the numbers are the ones above, and the blind share has grown,
-not shrunk.
-
-A fix that moves the collector to pytest exists on a separate branch and is **not** contained in
-this head — measured, not assumed.
+The `N19` figures in the scope section above (**2537 of 3702**, **59 of 252**) were measured on
+`a62d8cb4` and describe that tree. They are not wrong; they are about a head that no longer exists
+on this line.
 
 ### What follows, without varnish
 
-For the mutation condition of the release standard there is no valid result on this head: identity
-under N11 does not hold, and the collector that would produce a result does not see a quarter of the
-test files. Together that means **NOT MEASURABLE** — neither green nor red.
+Of the two reasons that made the mutation condition **NOT MEASURABLE** when this section was first
+written, one is gone and one stands:
 
-The standard's instruction for this case is to stop and report. That is what happened; these lines
-are the report, in the place N11 asks for it.
+* **Gone:** the collector no longer misses a quarter of the test files. It collects the full
+  population, measured above.
+* **Stands:** identity under N11 does **not** hold — 95 files differ between `658ed063` and this
+  head. One changed file already breaks it; ninety-five is not a closer call, only a louder one.
+
+N11 states what follows when identity fails, and it is not "report and stop": the run **is
+repeated** against the head that gets tagged. That is the path taken here, on the owner's decision
+of 2026-09-07 (card `OA-1a00701d0f`, answer A): collector first, then the full suite, then the
+canonical mutation run on the frozen head, and the freeze happens exactly once.
+
+So this section no longer reports an impossibility. It records the condition that makes the repeat
+necessary, and the repeat is the release's own next step — not a deferred one.
