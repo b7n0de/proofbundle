@@ -12,17 +12,23 @@ every marker is present, NOTHING is skipped, and coverage is exactly as before (
 in the repo). This is the No-Fake honest form of "self-testable" — with a MEASURED limit that this sentence
 used to hide. It said "the package-level tests run". A share of them does NOT, because the skip is decided
 PER MODULE: one repo-touching test drags its package-clean siblings with it (`test_fork_pr_secret_isolation`:
-34 skipped, 1 needed — so 33 security-scanner tests never run from the package; `test_audit_marker_line_wrap`:
+34 skipped, 1 needed — so all but one of its security-scanner tests never run from the package; `test_audit_marker_line_wrap`:
 9 skipped, 0 needed — that module had already solved it per-test, three-state, and the blanket skip overrides
 the better solution). The trade is deliberate and documented; what was NOT honest was claiming the cost away.
 The repo-layout tests announce themselves as N/A rather than failing or being silently dropped.
 
-TWO NUMBERS USED TO STAND HERE, AND BOTH HAD GONE STALE — the collateral-skip count as "113" and the
-false-failure count as "39", both measured 2026-09-02. Deep gate lens 3 re-measured them on the 6.0.0
-candidate (2026-09-07) and returned REJECT: the collateral count is **296**, a factor of 2.6, confirmed
+TWO NUMBERS USED TO STAND HERE, AND BOTH HAD GONE STALE — the collateral-skip count and the
+false-failure count, both measured 2026-09-02. Deep gate lens 3 re-measured them on the 6.0.0 candidate
+(2026-09-07) and returned REJECT: the collateral count had grown by more than a factor of two, confirmed
 two independent ways (a real `pytest -rs` run out of the built sdist, and the derivation itself applied to
-the collected items). Ten test files created AFTER the measurement date carry 123 of those skips on their
-own — more than the whole number that stood here.
+the collected items). Test files created AFTER the measurement date carried, on their own, more skips than
+the whole number that stood here.
+
+THE EXACT FIGURES ARE DELIBERATELY NOT REPEATED IN THIS PARAGRAPH, and that is the second correction.
+The first attempt at this text named them — and an adversarial lens caught it the same day: naming a
+measured aggregate in prose re-creates the very defect the paragraph describes, one commit after
+removing it. Prose cannot be re-derived. Whoever wants the number runs the derivation; whoever wants the
+history reads the lens report in the audit record.
 
 The sharper point is not the drift, it is that this docstring PREDICTED it ("the number was never
 re-derived after the suite grew") and the prediction changed nothing: `tests/conftest.py` was edited four

@@ -640,3 +640,70 @@ def test_drei_ist_gruen():
         f"Der echte Lauf meldet {rot} rote Tests statt 2. Die Zahl kommt dann aus dem Docstring in "
         f"der FAILURES-Sektion und nicht aus der Bilanz des Laufs — ein Defekt, der die Roete hebt, "
         f"bliebe unsichtbar und das Tor meldete SURVIVED fuer eine gefangene Mutante.")
+
+
+def test_ein_ABGEBROCHENER_lauf_mit_pytest_exit_ist_NICHT_MESSBAR(tmp_path):
+    """DER FUND DER ADVERSARIALEN GEGENLESUNG (2026-09-07), mit echtem pytest nachgestellt.
+
+    Der Abbruch-Riegel kannte zwei WORTLAUTE (`!!!! Interrupted`, `INTERNALERROR`) und nicht die
+    FORM. `pytest.exit()` schreibt aber ein Banner mit anderem Text:
+    `!!!!!! _pytest.outcomes.Exit: <grund> !!!!!!`. Gemessen mit drei Tests, von denen der zweite
+    `pytest.exit` ruft und der DRITTE gefallen waere: die Bilanz sagt `1 passed`, die JUnit-XML
+    sagt `tests=1 failures=0 errors=0` — beide Quellen melden einen sauberen, VOLLSTAENDIGEN Lauf,
+    waehrend der Test, der die Mutante haette toeten sollen, nie lief. Das ist die gefaehrliche
+    Richtung: ein abgebrochener Lauf liest sich als gruen, und `killed = red > baseline` verbucht
+    die Mutante als ueberlebend, obwohl niemand sie gemessen hat.
+
+    Eine Liste von Abbruchgruenden waere beim naechsten stillschweigend zu kurz — deshalb bindet
+    dieser Fall die FORM des Banners, nicht seinen Inhalt.
+    """
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_bricht_ab.py", '''
+import pytest
+
+
+def test_eins():
+    assert True
+
+
+def test_zwei_bricht_ab():
+    pytest.exit("erzwungener Abbruch mitten im Lauf")
+
+
+def test_drei_waere_rot():
+    assert False, "dieser Test laeuft nie — genau das ist der Punkt"
+''')
+    rot = m._red_count(baum)
+    assert rot is None, (
+        f"Ein mit pytest.exit abgebrochener Lauf liefert {rot} statt None. Beide Quellen — die "
+        f"JUnit-XML und die Bilanzzeile — melden dann einen sauberen Lauf ueber eine Teilmenge, "
+        f"und der Test, der die Mutante toeten sollte, wurde nie gefahren.")
+
+
+def test_ANTI_PARITAET_ein_vollstaendiger_lauf_bleibt_messbar(tmp_path):
+    """Die Kontrolle: der Formriegel darf den Normalfall nicht mitnehmen. Ohne sie waere ein
+    Riegel, der JEDEN Lauf fuer nicht messbar erklaert, von einem richtigen nicht zu unterscheiden."""
+    m = _mutation_check_modul()
+    baum = _mini_baum(tmp_path, "test_laeuft_durch.py",
+                      "def test_a():\n    assert True\n\n\ndef test_b():\n    assert False\n")
+    assert m._red_count(baum) == 1, "ein vollstaendiger Lauf mit einem roten Test muss 1 ergeben"
+
+
+def test_verschachtelte_testsuite_knoten_werden_NICHT_doppelt_gezaehlt(tmp_path):
+    """Der zweite Fund der un-Gegenlesung, latent statt wirkend — und deshalb gebunden.
+
+    `iter("testsuite")` steigt rekursiv ab. Schreibt ein Plugin verschachtelte Knoten, zaehlt die
+    aeussere Summe die innere mit, und die rote Zahl entscheidet hier ueber KILLED/SURVIVED.
+    Gemessen mit dem Laeufer dieses Tors: heute genau EIN Knoten, der Fund ist also nicht wirkend.
+    Dieser Fall haelt die Annahme fest, statt sie unausgesprochen zu lassen.
+    """
+    m = _mutation_check_modul()
+    b = tmp_path / "verschachtelt.xml"
+    b.write_text(
+        '<?xml version="1.0"?><testsuites>'
+        '<testsuite name="aussen" tests="10" failures="2" errors="0">'
+        '<testsuite name="innen" tests="5" failures="1" errors="0"/>'
+        '</testsuite></testsuites>', encoding="utf-8")
+    assert m._rote_aus_bericht(b) == 2, (
+        "Der innere testsuite-Knoten wird mitgezaehlt (2 + 1 = 3 statt 2). Eine getoetete Mutante "
+        "liest sich dann als ueberlebend oder umgekehrt — die Zahl entscheidet das Urteil.")
