@@ -141,6 +141,7 @@ def _gate_zeile(commit: str, *, workflow_sha: str | None = None) -> dict:
         "workflow_sha256": workflow_sha or ("5" * 64),
         "modus": "DEEP 6L/7I",
         "head": commit,
+        "verdict": "WITHSTANDS_DEEPGATE",
         "sitzungsmodell": "claude-opus-5 (Claude Opus 5, 1M context)",
     }
 
@@ -267,6 +268,16 @@ def matrix_zellen():
         ("gate_zeile_unformig",
          _mut(lambda b: b["gate_zeile"].__setitem__("workflow_sha256", "kein-digest")), True),
         ("gate_zeile_kein_objekt", _mut(lambda b: b.__setitem__("gate_zeile", "RUN")), True),
+        # DAS VERDIKT, seit 2026-09-07. Die Zeile band bis dahin die HERKUNFT des Laufs und nicht
+        # sein ERGEBNIS. Der mittlere Fall ist der gemessene: `gate_result_600_lauf4b_FIX_FIRST.json`
+        # traegt `verdict: FIX_FIRST` und ein `release`, das woertlich "do not present ... as
+        # WITHSTANDS" sagt — und seine Gate-Zeile bestand die Pruefung vollstaendig, weil keines
+        # ihrer zwanzig Felder das Urteil trug.
+        ("gate_zeile_ohne_verdikt", _mut(lambda b: b["gate_zeile"].pop("verdict", None)), True),
+        ("gate_zeile_verdikt_ist_FIX_FIRST",
+         _mut(lambda b: b["gate_zeile"].__setitem__("verdict", "FIX_FIRST")), True),
+        ("gate_zeile_verdikt_unbekannt",
+         _mut(lambda b: b["gate_zeile"].__setitem__("verdict", "IRGENDEIN_NEUES_WORT")), True),
         ("erzeuger_fehlt", _mut(lambda b: b.pop("producer", None)), True),
         ("werkzeugversion_fehlt", _mut(lambda b: b["producer"].pop("tool_version", None)), True),
         ("eingabe_digest_fehlt", _mut(lambda b: b.pop("input_digest", None)), True),

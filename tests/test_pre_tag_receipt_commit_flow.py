@@ -5,12 +5,22 @@ INCLUDES the receipt once committed -- committing the attestation changed the tr
 rejected every committed receipt (circular, proven 2026-08-27). Round 13 (option B) bound
 ``HEAD:src/proofbundle`` and fixed the circularity, but the deep-gate refuted it: binding only the
 package subtree unbinds ``pyproject.toml``, so a dependency injected AFTER signing shipped past the gate.
-Round 14 (option C, owner-GO) binds the ``HEAD`` top-level tree MINUS ``audit_artifacts/`` -- src +
-pyproject (deps) + scripts (the verifier) + every release surface, with the receipt's own directory
-outside so the binding stays committable. This test proves the REAL produce -> commit -> verify flow
-end-to-end (subprocess, real scripts, real git): a committed receipt verifies, a post-signing dependency
-injection is REJECTED (the refuted-option-B exploit), and a src change is REJECTED -- the exact
-integration the harness's fixed-constant unit tests never exercised.
+Round 14 (option C, owner-GO) bound the ``HEAD`` top-level tree MINUS ``audit_artifacts/``.
+
+ROUND 15 (2026-09-07) NARROWED THAT EXCLUSION, and this test now carries the reason. Dropping the
+whole directory removed the TRUST ANCHORS from the binding as well --
+``audit_artifacts/pre_tag_trusted_pubkeys.txt`` is the very file the gate reads to decide who may
+sign. A key added to that anchor AFTER signing left ``subject_tree_digest`` byte-identical, so a
+self-signed receipt from a foreign key verified. The exclusion is now the receipt FILE (a pattern,
+since every version writes its own) plus the mutable evidence a release run produces while
+measuring -- never a whole directory, which is the wording ``sign_readiness_artifact.tree_digest``
+had already carried since Auflage C3 while this function still did the opposite.
+
+This test proves the REAL produce -> commit -> verify flow end-to-end (subprocess, real scripts,
+real git): a committed receipt verifies, a post-signing dependency injection is REJECTED (the
+refuted-option-B exploit), a src change is REJECTED, and a key smuggled into the trust anchor after
+signing is REJECTED -- the exact integration the harness's fixed-constant unit tests never
+exercised.
 """
 import base64
 import subprocess
@@ -39,7 +49,11 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     (repo / "scripts").mkdir(parents=True)
     (repo / "src" / "proofbundle").mkdir(parents=True)
     (repo / "audit_artifacts" / "500").mkdir(parents=True)
-    for s in ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py"):
+    # sign_readiness_artifact.py gehoert seit 2026-09-07 dazu: subject_tree_digest liest seine
+    # MUTABLE_EVIDENCE_RELS, damit Erzeuger und Tor DIESELBEN Pfade ausschliessen. Zwei getippte
+    # Listen waeren zwei Aussagen darueber, was ein Kandidat bindet, und keine Seite merkte es.
+    for s in ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
+              "sign_readiness_artifact.py"):
         (repo / "scripts" / s).write_bytes((SCRIPTS / s).read_bytes())
     (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n")
     (repo / "src" / "proofbundle" / "signature.py").write_bytes(
@@ -105,3 +119,21 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
                "--strict"], repo, env)
     assert g2.returncode == 1, f"a src change after signing must be REJECTED, got exit {g2.returncode}: {g2.stdout}"
     assert "does not bind THIS tree" in g2.stdout or "receipt-verified=False" in g2.stdout
+
+    # ROUND 15: ein Schluessel, der NACH dem Signieren in den Vertrauensanker kommt, muss abgelehnt
+    # werden. Das ist der ausgefuehrte Exploit vom 2026-09-07: der Anker lag im ausgeschlossenen
+    # Ordner, sein Digest bewegte sich nicht, und ein selbst signiertes Receipt eines FREMDEN
+    # Schluessels verifizierte. Ein Tor, das seinen eigenen Vertrauensanker nicht bindet, laesst den
+    # Geprueften bestimmen, wer ihn pruefen darf.
+    fremd = Ed25519PrivateKey.generate()
+    anker = repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt"
+    anker.write_text(anker.read_text()
+                     + base64.b64encode(fremd.public_key().public_bytes_raw()).decode() + "\n")
+    _git(["add", "audit_artifacts/pre_tag_trusted_pubkeys.txt"], repo)
+    _git(["commit", "-q", "-m", "smuggle key into the trust anchor"], repo)
+    g3 = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0",
+               "--strict"], repo, env)
+    assert g3.returncode == 1, (
+        "a key added to the trust anchor after signing must be REJECTED -- the anchor decides WHO "
+        f"may sign, so it belongs inside the bound subject; got exit {g3.returncode}: {g3.stdout}")
+    assert "does not bind THIS tree" in g3.stdout or "receipt-verified=False" in g3.stdout

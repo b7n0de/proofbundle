@@ -293,7 +293,23 @@ _CANDIDATE_FIELDS = (("commit", _HEX40), ("tree_digest", _HEX64),
 #: Zeile zu einer BINDUNG machen: welche Gate-Fassung, welche Workflow-Datei mit welchem Digest,
 #: welcher Modus, und welchen Kopf der Lauf beurteilt hat.
 _GATE_LINE_FIELDS = (("gate_version", None), ("workflow_datei", None),
-                     ("workflow_sha256", _HEX64), ("modus", None), ("head", _HEX40))
+                     ("workflow_sha256", _HEX64), ("modus", None), ("head", _HEX40),
+                     ("verdict", None))
+
+#: Verdikte, die ein BESTEHEN bedeuten. Eine Allowlist und keine Sperrliste, weil ein unbekanntes
+#: Verdikt anhalten muss statt durchzugehen — fail-closed heisst, dass der Zug am NICHT-Wissen
+#: haengenbleibt, nicht nur am bekannten Nein.
+#:
+#: WARUM ES DIESES FELD GIBT (Gegenlesung 2026-09-07, Owner-Anordnung OA-638966a598, Option A).
+#: Die Gate-Zeile trug zwanzig Felder und darunter KEIN Urteil. Gemessen am echten
+#: `gate_result_600_lauf4b_FIX_FIRST.json`: dessen `verdict` ist "FIX_FIRST" und sein `release`
+#: sagt woertlich "do not present ... as WITHSTANDS" — beides steht auf der obersten Ebene des
+#: Laufergebnisses, und `notes.gate_zeile` uebernimmt es NICHT. Die Zeile band damit die HERKUNFT
+#: des Laufs (welche Fassung, welcher Workflow, welcher Kopf) und nicht sein ERGEBNIS: ein Lauf,
+#: der das Release ausdruecklich verbietet, lieferte eine Gate-Zeile, die die Pruefung vollstaendig
+#: bestand. Der Erzeuger der Zeile muss das Verdikt jetzt mittragen; tut er es nicht, haelt der
+#: Pruefer an, statt eine unvollstaendige Bindung durchzuwinken.
+_GATE_VERDICTS_PASS = frozenset({"WITHSTANDS_DEEPGATE"})
 
 #: Typisierte Ausgaenge. Typisiert und nicht Prosa, weil genau daran der Nachbarfund L5-G6-01 haengt:
 #: ein Satz driftet, wenn ihn jemand umformuliert; ein Feld nicht.
@@ -1133,6 +1149,10 @@ def _gate_line_error(body: dict) -> tuple[str, str] | None:
     sein. Ein Verdikt ueber einen anderen Kopf ist ein Verdikt ueber eine andere Sache; genau daran
     faellt die Gate-Zeile eines FREMDEN Laufs.
 
+    UND DAS VERDIKT, seit 2026-09-07: die Zeile muss ihr eigenes Urteil tragen, und es muss ein
+    Bestehen sein. Vorher band sie nur die HERKUNFT des Laufs — welche Gate-Fassung, welcher
+    Workflow, welcher Kopf — und ein Lauf mit `verdict: FIX_FIRST` bestand die Pruefung vollstaendig.
+
     EHRLICHE GRENZE, aufgeschrieben statt geglaettet: eine gefaelschte Gate-Zeile fuer DENSELBEN Kopf
     ist hier nicht unterscheidbar, solange der ``workflow_sha256`` des entscheidenden Laufs nirgends
     gepinnt ist. Sobald das Verdikt von Lauf 5 existiert, ist das eine Zeile mehr (Vergleich gegen
@@ -1152,6 +1172,11 @@ def _gate_line_error(body: dict) -> tuple[str, str] | None:
             fehlend.append(f"gate_zeile.{feld}={wert!r} (malformed)")
     if fehlend:
         return ART_GATE_LINE_UNBOUND, f"the gate line is incomplete or malformed: {', '.join(fehlend)}"
+    if zeile["verdict"] not in _GATE_VERDICTS_PASS:
+        return ART_GATE_LINE_UNBOUND, (
+            f"the gate line reports verdict {zeile['verdict']!r}, which is not a pass "
+            f"({sorted(_GATE_VERDICTS_PASS)}) — a run that did not withstand cannot release, and an "
+            "unknown verdict stops the train rather than passing it")
     kandidat = body.get("candidate") or {}
     if zeile["head"] != kandidat.get("commit"):
         return ART_GATE_LINE_UNBOUND, (f"the gate line attests head {zeile['head'][:12]}… but the "

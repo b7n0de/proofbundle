@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re as _re
 from pathlib import Path
 
 RECEIPT_SCHEMA = "b7n0de.pre_tag_audit_receipt.v1"
@@ -25,18 +26,55 @@ _SIGNED_FIELDS = (
 )
 
 
+#: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
+#: in dem Baum, den sie bindet — ohne diesen einen Ausschluss enthielte ihr Digest sich selbst und
+#: waere nicht berechenbar. Ein MUSTER und keine Liste, weil jede Version ihre eigene Quittung
+#: ablegt und eine Liste beim naechsten Release stillschweigend zu kurz waere.
+#:
+#: BEIDE SCHREIBWEISEN, und das ist eine gemessene Beobachtung, keine Vorsicht: `pre_tag_receipt.py`
+#: schreibt `pre_tag_receipt_{version}.json` OHNE `v` (Zeile 209), im Baum liegen alle drei
+#: Quittungen MIT `v` (`pre_tag_receipt_v5.0.0.json`, `_v5.1.0`, `_v6.0.0`). Erzeuger und Bestand
+#: benennen also verschieden. Ein Muster, das nur eine Form kennt, laesst die andere im Digest — und
+#: genau daran ist die erste Fassung dieser Zeile am 2026-09-07 gescheitert: sie verlangte das `v`
+#: und traf die Form nicht, die das Werkzeug tatsaechlich erzeugt.
+_RECEIPT_MUSTER = _re.compile(r"audit_artifacts/[^/\t]+/pre_tag_receipt_v?[0-9][0-9A-Za-z.\-]*\.json$")
+
+
 def subject_tree_digest(repo) -> str:
-    """Digest the receipt binds and the gate verifies: a stable sha256 over the repo top-level
-    ``git ls-tree HEAD`` entries EXCLUDING ``audit_artifacts/`` (where the receipt is committed).
-    Excluding that dir removes the circular binding while still binding src/proofbundle,
-    pyproject.toml (deps), scripts/ (gate+verifier) and every other release surface -- a change to
-    any of them after signing invalidates the receipt. (Option C, owner-GO after the deep-gate
-    refuted the src/proofbundle-only option B on a dependency-injection exploit.)"""
+    """Digest the receipt binds and the gate verifies: a stable sha256 over the RECURSIVE
+    ``git ls-tree -r HEAD`` entries, minus exactly the receipt itself and the mutable evidence a
+    release run writes while measuring -- never a whole directory.
+
+    WAS HIER BIS 2026-09-07 STAND, und warum es ein Loch war. Die Funktion fuhr ``git ls-tree HEAD``
+    OHNE ``-r`` und warf die eine Top-Level-Zeile weg, die auf ``audit_artifacts`` endet. Das
+    entfernte nicht nur die Quittung aus der Bindung, sondern den GANZEN Ordner — und damit
+    ``audit_artifacts/pre_tag_trusted_pubkeys.txt`` und ``audit_artifacts/readiness_trusted_pubkeys.txt``,
+    also genau die Vertrauensanker, gegen die geprueft wird. Ein Schluessel, der im SELBEN Commit in
+    den Anker kommt wie der Kandidat, den er autorisieren soll, war fuer diesen Digest unsichtbar.
+    Ausgefuehrt in einer isolierten Kopie: fremder Schluessel committet, ``subject_tree_digest``
+    byteidentisch, ein selbst signiertes erfundenes Receipt als ``ok=True, state=verified``
+    akzeptiert.
+
+    DIESELBE LUECKE WAR IM SELBEN REPO SCHON GESCHLOSSEN. ``sign_readiness_artifact.tree_digest``
+    faehrt seit Auflage C3 rekursiv mit einer schmalen Pfadliste und warnt im eigenen Kommentar
+    woertlich vor der Ordner-Ausnahme ("never a whole directory"). Zwei Digest-Funktionen mit
+    verschiedenen Ausschlussmengen sind zwei verschiedene Aussagen darueber, was ein Kandidat
+    bindet — hier zieht die zweite nach.
+
+    DIE MENGE DER VERAENDERLICHEN BELEGE WIRD NICHT UM DEN QUITTUNGSPFAD ERWEITERT (Owner-Grenze).
+    Die Quittung steht in einem EIGENEN Muster; ``MUTABLE_EVIDENCE_RELS`` bleibt unveraendert und
+    wird nur mitgelesen, damit Erzeuger und Tor dieselben Pfade meinen.
+    """
     import hashlib  # noqa: PLC0415
     import subprocess as _sp  # noqa: PLC0415
-    r = _sp.run(["git", "-C", str(repo), "ls-tree", "HEAD"],
+    from sign_readiness_artifact import MUTABLE_EVIDENCE_RELS  # noqa: PLC0415
+    r = _sp.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
                 capture_output=True, text=True, timeout=10)
-    lines = [ln for ln in r.stdout.splitlines() if not ln.endswith("\taudit_artifacts")]
+    if r.returncode != 0:
+        raise SystemExit(f"cannot read the tree in {repo}: {r.stderr.strip()}")
+    veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
+    lines = [ln for ln in r.stdout.splitlines()
+             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
     return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
 
 
