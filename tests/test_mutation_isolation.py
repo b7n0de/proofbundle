@@ -108,5 +108,43 @@ class TestLeftoverFailClosed(_MiniRepo):
             self.assertEqual(self.mod.main(), 0)
 
 
+
+class DerAbsturzIstKeineNull(unittest.TestCase):
+    """Ein Lauf, der nicht zu Ende kam, ist KEINE Messung von null roten Tests.
+
+    GEFUNDEN 2026-09-07 in einer Gegenlesung: ``_red_count`` las ausschliesslich zwei regulaere
+    Ausdruecke auf ``stderr`` und nie ``returncode``. Starb der Prozess durch ein Signal oder brach
+    er vor der Zusammenfassungszeile ab, traf keiner der beiden — und die Funktion lieferte still
+    ``0``. Bei Operatoren mit ``expect_killed=False`` las sich derselbe Absturz als "ok, wie
+    erwartet SURVIVED": ein gruener Haken ueber einem Lauf, der nie stattgefunden hat.
+
+    Die Faelle unten sind die Achse, an der sich das entscheidet. Ohne die Exit-Code-Pruefung
+    liefern die letzten beiden Gruppen ``0`` statt ``None``, und der Test wird rot.
+    """
+
+    def setUp(self):
+        self.m = _load_module()
+
+    def test_gruener_lauf_ist_null_und_braucht_keine_textanalyse(self):
+        self.assertEqual(self.m._rote_aus_lauf(0, ""), 0)
+        self.assertEqual(self.m._rote_aus_lauf(0, "OK\n"), 0)
+
+    def test_rote_tests_werden_weiterhin_gezaehlt(self):
+        self.assertEqual(self.m._rote_aus_lauf(1, "FAILED (failures=3)"), 3)
+        self.assertEqual(self.m._rote_aus_lauf(1, "FAILED (errors=2)"), 2)
+        self.assertEqual(self.m._rote_aus_lauf(1, "FAILED (failures=1, errors=2)"), 3)
+
+    def test_ein_abgebrochener_lauf_ist_NICHT_MESSBAR(self):
+        """Signaltod (-9 SIGKILL, -11 SIGSEGV), OOM-Killer (137), Sammelfehler (2)."""
+        for rc in (-9, -11, 2, 3, 137, 255):
+            with self.subTest(returncode=rc):
+                self.assertIsNone(
+                    self.m._rote_aus_lauf(rc, ""),
+                    f"exit {rc} heisst NICHT 'null rote Tests' — der Lauf kam nicht zu Ende")
+
+    def test_exit_eins_ohne_zusammenfassung_ist_NICHT_MESSBAR(self):
+        """Der Prozess meldet Fehlschlag, sagt aber nicht wie viele. Eine Null waere erfunden."""
+        self.assertIsNone(self.m._rote_aus_lauf(1, "Traceback (most recent call last):\nMemoryError\n"))
+        self.assertIsNone(self.m._rote_aus_lauf(1, ""))
 if __name__ == "__main__":
     unittest.main()
