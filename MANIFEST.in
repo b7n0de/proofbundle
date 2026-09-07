@@ -106,6 +106,7 @@ include scripts/pre_tag_audit_gate.py
 include scripts/pre_tag_receipt_lib.py
 include scripts/readiness_pack_gate.py
 include scripts/readiness_pack_manifest.py
+include scripts/release_text_hygiene.py
 include scripts/render_demo.py
 include scripts/rust_parity_gate.py
 include scripts/shipped_docs_check.py

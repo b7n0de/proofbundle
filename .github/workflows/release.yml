@@ -98,6 +98,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # DER TAG MUSS ANNOTIERT SEIN, und das wird geprueft statt vorausgesetzt. GEMESSEN
+          # 2026-09-07 von einer Gegenlesung: `git tag -l --format='%(contents)'` liefert bei einem
+          # LEICHTGEWICHTIGEN Tag nicht etwa nichts, sondern die COMMIT-Nachricht des Zielobjekts —
+          # git faellt auf das gepeelte Objekt zurueck. Der Ausloeser `tags: ["v*"]` fasst jeden
+          # Tag-Typ, und die Commit-Texte dieses Repos ZITIEREN staendig genau die verbotenen
+          # Wendungen als Beispiele. Ohne diese Pruefung waere die Folge ein irrefuehrendes Rot oder
+          # ein bedeutungsloses Gruen — beides schlimmer als ein klarer Abbruch.
+          # Gemessen an den fuenf bisherigen Release-Tags: alle annotiert (Objekttyp `tag`).
+          typ="$(git cat-file -t "$GITHUB_REF_NAME")"
+          if [ "$typ" != "tag" ]; then
+            echo "release-text-hygiene: $GITHUB_REF_NAME ist ein $typ, kein annotierter Tag." >&2
+            echo "  Ein Release-Tag traegt einen eigenen Text; ohne ihn wuerde hier die" >&2
+            echo "  Commit-Nachricht geprueft und das Ergebnis saehe wie eine Aussage ueber den" >&2
+            echo "  Tag-Text aus. Mit 'git tag -a' neu setzen." >&2
+            exit 1
+          fi
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/tag_text.txt
           python scripts/release_text_hygiene.py --text-file /tmp/tag_text.txt \
             --label "tag $GITHUB_REF_NAME"

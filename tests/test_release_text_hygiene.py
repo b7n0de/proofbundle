@@ -55,25 +55,37 @@ def test_ANTI_PARITAET_ein_sauberer_release_text_besteht():
         "Ein sauberer Release-Text wird abgelehnt — ein Pruefer, der alles faengt, faengt nichts.")
 
 
-def test_er_nutzt_DIESELBE_regelmenge_wie_die_docs(monkeypatch):
-    """DER EIGENTLICHE FALL: eine Regelmenge, zwei Eingaenge — gemessen am VERHALTEN.
+def test_er_nutzt_DIESELBE_regelmenge_wie_die_docs(monkeypatch, capsys):
+    """DER EIGENTLICHE FALL: eine Regelmenge, zwei Eingaenge — gemessen am ECHTEN WEG.
 
-    Ein Vergleich der Quelltexte wuerde nur zeigen, dass heute niemand eine zweite Liste getippt
-    hat. Gemessen wird stattdessen, ob eine Aenderung an der EINEN Liste beim Release-Pruefer
-    ankommt: ein frisch eingehaengtes Muster muss dort sofort greifen. Tut es das nicht, gibt es
-    zwei Zustaende, und der zweite driftet.
+    DIESER FALL WURDE VON EINER GEGENLESUNG WIDERLEGT UND IST DESHALB UMGEBAUT. Seine erste Fassung
+    rief ``m.chc.scan_text`` DIREKT auf und nie ``main()``. Die Linse hat genau die Regression
+    eingepflanzt, gegen die er schuetzen soll — ``main()`` auf eine beim Import eingefrorene LOKALE
+    Kopie der Musterliste umgestellt, ``chc.scan_text`` unveraendert erreichbar — und VIER VON FUENF
+    Faellen blieben gruen, DIESER eingeschlossen. Er prueste einen Weg, den das Werkzeug nicht geht.
+
+    Jetzt geht er den echten: ein frisch in die Dokument-Regelmenge eingehaengtes Muster muss ueber
+    ``main(["--stdin"])`` ankommen, also durch dieselbe Kette, die ein Aufrufer benutzt. Faellt die
+    Verdrahtung auseinander, faellt dieser Fall.
     """
     import re
     m = _laden("release_text_hygiene")
-    text = "Dieser Build ist voellig grossartig."
-    assert m.chc.scan_text(text, "x") == [], "Vorbedingung: der Satz ist heute sauber"
+    text = "Dieser Build ist voellig grossartig.\n"
+
+    def _lauf() -> int:
+        monkeypatch.setattr(sys, "stdin", type("S", (), {"read": staticmethod(lambda: text)})())
+        return m.main(["--stdin", "--label", "probe"])
+
+    assert _lauf() == 0, "Vorbedingung: der Satz ist heute sauber, der Lauf endet mit 0"
     monkeypatch.setattr(m.chc, "_FORBIDDEN_RE",
                         list(m.chc._FORBIDDEN_RE) + [(re.compile(r"voellig grossartig"), "Probe")])
-    v = m.chc.scan_text(text, "x")
-    assert v and v[0]["phrase"] == "Probe", (
-        "Ein Muster, das der Dokument-Pruefung hinzugefuegt wird, greift beim Release-Text NICHT. "
-        "Dann tragen die beiden Flaechen verschiedene Regeln, und genau das sollte dieses Werkzeug "
-        "verhindern.")
+    rc = _lauf()
+    ausgabe = capsys.readouterr().out
+    assert rc == 1, (
+        "Ein Muster, das der Dokument-Pruefung hinzugefuegt wird, kommt beim Release-Pruefer NICHT "
+        "an — main() liest also eine andere Regelmenge als scan_text. Genau diese zwei driftenden "
+        "Listen sollte das Werkzeug ausschliessen.")
+    assert "Probe" in ausgabe, f"der Lauf faellt, nennt aber die Wendung nicht: {ausgabe!r}"
 
 
 def test_ein_leerer_text_besteht_NICHT():

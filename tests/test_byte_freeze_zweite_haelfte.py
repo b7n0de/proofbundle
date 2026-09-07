@@ -26,6 +26,19 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 
+#: WAS `@pytest.mark.slow` HIER LEISTET — und was nicht. Eine Gegenlesung hat gemessen:
+#: `pyproject.toml` registriert keine Marker und setzt kein `addopts`, `ci.yml` faehrt die volle
+#: Suite OHNE `-m`-Filter. Der Marker erzeugt heute also ausschliesslich eine
+#: `PytestUnknownMarkWarning` und filtert NICHTS; beide Faelle laufen in jedem CI-Durchlauf, bauen
+#: jeweils drei Artefakte und brauchen Netz fuer die Isolation.
+#:
+#: ER BLEIBT TROTZDEM STEHEN, und zwar als Beschriftung mit Absicht: ein `-m "not slow"` waere die
+#: naheliegende Ergaenzung und die falsche — dieser Fall ist die EINZIGE Messstelle der zweiten
+#: Byte-Freeze-Haelfte, und ihn wegzufiltern hiesse, die Bedingung wieder ungemessen zu lassen.
+#: Aufgeschrieben statt suggeriert: wer den Marker fuer einen Riegel haelt, irrt; er ist ein
+#: Etikett, und die Kosten des Laufs sind bewusst in Kauf genommen.
+_MARKER_HINWEIS = "slow ist hier eine Beschriftung, kein Filter — siehe Kommentar oben"
+
 
 def _modul():
     spec = importlib.util.spec_from_file_location(
@@ -36,21 +49,29 @@ def _modul():
     return m
 
 
-@pytest.mark.slow
+@pytest.mark.slow   # siehe _MARKER_HINWEIS: heute eine Beschriftung, kein Filter
 @pytest.mark.xfail(strict=True, reason=(
     "GEMESSEN ROT am 2026-09-07, Befund WHEEL-IST-NICHT-REPRODUZIERBAR-DATEIMODI-UND-BAUHOST-"
     "SCHLAGEN-DURCH-01. 82 Eintraege je Seite, NULL inhaltliche Unterschiede, 11 Eintraege "
-    "verschieden allein im Dateimodus (0o100664 gegen 0o100644): normalize_sdist setzt 0644, der "
-    "Arbeitsbaum traegt die umask des Bauhosts, und setuptools uebernimmt den Modus in die "
-    "zip-Attribute des wheel. Zweiter Lauf mit umask 022: beide Digests anders, weiterhin "
-    "verschieden — das wheel ist nicht hostunabhaengig. "
-    "WARUM xfail UND NICHT EIN ROTER FALL: der Defekt liegt im BAUWEG (release.yml baut das wheel "
-    "mit `python -m build --wheel` aus dem Baum, ohne Kanonisierung), und ihn zu beheben aendert "
-    "das ausgelieferte Artefakt — das ist eine Owner-Entscheidung, keine Nebenbei-Aenderung. "
-    "WARUM strict=True: sobald jemand den Bauweg kanonisiert, wird dieser Fall gruen, und ein "
-    "strikter xfail SCHLAEGT DANN AN. Ein nicht-strikter haette die Reparatur stillschweigend "
-    "geschluckt und die Zeile waere fuer immer als 'bekannt rot' stehengeblieben — genau die "
-    "Klasse, gegen die dieses Repo sonst antritt."))
+    "verschieden allein im Dateimodus (0o100664 gegen 0o100644). "
+    "WELCHE 11 — und dieser Satz ist eine KORREKTUR: eine Gegenlesung hat nachgemessen, dass es "
+    "ausschliesslich package_data und dist-info sind (JSON-Policies, LICENSE, py.typed, "
+    "entry_points.txt, top_level.txt) und NICHT die .py-Quelldateien; die stimmen im Ausgangsfall "
+    "auf beiden Seiten bei 0o664 ueberein. Der urspruengliche Grund sagte pauschal 'der Arbeitsbaum "
+    "traegt die umask des Bauhosts' und liess das wie den ganzen Mechanismus aussehen. "
+    "WAS AUSDRUECKLICH NICHT BEHAUPTET WIRD, seit dieselbe Gegenlesung es widerlegt hat: dass eine "
+    "Kanonisierung des Bauwegs diesen Fall gruen macht. Sie hat genau das eingepflanzt — Arbeitsbaum "
+    "vor dem Direkt-Bau auf 0644 gesetzt, per stat verifiziert — und der Fall blieb xfailed; die "
+    "Divergenz wurde SOGAR GROESSER (68 statt 11 Eintraege, zweimal reproduziert, gleiche "
+    "setuptools-Version 84.0.0 in beiden WHEEL-Metadaten). Die aus dem sdist gebaute Seite liefert "
+    "fuer .py-Dateien konsistent 0o664, OBWOHL die entpackten Dateien auf der Platte 0644 tragen. "
+    "Die Ursache liegt damit im Bauweg ueber die Isolation, nicht im Quellzustand — und sie ist "
+    "NICHT MESSBAR aufgeklaert. "
+    "WARUM xfail UND NICHT EIN ROTER FALL: der Defekt liegt im Bauweg (release.yml baut das wheel "
+    "mit `python -m build --wheel` aus dem Baum, ohne Kanonisierung), und ihn zu beheben aendert das "
+    "ausgelieferte Artefakt — eine Owner-Entscheidung. WARUM strict=True: sobald der Fall aus "
+    "IRGENDEINEM Grund gruen wird, schlaegt er an und verlangt eine Erklaerung. Ein nicht-strikter "
+    "haette jede Aenderung stillschweigend geschluckt."))
 def test_das_wheel_aus_dem_sdist_ist_bytegleich_mit_dem_direkt_gebauten():
     """DIE ZUSICHERUNG. Sie baut wirklich — zweimal ein wheel und einmal ein sdist.
 
