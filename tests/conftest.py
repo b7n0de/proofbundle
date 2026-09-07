@@ -78,9 +78,22 @@ _REPO_CONTEXT_TESTS = frozenset({
     # dokumentierter Rueckfall stehenblieb. `modul_ist_repo_kontext` fragt: nennt das Modul einen
     # wurzelrelativen Pfad, den es HIER nicht gibt? test_not_after_… nennt
     # "scripts/audit_candidate_matrix.py" — und diese Datei IST im sdist (MANIFEST.in Zeile 88).
-    # Die Ableitung sieht also alles vorhanden. Was fehlt, liegt eine Ebene tiefer: das Skript
-    # greift auf `audit_artifacts/readiness_trusted_pubkeys.txt`, und dieser Pfad steht im SKRIPT,
-    # nicht im Testmodul. Eine statische Messung am Modul kann das nicht erreichen.
+    # Die Ableitung sieht also alles vorhanden. Was fehlt, liegt eine Ebene tiefer im Skript.
+    #
+    # DER TRAGENDE GRUND IST NICHT DIE FEHLENDE DATEI, SONDERN DAS FEHLENDE REPOSITORIUM
+    # (Gegenlesung 07.09.2026, Linse 2; meine erste Fassung nannte nur die schwaechere Haelfte).
+    # `_trust_anchor` in scripts/audit_candidate_matrix.py:352-357 liest den COMMITTETEN BLOB ueber
+    # `git show HEAD:audit_artifacts/readiness_trusted_pubkeys.txt`, nicht die Datei von der Platte.
+    # Der Anker waere also auch dann unlesbar, wenn das sdist ihn MITLIEFERTE — kein sdist und kein
+    # Wheel bringt je ein `.git` mit. Gemessen im entpackten Baum, in dem die Datei sogar noch
+    # physisch lag: `zustand='unmeasurable'`, Ursache `fatal: not a git repository`. Dasselbe bei
+    # test_release_text_hygiene: `betreffs_seit("HEAD")` faehrt `git log HEAD..HEAD`.
+    #
+    # DIE KLASSE, und deshalb steht sie hier statt nur der Instanz: ein Test, der das Repo ueber GIT
+    # erreicht statt ueber ein Pfad-Literal, ist fuer eine statische Pfad-Ableitung strukturell
+    # unsichtbar — unabhaengig davon, was MANIFEST.in ausliefert. Genau dafuer ist der Rueckfall da.
+    # Dass `audit_artifacts` zusaetzlich geprunt ist (MANIFEST.in Zeile 119), ist wahr und aendert
+    # nichts: es ist die zweite Absicherung, nicht der Grund.
     #
     # GEMESSEN, nicht vermutet: hermetic-cleanroom auf Kopf 7c9826d meldet
     # `9 failed, 3339 passed, 472 skipped, 843 subtests, 408,80 s`, Fehlerbild durchgaengig
