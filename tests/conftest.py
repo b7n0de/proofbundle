@@ -72,6 +72,36 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_rust_parity_gate::test_real_repo_registry_is_honest_strict_mode_exits_0",
     # test_fork_pr_secret_isolation: glob ueber .github/workflows, kein benanntes Literal.
     "test_fork_pr_secret_isolation::test_repo_workflows_are_isolation_safe",
+    # ── NEUN EINTRAEGE, 2026-09-07, Owner-Karte OA-f32d8c7013 Antwort A ────────────────────────
+    #
+    # WARUM DIE ABLEITUNG SIE NICHT SIEHT, und das ist genau der Fall, fuer den die Liste als
+    # dokumentierter Rueckfall stehenblieb. `modul_ist_repo_kontext` fragt: nennt das Modul einen
+    # wurzelrelativen Pfad, den es HIER nicht gibt? test_not_after_… nennt
+    # "scripts/audit_candidate_matrix.py" — und diese Datei IST im sdist (MANIFEST.in Zeile 88).
+    # Die Ableitung sieht also alles vorhanden. Was fehlt, liegt eine Ebene tiefer: das Skript
+    # greift auf `audit_artifacts/readiness_trusted_pubkeys.txt`, und dieser Pfad steht im SKRIPT,
+    # nicht im Testmodul. Eine statische Messung am Modul kann das nicht erreichen.
+    #
+    # GEMESSEN, nicht vermutet: hermetic-cleanroom auf Kopf 7c9826d meldet
+    # `9 failed, 3339 passed, 472 skipped, 843 subtests, 408,80 s`, Fehlerbild durchgaengig
+    # `'unmeasurable' != 'ok'` ("der Anker ist hier nicht lesbar; ohne ihn misst nichts").
+    # Dasselbe Tor ist auch auf 37eab91, 733a8c4, 83a25e6 und 5e9aa66 rot — die neun sind
+    # VORBESTEHEND, keiner stammt aus der Arbeit dieses Tages.
+    #
+    # KEIN DEFEKT DES KANDIDATEN: die Tests messen im Paketkontext einen Gegenstand, den es dort
+    # nicht gibt. Im Checkout laufen sie unveraendert; dort ist dieser ganze Pfad ein No-op.
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_einen_tag_nach_der_frist_ist_unzulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_einen_tag_vor_der_frist_ist_zulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_GENAU_am_letzten_tag_ist_noch_zulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_abgelaufener_schluessel_ist_fuer_C12_2_nicht_autorisiert",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ANTI_PARITAET_2_die_zweite_frist_sperrt_nicht_den_gueltigen_fall",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ANTI_PARITAET_gueltiger_schluessel_bleibt_autorisiert",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ohne_messzeitpunkt_autorisiert_niemand",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_RUECKDATIERUNG_aktiviert_keinen_abgelaufenen_schluessel",
+    # test_release_text_hygiene: prueft einen Commitbereich, also die git-Historie — im entpackten
+    # sdist gibt es kein Repository, und ein leerer Bereich ist dort kein Fehlerfall, sondern der
+    # Normalzustand.
+    "test_release_text_hygiene::test_ein_leerer_commitbereich_bricht_ab",
 })
 
 
