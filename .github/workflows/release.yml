@@ -105,7 +105,12 @@ jobs:
           # Tag-Typ, und die Commit-Texte dieses Repos ZITIEREN staendig genau die verbotenen
           # Wendungen als Beispiele. Ohne diese Pruefung waere die Folge ein irrefuehrendes Rot oder
           # ein bedeutungsloses Gruen — beides schlimmer als ein klarer Abbruch.
-          # Gemessen an den fuenf bisherigen Release-Tags: alle annotiert (Objekttyp `tag`).
+          # Gemessen 2026-09-07 ueber ALLE v-Tags dieses Repos, nicht nur die letzten fuenf:
+          # 48 Stueck, davon 30 annotiert und 18 LEICHTGEWICHTIG (v0.1.0 bis v1.1.0, v2.0.0b2,
+          # v3.1.0, v3.2.2, v3.2.3). Die letzten fuenf Release-Tags sind annotiert — aber der
+          # Ausloeser `tags: ["v*"]` fasst die anderen 18 genauso, und genau deshalb steht diese
+          # Pruefung hier. Die vorige Fassung dieser Zeile nannte nur die fuenf und klang wie eine
+          # Aussage ueber die ganze Menge.
           typ="$(git cat-file -t "$GITHUB_REF_NAME")"
           if [ "$typ" != "tag" ]; then
             echo "release-text-hygiene: $GITHUB_REF_NAME ist ein $typ, kein annotierter Tag." >&2

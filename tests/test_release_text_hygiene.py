@@ -35,24 +35,45 @@ _UEBERANSPRUCH = "Release v6.0.0 — this build is production-ready and has been
 _SAUBER = "Release v6.0.0 — receipts bind authorship and integrity, never truth."
 
 
-def test_der_formpruefer_faengt_einen_ueberanspruch_im_release_text():
-    """DIE ZUSICHERUNG. Ein Release-Text mit einem verbotenen Anspruch faellt."""
+def _durch_den_pruefer(monkeypatch, m, text: str) -> "tuple[int, str]":
+    """Der ECHTE Weg: durch ``main(["--stdin"])``, nicht an ihm vorbei.
+
+    NACHGEZOGEN 2026-09-07. Die beiden Faelle darunter riefen ``m.chc.scan_text`` direkt auf — also
+    die Funktion IN der Nachbarbibliothek, nie den Formpruefer selbst. Gemessen von einer
+    Gegenlesung: legt man ``main()`` still (``violations = []``), bleiben beide GRUEN, und nur
+    ``test_er_nutzt_DIESELBE_regelmenge_wie_die_docs`` faellt. Zwei Tests trugen den Namen des
+    Werkzeugs und pruefen konnten sie es nicht.
+
+    Diese Datei dokumentiert dieselbe Kritik im dritten Fall bereits ausdruecklich als von einer
+    Gegenlesung widerlegt — und liess die zwei Nachbarn danach so stehen. Genau das ist
+    fix-the-instance statt fix-the-class.
+    """
+    import io
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    rc = m.main(["--stdin", "--label", "release-notes"])
+    return rc, ""
+
+
+def test_der_formpruefer_faengt_einen_ueberanspruch_im_release_text(monkeypatch, capsys):
+    """DIE ZUSICHERUNG. Ein Release-Text mit einem verbotenen Anspruch faellt — durch main()."""
     m = _laden("release_text_hygiene")
-    v = m.chc.scan_text(_UEBERANSPRUCH, "release-notes")
-    assert v, ("Ein Release-Text mit 'production-ready' und 'has been externally audited' passiert "
-               "den Formpruefer. Genau diese zwei Wendungen verbietet der Baum in jedem anderen "
-               "Text — der Release-Text darf keine Ausnahme sein.")
-    phrasen = " ".join(x["phrase"] for x in v)
-    assert "production-ready" in phrasen and "audited" in phrasen, (
-        f"Der Fund nennt nicht die erwarteten Wendungen: {phrasen}")
+    rc, _ = _durch_den_pruefer(monkeypatch, m, _UEBERANSPRUCH + "\n")
+    ausgabe = capsys.readouterr().out
+    assert rc == 1, ("Ein Release-Text mit 'production-ready' und 'has been externally audited' "
+                     "passiert den Formpruefer. Genau diese zwei Wendungen verbietet der Baum in "
+                     "jedem anderen Text — der Release-Text darf keine Ausnahme sein.")
+    assert "production-ready" in ausgabe and "audited" in ausgabe, (
+        f"Der Lauf faellt, nennt aber die erwarteten Wendungen nicht: {ausgabe!r}")
 
 
-def test_ANTI_PARITAET_ein_sauberer_release_text_besteht():
+def test_ANTI_PARITAET_ein_sauberer_release_text_besteht(monkeypatch, capsys):
     """DIE KONTROLLE. Ohne sie bestuende die Zusicherung oben auch bei einem Pruefer, der JEDEN Text
     ablehnt — dann waere kein Release-Text mehr moeglich und niemand wuerde ihn benutzen."""
     m = _laden("release_text_hygiene")
-    assert m.chc.scan_text(_SAUBER, "release-notes") == [], (
-        "Ein sauberer Release-Text wird abgelehnt — ein Pruefer, der alles faengt, faengt nichts.")
+    rc, _ = _durch_den_pruefer(monkeypatch, m, _SAUBER + "\n")
+    capsys.readouterr()
+    assert rc == 0, "Ein sauberer Release-Text wird abgelehnt — ein Pruefer, der alles faengt, faengt nichts."
 
 
 def test_er_nutzt_DIESELBE_regelmenge_wie_die_docs(monkeypatch, capsys):
