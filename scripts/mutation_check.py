@@ -638,7 +638,33 @@ sys.exit(0 if ergebnis.wasSuccessful() else 1)
 """
 
 
-def _red_count(work: Path, *, ausschluss: bool = False) -> int:
+def _rote_aus_lauf(returncode: int, stderr: str) -> "int | None":
+    """Wie viele Tests rot waren — oder ``None``, wenn der Lauf das gar nicht sagt.
+
+    WARUM ES DIESE FUNKTION GIBT (Gegenlesung 2026-09-07, Klasse "Entscheidung aus dem
+    Meldungstext eines fremden Werkzeugs statt aus seinem Exit-Code"). Vorher stand die Auswertung
+    in ``_red_count`` und las AUSSCHLIESSLICH zwei regulaere Ausdruecke auf ``stderr``;
+    ``proc.returncode`` wurde nirgends gelesen. Traf keiner der beiden — weil der Prozess durch ein
+    Signal starb, das Speicherlimit riss oder vor der Zusammenfassungszeile abbrach — lieferte die
+    Funktion still ``0``, also "kein Test war rot". Bei Operatoren mit ``expect_killed=False`` ging
+    genau dieser Absturz als "ok, wie erwartet SURVIVED" durch, obwohl nichts gemessen wurde.
+
+    DIE UNTERSCHEIDUNG KOMMT JETZT AUS DEM EXIT-CODE, der sie strukturell traegt: ``unittest``
+    endet mit 0, wenn alles gruen ist, und mit 1, wenn Tests rot sind. Jeder andere Wert heisst,
+    dass der Lauf nicht zu Ende kam — und das ist keine Null, sondern eine fehlende Messung.
+    """
+    if returncode == 0:
+        return 0                      # gruener Lauf; dafuer braucht es keine Textanalyse
+    if returncode != 1:
+        return None                   # Signaltod, Absturz, Sammelfehler — NICHT "null rote Tests"
+    f = re.search(r"failures=(\d+)", stderr)
+    e = re.search(r"errors=(\d+)", stderr)
+    if f is None and e is None:
+        return None                   # Exit 1 ohne Zusammenfassung: der Lauf sagt nichts Lesbares
+    return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+
+
+def _red_count(work: Path, *, ausschluss: bool = False) -> "int | None":
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -663,9 +689,7 @@ def _red_count(work: Path, *, ausschluss: bool = False) -> int:
         cwd=work, capture_output=True, text=True,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
-    f = re.search(r"failures=(\d+)", proc.stderr)
-    e = re.search(r"errors=(\d+)", proc.stderr)
-    return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+    return _rote_aus_lauf(proc.returncode, proc.stderr)
 
 
 def _tracked_files(repo: Path) -> list[str]:
@@ -789,6 +813,11 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # bindenden `test`-Jobs derselben CI, die die volle Suite fahren, und am kanonischen
     # Volllauf vor jedem Tag. Siehe docs/PRE_TAG_AUDIT.md.
     baseline = _red_count(work, ausschluss=True)
+    if baseline is None:
+        print("GAP: die Baseline ist NICHT MESSBAR — der Lauf lieferte kein lesbares Ergebnis "
+              "(Signaltod, Absturz oder Sammelfehler). Ohne Baseline hat kein Mutantenverdikt "
+              "einen Bezugspunkt; das Tor haelt an, statt gegen eine erfundene Null zu messen.")
+        return 1
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
     gewichte, gewicht_grund = lade_gewichte()
@@ -841,6 +870,14 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             red = _red_count(work, ausschluss=True)
             _dauer = time.monotonic() - _t0
             dauern[label] = round(_dauer, 1)
+            if red is None:
+                # KEIN Verdikt. Frueher wurde daraus red=0, und bei expect_killed=False las sich
+                # ein Absturz als "SURVIVED, wie erwartet" — ein gruener Haken ueber einem Lauf,
+                # der nie stattfand.
+                print(f"  GAP  [{label}] NICHT MESSBAR (der Lauf lieferte kein lesbares Ergebnis, "
+                      f"{_dauer:.1f}s) — weder KILLED noch SURVIVED")
+                gaps += 1
+                continue
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
@@ -860,6 +897,10 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     if dauern:
         print("MUTATION_DURATIONS " + json.dumps(dauern, sort_keys=True))
     final = _red_count(work, ausschluss=True)   # dieselbe Menge wie Baseline und Mutant
+    if final is None:
+        print("GAP: der Abschlusslauf ist NICHT MESSBAR — ob die Baseline wiederhergestellt ist, "
+              "bleibt offen; das ist kein 'wiederhergestellt'.")
+        return gaps + 1
     if final != baseline:
         print(f"GAP: baseline not restored ({final} != {baseline})")
         gaps += 1
