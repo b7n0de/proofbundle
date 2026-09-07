@@ -75,6 +75,39 @@ jobs:
         # audit_artifacts file names the version — enforcing the discipline the project already follows.
         run: python scripts/pre_tag_audit_gate.py --repo . --version "${GITHUB_REF_NAME#v}" --strict
 
+      - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
+        # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und
+        # Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN am 2026-09-07: es gab keinen.
+        # `claims_hygiene_check.py` scannt 49 Dokumente und laeuft in ci.yml — aber der Tag-Text ist
+        # keine Datei im Baum, und die Release-Notiz entsteht weiter unten per
+        # `generate_release_notes: true`, also erst bei GitHub aus PR-Titeln. Beide Texte gingen
+        # ungeprueft nach draussen, waehrend jede README-Zeile durch vierzig verbotene Wendungen muss.
+        #
+        # DIESELBE REGELMENGE, kein zweiter Pruefer: `release_text_hygiene.py` ruft
+        # `claims_hygiene_check.scan_text`. Zwei Listen wuerden auseinanderdriften.
+        #
+        # VOR DEM BAU UND VOR JEDER AUSSENWIRKUNG. Ein Formfehler im Text soll den Zug hier anhalten,
+        # nicht nachdem ein Entwurf steht.
+        #
+        # WAS ER PRUEFT UND WAS NICHT: die Notiz wird hier VORAB erzeugt (`generate-notes`) und
+        # geprueft. Der Entwurf weiter unten laesst GitHub sie ein zweites Mal erzeugen — bei
+        # identischem Bereich ist das derselbe Text, aber es ist NICHT bytegleich garantiert. Der
+        # Schritt ist damit eine Pruefung des Textes, den GitHub aus demselben Bereich komponiert,
+        # keine Bindung an genau die Bytes des Entwurfs. Ehrlicher Rest, aufgeschrieben statt
+        # geglaettet.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > /tmp/tag_text.txt
+          python scripts/release_text_hygiene.py --text-file /tmp/tag_text.txt \
+            --label "tag $GITHUB_REF_NAME"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > /tmp/release_notes.txt
+          # LEER IST KEIN BESTEHEN — das Werkzeug bricht bei leerem Text selbst ab, und `-eo pipefail`
+          # (defaults-Block oben) laesst einen fehlgeschlagenen `gh`-Aufruf nicht durchrutschen.
+          python scripts/release_text_hygiene.py --text-file /tmp/release_notes.txt \
+            --label "release-notes $GITHUB_REF_NAME"
+
       - name: Build sdist and wheel (the ONLY build in this workflow)
         run: |
           python -m pip install --upgrade build
