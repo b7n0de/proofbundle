@@ -107,3 +107,65 @@ The structured, signed carrier of the findings is `findings_register_600` — 20
 `audit_exit_code` will be `0`, and that number carries no information: `verify_receipt` rejects
 every other value, so a valid receipt can only ever show `0` and therefore cannot express a verdict.
 The verdict is in `audit_command` in words, and in this file in detail.
+
+## N11, die Identitätsmessung — aufgezeichnet, weil ohne sie kein Lauf zählt
+
+Owner-Anordnung `OA-a8aec4079e`, wörtlich: *„Den kanonischen Lauf abwarten. Sein Ergebnis geht in die
+Zeremonie, und die Identitätsmessung nach N11 wird in `audit_artifacts/600/README.md` aufgezeichnet,
+so wie N11 es verlangt. Ohne diese Aufzeichnung gilt der Lauf auch dann nicht, wenn er grün ist."*
+
+Hier steht sie. Sie fällt negativ aus, und das ist ihr Zweck.
+
+### Was N11 verlangt
+
+Byte-Identität von `src/`, `tests/` und `scripts/` zwischen dem Baum, auf dem der kanonische
+Mutationslauf lief, und dem Kopf, der getaggt wird. Ohne sie sagt der Lauf etwas über einen anderen
+Gegenstand als den, der veröffentlicht wird.
+
+### Gemessen 2026-09-07
+
+Basis des kanonischen Laufs: `658ed063` (*Merge pull request #186 from b7n0de/chore/version-6.0.0*,
+2026-09-05 04:37:26 +0200).
+
+| Verzeichnis | gegen den heutigen Kandidaten `5242b0c6` | gegen den ursprünglichen Kandidaten `37eab913` |
+|---|---|---|
+| `src/` | 32 Dateien (+1577 / −373) | 32 Dateien (+1577 / −373) |
+| `tests/` | 45 Dateien (+10235 / −156) | 43 Dateien (+9892 / −156) |
+| `scripts/` | 10 Dateien (+3059 / −213) | 8 Dateien (+2728 / −204) |
+| **Summe** | **87 Dateien** | **83 Dateien** |
+
+**Die Identität hält nicht.** Der kanonische Lauf gilt damit für keinen der beiden Köpfe — weder für
+den ursprünglichen Kandidaten noch für den heutigen. Das ist keine Auslegung, sondern die Bedingung,
+die N11 selbst formuliert.
+
+### Und der Kopf trägt weiterhin den blinden Sammler
+
+Unabhängig von der Identitätsfrage: `scripts/mutation_check.py` sammelt auf diesem Kopf nach wie vor
+mit `unittest discover`. Ein solcher Sammler sieht ausschließlich Methoden von `unittest.TestCase` —
+alles, was als schlichte Testfunktion geschrieben ist, ist für ihn nicht vorhanden. Gemessen:
+
+    pytest:            3736 Tests aus 256 Dateien
+    unittest discover: 2524 Tests aus 193 Dateien
+    blind:             1212 Tests, 63 Dateien — 25 % der Dateien
+
+Diese Zahlen wurden auf `22dc97b5` gemessen. Für `5242b0c6` gelten sie unverändert, soweit es die
+Dateien betrifft: der Unterschied zwischen beiden Köpfen umfasst vier Dateien und legt unter `tests/`
+weder eine an noch entfernt er eine — nachgemessen, nicht angenommen.
+
+Der Abschnitt „The scope each statement of this round holds over" oben nennt für `N19` **2537 von
+3702** und **59 von 252**; diese Zahlen wurden auf `a62d8cb4` gemessen. Sie sind nicht falsch, sie
+gelten für einen anderen Baum. Für den heutigen Kopf sind es die Zahlen darüber, und der Anteil ist
+größer geworden, nicht kleiner.
+
+Ein Fix, der den Sammler auf pytest umstellt, existiert (`f023a590a6cf376d31f369a3c5a16482e7e0bc33`,
+Vollsuite ohne roten Fall, drei Gegenlesungen), liegt aber auf einem **anderen Zweig** und ist in
+diesem Kopf **nicht** enthalten — nachgemessen, nicht angenommen.
+
+### Was daraus folgt, ohne Beschönigung
+
+Für die Mutationsbedingung des Release-Standards gibt es auf diesem Kopf kein gültiges Ergebnis:
+die Identität nach N11 hält nicht, und der Sammler, der ein Ergebnis erzeugen würde, sieht ein
+Viertel der Testdateien nicht. Beides zusammen heißt **NICHT MESSBAR**, nicht „grün" und nicht „rot".
+
+Der Standard sagt für diesen Fall: anhalten und berichten. Genau das ist geschehen; diese Zeilen sind
+der Bericht an der Stelle, an der N11 ihn verlangt.
