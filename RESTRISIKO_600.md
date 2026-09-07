@@ -327,3 +327,48 @@ written as a *measurement with its date and object*, not as a claim about the cu
 stays true regardless is the part that carries the finding: the three artefacts bind
 `9e742bfa989e`, and every head after it is a later one. Register entry:
 `ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01`.
+
+## The release gate loads its signature check from the tree it judges (owner decision 2026-09-07, path A)
+
+Finding `DAS-TOR-LAEDT-SEINEN-VERIFIZIERER-AUS-DEM-BAUM-DEN-ES-BEURTEILT-01`. Carried into 6.0.0
+**knowingly**, on an explicit owner decision: path A, an entry here now, the fix as the first card
+after the tag.
+
+**The attack, reproduced — not argued.** `scripts/pre_tag_receipt_lib.py` imports `verify_ed25519`
+from `proofbundle.signature`, and when the gate runs against a checkout, that module comes from the
+very tree the gate is about to judge. Three probes failed before one worked, and the two that failed
+are worth recording because they mark the boundary of the finding:
+
+* *Does not work:* a **foreign** signer — it dies at `signer_pubkey is not in the trusted set`, and
+  that check runs **before** the signature check.
+* *Does not work:* a **committed** backdoor — it breaks the tree binding anyway.
+* *Works:* the attacker takes the trusted public key **out of the anchor** (it is committed in the
+  repo), sets it as `signer_pubkey`, forges the signature — and replaces
+  `src/proofbundle/signature.py` **in the working tree only**. No private key is needed.
+
+Measured, two repositories, one state each:
+
+| case | without the fix | with the fix |
+|---|---|---|
+| forged signature, clean working tree | `ok=False` | `ok=False` |
+| the same case, `signature.py` replaced in the working tree | **`ok=True`** | `ok=False` |
+
+**Why this is acceptable for 6.0.0, and the reasoning is the owner's.** The working step the attack
+needs is *write access to the release tree at signing time*. That is exactly the trust boundary the
+release process already assumes: an actor who can rewrite the tree between the audit and the
+signature can also rewrite what is signed. The gate does not defend against its own operator, and it
+never claimed to. What the finding shows is that the gate is **not an additional layer** against
+that actor — not that a new door was opened.
+
+**Scope of the pending fix, measured:** 25 files in the tree name `verify_ed25519` (six modules under
+`src/proofbundle`, three scripts). The prepared patch touches **one** — the import line in
+`scripts/pre_tag_receipt_lib.py`. `proofbundle.signature` stays untouched; what changes is the source
+**the gate** takes its check from, and only there does the judged tree sit on `sys.path[0]`.
+
+**Not measured:** whether that patch passes the full suite. It has never run against the candidate,
+because the candidate is what this release ships. It belongs to the round that lands it.
+
+**The condition under which this entry would have been wrong.** The owner tied path A to the register
+not carrying this finding as P0 or P1. Measured on this candidate: the register carries ten P2 and
+ten P3 entries and **no** P0 or P1 at all, so condition 6 of the release standard does not engage and
+path A stands. Register key: `DAS-TOR-LAEDT-SEINEN-VERIFIZIERER-AUS-DEM-BAUM-DEN-ES-BEURTEILT-01`.
