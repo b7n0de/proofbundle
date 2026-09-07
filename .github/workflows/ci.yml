@@ -250,10 +250,18 @@ jobs:
         # eine zweite Wahrheit ueber dieselbe Groesse — sie kommt jetzt aus dem Lauf.
         if: always()
         run: |
+          # `|| true` AUCH HIER, und der Grund ist der Nachbar (Gegenlesung 2026-09-07): der
+          # Sammel-Job unten hatte genau diese ungeschuetzte Pipeline und stuerzte darueber ab.
+          # GitHub Actions faehrt `bash -eo pipefail`. Fehlt die Logdatei oder das Muster — der
+          # Shard ist vor seiner Schlusszeile gestorben —, liefert `grep` 1, der Schritt bricht VOR
+          # dem `echo > file` ab, und die Datei entsteht nie. Der Sammel-Job meldet dann "fehlender
+          # Shard" statt "Shard lief, aber sein Log traegt keine Schlusszeile": fail-closed bleibt,
+          # die Diagnose zeigt in die falsche Richtung. Ein Fix nur am Sammel-Job waere ein
+          # Instanz-Fix gewesen; die Klasse sitzt in jeder ungeschuetzten Pipeline unter `set -e`.
           n="$(grep -oE '=> (OK|FAILED) \([0-9]+ operators' "$RUNNER_TEMP/mutation-shard.log" \
-               | grep -oE '[0-9]+' | tail -1)"
+               | grep -oE '[0-9]+' | tail -1 || true)"
           gesamt="$(grep -oE 'total=[0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
-                    | grep -oE '[0-9]+' | tail -1)"
+                    | grep -oE '[0-9]+' | tail -1 || true)"
           echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
@@ -283,7 +291,15 @@ jobs:
     # warum das Sharding die Aussage des Tores nicht verduennt. Er faellt bei DREI Dingen:
     #   1. ein Shard FEHLT       -> ein ausgefallener Job darf nicht als bestanden durchgehen
     #   2. ein Shard ist ROT     -> needs+always() sieht das Ergebnis jedes Shards
-    #   3. die Summe != gesamt   -> die Partition muss lueckenlos sein, gerechnet statt geglaubt
+    #   3. die Summe != gesamt   -> gerechnet statt geglaubt. EHRLICHE GRENZE (Gegenlesung
+  #                                 2026-09-07, ausgefuehrt): diese Summe beweist GLEICHHEIT, nicht
+  #                                 Lueckenlosigkeit. Acht Shards mit je 10, einer mit 15 und einer
+  #                                 mit 5 ergeben ebenfalls 100 und kommen hier durch — eine
+  #                                 Ueberlappung, die sich mit einer Luecke aufhebt. Dass die
+  #                                 Partition wirklich lueckenlos und ueberschneidungsfrei ist,
+  #                                 zeigen die Python-Faelle in tests/test_mutation_shard_partition
+  #                                 gegen `_indizes_des_laufs`, nicht diese Zeile. Zwei Schichten,
+  #                                 und nur zusammen tragen sie die Aussage.
     #   4. die Shards sind sich ueber die Gesamtzahl uneinig -> zwei Codestaende in einer Matrix
     # Die Zahlen stammen aus der Schlusszeile jedes Shard-Laufs, nicht aus dem Matrix-Index UND
     # nicht aus einer hier getippten Konstante (siehe den Fix vom 2026-09-07 im Shard-Schritt).

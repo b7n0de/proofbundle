@@ -794,7 +794,14 @@ def _rote_aus_bericht(bericht: Path) -> int | None:
         return None
     # pytest schreibt <testsuites><testsuite .../></testsuites>; aeltere Fassungen auch nur
     # <testsuite>. Beide Formen werden gelesen, damit die Quelle nicht an einer Version haengt.
-    knoten = [wurzel] if wurzel.tag == "testsuite" else list(wurzel.iter("testsuite"))
+    # NUR DIREKTE KINDER, NICHT `iter()` (Gegenlesung 2026-09-07). `iter("testsuite")` steigt
+    # rekursiv ab. Ein Plugin, das verschachtelte `<testsuite>`-Knoten schreibt, wuerde die inneren
+    # Zahlen ZUSAETZLICH zu den aeusseren zaehlen, und die rote Zahl entscheidet hier ueber
+    # KILLED/SURVIVED. Gemessen mit dem Laeufer dieses Tors (pytest + subtests): heute genau EIN
+    # Knoten, `iter()` und direkte Kinder liefern dasselbe — der Fund ist also latent und nicht
+    # wirkend. Er wird trotzdem geschlossen, weil die Absicherung nichts kostet und die Annahme
+    # "es gibt nur eine Ebene" sonst unausgesprochen bliebe.
+    knoten = [wurzel] if wurzel.tag == "testsuite" else [k for k in wurzel if k.tag == "testsuite"]
     if not knoten:
         print("  ! JUnit-Bericht ohne testsuite-Element — Rueckfall auf den Textpfad")
         return None
@@ -835,11 +842,29 @@ def _bilanzzeile(text: str) -> str | None:
     return None
 
 
+#: Die BANNERFORM eines pytest-Abbruchs: mindestens fuenf Ausrufezeichen, Text, wieder mindestens
+#: fuenf. Gebunden an die FORM, nicht an einen Wortlaut — genau daran ist die erste Fassung
+#: gescheitert (Gegenlesung 2026-09-07, ausgefuehrt).
+_ABBRUCH_BANNER = re.compile(r"^!{5,} .* !{5,}$", re.M)
+
+
 def _rote_aus_lauf(bericht: Path, text: str) -> int | None:
     """Das Urteil ueber einen Lauf: strukturierte Quelle zuerst, Textpfad als LAUTER Rueckfall."""
-    if re.search(r"^!+ Interrupted", text, re.M) or re.search(r"^INTERNALERROR", text, re.M):
-        # Der Abbruch-Riegel steht VOR beiden Quellen: ein abgebrochener Lauf ist nicht messbar,
-        # auch wenn er unterwegs Zahlen hinterlassen hat — in der XML wie im Text.
+    # DER ABBRUCH-RIEGEL KANNTE ZWEI WORTLAUTE UND NICHT DIE FORM (adversariale Gegenlesung
+    # 2026-09-07, mit echtem pytest ausgefuehrt). Er prueft `^!+ Interrupted` und `^INTERNALERROR`.
+    # `pytest.exit()` schreibt aber ein Banner mit ANDEREM Wortlaut:
+    # `!!!!!! _pytest.outcomes.Exit: <grund> !!!!!!`. Gemessen mit drei Tests, von denen der zweite
+    # `pytest.exit` ruft und der dritte gefallen waere: die Bilanz sagt `1 passed in 0.22s`, die
+    # JUnit-XML sagt `tests=1 failures=0 errors=0`, BEIDE Quellen melden also einen sauberen,
+    # vollstaendigen Lauf — waehrend der Test, der die Mutante haette toeten sollen, nie lief.
+    # Beide Riegel-Muster trafen nicht (gemessen: False und False).
+    #
+    # Deshalb jetzt die FORM statt des Wortlauts. Eine Aufzaehlung von Abbruchgruenden waere beim
+    # naechsten stillschweigend zu kurz — dieselbe Lehre wie beim Ersatzwert in
+    # `pre_tag_receipt_lib.verify_receipt`, wo eine Blockliste durch eine Formpruefung ersetzt wurde.
+    # Die fuenf Ausrufezeichen halten die Grenze zu einem Test, der das Wort in einem Traceback
+    # ausgibt: pytest rahmt seine Banner, gewoehnlicher Text tut das nicht.
+    if _ABBRUCH_BANNER.search(text) or re.search(r"^INTERNALERROR", text, re.M):
         return None
     aus_bericht = _rote_aus_bericht(bericht)
     return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
@@ -990,7 +1015,8 @@ def partition_gewichtet(labels: list[str], i: int, k: int,
     return sorted(koerbe[i - 1])
 
 
-def _indizes_des_laufs(shard: tuple[int, int] | None) -> list[int]:
+def _indizes_des_laufs(shard: tuple[int, int] | None,
+                       _gewichte: dict[str, float] | None = None) -> list[int]:
     """Die Operatorenmenge dieses Laufs — EINE Quelle fuer den Lauf UND fuer seine Schlusszeile.
 
     WARUM DAS EINE FUNKTION IST. Die Schlusszeile nannte ihre Zahl aus `partition(...)`, also
@@ -1010,7 +1036,12 @@ def _indizes_des_laufs(shard: tuple[int, int] | None) -> list[int]:
     if shard is None:
         return list(range(len(MUTATIONS)))
     i, k = shard
-    gewichte, _grund = lade_gewichte()
+    # DIE GEWICHTE WERDEN UEBERGEBEN, WENN DER AUFRUFER SIE SCHON HAT (Gegenlesung 2026-09-07).
+    # Sonst laedt diese Funktion die Datei ein zweites Mal — einmal fuer den Lauf, einmal fuer die
+    # Schlusszeile. Aendert sie sich dazwischen, meldet die Schlusszeile eine andere Menge als der
+    # Lauf gefahren hat, und die Summenpruefung addiert auf beiden Seiten dieselbe falsche Zahl.
+    # Genau die Klasse, gegen die diese Funktion angetreten ist: zwei Berechnungen derselben Groesse.
+    gewichte = _gewichte if _gewichte is not None else lade_gewichte()[0]
     # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin.
     return (partition_gewichtet([m[3] for m in MUTATIONS], i, k, gewichte) if gewichte
             else partition(len(MUTATIONS), i, k))
@@ -1050,7 +1081,7 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # Gewichtet, wenn Gewichte da sind; sonst der bewaehrte Round-Robin. Der Rueckfall ist
     # LAUT (die `partition:`-Zeile oben nennt den Grund) — ein stiller Rueckfall saehe wie
     # eine gewichtete Partition aus und waere keine.
-    indizes = _indizes_des_laufs(shard)
+    indizes = _indizes_des_laufs(shard, _gewichte)
     if shard is not None:
         i, k = shard
         # Die Partition wird AUSGEGEBEN (Index und Label), damit der Sammel-Job und ein Mensch

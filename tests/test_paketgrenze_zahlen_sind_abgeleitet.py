@@ -88,21 +88,46 @@ def test_die_im_kopf_zitierten_zahlen_stimmen_mit_dem_sammler_ueberein():
             f"Menge waechst.")
 
 
-def test_der_kopf_traegt_KEINE_getippte_aggregatzahl_mehr():
-    """DER RIEGEL GEGEN DEN RUECKFALL, und er ist der eigentliche Klassen-Fix.
+def test_JEDE_zahl_im_kopf_ist_gebunden_oder_steht_nicht_da():
+    """DER RIEGEL GEGEN DEN RUECKFALL — und die ZWEITE Fassung, weil die erste selbst zurueckfiel.
 
-    Die Einzelzahlen oben sind gebunden und duerfen deshalb dastehen. Eine AGGREGATZAHL ueber die
-    ganze Suite darf es nicht: sie aendert sich mit jeder neuen Testdatei, und niemand rechnet sie
-    nach. Genau deshalb stand hier 113, waehrend es 296 waren.
+    DIE ERSTE FASSUNG SUCHTE DREI WOERTLICHE WENDUNGEN ("<Zahl> package-level tests", "<Zahl> of
+    them do", "<Zahl> false runtime FAILURES"). Eine adversariale Gegenlesung hat sie am selben Tag
+    widerlegt, und der Befund war der schaerfste der Runde: der Commit, der die Aggregatzahl aus
+    dem Kopf entfernte, schrieb im GLEICHEN Zug zwei NEUE hinein (die neu gemessene Kollateralzahl
+    und eine Teilsumme davon), formuliert mit anderen Worten. Der Riegel blieb gruen. Er pruefte
+    die FORMULIERUNG, waehrend die Klasse "eine getippte Zahl ueber eine wachsende Menge" heisst —
+    dieselbe Verwechslung von Form und Wirkung, gegen die dieser ganze Zyklus antritt, begangen im
+    Riegel gegen genau sie.
+
+    Diese Fassung dreht die Frage um: NICHT "welche Wendungen sind verdaechtig", sondern "welche
+    Zahl im Kopf ist GEBUNDEN". Alles, was kein Datum, keine Version, keine Kennung und keine der
+    unten gebundenen Einzelzahlen ist, faellt. Eine neue Zahl muss also entweder eine Bindung
+    bekommen oder draussen bleiben; sie kann sich nicht mehr an einer Formulierung vorbeischreiben.
     """
     kopf = CONFTEST.read_text(encoding="utf-8").split('"""')[1]
-    # Eine Aggregatbehauptung hat die Form "<Zahl> package-level tests" / "<Zahl> of them".
-    verdaechtig = re.findall(
-        r"\b(\d{2,})\s+(?:package-level tests|of them (?:do|are)|false runtime FAILURES)", kopf)
-    assert not verdaechtig, (
-        f"Der Kopf von conftest.py nennt wieder eine getippte Aggregatzahl: {verdaechtig}. Diese "
-        f"Zahl waechst mit jeder Testdatei und wird von niemandem nachgerechnet — sie stand am "
-        f"2026-09-02 auf 113 und war am 2026-09-07 gemessen 296. Wer sie braucht, leitet sie ab.")
+    ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)          # Messdaten
+    ohne = re.sub(r"\b\d+\.\d+\.\d+\b", " ", ohne)             # Versionen
+    ohne = re.sub(r"\bPKG-\d{4}-\d{4}-\d{2}\b", " ", ohne)       # Vorgangskennungen
+    gefunden = {int(z) for z in re.findall(r"\b(\d{2,})\b", ohne)}
+    ungebunden = sorted(gefunden - set(_ZITIERTE_ZAHLEN.values()))
+    assert not ungebunden, (
+        f"Der Kopf von conftest.py nennt Zahl(en), die an nichts gebunden sind: {ungebunden}. Jede "
+        f"Zahl ueber eine Menge, die waechst, veraltet still — genau so ist die Kollateralzahl "
+        f"zwischen dem 2026-09-02 und dem 2026-09-07 um mehr als das Doppelte gewandert, ohne dass "
+        f"es jemandem auffiel. Entweder die Zahl bekommt eine Bindung in _ZITIERTE_ZAHLEN (mit "
+        f"einem Fall, der sie gegen den Sammler misst), oder sie gehoert nicht in Prosa.")
+
+
+def test_ANTI_PARITAET_der_riegel_faengt_eine_eingepflanzte_zahl():
+    """DIE KONTROLLE, die der ersten Fassung gefehlt hat. Ohne sie bestuende der Fall oben auch
+    dann, wenn er gar nichts mehr faende — und genau das war er einen Commit lang."""
+    kopf = "Ein Kopf, der von 4711 uebersprungenen Tests spricht, ohne die Zahl zu binden."
+    ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)
+    gefunden = {int(z) for z in re.findall(r"\b(\d{2,})\b", ohne)}
+    assert gefunden - set(_ZITIERTE_ZAHLEN.values()) == {4711}, (
+        "Die Logik des Falls oben faengt eine eingepflanzte ungebundene Zahl NICHT — dann bestuende "
+        "er nur, weil im echten Kopf zufaellig nichts steht.")
 
 
 def test_die_ableitung_erkennt_die_zitierten_module_ausserhalb_eines_checkouts(tmp_path):

@@ -353,7 +353,8 @@ class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
 
     def _fahre(self, shards: dict[int, str]):
         """Den Block in einem Wegwerfordner fahren. shards: Nummer -> Dateiinhalt (fehlt = keine Datei)."""
-        import subprocess, tempfile  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
         with tempfile.TemporaryDirectory(prefix="sammeljob-") as d:
             for i, inhalt in shards.items():
                 Path(d, f"mutation-shard-{i}.txt").write_text(inhalt, encoding="utf-8")
