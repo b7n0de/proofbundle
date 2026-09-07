@@ -54,8 +54,21 @@ _SIGNED_FIELDS = (
 #: Gegenlesung hat 13 PEP-440-Formen gegen beide Fassungen gefahren: 26 von 26 identisch. Die
 #: Verengung ist keine Regression; sie haette den Fall nur an einer zweiten Stelle wiederholt.
 #: Beide Stellen tragen jetzt `+` und `!`. Kein Sicherheitsloch (fail-closed), ein Funktionsdefekt.
+#: DER TABULATOR AM ANFANG IST DER ANKER, und er fehlte bis 2026-09-07 (deep gate Lauf 5, Linse 2,
+#: Exploit ausgefuehrt). `.search()` prueft die GANZE `ls-tree`-Zeile, und die hat die Form
+#: `<mode> <type> <sha>\t<pfad>`. Ohne fuehrenden `\t` traf das Muster jeden Pfad, der IRGENDWO
+#: so ENDET — `src/proofbundle/audit_artifacts/1/pre_tag_receipt_v1.json` also auch. Gemessen in
+#: einer isolierten Kopie: T0 signiert -> `verified`, Digest `cea597b4`; T1 legt genau diese Datei
+#: unter `src/` an, OHNE neu zu signieren -> Digest BYTEIDENTISCH, Tor weiter `verified`.
+#: Negativkontrolle auf gewoehnlichem Pfad -> Digest anders, Tor `rejected`. Eine Ausnahme, die
+#: mehr ausschliesst als sie darf, ist ein Loch im Ausschluss und nicht seine Grosszuegigkeit.
+#: DER NACHBAR ZWEI ZEILEN WEITER MACHTE ES SEIT JE RICHTIG: `MUTABLE_EVIDENCE_RELS` vergleicht mit
+#: `endswith("\t" + pfad)` und ist damit verankert. Dieselbe Datei, dieselbe Frage ("meint dieser
+#: Text eine Pfadgrenze?"), zwei Vergleichsarten — und nur eine davon band die Grenze. Genau das
+#: ist die Klasse, die dieser Commit repoweit sweept: eine Zeichenketten-Suche entscheidet ueber
+#: eine Groesse, die eine GRENZE meint.
 _RECEIPT_MUSTER = _re.compile(
-    r"audit_artifacts/[0-9][0-9A-Za-z.+!_\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.+!_\-]*\.json$")
+    r"\taudit_artifacts/[0-9][0-9A-Za-z.+!_\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.+!_\-]*\.json$")
 
 
 #: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
