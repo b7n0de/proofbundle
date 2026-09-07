@@ -519,3 +519,55 @@ Operatorenmenge je Verzeichnis eine ausfuehrbare Deckungsschranke braucht (und w
 truege, ohne zur Dauerbeschwerde zu werden), ist als Owner-Punkt fuer 6.1 vorgemerkt und wird hier
 NICHT nebenbei entschieden. Bis dahin faengt der Inventar-Abgleich der jeweils beauftragten
 Pflichtflaechen das Ergebnis, und diese Zeile haelt fest, dass die Ursache noch steht.
+
+
+---
+
+## NACHTRAG 2026-09-07 zu KLASSE-E-2026-0905 — die Nachbarflaeche ist nachgezogen, und die
+## Begruendung dagegen war messbar falsch
+
+Der Absatz „Nachbarflaeche geprueft, NICHT gefixt" oben nennt
+`scripts/pre_tag_receipt_lib.py::subject_tree_digest` und begruendet das Auslassen so: sie „bindet
+echte, bereits ausgelieferte v5.0.0/v5.1.0-Receipts; eine Aenderung dort wuerde deren
+Nachpruefbarkeit brechen". Der Ledger ist append-only; der Eintrag bleibt stehen, was gilt, steht
+hier.
+
+**Gemessen statt angenommen (07.09.2026).** Beide Fassungen der Funktion ueber die Tag-Baeume
+gerechnet und gegen den Wert gehalten, den die Quittung bindet:
+
+| Tag | gebunden | ALTE Fassung | NEUE Fassung |
+|---|---|---|---|
+| v5.0.0 | `4212087273dc9300` | trifft | `f10df17dec754eb8` |
+| v5.1.0 | `fd22e5e584324569` | trifft | `2b3e07ce79e3fb2c` |
+
+Auf den ersten Blick bestaetigt das die Sorge. Die zweite Messung entscheidet sie: dieselben
+Quittungen binden `gate_source_digest = fa6a019b6dee2e57`, und das ist der sha256 von
+`scripts/pre_tag_audit_gate.py` **im jeweiligen Tag-Baum**. Auf dem heutigen Kopf traegt dieselbe
+Datei `44f7d50c294ceaf6`. Die Quittungen waren also schon vor dieser Aenderung **nur** durch einen
+Checkout des Tags nachpruefbar — dort liegen altes Tor und alte Bibliothek beieinander und passen
+zusammen. Genau dieser Weg bleibt unberuehrt. Die Kombination, die die neue Fassung veraendert
+(heutige Bibliothek gegen alten Baum), scheiterte vorher schon am `gate_source_digest`.
+
+**Die Auslassung war damit nicht durch die Altquittungen gedeckt, sondern nur durch die Annahme,
+sie waeren es.** Der Preis war real: die pauschale Ordner-Ausnahme hielt die Vertrauensanker
+`audit_artifacts/pre_tag_trusted_pubkeys.txt` und `readiness_trusted_pubkeys.txt` aus der Bindung
+heraus — ausgefuehrt in einer isolierten Kopie verifizierte ein selbst signiertes Receipt eines
+FREMDEN Schluessels als `ok=true, state=verified`.
+
+**Zweite Runde derselben Klasse, im selben Zug gefunden.** Die Haertung selbst brachte eine neue
+Instanz mit: das Tor setzt bei nicht messbarem Baum den Ersatzwert `"unknown"` ein, damit es
+urteilen statt abstuerzen kann — und dieser Ersatzwert ging ungeprueft in einen
+Gleichheitsvergleich gegen ein Feld, das der Gepruefte selbst schreibt. Eine mit dem legitimen
+Schluessel signierte Quittung mit woertlich `subject_tree_digest: "unknown"` verifizierte deshalb
+immer. Geschlossen ueber die FORM des erwarteten Wertes (kein sha256, kein Vergleich), nicht ueber
+ein Verbot des Wortlauts: eine Wortlaut-Liste waere beim naechsten Ersatzwert stillschweigend zu
+kurz. Kennung `ERSATZWERT-BEI-NICHT-MESSBAR-IST-IM-GLEICHHEITSVERGLEICH-BINDBAR-01`.
+
+**Nachbarflaeche im selben Durchgang gesweept, mit Ergebnis je Fall.**
+`sign_readiness_artifact.trust_anchor_digest` liefert `""` und wird beim Konsumenten VOR dem
+Vergleich abgefangen (`if not gebunden` / `if not heute`) — sauber, und das Vorbild fuer den Fix.
+`audit_candidate_matrix._version_aus_pyproject` liefert `""` und laeuft damit in einen
+`no version- sdist/wheel pair`-Fehlschlag — fail-closed. `type_confusion_gate._tree_digest` /
+`_sha256_file` liefern `"unknown"` / `"unreadable"`, schreiben sie aber nur IN einen Beleg; kein
+Konsument rechnet sie nach (die Matrix ruft das Tor live auf). Kein Gleichheitsvergleich, andere
+Klasse — als erklaerte Grenze festgehalten, nicht als Defekt.

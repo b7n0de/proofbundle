@@ -10,6 +10,41 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A placeholder the subject can carry is not a comparison** (2026-09-07). The pre-tag gate
+  replaces an unmeasurable tree with `"unknown"` and an unreadable gate source with `"unreadable"`
+  so that it can RULE instead of crashing. Both placeholders then went into an equality comparison
+  against a field the subject itself writes. Measured: a receipt signed with the LEGITIMATE key
+  carrying the literal `subject_tree_digest: "unknown"` verified every time, regardless of the tree
+  — `ok=true, state=verified`. `verify_receipt` now checks the FORM of the EXPECTED value (a
+  lowercase 64-hex sha256, for both digest fields) before comparing, so every present and future
+  placeholder is unbindable without anyone having to enumerate them; an enumeration would be
+  silently short at the next one. The neighbouring surface has done it this way since Auflage C3
+  (`audit_candidate_matrix` tests `if not gebunden` / `if not heute` before comparing) — this
+  function was the straggler. Side effect that confirms the finding: the fixtures in
+  `tests/test_pre_tag_receipt_gate.py` and `scripts/gate_qualification_harness.py` carried 40-char
+  values — the length of a git SHA-1, never a valid sha256 — and now carry 64.
+
+- **A library under a gate does not raise `SystemExit`** (2026-09-07). `subject_tree_digest` aborted
+  the process on an unreadable tree. `SystemExit` is a `BaseException`, and the gate's own backstop
+  catches `except Exception`, so the abort flew straight past it: five negative tests that run the
+  gate against an evidence-free non-git directory DIED instead of receiving `ok=false` — a guard
+  that no longer rejects but expires. It now raises a typed `BaumNichtLesbar`, which the existing
+  backstop catches. The sibling `sign_readiness_artifact.tree_digest` keeps `SystemExit` because it
+  only runs from a CLI, where the abort IS the verdict. The difference is the caller, not the error.
+
+- **The verdict allowlist has a near-miss case** (2026-09-07). Mutating `not in _GATE_VERDICTS_PASS`
+  into a prefix comparison survived the whole matrix unchanged (50 passed, before and after), which
+  would have made `WITHSTANDS_DEEPGATE_PARTIALLY` a pass. The three existing cases test absence, a
+  known fail value and a foreign word; none tested a value carrying the allowed constant as a
+  prefix. A "partially withstood" is not a withstanding.
+
+- **The receipt exclusion applies to version tokens, not to any folder name** (2026-09-07). The
+  pattern read the directory as an arbitrary word, so `audit_artifacts/anything/pre_tag_receipt_
+  v9.9.9.json` also fell out of the binding. No consumer exploited it, but an exception that
+  excludes more than it must is the start of the very class this round closes. A NEW ORDERING
+  CONSTRAINT follows from the narrowing and is recorded in `RESTRISIKO_600.md`: everything else
+  under `audit_artifacts/<token>/` must be committed BEFORE the receipt context is produced.
+
 - **The wheel is canonicalised in the build path, so the second half of the byte freeze holds**
   (2026-09-07). The release standard requires two byte-identical sdists AND a wheel built from the
   shipped sdist that equals the directly built one. The second half was red: 82 entries per side,

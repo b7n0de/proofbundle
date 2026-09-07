@@ -282,10 +282,39 @@ two freeze commits landed the fixes the required gate demanded — three `ruff` 
 assertions in one test file that had nailed transitional states down as invariants. Neither commit
 touched the measurements these artefacts carry; both moved the head they are bound to.
 
-Why they were not re-signed: `subject_tree_digest` (the receipt) excludes the whole top-level
-`audit_artifacts` entry and is therefore unchanged by any commit into it, while `tree_digest` (the
-readiness artefacts) excludes recursively exactly the two mutable paths — and a receipt committed
-under `audit_artifacts/600/` is not one of them. **There is no commit order in which both bind the
+Why they were not re-signed: `tree_digest` (the readiness artefacts) excludes recursively exactly
+the two mutable paths — and a receipt committed under `audit_artifacts/600/` is not one of them.
+
+**CORRECTED 2026-09-07, because the sentence that stood here described a function this branch has
+since changed.** It read: "`subject_tree_digest` (the receipt) excludes the whole top-level
+`audit_artifacts` entry and is therefore unchanged by any commit into it". That was true until
+`b9d35d4`. The whole-directory exclusion is exactly the hole that commit closed — it hid the trust
+anchors from the binding, so a key could be introduced in the very commit it would go on to
+authorise. `subject_tree_digest` now excludes only the receipt file itself (a pattern, since every
+version writes its own) plus the same two mutable paths.
+
+Measured on the new function, four ceremony steps:
+
+| step | old digest | new digest |
+|---|---|---|
+| the receipt itself is committed | stable | stable |
+| an audit record beside it, same version folder | stable | **moves** |
+| a mutable evidence file is rewritten | stable | stable |
+| a key is added to the trust anchor | stable | **moves** |
+
+The last row is the point of the change. The second row is a NEW ORDERING CONSTRAINT and is
+recorded here so nobody rediscovers it during a signing round: **everything else under
+`audit_artifacts/<token>/` must be committed BEFORE the receipt context is produced.** Anything
+written there after signing invalidates the receipt. The natural order already satisfies this — the
+gate reads the audit record from the committed tree, so the record must exist before the gate runs
+— but it is now load-bearing rather than incidental.
+
+What this does NOT break: the already-shipped v5.0.0 and v5.1.0 receipts. Measured — each binds
+`gate_source_digest = fa6a019b…`, which matches `scripts/pre_tag_audit_gate.py` **in its own tag
+tree** and already differs from today's head (`44f7d50c…`). Those receipts were therefore only ever
+re-verifiable by checking the tag out, where the old gate and the old library sit together and
+agree. That path is untouched. The combination the new function does change — today's library
+against an old tree — already failed on `gate_source_digest` before this commit. **There is no commit order in which both bind the
 head they are checked at.** Re-signing the readiness artefacts would require a second owner
 signature after the receipt commit; the owner decided one signature round (2026-09-07, path A) and
 required this section instead. The tag path is not affected: `.github/workflows/release.yml` line 76

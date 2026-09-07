@@ -180,3 +180,18 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     assert subject_tree_digest(repo) != vorher, (
         "audit_artifacts/<beliebig>/pre_tag_receipt_*.json faellt aus der Bindung — ein Angreifer "
         "duerfte den Ordnernamen nicht selbst waehlen koennen")
+
+    # DIE ZEREMONIE-AUFLAGE, die aus derselben Eigenschaft folgt und deshalb hier festgenagelt wird:
+    # ein NACHBAR im selben Versionsordner bewegt den Digest. Bis zur alten Fassung tat er das nicht
+    # (sie warf das ganze Verzeichnis weg), und RESTRISIKO_600.md hat genau damit begruendet, warum
+    # eine Nachsignatur nicht noetig sei. Seit der Verengung gilt: alles andere unter
+    # audit_artifacts/<token>/ muss VOR der Quittung committet sein. Wird dort nach dem Signieren
+    # noch etwas geschrieben, ist die Quittung ungueltig — und das faellt in einer Signaturrunde am
+    # Mac auf, nicht vorher, wenn es niemand geprueft hat.
+    zwischen = subject_tree_digest(repo)
+    (repo / "audit_artifacts" / "600" / "PRE_TAG_AUDIT_600.md").write_text("audit ran\n")
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "pruefbericht neben der quittung"], repo)
+    assert subject_tree_digest(repo) != zwischen, (
+        "ein Pruefbericht im selben Versionsordner muss den Digest bewegen — sonst waere die "
+        "Reihenfolge-Auflage in RESTRISIKO_600.md unbelegt und die Bindung wieder loechrig")
