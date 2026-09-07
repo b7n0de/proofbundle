@@ -241,11 +241,20 @@ def _sentence_around(text: str, start: int, end: int) -> str:
     return text[left + 1:right]
 
 
-def scan_file(path: Path) -> list[dict]:
-    """Scan one doc. A read error (missing/unreadable) RAISES OSError — the caller decides; the gate
-    treats it as a FAIL entry, never a silent skip (six-lens review: a listed-but-unreadable doc
-    previously counted as scanned + PASS, the exact class WP-N1 eliminates)."""
-    raw = path.read_text(encoding="utf-8")
+def scan_text(raw: str, rel: str) -> list[dict]:
+    """Scan ARBITRARY user-facing prose under the same rules as a doc — ``rel`` only labels the hits.
+
+    WARUM DIESE FUNKTION EXISTIERT (2026-09-07). Der Release-Standard 6.0.0 verlangt einen
+    „Formpruefer und Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN: es gab keinen.
+    `.github/workflows/release.yml` erzeugt den Release-Text mit ``generate_release_notes: true``,
+    also GitHub aus PR-Titeln und Commit-Betreffs — dieser Text ist KEINE Datei im Baum, taucht in
+    ``_DEFAULT_DOCS`` nicht auf und wurde deshalb nie gescannt. Der Tag-Text ebenso wenig.
+
+    DER PUNKT IST DIE EINE REGELMENGE. Ein zweiter Pruefer mit eigener Musterliste waere die
+    naheliegende und die falsche Loesung: zwei Listen driften auseinander, und dann sagt die eine
+    Flaeche etwas, das die andere verbietet. Deshalb faellt hier nur der EINGANG anders aus —
+    Zeichenkette statt Pfad —, und `scan_file` ist seither ein duenner Aufruf hierher.
+    """
     text = _soft_unwrap(_strip_code(raw))
     violations = []
     for rx, label in _FORBIDDEN_RE:
@@ -268,14 +277,22 @@ def scan_file(path: Path) -> list[dict]:
                         and not _FIRST_PARTY_SUBJECT.search(clause)):
                     continue   # accurate for an external public log, and not a first-party overclaim
             line = raw.count("\n", 0, m.start()) + 1
-            try:
-                rel = str(path.relative_to(REPO))
-            except ValueError:
-                rel = path.name
             violations.append({"file": rel, "line": line,
                                "phrase": label, "match": m.group(0),
                                "sentence": sentence.strip()[:120]})
     return violations
+
+
+def scan_file(path: Path) -> list[dict]:
+    """Scan one doc. A read error (missing/unreadable) RAISES OSError — the caller decides; the gate
+    treats it as a FAIL entry, never a silent skip (six-lens review: a listed-but-unreadable doc
+    previously counted as scanned + PASS, the exact class WP-N1 eliminates)."""
+    raw = path.read_text(encoding="utf-8")
+    try:
+        rel = str(path.relative_to(REPO))
+    except ValueError:
+        rel = path.name
+    return scan_text(raw, rel)
 
 
 # ── CLI-surface scan (WP-N3, OTS calendar-risk hardening 2026-07-17) ─────────────────────────────────
