@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import zipfile
 import sys
 from pathlib import Path
 
@@ -50,28 +51,25 @@ def _modul():
 
 
 @pytest.mark.slow   # siehe _MARKER_HINWEIS: heute eine Beschriftung, kein Filter
-@pytest.mark.xfail(strict=True, reason=(
-    "GEMESSEN ROT am 2026-09-07, Befund WHEEL-IST-NICHT-REPRODUZIERBAR-DATEIMODI-UND-BAUHOST-"
-    "SCHLAGEN-DURCH-01. 82 Eintraege je Seite, NULL inhaltliche Unterschiede, 11 Eintraege "
-    "verschieden allein im Dateimodus (0o100664 gegen 0o100644). "
-    "WELCHE 11 — und dieser Satz ist eine KORREKTUR: eine Gegenlesung hat nachgemessen, dass es "
-    "ausschliesslich package_data und dist-info sind (JSON-Policies, LICENSE, py.typed, "
-    "entry_points.txt, top_level.txt) und NICHT die .py-Quelldateien; die stimmen im Ausgangsfall "
-    "auf beiden Seiten bei 0o664 ueberein. Der urspruengliche Grund sagte pauschal 'der Arbeitsbaum "
-    "traegt die umask des Bauhosts' und liess das wie den ganzen Mechanismus aussehen. "
-    "WAS AUSDRUECKLICH NICHT BEHAUPTET WIRD, seit dieselbe Gegenlesung es widerlegt hat: dass eine "
-    "Kanonisierung des Bauwegs diesen Fall gruen macht. Sie hat genau das eingepflanzt — Arbeitsbaum "
-    "vor dem Direkt-Bau auf 0644 gesetzt, per stat verifiziert — und der Fall blieb xfailed; die "
-    "Divergenz wurde SOGAR GROESSER (68 statt 11 Eintraege, zweimal reproduziert, gleiche "
-    "setuptools-Version 84.0.0 in beiden WHEEL-Metadaten). Die aus dem sdist gebaute Seite liefert "
-    "fuer .py-Dateien konsistent 0o664, OBWOHL die entpackten Dateien auf der Platte 0644 tragen. "
-    "Die Ursache liegt damit im Bauweg ueber die Isolation, nicht im Quellzustand — und sie ist "
-    "NICHT MESSBAR aufgeklaert. "
-    "WARUM xfail UND NICHT EIN ROTER FALL: der Defekt liegt im Bauweg (release.yml baut das wheel "
-    "mit `python -m build --wheel` aus dem Baum, ohne Kanonisierung), und ihn zu beheben aendert das "
-    "ausgelieferte Artefakt — eine Owner-Entscheidung. WARUM strict=True: sobald der Fall aus "
-    "IRGENDEINEM Grund gruen wird, schlaegt er an und verlangt eine Erklaerung. Ein nicht-strikter "
-    "haette jede Aenderung stillschweigend geschluckt."))
+# DER XFAIL IST WEG, UND ZWAR WEIL ER ANGESCHLAGEN HAT. Er war strict=True mit der Begruendung
+# "sobald der Fall aus IRGENDEINEM Grund gruen wird, schlaegt er an und verlangt eine Erklaerung".
+# Am 2026-09-07 wurde er XPASS(strict) — hier ist die Erklaerung.
+#
+# WAS DEN FALL GRUEN GEMACHT HAT: die Kanonisierung des wheels IM BAUWEG (Owner-Entscheid
+# OA-402ef6f4e9 / OA-7af1e29036, Option 1). `build_normalized_wheel` schreibt das fertige Archiv
+# mit festen Modi (0755/0644) und festen Zeiten neu; `release.yml` faehrt denselben Weg.
+# Gemessen mit Isolation, wie release.yml baut: identical=true, beide Digests
+# a009a9685613d52bed3cff3a4fbbe72ef39dfb7b27c59a92c9a970668f237a4f.
+#
+# WARUM DAS DER FRUEHEREN WIDERLEGUNG NICHT WIDERSPRICHT. Der alte Grund hielt fest, eine
+# Gegenlesung habe gezeigt, dass "eine Kanonisierung des Bauwegs diesen Fall NICHT gruen macht" —
+# sie hatte den ARBEITSBAUM vor dem Direkt-Bau auf 0644 gesetzt und die Divergenz wurde groesser
+# (68 statt 11 Eintraege). Das ist ein anderer Eingriff: Quellzustand aendern gegen fertiges
+# Artefakt nachbearbeiten. Die damalige Messung bleibt gueltig fuer das, was sie gemessen hat.
+#
+# WAS DAMIT NICHT GEZEIGT IST: warum der Bau ueber die Isolation fuer .py-Dateien aus dem sdist
+# 0o664 liefert, obwohl die entpackten Dateien 0644 tragen. Diese Ursache ist weiterhin NICHT
+# MESSBAR aufgeklaert; die Kanonisierung macht sie nur folgenlos.
 def test_das_wheel_aus_dem_sdist_ist_bytegleich_mit_dem_direkt_gebauten():
     """DIE ZUSICHERUNG. Sie baut wirklich — zweimal ein wheel und einmal ein sdist.
 
@@ -116,7 +114,15 @@ def test_ANTI_PARITAET_die_messung_faengt_zwei_VERSCHIEDENE_wheels():
         p = echt(quelle, outdir, epoch, **kw)
         zaehler["n"] += 1
         if zaehler["n"] == 2:          # der Bau AUS DEM SDIST
-            p.write_bytes(p.read_bytes() + b"\x00")
+            # EIN ZUSAETZLICHER EINTRAG, KEIN ANGEHAENGTES BYTE — und der Unterschied ist der
+            # Befund vom 2026-09-07. Vorher stand hier `p.write_bytes(p.read_bytes() + b"\x00")`.
+            # Seit die Kanonisierung im Bauweg sitzt, LIEST `normalize_wheel` das Archiv und
+            # schreibt es neu; ein Byte hinter dem Zentralverzeichnis verschwindet dabei, und die
+            # Einspeisung kam gar nicht mehr im Vergleich an: die Probe wurde still zahnlos und
+            # meldete `identical is True`. Ein zusaetzlicher Eintrag ueberlebt die Kanonisierung,
+            # weil sie Eintraege kopiert — damit misst die Kontrolle wieder den Vergleich.
+            with zipfile.ZipFile(p, "a") as z:
+                z.writestr("eingepflanzt_von_der_antiparitaet.txt", "probe")
         return p
 
     m._build_wheel = gestoert
