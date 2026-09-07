@@ -87,11 +87,22 @@ def test_ANTI_PARITAET_ohne_stoertext_bleibt_die_zahl_dieselbe():
 
 # ── Instanz 5 (latent): die Release-Version ohne Sektionsgrenze ──────────────────────────────────
 #
-# SECHS Skripte lesen die Version aus `pyproject.toml`, alle mit derselben Form
+# MEHRERE Skripte lesen die Version aus `pyproject.toml`, alle mit derselben Form
 # `re.search(r'(?m)^\s*version\s*=\s*["\']...')`. `(?m)^` verankert an den ZEILENanfang, nicht an
 # die SEKTION. TOML kennt aber Sektionen, und `version` ist ein Feld VON `[project]` — in
 # `[build-system]`, `[tool.poetry]` oder jedem anderen Tisch darueber stuende ein anderer Wert
-# gleichberechtigt am Zeilenanfang, und alle sechs naehmen ihn.
+# gleichberechtigt am Zeilenanfang, und ALLE naehmen ihn.
+#
+# DIE LISTE HIESS "SECHS" UND TRUG VIER, und die fuenfte reale Instanz fehlte ganz (Linse C der
+# Verify-Lane, 2026-09-07): `audit_candidate_matrix._version_aus_pyproject` liest mit demselben
+# Muster und weist das Ergebnis der MODULGLOBALEN `VERSION_UNDER_TEST` zu — eine
+# release-entscheidende Groesse, die der Klassen-Fix nicht erfasste. Die Ausnahme im Kopf-Docstring
+# nannte diese Datei sogar, aber wegen einer ANDEREN, wirklich verankerten Stelle in ihr.
+# Vierte Instanz der Kennzahl-Klasse an einem Tag, diesmal im Test, der die Klasse binden soll.
+#
+# DESHALB WIRD DIE MENGE JETZT GEMESSEN STATT GETIPPT: `test_die_liste_der_versionsleser_ist_
+# VOLLSTAENDIG` sweept `scripts/*.py` nach dem Muster und verlangt, dass jede Fundstelle hier
+# steht. Eine Liste, die niemand gegen die Wirklichkeit haelt, wird still zu kurz.
 #
 # HEUTE NICHT WIRKEND, gemessen: `pyproject.toml` traegt genau eine Zeile, die das Muster trifft
 # (Zeile 7, in `[project]`), und `[build-system]` darueber hat kein `version`-Feld. Der Fall unten
@@ -100,20 +111,31 @@ def test_ANTI_PARITAET_ohne_stoertext_bleibt_die_zahl_dieselbe():
 # Sweeps und steht hier, damit sie nicht als erledigt gilt: der Umbau auf sektionsbewusstes Lesen
 # ist ein eigener, ruhiger Zug.
 
+#: (Skript, Funktion, nimmt_repo_argument). Die dritte Stelle ist noetig, weil
+#: `audit_candidate_matrix._version_aus_pyproject` sein Repo aus einer Modulkonstante nimmt statt
+#: als Argument — eine Form, die genau deshalb leicht uebersehen wird.
 _VERSIONSLESER = (
-    ("check_version_and_changelog", "_pyproject_version"),
-    ("pre_tag_audit_gate", "pyproject_version"),
-    ("findings_register", "_pyproject_version"),
-    ("sign_readiness_artifact", "pyproject_version"),
+    ("check_version_and_changelog", "_pyproject_version", True),
+    ("pre_tag_audit_gate", "pyproject_version", True),
+    ("findings_register", "_pyproject_version", True),
+    ("sign_readiness_artifact", "pyproject_version", True),
+    ("audit_candidate_matrix", "_version_aus_pyproject", False),
 )
+
+#: Das Muster, das die Klasse ausmacht: `version` am ZEILENanfang statt in seiner TOML-Sektion.
+_VERSIONSMUSTER = re.compile(r'\(\?m\)\^\\s\*version\\s\*=')
 
 
 def test_alle_versionsleser_sind_sich_ueber_DIESES_repo_einig():
-    """Die Zusicherung: sechs Wege zu einer Groesse muessen eine Antwort geben."""
+    """Die Zusicherung: alle Wege zu einer Groesse muessen eine Antwort geben.
+
+    Die Zahl steht nicht mehr im Satz. Sie stand hier als "sechs", waehrend die Liste vier trug —
+    und niemand las beides nebeneinander (Linse C, 2026-09-07).
+    """
     werte = {}
-    for skript, funktion in _VERSIONSLESER:
+    for skript, funktion, nimmt_repo in _VERSIONSLESER:
         m = _skript(skript)
-        werte[skript] = getattr(m, funktion)(REPO)
+        werte[skript] = getattr(m, funktion)(REPO) if nimmt_repo else getattr(m, funktion)()
     assert len(set(werte.values())) == 1, (
         f"Die Versionsleser widersprechen sich: {werte}. Eine Freigabe, deren Version davon "
         f"abhaengt, welches Skript sie liest, bindet nichts.")
@@ -140,3 +162,48 @@ def test_die_bruchstelle_ist_die_SEKTIONSGRENZE_und_sie_ist_gezeigt(tmp_path):
         f"pyproject.toml traegt {len(muster.findall(echt))} Zeilen, die das Muster treffen. Damit "
         f"ist die latente Luecke WIRKEND geworden und der Umbau auf sektionsbewusstes Lesen ist "
         f"faellig — er ist kein Aufschub mehr, sondern ein Defekt.")
+
+
+def test_die_liste_der_versionsleser_ist_VOLLSTAENDIG():
+    """DER KLASSEN-FIX ZUR LISTE SELBST: die Menge wird gemessen, nicht getippt.
+
+    GEFUNDEN VON LINSE C (Verify-Lane, 2026-09-07): der Kommentar sprach von SECHS Skripten, die
+    Liste trug VIER, und eine fuenfte reale Instanz stand ungenannt in
+    `audit_candidate_matrix._version_aus_pyproject` — mit einer Ausschlussbegruendung im
+    Kopf-Docstring, die sich auf eine ANDERE Stelle derselben Datei bezog. Eine Aufzaehlung neben
+    einer Menge, die sich bewegt, wird still zu kurz; genau das ist die Klasse, die diese Datei
+    bindet, und sie hatte sie an sich selbst.
+
+    Dieser Fall sweept `scripts/*.py` nach dem zeilenverankerten Versionsmuster und verlangt, dass
+    jede Fundstelle in `_VERSIONSLESER` gefuehrt ist. Findet jemand einen sechsten Leser und traegt
+    ihn nicht ein, faellt dieser Fall — nicht erst der naechste Release.
+    """
+    gefunden = set()
+    for pfad in sorted((REPO / "scripts").glob("*.py")):
+        if _VERSIONSMUSTER.search(pfad.read_text(encoding="utf-8", errors="replace")):
+            gefunden.add(pfad.stem)
+    assert gefunden, (
+        "der Sweep findet KEINE Stelle mit dem Versionsmuster — dann prueft dieser Fall nichts, "
+        "statt still zu bestehen (das Muster selbst ist dann kaputt)")
+    gefuehrt = {name for name, _f, _r in _VERSIONSLESER}
+    fehlend = gefunden - gefuehrt
+    assert not fehlend, (
+        f"Diese Skripte lesen die Version mit dem zeilenverankerten Muster, stehen aber NICHT in "
+        f"_VERSIONSLESER: {sorted(fehlend)}. Damit sagt die Zusicherung ueber sie nichts — und die "
+        f"Liste behauptet eine Deckung, die sie nicht hat. Eintragen oder mit Begruendung "
+        f"ausnehmen, aber nicht uebersehen.")
+
+
+def test_ANTI_PARITAET_der_vollstaendigkeits_sweep_wuerde_einen_fehlenden_leser_melden(tmp_path):
+    """DIE KONTROLLE. Ohne sie bestuende der Fall oben auch bei einem Sweep, der nie etwas findet."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "ein_neuer_leser.py").write_text(
+        'import re\nm = re.search(r\'(?m)^\\s*version\\s*=\\s*["\']([^"\']+)["\']\', "")\n',
+        encoding="utf-8")
+    gefunden = {p.stem for p in sorted((tmp_path / "scripts").glob("*.py"))
+                if _VERSIONSMUSTER.search(p.read_text(encoding="utf-8"))}
+    assert gefunden == {"ein_neuer_leser"}, (
+        f"Die Sweep-Logik faengt einen eingepflanzten neuen Leser NICHT (gefunden: {gefunden}) — "
+        f"dann bestuende der Fall oben nur, weil nichts zu finden war.")
+    assert not (gefunden & {name for name, _f, _r in _VERSIONSLESER}), (
+        "der eingepflanzte Name kollidiert mit einem echten Eintrag — der Fall misst dann etwas anderes")

@@ -716,7 +716,7 @@ def _red_count(work: Path) -> int | None:
         with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
             bericht = Path(_b) / "bilanz.xml"
             proc = _lauf_der_suite(work, bericht)
-            return _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr)
+            return _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
     except (subprocess.TimeoutExpired, OSError) as fehler:
         # NICHT NUR DER TIMEOUT. Die erste Fassung fing ausschliesslich `TimeoutExpired`; jede
         # andere Stoerung (fehlender Interpreter im schmalen PATH, Ressourcenfehler beim fork)
@@ -842,14 +842,37 @@ def _bilanzzeile(text: str) -> str | None:
     return None
 
 
-#: Die BANNERFORM eines pytest-Abbruchs: mindestens fuenf Ausrufezeichen, Text, wieder mindestens
-#: fuenf. Gebunden an die FORM, nicht an einen Wortlaut — genau daran ist die erste Fassung
-#: gescheitert (Gegenlesung 2026-09-07, ausgefuehrt).
-_ABBRUCH_BANNER = re.compile(r"^!{5,} .* !{5,}$", re.M)
+#: Die BANNERFORM eines pytest-Abbruchs: Ausrufezeichen, Text, wieder Ausrufezeichen. Die erste
+#: Fassung verlangte je FUENF — und genau das war wieder die Klasse dieses Tages: die Fuellbreite
+#: ist keine Eigenschaft des Abbruchs, sondern eine Funktion der Titel-LAENGE.
+#: `TerminalWriter.sep` rechnet `N = max((breite - len(titel) - 2) // 2, 1)`; bei 80 Spalten faellt
+#: N unter fuenf, sobald der Titel laenger als 68 Zeichen ist, und `session.shouldstop` traegt einen
+#: BELIEBIGEN Text. AUSGEFUEHRT GEMESSEN 07.09.2026 mit echtem pytest im Laufpfad dieses Tors: ein
+#: Abbruch mit langem Grund schrieb `! Interrupted: abgebrochen, weil der Mutant ... !` mit EINEM
+#: Ausrufezeichen je Seite, das Muster griff nicht, die Bilanzzeile `1 failed, 1 passed` wurde
+#: gelesen — und bei Basislinie 0 haette `1 > 0` die Mutante als GETOETET verbucht, obwohl der Lauf
+#: abbrach. Die Grenze zu einem Traceback, der Ausrufezeichen ausgibt, traegt jetzt der
+#: Rueckgabewert, nicht die Fuelllaenge.
+_ABBRUCH_BANNER = re.compile(r"^!+ .* !+$", re.M)
+
+#: Die Rueckgabewerte von pytest, die "der Lauf ist nicht zu Ende gekommen" heissen — eine
+#: MASCHINENSCHNITTSTELLE statt einer Zeichenkette (dieselbe Lehre wie `--junitxml` gegen den
+#: Textparser und wie der Tab-Anker in `pre_tag_receipt_lib`). 2 = Interrupted (Abbruch),
+#: 3 = interner Fehler, 4 = Aufruffehler. 1 (Tests rot) und 0 (gruen) sind gemessene Laeufe;
+#: 5 (nichts gesammelt) faengt der Bilanzpfad, weil dort eine Zahl stehen kann.
+_RC_NICHT_MESSBAR = frozenset({2, 3, 4})
 
 
-def _rote_aus_lauf(bericht: Path, text: str) -> int | None:
-    """Das Urteil ueber einen Lauf: strukturierte Quelle zuerst, Textpfad als LAUTER Rueckfall."""
+def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | None:
+    """Das Urteil ueber einen Lauf: RUECKGABEWERT zuerst, dann die strukturierte Quelle, dann Text.
+
+    `rc` ist der Rueckgabewert des pytest-Prozesses. Er ist die einzige Quelle hier, die nicht
+    davon abhaengt, wie breit ein Terminal ist oder welchen Wortlaut eine Fremdbibliothek waehlt.
+    `None` heisst ausschliesslich "nicht uebergeben" (alte Aufrufer, Tests) — dann bleibt es bei
+    den zwei Textriegeln darunter, die dieselbe Sache schwaecher pruefen.
+    """
+    if rc is not None and rc in _RC_NICHT_MESSBAR:
+        return None
     # DER ABBRUCH-RIEGEL KANNTE ZWEI WORTLAUTE UND NICHT DIE FORM (adversariale Gegenlesung
     # 2026-09-07, mit echtem pytest ausgefuehrt). Er prueft `^!+ Interrupted` und `^INTERNALERROR`.
     # `pytest.exit()` schreibt aber ein Banner mit ANDEREM Wortlaut:

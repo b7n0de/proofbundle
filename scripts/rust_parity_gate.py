@@ -249,7 +249,20 @@ def evaluate(*, src_dir: Path = SRC, registry_path: Path = REGISTRY_PATH, rust_m
 
         # COVERED / PARTIAL: verify the claim against real evidence before trusting it.
         problem = None
-        for subcommand in entry.get("rust_subcommands", []):
+        # EINE BEHAUPTUNG OHNE JEDEN BELEG IST KEINE VERIFIZIERTE BEHAUPTUNG (Riegel-Sweep,
+        # Owner-Auftrag 2026-09-07). Die zwei Schleifen darunter pruefen JEDEN genannten Beleg —
+        # aber ueber einer LEEREN Liste ist jede Allaussage wahr, und `problem` bliebe None. Ein
+        # Eintrag `{"status": "COVERED", "rust_subcommands": [], "crosscheck_refs": []}` lief
+        # damit als verifiziert durch, obwohl dieses Skript sich im eigenen Docstring ein
+        # HONESTY GATE gegen genau "a stale/lying COVERED claim" nennt. Gemessen am selben Tag:
+        # ein solcher Eintrag ergab `covered=1, stale=[], registry_integrity_ok=True`.
+        # Die heutige Registry traegt keinen solchen Eintrag (geprueft), der Riegel ist also
+        # nicht-brechend — er verhindert das Entstehen, nicht einen Bestand.
+        if not entry.get("rust_subcommands") and not entry.get("crosscheck_refs"):
+            problem = (f"claims {status} but names NO evidence at all — neither a rust_subcommand "
+                       "nor a crosscheck_ref. An empty claim cannot be checked, and an unbounded "
+                       "claim is not a verified one")
+        for subcommand in entry.get("rust_subcommands", []) if problem is None else []:
             if subcommand not in arms:
                 problem = f"claims rust_subcommand {subcommand!r} but it is not a match arm in main.rs"
                 break

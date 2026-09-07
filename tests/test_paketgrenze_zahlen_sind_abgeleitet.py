@@ -110,15 +110,11 @@ def test_JEDE_zahl_im_kopf_ist_gebunden_oder_steht_nicht_da():
     unten gebundenen Einzelzahlen ist, faellt. Eine neue Zahl muss also entweder eine Bindung
     bekommen oder draussen bleiben; sie kann sich nicht mehr an einer Formulierung vorbeischreiben.
     """
-    kopf = CONFTEST.read_text(encoding="utf-8").split('"""')[1]
-    ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)          # Messdaten
-    ohne = re.sub(r"\b\d+\.\d+\.\d+\b", " ", ohne)             # Versionen
-    ohne = re.sub(r"\bPKG-\d{4}-\d{4}-\d{2}\b", " ", ohne)       # Vorgangskennungen
     # `\d+` STATT `\d{2,}` (Bestaetigungsrunde 2026-09-07, Linse 1). Die erste Fassung verlangte
     # ZWEI Ziffern, und eine eingepflanzte einstellige Zahl ("8 more tests") blieb dadurch
-    # unsichtbar. Eine Zahl veraltet nicht erst ab zehn.
-    gefunden = {int(z) for z in re.findall(r"\b(\d+)\b", ohne)}
-    ungebunden = sorted(gefunden - set(_ZITIERTE_ZAHLEN.values()) - _ZAEHLBARE_KLEINWERTE)
+    # unsichtbar. Eine Zahl veraltet nicht erst ab zehn. Die Ableitung steht in
+    # `_ungebundene_zahlen` und wird von der Kontrolle DIESELBE gerufen, nicht nachgebaut.
+    ungebunden = _ungebundene_zahlen(CONFTEST.read_text(encoding="utf-8").split('"""')[1])
     assert not ungebunden, (
         f"Der Kopf von conftest.py nennt Zahl(en), die an nichts gebunden sind: {ungebunden}. Jede "
         f"Zahl ueber eine Menge, die waechst, veraltet still — genau so ist die Kollateralzahl "
@@ -150,15 +146,37 @@ def test_die_zahl_gehoert_zu_IHREM_modul_und_nicht_irgendeinem():
             f"steht, ist keine Bindung — sie ist eine Uebereinstimmung. Umfeld war: {umfeld[:120]!r}")
 
 
+def _ungebundene_zahlen(kopf: str) -> list[int]:
+    r"""DIE EINE Ableitung, die der Riegel UND seine Kontrolle benutzen.
+
+    GEFUNDEN BEIM VOLLLESEN (Riegel-Sweep, 2026-09-07): die Kontrolle hatte die Logik des Riegels
+    NACHGEBAUT — und ihre Kopie blieb auf `\d{2,}` stehen, als der Riegel auf `\d+` umgestellt
+    wurde. Sie kontrollierte damit eine Fassung, die es nicht mehr gab: eine eingepflanzte
+    EINSTELLIGE Zahl haette der Riegel gefangen, die Kontrolle nicht. Ein Orakel, das die
+    Implementierung nachbaut, driftet von ihr weg — dieselbe Klasse, gegen die diese Datei antritt.
+    Jetzt gibt es die Ableitung genau einmal, und beide rufen sie.
+    """
+    ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)      # Messdaten
+    ohne = re.sub(r"\b\d+\.\d+\.\d+\b", " ", ohne)            # Versionen
+    ohne = re.sub(r"\bPKG-\d{4}-\d{4}-\d{2}\b", " ", ohne)      # Vorgangskennungen
+    gefunden = {int(z) for z in re.findall(r"\b(\d+)\b", ohne)}
+    return sorted(gefunden - set(_ZITIERTE_ZAHLEN.values()) - _ZAEHLBARE_KLEINWERTE)
+
+
 def test_ANTI_PARITAET_der_riegel_faengt_eine_eingepflanzte_zahl():
     """DIE KONTROLLE, die der ersten Fassung gefehlt hat. Ohne sie bestuende der Fall oben auch
-    dann, wenn er gar nichts mehr faende — und genau das war er einen Commit lang."""
-    kopf = "Ein Kopf, der von 4711 uebersprungenen Tests spricht, ohne die Zahl zu binden."
-    ohne = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", kopf)
-    gefunden = {int(z) for z in re.findall(r"\b(\d{2,})\b", ohne)}
-    assert gefunden - set(_ZITIERTE_ZAHLEN.values()) == {4711}, (
-        "Die Logik des Falls oben faengt eine eingepflanzte ungebundene Zahl NICHT — dann bestuende "
-        "er nur, weil im echten Kopf zufaellig nichts steht.")
+    dann, wenn er gar nichts mehr faende — und genau das war er einen Commit lang.
+
+    Sie ruft jetzt DIESELBE Ableitung wie der Riegel (`_ungebundene_zahlen`) statt sie nachzubauen,
+    und sie pflanzt eine EINSTELLIGE Zahl mit ein: an genau der waere die alte, nachgebaute Fassung
+    vorbeigelaufen.
+    """
+    kopf = "Ein Kopf, der von 4711 uebersprungenen Tests spricht und von 7 weiteren, ohne Bindung."
+    assert _ungebundene_zahlen(kopf) == [7, 4711], (
+        "Die Ableitung faengt eine eingepflanzte ungebundene Zahl NICHT — weder die vierstellige "
+        "noch die EINSTELLIGE. Dann bestuende der Riegel oben nur, weil im echten Kopf zufaellig "
+        f"nichts steht. Gemessen: {_ungebundene_zahlen(kopf)}")
+
 
 
 def test_die_ableitung_erkennt_die_zitierten_module_ausserhalb_eines_checkouts(tmp_path):
@@ -192,3 +210,35 @@ def test_ANTI_PARITAET_die_ableitung_haelt_ein_reines_paketmodul_NICHT_fuer_repo
     assert not m.modul_ist_repo_kontext(rein, tmp_path), (
         "Ein Modul ohne jeden Repo-Pfad gilt als Repo-Kontext. Dann wird aus dem Paket heraus alles "
         "uebersprungen, und ein Lauf ohne einen einzigen ausgefuehrten Test liest sich als gruen.")
+
+
+# ── OFFEN, GEMESSEN, NICHT GEFIXT: die Zahl im Kopf ist eine SKIP-Zahl, gemessen wird eine ───────
+#   SAMMELMENGE (Riegel-Sweep auf Owner-Auftrag, 2026-09-07)
+#
+# `test_die_im_kopf_zitierten_zahlen_stimmen_mit_dem_sammler_ueberein` vergleicht die Zahl des
+# Kopfes mit `_gesammelte_items(modul)` — der Zahl der im REPO GESAMMELTEN Tests. Der Kopf
+# behauptet aber "34 skipped": die Zahl der aus dem PAKET heraus UEBERSPRUNGENEN. Gemessen am
+# 2026-09-07: beide Module werden im Repo NULL mal uebersprungen (34 gesammelt / 0 skipped,
+# 9 gesammelt / 0 skipped). Die Gleichheit haelt nur, solange ausserhalb des Checkouts ALLE
+# gesammelten Items uebersprungen werden — eine Annahme, die nirgends steht.
+#
+# AUSGEFUEHRTER FANGNACHWEIS: `conftest.modul_ist_repo_kontext` auf `return True` gesetzt (das
+# Paket ueberspringt dann ALLES statt nichts) — von sechs Faellen dieser Datei fiel NUR die
+# Anti-Paritaets-Kontrolle. Die vier Zusicherungen ueber die Zahlen blieben gruen, weil keine von
+# ihnen eine Skip-Zahl misst. Das ist die Klasse des Sweeps in Reinform: der Test prueft die FORM
+# (die Zahl steht da und passt zu einer Sammelmenge) statt der WIRKUNG (aus dem Paket heraus wird
+# genau so oft uebersprungen).
+#
+# WARUM HIER KEIN FALL STEHT, sondern dieser Kommentar: die Wirkung ist nur an einer ECHTEN sdist
+# messbar, nicht an einem nachgebauten Wegwerfbaum. Ein erster Versuch mit `shutil.copy2` von
+# conftest plus den zwei Modulen scheiterte belegbar daran, dass `test_fork_pr_secret_isolation`
+# BEIM IMPORT `scripts/fork_pr_secret_isolation.py` laedt, waehrend `conftest.pytest_collection_
+# modifyitems` (Zeile ~463) erst NACH dem Import ueberspringt: der Wegwerfbaum liefert einen
+# Collection-Error statt eines Skips. Ob die ECHTE sdist dasselbe tut, ist eine andere Frage —
+# `N18` im Release-Beleg fuehrt genau diese Diskrepanz zwischen der Zusage "degrades to clean
+# skips" und einem gemessenen roten Lauf bereits als offenen Punkt.
+#
+# Einen Fall gegen eine Messflaeche zu stellen, die den Gegenstand nicht abbildet, waere an diesem
+# Abend die DRITTE Instanz derselben Falle (siehe Klasse
+# `messbaum_ueberspringt_genau_die_pruefung_um_die_es_geht`). Der Fund steht deshalb hier, benannt
+# und mit Fangnachweis, und der Fix wartet auf die sdist als Messflaeche — ein eigener Zug.
