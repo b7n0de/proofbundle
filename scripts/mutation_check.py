@@ -649,11 +649,16 @@ import sys, pytest
 # Modulnamen-Filter, aber --ignore ist exakt dieselbe Semantik: die Datei wird gar nicht erst
 # gesammelt, also zaehlt sie weder als Erfolg noch als Fehler.
 ignor = [f"--ignore=tests/{name}.py" for name in sys.argv[1:]]
-sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", "tests", *ignor]))
+# `-p no:randomly` IST NICHT KOSMETIK. Dieses Repo aktiviert pytest-randomly; zwei aufeinander
+# folgende Sammellaeufe liefern verschiedene Reihenfolgen (gemessen 2026-09-07). Ein Mutationstor
+# vergleicht `red` zwischen Basislinie und Mutant — bei zufaelliger Reihenfolge vergleicht es zwei
+# verschieden gefahrene Suiten, und eine ordnungsabhaengige Roete waendert das Urteil ohne dass am
+# Code etwas anders waere. Gefunden von der un-Gegenlesung dieses Diffs (K6), nicht vom Autor.
+sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", "-p", "no:randomly", "tests", *ignor]))
 """
 
 
-def _red_count(work: Path, *, ausschluss: bool = False) -> int:
+def _red_count(work: Path, *, ausschluss: bool = False) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -671,26 +676,50 @@ def _red_count(work: Path, *, ausschluss: bool = False) -> int:
     # subprocess-Knotens stehen. Eine Zwischenvariable macht diese Datei fuer den Waechter
     # unsichtbar, obwohl sie die Suite unveraendert startet — beim ersten Versuch am 02.09.2026
     # genau so gemessen: der Waechter meldete den Laeufer als VERSCHWUNDEN.
-    proc = subprocess.run(
+    try:
+        proc = _lauf_der_suite(work, ausschluss=ausschluss)
+    except subprocess.TimeoutExpired:
+        return None   # haengender Lauf: NICHT MESSBAR, nie "kein Test wurde rot"
+    return _rote_aus_text(proc.stdout + "\n" + proc.stderr)
+
+
+def _lauf_der_suite(work: Path, *, ausschluss: bool) -> subprocess.CompletedProcess:
+    return subprocess.run(
         ([sys.executable, "-B", "-c", _FILTER_PROGRAMM, *sorted(_AUSSCHLUSS_JE_MUTANTE)]
          if ausschluss else
-         [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]),
+         [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+          "-p", "no:randomly", "tests"]),
         cwd=work, capture_output=True, text=True,
+        # TIMEOUT, und er hat einen Grund: `budget: data_digests-Schranke praktisch entfernt`
+        # entfernt die Ressourcendecke, unter der dieser Lauf steht. Am 2026-09-07 beendete der
+        # Kernel den Prozess nach 393 s; ohne Decke haette er haengen koennen. Ein Tor, dessen
+        # Unterprozess haengt, meldet gar nichts — es haelt den ganzen Lauf an. Der Ausfall wird
+        # zu einem fehlenden Bilanztext und damit zu NICHT MESSBAR, nicht zu einem stillen Halt.
+        # Gefunden von der un-Gegenlesung dieses Diffs (K5), nicht vom Autor.
+        timeout=1800,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
+
+
+def _rote_aus_text(text: str) -> int | None:
     # PYTEST SCHREIBT SEINE BILANZ AUF STDOUT, unittest schrieb sie auf stderr. Beide werden
     # gelesen: ein Lauf, der vor der Bilanz abbricht (Sammelfehler, Speicher), hinterlaesst auf
     # stdout nichts Zaehlbares, und dann darf hier keine 0 herauskommen — das waere ein stiller
     # "nichts ist rot" fuer einen Lauf, der gar nicht stattfand.
-    text = proc.stdout + "\n" + proc.stderr
     f = re.search(r"(\d+) failed", text)
     e = re.search(r"(\d+) error", text)
     rot = (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
     if rot == 0 and not re.search(r"\d+ passed", text):
-        # Kein "N passed" und kein "N failed": die Bilanzzeile fehlt ganz. Der Lauf ist NICHT
-        # gruen, er ist nicht zu Ende gekommen. Fail-closed als ein Fehler zaehlen, damit ein
-        # abgebrochener Lauf nie als "kein Test wurde rot" durchgeht.
-        return 1
+        # KEIN "N passed" UND KEIN "N failed": die Bilanzzeile fehlt ganz. Der Lauf ist nicht
+        # gruen — er ist nicht zu Ende gekommen (Sammelfehler, OOM-Kill, Timeout).
+        #
+        # WARUM HIER `None` STEHT UND NICHT 1. Die erste Fassung dieses Riegels gab 1 zurueck,
+        # "fail-closed als ein Fehler". GEMESSEN am eigenen Code: das Urteil lautet
+        # `killed = red > baseline`, und die Baseline dieses Repos ist 14. `1 > 14` ist falsch —
+        # der abgestuerzte Lauf haette sich WEITERHIN als SURVIVED gelesen. Ein Riegel, dessen
+        # Wert unter der Schwelle bleibt, gegen die er antritt, wirkt nicht; er beruhigt nur den,
+        # der ihn geschrieben hat. Deshalb ein eigener Zustand statt einer Zahl.
+        return None
     return rot
 
 
@@ -815,6 +844,10 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     # bindenden `test`-Jobs derselben CI, die die volle Suite fahren, und am kanonischen
     # Volllauf vor jedem Tag. Siehe docs/PRE_TAG_AUDIT.md.
     baseline = _red_count(work, ausschluss=True)
+    if baseline is None:
+        raise SystemExit("mutation_check: der Baseline-Lauf hat keine Bilanzzeile hinterlassen — "
+                         "ohne Baseline ist KEIN Operator beurteilbar, und ein Lauf ohne Urteil "
+                         "darf nicht wie ein Lauf ohne Befund aussehen")
     print(f"baseline red (environment-only failures allowed): {baseline}")
     gaps = 0
     gewichte, gewicht_grund = lade_gewichte()
@@ -867,6 +900,22 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             red = _red_count(work, ausschluss=True)
             _dauer = time.monotonic() - _t0
             dauern[label] = round(_dauer, 1)
+            if red is None:
+                # DER DRITTE ZUSTAND, und N20 in RESTRISIKO_600.md benennt ihn bereits:
+                # "Not measurable is its own state — not a kill, not a survivor." Genau hierher
+                # gehoert `budget: data_digests-Schranke praktisch entfernt`: die Mutation entfernt
+                # die Ressourcendecke, unter der der Lauf steht, und der Prozess wird vom Kernel
+                # beendet (gemessen 2026-09-07: 393,4 s gegen ~65 s, dann Killed). Bis dahin las
+                # sich das als "SURVIVED (red=0)" — ein Ueberlebender, den nie jemand gemessen hat.
+                #
+                # ER ZAEHLT ALS LUECKE, aber er heisst nicht so. "Konnte nicht gemessen werden" ist
+                # nicht "gemessen und in Ordnung"; wer ihn nicht zaehlt, macht aus einer Unbekannten
+                # ein Bestehen. Der Name daneben verhindert, dass ein Leser ihn fuer einen echten
+                # ueberlebenden Defekt haelt.
+                print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
+                      f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
+                gaps += 1
+                continue
             killed = red > baseline
             ok = killed == expect_killed
             verdict = "KILLED" if killed else "SURVIVED"
@@ -886,7 +935,11 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     if dauern:
         print("MUTATION_DURATIONS " + json.dumps(dauern, sort_keys=True))
     final = _red_count(work, ausschluss=True)   # dieselbe Menge wie Baseline und Mutant
-    if final != baseline:
+    if final is None:
+        print("GAP: der Schluss-Lauf hinterliess keine Bilanzzeile — die Wiederherstellung des "
+              "Baums ist damit NICHT belegt")
+        gaps += 1
+    elif final != baseline:
         print(f"GAP: baseline not restored ({final} != {baseline})")
         gaps += 1
     return gaps
