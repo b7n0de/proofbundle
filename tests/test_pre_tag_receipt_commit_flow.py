@@ -137,3 +137,46 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
         "a key added to the trust anchor after signing must be REJECTED -- the anchor decides WHO "
         f"may sign, so it belongs inside the bound subject; got exit {g3.returncode}: {g3.stdout}")
     assert "does not bind THIS tree" in g3.stdout or "receipt-verified=False" in g3.stdout
+
+
+def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
+    """Fund 3 der Gegenlesung 2026-09-07: der Ausschluss galt fuer JEDEN Ordnernamen.
+
+    ``subject_tree_digest`` nimmt genau eine Datei aus der Bindung: die Quittung, die in dem Baum
+    liegt, den sie bindet. Das Muster dafuer las den Ordner als ``[^/\t]+`` — also als beliebiges
+    Wort. Damit fiel auch ``audit_artifacts/beliebig/pre_tag_receipt_v9.9.9.json`` heraus, obwohl
+    ``beliebig`` kein Versions-Token ist. Kein Konsument nutzte das aus (``_receipt_candidates``
+    scoped auf den exakten Token), aber eine Ausnahme, die mehr ausschliesst als noetig, ist der
+    Anfang genau der Klasse, die dieser Commit schliesst.
+
+    Zwei Seiten, sonst waere gruen nichts wert: die ECHTE Quittungsstelle muss weiterhin
+    unsichtbar bleiben, die erfundene muss sichtbar werden.
+    """
+    import sys as _sys
+
+    _sys.path.insert(0, str(SCRIPTS))
+    from pre_tag_receipt_lib import subject_tree_digest
+
+    repo = tmp_path / "r"
+    (repo / "audit_artifacts" / "600").mkdir(parents=True)
+    (repo / "audit_artifacts" / "beliebig").mkdir(parents=True)
+    (repo / "datei.txt").write_text("basis\n")
+    _git(["init", "-q"], repo)
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "basis"], repo)
+    vorher = subject_tree_digest(repo)
+
+    # die ECHTE Quittungsstelle: bleibt aussen vor, sonst enthielte der Digest sich selbst
+    (repo / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json").write_text('{"a": 1}\n')
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "echte quittung"], repo)
+    assert subject_tree_digest(repo) == vorher, (
+        "die versions-gebundene Quittung muss weiterhin ausserhalb der Bindung liegen")
+
+    # ein frei benannter Ordner ist KEINE Quittungsstelle und gehoert in die Bindung
+    (repo / "audit_artifacts" / "beliebig" / "pre_tag_receipt_v9.9.9.json").write_text('{"b": 2}\n')
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "erfundene quittungsstelle"], repo)
+    assert subject_tree_digest(repo) != vorher, (
+        "audit_artifacts/<beliebig>/pre_tag_receipt_*.json faellt aus der Bindung — ein Angreifer "
+        "duerfte den Ordnernamen nicht selbst waehlen koennen")

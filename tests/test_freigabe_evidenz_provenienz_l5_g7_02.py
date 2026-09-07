@@ -278,6 +278,14 @@ def matrix_zellen():
          _mut(lambda b: b["gate_zeile"].__setitem__("verdict", "FIX_FIRST")), True),
         ("gate_zeile_verdikt_unbekannt",
          _mut(lambda b: b["gate_zeile"].__setitem__("verdict", "IRGENDEIN_NEUES_WORT")), True),
+        # BEINAHETREFFER, nachgetragen 2026-09-07 nach einer gemessenen Abdeckungsluecke. Die drei
+        # Faelle darueber pruefen Abwesenheit, einen bekannten Fail-Wert und ein fremdes Wort. Keiner
+        # von ihnen faengt einen Wert, der die ERLAUBTE Konstante als PRAEFIX traegt: die Mutation
+        # `not in _GATE_VERDICTS_PASS` -> `.startswith(...)` ueberlebte die ganze Matrix (50 passed,
+        # vor wie nach der Mutation), und `WITHSTANDS_DEEPGATE_PARTIALLY` waere danach ein Pass
+        # gewesen. Ein "teilweise standgehalten" ist kein Standhalten.
+        ("gate_zeile_verdikt_traegt_erlaubtes_als_praefix",
+         _mut(lambda b: b["gate_zeile"].__setitem__("verdict", "WITHSTANDS_DEEPGATE_PARTIALLY")), True),
         ("erzeuger_fehlt", _mut(lambda b: b.pop("producer", None)), True),
         ("werkzeugversion_fehlt", _mut(lambda b: b["producer"].pop("tool_version", None)), True),
         ("eingabe_digest_fehlt", _mut(lambda b: b.pop("input_digest", None)), True),

@@ -37,7 +37,39 @@ _SIGNED_FIELDS = (
 #: benennen also verschieden. Ein Muster, das nur eine Form kennt, laesst die andere im Digest — und
 #: genau daran ist die erste Fassung dieser Zeile am 2026-09-07 gescheitert: sie verlangte das `v`
 #: und traf die Form nicht, die das Werkzeug tatsaechlich erzeugt.
-_RECEIPT_MUSTER = _re.compile(r"audit_artifacts/[^/\t]+/pre_tag_receipt_v?[0-9][0-9A-Za-z.\-]*\.json$")
+#: VERENGT 2026-09-07 (Gegenlesung, Fund 3): `[^/\t]+` liess JEDEN Ordnernamen als Versions-Token
+#: durchgehen, `audit_artifacts/anything_i_want/pre_tag_receipt_v9.9.9.json` fiel also aus der
+#: Bindung. Kein Konsument nutzte das aus — `_receipt_candidates` scoped auf den exakten Token —,
+#: aber eine Ausnahme, die mehr ausschliesst als sie muss, ist der Anfang derselben Klasse, die
+#: dieser Commit gerade schliesst. `_version_token` ist die Version ohne Punkte, beginnt also mit
+#: einer Ziffer; genau das verlangt das Muster jetzt auch vom Ordner.
+_RECEIPT_MUSTER = _re.compile(
+    r"audit_artifacts/[0-9][0-9A-Za-z.\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.\-]*\.json$")
+
+
+#: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
+#: `verify_receipt`: sie entscheidet ueber die FORM des erwarteten Wertes, damit kein Ersatzwert
+#: eines Aufrufers je bindbar wird.
+_IST_SHA256 = _re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+class BaumNichtLesbar(RuntimeError):
+    """Der Baum liess sich nicht messen — kein Digest, und ausdruecklich KEIN Ersatzwert.
+
+    WARUM EIN GEWOEHNLICHER FEHLER UND KEIN ``SystemExit`` (2026-09-07). Die erste Fassung dieser
+    Haertung warf ``SystemExit``. Das ist eine ``BaseException``, und der einzige Aufrufer im Tor
+    faengt ``except Exception`` — die Ausnahme flog also AM Ruecknetz VORBEI und beendete den
+    Prozess, statt das Tor urteilen zu lassen. ``pre_tag_audit_gate.evaluate`` traegt im eigenen
+    Kommentar den Satz "A gate must RULE, never crash"; eine Bibliothek, die unter ihm den Prozess
+    abbricht, nimmt ihm genau das. GEMESSEN: fuenf Tests in
+    ``tests/test_roadmap_frontload_foundations.py``, die das Tor gegen einen belegfreien
+    Nicht-git-Ordner fahren, starben am Abbruch statt ein ``ok=False`` zu bekommen — ein
+    Negativtest, der nicht mehr negativ urteilt, sondern stirbt.
+
+    Die Schwesterfunktion ``sign_readiness_artifact.tree_digest`` wirft weiterhin ``SystemExit``;
+    das ist dort richtig, weil sie nur aus einer CLI heraus laeuft und ein Abbruch dort das Urteil
+    IST. Der Unterschied ist der Aufrufer, nicht der Fehler.
+    """
 
 
 def subject_tree_digest(repo) -> str:
@@ -67,11 +99,19 @@ def subject_tree_digest(repo) -> str:
     """
     import hashlib  # noqa: PLC0415
     import subprocess as _sp  # noqa: PLC0415
-    from sign_readiness_artifact import MUTABLE_EVIDENCE_RELS  # noqa: PLC0415
-    r = _sp.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
-                capture_output=True, text=True, timeout=10)
+    try:
+        from sign_readiness_artifact import MUTABLE_EVIDENCE_RELS  # noqa: PLC0415
+    except ImportError as e:  # die Ausschlussmenge ist unbekannt -> KEIN Digest ueber die falsche Menge
+        raise BaumNichtLesbar(
+            "the mutable-evidence set is not importable (sign_readiness_artifact) — the exclusion "
+            f"set would be a guess, and a digest over the wrong set is worse than none: {e}") from e
+    try:
+        r = _sp.run(["git", "-C", str(repo), "ls-tree", "-r", "HEAD"],
+                    capture_output=True, text=True, timeout=10)
+    except (OSError, _sp.SubprocessError) as e:  # kein git-Binary, Zeitueberschreitung, Signal
+        raise BaumNichtLesbar(f"cannot read the tree in {repo}: {type(e).__name__}: {e}") from e
     if r.returncode != 0:
-        raise SystemExit(f"cannot read the tree in {repo}: {r.stderr.strip()}")
+        raise BaumNichtLesbar(f"cannot read the tree in {repo}: {r.stderr.strip()}")
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
     lines = [ln for ln in r.stdout.splitlines()
              if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
@@ -126,6 +166,28 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
     from proofbundle.signature import verify_ed25519  # noqa: PLC0415
     if not isinstance(receipt, dict):
         return False, "receipt is not an object"
+    # ── DER ERSATZWERT DARF NICHT BINDBAR SEIN (Gegenlesung 2026-09-07, Fund 1) ────────────────────
+    # Das Tor ersetzt einen nicht messbaren Baum durch "unknown" (`_gate_tree_digest`) und eine nicht
+    # lesbare Gate-Quelle durch "unreadable" (`_gate_source_digest`), damit es urteilen statt
+    # abstuerzen kann. Beide Ersatzwerte landeten hier ungeprueft in einem GLEICHHEITSVERGLEICH gegen
+    # ein Feld, das der Gepruefte selbst schreibt. Eine mit dem LEGITIMEN Schluessel signierte
+    # Quittung mit `subject_tree_digest: "unknown"` verifizierte deshalb IMMER, unabhaengig vom
+    # Baumzustand — gemessen am 2026-09-07: `pre_tag_audit_gate.py --json` -> ok=true, verified.
+    #
+    # Geprueft wird die FORM des ERWARTETEN Wertes, nicht der Wortlaut des Ersatzes. Damit ist jeder
+    # heutige UND jeder kuenftige Ersatzwert unbindbar, ohne dass ihn hier jemand aufzaehlen muss —
+    # eine Aufzaehlung waere beim naechsten neuen Ersatzwert stillschweigend zu kurz.
+    #
+    # Die Nachbarflaeche macht es seit Auflage C3 schon so: `audit_candidate_matrix` prueft
+    # `if not gebunden` und `if not heute` VOR dem Gleichheitsvergleich des Ankerdigests. Diese
+    # Funktion war der Nachzuegler, nicht der Vorreiter.
+    for feld, erwartet in (("subject_tree_digest", subject_tree_digest),
+                           ("gate_source_digest", gate_source_digest)):
+        if not isinstance(erwartet, str) or not _IST_SHA256.match(erwartet):
+            return False, (
+                f"the gate could not measure {feld} for this tree (got {str(erwartet)[:32]!r}, which "
+                "is not a sha256) — an unmeasured quantity cannot be attested, so this fails closed "
+                "instead of comparing against a placeholder that a receipt could simply carry")
     if receipt.get("schema") != RECEIPT_SCHEMA:
         return False, f"unknown schema {receipt.get('schema')!r} (want {RECEIPT_SCHEMA})"
     if receipt.get("version") != expected_version:

@@ -152,7 +152,11 @@ def cc07_comment_as_coverage():
 
 
 # ---- pre_tag_audit_gate counter-examples --------------------------------------------------------------
-_TREE, _GATE, _VER = "a" * 40, "b" * 64, "5.0.0"
+# `_TREE` traegt seit 2026-09-07 64 Stellen: `verify_receipt` verlangt fuer den ERWARTETEN
+# Digest die sha256-Form, damit ein Ersatzwert nicht bindbar ist. Mit 40 Stellen haetten ALLE
+# Gegenbeispiele hier ab sofort aus demselben Formgrund abgelehnt — gruen, aber nicht mehr an
+# der Eigenschaft, die sie behaupten zu pruefen.
+_TREE, _GATE, _VER = "a" * 64, "b" * 64, "5.0.0"
 
 
 def _receipt(priv, pub, **over):
@@ -178,7 +182,7 @@ def cc08_bare_or_copied_attestation_line():
 
 def cc09_wrong_subject_digest():
     priv, pub = _kp()
-    r = _receipt(priv, pub, subject_tree_digest="f" * 40)
+    r = _receipt(priv, pub, subject_tree_digest="f" * 64)
     r["signature"] = base64.b64encode(priv.sign(canonical_bytes(r))).decode()
     return not _v(r, [pub]), "a receipt bound to another tree cannot attest this one"
 
