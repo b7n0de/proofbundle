@@ -575,7 +575,16 @@ Klasse — als erklaerte Grenze festgehalten, nicht als Defekt.
 
 ---
 
-## KLASSE-F-2026-0907 — die FORM eines Wertes ist nicht seine HERKUNFT
+## KLASSE-K-2026-0907 — die FORM eines Wertes ist nicht seine HERKUNFT
+
+> **UMBENANNT von `KLASSE-K-2026-0907` am 07.09.2026, und die Umbenennung steht hier, damit sie
+> nicht wie eine stille Korrektur aussieht.** Ich habe `F` vergeben, ohne nachzusehen — der Ledger
+> fuehrte bereits `KLASSE-F-2026-0906`. Die Klasse, die dort steht, heisst woertlich *„Zwei Lanes
+> vergeben unabhaengig dieselbe Ledger-Kennung"*. Der Riegel, den jene Runde dagegen gebaut hat
+> (`tests/test_klassen_ledger_kennungen_eindeutig.py`), hat mich in der Vollsuite gefangen:
+> `Buchstabe(n) mehrfach vergeben: F (2x)`. Ein append-only Ledger, in dem eine Kennung zwei
+> Klassen bezeichnet, macht jeden spaeteren Verweis zweideutig. `K` war der naechste freie
+> Buchstabe (A-J vergeben).
 
 **Die verletzte Invariante.** Ein Tor darf keine Groesse annehmen, deren HERKUNFT es nicht
 kontrolliert hat — auch dann nicht, wenn ihre FORM einwandfrei ist. Formpruefung und
