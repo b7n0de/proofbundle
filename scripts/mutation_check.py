@@ -616,25 +616,40 @@ _AUSSCHLUSS_JE_MUTANTE: dict[str, str] = {
         "Quelltext, deshalb sagt sie je Mutante nichts."),
 }
 
-# Der Lauf je Mutante als Programm: `unittest discover` kennt keinen Ausschluss, und ein
-# handgebauter Modulnamen-Aufruf haette andere Fehlersemantik (ein Importfehler wuerde hart
-# abbrechen statt als _FailedTest zu zaehlen). Deshalb wird discover UNVERAENDERT gefahren und
-# erst danach gefiltert — die Population bleibt dieselbe minus der benannten Dateien.
+# Der Lauf je Mutante als Programm.
+#
+# WARUM HIER PYTEST STEHT UND NICHT MEHR `unittest discover`. GEMESSEN 2026-09-07 auf dem
+# 6.0.0-Kandidaten: `unittest.TestLoader().discover("tests")` sammelt 2565 Tests aus 197 Dateien,
+# `pytest --collect-only` sammelt 3728 aus 254. 57 Dateien (22 Prozent) liefern dem alten Sammler
+# NICHTS, weil sie ausschliesslich pytest-Funktionen und -Klassen tragen — er sieht nur Methoden von
+# `unittest.TestCase`.
+#
+# DIE VERTEILUNG IST DAS EIGENTLICHE PROBLEM, nicht die Zahl. Die blinde Menge ist nicht zufaellig
+# gestreut: sie enthaelt VOLLSTAENDIG die Dateien, die die Release-Entscheidungsflaeche pruefen —
+# test_freigabe_evidenz_provenienz_l5_g7_02, test_ausfuehrung_aus_quelltext_l5_g7_04,
+# test_audit_candidate_ready_logic, test_audit_matrix_version_pin_binding, test_budget_kostenkurve,
+# test_renewal* und weitere. Genau die zwoelf Operatoren, die am 2026-09-06 fuer diese Flaeche
+# hinzukamen, wurden damit gegen einen Sammler gemessen, der ihre Tests nicht kennt: der Lauf
+# meldete acht SURVIVED, darunter Mutanten, die ein Test GEZIELT angreift (Beispiel:
+# test_freigabe_evidenz_provenienz_l5_g7_02.py::test_ein_commit_der_sonst_etwas_anfasst_ist_nicht_
+# erlaubt prueft mit `assert erlaubt is False` genau die Mutation `fremd = []`).
+#
+# PYTEST IST EINE ECHTE OBERMENGE, nicht ein Tausch: es sammelt `unittest.TestCase`-Klassen
+# ebenso (gemessen an tests/test_budget.py: 22 Tests, darunter TestInputBytesBudgetEnforced, eine
+# unittest.TestCase-Klasse). Kein Test faellt weg, 1163 kommen hinzu.
+#
+# DER WAECHTER ERLAUBT ES AUSDRUECKLICH. tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py
+# ::_startet_suite ueberspringt Laeufer, deren subprocess-Knoten "pytest" enthaelt ("ein Laeufer
+# UEBER pytest traegt die Regel, der conftest-Haken laeuft mit"); er schlaegt nur bei einem Laeufer
+# an, der die Suite OHNE pytest startet. Derselbe conftest-Haken behebt nebenbei eine zweite Klasse:
+# Modul-Skips, die unter `unittest discover` zu ERRORS werden, sind unter pytest Skips.
 _FILTER_PROGRAMM = """
-import sys, unittest
-ausschluss = set(sys.argv[1:])
-lader = unittest.TestLoader()
-suite = lader.discover("tests", top_level_dir="tests")
-def sieben(s):
-    raus = unittest.TestSuite()
-    for t in s:
-        if isinstance(t, unittest.TestSuite):
-            raus.addTest(sieben(t))
-        elif t.__class__.__module__ not in ausschluss:
-            raus.addTest(t)
-    return raus
-ergebnis = unittest.TextTestRunner(verbosity=1).run(sieben(suite))
-sys.exit(0 if ergebnis.wasSuccessful() else 1)
+import sys, pytest
+# Der Ausschluss kommt als Modulname (ohne .py) und wird zum Pfad — pytest kennt kein
+# Modulnamen-Filter, aber --ignore ist exakt dieselbe Semantik: die Datei wird gar nicht erst
+# gesammelt, also zaehlt sie weder als Erfolg noch als Fehler.
+ignor = [f"--ignore=tests/{name}.py" for name in sys.argv[1:]]
+sys.exit(pytest.main(["-q", "-p", "no:cacheprovider", "tests", *ignor]))
 """
 
 
@@ -659,13 +674,24 @@ def _red_count(work: Path, *, ausschluss: bool = False) -> int:
     proc = subprocess.run(
         ([sys.executable, "-B", "-c", _FILTER_PROGRAMM, *sorted(_AUSSCHLUSS_JE_MUTANTE)]
          if ausschluss else
-         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests"]),
+         [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]),
         cwd=work, capture_output=True, text=True,
         env={"PYTHONPATH": "src", "PATH": "/usr/bin:/bin:/usr/local/bin",
              "HOME": str(Path.home()), "PYTHONDONTWRITEBYTECODE": "1"})
-    f = re.search(r"failures=(\d+)", proc.stderr)
-    e = re.search(r"errors=(\d+)", proc.stderr)
-    return (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+    # PYTEST SCHREIBT SEINE BILANZ AUF STDOUT, unittest schrieb sie auf stderr. Beide werden
+    # gelesen: ein Lauf, der vor der Bilanz abbricht (Sammelfehler, Speicher), hinterlaesst auf
+    # stdout nichts Zaehlbares, und dann darf hier keine 0 herauskommen — das waere ein stiller
+    # "nichts ist rot" fuer einen Lauf, der gar nicht stattfand.
+    text = proc.stdout + "\n" + proc.stderr
+    f = re.search(r"(\d+) failed", text)
+    e = re.search(r"(\d+) error", text)
+    rot = (int(f.group(1)) if f else 0) + (int(e.group(1)) if e else 0)
+    if rot == 0 and not re.search(r"\d+ passed", text):
+        # Kein "N passed" und kein "N failed": die Bilanzzeile fehlt ganz. Der Lauf ist NICHT
+        # gruen, er ist nicht zu Ende gekommen. Fail-closed als ein Fehler zaehlen, damit ein
+        # abgebrochener Lauf nie als "kein Test wurde rot" durchgeht.
+        return 1
+    return rot
 
 
 def _tracked_files(repo: Path) -> list[str]:
