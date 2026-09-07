@@ -122,10 +122,30 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         fehlende Datei steht hinter einer Schleifenvariablen ueber ``SCRIPTS / s``. Der Rueckfall
         ist hier also nicht Bequemlichkeit, sondern die Stelle, an der die Ableitung nachweislich
         endet — und genau dafuer ist er da.
+
+        DER VIERTE GRUND, 07.09.2026, und er ist der, den ``conftest`` seit jeher als Zweck der
+        Liste nennt: die Repo-Abhaengigkeit steht nicht im Testmodul, sondern eine Ebene tiefer im
+        Skript, das es faehrt. GEMESSEN mit ``_wurzel_relative_pfade`` an beiden Modulen, nicht
+        vermutet. ``test_not_after_gilt_auch_auf_dem_registerpfad`` nennt genau ``scripts``, ``src``
+        und ``scripts/audit_candidate_matrix.py`` — alle drei liegen im sdist (MANIFEST.in Zeile 88),
+        die Ableitung sieht also nichts fehlen und liefert ``False``. Der fehlende Anker
+        ``audit_artifacts/readiness_trusted_pubkeys.txt`` (MANIFEST.in Zeile 119: ``prune``) steht in
+        ``scripts/audit_candidate_matrix.py`` Zeile 273. ``test_release_text_hygiene`` nennt nur
+        ``scripts`` und faehrt ``betreffs_seit("HEAD")``, also git ueber den Baum; im entpackten sdist
+        gibt es kein Repository, und ein leerer Commitbereich ist dort der Normalzustand statt des
+        Fehlerfalls, den der Test misst. Beides ist woertlich der in ``conftest`` beschriebene Fall:
+        "modules whose repo dependency is not visible as a path literal (an env probe, a subprocess
+        into the tree)". Kein Wachstum durch Aufzaehlung, sondern die Stelle, an der eine statische
+        Messung AM MODUL endet.
+
+        Die Gegenprobe dazu liefert nicht diese Datei, sondern der Job ``hermetic-cleanroom``: er
+        faehrt die Suite aus dem entpackten sdist, und dort waren genau diese neun Tests rot
+        (``'unmeasurable' != 'ok'``), auf fuenf verschiedenen Koepfen und vor der Arbeit dieses Tages.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
                      "test_roadmap_frontload_foundations", "test_rust_parity_gate",
-                     "test_pre_tag_receipt_commit_flow"}
+                     "test_pre_tag_receipt_commit_flow",
+                     "test_not_after_gilt_auch_auf_dem_registerpfad", "test_release_text_hygiene"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
