@@ -315,3 +315,99 @@ class DieErwartungDesSammelJobsKommtAusDemLauf(unittest.TestCase):
         self.assertEqual(summe, len(mc.MUTATIONS),
                          f"Die zehn Shards fahren zusammen {summe} von {len(mc.MUTATIONS)} "
                          f"Operatoren — dann hat die Partition eine Luecke oder eine Ueberschneidung")
+
+
+class DerSammelJobWirdALSPROGRAMMGefahren(unittest.TestCase):
+    """Die Gegenlesung hat den vorigen Fall dieser Datei widerlegt, und der Befund sass.
+
+    `test_der_workflow_tippt_die_erwartung_NICHT_mehr` prueft den TEXT des Workflows: steht dort
+    noch eine getippte Zahl? Das ist eine notwendige Frage und eine schwache. Gemessen am
+    2026-09-07 mit zehn synthetischen Shard-Dateien: der neue Extraktionscode lief unter
+    `set -euo pipefail`, und `grep` liefert 1, wenn es nichts findet. Eine Shard-Datei OHNE
+    `total=` — genau der Fall, den die Pruefung abfangen soll — brach das Skript deshalb sofort
+    ab, mitten in der Schleife. Die Shards danach wurden nie gelesen, und die eigens dafuer
+    geschriebene Meldung war unerreichbarer Code.
+
+    Der Texttest blieb dabei GRUEN, weil im Workflow ja keine Zahl mehr stand. Ein Orakel, das
+    die Form prueft statt das Verhalten, kann einen Riegel nicht von seinem Absturz unterscheiden.
+    Diese Faelle fahren den Block als das, was er ist: ein Programm.
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+    @classmethod
+    def _shell_block(cls) -> str:
+        """Der `run:`-Rumpf des Sammel-Schritts, aus dem Workflow geholt und entrueckt."""
+        text = cls.WORKFLOW.read_text(encoding="utf-8")
+        marke = "Fail closed on missing, red or incomplete shards"
+        i = text.index(marke)
+        j = text.index("run: |", i) + len("run: |\n")
+        zeilen = []
+        for zeile in text[j:].splitlines():
+            if zeile.strip() and not zeile.startswith("          "):
+                break
+            zeilen.append(zeile[10:] if zeile.startswith("          ") else zeile)
+        rumpf = "\n".join(zeilen)
+        assert "MUTATION_RESULT" in rumpf and "summe" in rumpf, "Rumpf nicht erkannt"
+        return rumpf
+
+    def _fahre(self, shards: dict[int, str]):
+        """Den Block in einem Wegwerfordner fahren. shards: Nummer -> Dateiinhalt (fehlt = keine Datei)."""
+        import subprocess, tempfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory(prefix="sammeljob-") as d:
+            for i, inhalt in shards.items():
+                Path(d, f"mutation-shard-{i}.txt").write_text(inhalt, encoding="utf-8")
+            return subprocess.run(["bash", "-c", self._shell_block()], cwd=d,
+                                  capture_output=True, text=True, timeout=120,
+                                  env={"MUTATION_RESULT": "success", "PATH": "/usr/bin:/bin"})
+
+    @staticmethod
+    def _gut(n: int = 10, gesamt: int = 100):
+        return {i: f"shard={i} operators={gesamt // n} total={gesamt}\n" for i in range(1, n + 1)}
+
+    def test_der_gute_fall_besteht(self):
+        """Die Positivkontrolle. Ohne sie sagen die Faelle unten nur, dass immer etwas faellt."""
+        r = self._fahre(self._gut())
+        self.assertEqual(r.returncode, 0, f"der saubere Fall scheitert:\n{r.stdout}\n{r.stderr}")
+        self.assertIn("mutation-summary OK", r.stdout)
+        self.assertIn("100 Operatoren", r.stdout)
+
+    def test_EIN_SHARD_OHNE_total_bekommt_eine_MELDUNG_und_keinen_absturz(self):
+        """DER FANGNACHWEIS ZUM BEFUND DER GEGENLESUNG.
+
+        Ohne `| tail -1` starb der Block hier an `set -e`, bevor irgendeine Meldung kam.
+        """
+        shards = self._gut()
+        shards[5] = "shard=5 operators=10\n"          # kein total= — alter Runner neben neuem
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0, "ein Shard ohne Gesamtzahl muss den Job faellen")
+        gesamtausgabe = r.stdout + r.stderr
+        self.assertIn("::error::", gesamtausgabe, (
+            f"Der Job scheitert OHNE Fehlermeldung — er ist abgestuerzt, statt zu urteilen. "
+            f"stdout={r.stdout!r} stderr={r.stderr!r}"))
+        self.assertIn("shard 10:", r.stdout, (
+            "Die Schleife hat die Shards nach dem luecken haften nicht mehr gelesen — der Block "
+            "brach mitten in der Auswertung ab, statt sie zu Ende zu fuehren."))
+
+    def test_uneinige_gesamtzahlen_werden_benannt(self):
+        """Zwei Codestaende in einer Matrix: die Summe sagt dann nichts, egal wie sie ausfaellt."""
+        shards = self._gut()
+        shards[3] = "shard=3 operators=10 total=88\n"
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("verschiedene Gesamtzahlen", r.stdout + r.stderr)
+
+    def test_eine_luecke_in_der_partition_wird_benannt(self):
+        """Die eigentliche Aufgabe des Riegels: Summe != Gesamtzahl."""
+        shards = self._gut()
+        shards[7] = "shard=7 operators=3 total=100\n"     # sieben Operatoren fehlen
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Luecke", r.stdout + r.stderr)
+
+    def test_ein_fehlender_shard_wird_benannt(self):
+        shards = self._gut()
+        del shards[4]
+        r = self._fahre(shards)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("fehlende Shards", r.stdout + r.stderr)

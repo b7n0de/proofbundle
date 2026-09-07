@@ -312,8 +312,26 @@ jobs:
           for i in $(seq 1 $K); do
             f="mutation-shard-$i.txt"
             if [ ! -f "$f" ]; then fehlend="$fehlend $i"; continue; fi
-            n="$(grep -oE 'operators=[0-9]+' "$f" | grep -oE '[0-9]+')"
-            g="$(grep -oE 'total=[0-9]+' "$f" | grep -oE '[0-9]+')"
+            # `|| true` IST HIER DER UNTERSCHIED ZWISCHEN DIAGNOSE UND ABSTURZ (Gegenlesung
+            # 2026-09-07, ausgefuehrt mit zehn synthetischen Shard-Dateien). Unter `set -e`
+            # beendet ein fehlgeschlagenes Kommando das Skript, und `grep` liefert 1, wenn es
+            # nichts findet. Eine Shard-Datei ohne `total=` — genau der Fall, den die Pruefung
+            # unten abfangen SOLL, etwa wenn ein alter Runner neben einem neuen laeuft — liess
+            # das Skript sofort abbrechen, mitten in der Schleife: die Shards danach wurden nie
+            # gelesen, und die eigens dafuer geschriebene Meldung "kein Shard hat eine Gesamtzahl
+            # gemeldet" war unerreichbarer Code. Fail-closed blieb zufaellig erhalten (der Job
+            # scheiterte ja), aber ein Riegel, der nur durch seinen eigenen Absturz haelt, sagt
+            # niemandem, WAS fehlt.
+            #
+            # EIN `| tail -1` REICHT DAFUER NICHT, und der erste Fix versuchte genau das: unter
+            # `set -o pipefail` ist der Rueckgabewert einer Pipeline nicht der ihres letzten
+            # Befehls, sondern der des ERSTEN, der fehlschlaegt. Der neue Fall
+            # `DerSammelJobWirdALSPROGRAMMGefahren` in tests/ hat diesen Fix in derselben Minute
+            # widerlegt, in der er geschrieben wurde — er faehrt den Block als Programm statt den
+            # Workflow als Text zu lesen. `|| true` traegt, `tail -1` bleibt fuer den Fall
+            # mehrerer Treffer je Datei.
+            n="$(grep -oE 'operators=[0-9]+' "$f" | grep -oE '[0-9]+' | tail -1 || true)"
+            g="$(grep -oE 'total=[0-9]+' "$f" | grep -oE '[0-9]+' | tail -1 || true)"
             echo "shard $i: ${n:-0} von ${g:-0} Operatoren"
             summe=$((summe + ${n:-0}))
             gesamtwerte="$gesamtwerte ${g:-0}"
