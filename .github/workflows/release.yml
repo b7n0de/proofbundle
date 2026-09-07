@@ -134,8 +134,13 @@ jobs:
           # WHEEL is byte-reproducible too — a bare `python -m build --wheel` embeds the current
           # wall-clock mtime and is NOT reproducible across two clean builds.
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          python scripts/build_reproducible.py --outdir dist
-          python -m build --wheel --outdir dist
+          # OA-402ef6f4e9 / OA-7af1e29036 (Owner 2026-09-07, Option 1 "im Bauweg kanonisieren"):
+          # das wheel laeuft jetzt durch DENSELBEN Weg wie das sdist. Vorher stand hier ein blankes
+          # `python -m build --wheel`, dessen ZIP-Eintraege den Modus ihrer Quelldatei uebernehmen —
+          # 0o664 aus dem Arbeitsbaum, 0o644 aus dem normalisierten sdist. Das machte Bedingung 4
+          # des Release-Standards ROT: 11 von 82 Eintraegen unterschieden sich ALLEIN im Modus, bei
+          # null inhaltlichen Unterschieden. Der Bauhost stand damit im ausgelieferten Artefakt.
+          python scripts/build_reproducible.py --outdir dist --with-wheel
 
       - name: Record artifact digests (the attested subjects)
         id: digests

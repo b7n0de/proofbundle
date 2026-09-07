@@ -40,6 +40,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -111,6 +113,56 @@ def normalize_sdist(src: Path, dst: Path, epoch: int) -> str:
     return hashlib.sha256(dst.read_bytes()).hexdigest()
 
 
+def normalize_wheel(src: Path, dst: Path, epoch: int) -> str:
+    """Ein wheel auf eine kanonische Form bringen: feste Modi, feste Zeiten. Gibt sha256 von dst.
+
+    WARUM ES DAS GIBT (Owner-Entscheid OA-402ef6f4e9 / OA-7af1e29036, 2026-09-07, Option 1
+    "im Bauweg kanonisieren"). Bedingung 4 des Release-Standards 6.0.0 war ROT: das wheel aus dem
+    ausgelieferten sdist war nicht bytegleich mit dem direkt gebauten. Gemessen am Kopf dac3eb52:
+    82 Eintraege je Seite, NULL inhaltliche Unterschiede, 11 Eintraege verschieden allein im
+    Dateimodus, 0o100664 gegen 0o100644.
+
+    DIE URSACHE, und sie ist NICHT umask (das wurde am 2026-09-07 durch eine eigene Gegenprobe
+    widerlegt: bei umask 022 aenderten sich beide Digests und blieben verschieden). Sie liegt eine
+    Ebene tiefer: ``normalize_sdist`` setzt jede Datei im sdist auf 0o644, waehrend dieselben Dateien
+    im Arbeitsbaum 0o664 tragen. Der Packer uebernimmt den Modus der Quelldatei in den ZIP-Eintrag —
+    also traegt das wheel aus dem sdist 644 und das aus dem Baum 664. Die Kanonisierung muss deshalb
+    genau dort greifen, wo der Packer den Modus schreibt.
+
+    WAS KANONISIERT WIRD UND WAS NICHT. Modi (Verzeichnisse 0755, Dateien 0644) und Zeitstempel
+    (aus ``epoch``). NICHT die Reihenfolge: die ``RECORD``-Datei eines wheels steht nach Konvention
+    am Ende, und eine Sortierung wuerde sie verschieben, ohne dass die Bedingung das verlangt. Der
+    Owner-Entscheid nennt ausdruecklich "Modi und Zeiten". Inhalte bleiben unberuehrt, damit die
+    Hashes in ``RECORD`` weiter stimmen.
+    """
+    eintraege: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(src, "r") as zin:
+        for zi in zin.infolist():                      # Reihenfolge bewusst beibehalten
+            eintraege.append((zi, zin.read(zi.filename)))
+
+    stempel = time.gmtime(epoch)[:6]
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+        for zi, daten in eintraege:
+            neu = zipfile.ZipInfo(filename=zi.filename, date_time=stempel)
+            neu.compress_type = zi.compress_type
+            neu.create_system = 3                      # Unix — keine Bauhost-Identitaet im Artefakt
+            neu.external_attr = ((0o40755 << 16) | 0x10) if zi.is_dir() else (0o100644 << 16)
+            neu.internal_attr = zi.internal_attr
+            zout.writestr(neu, daten)
+    return hashlib.sha256(dst.read_bytes()).hexdigest()
+
+
+def build_normalized_wheel(quelle: Path, outdir: Path, epoch: int, *,
+                           no_isolation: bool = False) -> tuple[Path, str]:
+    """Ein wheel bauen UND kanonisieren. Das Ergebnis ist das, was ausgeliefert wird."""
+    with tempfile.TemporaryDirectory(prefix="pb_whl_roh_") as td:
+        roh = _build_wheel(quelle, Path(td), epoch, no_isolation=no_isolation)
+        outdir.mkdir(parents=True, exist_ok=True)
+        ziel = outdir / roh.name
+        digest = normalize_wheel(roh, ziel, epoch)
+    return ziel, digest
+
+
 def build_normalized(outdir: Path, epoch: int, *, no_isolation: bool = False) -> tuple[Path, str]:
     with tempfile.TemporaryDirectory(prefix="pb_sdist_") as td:
         raw = _build_sdist(Path(td), epoch, no_isolation=no_isolation)
@@ -145,12 +197,16 @@ WHEEL_MEASUREMENT_SCHEMA = "proofbundle.wheel_from_sdist_check.v1"
 
 
 def _build_wheel(quelle: Path, outdir: Path, epoch: int, *, no_isolation: bool = False) -> Path:
-    """Ein wheel aus ``quelle`` bauen. KEINE Nachnormalisierung — und das ist Absicht.
+    """Ein ROHES wheel aus ``quelle`` bauen. Die Kanonisierung macht ``build_normalized_wheel``.
 
-    Die sdist-Seite normalisiert nach dem Bau, weil setuptools ``SOURCE_DATE_EPOCH`` fuer den
-    tar-Container nicht ehrt. Fuer das wheel ehrt es ihn (die zip-Eintraege tragen die Epoche), und
-    eine Normalisierung hier wuerde genau den Unterschied wegbuegeln, den diese Messung finden soll.
-    Wer zwei verschiedene wheels gleichmacht, misst seine Normalisierung, nicht den Bau.
+    HIER STAND BIS 2026-09-07 DAS GEGENTEIL, mit der Begruendung: "eine Normalisierung hier wuerde
+    genau den Unterschied wegbuegeln, den diese Messung finden soll. Wer zwei verschiedene wheels
+    gleichmacht, misst seine Normalisierung, nicht den Bau." Das Argument ist richtig — aber nur
+    fuer eine Normalisierung, die NUR in der Messung sitzt. Der Owner-Entscheid vom 07.09. legt sie
+    in den BAUWEG: kanonisiert wird das Artefakt, das ausgeliefert wird, und die Messung vergleicht
+    danach zwei ausgelieferte Artefakte statt zweier Zwischenstaende. Der Unterschied ist die
+    Bedingung, unter der die Messung ehrlich bleibt: ``release.yml`` MUSS denselben Weg fahren.
+    Taete es das nicht, waere die gruene Messung genau der Selbstbetrug, vor dem der alte Text warnt.
     """
     env = dict(os.environ)
     env["SOURCE_DATE_EPOCH"] = str(epoch)
@@ -177,13 +233,17 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
     ausdruecklich ohne ihn nachzurechnen. Eine Bedingung im fail-closed-Satz ohne Messstelle gilt
     stillschweigend als gruen, ohne je gemessen worden zu sein — das ist teurer als eine rote Zeile.
 
+    BEIDE SEITEN WERDEN KANONISIERT (seit dem Owner-Entscheid vom 07.09., Option 1). Verglichen
+    werden damit zwei AUSGELIEFERTE Artefakte, nicht zwei Zwischenstaende. Das ist nur ehrlich,
+    solange ``release.yml`` denselben Bauweg faehrt — siehe die Bedingung in ``_build_wheel``.
+
     GEBAUT WIRD AUS DEM NORMALISIERTEN SDIST, nicht aus dem rohen: das normalisierte ist das, was
     ausgeliefert wird und was ein Nutzer herunterlaedt. Eine Messung gegen das rohe wuerde eine
     Datei pruefen, die niemand bekommt.
     """
     with tempfile.TemporaryDirectory(prefix="pb_wheel_") as td:
         arbeit = Path(td)
-        direkt = _build_wheel(REPO, arbeit / "direkt", epoch, no_isolation=no_isolation)
+        direkt, _ = build_normalized_wheel(REPO, arbeit / "direkt", epoch, no_isolation=no_isolation)
         sdist, _ = build_normalized(arbeit / "sd", epoch, no_isolation=no_isolation)
         entpackt = arbeit / "aus"
         entpackt.mkdir()
@@ -192,7 +252,8 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
         wurzeln = [q for q in entpackt.iterdir() if q.is_dir()]
         if len(wurzeln) != 1:
             raise RuntimeError(f"sdist entpackt nicht zu genau einem Wurzelordner: {wurzeln}")
-        aus_sdist = _build_wheel(wurzeln[0], arbeit / "aus_sdist", epoch, no_isolation=no_isolation)
+        aus_sdist, _ = build_normalized_wheel(wurzeln[0], arbeit / "aus_sdist", epoch,
+                                              no_isolation=no_isolation)
         ha = hashlib.sha256(direkt.read_bytes()).hexdigest()
         hb = hashlib.sha256(aus_sdist.read_bytes()).hexdigest()
         return {"schema": WHEEL_MEASUREMENT_SCHEMA, "identical": ha == hb,
@@ -233,6 +294,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="where to write the normalised sdist (default: ./dist)")
     p.add_argument("--epoch", type=int, default=None,
                    help="SOURCE_DATE_EPOCH (default: HEAD commit time)")
+    p.add_argument("--with-wheel", action="store_true",
+                   help="zusaetzlich zum sdist ein KANONISIERTES wheel in --outdir bauen (der "
+                        "Bauweg des Release-Workflows; ohne das liefert release.yml ein wheel, "
+                        "das den Modus seiner Quelldateien traegt)")
     p.add_argument("--check", action="store_true",
                    help="build twice and prove the normalised sdists are byte-identical")
     p.add_argument("--check-wheel", action="store_true",
@@ -250,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
         return check_reproducible(epoch, no_isolation=args.no_isolation, as_json=args.json)
     dst, digest = build_normalized(args.outdir, epoch, no_isolation=args.no_isolation)
     print(f"built normalised sdist: {dst}\n  sha256={digest}\n  epoch={epoch}")
+    if args.with_wheel:
+        whl, wdigest = build_normalized_wheel(REPO, args.outdir, epoch,
+                                              no_isolation=args.no_isolation)
+        print(f"built normalised wheel: {whl}\n  sha256={wdigest}\n  epoch={epoch}")
     return 0
 
 
