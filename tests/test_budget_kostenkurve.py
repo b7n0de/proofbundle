@@ -172,7 +172,36 @@ def _referenzlast(n: int = 200_000) -> bytes:
 #: Referenzlast dort gekostet hat, nicht was sie kosten darf. Streuung max/min 1,046.
 _REFERENZ_FARMER_S = (0.06699, 0.06704, 0.06717, 0.06719, 0.06781, 0.06877, 0.06907, 0.06909, 0.07009)
 
+def _referenzlast_hashfrei(n: int = 615_000) -> int:
+    """Die ANDERE Kostenfamilie: Ganzzahl-Arithmetik ohne hashlib, auf dieselbe Dauer kalibriert.
+
+    WARUM ES SIE GIBT (fremdfamiliaere Gegenlesung des dritten Einfrier-Kopfes + eigene Nachrechnung,
+    08.09.2026): `_referenzlast` ist eine reine sha256-Schleife, aber SECHS der zwoelf Achsen sind
+    nicht hash-gebunden — JSON-Parsen, Grosszahl-Arithmetik. Der Faktor ist `hash_hier/hash_ref`,
+    die Achse braucht `A_hier/A_ref`. Beide Richtungen sind moeglich: laeuft der Hash relativ
+    LANGSAMER (eine Maschine ohne Hardware-SHA), ist die Latte fuer diese sechs Achsen zu locker —
+    ein falsches GRUEN; laeuft er relativ schneller, wird sie zu eng.
+
+    Die Linse hatte behauptet, ein falsches GRUEN sei ausgeschlossen 'weil der Faktor nur lockert'.
+    Nachgerechnet stimmt das nicht: Hashfaktor 3,0 gegen einen echten Bedarf von 1,5 laesst die
+    Latte dreifach zu locker.
+    """
+    s = 0
+    x = 1
+    for _ in range(n):
+        x = (x * 1103515245 + 12345) & 0xFFFFFFFF
+        s += x % 97
+    return s
+
+
+#: Die NEUN Laeufe der hash-freien Referenzlast auf der Referenzmaschine, gemessen 2026-09-08
+#: (Farmer, dieselbe Sitzung wie `_REFERENZ_FARMER_S`). AUFZEICHNUNG, keine Politik.
+#: Streuung max/min 1,012 — enger als die der Hash-Last (1,046).
+_REFERENZ_FARMER_HASHFREI_S = (0.06401, 0.06405, 0.06411, 0.06419, 0.06458,
+                               0.06462, 0.06470, 0.06475, 0.06477)
+
 _REFERENZ_HIER: list[float] = []
+_REFERENZ_HIER_HASHFREI: list[float] = []
 
 
 def _referenz_werte() -> list[float]:
@@ -215,18 +244,47 @@ def _referenz_werte() -> list[float]:
     return _REFERENZ_HIER
 
 
-def _maschinenfaktor() -> float:
+def _referenz_werte_hashfrei() -> list[float]:
+    """Wie `_referenz_werte`, aber fuer die hash-freie Familie. Frisch je Aufruf, ERSETZT."""
+    frisch = []
+    for _ in range(MAX_WIEDERHOLUNGEN):
+        t = _cpu()
+        _referenzlast_hashfrei()
+        frisch.append(_cpu() - t)
+    _REFERENZ_HIER_HASHFREI[:] = frisch
+    return _REFERENZ_HIER_HASHFREI
+
+
+def _maschinenfaktor_hashfrei(werte: list[float] | None = None) -> float:
+    """Derselbe Bau wie `_maschinenfaktor`, andere Kostenfamilie. Untergrenze 1,0.
+
+    `werte` erlaubt es, eine SCHON GEMESSENE Reihe zu beurteilen statt frisch zu messen — gebraucht
+    fuer die Klammer um die Kostenmessung, siehe `_maschinenfaktor`."""
+    hier = statistics.median(werte if werte else _referenz_werte_hashfrei())
+    dort = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+    return max(1.0, hier / dort)
+
+
+def _maschinenfaktor(werte: list[float] | None = None) -> float:
     """Wie viel langsamer diese Maschine ist als die Referenzmaschine — UNTERGRENZE 1,0.
 
     Verglichen werden die MEDIANE beider Verteilungen, nicht die Maxima: ein einzelner Ausreisser auf
     einer der beiden Seiten soll die Latte weder lockern noch verschaerfen.
+
+    `werte` erlaubt es, eine SCHON GEMESSENE Reihe zu beurteilen statt frisch zu messen. Das ist
+    keine Bequemlichkeit, sondern die Reparatur des schwersten Fundes dieser Runde: der Faktor wurde
+    NACH der teuren Kostenmessung erhoben, also in einem anderen Zeitfenster als die Kosten, die er
+    skaliert. Faellt eine Lastspitze in genau dieses spaete Fenster, lockert sie die Latte, ohne dass
+    die Kosten davon beruehrt waeren — und eine ECHTE Verteuerung passt lautlos darunter. Gemessen
+    von einer Gegenlesung mit einer echten dreifachen Verteuerung von `renewal_work`: 2 von 5 Laeufen
+    liessen sie durch, ohne dass eine der drei Abstinenzen feuerte.
     """
-    hier = statistics.median(_referenz_werte())
+    hier = statistics.median(werte if werte else _referenz_werte())
     dort = statistics.median(_REFERENZ_FARMER_S)
     return max(1.0, hier / dort)
 
 
-def _faktor_spanne() -> tuple[float, float]:
+def _faktor_spanne(werte: list[float] | None = None) -> tuple[float, float]:
     """Der Maschinenfaktor am SCHNELLSTEN und am LANGSAMSTEN Ende der eigenen Messreihe.
 
     Der Median beschreibt die Maschine gut, solange sie EINEN Zustand hat. Hat sie zwei — ein
@@ -242,9 +300,58 @@ def _faktor_spanne() -> tuple[float, float]:
     # dann eine andere Reihe als der Median, den sie einrahmen soll. Sie muss dieselbe Reihe lesen.
     # Erst wenn noch gar nicht gemessen wurde, wird gemessen. (Gemessen: die zweite Reihe kostete
     # 6,4 s zusaetzlich, ohne eine einzige zusaetzliche Aussage zu tragen.)
-    werte = _REFERENZ_HIER or _referenz_werte()
+    werte = werte or _REFERENZ_HIER or _referenz_werte()
     dort = statistics.median(_REFERENZ_FARMER_S)
     return max(1.0, min(werte) / dort), max(1.0, max(werte) / dort)
+
+
+#: DIE KOSTEN JEDER ACHSE AN IHREM LIMIT auf der Referenzmaschine, gemessen 2026-09-08 in einem
+#: RUHIGEN Lauf (Farmer, Spalte `CPU@L(max9)` der Dimensionstabelle). AUFZEICHNUNG, keine Politik.
+#:
+#: WARUM DER DECKEL SIE BRAUCHT statt der Messung des laufenden Tests — der schwerste Fund dieser
+#: Runde: die Kopffreiheit aus dem LAUFENDEN Lauf faellt, sobald die Maschine langsamer wird,
+#: waehrend der Maschinenfaktor gleichzeitig steigt. Beide laufen aufeinander zu, und
+#: `faktor > deckel` wird genau dann wahr, wenn die Maschine belastet ist — also in der Lage, fuer
+#: die die Kalibrierung gebaut wurde. Gemessen am Kopf 88a5383: in CI abstinierten daraufhin ALLE
+#: ZWOELF Dimensionen (Skip-Delta +12, Zeichenpositionen 745-756 gegen --collect-only), und
+#: `coverage` wurde gruen, weil der einzige zuvor rote Test sich aus der Bewertung herausgezogen
+#: hatte. Eigene Lastprobe: Deckel 19,54 in Ruhe gegen 1,30 unter zwoelf Fremdlast-Schleifen,
+#: waehrend der Faktor von 1,0 auf 2,4 stieg.
+_REFERENZ_FARMER_KOSTEN = {
+    "input_bytes": 0.0054, "json_nodes": 0.0653, "json_depth": 0.0000, "string_len": 0.0006,
+    "signatures": 0.0017, "merkle_path": 0.0002, "disclosures": 0.0032,
+    "renewal_ats_chain": 0.1258, "witnesses": 0.0008, "int_bits": 0.0023,
+    "data_digests": 0.0007, "renewal_work": 1.5587,
+}
+
+#: OFFENE OWNER-ENTSCHEIDUNG `600_latte_am_schnellen_ende_oder_abstinenz` (gestellt 08.09.2026).
+#:
+#: Wechselt die Maschine WAEHREND der Messung ihren Zustand, spannt die Klammer auf, und es gibt
+#: zwei ehrliche Antworten — aber nur eine kann gelten:
+#:
+#:   "median"          Weg A: die Latte steht am Median der Klammer. Kippt das Verdikt zwischen den
+#:                     Enden, meldet die Streuungs-Abstinenz NICHT MESSBAR. Kein stiller Pass, aber
+#:                     auch kein Rot. SO IST ES GEMESSEN (Vollsuite 3897 passed / 24 skipped).
+#:   "schnellstes_ende" Weg B: die Latte steht immer am SCHNELLEN Ende. Erfuellt OA-0646ecdf70
+#:                     woertlich ("eine echte Kostensteigerung bleibt trotz Faktor rot"), verschaerft
+#:                     die Latte aber auf JEDER Maschine um die Streuung der Referenzlast
+#:                     (Referenzmaschine 1,046, also rund 4,6 %) — und auf DIESEM Host, wo neun
+#:                     pytest-Prozesse aus drei Quellen gemessen wurden, erzeugt das regelmaessig
+#:                     falsche Rotlaeufe (Befund 600-MESSFELD-NICHT-RUHIG-HERSTELLBAR-01).
+#:
+#: Der Schalter steht hier, damit die Entscheidung EIN WORT kostet und keine Umbaurunde. Beide Wege
+#: sind gebunden (`test_der_schalter_der_offenen_OWNER_ENTSCHEIDUNG_wirkt_wirklich`); der Vorbelegung
+#: liegt keine Meinung zugrunde, sondern der gemessene Zustand.
+LATTE_AUS_DER_KLAMMER = "median"
+
+#: WELCHE Achsen zum letzten Deckel beigetragen haben. Instrument, kein Zustand — und es existiert
+#: wegen eines Fundes der fremdfamiliaeren Gegenlesung (08.09.2026): der Schutz `if k <= 0: continue`
+#: war in seiner WIRKUNG ungebunden. Die Linse ersetzte `k` durch `k or 0.0001`; damit greift der
+#: Schutz nie mehr, und ALLE 19 Faelle blieben gruen. Ich hatte das Gegenteil angesagt und lag falsch.
+#: Der Grund: eine Null wird durch epsilon zu einer RIESIGEN Kopffreiheit, und die setzt den Deckel
+#: ohnehin nicht — 'uebersprungen' und 'mit riesiger Freiheit dabei' sind am Ergebnis nicht zu
+#: unterscheiden. Nur die TEILNEHMERLISTE unterscheidet sie.
+_DECKEL_BEITRAEGE: list[str] = []
 
 
 def _faktor_deckel(ausser: str) -> float:
@@ -261,11 +368,11 @@ def _faktor_deckel(ausser: str) -> float:
     bestimmen, sonst waere der Deckel zirkulaer.
     """
     freiheiten = []
+    _DECKEL_BEITRAEGE.clear()
     for d in DIMENSIONEN:
         if d.name == ausser:
             continue
-        m = _messung(d)
-        k = m["kosten_am_limit_max"]
+        k = _REFERENZ_FARMER_KOSTEN.get(d.name, 0.0)
         if k <= 0:
             continue
         frei = (d.achsen * GRENZE_S) / k
@@ -278,6 +385,7 @@ def _faktor_deckel(ausser: str) -> float:
         # Ausfall, und er stand so in keiner Ansage.
         if frei >= 1.0:
             freiheiten.append(frei)
+            _DECKEL_BEITRAEGE.append(d.name)
     if freiheiten:
         return min(freiheiten)
     # LEERE LISTE HEISST: JEDE andere Achse liegt ueber ihrer eigenen Latte. Das ist der lauteste
@@ -306,6 +414,46 @@ def _zeit(ruf):
     return _cpu() - t, r
 
 
+def _zeit_min_fest(ruf, laeufe: int = WIEDERHOLUNGEN):
+    """Das Minimum aus GENAU `laeufe` Laeufen — unabhaengig davon, wie teuer die Messung ist.
+
+    WARUM ES DAS BRAUCHT (eigene Lastprobe, 08.09.2026): `_zeit_min` wiederholt nur unterhalb von
+    `WIEDERHOLEN_UNTER_S`. Fuer die Verdopplungsreihe von `renewal_work` heisst das: der Punkt bei
+    0,18 s bekommt das Minimum aus DREI Laeufen, die Punkte bei 0,36 / 0,71 / 1,43 s je EINEN. Der
+    billigste Punkt hat damit den tiefsten Rauschboden, und unter Fremdlast blaeht sich der einmal
+    gemessene Punkt relativ staerker auf. Das Verhaeltnis k1/k0 waechst, die Steigung mit ihm —
+    gemessen 1,31 gegen die Schranke 1,2, waehrend fuenf Ruhelaeufe sauber blieben.
+
+    Fuer eine SCHRANKE ist die ungleiche Behandlung harmlos (jeder Punkt wird fuer sich beurteilt).
+    Fuer eine STEIGUNG ist sie es nicht: sie vergleicht Punkte miteinander, und dafuer muessen sie
+    gleich behandelt sein. Deshalb gilt die feste Zahl nur fuer die Kurvenreihe, nicht fuer `rand`
+    oder die Ceiling-Messung.
+
+    Kosten, gemessen: die Reihe von `renewal_work` steigt von 2,68 s auf rund 8 s.
+    """
+    dauer, erg = _zeit(ruf)
+    for _ in range(max(0, laeufe - 1)):
+        d2, erg = _zeit(ruf)
+        dauer = min(dauer, d2)
+    _ZEIT_MIN_LAEUFE.append(laeufe)
+    return dauer, erg
+
+
+#: Wie viele Laeufe der JEWEILS LETZTE Kurvenpunkt gebraucht hat — GESCHRIEBEN NUR von
+#: `_zeit_min_fest`, GELESEN NUR von `_messung`. Instrument, kein Zustand: nur damit die Messung
+#: selbst sagen kann, ob sie ihre Punkte gleich behandelt hat.
+#:
+#: Bis 08.09.2026 schrieb auch `_zeit_min` (der Weg der Randmessung) hierher. Dass das nie schadete,
+#: lag allein an der Reihenfolge in `_messung` — die Randmessung laeuft nach dem Lesen. Das ist eine
+#: Eigenschaft der Anordnung, keine des Codes; die fremdfamiliaere Gegenlesung hat es benannt, und
+#: der Fangnachweis dazu war rot, bevor diese Trennung existierte.
+_ZEIT_MIN_LAEUFE: list[int] = []
+
+#: Dasselbe fuer die Randmessung — eigene Liste, damit die beiden Wege sich nicht ins Instrument
+#: des jeweils anderen schreiben.
+_RAND_LAEUFE: list[int] = []
+
+
 def _zeit_min(ruf):
     """Der beste Schaetzer der wahren Kosten: das MINIMUM mehrerer Laeufe.
 
@@ -316,10 +464,12 @@ def _zeit_min(ruf):
     """
     dauer, erg = _zeit(ruf)
     if dauer >= WIEDERHOLEN_UNTER_S:
+        _RAND_LAEUFE.append(1)
         return dauer, erg
     for _ in range(WIEDERHOLUNGEN - 1):
         d2, erg = _zeit(ruf)
         dauer = min(dauer, d2)
+    _RAND_LAEUFE.append(WIEDERHOLUNGEN)
     return dauer, erg
 
 
@@ -632,16 +782,49 @@ DIMENSIONEN = [
 _MESSUNGEN: dict = {}
 
 
+def _klammer_jetzt() -> tuple[list[float], list[float]]:
+    """Die Referenzklammer, gemessen im JETZIGEN Zustand — beide Kostenfamilien.
+
+    FUER FIXTURES, DIE `_MESSUNGEN` FAELSCHEN, und der zweite Anlauf an dieser Stelle. Der erste gab
+    den Faellen eine FLACHE Klammer (Faktor 1,0) — und nahm damit fuenf Faellen genau das weg, was
+    sie pruefen: die zweigipflige Messreihe, die divergierenden Kostenfamilien, den Faktor GENAU auf
+    dem Deckel. Sie liefen danach nicht mehr in ihre Abstinenz, sondern meldeten ROT gegen eine
+    Latte, die ihre Faelschung gar nicht mehr sah. Das war dieselbe Klasse, gegen die diese ganze
+    Runde arbeitet, in einem einzigen Zug selbst erzeugt.
+
+    Richtig ist, die Klammer DURCH DIE AKTIVE FAELSCHUNG zu messen. Dann beschreibt sie dieselbe
+    Maschine wie die Kosten daneben — und genau diese Paarung ist der Zweck der Klammer. Ist keine
+    Faelschung aktiv, misst sie die echte Maschine, also das, was die Produktion auch taete.
+    """
+    return list(_referenz_werte()), list(_referenz_werte_hashfrei())
+
+
 def _messung(dim: Dimension) -> dict:
     """Einmal messen, mehrfach zusichern — sonst kostet jede Zusicherung die Reihe erneut."""
     if dim.name in _MESSUNGEN:
         return _MESSUNGEN[dim.name]
     limit = getattr(B, dim.name)
+    # DIE KLAMMER UM DIE KOSTENMESSUNG (08.09.2026, schwerster Fund dieser Runde). Die Referenzlast
+    # wird VOR und NACH der teuren Reihe gemessen, und beide Reihen zusammen beschreiben das
+    # Zeitfenster, in dem die Kosten entstanden sind. Vorher wurde der Faktor erst DANACH erhoben —
+    # also in einem anderen Fenster als die Kosten, die er skaliert. Eine Lastspitze, die nur in
+    # dieses spaete Fenster faellt, lockert die Latte, ohne die Kosten beruehrt zu haben, und eine
+    # ECHTE Verteuerung passt lautlos darunter (gemessen: 2 von 5 Laeufen mit einer echten
+    # dreifachen Verteuerung von `renewal_work`, ohne dass eine der drei Abstinenzen feuerte).
+    #
+    # WARUM HIER UND NICHT IN DER ZUSICHERUNG: `_messung` ist gepuffert. Hat eine fruehere Pruefung
+    # dieselbe Achse schon gemessen, vergeht in der Zusicherung gar keine Zeit mehr — eine Klammer
+    # dort umschloesse nichts.
+    klammer_vorher = list(_referenz_werte())
+    klammer_vorher_frei = list(_referenz_werte_hashfrei())
     reihe, arbeit = [], []
+    reihe_wdh = []
     for n in (limit // 8, limit // 4, limit // 2, limit):
         ruf, ist = dim.baue(n)
-        dauer, erg = _zeit_min(ruf)
+        _ZEIT_MIN_LAEUFE.clear()
+        dauer, erg = _zeit_min_fest(ruf)
         reihe.append((ist, dauer, erg))
+        reihe_wdh.append((ist, dauer, erg, _ZEIT_MIN_LAEUFE[-1] if _ZEIT_MIN_LAEUFE else 0))
         arbeit.append((ist, _arbeit(ruf)))
     rand = {}
     for n in (limit - 1, limit, limit + 1):
@@ -666,6 +849,7 @@ def _messung(dim: Dimension) -> dict:
     m = {
         "limit": limit,
         "reihe": reihe,
+        "reihe_wdh": reihe_wdh,
         "arbeit": arbeit,
         "rand": rand,
         "kosten_am_limit": reihe[-1][1],
@@ -673,6 +857,8 @@ def _messung(dim: Dimension) -> dict:
         "speicher_peak_am_limit": speicher_peak,
         "prozess_spitze_am_limit": prozess_spitze,
         "prozess_spitze_messweg": spitze_messweg,
+        "referenz_klammer": klammer_vorher + list(_referenz_werte()),
+        "referenz_klammer_frei": klammer_vorher_frei + list(_referenz_werte_hashfrei()),
         "exponent_zeit": _exponent([(n, k) for n, k, _ in reihe]),
         "exponent_arbeit": _exponent(arbeit),
         "arbeit_empfindlich": (arbeit[-1][1] >= ARBEIT_EMPFINDLICH * max(arbeit[0][1], 1)),
@@ -728,7 +914,15 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         # Mal wirklich GEGANGEN statt nur berechnet wurde): der Text unten liest `rand` an drei
         # Stellen, und einen Text zu bauen, den man gleich verwirft, ist nicht nur unnoetig — er kann
         # scheitern und macht aus einem sauberen NICHT MESSBAR einen KeyError.
-        faktor = _maschinenfaktor()
+        assert "referenz_klammer" in m, (
+            f"{dim.name}: das Messergebnis traegt keine Referenzklammer. Entweder hat `_messung` sie "
+            f"nicht gelegt, oder eine Fixture faelscht `_MESSUNGEN` ohne sie — dann benutze "
+            f"`_klammer_jetzt()`. NICHT hier frisch nachmessen: genau das war der Fehler, den "
+            f"die Klammer behebt (der Faktor lag dann wieder hinter den Kosten statt um sie herum).")
+        klammer = m["referenz_klammer"]
+        # Der Schalter der offenen Owner-Entscheidung, siehe `LATTE_AUS_DER_KLAMMER`.
+        faktor = (_maschinenfaktor(klammer) if LATTE_AUS_DER_KLAMMER == "median"
+                  else _faktor_spanne(klammer)[0])
         deckel = _faktor_deckel(ausser=dim.name)
         if faktor > deckel:
             pytest.skip(
@@ -737,8 +931,37 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
                 f"Dimensionen in diesem Lauf — wird er ueberschritten, ist nicht die Maschine "
                 f"langsam, sondern das Kostenmodell falsch. Ein gruenes Verdikt waere hier eine "
                 f"Behauptung ohne Grundlage, ein rotes eine ohne Gegenstand.")
-        unten, oben = _faktor_spanne()
-        if k > dim.achsen * GRENZE_S * unten and k <= dim.achsen * GRENZE_S * oben:
+        # ZWEITE ABSTENTION, dieselbe Frage wie bei der Streuung, andere Achse: kippt das Verdikt,
+        # je nachdem WELCHE Kostenfamilie die Referenz misst? Die Referenzlast ist sha256, aber
+        # sechs der zwoelf Achsen sind nicht hash-gebunden. Faellt der Hash relativ staerker zurueck
+        # als die Achse, ist die Latte zu locker — ein falsches GRUEN (nachgerechnet 08.09.2026:
+        # Hashfaktor 3,0 gegen einen echten Bedarf von 1,5). Stimmen beide Familien ueberein, aendert
+        # sich nichts; das ist der Normalfall auf einer Maschine mit aehnlichem Profil.
+        # BEIDE FAMILIEN AM SELBEN ENDE. Der zweite Anlauf an dieser Stelle: stand der Hash-Faktor
+        # am schnellen Ende und der hash-freie am Median, kippte das Verdikt ZWISCHEN DEN FAMILIEN,
+        # die Kostenfamilien-Abstinenz griff, und Weg B kam nie bis zur Zusicherung. Ein Vergleich
+        # zweier Familien ist nur dann eine Aussage ueber die Familien, wenn beide dieselbe Frage
+        # beantworten — sonst misst er die Rechenvorschrift statt die Maschine.
+        frei_klammer = m["referenz_klammer_frei"]
+        faktor_frei = (_maschinenfaktor_hashfrei(frei_klammer) if LATTE_AUS_DER_KLAMMER == "median"
+                       else max(1.0, min(frei_klammer) / statistics.median(_REFERENZ_FARMER_HASHFREI_S)))
+        if (k <= dim.achsen * GRENZE_S * faktor) != (k <= dim.achsen * GRENZE_S * faktor_frei):
+            pytest.skip(
+                f"NICHT MESSBAR: das Verdikt haengt davon ab, WELCHE Kostenfamilie die Referenz "
+                f"misst. Die Kosten ({k:.3f} s) fallen bei Hash-Faktor {faktor:.2f} anders aus als "
+                f"bei hash-freiem Faktor {faktor_frei:.2f} "
+                f"({dim.achsen * GRENZE_S * faktor:.3f} s gegen "
+                f"{dim.achsen * GRENZE_S * faktor_frei:.3f} s). Diese Maschine hat ein anderes "
+                f"Kostenprofil als die Referenzmaschine, und dann sagt eine einzelne Familie nichts "
+                f"ueber die sechs Achsen der anderen.")
+        # DIE STREUUNGS-ABSTINENZ GEHOERT ZU WEG A, NICHT ZU BEIDEN. Sie fragt: haengt das Verdikt
+        # davon ab, WELCHES ENDE man nimmt? Weg B beantwortet genau diese Frage per Politik — immer
+        # das schnelle Ende — und dann ist die Frage keine offene mehr. Ohne diese Zeile war der
+        # Schalter WIRKUNGSLOS: in beiden Stellungen kam NICHT MESSBAR, weil die Abstinenz vor der
+        # Zusicherung greift. Gefunden vom Fall, der den Schalter binden sollte, beim ersten Lauf.
+        unten, oben = _faktor_spanne(klammer)
+        if (LATTE_AUS_DER_KLAMMER == "median"
+                and k > dim.achsen * GRENZE_S * unten and k <= dim.achsen * GRENZE_S * oben):
             pytest.skip(
                 f"NICHT MESSBAR: das Verdikt haengt davon ab, welches Ende der eigenen Messreihe man "
                 f"nimmt. Die Kosten ({k:.3f} s) liegen zwischen der Latte am schnellsten Ende "
@@ -830,6 +1053,45 @@ class TestKostenkurve:
         # die echte Messung von renewal_ats_chain VOR dem Fix, auf diesem Baum am 2026-09-05
         assert _exponent(vor_dem_fix) > EXPONENT_MAX, (
             "die gemessene Kurve vor dem Fix muesste dieser Schaetzer als Fund melden")
+
+    def test_der_schaetzer_meldet_bei_UNBRAUCHBARER_reihe_keine_zahl(self):
+        """NACHBAR DERSELBEN KLASSE wie der Nullkosten-Schutz im Deckel, gefunden beim Sweep.
+
+        `_exponent` ueberspringt Punktpaare, aus denen sich keine Steigung bilden laesst (Kosten
+        null, keine Zunahme in n). Bleibt danach KEIN Paar uebrig, gibt es keine Steigung — und die
+        Funktion meldet `nan`. Das ist die einzige richtige Antwort, denn `nan` faellt bei JEDEM
+        Vergleich durch: `nan <= EXPONENT_MAX` ist falsch, die Zusicherung wird rot, jemand schaut hin.
+
+        Gebunden war das bisher NICHT. Gemessen 08.09.2026: `return float("nan")` durch `return 0.0`
+        ersetzt — **126 passed**, zweimal, ohne Nebenlast. Eine Null geht als "linear oder besser"
+        glatt durch jede Obergrenze. Das ist dieselbe Klasse wie `k <= 0` im Deckel: der Waechter
+        greift, aber nichts prueft, WAS er zurueckgibt, wenn er greift. Eine Abstinenz, die durch die
+        Zusicherung durchgeht, ist keine Abstinenz — sie ist ein stilles Gruen.
+
+        (Ein erster Messlauf meldete hier faelschlich einen Fang. Er lief, waehrend ich parallel
+        arbeitete, 87 s statt 74 s, und was fiel, war der lastempfindliche Steigungstest aus S12 —
+        nicht die Mutation.)
+        """
+        for reihe, warum in (
+            ([], "gar keine Punkte"),
+            ([(1, 0.5)], "ein einziger Punkt — kein Paar"),
+            ([(1, 0.0), (2, 0.0), (4, 0.0)], "alle Kosten null"),
+            ([(4, 0.5), (2, 0.5), (1, 0.5)], "n nimmt nicht zu"),
+            # DRITTE ENTARTUNGSART, die keine der obigen erzeugt (Gegenlesung 08.09.2026): die
+            # Kosten fallen auf exakt null, WAEHREND n weiter waechst. Nur diese Reihe faellt
+            # ueber `k1 <= 0` heraus; die anderen drei fallen schon ueber `k0 <= 0` oder `n1 <= n0`.
+            # Ohne sie bleibt das Entfernen von `k1 <= 0` unsichtbar — und die Folge waere kein
+            # falscher Wert, sondern ein Absturz (`math domain error`) statt der geforderten
+            # Nicht-Zahl.
+            ([(1, 0.5), (2, 0.0)], "Kosten fallen auf null, waehrend n waechst"),
+        ):
+            e = _exponent(reihe)
+            assert math.isnan(e), (
+                f"{warum}: der Schaetzer meldet {e!r} statt nan. Aus dieser Reihe laesst sich keine "
+                f"Steigung bilden; jede ZAHL waere hier eine Behauptung ohne Grundlage.")
+            assert not (e <= EXPONENT_MAX), (
+                f"{warum}: die Antwort {e!r} geht als 'linear oder besser' durch die Obergrenze "
+                f"{EXPONENT_MAX}. Genau so sieht ein stilles Gruen aus.")
 
     def test_die_arbeitszaehlung_ist_mindestens_einmal_empfindlich(self):
         """Sonst waere der maschinenunabhaengige Teil dieser Datei ueberall unentschieden — und ein
@@ -1019,11 +1281,33 @@ class TestKombinierteAchsen:
 
     @pytest.mark.parametrize("name,achsen,bau", KOMBIS, ids=[k[0] for k in KOMBIS])
     def test_kombi_bleibt_unter_der_summe_der_obergrenzen(self, name, achsen, bau):
+        """Die Latte steht in REFERENZEINHEITEN, nicht in Sekunden — dieselbe Regel wie fuer die
+        Einzelachsen (OA-0646ecdf70).
+
+        NACHGEZOGEN AM 08.09.2026, benannt von einer Gegenlesung: diese Flaeche prueste bis dahin
+        gegen `achsen * GRENZE_S`, also gegen eine Zahl, die auf der Referenzmaschine gemessen
+        wurde. Auf einem doppelt so langsamen Laeufer wird das rot, weil die Maschine langsam ist —
+        genau der Defekt, den diese Runde fuer `DIMENSIONEN` behoben hat, nur auf der KOMBI-Flaeche
+        stehengeblieben. Der Fangnachweis dazu (`test_die_KOMBI_latte_kennt_die_maschine_auf_der_
+        sie_urteilt`) war rot: 3,000 s gegen eine Latte von 2 x 1,0 bei Maschinenfaktor 2.
+
+        Der Deckel nimmt hier KEINE Achse aus: eine Kombination ist keine der aufgezeichneten
+        Dimensionen, es gibt also nichts, was sich selbst begrenzen koennte.
+        """
         m = _kombi_messung(name, bau)
         dauer = m["dauer_max"]
-        assert dauer <= achsen * GRENZE_S, (
+        faktor = _maschinenfaktor()
+        deckel = _faktor_deckel(ausser="")
+        if faktor > deckel:
+            pytest.skip(
+                f"NICHT MESSBAR: Maschinenfaktor {faktor:.2f} ueber dem abgeleiteten Deckel "
+                f"{deckel:.2f}. Wird er ueberschritten, ist nicht die Maschine langsam, sondern das "
+                f"Kostenmodell falsch — und dann sagt weder ein gruenes noch ein rotes Verdikt etwas.")
+        latte = achsen * GRENZE_S * faktor
+        assert dauer <= latte, (
             f"{name}: {dauer:.3f} s Rechenzeit (Maximum aus {MAX_WIEDERHOLUNGEN} Laeufen), Obergrenze "
-            f"{achsen * GRENZE_S:.1f} s ({achsen} Achsen an ihrem Limit)")
+            f"{latte:.3f} s = {achsen} x {GRENZE_S} s x Maschinenfaktor {faktor:.2f} "
+            f"(Deckel {deckel:.2f}, {achsen} Achsen an ihrem Limit)")
 
     @pytest.mark.parametrize("name,achsen,bau", KOMBIS, ids=[k[0] for k in KOMBIS])
     def test_kombi_speicher_bleibt_unter_der_grenze(self, name, achsen, bau):
@@ -1202,29 +1486,53 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
     viermal zugeschlagen, zuletzt in einem Fix, der nach der verschaerften Reihenfolge gebaut wurde.
     """
 
+    @staticmethod
+    def _gefaelschte_aufzeichnung(kosten_je_dimension: dict) -> dict:
+        """Ein Ersatz fuer die AUFZEICHNUNG der Referenzmaschine — die Quelle des Deckels.
+
+        Getrennt von `_gefaelschte_messungen`, und das ist der ganze Punkt: seit dem 08.09.2026
+        liest der Deckel die Aufzeichnung, nicht den laufenden Test. Wer den DECKEL steuern will,
+        setzt hier an; wer die Kosten des laufenden Laufs stellen will, dort. Wer beides mit einem
+        Griff faelscht, kann nicht mehr zeigen, dass die zwei Quellen getrennt sind — und genau
+        diese Trennung ist der Fix.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
+        _REFERENZ_FARMER_KOSTEN.clear()
+        _REFERENZ_FARMER_KOSTEN.update(kosten_je_dimension)
+        return vorher
+
     def _gefaelschte_messungen(self, kosten_je_dimension: dict) -> dict:
         """Ein Ersatz fuer den Messungs-Cache: je Dimension die gewuenschten Kosten am Limit."""
         vorher = dict(_MESSUNGEN)
+        _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
         for d in DIMENSIONEN:
             _MESSUNGEN[d.name] = {"limit": 1, "kosten_am_limit_max": kosten_je_dimension[d.name],
+                                  "referenz_klammer": _kl[0],
+                                  "referenz_klammer_frei": _kl[1],
                                   "rand": {}, "reihe": []}
         return vorher
 
     def test_der_deckel_FOLGT_der_kopffreiheit_der_anderen_achsen(self):
-        """Wird eine ANDERE Achse teurer, muss der Deckel sinken. Eine Konstante taete das nicht."""
-        vorher = dict(_MESSUNGEN)
+        """Wird eine ANDERE Achse teurer, muss der Deckel sinken. Eine Konstante taete das nicht.
+
+        GESTELLT WIRD DIE AUFZEICHNUNG, nicht der laufende Test: seit dem 08.09.2026 kommt der
+        Deckel aus den aufgezeichneten Kopffreiheiten der Referenzmaschine. Er soll der KOSTENFORM
+        folgen — welche Achse wie viel Luft hat —, nicht der Tagesform der Maschine. Genau diese
+        Verwechslung liess in CI alle zwoelf Dimensionen abstinieren.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
         try:
             # Ausgangslage: jede Achse kostet ein Zehntel ihrer Latte -> Kopffreiheit 10 ueberall.
-            self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
             weit = _faktor_deckel(ausser="renewal_work")
             # Jetzt wird EINE andere Achse zehnmal teurer -> ihre Kopffreiheit faellt auf 1.
             andere = next(d for d in DIMENSIONEN if d.name != "renewal_work")
-            _MESSUNGEN[andere.name] = {"limit": 1, "kosten_am_limit_max": andere.achsen * GRENZE_S,
-                                       "rand": {}, "reihe": []}
+            _REFERENZ_FARMER_KOSTEN[andere.name] = andere.achsen * GRENZE_S
             eng = _faktor_deckel(ausser="renewal_work")
         finally:
-            _MESSUNGEN.clear()
-            _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
         assert eng < weit, (
             f"Der Deckel bewegt sich NICHT mit der Kopffreiheit der anderen Achsen: weit={weit:.2f}, "
             f"eng={eng:.2f}. Dann ist er keine Ableitung aus der Verteilung dieses Laufs, sondern "
@@ -1236,9 +1544,10 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
 
     def test_die_achse_unter_test_geht_NICHT_in_ihren_eigenen_deckel_ein(self):
         """Sonst waere der Deckel zirkulaer: eine teure Achse hoebe ihre eigene Erlaubnis."""
-        vorher = dict(_MESSUNGEN)
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
         try:
-            self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
             # renewal_work wird teuer, ABER NICHT REISSEND -> Kopffreiheit dort 2,0.
             #
             # FRUEHER STAND HIER DAS ZEHNFACHE, also Kopffreiheit 0,1 — und damit prueft der Fall
@@ -1248,12 +1557,11 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             # komplett und ALLE SECHS Faelle blieben gruen. Mit Kopffreiheit 2,0 unterhalb der 10,0
             # der anderen Achsen ist die Ausnahme der EINZIGE Grund, warum sie nicht den Deckel setzt.
             rw = next(d for d in DIMENSIONEN if d.name == "renewal_work")
-            _MESSUNGEN["renewal_work"] = {"limit": 1, "kosten_am_limit_max": (rw.achsen * GRENZE_S) / 2.0,
-                                          "rand": {}, "reihe": []}
+            _REFERENZ_FARMER_KOSTEN["renewal_work"] = (rw.achsen * GRENZE_S) / 2.0
             deckel = _faktor_deckel(ausser="renewal_work")
         finally:
-            _MESSUNGEN.clear()
-            _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
         assert deckel == pytest.approx(10.0, rel=0.01), (
             f"Der Deckel ist {deckel:.3f} statt 10,0 (die 2,0 von renewal_work waere durchgeschlagen) "
             f"— die Achse unter Test geht in ihren eigenen "
@@ -1274,18 +1582,29 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         standen direkt neben dem angesagten 1 failed und waeren beim blossen Abhaken der Ansage
         durchgerutscht. Die Lehre steht als Klasse 236 im Ledger.
         """
-        vorher = dict(_MESSUNGEN)
+        # BLIND GEWORDEN UND WIEDER SEHEND (08.09.2026, gefunden von einer Gegenlesung): dieser Fall
+        # faelschte `_MESSUNGEN`. Seit der Deckel aus der AUFZEICHNUNG kommt, erreichte seine
+        # Faelschung die gepruefte Funktion nicht mehr — sie lief gegen die echte Aufzeichnung und
+        # bestand deshalb IMMER. Gemessen: die Mutation `if frei >= 1.0:` -> `if True:`, also genau
+        # die Entfernung des Filters, den dieser Fall verteidigt, liess 21 von 21 Faellen gruen.
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
         try:
-            self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
             gesund = _faktor_deckel(ausser="renewal_work")
             # EINE andere Achse reisst ihre eigene Latte um das Achtfache.
             reisst = next(d for d in DIMENSIONEN if d.name != "renewal_work")
-            _MESSUNGEN[reisst.name] = {"limit": 1, "rand": {}, "reihe": [],
-                                       "kosten_am_limit_max": reisst.achsen * GRENZE_S * 8}
+            _REFERENZ_FARMER_KOSTEN[reisst.name] = reisst.achsen * GRENZE_S * 8
             trotzdem = _faktor_deckel(ausser="renewal_work")
+            beteiligt = list(_DECKEL_BEITRAEGE)
         finally:
-            _MESSUNGEN.clear()
-            _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
+        assert reisst.name not in beteiligt, (
+            f"Die Achse {reisst.name} liegt selbst um das Achtfache ueber ihrer Latte "
+            f"(Kopffreiheit 0,125) und ist trotzdem an der Deckelrechnung BETEILIGT "
+            f"({beteiligt}). Eine Achse, die selbst schon reisst, darf keinen Deckel fuer die "
+            f"anderen setzen — genau das brachte am 08.09. elf Achsen zum Schweigen.")
         assert trotzdem == pytest.approx(gesund, rel=0.01), (
             f"Eine einzige reissende Achse zieht den Deckel der anderen von {gesund:.2f} auf "
             f"{trotzdem:.2f}. Dann meldet ein einziger Ausfall die GANZE uebrige Matrix als NICHT "
@@ -1317,9 +1636,12 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         # etwas anderes, als sein Name sagt.
         wieder, _ = self._referenz_kostet([statistics.median(_REFERENZ_FARMER_S) * 20.0])
         try:
+            _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
             for d in DIMENSIONEN:
                 _MESSUNGEN[d.name] = {"limit": 1, "rand": {}, "reihe": [],
-                                      "kosten_am_limit_max": (d.achsen * GRENZE_S) / 1.5}
+                                      "kosten_am_limit_max": (d.achsen * GRENZE_S) / 1.5,
+                                      "referenz_klammer": _kl[0],
+                                      "referenz_klammer_frei": _kl[1]}
             _REFERENZ_HIER.clear()
             dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
             faktor = _maschinenfaktor()
@@ -1357,8 +1679,19 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         """
         vorher_m = dict(_MESSUNGEN)
         vorher_r = list(_REFERENZ_HIER)
+        vorher_a = dict(_REFERENZ_FARMER_KOSTEN)
         wieder, _ = self._referenz_kostet([statistics.median(_REFERENZ_FARMER_S) * 2.0])  # Faktor 2
         try:
+            # ZWEI QUELLEN, ZWEI FAELSCHUNGEN — und bis zum 08.09.2026 faelschte dieser Fall nur
+            # eine davon. Die Zusicherung liest die MESSUNG (`kosten_am_limit_max` aus
+            # `_MESSUNGEN`), der Deckel liest die AUFZEICHNUNG (`_REFERENZ_FARMER_KOSTEN`). Seit der
+            # Deckel migriert ist, lief er hier gegen die ECHTE Aufzeichnung — deren kleinste
+            # Kopffreiheit ist rund 7,95, die Liste also nie leer, und der Rueckfallpfad, den dieser
+            # Fall zu pruefen behauptet, wurde nie betreten. Gemessen von einer Gegenlesung: die
+            # Mutation `return float("inf")` -> `return 1.0` liess 21 von 21 Faellen gruen.
+            self._gefaelschte_aufzeichnung(
+                {d.name: d.achsen * GRENZE_S * 5 for d in DIMENSIONEN})   # ALLE Freiheiten 0,2
+            _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
             for d in DIMENSIONEN:  # ALLE deutlich ueber ihrer eigenen Latte
                 # `rand` wird vom Diagnose-Text an drei Stellen gelesen (limit-1, limit, limit+1).
                 # Eine Fixture, die es leer laesst, laesst den Fall an einem KeyError sterben statt
@@ -1367,7 +1700,9 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 _MESSUNGEN[d.name] = {
                     "limit": 1, "reihe": [],
                     "rand": {0: (0, 0.1, True), 1: (1, 0.2, True), 2: (2, 0.3, False)},
-                    "kosten_am_limit_max": d.achsen * GRENZE_S * 5}
+                    "kosten_am_limit_max": d.achsen * GRENZE_S * 5,
+                    "referenz_klammer": _kl[0],
+                    "referenz_klammer_frei": _kl[1]}
             _REFERENZ_HIER.clear()
             dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
             faktor = _maschinenfaktor()
@@ -1391,13 +1726,20 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             _MESSUNGEN.update(vorher_m)
             _REFERENZ_HIER.clear()
             _REFERENZ_HIER.extend(vorher_r)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher_a)
+        assert deckel == float("inf"), (
+            f"VORBEDINGUNG: wenn ALLE Achsen reissen, ist die gefilterte Liste leer und der Deckel "
+            f"muss unendlich sein — gemessen {deckel!r}. Ein endlicher Deckel hier heisst, dass die "
+            f"Faelschung die Deckelquelle nicht erreicht hat und der Fall an der echten "
+            f"Aufzeichnung vorbeimisst.")
         assert ausgang.startswith("ROT"), (
             f"Wenn ALLE Achsen reissen, muss der Fall ROT melden. Gemeldet wurde stattdessen: "
             f"{ausgang[:200]!r} (Deckel {deckel}, Faktor {faktor:.2f}). Das ist der lauteste "
             f"Befund, den dieser Test haben kann, und er verschwindet in der Stille.")
 
     @staticmethod
-    def _referenz_kostet(kosten: list[float]):
+    def _referenz_kostet(kosten: list[float], kosten_frei: list[float] | None = None):
         """Ersetzt die MESSUNG der Referenzlast, nicht ihr Ergebnis.
 
         Die frueheren Faelle dieser Klasse schrieben direkt in `_REFERENZ_HIER` — damit umgingen sie
@@ -1408,8 +1750,11 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         Rueckgabe: (wiederherstellen, zaehler) — `zaehler["mess"]` zaehlt die echten Messungen.
         """
         alt_cpu, alt_last = _cpu, _referenzlast
+        alt_frei = _referenzlast_hashfrei
+        if kosten_frei is None:
+            kosten_frei = kosten
         zaehler = {"mess": 0}
-        zustand = {"laeuft": False, "i": 0}
+        zustand = {"laeuft": False, "i": 0, "j": 0, "welche": "hash"}
 
         def fake_cpu() -> float:
             # JEDE Messung startet bei 0,0 statt auf einer fortlaufenden Uhr. Eine fortlaufende
@@ -1421,13 +1766,28 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 zustand["laeuft"] = True
                 return 0.0
             zustand["laeuft"] = False
-            k = kosten[zustand["i"] % len(kosten)]
-            zustand["i"] += 1
+            # WELCHE Last gerade lief, entscheidet die Kostenreihe. Die Last wird ZWISCHEN den
+            # beiden Uhrablesungen gerufen, das Kennzeichen steht also fest, wenn hier gelesen wird.
+            if zustand["welche"] == "frei":
+                k = kosten_frei[zustand["j"] % len(kosten_frei)]
+                zustand["j"] += 1
+            else:
+                k = kosten[zustand["i"] % len(kosten)]
+                zustand["i"] += 1
             zaehler["mess"] += 1
             return k
 
+        def fake_hash(n: int = 0) -> bytes:
+            zustand["welche"] = "hash"
+            return b""
+
+        def fake_frei(n: int = 0) -> int:
+            zustand["welche"] = "frei"
+            return 0
+
         def wiederherstellen() -> None:
-            globals().update(_cpu=alt_cpu, _referenzlast=alt_last)
+            globals().update(_cpu=alt_cpu, _referenzlast=alt_last,
+                             _referenzlast_hashfrei=alt_frei)
 
         # ATOMAR und ganz am Schluss (zweite Linse, 08.09.2026): frueher standen hier zwei
         # getrennte Zuweisungen, und der Aufruf steht in jedem Fall VOR dessen `try`. Wuerde
@@ -1437,7 +1797,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         # meldete einen erfundenen 'Maschinenfaktor 20.00' als sauber aussehenden SKIP. Mit einem
         # einzigen `globals().update` als letzter Anweisung gibt es dieses Zwischenfenster nicht:
         # entweder ist nichts gepatcht, oder die Funktion ist zurueckgekehrt.
-        globals().update(_cpu=fake_cpu, _referenzlast=lambda n=0: b"")
+        globals().update(_cpu=fake_cpu, _referenzlast=fake_hash,
+                         _referenzlast_hashfrei=fake_frei)
         return wiederherstellen, zaehler
 
     def test_der_maschinenfaktor_FRIERT_NICHT_auf_seiner_ersten_messung_EIN(self):
@@ -1542,8 +1903,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         Der Fall darueber bindet den Median gegen EINEN Ausreisser unter acht normalen Messungen. Die
         Linse nannte die Verteilung, bei der der Median GENAUSO versagt wie der Mittelwert: fuenf von
         neun Messungen langsam, vier normal. Dann liegt der Median IN der langsamen Gruppe, der
-        Faktor folgt ihr, und die Latte lockert sich um das Zehnfache — still, denn ein Faktor von 10
-        liegt unter dem abgeleiteten Deckel von rund 19,5. Real ist das ein Runner, auf dem ein
+        Faktor folgt ihr, und die Latte lockert sich um das Fuenffache — still, denn ein Faktor von 5
+        liegt unter dem abgeleiteten Deckel von 7,949. Real ist das ein Runner, auf dem ein
         Fremdjob in fuenf der neun Messfenster laeuft.
 
         Der Ausweg braucht keine getippte Schwelle. Die Frage ist nicht 'wie stark streut die
@@ -1559,24 +1920,33 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         # Fuenf langsame, vier normale Messungen — die Reihe wird zyklisch abgerufen, also gibt
         # dieses Muster bei neun Messungen genau 5x langsam und 4x normal.
         wieder, zaehler = self._referenz_kostet(
-            [dort * 10.0, dort, dort * 10.0, dort, dort * 10.0, dort, dort * 10.0, dort, dort * 10.0])
+            [dort * 5.0, dort, dort * 5.0, dort, dort * 5.0, dort, dort * 5.0, dort, dort * 5.0])
         try:
             dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+            _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
             for d in DIMENSIONEN:
                 _MESSUNGEN[d.name] = {
                     "limit": 1, "reihe": [],
                     "rand": {0: (0, 0.1, True), 1: (1, 0.2, True), 2: (2, 0.3, False)},
                     # Kosten beim Dreifachen der Grundlatte: ueber dem schnellen Ende (1,0),
                     # unter dem langsamen (10,0) — genau im Band, in dem die Streuung entscheidet.
-                    "kosten_am_limit_max": d.achsen * GRENZE_S * 3.0}
+                    "kosten_am_limit_max": d.achsen * GRENZE_S * 3.0,
+                    "referenz_klammer": _kl[0],
+                    "referenz_klammer_frei": _kl[1]}
             _REFERENZ_HIER.clear()
-            faktor = _maschinenfaktor()
-            assert faktor == pytest.approx(10.0, rel=0.02), (
+            # DER FAKTOR KOMMT AUS DER KLAMMER, nicht aus einer frischen Reihe. Die frische Messung
+            # stand hier bis zum 08.09.2026 — und war im Kleinen genau der Fehler, den die Klammer
+            # im Grossen behebt: ein Faktor aus einem ANDEREN Fenster als die Kosten daneben.
+            faktor = _maschinenfaktor(_kl[0])
+            assert faktor == pytest.approx(5.0, rel=0.02), (
                 f"VORBEDINGUNG: bei fuenf von neun langsamen Messungen liegt der Median IN der "
-                f"langsamen Gruppe, erwartet rund 10,0, gemessen {faktor:.2f} — sonst prueft dieser "
+                f"langsamen Gruppe, erwartet rund 5,0, gemessen {faktor:.2f} — sonst prueft dieser "
                 f"Fall die benannte Verteilung gar nicht.")
-            assert zaehler["mess"] == MAX_WIEDERHOLUNGEN, (
-                f"VORBEDINGUNG: {MAX_WIEDERHOLUNGEN} Messungen erwartet, {zaehler['mess']} gezaehlt.")
+            assert zaehler["mess"] == 2 * MAX_WIEDERHOLUNGEN, (
+                f"VORBEDINGUNG: genau {2 * MAX_WIEDERHOLUNGEN} Messungen erwartet — die Klammer "
+                f"misst BEIDE Kostenfamilien mit je {MAX_WIEDERHOLUNGEN} Laeufen, und sonst nichts. "
+                f"Gezaehlt {zaehler['mess']}. Eine dritte Reihe hier waere ein Faktor aus einem "
+                f"anderen Zeitfenster — der Fehler, gegen den die Klammer gebaut wurde.")
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             ausgang = "kein Fehlschlag"
             try:
@@ -1592,7 +1962,7 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             _REFERENZ_HIER.clear()
             _REFERENZ_HIER.extend(vorher_r)
         assert ausgang.startswith("SKIP") and "NICHT MESSBAR" in ausgang, (
-            f"Bei einer zweigipfligen Messreihe (fuenf von neun Messungen zehnmal langsamer) meldet "
+            f"Bei einer zweigipfligen Messreihe (fuenf von neun Messungen fuenfmal langsamer) meldet "
             f"der Fall nicht NICHT MESSBAR, sondern: {ausgang[:300]!r}. Dann folgt die Latte dem "
             f"langsamen Gipfel und laesst das Zehnfache durch, ohne dass es jemand sieht — und ein "
             f"Faktor von 10 bleibt unter dem abgeleiteten Deckel, der Riegel darueber greift also "
@@ -1714,26 +2084,24 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         Hier wird eine EINACHSIGE Dimension ausgeschlossen, damit `renewal_work` mit seinen drei
         Achsen IN die Deckelberechnung eingeht und den Deckel setzt.
         """
-        vorher = dict(_MESSUNGEN)
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
         try:
             rw = next(d for d in DIMENSIONEN if d.name == "renewal_work")
             assert rw.achsen == 3, f"VORBEDINGUNG: renewal_work hat {rw.achsen} Achsen, erwartet 3"
             assert all(d.achsen == 1 for d in DIMENSIONEN if d.name != "renewal_work"), (
                 "VORBEDINGUNG: eine zweite Dimension hat mehr als eine Achse — dann prueft dieser "
                 "Fall den Multiplikator nicht mehr isoliert.")
-            for d in DIMENSIONEN:
-                _MESSUNGEN[d.name] = {"limit": 1, "rand": {}, "reihe": [],
-                                      "kosten_am_limit_max": (d.achsen * GRENZE_S) / 20.0}
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 20.0 for d in DIMENSIONEN})
             # renewal_work bekommt Kosten, die OHNE den Multiplikator eine Kopffreiheit von 1,0
             # ergaeben und MIT ihm 3,0. Der Deckel ist das Minimum ueber die anderen (20,0) und
             # renewal_work — also 3,0 mit Multiplikator, 1,0 ohne (und 1,0 faellt durch den Filter).
-            _MESSUNGEN["renewal_work"] = {"limit": 1, "rand": {}, "reihe": [],
-                                          "kosten_am_limit_max": GRENZE_S}
+            _REFERENZ_FARMER_KOSTEN["renewal_work"] = GRENZE_S
             einachsig = next(d for d in DIMENSIONEN if d.achsen == 1)
             deckel = _faktor_deckel(ausser=einachsig.name)
         finally:
-            _MESSUNGEN.clear()
-            _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
         assert deckel == pytest.approx(3.0, rel=0.01), (
             f"Der Deckel ist {deckel:.3f} statt 3,0. Die Achsenzahl der anderen Dimensionen geht "
             f"nicht in ihre Kopffreiheit ein — eine dreiachsige Dimension darf dreimal so viel "
@@ -1749,17 +2117,16 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         eine echte Null, und ohne den Schutz stirbt der Deckel an einer Division durch null. Ein Riegel,
         der an einer Ausnahme stirbt, meldet nichts — er reisst den ganzen Lauf mit.
         """
-        vorher = dict(_MESSUNGEN)
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
         try:
-            for d in DIMENSIONEN:
-                _MESSUNGEN[d.name] = {"limit": 1, "rand": {}, "reihe": [],
-                                      "kosten_am_limit_max": (d.achsen * GRENZE_S) / 4.0}
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
             billig = next(d for d in DIMENSIONEN if d.name not in ("renewal_work",))
-            _MESSUNGEN[billig.name]["kosten_am_limit_max"] = 0.0
+            _REFERENZ_FARMER_KOSTEN[billig.name] = 0.0
             deckel = _faktor_deckel(ausser="renewal_work")
         finally:
-            _MESSUNGEN.clear()
-            _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
         assert deckel == pytest.approx(4.0, rel=0.01), (
             f"Der Deckel ist {deckel:.3f} statt 4,0 — die Dimension mit Kosten null hat ihn "
             f"veraendert, statt uebersprungen zu werden. Eine Kopffreiheit ist dort nicht definiert, "
@@ -1776,16 +2143,25 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         bestandenen nicht zu unterscheiden.
         """
         vorher_m = dict(_MESSUNGEN)
+        vorher_a = dict(_REFERENZ_FARMER_KOSTEN)
         vorher_r = list(_REFERENZ_HIER)
         dort = statistics.median(_REFERENZ_FARMER_S)
         wieder, _ = self._referenz_kostet([dort * 2.0])          # Faktor exakt 2,0
         try:
             dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+            # Der DECKEL kommt aus der Aufzeichnung: dort bekommt jede Achse die Kopffreiheit
+            # exakt 2,0, damit der Deckel exakt 2,0 ist. Die Kosten des LAUFENDEN Tests werden
+            # getrennt gestellt — genau diese Trennung ist der Fix vom 08.09.2026.
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 2.0 for d in DIMENSIONEN})
+            _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
             for d in DIMENSIONEN:                                 # Kopffreiheit exakt 2,0
                 _MESSUNGEN[d.name] = {
                     "limit": 1, "reihe": [],
                     "rand": {0: (0, 0.1, True), 1: (1, 0.2, True), 2: (2, 0.3, False)},
-                    "kosten_am_limit_max": (d.achsen * GRENZE_S) / 2.0}
+                    "kosten_am_limit_max": (d.achsen * GRENZE_S) / 2.0,
+                    "referenz_klammer": _kl[0],
+                    "referenz_klammer_frei": _kl[1]}
             _REFERENZ_HIER.clear()
             faktor = _maschinenfaktor()
             deckel = _faktor_deckel(ausser=dim.name)
@@ -1804,12 +2180,520 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             wieder()
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher_m)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher_a)
             _REFERENZ_HIER.clear()
             _REFERENZ_HIER.extend(vorher_r)
         assert "ueber dem abgeleiteten Deckel" not in ausgang, (
             f"Ein Faktor GENAU auf dem Deckel wird als NICHT MESSBAR gemeldet: {ausgang[:200]!r}. "
             f"Auf dem Deckel reisst noch keine andere Achse — der Fall ist dort messbar, und die "
             f"Grenze eines Riegels ist eine Aussage, keine Geschmacksfrage.")
+
+    def test_divergierende_KOSTENFAMILIEN_melden_NICHT_MESSBAR_statt_die_hash_zahl_zu_glauben(self):
+        """DIE WIDERLEGUNG DER FREMDFAMILIAEREN LINSE, nachgerechnet 08.09.2026.
+
+        Die Linse schrieb, eine unpassende Referenzfamilie koenne NUR falsches ROT erzeugen, 'weil
+        der Faktor nur lockert'. Das gilt in EINER Richtung. Der Faktor ist `hash_hier/hash_ref`,
+        die Achse braucht `A_hier/A_ref`; falsch GRUEN entsteht genau dann, wenn der Hash STAERKER
+        verlangsamt ist als die Achse — das Profil einer Maschine ohne Hardware-SHA. Zahlenprobe:
+        Hashfaktor 3,0 gegen einen echten Bedarf von 1,5 laesst die Latte fuer die sechs hash-freien
+        Achsen dreifach zu locker.
+
+        Der Ausweg ist derselbe wie bei der Streuung und braucht wieder keine getippte Schwelle:
+        **kippt das Verdikt, je nachdem WELCHE Familie die Referenz misst?** Dann traegt die Messung
+        es nicht, und das ist NICHT MESSBAR. Stimmen beide Familien ueberein — der Normalfall auf
+        einer Maschine, deren Profil dem der Referenzmaschine aehnelt — aendert sich nichts.
+
+        Hier ist die Maschine im Hash dreimal langsamer und in der Ganzzahl-Arithmetik gar nicht.
+        Die Kosten liegen beim Doppelten der Grundlatte: ueber der hash-freien Latte (1,0), unter
+        der Hash-Latte (3,0) — genau im Bereich, in dem die Familienwahl das Urteil bestimmt.
+        """
+        vorher_m = dict(_MESSUNGEN)
+        vorher_h = list(_REFERENZ_HIER)
+        vorher_f = list(_REFERENZ_HIER_HASHFREI)
+        dort_h = statistics.median(_REFERENZ_FARMER_S)
+        dort_f = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        wieder, _ = self._referenz_kostet([dort_h * 3.0], kosten_frei=[dort_f])
+        try:
+            dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+            _kl = _klammer_jetzt()   # durch eine ggf. aktive Faelschung hindurch
+            for d in DIMENSIONEN:
+                _MESSUNGEN[d.name] = {
+                    "limit": 1, "reihe": [],
+                    "rand": {0: (0, 0.1, True), 1: (1, 0.2, True), 2: (2, 0.3, False)},
+                    "kosten_am_limit_max": d.achsen * GRENZE_S * 2.0,
+                    "referenz_klammer": _kl[0],
+                    "referenz_klammer_frei": _kl[1]}
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER_HASHFREI.clear()
+            f_hash = _maschinenfaktor()
+            f_frei = _maschinenfaktor_hashfrei()
+            assert f_hash == pytest.approx(3.0, rel=0.02), (
+                f"VORBEDINGUNG: Hash-Faktor {f_hash:.2f} statt rund 3,0")
+            assert f_frei == pytest.approx(1.0, rel=0.02), (
+                f"VORBEDINGUNG: hash-freier Faktor {f_frei:.2f} statt rund 1,0")
+            fall = TestObergrenzeAmGroesstenZugelassenenWert()
+            ausgang = "kein Fehlschlag"
+            try:
+                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+            except Skipped as s:
+                ausgang = f"SKIP: {s}"
+            except AssertionError as a:
+                ausgang = f"ROT: {a}"
+        finally:
+            wieder()
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_h)
+            _REFERENZ_HIER_HASHFREI.clear()
+            _REFERENZ_HIER_HASHFREI.extend(vorher_f)
+        assert ausgang.startswith("SKIP") and "NICHT MESSBAR" in ausgang, (
+            f"Bei divergierenden Kostenfamilien (Hash dreimal langsamer, Ganzzahl-Arithmetik gar "
+            f"nicht) meldet der Fall nicht NICHT MESSBAR, sondern: {ausgang[:300]!r}. Dann glaubt "
+            f"die Latte der Hash-Zahl und laesst fuer sechs hash-freie Achsen das Dreifache durch — "
+            f"ein falsches GRUEN, und zwar genau das, dessen Unmoeglichkeit die Gegenlesung "
+            f"behauptet hat.")
+        assert "Familie" in ausgang, (
+            f"Die Meldung nennt den Grund nicht — ein Leser kann Deckel, Streuung und Familienwahl "
+            f"dann nicht unterscheiden. Gemeldet: {ausgang[:300]!r}")
+
+    def test_auch_die_HASHFREIE_familie_nimmt_den_MEDIAN(self):
+        """DER NACHBAR, den ich beim Bau der zweiten Familie selbst benannt und zunaechst offen
+        gelassen habe — und der beim ersten Anlauf 0 von 16 fing.
+
+        `_maschinenfaktor_hashfrei` nimmt den Median aus demselben Grund wie seine Schwester: ein
+        einzelner Fremdprozess waehrend EINER der neun Messungen darf die Latte nicht anheben. Alle
+        Fixtures der zweiten Familie skalierten uniform, und bei uniformer Skalierung sind Median und
+        Mittelwert gleich — die Wahl der Statistik war nicht unterschieden. Angesagt 0, gemessen 0.
+
+        Das ist dieselbe Klasse, die bei der ERSTEN Familie schon einmal zugeschlagen hat. Eine
+        Eigenschaft, die man beim Duplizieren mitnimmt, ist damit noch nicht gebunden.
+        """
+        vorher_h = list(_REFERENZ_HIER)
+        vorher_f = list(_REFERENZ_HIER_HASHFREI)
+        dort_f = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        muster = [dort_f] * (MAX_WIEDERHOLUNGEN - 1) + [dort_f * 40.0]
+        wieder, _ = self._referenz_kostet([1.0], kosten_frei=muster)
+        try:
+            _REFERENZ_HIER_HASHFREI.clear()
+            faktor = _maschinenfaktor_hashfrei()
+            gemessen = list(_REFERENZ_HIER_HASHFREI)
+        finally:
+            wieder()
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_h)
+            _REFERENZ_HIER_HASHFREI.clear()
+            _REFERENZ_HIER_HASHFREI.extend(vorher_f)
+        assert len(gemessen) == MAX_WIEDERHOLUNGEN and all(w > 0 for w in gemessen), (
+            f"VORBEDINGUNG: {len(gemessen)} Messwerte statt {MAX_WIEDERHOLUNGEN}, oder eine davon "
+            f"null — dann ist der gefaelschte Zeitgeber aus dem Takt: {gemessen}")
+        assert max(gemessen) / min(gemessen) == pytest.approx(40.0, rel=0.01), (
+            f"VORBEDINGUNG: der Ausreisser ist nicht vierzigmal so teuer, gemessen "
+            f"{max(gemessen) / min(gemessen):.1f}fach.")
+        assert faktor == pytest.approx(1.0, rel=0.02), (
+            f"Der hash-freie Faktor ist {faktor:.3f}, obwohl acht von neun Messungen dem "
+            f"Referenzwert entsprechen und nur EINE das Vierzigfache kostet. Dann folgt er dem "
+            f"Ausreisser statt ihn zu glaetten — und weil die Familien-Abstention BEIDE Faktoren "
+            f"vergleicht, wuerde ein einzelner Fremdprozess in der zweiten Familie den ganzen Fall "
+            f"zum Schweigen bringen. Mittelwert gaebe {statistics.mean(muster) / dort_f:.2f}.")
+
+    def test_auch_der_HASHFREIE_faktor_hat_die_untergrenze_eins(self):
+        """ANGESAGT UND GEMESSEN: diese Eigenschaft fing vorher NICHTS (Mutation C der Matrix zur
+        zweiten Familie, angesagt 0, gemessen 0 von 15).
+
+        Die Untergrenze 1,0 ist eine Owner-Auflage, und sie gilt fuer BEIDE Familien: eine
+        schnellere Maschine darf die Latte nicht lockern. Beim hash-freien Faktor stand sie im Code,
+        aber kein Fall band sie — `max(1.0, ...)` zu entfernen liess alle fuenfzehn gruen. Ohne die
+        Untergrenze faellt der hash-freie Faktor auf einer schnellen Maschine unter 1,0, und dann
+        DIVERGIEREN die Familien allein deshalb, weil eine von beiden nach unten ausbricht: aus der
+        Abstention 'die Familien sind sich uneinig' wuerde ein Dauerzustand ohne Aussage.
+        """
+        vorher_h = list(_REFERENZ_HIER)
+        vorher_f = list(_REFERENZ_HIER_HASHFREI)
+        dort_f = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        wieder, _ = self._referenz_kostet([1.0], kosten_frei=[dort_f / 10.0])
+        try:
+            _REFERENZ_HIER_HASHFREI.clear()
+            schnell = _maschinenfaktor_hashfrei()
+            wieder()
+            wieder, _ = self._referenz_kostet([1.0], kosten_frei=[dort_f * 4.0])
+            _REFERENZ_HIER_HASHFREI.clear()
+            langsam = _maschinenfaktor_hashfrei()
+        finally:
+            wieder()
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_h)
+            _REFERENZ_HIER_HASHFREI.clear()
+            _REFERENZ_HIER_HASHFREI.extend(vorher_f)
+        assert schnell == 1.0, (
+            f"Auf einer zehnmal schnelleren Maschine gibt der hash-freie Faktor {schnell:.3f} statt "
+            f"1,0 und LOCKERT damit die Latte. Die Untergrenze gilt fuer beide Familien — eine "
+            f"schnelle Maschine macht die Zusicherung strenger, nie schwaecher.")
+        assert langsam == pytest.approx(4.0, rel=0.01), (
+            f"Auf einer viermal langsameren Maschine folgt der hash-freie Faktor der Messung nicht: "
+            f"{langsam:.3f} statt rund 4,0.")
+
+    def test_alle_punkte_der_kurve_werden_GLEICH_oft_gemessen(self):
+        """GEFUNDEN VON EINER EIGENEN LASTPROBE, 08.09.2026 — und die Wurzel ist schaerfer als der
+        erste Verdacht.
+
+        Unter zwoelf Fremdlast-Schleifen meldete `test_die_kurve_ist_nicht_ueberlinear` fuer
+        `renewal_work` einen Zeit-Exponenten von 1,31 gegen die Schranke 1,2 (in Ruhe: fuenf Laeufe,
+        122 passed, 0 skipped). Die Kalibrierung faengt das nicht: sie skaliert eine SCHRANKE, der
+        Exponent ist eine STEIGUNG — ein konstanter Faktor laesst die log-log-Steigung exakt
+        unveraendert (S6: 1,044646 vor und nach x1,5).
+
+        DER GRUND STEHT IN `_zeit_min`: wiederholt wird nur, wenn die Messung unter
+        `WIEDERHOLEN_UNTER_S` liegt. Nachgemessen an der Reihe von `renewal_work`:
+
+            n= 5000000  0,18084 s  WIEDERHOLT (Minimum aus 3)
+            n=10000000  0,35690 s  EINMAL gemessen
+            n=20000000  0,70984 s  EINMAL gemessen
+            n=40000000  1,43139 s  EINMAL gemessen
+
+        Der billigste Punkt bekommt also einen Rauschboden aus drei Laeufen, die drei teuren je einen
+        aus EINEM. Unter Last wird der Einzelmesswert staerker aufgeblaeht als das Minimum aus drei —
+        das Verhaeltnis k1/k0 waechst, und die Steigung mit ihm. Das ist kein Zufall, das ist
+        bauartbedingt: **ein Steigungsschaetzer ueber ungleich behandelte Punkte ist verzerrt.**
+
+        Gebunden wird deshalb die Gleichbehandlung, nicht die Zahl: JEDER Punkt der Reihe, aus der
+        der Exponent kommt, wird gleich oft gemessen.
+        """
+        for dim in DIMENSIONEN:
+            m = _messung(dim)
+            zahlen = {w for _, _, _, w in m["reihe_wdh"]}
+            assert len(zahlen) == 1, (
+                f"{dim.name}: die vier Punkte der Kurve wurden UNTERSCHIEDLICH oft gemessen "
+                f"({sorted(zahlen)}). Der Punkt mit den meisten Wiederholungen hat den tiefsten "
+                f"Rauschboden; unter Last blaeht sich der einmal gemessene Punkt staerker auf, und "
+                f"die Steigung zwischen beiden kippt. Gemessen 08.09.2026 unter zwoelf "
+                f"Fremdlast-Schleifen: Zeit-Exponent 1,31 gegen die Schranke 1,2, waehrend fuenf "
+                f"Ruhelaeufe je 122 passed / 0 skipped ergaben.")
+
+    def test_der_deckel_FAELLT_NICHT_wenn_die_maschine_langsamer_wird(self):
+        """DER SCHWERSTE FUND DIESER RUNDE, und er widerlegt meine eigene Erfolgsmeldung.
+
+        Ich hatte berichtet, `coverage` sei gruen geworden, weil die Latte in Referenzeinheiten
+        steht. Die Gegenlesung hat das mit Positionsbeweis widerlegt: im CI-Lauf am Kopf 88a5383
+        stand '3871 passed, 40 skipped, 0 failed', das Skip-Delta gegen den Vorgaengerkopf war genau
+        +12 — die Zahl der Dimensionen —, und die zwoelf Skip-Zeichen lagen an den Positionen 745 bis
+        756, wo `--collect-only` genau diese zwoelf Faelle auffuehrt. **ALLE ZWOELF abstinierten,
+        keine bestand.** Ein uebersprungener Fall ist von aussen von einem bestandenen nicht zu
+        unterscheiden — der stumme Riegel, vor dem der Code selbst warnt.
+
+        DIE URSACHE: der Deckel rechnete die Kopffreiheit aus den Kosten der anderen Achsen IM
+        SELBEN LAUF. Wird die Maschine langsamer, steigen diese Kosten, also FAELLT der Deckel —
+        waehrend der Maschinenfaktor STEIGT. Beide laufen aufeinander zu, und `faktor > deckel` wird
+        genau dann wahr, wenn die Kalibrierung gebraucht wird. Eigene Lastprobe: in Ruhe Faktor rund
+        1,0 gegen Deckel 19,54 und kein Skip in fuenf Laeufen; unter zwoelf Fremdlast-Schleifen
+        Faktor 2,4 gegen Deckel 1,30 und acht Skips.
+
+        Seither kommt der Deckel aus `_REFERENZ_FARMER_KOSTEN`, einer AUFZEICHNUNG. Gebunden wird
+        hier die Wirkung: dieselbe Maschine, doppelt so langsam gemessen, ergibt denselben Deckel.
+        """
+        vorher = dict(_MESSUNGEN)
+        try:
+            # Ein RUHIGER Lauf: jede Achse bei einem Zehntel ihrer Latte.
+            self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
+            ruhig = _faktor_deckel(ausser="renewal_work")
+            # DIESELBE Maschine unter Last: alle gemessenen Kosten verdoppelt.
+            self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 5.0 for d in DIMENSIONEN})
+            belastet = _faktor_deckel(ausser="renewal_work")
+        finally:
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher)
+        assert belastet == pytest.approx(ruhig, rel=0.001), (
+            f"Der Deckel faellt von {ruhig:.3f} auf {belastet:.3f}, wenn dieselbe Maschine doppelt "
+            f"so langsam MISST. Dann sinkt die Schwelle der Abstention genau in dem Moment, in dem "
+            f"der Maschinenfaktor steigt — beide laufen aufeinander zu, und der Riegel schweigt "
+            f"genau dann, wenn er gebraucht wird. Am Kopf 88a5383 fuehrte das dazu, dass ALLE ZWOELF "
+            f"Dimensionen in CI abstinierten und `coverage` gruen wurde, weil der einzige zuvor rote "
+            f"Test sich aus der Bewertung herausgezogen hatte.")
+
+    def test_der_schalter_der_offenen_OWNER_ENTSCHEIDUNG_wirkt_wirklich(self):
+        """BEIDE WEGE DER OFFENEN KARTE `600_latte_am_schnellen_ende_oder_abstinenz`, gebunden.
+
+        Der Schalter `LATTE_AUS_DER_KLAMMER` soll die Owner-Entscheidung auf EIN WORT reduzieren.
+        Ein Schalter, der nur im Kommentar steht, ist aber keine Entscheidung, sondern eine
+        Behauptung — und genau diese Klasse hat diese Runde durchzogen. Dieser Fall faehrt DIESELBE
+        Lage zweimal, einmal je Stellung, und verlangt UNTERSCHIEDLICHE Ausgaenge:
+
+          "median"           -> NICHT MESSBAR (das Verdikt haengt davon ab, welches Ende man nimmt)
+          "schnellstes_ende" -> ROT (die Latte steht am schnellen Ende, die Kosten liegen darueber)
+
+        Waeren beide Ausgaenge gleich, waere der Schalter wirkungslos — und der Owner truefe eine
+        Entscheidung, die nichts entscheidet.
+        """
+        dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+        limit = getattr(B, dim.name)
+        ruhe = statistics.median(_REFERENZ_FARMER_S)
+        ruhe_frei = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        vorher_m, vorher_s = dict(_MESSUNGEN), LATTE_AUS_DER_KLAMMER
+        ausgaenge = {}
+        try:
+            for stellung in ("median", "schnellstes_ende"):
+                globals()["LATTE_AUS_DER_KLAMMER"] = stellung
+                _MESSUNGEN[dim.name] = {
+                    "limit": limit, "reihe": [], "arbeit": [], "reihe_wdh": [],
+                    "rand": {limit - 1: (limit - 1, 0.1, True), limit: (limit, 0.2, True),
+                             limit + 1: (limit + 1, 0.3, False)},
+                    "kosten_am_limit_max": dim.achsen * GRENZE_S * 5.0 / 3.0,
+                    "referenz_klammer": ([ruhe] * MAX_WIEDERHOLUNGEN
+                                         + [ruhe * 3.2] * MAX_WIEDERHOLUNGEN),
+                    "referenz_klammer_frei": ([ruhe_frei] * MAX_WIEDERHOLUNGEN
+                                              + [ruhe_frei * 3.2] * MAX_WIEDERHOLUNGEN),
+                }
+                fall = TestObergrenzeAmGroesstenZugelassenenWert()
+                try:
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                    ausgaenge[stellung] = "STILLER PASS"
+                except Skipped:
+                    ausgaenge[stellung] = "NICHT MESSBAR"
+                except AssertionError:
+                    ausgaenge[stellung] = "ROT"
+        finally:
+            globals()["LATTE_AUS_DER_KLAMMER"] = vorher_s
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+        assert ausgaenge["median"] == "NICHT MESSBAR", (
+            f"Weg A muss bei wechselnder Last abstinieren, gemeldet: {ausgaenge['median']!r}")
+        assert ausgaenge["schnellstes_ende"] == "ROT", (
+            f"Weg B muss die echte Kostensteigerung ROT melden — das ist der ganze Unterschied zu "
+            f"Weg A und der Grund, warum OA-0646ecdf70 ihn woertlich verlangt. Gemeldet: "
+            f"{ausgaenge['schnellstes_ende']!r}")
+        assert ausgaenge["median"] != ausgaenge["schnellstes_ende"], (
+            f"Beide Stellungen ergeben denselben Ausgang ({ausgaenge}). Dann entscheidet die "
+            f"Owner-Karte nichts, und der Schalter ist eine Behauptung statt einer Wahl.")
+
+    def test_der_faktor_gehoert_INS_fenster_der_kosten_nicht_dahinter(self):
+        """DER SCHWERSTE FUND DIESER RUNDE, von einer Gegenlesung mit einer ECHTEN Verteuerung.
+
+        Sie baute eine echte dreifache Kostensteigerung in `renewal_work` (zusaetzliche kalibrierte
+        sha256-Buerde, keine gefaelschte Zahl) und mass fuenf Laeufe: **2 von 5 liessen sie lautlos
+        durch** — kein Rot, kein Skip, ein stiller Pass. Und zwar NICHT ueber eine der drei
+        Abstinenzen, sondern an ihnen vorbei: die teure Kostenreihe wurde zuerst gemessen, der
+        Maschinenfaktor DANACH. Faellt eine Lastspitze in genau dieses spaete Fenster, lockert sie die
+        Latte, ohne die Kosten beruehrt zu haben — und die echte Regression passt darunter.
+
+        Der Fall stellt das deterministisch nach, statt auf ein Rennen zu warten: die Kosten sind im
+        RUHIGEN Fenster entstanden (Faktor 1,0), die spaete Referenzmessung sieht eine dreifach
+        belastete Maschine (Faktor 3,2), und die Kosten liegen ZWISCHEN beiden Latten. Vor der
+        Klammer urteilte nur das spaete Fenster: Latte 9,6 s, Kosten 5,0 s, stiller Pass.
+
+        Was der Fall verlangt, ist ausdruecklich NICHT "rot", sondern "nicht still". Wenn die Maschine
+        waehrend der Messung ihren Zustand wechselt, ist NICHT MESSBAR die ehrliche Antwort und ROT
+        eine Behauptung ohne Grundlage — aber ein stiller Pass ist die eine Antwort, die es nicht
+        geben darf. Ob die Latte stattdessen immer am schnellen Ende der Klammer stehen soll (dann
+        bliebe es rot), ist eine Owner-Frage, keine Testfrage: sie verschaerft die Latte auf JEDER
+        Maschine um die Streuung der Referenzlast.
+        """
+        dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+        limit = getattr(B, dim.name)
+        ruhe = statistics.median(_REFERENZ_FARMER_S)
+        ruhe_frei = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        vorher_m = dict(_MESSUNGEN)
+        try:
+            _MESSUNGEN[dim.name] = {
+                "limit": limit, "reihe": [], "arbeit": [], "reihe_wdh": [],
+                "rand": {limit - 1: (limit - 1, 0.1, True), limit: (limit, 0.2, True),
+                         limit + 1: (limit + 1, 0.3, False)},
+                # ECHTE Verteuerung: 5,0 s gegen eine Referenzlatte von 3 x 1,0 s.
+                "kosten_am_limit_max": dim.achsen * GRENZE_S * 5.0 / 3.0,
+                # Die Klammer SIEHT beide Fenster: ruhig gemessen, laut nachgemessen.
+                "referenz_klammer": [ruhe] * MAX_WIEDERHOLUNGEN + [ruhe * 3.2] * MAX_WIEDERHOLUNGEN,
+                "referenz_klammer_frei": ([ruhe_frei] * MAX_WIEDERHOLUNGEN
+                                          + [ruhe_frei * 3.2] * MAX_WIEDERHOLUNGEN),
+            }
+            fall = TestObergrenzeAmGroesstenZugelassenenWert()
+            ausgang = "STILLER PASS"
+            try:
+                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+            except Skipped as s:
+                ausgang = f"NICHT MESSBAR: {s}"
+            except AssertionError as a:
+                ausgang = f"ROT: {a}"
+        finally:
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+        assert ausgang != "STILLER PASS", (
+            f"Eine echte Kostensteigerung auf das 1,67-fache der Latte ging LAUTLOS durch "
+            f"(gemeldet: {ausgang!r}). Die Kosten sind im ruhigen Fenster entstanden (Faktor 1,0), "
+            f"die Latte kam aus dem lauten (Faktor 3,2) — der Faktor beschreibt eine Maschine, auf "
+            f"der diese Kosten nie gemessen wurden. Genau so verschluckte das Tor in 2 von 5 "
+            f"Laeufen eine echte Verdreifachung.")
+
+    def test_die_KOMBI_latte_kennt_die_maschine_auf_der_sie_urteilt(self):
+        """NEBENBEFUND EINER GEGENLESUNG (08.09.2026) — und er ist die Klasse dieser ganzen Runde.
+
+        Die Einzelachsen haben seit OA-0646ecdf70 eine Latte in Referenzeinheiten: `achsen *
+        GRENZE_S * Maschinenfaktor`, mit Deckel und Abstinenz. Die KOMBI-Flaeche wurde dabei nicht
+        mitgezogen — sie prueft weiter `dauer <= achsen * GRENZE_S`, also gegen eine Zahl, die auf
+        der Referenzmaschine gemessen wurde. Auf einem doppelt so langsamen Laeufer wird das rot,
+        weil die Maschine langsam ist, nicht weil der Code teurer wurde. Genau dieser Defekt hat
+        diese Runde ausgeloest, nur auf der anderen Flaeche.
+
+        Der Fall stellt eine Maschine mit Faktor 1,8 her und legt eine Kombination hin, die das
+        Anderthalbfache ihrer Referenzlatte kostet — auf dieser Maschine also INNERHALB. Er verlangt,
+        dass die Kombi-Zusicherung das nicht als Fehlschlag meldet.
+
+        WARUM 1,8 UND NICHT 2,0: der erste Anlauf nahm 2,0 und bekam eine ABSTINENZ statt eines
+        Urteils — "Maschinenfaktor 2.00 ueber dem abgeleiteten Deckel 1.92". Das ist kein Fehler des
+        Falles, sondern der Befund der Owner-Karte OA-dc37e26295, hier ein zweites Mal sichtbar: der
+        Deckel aus der Aufzeichnung liegt bei 1,925, und ein CI-Laeufer mit Faktor 2 kann auch diese
+        Flaeche nicht mehr beurteilen. Der Fall misst deshalb UNTERHALB des Deckels; die Frage, ob
+        der Deckel dort richtig liegt, gehoert dem Owner, nicht diesem Test.
+        """
+        vorher_k = dict(_KOMBI_MESSUNGEN)
+        vorher_r = list(_REFERENZ_HIER)
+        wieder, _ = self._referenz_kostet([statistics.median(_REFERENZ_FARMER_S) * 1.8])
+        try:
+            name, achsen, bau = KOMBIS[0]
+            _KOMBI_MESSUNGEN[name] = {"erreicht": {},
+                                      "dauer_max": achsen * GRENZE_S * 1.5,
+                                      "speicher_peak": 0}
+            _REFERENZ_HIER.clear()
+            faktor = _maschinenfaktor()
+            fall = TestKombinierteAchsen()
+            ausgang = "kein Fehlschlag"
+            try:
+                fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(name, achsen, bau)
+            except Skipped as s:
+                ausgang = f"SKIP: {s}"
+            except AssertionError as a:
+                ausgang = f"ROT: {a}"
+            beteiligt = list(_DECKEL_BEITRAEGE)   # WELCHE Achsen die Kombi-Latte gedeckelt haben
+        finally:
+            wieder()
+            _KOMBI_MESSUNGEN.clear()
+            _KOMBI_MESSUNGEN.update(vorher_k)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
+        assert 1.5 < faktor < _faktor_deckel(ausser=""), (
+            f"VORBEDINGUNG: der Maschinenfaktor muss ueber 1,5 UND unter dem Deckel liegen, sonst "
+            f"misst der Fall eine Abstinenz statt eines Urteils — ist {faktor:.2f}, Deckel "
+            f"{_faktor_deckel(ausser=''):.2f}.")
+        # DER DECKEL DER KOMBI-FLAECHE DARF KEINE ACHSE AUSNEHMEN — gegen ein unabhaengig
+        # gerechnetes Soll gebunden, nicht gegen die eigene Liste (Gegenlesung 08.09.2026, und der
+        # einzige tragfaehige ihrer vier Punkte). Eine Kombination ist keine der aufgezeichneten
+        # Dimensionen; es gibt also nichts, was sich selbst begrenzen koennte, und jede Ausnahme
+        # LOCKERT nur. Gemessen: `ausser=""` -> `ausser="renewal_work"` hebt den Deckel von 1,925
+        # auf 7,95 und blieb bei 43 von 43 Faellen gruen.
+        soll = {d.name for d in DIMENSIONEN
+                if _REFERENZ_FARMER_KOSTEN.get(d.name, 0.0) > 0
+                and (d.achsen * GRENZE_S) / _REFERENZ_FARMER_KOSTEN[d.name] >= 1.0}
+        assert set(beteiligt) == soll, (
+            f"Der Deckel der Kombi-Flaeche wurde aus {sorted(beteiligt)} gebildet, erwartet waren "
+            f"{sorted(soll)}. Fehlt eine Achse, ist der Deckel LOCKERER als er sein darf — die "
+            f"Differenz {sorted(soll - set(beteiligt))} nimmt genau die Achse heraus, die ihn "
+            f"setzt, und dann abstiniert die Flaeche nicht mehr, wo sie abstinieren muss.")
+        assert ausgang == "kein Fehlschlag", (
+            f"Die Kombi-Zusicherung meldete {ausgang[:220]!r}. Die Kombination kostet das "
+            f"1,5-fache ihrer Referenzlatte auf einer Maschine mit Faktor {faktor:.2f} — sie liegt "
+            f"also INNERHALB. Meldet sie trotzdem, misst die Kombi-Latte die Maschine statt den "
+            f"Code, und ein langsamer Laeufer erzeugt einen Befund, den es nicht gibt.")
+
+    def test_das_instrument_der_kurvenreihe_wird_von_der_RANDMESSUNG_nicht_ueberschrieben(self):
+        """FUND DERSELBEN GEGENLESUNG, Punkt 5 — und er ist heute schon wahr, nicht erst morgen.
+
+        `_ZEIT_MIN_LAEUFE` sagt, wie viele Laeufe hinter EINEM Kurvenpunkt stehen. `_messung` leert
+        die Liste vor dem Punkt, `_zeit_min_fest` schreibt hinein, `_messung` liest `[-1]`. BIS ZUM
+        08.09.2026 schrieb `_zeit_min` — der Weg der Randmessung — in DIESELBE Liste; dass es nie
+        schadete, rettete allein die Reihenfolge (die Randmessung laeuft nach dem Lesen), und jede
+        Umstellung haette es gekippt. Seither hat `_zeit_min` sein eigenes `_RAND_LAEUFE`, und
+        dieser Fall haelt die Trennung fest. Die Liste ist ein Instrument, kein Zustand, und ein
+        Instrument, in das zwei Wege schreiben, misst keinen von beiden.
+
+        Die Gegenleserin nannte auch, warum das keine Gegenlesung faengt: als Modul-Global sieht es
+        nicht wie ein Fehler aus, sondern wie ein Log.
+        """
+        billig = lambda: 0  # noqa: E731 - absichtlich billig: der Wiederholungszweig soll greifen
+        _ZEIT_MIN_LAEUFE.clear()
+        _zeit_min_fest(billig, laeufe=2)
+        assert _ZEIT_MIN_LAEUFE, (
+            "VORBEDINGUNG: nach `_zeit_min_fest` ist das Instrument der Kurvenreihe LEER. Dann hat "
+            "die feste Messung gar nicht hineingeschrieben — und `_messung` liest hier gleich einen "
+            "Index, den es nicht gibt. (Diese Zeile steht hier, weil eine Gegenlesung genau diese "
+            "Mutation vorschlug und behauptete, der Fall sehe sie nicht. Er sah sie — aber als "
+            "IndexError, also ueber die Ausnahme statt ueber die Eigenschaft. Nachgemessen: "
+            "1 failed in 0,47 s mit `IndexError: list index out of range`.)")
+        vorher = _ZEIT_MIN_LAEUFE[-1]
+        abzug = list(_ZEIT_MIN_LAEUFE)          # die GANZE Liste, nicht nur ihr Ende
+        assert vorher == 2, f"VORBEDINGUNG: die Reihe meldet {vorher} statt 2 Laeufe."
+        _zeit_min(billig)  # ein ANDERER Weg misst dazwischen
+        assert list(_ZEIT_MIN_LAEUFE) == abzug, (
+            f"Die Randmessung hat das Instrument der Kurvenreihe VERAENDERT: {abzug} -> "
+            f"{list(_ZEIT_MIN_LAEUFE)}. Gebunden ist hier die TRENNUNG der beiden Schreibwege, "
+            f"nicht die Stelle, an der geschrieben wird — eine Gegenlesung schlug am 08.09. "
+            f"`insert(0, ...)` statt `append(...)` vor, und die frueherere Fassung dieses Falles, "
+            f"die nur `[-1]` verglich, blieb dabei gruen.")
+        nachher = _ZEIT_MIN_LAEUFE[-1]
+        assert nachher == 2, (
+            f"Das Instrument der Kurvenreihe meldet nach einer fremden Randmessung {nachher} statt "
+            f"{vorher}. `_zeit_min` schreibt in dieselbe Liste, aus der `_messung` den Wert des "
+            f"Kurvenpunktes liest. Heute haelt das nur die Reihenfolge der Aufrufe zusammen — das "
+            f"ist keine Eigenschaft des Codes, sondern ein Zufall seiner Anordnung.")
+
+    def test_eine_achse_mit_kosten_NULL_ist_gar_nicht_erst_BETEILIGT(self):
+        """FUND DER FREMDFAMILIAEREN GEGENLESUNG (08.09.2026) — und ich hatte dagegen gewettet.
+
+        Sie nannte die Mutation, die alles gruen laesst: `k = ...get(d.name, 0.0) or 0.0001`. Ich
+        sagte an, der Nullkosten-Fall wuerde fallen. **Gemessen: 19 von 19 gruen.** Sie hatte recht.
+
+        Der Grund ist schaerfer als ihre eigene Begruendung: `or` ersetzt NUR die Null, nicht jeden
+        Wert. Die betroffene Achse bekommt damit eine Kopffreiheit von 1/0,0001 = 10000 — und die
+        setzt den Deckel nie, weil der das MINIMUM nimmt. 'Uebersprungen' und 'mit riesiger Freiheit
+        dabei' sind am ERGEBNIS nicht zu unterscheiden. Der bestehende Fall prueft das Ergebnis und
+        kann den Unterschied deshalb prinzipiell nicht sehen.
+
+        Was ihn sichtbar macht, ist die TEILNEHMERLISTE. Eine Achse ohne messbare Kosten hat keine
+        definierte Kopffreiheit; sie darf nicht mitrechnen, auch nicht mit einem harmlosen Wert.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
+        try:
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
+            billig = next(d for d in DIMENSIONEN if d.name != "renewal_work")
+            _REFERENZ_FARMER_KOSTEN[billig.name] = 0.0
+            deckel = _faktor_deckel(ausser="renewal_work")
+            beteiligt = list(_DECKEL_BEITRAEGE)
+        finally:
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
+        assert deckel == pytest.approx(4.0, rel=0.01), (
+            f"VORBEDINGUNG: der Deckel ist {deckel:.3f} statt 4,0.")
+        assert billig.name not in beteiligt, (
+            f"Die Achse {billig.name} hat Kosten NULL und ist trotzdem an der Deckelrechnung "
+            f"BETEILIGT ({beteiligt}). Eine Achse ohne messbare Kosten hat keine definierte "
+            f"Kopffreiheit — sie darf nicht mitrechnen, auch nicht mit einem harmlos aussehenden "
+            f"Ersatzwert. Am Deckel selbst ist der Unterschied nicht zu sehen, weil eine riesige "
+            f"Kopffreiheit das Minimum nie setzt; genau deshalb blieben unter der Mutation "
+            f"`k or 0.0001` alle neunzehn Faelle gruen.")
+        assert len(beteiligt) == len(DIMENSIONEN) - 2, (
+            f"Erwartet werden {len(DIMENSIONEN) - 2} beteiligte Achsen (alle ausser der geprueften "
+            f"und der mit Kosten null), gezaehlt {len(beteiligt)}: {beteiligt}")
+
+        # ZWEITER AUSSCHLUSSGRUND, und ohne ihn bindet die Liste nur die HAELFTE ihrer Aufgabe
+        # (gefunden von einer Gegenlesung, 08.09.2026): eine Achse faellt auch dann heraus, wenn sie
+        # zwar Kosten hat, aber SELBST SCHON ueber ihrer Latte liegt (0 < Kopffreiheit < 1,0). Der
+        # Fall oben bindet nur Kosten=NULL; zieht man das `_DECKEL_BEITRAEGE.append` aus dem
+        # `if frei >= 1.0`-Block heraus, bleibt er gruen — gemessen 21 von 21 gruen.
+        vorher_z = dict(_REFERENZ_FARMER_KOSTEN)
+        try:
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
+            reisst = next(d for d in DIMENSIONEN if d.name != "renewal_work")
+            _REFERENZ_FARMER_KOSTEN[reisst.name] = reisst.achsen * GRENZE_S * 8   # Freiheit 0,125
+            _faktor_deckel(ausser="renewal_work")
+            beteiligt_z = list(_DECKEL_BEITRAEGE)
+        finally:
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher_z)
+        assert reisst.name not in beteiligt_z, (
+            f"Die Achse {reisst.name} hat eine Kopffreiheit von 0,125 — sie liegt selbst um das "
+            f"Achtfache ueber ihrer Latte — und steht trotzdem in der Teilnehmerliste "
+            f"({beteiligt_z}). Die Liste soll sagen, WER das Minimum gebildet hat, nicht wer "
+            f"ueberhaupt Kosten hat.")
 
     def test_der_maschinenfaktor_hat_eine_UNTERGRENZE_von_eins(self):
         """Eine SCHNELLERE Maschine darf die Latte nicht lockern (Owner-Auflage, Untergrenze 1,0)."""
