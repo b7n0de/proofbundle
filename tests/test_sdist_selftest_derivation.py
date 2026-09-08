@@ -170,11 +170,31 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         ENTSCHAERFT nach der Gegenlesung 07.09.2026 (Linse 4): die erste Fassung schrieb "auf fuenf
         Koepfen genau diese neun" und behauptete damit mehr, als die Messung traegt — die Substanz
         blieb, die Ueberpraezisierung ist weg.
+
+        DER FUENFTE GRUND, 08.09.2026, und er ist eine FOLGE des Fixes zu L6-600-01: seit dem wird
+        ein Modul, dessen Import an einer nicht ausgelieferten Datei scheitert, in einer Verteilung
+        uebersprungen statt das Sammeln abzubrechen. `tests/test_budget_axis_measurement.py` liefert
+        aus dem sdist damit NULL Tests — und `test_mutationstor_sammler_sieht_die_freigabeflaeche`
+        verlangt, dass jede Testdatei dem Sammler des Mutationstors mindestens einen liefert.
+
+        DIESER FALL GEHOERT AUS DREI GRUENDEN IN DEN RUECKFALL UND NICHT IN EINE AUSNAHMELISTE DES
+        TORS. Erstens ist sein Gegenstand das MUTATIONSTOR, und das laeuft im Checkout, nie aus
+        einer Verteilung. Zweitens erreicht er den Baum ueber einen UNTERPROZESS
+        (`_gesehene_dateien` faehrt `pytest --collect-only` gegen `tests`) — woertlich der in
+        `conftest` beschriebene Fall, und eine statische Ableitung kann ihn nicht sehen, weil das
+        einzige Literal `tests` ist und das gibt es hier. Drittens waere die naheliegende Loesung
+        falsch: das Tor bietet `_OHNE_TESTS_ERLAUBT` an, aber dort steht "diese Datei darf DAUERHAFT
+        keinen Test liefern" — und im Checkout liefert sie fuenf. Gemessen am 08.09.2026:
+        `pytest tests/test_budget_axis_measurement.py --collect-only` ergibt `5 tests collected`,
+        und der Sammelaufruf des Tors selbst zaehlt fuer diese Datei ebenfalls genau 5. Ein Eintrag
+        dort haette echte Abdeckung stillgelegt, um eine Messung an der falschen Flaeche gruen zu
+        bekommen.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
                      "test_roadmap_frontload_foundations", "test_rust_parity_gate",
                      "test_pre_tag_receipt_commit_flow",
-                     "test_not_after_gilt_auch_auf_dem_registerpfad", "test_release_text_hygiene"}
+                     "test_not_after_gilt_auch_auf_dem_registerpfad", "test_release_text_hygiene",
+                     "test_mutationstor_sammler_sieht_die_freigabeflaeche"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
