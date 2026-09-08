@@ -1268,3 +1268,60 @@ owner behind it and a named next step; an unnoticed one has neither. The first h
 condition is no longer only a script: measured on the reference machine on 2026-09-08 at 08:24Z,
 quiet field before and after, `audit_artifacts/360/budget_axis_latest.json` says **12 axes passed,
 0 skipped, 0 broken, machine factor 1.0, `ist_referenzmessung: true`, `ok: true`**.
+
+---
+
+## S20 — Ein Tor, dessen rote Zeilen der Kandidat selbst wegerklaeren darf
+
+**Gefunden von einer FREMDEN Modellfamilie** (`qwen3.8:27b` auf un_turbov1, Rang 1, 2026-09-08),
+die beauftragt war, mein eigenes Urteil ueber die vier roten Matrix-Zeilen zu widerlegen — und es
+in drei von fuenf Punkten getan hat.
+
+Der Einwand im Kern: ich hatte C6.2, C6.3, C8.2 und C12.1 als „Bindungsluecken, keine Defekte"
+eingeordnet, mit der Begruendung, die Artefakte wuerden „bei der Buendelung neu erzeugt und dann
+gruen". Das ist eine Aussage ueber einen Zustand, den es noch nicht gibt. Ein Release-Tor, an dem
+der Kandidat selbst entscheiden darf, welche rote Zeile zaehlt, ist kein Tor — es ist eine
+Meinung mit Farbe. Die Fremdfamilie nennt das Premature Closure; die Struktur ist dieselbe wie bei
+jedem anderen Fund in dieser Datei: ein NICHT GEMESSENER Zustand traegt die Farbe eines gemessenen.
+
+**Was daraus folgt und in dieser Runde umgesetzt wurde.** Das Uebergabeblatt vom 08.09. enthaelt
+keine solche Vorhersage mehr, sondern die GEMESSENE Kette bis zur Signatur, Glied fuer Glied:
+der Hook-Fix (28,3 s Laufzeit gegen ein Zeitfenster von 20 s, zweimal auf ruhiger Maschine
+gemessen), das Lauf-5-Verdikt, die Gate-Zeile (`sign_readiness_artifact.py` weist den emit-Modus
+ohne sie ab — woertlich gemessen, nicht angenommen), die Nutzlasten, die Owner-Signatur am Mac
+(kein privater Schluessel auf dem Farmer, so im Release-Standard festgehalten).
+
+**Was OFFEN bleibt.** Der Mechanismus fehlt weiterhin: nichts im Tor hindert einen kuenftigen
+Kandidaten daran, eine rote Zeile erneut als „spaeter gruen" zu erklaeren. Ein Riegel dagegen
+waere eine Aenderung an der Gate-Flaeche selbst und damit Owner-Gebiet, nicht etwas, das neben
+einem Testfix mitlaeuft. Bis dahin traegt diese Zeile das Risiko, mit Owner dahinter und benanntem
+naechsten Schritt — nicht unbemerkt.
+
+## S21 — C6.3 verlangt einen 24-Stunden-Soak, den es zum Kandidatenkopf nicht gibt
+
+**Gemessen.** `c6_3_full_24h()` liest `is_full_soak_24h` aus dem signierten Soak-Artefakt. Das
+vorliegende Artefakt ist ein 300-Sekunden-Lauf und traegt dieses Feld auf `False`. Ein frischer
+Kurzlauf am neuen Kopf aendert daran nichts: er ist die Evidenz, an der **C6.2** bindet, und laesst
+C6.3 ehrlich auf DATA_BLOCKED statt auf PASS.
+
+Der frische Lauf am Kopf `3962c771`: `ok: true`, 3 406 915 Iterationen ueber 63 Parser, 300,0 s,
+`untriaged_crash_count 0`, `false_accept_count 0`.
+
+**Owner-Entscheid 2026-09-08:** C6.3 ist benanntes Restrisiko. Der 24-Stunden-Soak laeuft parallel
+(eigener Baum `pb_soak24h`, an `3962c771` gebunden, dirty 0), sein Ergebnis wird nachgetragen, und
+er ist **kein Tor, das den Tag haelt**. Das ist eine bewusste Entscheidung mit Owner dahinter, kein
+uebersehener Zustand — derselbe Unterschied wie bei S19.
+
+## S22 — Rohmatrix und signiertes Differential-Artefakt tragen verschiedene Zahlen
+
+**Gemessen am Kopf `3962c771` (2026-09-08).**
+`audit_artifacts/rust_relation_differential_matrix.json` (unsigniert, ohne `produced_at`):
+**39** Vektoren, 39 Zeilen, `all_agree: true`.
+`audit_artifacts/360/rust_differential_matrix.json` (signiert, kandidatengebunden an den
+ueberholten Commit `9e742bfa989e`): **42** Vektoren, 42 Zeilen, `all_agree: true`.
+
+Die beiden sind nicht derselbe Stand, und C8.2 prueft `len(rows) == total_relation_vectors`
+INNERHALB eines Artefakts — der Vergleich ZWISCHEN den beiden Dateien findet nirgends statt. Wer
+die C8.2-Nutzlast aus der Rohmatrix neu erzeugt, senkt die Vektorzahl still von 42 auf 39, und
+keine Pruefung meldet es. Vor dem Neuerzeugen ist zu klaeren, welche der beiden Mengen die richtige
+ist. Dieselbe Klasse wie S20: eine Zahl, die faellt, ohne dass etwas sie vergleicht.
