@@ -1678,6 +1678,25 @@ gegen etwas, das es nicht gibt, ist ungetestet und damit selbst eine Behauptung.
 Gegenlesung vorgeschlagene Ausweg ueber `importlib.util.find_spec` traegt nicht: scheiterte der
 Import, findet `find_spec` das Modul auch nicht.
 
+**(4) NACHTRAG 08.09.2026 spaet — die VIERTE Form ist gemessen und faellt durch, hat hier aber
+keinen Gegenstand.** Nachdem das Verzeichnis als dritte Form aufgenommen war, blieb die Frage, ob
+die Liste jetzt vollstaendig ist. Sie ist es nicht: ein Modul in einem `.zip` auf `sys.path`
+(zipimport, seit Python 2.3) erfuellt WEDER `pkg.py` NOCH `pkg/__init__.py` NOCH
+`(wurzel / stamm).is_dir()`.
+
+GEMESSEN an einem gebauten Fall: `importlib.util.find_spec` findet das Modul im Archiv
+(`zip_import_moeglich: True`), und `_fehlende_datei_aus` meldet trotzdem
+`scripts/gepacktes_modul.py` als fehlend. Die Formenliste ist also weiterhin unvollstaendig — die
+Klasse `aufzaehlung_statt_existenzfrage_bindet_nur_die_listeneintraege` steht im Klassen-Ledger des
+deep gate zu Recht als `class_open`.
+
+**Warum trotzdem kein Fix:** `find` ueber den ganzen Baum (ohne `.venv` und `target/`) ergibt
+**null** `.zip`/`.egg`. Die Form hat hier keinen Gegenstand, und ein Riegel gegen etwas, das nicht
+vorkommt, ist ungetestet — dieselbe Enthaltsamkeit wie bei `.so`/`.pyd` oben und beim negativen
+Sweep ueber `_REPO_ONLY_MARKERS` (68 Worktrees, jeder traegt alle drei Marker). **Der Sweep
+entscheidet, nicht die Aehnlichkeit der Bauart.** Der Entwurf des fehlenden Meta-Tests liegt
+bereit; gebaut wird er, sobald eine Auspraegung im Baum vorkommt.
+
 ## S31 — Der Riegel „stammt der Korpus aus seinem Generator" deckt EINEN der zwei Korpusse
 
 `tests/test_korpus_stammt_aus_seinem_generator.py` haelt eine teuer bezahlte Klasse fest: **eine
