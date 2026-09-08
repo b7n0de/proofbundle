@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 
-from proofbundle import anchors, dsse  # noqa: E402
+from proofbundle import anchors, canonical, dsse  # noqa: E402
 from proofbundle.decision import emit_decision_receipt  # noqa: E402
 from proofbundle.emit import generate_signer  # noqa: E402
 from proofbundle.outcome import emit_outcome_receipt  # noqa: E402
@@ -661,6 +661,81 @@ def main() -> None:
                          "the Rust relation path authenticated the foreign-type envelope (exit 0, "
                          "VERIFIED): the differential vector that proves the pin.",
                          related=["related_t.json"]))
+
+    # ---------------------------------------------------------------------------------------
+    # 16+17) successor_warning: der ANGEHAENGTE Nachbar traegt den relationships-Block.
+    #
+    # Beide Vektoren brauchen einen Nachbarn, dessen predicate einen Block traegt, den der
+    # ehrliche Emitter niemals emittiert (validate_relationships lehnt alles ab, was kein
+    # gueltiges Array ist). Deshalb — wie Vektor 13 und 15 — auf DSSE-Ebene gecraftet: gueltige
+    # Signatur ueber ein KANONISCHES Statement, dessen predicate das Feld mit dem Wert traegt.
+    def _nachbar_mit_block(wert, decision_id):
+        ok = emit({"decisionId": decision_id}, signer)
+        koerper = json.loads(dsse.load_payload(ok).decode("utf-8"))
+        koerper["predicate"]["relationships"] = wert
+        roh = canonical.canonicalize_statement(koerper)
+        return dsse.sign_envelope(roh, signer, payload_type="application/vnd.in-toto+json")
+
+    nw_haupt = emit({"decisionId": "d-successor-warning-subject"}, signer)
+    nw_pol = {"schema": V02, "policy_id": "relation-successor-warning",
+              "relations": {"reject_superseded": True}}
+
+    # 16) null-relationships-successor (Paritaets-Vektor, 6.0.0): der Nachbar traegt das Feld
+    #     `relationships` mit dem Wert NULL. Er erklaert damit NICHTS, und Schweigen ist kein
+    #     Blocker -> exit 0 auf BEIDEN Seiten.
+    #     Warum dieser Vektor existiert: Python kann "Schluessel fehlt" und "Schluessel ist null"
+    #     nicht unterscheiden (dict.get liefert beide Male None) und schweigt; serde_json liefert
+    #     Some(&Value::Null) und unterschied sehr wohl. Die Asymmetrie lag SCHLAFEND da, solange
+    #     beide Seiten den Fall still uebersprangen — der 6.0.0-Fix gegen die stille Ruecknahme
+    #     (relation:malformed_successor) hat einem der Wege eine Wirkung gegeben und die Divergenz
+    #     damit aktiviert. GEMESSEN ohne die Rust-Zeile `nested.is_null()`: Python exit 0
+    #     (VERIFIED), Rust exit 3 (POLICY_UNMET). Mit ihr: beide exit 0. Genau dieser Vektor haelt
+    #     den Fix fest.
+    write_case("null-relationships-successor",
+               {"receipt.json": nw_haupt, "pub.b64": pub_b64,
+                "related_n.json": _nachbar_mit_block(None, "d-null-relationships-neighbour"),
+                "policy.json": nw_pol},
+               base_case("relation-null-relationships-successor",
+                         # NICHT `"lineage": None`, obwohl das der Stil der aelteren Vektoren ist:
+                         # common_vocabulary.compare ueberspringt jede Achse, deren erwarteter Wert
+                         # None ist (Zeile 158-160). Ein `null` hier hiesse also "lineage wird nicht
+                         # geprueft", nicht "lineage ist NOT_EVALUATED" — der Vektor pinnte dann
+                         # allein die Exit-Klasse. _axis_equal behandelt NOT_EVALUATED und ein
+                         # gemeldetes null ohnehin als denselben beobachtbaren Sachverhalt, der
+                         # ausgeschriebene Wert kostet also nichts und prueft eine Achse mehr.
+                         # (Gegenlesung 08.09.2026.)
+                         {"exitCode": 0, "lineage": "NOT_EVALUATED"},
+                         "An attached neighbour whose predicate carries `relationships: null` "
+                         "declares NOTHING — and silence is not a blocker: exit 0 on both "
+                         "verifiers. Python cannot tell a missing key from an explicit null "
+                         "(dict.get), serde_json can (Some(&Value::Null)); the asymmetry was "
+                         "dormant while both sides skipped silently and became observable the "
+                         "moment the successor-warning path gave one of them an effect. Measured "
+                         "without the Rust null-guard: Python exit 0, Rust exit 3.",
+                         related=["related_n.json"], policy="policy.json"))
+
+    # 17) malformed-relationships-successor: derselbe Aufbau, aber der Block ist ECHT unlesbar
+    #     (eine Zahl statt eines Arrays). Ohne diesen Gegenfall belegt Vektor 16 nur, dass hier
+    #     immer geschwiegen wird. Der 6.0.0-Fix macht daraus einen benannten Fund statt eines
+    #     stillen `continue`: ein Nachbar, der fuer sich verifiziert und einen unlesbaren Block
+    #     traegt, koennte eine Ruecknahme ueber DIESES Receipt erklaeren — das Schweigen darueber
+    #     war die Luecke. GEMESSEN: beide Seiten exit 3 (POLICY_UNMET).
+    write_case("malformed-relationships-successor",
+               {"receipt.json": nw_haupt, "pub.b64": pub_b64,
+                "related_n.json": _nachbar_mit_block(42, "d-malformed-relationships-neighbour"),
+                "policy.json": nw_pol},
+               base_case("relation-malformed-relationships-successor",
+                         # ausgeschrieben statt None — Begruendung beim Vektor darueber
+                         {"exitCode": 3, "lineage": "NOT_EVALUATED",
+                          "errorContains": "RELATION_MALFORMED_SUCCESSOR"},
+                         "The counter-case to relation-null-relationships-successor: an attached "
+                         "neighbour that verifies standalone but carries a relationships block "
+                         "this verifier cannot read. It MIGHT declare a retraction over this "
+                         "receipt, and staying silent about that was the gap — 6.0.0 turns the "
+                         "former silent `continue` into a named finding "
+                         "(relation:malformed_successor) that the reject_superseded policy turns "
+                         "into a hard FAIL. Measured: exit 3 on both verifiers.",
+                         related=["related_n.json"], policy="policy.json"))
 
     print("done")
 
