@@ -1920,3 +1920,18 @@ koennen — die Policy selbst stammt vom 07.09. und lag nicht in meiner Hand.
 **Ein Punkt der Gegenlesung trifft NICHT.** Sie hielt Glied 4 („die Belege des Zeugen tragen `notes`
 als reinen String") fuer ebenso ungeprueft wie die markierte Stelle. Das ist gemessen: der eigene
 Lauf `runs/ce0bad546beabcef_20260908T230552Z.json` wurde gelesen und meldet `notes-Typ: str`.
+
+**Nachtrag zur Korrektur, gemessen: das Landen des Erzeugers loest den Halt NICHT.** Die Korrektur
+oben laesst offen, ob `b7_deepgate_gate_zeile.py stempeln` den Blocker aufheben wuerde, sobald es im
+Hauptbaum liegt. Gemessen an der Quelle: es KOPIERT das Verdikt woertlich aus dem Laufergebnis
+(`z["verdict"] = roh`) und schreibt `None` plus `verdict_hinweis`, wenn das Ergebnis keins fuehrt —
+es erfindet keins, aus derselben Begruendung wie `gate_zeile_aus_verdikt`.
+
+Damit ist die Kette geschlossen und die Aussage praezise: ein Stempel auf den Lauf ueber den
+Kandidatenkopf ergaebe `verdict: PARTIAL_GATE_NO_WITHSTANDS[...]`, und `_GATE_VERDICTS_PASS` laesst
+nur `WITHSTANDS_DEEPGATE` zu. **Der Erzeuger zu landen waere also kein Weg um den Halt herum.** Wer
+das versucht, verliert einen Bau- und Pruefzyklus an einer Stelle, die nachweislich nichts aendert.
+
+Die Owner-Frage bleibt damit unveraendert und ist die einzige: die Gate-Mechanik fuer Fremd-Repos
+erreichbar machen, oder ausdruecklich entscheiden, welches Verdikt fuer eine Bereitschafts-Evidenz
+genuegt.
