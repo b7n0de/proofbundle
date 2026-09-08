@@ -501,3 +501,42 @@ def test_meta_ein_gepflanztes_shell_skript_mit_schluesselweg_wird_gefunden():
     anweisung = "#!/bin/bash\npython3 -c \"...Ed25519PrivateKey.from_private_bytes(b)...\"\n"
     assert verdaechtig(kommentar) == [], "eine Notiz ueber den Weg gilt als Weg — Fehlalarm"
     assert verdaechtig(anweisung), "ein echter Aufruf wird nicht gesehen — der Riegel ist blind"
+
+
+def test_keine_datei_steht_in_beiden_mengen():
+    """Die Ausschlussmenge wird mit der Auslieferungsliste VERGLICHEN, nicht von ihr subtrahiert.
+
+    DIE KLASSE, gegen die dieser Riegel steht (gefunden 2026-09-08 von einer Fremdfamilien-Linse,
+    Register MANIFEST-LIEFERT-AUS-WAS-DIE-AUSSCHLUSSMENGE-BEGRUENDET-DRAUSSEN-HAELT-01): zwei
+    Wahrheiten ueber dieselbe Datei stehen in zwei Dateien, und die einzige Stelle, die beide
+    anfasst, SUBTRAHIERT sie voneinander --
+    ``unentschieden = vorhanden - gelistet - ausgeschlossen``. Eine Datei, die in BEIDEN Mengen
+    steht, faellt aus der Differenz heraus und ist damit unsichtbar. Genau das passierte:
+    ``scripts/budget_axis_measurement.py`` stand ab dem sechsten Einfrier-Kopf von 6.0.0
+    gleichzeitig in ``MANIFEST.in`` und hier in ``AUSGESCHLOSSEN`` (Grund: Owner-Karte
+    OA-dc37e26295 -- das Werkzeug meldet auf fremder Maschine ``ist_referenzmessung: true``, eine
+    Referenzmessung, die keine ist). Alle fuenf CI-Testjobs blieben gruen, waehrend das sdist ein
+    Werkzeug trug, das nicht hinein sollte.
+
+    Eine Subtraktion beantwortet "ist jede Datei ENTSCHIEDEN?" und kann "ist sie WIDERSPRUCHSFREI
+    entschieden?" gar nicht stellen. Beide Fragen brauchen ihren eigenen Riegel.
+
+    EHRLICHE GRENZE: dieser Test liest ``MANIFEST.in``, er baut kein sdist. Er faengt den
+    Widerspruch zwischen den zwei erklaerten Mengen -- nicht eine Datei, die ueber ein ``graft``
+    oder eine andere Regel doch mitgeht, obwohl sie in ``AUSGESCHLOSSEN`` steht. Diese zweite
+    Haelfte gehoert an einen Test, der das gebaute Artefakt inspiziert; sie ist hier bewusst NICHT
+    behauptet.
+    """
+    manifest = REPO / "MANIFEST.in"
+    if not manifest.is_file():
+        pytest.skip("kein Repo-Kontext")
+    gelistet = {z.split("include scripts/", 1)[1].strip()
+                for z in manifest.read_text(encoding="utf-8").splitlines()
+                if z.startswith("include scripts/")}
+    beides = sorted(gelistet & set(AUSGESCHLOSSEN))
+    assert not beides, (
+        "diese Datei(en) stehen GLEICHZEITIG in MANIFEST.in und in der begruendeten "
+        f"Ausschlussmenge: {beides} -- je Datei entweder die include-Zeile entfernen oder den "
+        "Eintrag aus AUSGESCHLOSSEN nehmen, aber nicht beides behaupten. Gruende der "
+        "Ausschlussmenge: "
+        + "; ".join(f"{d}: {AUSGESCHLOSSEN[d]}" for d in beides))
