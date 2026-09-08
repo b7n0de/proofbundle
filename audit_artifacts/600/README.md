@@ -138,8 +138,14 @@ has proven nothing.
 
 **The class, not the five instances.** L2 and L5 are the same violated assumption at surfaces that
 share no code: *a string search decides a quantity that means a BOUNDARY*. A sweep over the
-`.search()` sites in `scripts/` and `src/` followed (45 real sites on this head — the figure used to
-read "50" with no head attached to it, which lens C measured as wrong and, worse, as uncheckable).
+`.search()` sites in `scripts/` and `src/` followed (**48 call sites on this head, counted by
+syntax tree** over 13 files, with the counting command named so the figure is checkable: walk the
+AST of every `*.py` under `scripts/` and `src/` and count `Call` nodes whose function is an
+attribute named `search`. The figure read "50" first, with no head attached, which lens C measured
+as wrong and as uncheckable; it then read "45", which a later lens could not reproduce either — a
+grep gives 49–50 because it also sees docstrings and comments, the syntax tree gives 48. The
+lesson is the one this section is about: a number that a string search produced needs the
+command that produces it, or the next reader measures something else).
 It found one more live instance — `test_manifest_gate` read the collected-test count with the first
 match in a blob that carries diagnostics before the summary — and one latent sub-class: **five**
 scripts read the release version out of `pyproject.toml` with `(?m)^\s*version\s*=`, which anchors
@@ -165,13 +171,24 @@ stood at 100 since. The guard that exists to find a GAP in the partition would h
 every complete run — including the canonical run this release needs next. The expectation now comes
 from the runs themselves, and the shards must agree on it.
 
-## Why this round's findings are not edited into `RESTRISIKO_600.md`
+## Why the FIRST round's findings were not edited into `RESTRISIKO_600.md` — and why the second round's are
 
 That file states the rule itself, in its own words: a finding of the closing round is a new
 iteration with a new freeze, "never an edit of this file", because the receipt binds it by sha256
-and a second top-level file would move the tree digest. So the round's outcome is recorded here,
-next to the receipt, exactly where 5.1.0 recorded it. `RESTRISIKO_600.md` continues to hold what was
-known and open **before** the round, R1–R7 and N1–N15.
+and a second top-level file would move the tree digest. The first round's outcome is therefore
+recorded here, next to the receipt, exactly where 5.1.0 recorded it. `RESTRISIKO_600.md` continues
+to hold what was known and open **before** that round, R1–R7 and N1–N21, unchanged.
+
+**The second round did edit it, and the reason is the rule's own premise.** A lens of the
+confirmation round measured the file against its opening promise — *every finding that stays open is
+named here, with its class, its funnel verdict and the reason* — and found three open findings of
+the riegel sweep living only as prose in THIS document, with no register key, no severity and no
+funnel verdict. The premise the "never edit" rule rests on is that a receipt already binds the file;
+at that point in this cycle **no receipt for this head existed**, and the round was producing a new
+freeze anyway, which is exactly the path the rule prescribes. Leaving the promise measurably broken
+in order to honour a rule whose reason had not yet engaged would have been the letter against the
+purpose. The four entries are `S1`–`S4`, each with a register key, and they say plainly which of
+them is NOT MEASURED rather than dressing it as low risk.
 
 The structured, signed carrier of the findings is `audit_artifacts/findings_register_361.json` —
 20 entries, 13 closed, 7 open, **0 open P0/P1** (counted, not quoted). That register, not any prose
@@ -203,12 +220,19 @@ seven commits later. A round whose purpose was adding measuring points had let i
 record drift, which is the exact failure N11 exists to prevent. The numbers do not get maintained
 per commit; the head gets named.
 
-| directory | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` | `658ed063` → `cd91b65` (**the head these figures were measured on**) |
-|---|---|---|---|---|
-| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
-| `tests/` | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) | 54 files (+12747 / −198) |
-| `scripts/` | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) | 14 files (+3782 / −277) |
-| **total** | **90 files** | **95 files** | **95 files** | **100 files** |
+| directory | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` | `658ed063` → `cd91b65` | `658ed063` → **this head** |
+|---|---|---|---|---|---|
+| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files |
+| `tests/` | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) | 54 files (+12747 / −198) | 58 files |
+| `scripts/` | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) | 14 files (+3782 / −277) | 15 files |
+| **total** | **90 files** | **95 files** | **95 files** | **100 files** | **105 files** |
+
+**The rightmost column was missing until a lens added it, and its absence was the same defect this
+table exists to record.** The header of the `cd91b65` column read "the head these figures were
+measured on" — true when written, false from the next commit onward, and the closing round put three
+more heads after it. A table about IDENTITY that names a head which is no longer the candidate is
+not a rounding error; it is the exact class this document spent its day removing, caught a third
+time and this time in the identity table itself.
 
 The 2026-09-07 fix cycle for the five closing-round REJECTs moved three more test files and two
 more scripts, so the count rose from 95 to 100. That is the expected direction: N11 measures
@@ -381,9 +405,10 @@ written, one is gone and one stands:
 
 * **Gone:** the collector no longer misses a quarter of the test files. It collects the full
   population, measured above.
-* **Stands:** identity under N11 does **not** hold — 100 files differ between `658ed063` and
-  `cd91b65`, the head these figures were measured on. One changed file already breaks it; a hundred
-  is not a closer call, only a louder one.
+* **Stands:** identity under N11 does **not** hold — **105 files** differ between `658ed063` and
+  the head that would be tagged (100 at `cd91b65`, where the figure was first taken). One changed
+  file already breaks it; a hundred is not a closer call, only a louder one, and the number kept
+  growing while the record said otherwise.
 
 N11 states what follows when identity fails, and it is not "report and stop": the run **is
 repeated** against the head that gets tagged. That is the path taken here, on the owner's decision
@@ -407,16 +432,23 @@ that tree, so writing them here changes them. The same structural fact as the re
 `subject_tree_digest` two sections above. The honest form is therefore not a fresher number but a
 named head per row.
 
-| Condition | Measured on `16dcc17` |
+**The column header used to read "Measured on `16dcc17`" while the rows below it had already been
+re-measured on this head — a header that contradicted its own table.** Each row now names its head.
+
+**And one required check is RED, which this table did not say at all.** A list of acceptance
+conditions that omits a failing required check is not a list of conditions, it is a selection.
+
+| Condition | Head it was measured on, and the verdict |
 |---|---|
-| full suite exit 0 (on THIS head) | 3866 passed, 24 skipped, 0 failed, rc=0, 954 subtests, 1204.99 s. Cross-check: 3866 + 24 = 3890, the collected set of this head exactly, measured in the same run. Working tree identical before and after, and re-verified by file digest between the run and the commit. Parent `51af438`: 3841 + 25 = 3866, rc=0 |
-| two normalised sdists byte-identical (on `16dcc17`; a tree digest cannot be measured from inside the tree it describes) | `REPRODUCIBLE OK`, sha256 `e7c2a5a8fdcde589…`, epoch 1788803738 (`scripts/build_reproducible.py --check`) |
-| wheel from the shipped sdist = direct build (on `16dcc17`, same reason) | `WHEEL FREEZE OK`, sha256 `e76fb670a6a40069…` (`--check-wheel`) |
+| **`coverage` (REQUIRED check) — RED, the head cannot merge** | `renewal_work` 3.096 s against a 3.0 s ceiling on the CI runner; 2.844 s (94.8 %) in the parent's GREEN run. The runner is uniformly ~2× slower than the reference machine and nothing on this head touches `renewal`. Owner decision `OA-0646ecdf70` calibrates the ceiling in reference units; **built and measured locally (factor 1.0116, cap 19.54), NOT yet measured in CI**. Until a green CI run exists, this row is the reason the release does not land |
+| full suite exit 0 (measured on the WORKING TREE over this head) | 3873 passed, 24 skipped, 0 failed, rc=0, 949 subtests, 1141.28 s. Cross-check: 3873 + 24 = 3897, the collected set of that tree exactly, measured in the same run. **This number is already superseded**: the calibration and the cross-family hardening landed after it, so the suite must run once more before the next freeze. The frozen head `d3ca21f` itself measured 3866 + 24 = 3890, rc=0; its parent `51af438` 3841 + 25 = 3866, rc=0 |
+| two normalised sdists byte-identical (**re-built on THIS head**) | `REPRODUCIBLE OK` (`SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" python scripts/build_reproducible.py --check`). **No digest is quoted here any more, and that is the finding, not a formatting choice.** The row previously quoted `e7c2a5a8fdcde589…` measured on `16dcc17` — but `MANIFEST.in` grafts `tests/` whole and names the four changed scripts one by one, and 11 test files plus exactly those four scripts moved between that head and this one. The archive the digest described is not the archive this head builds. A lens measured that; the rebuild here is the answer. The delivered digests belong in the release `SHA256SUMS`, outside the tree, for the reason `RESTRISIKO_600.md` N15 already gives: `SOURCE_DATE_EPOCH` is the HEAD commit time, so any digest written INTO the tree is stale the moment the commit carrying it exists |
+| wheel from the shipped sdist = direct build (**re-built on THIS head**) | `WHEEL FREEZE OK` (`--check-wheel`), same epoch discipline and same reason for quoting no digest |
 | audit matrix with no red row | 33 checks: 28 PASS, 4 FAIL, 1 EXTERNAL_PENDING, 0 unknown, 0 DATA_BLOCKED. **All four FAILs are signing-round-bound** — C6.2/C6.3/C8.2 still bind `9e742bf` and get re-measured and re-signed in that round, C12.1 has no receipt for this tree yet, which is the same necessity the N11 section states above |
 | findings register, 0 open P0/P1 | PASS via C12.2 — 20 findings evaluated from the signed, version-bound register (`6.0.0`), anchor key authorised, measured 2026-09-06 |
 | `RESTRISIKO_600.md` carries N12 and N13 | both present (`RESTRISIKO_600.md:142` and `:143`) |
-| claims hygiene over the docs | `PASS · 49 docs scanned · 0 violation(s) · 0 missing listed doc(s)` (`scripts/claims_hygiene_check.py`) |
-| naming gate over release note and tag text (re-measured on this head) | `[release-text-hygiene] PASS · commit-subjects v5.1.0.post1..HEAD · 16255 Zeichen · 0 Verletzung(en)` — quoted in the language the tool actually prints; the earlier line here silently translated it AND carried 16168, a figure from an earlier head (lens C) (`scripts/release_text_hygiene.py --since-tag v5.1.0.post1`). Worth naming because of WHAT it scanned: every commit subject since the last tag, including this round's, which talk at length about defects, a withdrawn finding and a relapse of my own. The hygiene rule is about overclaiming, and a round that reports its own failures does not trip it |
+| claims hygiene over the docs (re-measured on this head) | `PASS · 53 docs scanned · 0 violation(s) · 0 missing listed doc(s)` (`scripts/claims_hygiene_check.py`). **This row said 49 until two independent lenses caught it**, and the correction is not a typo fix: the scan set GREW when the release surface became derived (the section below records 49 → 53), and this row was not carried along. A number beside a growing set goes stale in silence — the class this document names about others and missed about itself |
+| naming gate over release note and tag text (re-measured on this head) | `[release-text-hygiene] PASS · commit-subjects v5.1.0.post1..HEAD · 0 Verletzung(en)` — **the character count is deliberately omitted, and that is the answer to a question this round asked itself.** The gate scans every commit subject since the tag, INCLUDING the subject of the commit that writes the number down; 16255 stood here and 16350 was measured one commit later. No value has a fixed point. What survives a commit is the verdict and the violation count; whoever needs the character count runs `scripts/release_text_hygiene.py --since-tag v5.1.0.post1` — quoted in the language the tool actually prints; the earlier line here silently translated it AND carried 16168, a figure from an earlier head (lens C) (`scripts/release_text_hygiene.py --since-tag v5.1.0.post1`). Worth naming because of WHAT it scanned: every commit subject since the last tag, including this round's, which talk at length about defects, a withdrawn finding and a relapse of my own. The hygiene rule is about overclaiming, and a round that reports its own failures does not trip it |
 | canonical mutation run, 0 gaps | **not measured** — it runs against the frozen head, which is this commit's child |
 | deep gate run 5 with 0 confirmed findings | **not measured** — it confirms the frozen head after that run |
 
@@ -591,8 +623,9 @@ Narrowed to a riegel that stays visible but decides nothing, exactly the two new
 other 34 stay green.
 
 **P1 — `test_manifest_gate.pytest_only_modules` survives inversion.** Drop the `not` from its
-condition and it selects the exact complement (199 modules instead of 62); `evaluate()` still returns
-`ok=True` because 199 clears a floor of 5. All three cases said to bind it stayed green. A floor with
+condition and it selects the exact complement (199 modules instead of 62 — **measured at `cd91b65`;
+the same command reads 64 on this head**, because this round added two pytest-only test files);
+`evaluate()` still returns `ok=True` because the complement clears a floor of 5. All three cases said to bind it stayed green. A floor with
 57 of headroom cannot detect a misclassification, and no case pairs a positive with a negative
 fixture. Recorded, not yet fixed.
 
@@ -652,13 +685,22 @@ found me wrong.
 Six strands, each required to take a riegel back IN ISOLATION and to compare control against variant
 on an identical measurement set. What it produced:
 
-| | count |
-|---|---|
-| riegel measured by mutation | 24 |
-| found unbound (a mutation no test caught) | 9 |
-| fixed and bound in this cycle | 6 |
-| recorded open, with a named reason | 3 |
-| findings withdrawn as my own measurement error | 2 |
+| | at the sweep | after the confirmation round |
+|---|---|---|
+| riegel measured by mutation | 24 | **30** (the round added six more) |
+| found unbound (a mutation no test caught) | 9 | **13** |
+| fixed and bound | 6 | **10** |
+| recorded open, with a named reason | 3 | **1** |
+| shown to be no finding at all | — | **6** (five dead call sites, one gate path) |
+| findings withdrawn as my own measurement error | 2 | 2 |
+
+**The right-hand column is the honest one, and the left-hand one is kept because the difference is
+the point.** The confirmation round measured the sweep's own output and moved almost every row: two
+of the six "fixed and bound" were NOT bound (lens 1, both P0), five of the six unbound budget caps
+turned out to be unreachable rather than untested, one of them was a real P1, and one of the three
+open items was no finding at all. A sweep that files its results with the confidence of a
+measurement, on the strength of one attempt each, produces a table that looks like this one's left
+column.
 
 **Fixed and bound:** the summary job's RED riegel (P0) · the committed trust anchor (P0) · the
 claims-hygiene release surface (P1) · the pytest-only expectation, now derived from the tree (P1) ·
@@ -773,3 +815,280 @@ the release procedure and by whoever runs it — a human checkpoint, and it is w
 instead of being assumed, which is the whole difference between a documented gap and an undocumented
 one. Wiring it into the tag path is a change to the release surface and belongs to the owner, not to
 a quiet edit made the day before a tag.
+
+## The confirmation round on the second freeze — six lenses, and the third relapse into one class
+
+Pre-registered **before** the canonical mutation run had a verdict, so the targets could not be
+chosen to fit the outcome. The prediction written down then was: *at least one finding on target 1
+or 2, because the new bindings are young and written by the same hand that missed the class three
+times; no surviving mutant on target 3; one finding on target 4, since the naming-gate figure was
+already diverging.* Two of the three held. The relevant part is which one held hardest.
+
+### Lens 1 — the sweep against itself: REJECT, two P0, both in the sweep's own fixes
+
+**This is the third relapse into the class the sweep was ordered to close, and it happened inside
+the closing fixes themselves.** Four of the six new bindings hold under isolated rollback (the
+committed trust anchor 2/3, the summary job's red branch 2/11, the evidence-free COVERED claim 1/2,
+the return-code precedence 3 — one more than announced). Two did not:
+
+* **`test_manifest_gate`.** The disagreement entry between the two derivations — the very mechanism
+  against the 199-instead-of-62 misclassification — was bound by nothing. The case that carried the
+  intent compared the two derivations on the REAL, already-agreeing tree, and the comment above it
+  said *"the gate must turn the disagreement into a PROBLEM"* while the assertion below checked the
+  opposite: that no such problem is reported. Replace the whole block with `if False` and **0 of 5
+  cases fall** — announced before the run, measured after.
+* **`claims_hygiene_check.release_flaeche_docs`.** The class test that was supposed to stop the
+  derivation from being replaced by a list searched the FUNCTION'S SOURCE for the strings `isdigit`
+  and `max(`. A typed list plus two dead decoy lines defeats it: **0 of 4**.
+
+**Both are fixed on this head, each bound by its effect.** The manifest gate now has a case that
+drives a REAL disagreement through `evaluate()` and demands both the problem entry and `ok=False` —
+and it needs no monkeypatch, because a file carrying `import unittest` only inside a STRING
+separates the two derivations by itself (premise measured: the string reader calls it a unittest
+module, the syntax tree does not). Catch-proof: announced 1 of 7, measured 1 of 7. The hygiene test
+now builds a tree with a HIGHER token than any in the repository and demands it appear in the
+surface with no code change, while the older token must not. Catch-proof: announced 1 of 5, measured
+1 of 5. Both rollbacks byte-identical.
+
+**One thing about the verification of that verification.** The first attempt to reproduce the second
+P0 reported 4 of 4 falling — from a `NameError` in the rebuilt function (`ROOT` where the module
+says `REPO`), not from the riegel. An ineffective mutation that would have passed as a finding. Only
+the corrected version showed the real 0 of 4. That is the seventh shape of the measuring-surface
+class in this cycle, and the second one caught before it did damage.
+
+### Lens 4 — the record against the tree: REJECT, two P0, one P1, two P2
+
+Twenty-two figures re-run against their commands on this head. Most are exact — the receipt
+rejection, N16, N17, the findings register, the collector figures, the audit matrix, the partition
+sweep, the version-reader list. What failed is, again, one class: **a figure attributed to a head it
+was not measured on.**
+
+* **P0 — `49 docs scanned`** stood in the acceptance table while the same document, further down,
+  records the scan set growing to 53, and the gate measures 53 on this head. Two lenses found it
+  independently. Corrected, with the reason named.
+* **P0 — the sdist and wheel rows** quoted digests measured on `16dcc17`. But `MANIFEST.in` grafts
+  `tests/` whole and names the four changed scripts one by one, and exactly those four scripts plus
+  11 test files moved since. The archive that digest described is not the archive this head builds.
+  **Re-built on this head instead of re-worded:** `REPRODUCIBLE OK` and `WHEEL FREEZE OK`, both
+  measured. The digests are gone from the rows, for the reason `RESTRISIKO_600.md` N15 already gives.
+* **P1 — the N11 identity table** named `cd91b65` as "the head these figures were measured on" and
+  stopped at 100 files; three heads later it is **105**. A table about identity that names a stale
+  head is the same defect it exists to record. This head now has its own column.
+* **P2 ×2 — `45 real sites`** could not be reproduced by any command (the syntax tree counts 48, a
+  grep 49–50); and the `62 modules` passage carried no head at all (64 here). Both corrected with
+  their counting command named.
+
+### Lens 6 — does the record carry its own gaps: REJECT, one P1, one P2
+
+The verdict honesty at the top is **exemplary and was measured as such**: every gate receipt reads
+`PARTIAL` with its cause named, the unsigned state is stated rather than written away, and
+`FIX_FIRST` with "`WITHSTANDS_DEEPGATE` is NOT claimed" stands in bold. The P1 is the gap between
+that discipline and `RESTRISIKO_600.md`, whose opening promise covers *every* open finding while
+three of the sweep's stayed prose-only in this file. Closed as `S1`–`S4`, register keys included,
+with `S3` marked NOT MEASURED because that is what it is.
+
+### Lens 5 — the surfaces nobody looked at: ACCEPT
+
+The Rust verifier freshly built on its pinned toolchain and attacked with empty, malformed,
+deeply nested and 50 MB inputs — no raw crash. The type-confusion matrix over 64 verify surfaces
+with `population_complete`, the fuzz soak over roughly 1.6 million iterations across six seeds, a
+real sdist built and diffed against `MANIFEST.in`, the conformance corpora, the gate-qualification
+harness: no P0 and no P1. One P2, a prose report that drifted from its corpus and says of itself
+that it drifts — recorded as `S4` anyway, because the promise is about every open finding.
+
+The most valuable part of that lens is its **explicit list of what it did not look at**: the Z3
+model, the readiness-pack prose, several schema and fixture directories, the policy combinatorics of
+the Rust side beyond what the cross-check covers, and the server-side GitHub configuration, which no
+checkout can measure. A round that names its own blind spots is worth more than one that reports
+none.
+
+It also caught a stray worktree inside the frozen tree and correctly refused to touch foreign state.
+It was mine: a relative path resolved against the target repository instead of the working
+directory. Removed; the tree carried only this round's fixes afterwards.
+
+### Lens 2 — the three deferrals, and the round's most useful verdict: REJECT
+
+This lens took the sweep's own bookkeeping apart, and it is the reason the close-out table above has
+two columns. Its finding is not a defect in the product; it is that **three of the four items the
+round had written into the residual-risk record were filed at the wrong severity, for the wrong
+reason, or were no finding at all.**
+
+* **Five of the six unbound budget caps are unreachable, not untested.** All six were mutated at
+  once and the 1414-test slice run on both trees — identical, `1412 passed, 2 skipped, 0 failed`.
+  Then the separation: `dsse.load_payload()` enforces `string_len` one line earlier in each path, and
+  1 000 000 base64 characters decode to at most ~750 KB, so the local `input_bytes` comparison is
+  never reached. Both constants are pinned in both directions, so the relation cannot lapse silently.
+* **The sixth is a real P1, and it is now closed.** `verify_trust_pack` never goes through
+  `dsse.verify_envelope`, so its `signatures` cap is the ONLY guard on that path; without it, 66 600
+  entries are accepted after ~0.17 s of real Ed25519 work, about 130× the documented worst case, and
+  no test in the tree exercised it. The new case binds the **work**, not the message: it counts
+  entries into the crypto check — zero with the cap, one per entry without it. The verdict cannot
+  tell the states apart (`ok` is `False` either way), which is precisely why it counts instead of
+  reading text.
+* **The deferral reason for the skip assertion was factually wrong.** "It needs a real sdist" came
+  from ONE incomplete throwaway tree — the two scripts the modules load at import time were missing.
+  With them the tree measures `34 skipped` and `9 skipped` cleanly, no sdist involved. The control
+  reproduces the earlier two collection errors exactly. An incomplete measurement had been promoted
+  to an impossibility.
+* **The gate's first-candidate acceptance is no finding.** Measured in both directions with two
+  probe repositories: the live path evaluates all candidates as a union, and the `recs[0]` pattern
+  sits in a vestigial function only tests call. File order cannot displace a genuine candidate.
+
+**Both remaining fixes were built in the order the owner set after the third relapse: the case
+first, red against the defective state with the number announced, and only then accepted.** Trust
+pack cap: announced 1 of 3, measured 1 of 3. Skip assertion: announced 2 of 7, measured 2 of 7 — and
+the collected-count case stayed green, which is the demonstration that it never measured what it
+claimed to.
+
+### The wall-clock ceiling was a number from ONE machine, enforced on another — owner decision, calibrated
+
+`coverage` went RED on this head, and it is a REQUIRED check, so the head cannot merge. The cause is
+measured and it is not the candidate:
+
+| | Farmer | CI, green run of the parent | CI, red run on this head | ceiling |
+|---|---|---|---|---|
+| `renewal_work` cost at the limit | 1.44–1.56 s | **2.844 s (94.8 %)** | **3.096 s (103 %)** | 3.0 s |
+
+The CI runner is uniformly about twice as slow (`input_bytes` 1.8×, `json_nodes` 2.1×, `signatures`
+2.5×, `data_digests` 2.0×). Every other axis carries a factor of ten in headroom; this one carried
+1.9×, and it has been riding at 95 % of its ceiling on that runner all along. **No change on this
+head touches `renewal`.** The module's own docstring predicts exactly this case — *"the ceiling has
+at least a factor of ten of room everywhere, EXCEPT in the most expensive combined case, which is
+named separately"* — and that is the case that fell. A prediction that was right and changed nothing,
+the third document in one day to do that.
+
+**Owner decision `OA-0646ecdf70`: option A, with a cap.** The ceiling is now expressed in REFERENCE
+UNITS rather than seconds.
+
+* **A reference load is measured in the same run** — a deterministic sha256 loop, nine runs, 0.613 s
+  in total. Deliberately NOT one of the axes under test: were it one of them, a real cost increase
+  there could lift the machine factor along with it and hide itself.
+* **The machine factor** is the median here over the median on the reference machine, floored at
+  1.0 — a FASTER machine may not loosen the ceiling, it only makes the assertion stricter. Measured
+  on the Farmer: **1.0116**.
+* **The cap is derived, never typed** (the owner's wording: "aus der Verteilung der Läufe"). It is
+  the smallest measured headroom of all the OTHER dimensions in the same run — the stretch at which
+  the next axis would break. Measured: **19.54** (`json_nodes` 19.5, `renewal_ats_chain` 21.1,
+  `input_bytes` 182.2). The axis under test is excluded, or the cap would be circular.
+* **Above the cap the case reports NICHT MESSBAR with the factor, never green.** Beyond that point it
+  is not the machine that is slow, it is the cost model that is wrong — and then the measurement says
+  nothing in either direction.
+
+On CI the factor would be about 2.0, far below the cap, so the check stays MEASURABLE there rather
+than degrading into a permanent skip. That was the objection to the "skip on a slower machine"
+option, and this construction avoids it.
+
+**What does NOT change, and it carries the actual claim:** the exponent of the cost curve
+(`EXPONENT_MAX`) and the work count are machine-independent and untouched. They assert "the cost does
+not grow faster than linearly". The factor scales only the wall-clock side, never the shape.
+
+**The honest limit belongs HERE, not only in the risk register.** A lens of this round charged the
+previous version of this section with exactly that: the limit was written down once, in
+`RESTRISIKO_600.md`, and a reader who opens the release record at the section describing this fix
+would never meet it. So it is repeated in full:
+
+* A ceiling that scales with the machine can be stretched by a real cost increase **up to the factor
+  itself**. With a factor of 2, an increase must exceed 2× before THIS assertion catches it.
+* The machine-independent half does **not** cover the gap, and the first version of this document
+  claimed it did. A constant multiplier leaves the log-log slope exactly unchanged: exponent
+  1.044646 before multiplying every point by 1.5, **1.044646** after — difference 0.0. The work count
+  counts operations and is blind to a per-operation slowdown.
+* So an increase between 1× and the machine factor is caught by **nothing** in this file. That is an
+  open hole, named as a hole. What bounds it is the derived cap — a bound on its SIZE, not a closure.
+
+**The fix carried a P0 of its own, and it would have reproduced the failure it was built to remove.**
+`_referenz_werte()` measured the reference load only once per process, so the factor for the entire
+1138-second run hung on the moment of its first call. Measured with twelve foreign busy loops
+running: 1.2164; after they ended, still 1.2164 (the cache); cleared and re-measured on the idle
+machine: 1.0098 — ratio 1.205. A load spike loosens the ceiling for the rest of the run; a quiet
+minute tightens it and produces exactly the false red this decision exists to prevent. The load is
+now measured on every call and the factor is the median over all measurements of the run. Cost,
+measured: the file goes from 55.44 s to 62.78 s (+7.33 s, +13.2 %), which is +0.64 % of the suite.
+
+**The first catch-proof for that P0 was green and therefore worthless** — it planted values in the
+cache list instead of walking the measurement path, and so could not see the cache guard it named.
+Announced 1 of 7, measured 0. The rebuilt one replaces the measurement rather than its result,
+counts the measurements as a precondition, and falls with *"9 measurements on the first call, 0 on
+the second"*. Repairing it broke three older cases of the same shape, which had also planted state
+instead of walking the path.
+
+**That fix was then refuted in turn, and the refutation changed the design.** The first version
+appended the measurements and took the median over the whole run. Three lenses attacked it; two
+landed. Accumulation makes the first dimension see 9 values and the twelfth 108 — axes of the same
+run measured against different ceilings by list position. Worse, a median follows only once more than
+half the values are new: for a real fivefold slowdown starting at call 11 of 12, the accumulated
+series reports factor **1.000** for both affected dimensions while a per-call series reports
+**5.000**. The ceiling would stay tight while the machine really is slow. It now measures a fresh
+series on every call and REPLACES the previous one, so factor and measured cost describe the same
+time window.
+
+**Against a single restless series the protection is no longer smoothing but an abstention**, and it
+needs no typed threshold. `_faktor_spanne` asks whether the verdict depends on which END of the
+measured series you take: if the cost lies between the ceiling at the fastest end and the ceiling at
+the slowest, the case reports NICHT MESSBAR. That closes a hole the cross-family lens named — five
+slow measurements of nine put the median in the slow group and loosened the ceiling tenfold, silently,
+because a factor of 10 stays below the derived cap of 19.5. Measured: up to four outliers of nine the
+factor stays 1.000; at five of nine it jumps to 40.0. On a quiet machine the band is as narrow as the
+machine's own spread and no real dimension fell into it in any run here.
+
+Twelve mutations against the finished construction, twelve numbers announced before each run, ten
+exact and two off by one case — both named. Details and the limits that stay open — the reference load measures only one instruction family
+while scaling six axes that belong to others, and `GRENZE_S = 1.0` is a declared policy rather than a
+derived number — are `S7`, `S8` and `S9` in `RESTRISIKO_600.md`.
+
+**The recorded reference distribution** — nine runs on the Farmer, 2026-09-07, median 0.06781 s,
+spread max/min 1.046 — sits in the code as a MEASUREMENT with its date and machine, explicitly not as
+a policy: it says what the load cost there, not what it may cost.
+
+**The cap's own derivation is bound, not merely promised.** The owner's wording — *no typed number* —
+would otherwise live only in a comment, and this cycle has four measured instances of exactly that
+failure: a rule stated in prose while the assertion beside it checks something else. Three cases now
+bind the EFFECT:
+
+* the cap must FALL when another axis becomes more expensive (a constant would not move);
+* the axis under test must NOT enter its own cap (otherwise an axis growing more expensive would
+  raise its own permission, and the riegel would be self-confirming);
+* the machine factor must stay at 1.0 on a FASTER machine and follow the measurement on a three-times
+  slower one.
+
+None of the three greps the source. That confusion — checking the wording instead of the effect — is
+the class this cycle hit four times, most recently inside a fix built under the tightened order, and
+the reason is written into the case's own docstring so the next reader does not add a string search
+back in.
+
+Catch-proof, announced before the run and measured after: replace the derivation with the constant
+`19.54` — the value that is CORRECT today — and **2 of 3** fall. The third stays green because it
+measures the machine factor rather than the cap. Rollback byte-identical.
+
+### Every catch-proof of this round, announced before the run and measured after
+
+The owner's instruction after the first miss was: **name the number of failing cases BEFORE running
+the proof.** After the third relapse it was tightened further — the proof goes red against the
+UNCHANGED code first, and only then does the change happen. Seven proofs were run under that rule.
+
+| Riegel put under proof | Announced | Measured | Rollback |
+|---|---|---|---|
+| test manifest — effect instead of wording | 1 of 7 | 1 of 7 | byte-identical |
+| claims hygiene — derivation instead of a list | 1 of 5 | 1 of 5 | byte-identical |
+| trust-pack `signatures` cap | 1 of 3 | 1 of 3 | byte-identical |
+| skip COUNT instead of collected count | 2 of 7 | 2 of 7 | byte-identical |
+| the counter holds itself (cross-family finding) | 2 of 3 | 2 of 3 | byte-identical |
+| skip REASON, not just the number | 1 of 7 | 1 of 7, on the reason line | byte-identical |
+| the cap is derived, not typed | 2 of 3 | 2 of 3 | byte-identical |
+
+**What the table does not show, and it is the part worth reading.** Two announcements were wrong
+earlier in the same night, both while a number was being MAINTAINED rather than measured, and both
+because the mutation was INEFFECTIVE — present in the file, without changing the quantity under test.
+Once it was a `NameError` in a rebuilt function (`ROOT` where the module says `REPO`), once a loop
+that touched an attribute the code does not have. Each would have passed as a finding.
+
+The rule that came out of it: **measure the effect of the mutation directly before running a single
+test.** For the cost proof that meant reading the cost itself — 1.447 s to 24.477 s, a factor of 17 —
+rather than trusting that the edit was in the file.
+
+**And one proof damaged what it measured.** The mutation for the cost proof was planted in the
+working tree of the push line while the full suite was running on that same tree at 21 %. Two writers
+on one tree. Rollback verified byte-identical against the object store, the run terminated, and its
+log renamed to carry `UNGUELTIG` rather than deleted, so the gap stays visible. Recorded as its own
+class: the expensive form of that mistake is not the run you lose, it is the one you KEEP — this one
+surfaced only because the mutation was large enough to be obvious.

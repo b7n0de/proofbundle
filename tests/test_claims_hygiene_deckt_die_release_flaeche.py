@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -60,17 +61,40 @@ def test_die_risiko_register_der_wurzel_sind_in_der_flaeche():
 def test_die_flaeche_folgt_dem_TOKEN_und_nicht_einem_getippten_namen():
     """DER KLASSEN-TEIL: die Ableitung nimmt das hoechste numerische Token, nicht '600'.
 
-    Ohne diesen Fall koennte jemand die Ableitung durch eine Aufzaehlung ersetzen und der Test
-    oben bliebe gruen — bis zum naechsten Release-Token, an dem die Luecke identisch wiederkaeme.
+    ERSTE FASSUNG WAR SELBST DIE KLASSE, gegen die sie antrat. Sie durchsuchte den QUELLTEXT der
+    Funktion nach den Zeichenketten ``isdigit`` und ``max(`` — also ihren WORTLAUT. Eine Linse
+    ersetzte die Ableitung durch eine getippte Liste und legte zwei tote Zeilen
+    ``"600".isdigit()`` und ``max([1, 2, 3])`` daneben: alle vier Faelle blieben gruen, gemessen
+    0 von 4. Ein Riegel gegen "aufgezaehlt statt abgeleitet", den man mit zwei Attrappenzeilen
+    aushebelt, prueft nichts.
+
+    Diese Fassung prueft die WIRKUNG auf einem eigens gebauten Baum: ein hoeheres Token, das es im
+    echten Repo nicht gibt, muss OHNE Codeaenderung in der Flaeche auftauchen. Eine Aufzaehlung
+    kann das nicht — sie kennt nur die Namen, die jemand getippt hat.
     """
     m = _gate()
-    quelle = (REPO / "scripts" / "claims_hygiene_check.py").read_text(encoding="utf-8")
-    i = quelle.index("def release_flaeche_docs")
-    rumpf = quelle[i:quelle.index("\ndef ", i + 10)]
-    assert "isdigit" in rumpf and "max(" in rumpf, (
-        "Die Release-Flaeche wird nicht mehr aus dem Baum abgeleitet, sondern offenbar aufgezaehlt. "
-        "Eine Aufzaehlung ist beim naechsten Token wieder zu kurz — das ist die Klasse, gegen die "
-        "diese Datei antritt.")
+    with tempfile.TemporaryDirectory() as td:
+        baum = Path(td)
+        for token in ("600", "700"):
+            ordner = baum / "audit_artifacts" / token
+            ordner.mkdir(parents=True)
+            (ordner / "README.md").write_text(f"# Beleg {token}\n", encoding="utf-8")
+        (baum / "RESTRISIKO_700.md").write_text("# Restrisiko\n", encoding="utf-8")
+        m.REPO = baum                       # die Funktion liest REPO zur Aufrufzeit
+        flaeche = m.release_flaeche_docs()
+    assert "audit_artifacts/700/README.md" in flaeche, (
+        f"Ein NEUES, hoeheres Token faellt nicht von selbst in die Flaeche: {flaeche}. Genau das "
+        f"ist der Unterschied zwischen einer Ableitung und einer Aufzaehlung — und der Grund, "
+        f"warum `audit_artifacts/600/README.md` am 2026-09-07 ungescannt war.")
+    assert "audit_artifacts/600/README.md" not in flaeche, (
+        f"Das AELTERE Token wird mitgezogen: {flaeche}. Die Flaeche ist die des aktuellen Release.")
+    assert "RESTRISIKO_700.md" in flaeche, (
+        f"Das Risiko-Register der Wurzel fehlt in der Flaeche: {flaeche}.")
+
+
+def test_die_ABLEITUNG_greift_auch_im_ECHTEN_baum():
+    """Die Gegenprobe zum gebauten Baum: was synthetisch stimmt, muss hier auch stimmen."""
+    m = _gate()
     tokens = [q.name for q in (REPO / "audit_artifacts").iterdir() if q.is_dir() and q.name.isdigit()]
     assert tokens, "Vorbedingung: es gibt nummerierte Release-Ordner"
     hoechstes = max(tokens, key=int)
