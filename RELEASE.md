@@ -30,6 +30,25 @@ Every line is checkable by someone else. "I think so" is not an answer.
 - [ ] **An adversarial deep-gate run holds a valid verdict on exactly this digest.** A verdict for an
       earlier digest is not a verdict for this one (`scripts/pre_tag_audit_gate.py --strict` blocks
       the build without the record).
+- [ ] **The budget cost axis was measured ON THE REFERENCE MACHINE and the artifact says so.**
+      Owner card `OA-dc37e26295` (2026-09-08) took this axis out of the CI verdict: a runner is
+      roughly twice as slow as the reference machine, its factor runs into the derived cap (1.925 on
+      the KOMBI surface), and what comes out there is a statement about the machine, not about the
+      code. On a build host the axis is therefore skipped VISIBLY, with the measured machine factor
+      as the reason. That is only half a decision — the other half is this line, and without it the
+      axis would be silent in CI and unevidenced in the bundle, i.e. nowhere.
+      Run `python3 scripts/budget_axis_measurement.py` on the reference machine and check the
+      artifact it writes (`audit_artifacts/360/budget_axis_latest.json`):
+      `ist_referenzmessung` must be `true` (no build-host marker was set), `bauhost_marke` empty,
+      `achsen_uebersprungen` must be `0` — an abstention is not a pass — and `ok` must be `true`.
+      `maschinenfaktor_schnellstes_ende` says how far the measuring machine stood from the
+      recording; `latte_aus_der_klammer` says which lath position was in force (`schnellstes_ende`
+      since `OA-133b901337`). Both numbers belong in the release notes, because the same measured
+      seconds mean different verdicts under the two positions.
+      Honest limit, stated rather than glossed: this artifact is written and checked by hand today.
+      `scripts/audit_candidate_matrix.py` knows the soak and the differential artifact, not this
+      one — so nothing yet notices if it is simply not produced. Until it is wired there, this
+      checklist line IS the mechanism, and a checklist line is a person, not a gate.
 - [ ] **The external surfaces that must follow are named**, each with who pulls it: at minimum PyPI,
       the README badge, the project page (version *and* the "checked on" line), and the description
       of any open upstream pull request that states the version.

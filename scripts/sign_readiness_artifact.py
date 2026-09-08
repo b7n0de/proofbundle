@@ -112,6 +112,13 @@ SIGNATURE_KEY = "signature"
 MUTABLE_EVIDENCE_RELS = (
     "audit_artifacts/360/fuzz_soak_latest.json",
     "audit_artifacts/360/rust_differential_matrix.json",
+    # Owner-Karte OA-dc37e26295 (08.09.2026), Erzeuger `scripts/budget_axis_measurement.py`. Er
+    # gehoert aus demselben Grund hierher wie seine zwei Nachbarn: ein Release-Lauf SCHREIBT ihn
+    # waehrend er misst, und ohne diesen Eintrag traefe er genau den Zirkelbezug, den diese
+    # Konstante fuer Soak und Differential verhindert — das Artefakt waere Teil des Baumes, den
+    # es beurteilt. Eingetragen bevor er getrackt wird, nicht danach: eine Schutzliste, die der
+    # geschuetzten Datei hinterherlaeuft, schuetzt die eine Runde nicht, in der es darauf ankommt.
+    "audit_artifacts/360/budget_axis_latest.json",
 )
 
 

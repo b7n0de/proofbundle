@@ -130,7 +130,13 @@ def _inline_erlaubt_oder_stop() -> None:
     ``--assemble`` wieder hier.
     """
     import os  # noqa: PLC0415
-    bauhost = [n for n in _BAUHOST_MERKMALE if os.environ.get(n)]
+    # ANWESENHEIT, NICHT WAHRHEITSWERT (08.09.2026, ausgefuehrter Fund einer Gegenlesung an
+    # der Schwesterstelle in tests/test_budget_kostenkurve.py): ein gesetztes `CI=""` ist
+    # falsy und haette diesen Schluesselriegel auf einem echten Bauhost NICHT greifen lassen.
+    # Fuer eine Kostenmessung ist das ein falscher Rotlauf; HIER ist es der Unterschied
+    # zwischen "der private Schluessel bleibt draussen" und "er darf geladen werden".
+    # Die Richtung ist bewusst fail-closed: eine Marke IST das Signal, ihr Wert ist keiner.
+    bauhost = [n for n in _BAUHOST_MERKMALE if n in os.environ]
     if bauhost:
         raise SystemExit(
             f"inline signing is refused on an automated build host ({', '.join(bauhost)} set). "

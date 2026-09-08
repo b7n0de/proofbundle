@@ -214,6 +214,16 @@ AUSGESCHLOSSEN = {
     # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
     # BEIDER Fassungen der Liste.
     "git-hooks/pre-commit": "ist der Hook selbst, wird im Checkout installiert, nicht im Paket",
+    # Owner-Karte OA-dc37e26295 (08.09.2026): Freigabe-Beweismittel DIESES Projekts, keine
+    # Faehigkeit, die das Paket seinen Nutzern anbietet. Es misst die Budget-Achse gegen eine
+    # Kalibrierung, die auf EINER Maschine aufgezeichnet wurde (Farmer, 24 Kerne, CPython 3.10.12);
+    # auf einer fremden Maschine liefe es durch und meldete `ist_referenzmessung: true`, weil dort
+    # keine Bauhost-Marke steht — eine Referenzmessung, die keine ist. Der Maschinenfaktor im
+    # Beleg saegte das zwar an, aber ein Werkzeug, dessen Ergebnis nur mit Zusatzwissen lesbar
+    # ist, gehoert nicht ins Paket. (Der erste Ausschlussgrund, den ich hier schreiben wollte —
+    # "tests/ liegt nicht im sdist" — war schlicht falsch: MANIFEST.in Zeile 1-10 liefert die
+    # Tests mitsamt ihren Assets aus.)
+    "budget_axis_measurement.py": "Freigabe-Beweismittel dieses Repos, nicht Paket-Faehigkeit",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
