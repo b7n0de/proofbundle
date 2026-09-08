@@ -1821,3 +1821,59 @@ nachgerechnet — alle 19 Urteile identisch, `ok`, `ist_referenzmessung`, `bauho
 `latte_aus_der_klammer` und alle Zaehlfelder unveraendert. Falsch war die REICHWEITE des Satzes,
 nicht sein Kern. Ein Pruefer, der seine Vergleichsmenge selbst waehlt und das Ergebnis dann als
 vollstaendig meldet, ist der Nachbar des Fundes darueber, nicht sein Gegenteil.
+
+## S34 — Zwei einzeln korrekte Riegel schliessen zusammen die Tuer zur Signatur
+
+Dies ist der Punkt, an dem 6.0.0 heute steht. Er gehoert hierher und nicht nur in den Bericht, weil
+die Vorab-Quittung diese Datei bindet und ein Leser des Registers den Zustand ohne ein zweites
+Dokument sehen koennen muss.
+
+**Die Kette, Glied fuer Glied gemessen am 09.09.2026 gegen den Kopf
+`ce0bad546beabcefcfa02e4986ff0284c715577b`.**
+
+1. `scripts/sign_readiness_artifact.py --gate-zeile-aus-verdikt <datei>` liest `notes.gate_zeile`
+   aus einem Verdikt und bricht ab, wenn das Feld fehlt — woertlich *"refusing to invent one"*
+   (`gate_zeile_aus_verdikt`, Zeilen 193-208). Die Begruendung steht daneben und ist richtig: ein
+   Erzeuger, der die Gate-Zeile selbst bauen koennte, waere wieder die Baumaschine, die ihre eigene
+   Freigabe beglaubigt.
+2. `scripts/audit_candidate_matrix.py::_gate_line_error` prueft dann sechs Pflichtfelder
+   (`_GATE_LINE_FIELDS`: `gate_version`, `workflow_datei`, `workflow_sha256`, `modus`, `head`,
+   `verdict`), verlangt `gate_zeile.head == candidate.commit`, und seit dem 07.09.2026
+   (Owner-Anordnung `OA-638966a598`, Option A) muss `verdict` in
+   `_GATE_VERDICTS_PASS = frozenset({"WITHSTANDS_DEEPGATE"})` liegen — eine Allowlist mit **genau
+   einem** Wert, ausdruecklich fail-closed.
+3. Im ganzen Verwaltungsbaum traegt **genau eine** Datei ein brauchbares `notes.gate_zeile` als
+   Objekt: `office/governance/deepgate_600_lauf3/gate_result_600_lauf4b_FIX_FIRST.json`. Sie
+   scheitert an **beiden** Bedingungen — ihr `head` ist `917edc695b280c6fa80e0ab2a76490ff0f30632e`,
+   und ihr Lauf ging `FIX_FIRST` aus. Zwei weitere grep-Treffer waren Fehlalarme: dort steht das
+   Wort nur in einem Linsen-Verzeichnispfad, nicht als Feld.
+4. Die Belege des Zeugen tragen `notes` als reinen **String** ("Abschluss-Beleg, vom
+   b7runner-Oracle ausgestellt..."), nie ein `gate_zeile`-Objekt. Nachgemessen am eigenen Lauf
+   `office/governance/berkeley_gate/runs/ce0bad546beabcef_20260908T230552Z.json`.
+5. Und der Zeuge **kann** ueber einen proofbundle-Commit kein `WITHSTANDS_DEEPGATE` ausstellen:
+   Pre-Sweep, Klassen-Ledger und Linsenablage liegen im Verwaltungsrepo, nicht in diesem Baum.
+   Gemessen im Beleg zu diesem Kopf: 0 Linsen gegen einen Boden von 3, drei Komponenten
+   `env_blocked`, Verdikt `PARTIAL_GATE_NO_WITHSTANDS[v4/sc2/NORMAL-3L3I/strength=PARTIAL]`.
+
+**Folge, nuechtern:** es gibt heute keinen Weg, eine gueltige Gate-Zeile fuer den Kandidatenkopf zu
+erzeugen — weder aus dem Zeugen noch aus dem Bestand. Die drei Bereitschaftsartefakte sind damit
+nicht signierbar, und C6.2, C6.3 und C8.2 bleiben aus einem STRUKTURELLEN Grund rot, nicht wegen
+einer vergessenen Messung. Die Messungen selbst liegen vor und sind an diesen Kopf gebunden.
+
+**Das ist kein Defekt des Tores, und der Unterschied ist wichtig.** Beide Riegel sind einzeln
+richtig. Der erste verhindert, dass sich der Erzeuger seine eigene Gate-Zeile schreibt. Der zweite
+verhindert, dass ein Lauf mit `FIX_FIRST` eine Zeile liefert, die die Pruefung besteht — laut dem
+Kommentar an `_GATE_VERDICTS_PASS` war genau das vorher moeglich (**ungeprueft mit benannter
+Quelle**: der Docstring; ich habe den frueheren Zustand nicht selbst nachgefahren). Der Befund ist
+die KOMBINATION: zwei Riegel schliessen zusammen eine Tuer, die keiner von beiden allein zumachen
+wollte.
+
+**Was es NICHT ist.** Kein Signaturbypass, kein Weg fuer einen Angreifer, keine Aussage ueber den
+ausgelieferten Code. Der Schaden ist, dass der Release-Weg an einer Stelle endet, an der die
+Evidenz vollstaendig vorliegt und nur ihre Beglaubigung nicht ausstellbar ist.
+
+**Owner-Gebiet, ausdruecklich nicht meines.** Zwei Wege stehen offen — die Gate-Mechanik fuer
+Fremd-Repos erreichbar machen (Komponenten aus dem Werkzeugrepo lesen statt aus dem beurteilten
+Baum), oder ausdruecklich entscheiden, was fuer 6.0.0 als Gate-Zeile gilt. Keinen davon darf der
+Erzeuger sich selbst geben; die Zeile existiert genau dafuer. Registerschluessel
+`SIGNIERWERKZEUG-VERLANGT-EINE-GATE-ZEILE-DIE-ES-NIRGENDS-GIBT-01`.
