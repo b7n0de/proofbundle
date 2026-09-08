@@ -1877,3 +1877,46 @@ Fremd-Repos erreichbar machen (Komponenten aus dem Werkzeugrepo lesen statt aus 
 Baum), oder ausdruecklich entscheiden, was fuer 6.0.0 als Gate-Zeile gilt. Keinen davon darf der
 Erzeuger sich selbst geben; die Zeile existiert genau dafuer. Registerschluessel
 `SIGNIERWERKZEUG-VERLANGT-EINE-GATE-ZEILE-DIE-ES-NIRGENDS-GIBT-01`.
+
+### S34, Korrektur vom 09.09.2026 — die un-Gegenlesung hat ein Glied dieser Kette widerlegt
+
+Der Abschnitt oben schliesst: „es gibt heute keinen Weg, eine gueltige Gate-Zeile fuer den
+Kandidatenkopf zu erzeugen — weder aus dem Zeugen noch aus dem Bestand." **Der zweite Halbsatz war
+zu weit, und eine unabhaengige Gegenlesung hat es gefunden** (`qwen3.8:27b`, Rang 1 mit
+Verdiktsrecht, `VERDIKT: REJECT`, Punkt V5: die Fokussierung auf zwei Skripte sei eine unbegruendete
+Annahme der Vollstaendigkeit).
+
+**Nachgemessen, und der Einwand traegt.** Ein Erzeuger EXISTIERT:
+`scripts/b7_deepgate_gate_zeile.py` mit dem Unterbefehl `stempeln`, der die Felder ADDITIV unter
+`notes.gate_zeile` eines Gate-JSON schreibt (Schema `b7n0de.gate_zeile.v1`, eigene Testdatei). Er
+entstand aus Owner-Auftrag `QITEM-DEEPGATE-VERSIONIERUNG-GATE-ZEILE-EICHKOPF-01` vom 05.09. und
+kennt den Pruefer dieser Bahn ausdruecklich.
+
+**Wo er liegt, gemessen:** auf dem Zweig `feat/deepgate/ownergo-versionierung-gate-zeile-eichkopf`
+(`964f88abe`, dirty 0), in einem Worktree — und **nicht** im HEAD des Verwaltungsrepos
+(`git cat-file -e HEAD:scripts/b7_deepgate_gate_zeile.py` → kein gueltiger Objektname).
+
+**Warum mein Fehler diese Klasse ist:** ich hatte nach `gate_zeile` in
+`office/governance/**.json` gesucht — der Flaeche der ARTEFAKTE — und daraus auf die Abwesenheit
+eines ERZEUGERS geschlossen. Zwei verschiedene Fragen, eine Suche. Dieselbe Form, die dieser
+Abschnitt anderen vorhaelt.
+
+**Was von S34 stehen bleibt, und es ist der eigentliche Halt.** Glied 5 ist unberuehrt: ueber einen
+proofbundle-Commit kann der Zeuge kein `WITHSTANDS_DEEPGATE` ausstellen, weil Pre-Sweep,
+Klassen-Ledger und Linsenablage im Verwaltungsrepo liegen (gemessen: 0 Linsen gegen Boden 3, drei
+Komponenten `env_blocked`). Und `_GATE_VERDICTS_PASS` laesst genau diesen einen Wert zu. **Der
+Blocker ist also nicht „keine Gate-Zeile erzeugbar", sondern „kein BESTEHENDES Verdikt ueber einen
+proofbundle-Commit erzeugbar".** Das ist schmaler, schaerfer und aendert die Owner-Frage nicht: sie
+lautet weiterhin, ob die Gate-Mechanik fuer Fremd-Repos erreichbar wird.
+
+**Zwei weitere Punkte der Gegenlesung, angenommen ohne Nachmessung noetig.** Sie nannte „beide
+Riegel sind einzeln richtig" eine Schoenung: die Allowlist mit genau einem Wert ist eine
+Owner-Policy (`OA-638966a598`), keine logische Notwendigkeit — „wirkt wie vorgesehen" ist die
+ehrlichere Formulierung als „ist richtig", und ob ein PARTIAL fuer Bereitschafts-Evidenz genuegt,
+ist genau die offene Owner-Frage. Und sie nannte die Einordnung als „strukturell statt eigener
+Fehler" Selbstentlastung; das trifft insoweit zu, als die Kombination frueher haette auffallen
+koennen — die Policy selbst stammt vom 07.09. und lag nicht in meiner Hand.
+
+**Ein Punkt der Gegenlesung trifft NICHT.** Sie hielt Glied 4 („die Belege des Zeugen tragen `notes`
+als reinen String") fuer ebenso ungeprueft wie die markierte Stelle. Das ist gemessen: der eigene
+Lauf `runs/ce0bad546beabcef_20260908T230552Z.json` wurde gelesen und meldet `notes-Typ: str`.
