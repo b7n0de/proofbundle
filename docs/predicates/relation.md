@@ -126,6 +126,21 @@ bound is depth-exceeded.
   verification blocks automation (retracts-then-use). Without the policy the same finding is
   an advisory warning. The retraction never breaks the target's cryptographic validity — it
   is a declared statement about it.
+
+  **Since 6.0.0 an UNREADABLE declaration counts too (`RELATION_MALFORMED_SUCCESSOR`).** An
+  attached, standalone-verified receipt whose OWN `relationships` block this verifier cannot
+  parse used to be skipped in silence — together with any retraction declared inside it. An
+  attacker only had to place one deliberately malformed edge next to the `retracts` edge, and
+  `safeForAutomation` flipped false→true, exit 3→0. A receipt that carries NO `relationships`
+  field still stays silent (it declared nothing); one that carries an unreadable block now
+  reports (it declared something this verifier cannot evaluate).
+
+  **Widened reach, stated plainly:** the block is unreadable, so we cannot know whether one of
+  its edges points at the receipt under verification. A malformed block whose READABLE edges all
+  point elsewhere therefore blocks as well — the readable half says nothing about the unreadable
+  half, and a verifier that stayed silent here would claim knowledge it does not have. Attachments
+  that carry a harmless format error in `relationships` and passed before will block after this
+  release; that is deliberate, and it is the honest reading of "unreadable".
 - `relation_signer` (since 3.4.0, WHO may replace): per relation, `{"mode":"same-key"}` (the
   successor's issuer key must equal the target's) or `{"mode":"pinned","keys":[…]}` (the
   successor's issuer key must be a byte-member of the pinned raw Ed25519 set — never a keyId

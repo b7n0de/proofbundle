@@ -1108,11 +1108,32 @@ fn verify_relationship_edges(
 
 /// Mirror of relation.successor_warning: an attached, verified receipt declaring a successor/retracts
 /// edge over `subject_hex`.
+///
+/// OWNER-ANORDNUNG 2026-09-08 (Karte OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1). Hier stand
+/// `if !nested.is_array() || !validate_relationships(nested).is_empty() { continue; }` — ein STILLES
+/// Ueberspringen, wortgleich zur Python-Seite. Ein angehaengtes, standalone verifiziertes Receipt,
+/// dessen eigener relationships-Block einen Formfehler traegt, fiel aus der Betrachtung, UND MIT IHM
+/// DIE RUECKNAHME, DIE ES DEKLARIERT: superseded_by_attached blieb None, `reject_superseded` fand
+/// nichts, safeForAutomation kippte false->true, exit 3->0. Dass Python denselben Fehler machte, ist
+/// der Grund, warum das Differential zwischen beiden Sprachen blind war — ein Vergleich zweier
+/// gleicher Fehler ist still.
+///
+/// Ein Receipt OHNE relationships schweigt weiter (es hat nichts erklaert); eines MIT einem
+/// unlesbaren Block meldet (es hat etwas erklaert, das dieser Verifizierer nicht auswerten kann).
+///
+/// ORDNUNGSUNABHAENGIG, und das ist hier keine Kosmetik: `related` ist eine HashMap, deren
+/// Iterationsreihenfolge Rust bewusst randomisiert. "Der erste unlesbare" haette je Lauf einen
+/// anderen Text ergeben, waehrend Pythons dict die Einfuegereihenfolge behaelt — zwei Sprachen, zwei
+/// Antworten, und der Unterschied haette in den Paritaets-Vektoren nach einem Fund ausgesehen, der
+/// keiner ist. Beide Seiten waehlen daher den lexikografisch kleinsten Kandidaten. Aus demselben
+/// Grund gewinnt eine LESBARE Ruecknahme immer gegen die unlesbare Meldung: sonst koennte ein
+/// Vorleger die praezise Aussage durch die unpraezise ersetzen, indem er die Reihenfolge waehlt.
 fn successor_warning(
     related: &std::collections::HashMap<String, TargetInfo>,
     subject_hex: Option<&str>,
 ) -> Option<String> {
     let subject = subject_hex?;
+    let mut unlesbar: Option<(String, String)> = None;
     for (other_hex, other) in related {
         if !other.verified {
             continue;
@@ -1120,7 +1141,38 @@ fn successor_warning(
         let Some(nested) = &other.relationships else {
             continue;
         };
+        // PARITAET MIT PYTHON, gefunden von einer Gegenlesung ueber genau diesen Fix (08.09.2026).
+        // load_related setzt `relationships = Some(r.clone())`, sobald der JSON-Schluessel DA ist —
+        // auch bei explizitem `"relationships": null`, denn serde_json liefert dort Some(&Null).
+        // Python liest an derselben Stelle `dict.get(...)` und bekommt None, kann also zwischen
+        // "Schluessel fehlt" und "Schluessel ist null" gar nicht unterscheiden und schweigt in
+        // beiden Faellen. Ohne diese Zeile meldete Rust fuer DIESELBEN Bytes
+        // RELATION_MALFORMED_SUCCESSOR, wo Python schweigt.
+        //
+        // Die Divergenz war vorher da und FOLGENLOS: beide Seiten uebersprangen still, der
+        // Unterschied hatte keine Wirkung. Der Fix gegen die stille Ruecknahme hat sie aktiviert,
+        // indem er einem der beiden Wege eine Bedeutung gab. Das ist die unangenehme Haelfte von
+        // "fix the class": eine schlafende Asymmetrie wird zum Fund, sobald einer der Wege etwas TUT.
+        if nested.is_null() {
+            continue;
+        }
         if !nested.is_array() || !validate_relationships(nested).is_empty() {
+            let ist_kleiner = match &unlesbar {
+                None => true,
+                Some((bisher, _)) => other_hex.as_str() < bisher.as_str(),
+            };
+            if ist_kleiner {
+                unlesbar = Some((
+                    other_hex.clone(),
+                    format!(
+                        "relation:malformed_successor (RELATION_MALFORMED_SUCCESSOR): attached \
+                         receipt {} verifies standalone but carries a relationships block this \
+                         verifier cannot read; a retraction or supersession declared in it cannot \
+                         be evaluated and is therefore NOT ruled out (fail-closed)",
+                        &other_hex[..12.min(other_hex.len())]
+                    ),
+                ));
+            }
             continue;
         }
         for edge in nested.as_array().unwrap() {
@@ -1143,7 +1195,7 @@ fn successor_warning(
             }
         }
     }
-    None
+    unlesbar.map(|(_, meldung)| meldung)
 }
 
 fn keys_equal(a_b64: &str, b_b64: &str) -> bool {

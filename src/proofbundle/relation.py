@@ -466,11 +466,53 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     related = related if isinstance(related, dict) else {}
     if subject_hex is None:
         return None
+    # OWNER-ANORDNUNG 2026-09-08 (Karte OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1).
+    #
+    # WAS HIER STAND: `if not isinstance(nested, list) or validate_relationships(nested): continue`
+    # — ein STILLES Ueberspringen. Ein angehaengtes, kryptografisch verifiziertes Receipt, dessen
+    # eigener relationships-Block einen Formfehler traegt, fiel damit aus der Betrachtung, UND MIT
+    # IHM DIE RUECKNAHME, DIE ES DEKLARIERT. Der Angreifer haengt neben die `retracts`-Kante eine
+    # zweite, absichtlich fehlerhafte Kante; `validate_relationships` meldet einen Fehler, die
+    # Schleife geht weiter, `successor_warning` liefert None — und die ganze Kette dahinter
+    # (supersededByAttached -> reject_superseded -> policy_ok -> safeForAutomation -> exit 3)
+    # kippt lautlos in die freundliche Richtung: safeForAutomation false->true, exit 3->0.
+    # In Python UND Rust identisch, weshalb das Differential zwischen beiden blind war: beide
+    # Seiten machten denselben Fehler, und ein Vergleich zweier gleicher Fehler ist still.
+    #
+    # DIE UNTERSCHEIDUNG, auf die es ankommt: ein Receipt OHNE relationships-Feld hat schlicht
+    # nichts erklaert — das ist kein Fund und wird weiter uebersprungen. Ein Receipt MIT einem
+    # Feld, das nicht lesbar ist, hat etwas erklaert, das wir nicht auswerten koennen; das ist ein
+    # eigener, benannter Zustand und niemals Schweigen. Fail-closed heisst hier: eine nicht
+    # auswertbare Erklaerung wird wie eine Rueck nahme behandelt, nicht wie ihre Abwesenheit.
+    #
+    # ORDNUNG, damit das Verdikt nicht an der Reihenfolge haengt (dieselbe Regel, die _walk_chain
+    # fuer Zyklen schon anwendet: "A CYCLE IS ORDER-INDEPENDENT, so it is decided before any
+    # descent"): ZUERST werden alle Kandidaten auf eine ECHTE, lesbare Rueck nahme/Nachfolge
+    # geprueft; erst wenn es keine gibt, meldet der unlesbare Block. Ein malformed Nachbar kann
+    # eine echte Rueck nahme also nicht mehr maskieren, und `related` ist ein dict, dessen
+    # Einfuegereihenfolge der Angreifer sonst mitbestimmen wuerde.
+    # Der unlesbare Kandidat wird ORDNUNGSUNABHAENGIG gewaehlt (kleinster Hex), nicht "der erste".
+    # Grund ist die Paritaet mit dem Rust-Verifizierer: der iteriert eine HashMap, deren Reihenfolge
+    # in Rust bewusst randomisiert ist. "Der erste" haette dort bei mehreren unlesbaren Nachbarn je
+    # Lauf einen anderen Text ergeben, waehrend Pythons dict die Einfuegereihenfolge behaelt — zwei
+    # Sprachen, zwei Antworten, und der Unterschied haette nach einem Fund ausgesehen, der keiner ist.
+    unlesbar: str | None = None
+    unlesbar_hex: str | None = None
     for other_hex, other in related.items():
         if not isinstance(other, dict) or other.get("verified") is not True:
             continue
         nested = other.get("relationships")
+        if nested is None:
+            continue  # kein Block deklariert — nichts erklaert, kein Fund
         if not isinstance(nested, list) or validate_relationships(nested):
+            if unlesbar_hex is None or other_hex < unlesbar_hex:
+                unlesbar_hex = other_hex
+                unlesbar = (
+                    f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
+                    f"receipt {other_hex[:12]}… verifies standalone but carries a relationships "
+                    "block this verifier cannot read; a retraction or supersession declared in it "
+                    "cannot be evaluated and is therefore NOT ruled out (fail-closed — an "
+                    "unreadable statement about this receipt is never silence)")
             continue
         for edge in nested:
             rel = edge.get("relation")
@@ -480,7 +522,7 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
             if rel == "retracts" and _edge_target_hex(edge) == subject_hex:
                 return (f"retracted_by_attached: attached receipt {other_hex[:12]}… declares "
                         f"retracts over this receipt")
-    return None
+    return unlesbar
 
 
 # ── Trust-policy `relations` evaluation (WP-A signer · WP-A2 target-pin, pure/offline) ──────────
@@ -509,6 +551,12 @@ CODE_RELATION_TARGET_SUBJECT_MALFORMED = "RELATION_TARGET_SUBJECT_MALFORMED"
 # failure into "verified, no edges, subject absent", and a chain hidden behind a duplicate `predicate` key
 # walked to VERIFIED while the same bytes failed standalone (parser-differential at the resolver seam).
 CODE_RELATION_TARGET_MALFORMED = "RELATION_TARGET_MALFORMED"
+
+# OWNER-ANORDNUNG 2026-09-08 (OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1): ein ATTACHED,
+# standalone verifiziertes Receipt, dessen EIGENER relationships-Block nicht lesbar ist, wurde in
+# successor_warning still uebersprungen — samt der Rueck nahme, die es deklariert. Der Zustand hat
+# jetzt einen Namen, identisch in Python und Rust, damit die Paritaets-Vektoren einen Sollwert haben.
+CODE_RELATION_MALFORMED_SUCCESSOR = "RELATION_MALFORMED_SUCCESSOR"
 
 
 def _target_payload_malformed(target: dict) -> str | None:

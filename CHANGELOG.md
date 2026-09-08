@@ -165,6 +165,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   out `lineage=VERIFIED` / exit 0 in **both** shipped verifiers, while the same bytes failed standalone.
   Loader and standalone verifier now share ONE payload oracle (`_statement_payload.load_statement_strict`);
   a refused payload is `RELATION_TARGET_MALFORMED` and FAILs at every hop, in Python and in Rust.
+- **A retraction is silently suppressed when the attached successor is itself malformed (L4-600-01, P1).**
+  `relation.successor_warning` skipped an attached, standalone-verified receipt whose OWN
+  `relationships` block failed validation — and with it any `retracts`/`supersedes` edge declared
+  inside. One deliberately malformed edge next to the retraction was enough: `supersededByAttached`
+  stayed empty, `reject_superseded` found nothing, `safeForAutomation` flipped false→true and the
+  CLI exit 3→0. Python and Rust made the SAME mistake, so the differential between them was blind.
+  An unreadable block now reports `RELATION_MALFORMED_SUCCESSOR` (a receipt with NO `relationships`
+  field still stays silent); a READABLE retraction still wins over the unreadable report, so the
+  verdict does not depend on attachment order. Closed on Owner instruction rather than carried as
+  a named residual risk.
 - **A statement with more than one subject binds to none of them silently (L4-02, P2).**
   `classify_subject` read `subject[0]`, so `[derived, foreign]` classified as `DERIVED` and reached
   `safeForAutomation: true`, while `[foreign, derived]` failed — the verdict depended on the order the
