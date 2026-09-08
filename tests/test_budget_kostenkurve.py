@@ -75,11 +75,13 @@ data_digests``) — nicht als spaeterer, von dieser Datei ausdruecklich ungedeck
 from __future__ import annotations
 
 import base64
+import contextlib
 import dataclasses
 import gc
 import hashlib
 import json
 import math
+import os
 import resource
 import statistics
 import sys
@@ -255,12 +257,36 @@ def _referenz_werte_hashfrei() -> list[float]:
     return _REFERENZ_HIER_HASHFREI
 
 
+def _klammer_oder_fehler(werte: list[float] | None, ersatz) -> list[float]:
+    """FEHLEND darf ersetzt werden, KAPUTT muss auffallen — und `or` unterscheidet die beiden nicht.
+
+    FUND DER SIEBTEN LINSE (die FREMDE Modellfamilie, 08.09.2026). Vier Stellen dieser Datei
+    schrieben `werte or ersatz`. Damit faellt eine LEERE Liste — eine kaputte Klammer — auf
+    dieselbe stille Ersatzmessung zurueck wie ein fehlendes Argument. Gemessen: `_faktor_spanne([])`
+    loeste EINE frische Messung aus und lieferte klaglos einen Faktor. Der kam dann aus einem
+    ANDEREN Zeitfenster als die Kosten, die er skaliert — genau der schwerste Fund dieser Runde,
+    eine Ebene tiefer und durch die Hintertuer.
+
+    Sechs Linsen EINER Familie hatten die Datei gelesen und diese Stelle nicht gesehen. Das ist das
+    Argument fuer ein gemischtes Panel, in einem Satz.
+    """
+    if werte is None:
+        return list(ersatz())
+    if not werte:
+        raise ValueError(
+            "die uebergebene Referenzklammer ist LEER. Das ist kein fehlender Wert, sondern ein "
+            "kaputter: fehlend darf durch eine eigene Messung ersetzt werden, kaputt muss "
+            "auffallen. Ein stiller Ersatz haette den Faktor aus einem anderen Zeitfenster geholt "
+            "als die Kosten, die er skaliert.")
+    return list(werte)
+
+
 def _maschinenfaktor_hashfrei(werte: list[float] | None = None) -> float:
     """Derselbe Bau wie `_maschinenfaktor`, andere Kostenfamilie. Untergrenze 1,0.
 
     `werte` erlaubt es, eine SCHON GEMESSENE Reihe zu beurteilen statt frisch zu messen — gebraucht
     fuer die Klammer um die Kostenmessung, siehe `_maschinenfaktor`."""
-    hier = statistics.median(werte if werte else _referenz_werte_hashfrei())
+    hier = statistics.median(_klammer_oder_fehler(werte, _referenz_werte_hashfrei))
     dort = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
     return max(1.0, hier / dort)
 
@@ -279,13 +305,28 @@ def _maschinenfaktor(werte: list[float] | None = None) -> float:
     von einer Gegenlesung mit einer echten dreifachen Verteuerung von `renewal_work`: 2 von 5 Laeufen
     liessen sie durch, ohne dass eine der drei Abstinenzen feuerte.
     """
-    hier = statistics.median(werte if werte else _referenz_werte())
+    hier = statistics.median(_klammer_oder_fehler(werte, _referenz_werte))
     dort = statistics.median(_REFERENZ_FARMER_S)
     return max(1.0, hier / dort)
 
 
-def _faktor_spanne(werte: list[float] | None = None) -> tuple[float, float]:
+def _faktor_spanne(werte: list[float] | None = None, *,
+                   aufzeichnung: tuple[float, ...] = _REFERENZ_FARMER_S,
+                   eigene: list[float] | None = None) -> tuple[float, float]:
     """Der Maschinenfaktor am SCHNELLSTEN und am LANGSAMSTEN Ende der eigenen Messreihe.
+
+    ZWEI FAMILIEN, EINE RECHENVORSCHRIFT (Klassenfix, 08.09.2026, Fund einer Gegenlesung). Die
+    hash-freie Familie hatte fuer Weg B eine HANDGESCHRIEBENE Kopie dieser Formel daneben stehen —
+    `max(1.0, min(frei_klammer) / statistics.median(_REFERENZ_FARMER_HASHFREI_S))`. Die Linse hat
+    nachgerechnet, dass eine vertauschte Referenzkonstante dort in JEDER Fixture dieser Datei
+    unsichtbar bleibt: alle halten den hash-freien Messwert bei oder unter beiden Konstanten, und
+    die Untergrenze `max(1.0, ...)` schluckt die Differenz strukturell. Nicht zufaellig — durch die
+    Bauart der Fixtures. Eine Rechenvorschrift mit zwei Schreibern, von denen nur einer eine
+    Symmetrie-Bindung hat, ist dieselbe Klasse wie ein Instrument mit zwei Schreibern.
+
+    Deshalb nimmt diese Funktion jetzt die AUFZEICHNUNG als Parameter und wird von beiden Familien
+    gerufen. `eigene` ist der Zwischenspeicher der jeweiligen Familie, damit der Rueckfall (noch gar
+    nicht gemessen) dieselbe Reihe trifft wie der Median.
 
     Der Median beschreibt die Maschine gut, solange sie EINEN Zustand hat. Hat sie zwei — ein
     Fremdjob laeuft in fuenf von neun Messfenstern — liegt der Median im langsamen Gipfel, die Latte
@@ -300,9 +341,25 @@ def _faktor_spanne(werte: list[float] | None = None) -> tuple[float, float]:
     # dann eine andere Reihe als der Median, den sie einrahmen soll. Sie muss dieselbe Reihe lesen.
     # Erst wenn noch gar nicht gemessen wurde, wird gemessen. (Gemessen: die zweite Reihe kostete
     # 6,4 s zusaetzlich, ohne eine einzige zusaetzliche Aussage zu tragen.)
-    werte = werte or _REFERENZ_HIER or _referenz_werte()
-    dort = statistics.median(_REFERENZ_FARMER_S)
+    if eigene is None:
+        eigene = _REFERENZ_HIER
+    # FEHLEND vs. KAPUTT, siehe `_klammer_oder_fehler`: `werte or ...` machte aus einer leeren
+    # Klammer stillschweigend eine frische Messung. `eigene` bleibt der gewoehnliche Rueckfall
+    # (dort ist leer ein legitimer Anfangszustand, kein Bruch).
+    werte = _klammer_oder_fehler(werte, lambda: eigene or _referenz_werte())
+    dort = statistics.median(aufzeichnung)
     return max(1.0, min(werte) / dort), max(1.0, max(werte) / dort)
+
+
+def _faktor_spanne_hashfrei(werte: list[float] | None = None) -> tuple[float, float]:
+    """Dieselbe Rechnung, andere Kostenfamilie — ein AUFRUF, keine zweite Formel.
+
+    Existiert, weil die Alternative (die Formel ein zweites Mal hinschreiben) am 08.09.2026
+    nachweislich unpruefbar war: keine Fixture der Datei konnte eine vertauschte Referenzkonstante
+    sichtbar machen. Ein Aufruf kann das Falsche tun; zwei Formeln koennen AUSEINANDERLAUFEN, und
+    das faengt kein Test, der nur eine von beiden kennt."""
+    return _faktor_spanne(werte, aufzeichnung=_REFERENZ_FARMER_HASHFREI_S,
+                          eigene=_REFERENZ_HIER_HASHFREI)
 
 
 #: DIE KOSTEN JEDER ACHSE AN IHREM LIMIT auf der Referenzmaschine, gemessen 2026-09-08 in einem
@@ -324,7 +381,13 @@ _REFERENZ_FARMER_KOSTEN = {
     "data_digests": 0.0007, "renewal_work": 1.5587,
 }
 
-#: OFFENE OWNER-ENTSCHEIDUNG `600_latte_am_schnellen_ende_oder_abstinenz` (gestellt 08.09.2026).
+#: ENTSCHIEDENE OWNER-KARTE `OA-133b901337` (gestellt und beantwortet 08.09.2026): **schnellstes_ende**,
+#: „gilt auf der Referenzmaschine, CI ist nach der zweiten Antwort ausgenommen".
+#:
+#: Die zweite Antwort ist `OA-dc37e26295` — die Referenzmaschinen-Bindung unten. Die beiden gehoeren
+#: zusammen und sind in EINEM Zug gelandet: Weg B allein wuerde auf jedem Laeufer falsche Rotlaeufe
+#: erzeugen, und die Bindung allein liesse die Latte am Median stehen. Getrennt gaebe es einen
+#: Zwischenstand, in dem genau das passiert, wogegen beide Karten gestellt wurden.
 #:
 #: Wechselt die Maschine WAEHREND der Messung ihren Zustand, spannt die Klammer auf, und es gibt
 #: zwei ehrliche Antworten — aber nur eine kann gelten:
@@ -339,10 +402,13 @@ _REFERENZ_FARMER_KOSTEN = {
 #:                     pytest-Prozesse aus drei Quellen gemessen wurden, erzeugt das regelmaessig
 #:                     falsche Rotlaeufe (Befund 600-MESSFELD-NICHT-RUHIG-HERSTELLBAR-01).
 #:
-#: Der Schalter steht hier, damit die Entscheidung EIN WORT kostet und keine Umbaurunde. Beide Wege
-#: sind gebunden (`test_der_schalter_der_offenen_OWNER_ENTSCHEIDUNG_wirkt_wirklich`); der Vorbelegung
-#: liegt keine Meinung zugrunde, sondern der gemessene Zustand.
-LATTE_AUS_DER_KLAMMER = "median"
+#: Der Schalter steht hier, damit die Entscheidung EIN WORT kostet und keine Umbaurunde — und der
+#: Weg "median" BLEIBT deshalb im Code, obwohl er seit dem Entscheid nicht mehr gefahren wird: er ist
+#: die Stellung, in die der Owner in einem Wort zurueckkehren kann, nicht toter Code. Gebunden sind
+#: beide Wege (`test_der_schalter_..._wirkt_wirklich`, verlangt UNTERSCHIEDLICHE Ausgaenge) UND der
+#: geltende Stand (`test_die_OWNER_ENTSCHEIDUNG_zur_latte_steht_im_schalter`). Das sind zwei
+#: verschiedene Aussagen: die erste, dass die Wahl etwas entscheidet; die zweite, wie sie ausfiel.
+LATTE_AUS_DER_KLAMMER = "schnellstes_ende"
 
 #: WELCHE Achsen zum letzten Deckel beigetragen haben. Instrument, kein Zustand — und es existiert
 #: wegen eines Fundes der fremdfamiliaeren Gegenlesung (08.09.2026): der Schutz `if k <= 0: continue`
@@ -352,6 +418,36 @@ LATTE_AUS_DER_KLAMMER = "median"
 #: ohnehin nicht — 'uebersprungen' und 'mit riesiger Freiheit dabei' sind am Ergebnis nicht zu
 #: unterscheiden. Nur die TEILNEHMERLISTE unterscheidet sie.
 _DECKEL_BEITRAEGE: list[str] = []
+
+#: WEM die Teilnehmerliste oben gehoert — der `ausser`-Wert des Aufrufs, der sie gefuellt hat, und
+#: `None`, sobald sie GELESEN wurde. Eine Liste, die ihren Leser nicht kennt, ist kein Instrument,
+#: sondern ein Rest.
+#:
+#: GEMESSEN 08.09.2026, und zwar an einem Fall, der aus einem ganz anderen Grund fiel: die
+#: Referenzmaschinen-Bindung springt VOR `_faktor_deckel`, also rechnet auf einem Bauhost niemand
+#: mehr den Deckel — und `test_die_KOMBI_latte_kennt_die_maschine_auf_der_sie_urteilt` las danach
+#: die Liste eines FREMDEN Aufrufs (`ausser="renewal_work"` statt `ausser=""`) und urteilte darueber.
+#: Der Fall fiel, aber mit einer Meldung ueber eine fehlende Achse statt ueber die fehlende Rechnung.
+#: Waere die fremde Liste zufaellig die richtige gewesen, waere er gruen geblieben — und haette eine
+#: Rechnung bezeugt, die nie stattgefunden hat.
+_DECKEL_FUER: list = [None]
+
+
+def _deckel_beitraege(ausser: str) -> list[str]:
+    """Die Teilnehmerliste — nur, wenn sie aus dem EIGENEN Aufruf stammt.
+
+    Einmalig: nach dem Lesen ist die Liste wieder herrenlos. Sonst koennte ein zweiter Leser
+    dieselbe Rechnung ein zweites Mal als seine ausgeben, und genau das ist die Form, in der ein
+    veralteter Wert unauffaellig bleibt.
+    """
+    assert _DECKEL_FUER[0] == ausser, (
+        f"Die Teilnehmerliste des Deckels gehoert zu ausser={_DECKEL_FUER[0]!r}, gelesen wird sie "
+        f"fuer ausser={ausser!r}. Entweder hat der eigene Aufruf gar nicht gerechnet — etwa weil "
+        f"eine Abstinenz vorher gesprungen ist —, oder ein fremder Aufruf hat dazwischen "
+        f"geschrieben. In beiden Faellen beschreibt die Liste eine andere Rechnung als die, ueber "
+        f"die hier geurteilt wird.")
+    _DECKEL_FUER[0] = None
+    return list(_DECKEL_BEITRAEGE)
 
 
 def _faktor_deckel(ausser: str) -> float:
@@ -369,6 +465,7 @@ def _faktor_deckel(ausser: str) -> float:
     """
     freiheiten = []
     _DECKEL_BEITRAEGE.clear()
+    _DECKEL_FUER[0] = ausser
     for d in DIMENSIONEN:
         if d.name == ausser:
             continue
@@ -396,6 +493,118 @@ def _faktor_deckel(ausser: str) -> float:
     # faellt dann an der Latte, wo sie fallen soll.
     return float("inf")
 
+
+
+#: Merkmale eines automatisierten Bau-/Pruefhosts. WORTGLEICH mit `_BAUHOST_MERKMALE` in
+#: `scripts/pre_tag_receipt.py` — und das ist kein Zufall, sondern gebunden
+#: (`test_das_bauhost_vokabular_ist_dasselbe_wie_im_signierweg`). Zwei Stellen, die dasselbe
+#: wissen, ohne dass etwas ihre Gleichheit prueft, laufen auseinander, und keiner der beiden
+#: Tests sieht es: jeder importiert genau eine der beiden Fassungen.
+_BAUHOST_MERKMALE = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL")
+
+
+def _bauhost() -> str:
+    """Die gesetzte Bauhost-Marke, oder `""` auf einer Maschine ohne.
+
+    ANWESENHEIT, NICHT WAHRHEITSWERT — und das war der erste Anlauf falsch (ausgefuehrt von einer
+    Gegenlesung am 08.09.2026, in BEIDE Richtungen):
+
+    * `os.environ.get(n)` ist eine Wahrheitspruefung. Ein GESETZTES `CI=""` — das Muster, das
+      entsteht, wenn ein Docker-Basisimage `ENV CI=` traegt oder ein Skript eine Marke mit
+      `export CI=` statt `unset CI` "loescht" — ist falsy. Der Bauhost waere NICHT erkannt worden,
+      die Achse haette dort geurteilt, und der falsche Rotlauf waere genau zurueckgekehrt.
+    * Umgekehrt sind `"false"` und `"0"` nicht-leere Strings und damit truthy. `CI=false` ist ein
+      verbreitetes Muster aus der JS-Werkzeugwelt und landet in gemeinsam benutzten Shells.
+
+    Eine Marke IST das Signal; ihr Wert ist keiner. Deshalb `in os.environ`. Die verbleibende
+    Kante — `CI=false` auf einer Maschine, die keine CI ist, schaltet die Achse stumm — ist
+    stromabwaerts gefangen und nicht offen: `scripts/budget_axis_measurement.py` weigert sich,
+    einen Lauf mit IRGENDEINER gesetzten Marke als Referenzmessung auszugeben
+    (`ist_referenzmessung`, `ok`), und die Freigabe-Pruefliste verlangt genau dieses Feld.
+
+    EHRLICHE GRENZE, und sie steht hier statt in einer Zusage: das ist ein MERKMAL, kein
+    Maschinen-Fingerabdruck. Ein Laeufer, der keine dieser Marken setzt, wird wie die
+    Referenzmaschine behandelt und urteilt — das ist gewollt (die Alternative waere, jede
+    unbekannte Maschine stumm zu schalten, und ein stummer Riegel ist von einem bestandenen nicht
+    zu unterscheiden), aber es ist eine Annahme ueber die Umgebung und keine Messung.
+    """
+    for n in _BAUHOST_MERKMALE:
+        if n in os.environ:
+            return n
+    return ""
+
+
+@contextlib.contextmanager
+def _bauhost_marke(marke: str | None):
+    """Setzt GENAU EINE Bauhost-Marke — oder KEINE — fuer die Dauer des Blocks.
+
+    JEDER Fall, der die echte Testmethode ruft, MUSS hier hindurch. Sonst haengt sein Ausgang an
+    der Umgebung, in der die Suite zufaellig laeuft: mit gesetzter Marke wuerde die
+    Referenzmaschinen-Bindung VOR seiner Zusicherung greifen, und der Fangnachweis meldete einen
+    sauber aussehenden SKIP statt des Fundes, den er sucht. Dieselbe Klasse wie die
+    Streuungs-Abstinenz gegenueber dem Schalter: eine Abstinenz, die die Frage des Falles per
+    Regel beantwortet, muss fuer diesen Fall abgeschaltet sein.
+    """
+    alt = {n: os.environ.get(n) for n in _BAUHOST_MERKMALE}
+    for n in _BAUHOST_MERKMALE:
+        os.environ.pop(n, None)
+    if marke:
+        os.environ[marke] = "true"
+    try:
+        yield
+    finally:
+        for n, wert in alt.items():
+            if wert is None:
+                os.environ.pop(n, None)
+            else:
+                os.environ[n] = wert
+
+
+
+def _referenzmaschinen_bindung(was: str, faktor: float) -> None:
+    """OWNER-ENTSCHEID `OA-dc37e26295` (08.09.2026): „C, mit Bedingung."
+
+    Wortlaut: „Budget-Achse referenzmaschinengebunden kennzeichnen, in CI sichtbar ueberspringen
+    mit dem gemessenen Maschinenfaktor als Grund, auf der Referenzmaschine im Release-Buendel
+    messen und so im Freigabebericht fuehren."
+
+    WORAUF DAS ANTWORTET. Die CPU-Obergrenze steht seit `OA-0646ecdf70` in Referenzeinheiten, aber
+    ihre Kalibrierung — die aufgezeichneten Kosten je Achse und der daraus abgeleitete Deckel —
+    stammt von EINER Maschine. Auf dem Laeufer (gemessen rund doppelt so langsam: input_bytes 1,8x,
+    json_nodes 2,1x, signatures 2,5x, data_digests 2,0x) laeuft der Maschinenfaktor gegen den
+    Deckel der KOMBI-Flaeche (1,925). Was dort herauskommt, ist keine Aussage mehr ueber den Code:
+    am 07.09.2026 ein Rot aus Langsamkeit (`renewal_work` 3,096 s gegen 3,0 s), am Kopf 88a5383
+    zwoelf Abstinenzen, nach denen `coverage` gruen wurde, weil der einzige rote Fall sich aus der
+    Bewertung gezogen hatte.
+
+    SICHTBAR, NICHT STUMM — und das ist der Unterschied zu jeder anderen Abstinenz dieser Datei:
+    hier wird nicht behauptet, die Messung sei nicht auswertbar, sondern dass sie AUF DIESER
+    MASCHINE NICHT GEFUEHRT WIRD. Die Meldung traegt deshalb drei Dinge, die ein Leser braucht: die
+    Kartennummer (WELCHE Entscheidung wirkt), die erkannte Marke (WORAN der Bauhost erkannt wurde)
+    und den GEMESSENEN Faktor (WIE weit die Maschine von der Referenz entfernt war). Der Faktor ist
+    die Bedingung des Owners, nicht Zierde: ohne ihn waere die Zeile eine Politik, mit ihm ist sie
+    eine Messung mit einer Politik daneben.
+
+    EIGENES VOKABULAR, absichtlich. Kein Wort dieser Meldung darf mit dem der drei anderen
+    Abstinenzen (Deckel, Streuung, Kostenfamilie) zusammenfallen — sonst haelt ein Fangnachweis,
+    der auf deren Wortlaut prueft, diese Bindung fuer seinen eigenen Fund und geht blind. Gebunden
+    in `test_die_bindung_teilt_KEIN_erkennungswort_mit_den_anderen_abstinenzen`.
+
+    WAS SIE NICHT TUT: sie nimmt die Achse nicht aus der Welt, sondern aus DIESER Bewertung. Auf
+    der Referenzmaschine — im Release-Buendel — wird sie gemessen und so im Freigabebericht
+    gefuehrt. Ein Ergebnis, das nur dort entsteht, muss auch von dort berichtet werden.
+    """
+    marke = _bauhost()
+    if not marke:
+        return
+    pytest.skip(
+        f"UEBERSPRUNGEN (referenzmaschinengebunden, Owner-Karte OA-dc37e26295): {was} wird auf "
+        f"einem Bauhost nicht bewertet. Erkannt an {marke}; gemessener Maschinenfaktor "
+        f"{faktor:.2f} gegen die Referenzmaschine (Farmer, 24 Kerne, CPython 3.10.12). Die "
+        f"Kalibrierung dieser Achse — aufgezeichnete Kosten je Achse und der daraus abgeleitete "
+        f"Deckel — stammt von dort; hier gemessen ergibt sie ein Urteil ueber die Maschine, nicht "
+        f"ueber den Code. Gemessen wird sie auf der Referenzmaschine im Release-Buendel und von "
+        f"dort im Freigabebericht gefuehrt.")
 
 
 def _cpu() -> float:
@@ -923,6 +1132,11 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         # Der Schalter der offenen Owner-Entscheidung, siehe `LATTE_AUS_DER_KLAMMER`.
         faktor = (_maschinenfaktor(klammer) if LATTE_AUS_DER_KLAMMER == "median"
                   else _faktor_spanne(klammer)[0])
+        # OWNER-KARTE OA-dc37e26295 — HIER und nicht weiter unten. Der Faktor ist gemessen (die
+        # Karte verlangt ihn als Grund), und jede andere Abstinenz waere auf einem Bauhost eine
+        # Diagnose an einer Maschine, ueber die wir gar nicht mehr urteilen. Die Reihenfolge ist
+        # die Aussage: erst messen, dann sagen, dass hier nicht bewertet wird.
+        _referenzmaschinen_bindung(f"die Budget-Achse {dim.name}", faktor)
         deckel = _faktor_deckel(ausser=dim.name)
         if faktor > deckel:
             pytest.skip(
@@ -943,8 +1157,11 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
         # zweier Familien ist nur dann eine Aussage ueber die Familien, wenn beide dieselbe Frage
         # beantworten — sonst misst er die Rechenvorschrift statt die Maschine.
         frei_klammer = m["referenz_klammer_frei"]
+        # EIN AUFRUF, KEINE ZWEITE FORMEL (Klassenfix 08.09.2026, siehe `_faktor_spanne`): hier
+        # stand die Rechenvorschrift ein zweites Mal von Hand, und eine vertauschte
+        # Referenzkonstante waere in JEDER Fixture dieser Datei unsichtbar geblieben.
         faktor_frei = (_maschinenfaktor_hashfrei(frei_klammer) if LATTE_AUS_DER_KLAMMER == "median"
-                       else max(1.0, min(frei_klammer) / statistics.median(_REFERENZ_FARMER_HASHFREI_S)))
+                       else _faktor_spanne_hashfrei(frei_klammer)[0])
         if (k <= dim.achsen * GRENZE_S * faktor) != (k <= dim.achsen * GRENZE_S * faktor_frei):
             pytest.skip(
                 f"NICHT MESSBAR: das Verdikt haengt davon ab, WELCHE Kostenfamilie die Referenz "
@@ -1297,6 +1514,10 @@ class TestKombinierteAchsen:
         m = _kombi_messung(name, bau)
         dauer = m["dauer_max"]
         faktor = _maschinenfaktor()
+        # DIESELBE KARTE AUF DER NACHBARFLAECHE (Klassen-Sweep, Anker FIX-THE-CLASS): sie misst
+        # dieselbe Groesse gegen dieselbe Kalibrierung, und ihr Deckel (1,925) liegt sogar unter
+        # dem gemessenen Laeufer-Faktor von rund 2.
+        _referenzmaschinen_bindung(f"die Achsenkombination {name}", faktor)
         deckel = _faktor_deckel(ausser="")
         if faktor > deckel:
             pytest.skip(
@@ -1596,7 +1817,7 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             reisst = next(d for d in DIMENSIONEN if d.name != "renewal_work")
             _REFERENZ_FARMER_KOSTEN[reisst.name] = reisst.achsen * GRENZE_S * 8
             trotzdem = _faktor_deckel(ausser="renewal_work")
-            beteiligt = list(_DECKEL_BEITRAEGE)
+            beteiligt = _deckel_beitraege("renewal_work")
         finally:
             _REFERENZ_FARMER_KOSTEN.clear()
             _REFERENZ_FARMER_KOSTEN.update(vorher)
@@ -1651,7 +1872,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 f"liegen, sonst prueft dieser Fall den Skip-Pfad gar nicht.")
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             with pytest.raises(Skipped) as skip:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
         finally:
             wieder()
             _MESSUNGEN.clear()
@@ -1715,7 +1937,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             # statt zu fallen. Deshalb wird das Ergebnis EINGEFANGEN und danach beurteilt.
             ausgang = "kein Fehlschlag"
             try:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
             except Skipped as s:
                 ausgang = f"SKIP: {s}"
             except AssertionError as a:
@@ -1916,6 +2139,15 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         """
         vorher_m = dict(_MESSUNGEN)
         vorher_r = list(_REFERENZ_HIER)
+        # WEG A WIRD HIER HERGESTELLT, NICHT VORAUSGESETZT (08.09.2026, Owner-Karte OA-133b901337).
+        # Die Streuungs-Abstinenz, die dieser Fall bindet, GEHOERT zu Weg A: Weg B beantwortet ihre
+        # Frage per Politik (immer das schnelle Ende) und schaltet sie deshalb ab. Seit der Owner
+        # `schnellstes_ende` entschieden hat, ist Weg A nicht mehr die Vorbelegung — und der Fall
+        # mass ohne diese Zeile eine ganz andere Eigenschaft als die, die sein Name nennt
+        # (gemessen: ROT bei Faktor 1,00 statt der erwarteten Abstinenz). Die Eigenschaft bleibt
+        # richtig und pruefbar; sie gilt nur fuer die Stellung, in der sie ueberhaupt existiert.
+        vorher_s = LATTE_AUS_DER_KLAMMER
+        globals()["LATTE_AUS_DER_KLAMMER"] = "median"
         dort = statistics.median(_REFERENZ_FARMER_S)
         # Fuenf langsame, vier normale Messungen — die Reihe wird zyklisch abgerufen, also gibt
         # dieses Muster bei neun Messungen genau 5x langsam und 4x normal.
@@ -1950,12 +2182,14 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             ausgang = "kein Fehlschlag"
             try:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
             except Skipped as s:
                 ausgang = f"SKIP: {s}"
             except AssertionError as a:
                 ausgang = f"ROT: {a}"
         finally:
+            globals()["LATTE_AUS_DER_KLAMMER"] = vorher_s
             wieder()
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher_m)
@@ -2171,7 +2405,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             ausgang = "kein Fehlschlag"
             try:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
             except Skipped as s:
                 ausgang = f"SKIP: {s}"
             except AssertionError as a:
@@ -2184,10 +2419,18 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             _REFERENZ_FARMER_KOSTEN.update(vorher_a)
             _REFERENZ_HIER.clear()
             _REFERENZ_HIER.extend(vorher_r)
-        assert "ueber dem abgeleiteten Deckel" not in ausgang, (
-            f"Ein Faktor GENAU auf dem Deckel wird als NICHT MESSBAR gemeldet: {ausgang[:200]!r}. "
-            f"Auf dem Deckel reisst noch keine andere Achse — der Fall ist dort messbar, und die "
-            f"Grenze eines Riegels ist eine Aussage, keine Geschmacksfrage.")
+        # GEMESSEN 08.09.2026, und der Fall stand vorher auf der falschen Seite seiner eigenen
+        # Frage: er verlangte nur, dass die DECKEL-Meldung nicht dasteht. Jede ANDERE Abstinenz
+        # erfuellte das ebenfalls — mit gesetzter Bauhost-Marke lief er gruen durch, waehrend die
+        # Referenzmaschinen-Bindung gesprungen war und er nichts mehr gemessen hatte. Eine
+        # Zusicherung ueber die Abwesenheit EINES Textes ist keine Aussage ueber den Ausgang.
+        assert ausgang == "kein Fehlschlag", (
+            f"Ein Faktor GENAU auf dem Deckel muss GEMESSEN werden — gemeldet wurde: "
+            f"{ausgang[:300]!r}. Auf dem Deckel reisst noch keine andere Achse, der Fall ist dort "
+            f"messbar, und die Grenze eines Riegels ist eine Aussage, keine Geschmacksfrage. "
+            f"Verlangt wird hier das Urteil selbst und nicht die blosse Abwesenheit der "
+            f"Deckel-Meldung: jede andere Abstinenz erfuellte die auch, und der Fall waere gruen, "
+            f"ohne etwas gesehen zu haben.")
 
     def test_divergierende_KOSTENFAMILIEN_melden_NICHT_MESSBAR_statt_die_hash_zahl_zu_glauben(self):
         """DIE WIDERLEGUNG DER FREMDFAMILIAEREN LINSE, nachgerechnet 08.09.2026.
@@ -2235,7 +2478,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             ausgang = "kein Fehlschlag"
             try:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
             except Skipped as s:
                 ausgang = f"SKIP: {s}"
             except AssertionError as a:
@@ -2393,6 +2637,7 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         hier die Wirkung: dieselbe Maschine, doppelt so langsam gemessen, ergibt denselben Deckel.
         """
         vorher = dict(_MESSUNGEN)
+        vorher_a = dict(_REFERENZ_FARMER_KOSTEN)
         try:
             # Ein RUHIGER Lauf: jede Achse bei einem Zehntel ihrer Latte.
             self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
@@ -2400,9 +2645,36 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             # DIESELBE Maschine unter Last: alle gemessenen Kosten verdoppelt.
             self._gefaelschte_messungen({d.name: (d.achsen * GRENZE_S) / 5.0 for d in DIMENSIONEN})
             belastet = _faktor_deckel(ausser="renewal_work")
+            # DIE GEGENPROBE, und ohne sie war die Zusicherung darunter eine TAUTOLOGIE
+            # (Gegenlesung 08.09.2026, ihr schaerfster Punkt — und er trifft meinen eigenen Text:
+            # der Docstring nennt diesen Fall "DER SCHWERSTE FUND DIESER RUNDE"). `_faktor_deckel`
+            # liest AUSSCHLIESSLICH `_REFERENZ_FARMER_KOSTEN` und NIE `_MESSUNGEN`. Die Faelschung
+            # oben erreicht die gepruefte Funktion also gar nicht; `ruhig` und `belastet` werden
+            # denknotwendig aus identischen Daten gerechnet und sind immer gleich. Als
+            # Regressionswaechter taugt das (kaeme der Deckel je auf `_MESSUNGEN` zurueck, griffe
+            # die Faelschung wieder) — aber es BEWEIST nicht, was der Docstring behauptet.
+            #
+            # Diese Zeilen machen daraus eine zweiseitige Aussage: der Deckel bewegt sich NICHT mit
+            # der laufenden Messung UND er bewegt sich SEHR WOHL mit der Aufzeichnung. Ein Riegel,
+            # der auf nichts reagiert, waere von einem, der auf das Richtige reagiert, sonst nicht
+            # zu unterscheiden.
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 10.0 for d in DIMENSIONEN})
+            aufzeichnung_weit = _faktor_deckel(ausser="renewal_work")
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 5.0 for d in DIMENSIONEN})
+            aufzeichnung_eng = _faktor_deckel(ausser="renewal_work")
         finally:
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher)
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher_a)
+        assert aufzeichnung_eng == pytest.approx(aufzeichnung_weit / 2.0, rel=0.01), (
+            f"GEGENPROBE: verdoppelt man die AUFZEICHNUNG, muss der Deckel halbiert werden "
+            f"({aufzeichnung_weit:.3f} -> erwartet {aufzeichnung_weit / 2.0:.3f}, gemessen "
+            f"{aufzeichnung_eng:.3f}). Reagiert er auch darauf nicht, ist die Zusicherung darunter "
+            f"keine Aussage ueber den Deckel, sondern ueber einen Riegel, der auf gar nichts "
+            f"reagiert — und der ist von einem funktionierenden nicht zu unterscheiden.")
         assert belastet == pytest.approx(ruhig, rel=0.001), (
             f"Der Deckel faellt von {ruhig:.3f} auf {belastet:.3f}, wenn dieselbe Maschine doppelt "
             f"so langsam MISST. Dann sinkt die Schwelle der Abstention genau in dem Moment, in dem "
@@ -2412,7 +2684,11 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             f"Test sich aus der Bewertung herausgezogen hatte.")
 
     def test_der_schalter_der_offenen_OWNER_ENTSCHEIDUNG_wirkt_wirklich(self):
-        """BEIDE WEGE DER OFFENEN KARTE `600_latte_am_schnellen_ende_oder_abstinenz`, gebunden.
+        """BEIDE WEGE DER — inzwischen ENTSCHIEDENEN — KARTE `OA-133b901337`, gebunden.
+
+        Dass sie entschieden ist, aendert an diesem Fall nichts: er bindet, dass die Wahl UEBERHAUPT
+        etwas entscheidet. Welche Stellung gilt, bindet ein eigener Fall
+        (`test_die_OWNER_ENTSCHEIDUNG_zur_latte_steht_im_schalter`) — zwei Aussagen, zwei Faelle.
 
         Der Schalter `LATTE_AUS_DER_KLAMMER` soll die Owner-Entscheidung auf EIN WORT reduzieren.
         Ein Schalter, der nur im Kommentar steht, ist aber keine Entscheidung, sondern eine
@@ -2446,7 +2722,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 }
                 fall = TestObergrenzeAmGroesstenZugelassenenWert()
                 try:
-                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                    with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                        fall.test_kosten_am_limit_unter_der_obergrenze(dim)
                     ausgaenge[stellung] = "STILLER PASS"
                 except Skipped:
                     ausgaenge[stellung] = "NICHT MESSBAR"
@@ -2508,7 +2785,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             fall = TestObergrenzeAmGroesstenZugelassenenWert()
             ausgang = "STILLER PASS"
             try:
-                fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
             except Skipped as s:
                 ausgang = f"NICHT MESSBAR: {s}"
             except AssertionError as a:
@@ -2516,8 +2794,19 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
         finally:
             _MESSUNGEN.clear()
             _MESSUNGEN.update(vorher_m)
-        assert ausgang != "STILLER PASS", (
-            f"Eine echte Kostensteigerung auf das 1,67-fache der Latte ging LAUTLOS durch "
+        # SEIT DEM OWNER-ENTSCHEID OA-133b901337 IST DIE FORDERUNG SCHAERFER. Solange Weg A galt,
+        # war „nicht still" das Hoechste, was dieser Fall verlangen durfte: bei wechselndem
+        # Maschinenzustand ist NICHT MESSBAR die ehrliche Antwort und ROT eine Behauptung ohne
+        # Grundlage. Weg B beantwortet genau diese Frage — die Latte steht immer am schnellen Ende —
+        # und damit ist die Antwort auf eine echte Verteuerung wieder ROT. Das ist die woertliche
+        # Auflage aus OA-0646ecdf70 („eine echte Kostensteigerung bleibt trotz Faktor rot"), und
+        # sie ist erst mit dieser Stellung des Schalters einloesbar.
+        #
+        # Die schwaechere Fassung (`!= "STILLER PASS"`) hat sich am 08.09.2026 messbar als blind
+        # erwiesen: mit gesetzter Bauhost-Marke sprang die Referenzmaschinen-Bindung, der Fall sah
+        # einen SKIP, und „nicht still" war erfuellt, ohne dass irgendetwas gemessen worden waere.
+        assert ausgang.startswith("ROT"), (
+            f"Eine echte Kostensteigerung auf das 1,67-fache der Latte wurde NICHT rot gemeldet "
             f"(gemeldet: {ausgang!r}). Die Kosten sind im ruhigen Fenster entstanden (Faktor 1,0), "
             f"die Latte kam aus dem lauten (Faktor 3,2) — der Faktor beschreibt eine Maschine, auf "
             f"der diese Kosten nie gemessen wurden. Genau so verschluckte das Tor in 2 von 5 "
@@ -2557,12 +2846,13 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             fall = TestKombinierteAchsen()
             ausgang = "kein Fehlschlag"
             try:
-                fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(name, achsen, bau)
+                with _bauhost_marke(None):   # die Marke gehoert dem FALL, nicht der Umgebung
+                    fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(name, achsen, bau)
             except Skipped as s:
                 ausgang = f"SKIP: {s}"
             except AssertionError as a:
                 ausgang = f"ROT: {a}"
-            beteiligt = list(_DECKEL_BEITRAEGE)   # WELCHE Achsen die Kombi-Latte gedeckelt haben
+            beteiligt = _deckel_beitraege("")   # WELCHE Achsen die Kombi-Latte gedeckelt haben
         finally:
             wieder()
             _KOMBI_MESSUNGEN.clear()
@@ -2656,7 +2946,7 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             billig = next(d for d in DIMENSIONEN if d.name != "renewal_work")
             _REFERENZ_FARMER_KOSTEN[billig.name] = 0.0
             deckel = _faktor_deckel(ausser="renewal_work")
-            beteiligt = list(_DECKEL_BEITRAEGE)
+            beteiligt = _deckel_beitraege("renewal_work")
         finally:
             _REFERENZ_FARMER_KOSTEN.clear()
             _REFERENZ_FARMER_KOSTEN.update(vorher)
@@ -2685,7 +2975,7 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             reisst = next(d for d in DIMENSIONEN if d.name != "renewal_work")
             _REFERENZ_FARMER_KOSTEN[reisst.name] = reisst.achsen * GRENZE_S * 8   # Freiheit 0,125
             _faktor_deckel(ausser="renewal_work")
-            beteiligt_z = list(_DECKEL_BEITRAEGE)
+            beteiligt_z = _deckel_beitraege("renewal_work")
         finally:
             _REFERENZ_FARMER_KOSTEN.clear()
             _REFERENZ_FARMER_KOSTEN.update(vorher_z)
@@ -2694,6 +2984,15 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             f"Achtfache ueber ihrer Latte — und steht trotzdem in der Teilnehmerliste "
             f"({beteiligt_z}). Die Liste soll sagen, WER das Minimum gebildet hat, nicht wer "
             f"ueberhaupt Kosten hat.")
+        # DIE KARDINALITAET FEHLTE HIER (Gegenlesung 08.09.2026, Rang 1 ihrer Rangliste): der
+        # Zwillingsblock darueber prueft BEIDES — dass die Achse fehlt UND wie viele uebrig sind.
+        # Ohne die zweite Zeile bliebe dieser Block gruen, wenn die Liste aus einem ganz anderen
+        # Grund falsch waere, solange nur `reisst.name` nicht darin steht. Dass die Mutation heute
+        # trotzdem am ersten Block auffiele, ist eine Eigenschaft der Reihenfolge innerhalb dieser
+        # Methode — keine Zusicherung dieser Zeile.
+        assert len(beteiligt_z) == len(DIMENSIONEN) - 2, (
+            f"Erwartet werden {len(DIMENSIONEN) - 2} beteiligte Achsen (alle ausser der geprueften "
+            f"und der reissenden), gezaehlt {len(beteiligt_z)}: {beteiligt_z}")
 
     def test_der_maschinenfaktor_hat_eine_UNTERGRENZE_von_eins(self):
         """Eine SCHNELLERE Maschine darf die Latte nicht lockern (Owner-Auflage, Untergrenze 1,0)."""
@@ -2715,5 +3014,484 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 "Auf einer langsameren Maschine folgt der Faktor der Messung nicht.")
         finally:
             wieder()
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher)
+
+    def test_die_budget_achse_ist_auf_einem_BAUHOST_sichtbar_gebunden(self):
+        """OWNER-ENTSCHEID OA-dc37e26295 (08.09.2026): „C, mit Bedingung — Budget-Achse
+        referenzmaschinengebunden kennzeichnen, in CI sichtbar ueberspringen mit dem gemessenen
+        Maschinenfaktor als Grund, auf der Referenzmaschine im Release-Buendel messen und so im
+        Freigabebericht fuehren."
+
+        WORAUF DIE ENTSCHEIDUNG ANTWORTET. Die CPU-Obergrenze ist in Referenzeinheiten
+        ausgedrueckt, aber ihre Kalibrierung — die aufgezeichneten Kosten je Achse, der daraus
+        abgeleitete Deckel — stammt von EINER Maschine. Auf einem rund doppelt so langsamen
+        Laeufer laeuft der Maschinenfaktor gegen den Deckel (KOMBI-Deckel 1,925), und was dabei
+        herauskommt, ist keine Aussage ueber den Code mehr: mal ein Rot aus Langsamkeit, mal eine
+        Abstinenz. Der Owner nimmt die Achse deshalb dort aus der Bewertung — sichtbar, nicht
+        stumm, und mit der GEMESSENEN Zahl als Grund, damit ein Leser sieht, WIE weit die Maschine
+        von der Referenz entfernt war.
+
+        WAS HIER GEBUNDEN WIRD, ist nicht der Wortlaut, sondern die Wirkung: dieselbe Lage, die
+        auf der Referenzmaschine ROT ergibt, muss auf einem Bauhost UEBERSPRUNGEN werden — und die
+        Meldung muss den gemessenen Faktor, die erkannte Marke und die Kartennummer tragen. Ohne
+        die Kartennummer waere die Abstinenz von einem gewoehnlichen NICHT MESSBAR nicht zu
+        unterscheiden, und der Freigabebericht koennte nicht sagen, WELCHE Entscheidung hier wirkt.
+        """
+        dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+        limit = getattr(B, dim.name)
+        # Eine Maschine mit Faktor 2,0 — das gemessene Profil des Laeufers (input_bytes 1,8x,
+        # json_nodes 2,1x, signatures 2,5x, data_digests 2,0x) — und Kosten, die auch DORT ueber
+        # der Latte liegen: 4 x Grundlatte gegen 2 x Grundlatte. Ohne die Bindung ist das ROT.
+        langsam = statistics.median(_REFERENZ_FARMER_S) * 2.0
+        langsam_frei = statistics.median(_REFERENZ_FARMER_HASHFREI_S) * 2.0
+        vorher_m = dict(_MESSUNGEN)
+        ausgang = "STILLER PASS"
+        try:
+            _MESSUNGEN[dim.name] = {
+                "limit": limit, "reihe": [], "arbeit": [], "reihe_wdh": [],
+                "rand": {limit - 1: (limit - 1, 0.1, True), limit: (limit, 0.2, True),
+                         limit + 1: (limit + 1, 0.3, False)},
+                "kosten_am_limit_max": dim.achsen * GRENZE_S * 4.0,
+                "referenz_klammer": [langsam] * (2 * MAX_WIEDERHOLUNGEN),
+                "referenz_klammer_frei": [langsam_frei] * (2 * MAX_WIEDERHOLUNGEN),
+            }
+            fall = TestObergrenzeAmGroesstenZugelassenenWert()
+            with _bauhost_marke("GITHUB_ACTIONS"):
+                try:
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                except Skipped as s:
+                    ausgang = f"SKIP: {s}"
+                except AssertionError as a:
+                    ausgang = f"ROT: {a}"
+        finally:
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+        assert ausgang.startswith("SKIP"), (
+            f"Auf einem Bauhost muss die Budget-Achse SICHTBAR uebersprungen werden "
+            f"(OA-dc37e26295). Gemeldet wurde stattdessen: {ausgang[:300]!r}. Ein Rot aus "
+            f"Langsamkeit ist kein Befund ueber den Code — genau daran ist `coverage` am "
+            f"07.09.2026 gescheitert, mit 3,096 s gegen eine Latte von 3,0 s.")
+        assert "referenzmaschinengebunden" in ausgang, (
+            f"Die Abstinenz nennt ihren Grund nicht als Referenzmaschinen-Bindung und ist damit "
+            f"von einem gewoehnlichen NICHT MESSBAR (Deckel, Streuung, Kostenfamilie) nicht zu "
+            f"unterscheiden: {ausgang[:300]!r}")
+        assert "OA-dc37e26295" in ausgang, (
+            f"Die Abstinenz nennt die Owner-Karte nicht, unter der sie steht — dann kann der "
+            f"Freigabebericht nicht sagen, WELCHE Entscheidung hier wirkt: {ausgang[:300]!r}")
+        assert "2.00" in ausgang, (
+            f"Der GEMESSENE Maschinenfaktor (2,00) steht nicht in der Meldung. Genau das ist die "
+            f"Bedingung der Owner-Karte: der Grund ist die gemessene Zahl, nicht das blosse "
+            f"Vorhandensein einer Marke. Gemeldet: {ausgang[:300]!r}")
+        assert "GITHUB_ACTIONS" in ausgang, (
+            f"Die Meldung nennt die erkannte Marke nicht — dann ist von aussen nicht pruefbar, "
+            f"WORAN die Umgebung als Bauhost erkannt wurde: {ausgang[:300]!r}")
+
+    def test_die_KOMBI_achse_ist_auf_einem_BAUHOST_ebenso_gebunden(self):
+        """DERSELBE ENTSCHEID AUF DER NACHBARFLAECHE — der Klassen-Sweep zu OA-dc37e26295.
+
+        Die KOMBI-Flaeche misst dieselbe Groesse gegen dieselbe Kalibrierung; ihr Deckel (1,925,
+        weil `ausser=""` keine Achse ausnimmt und `renewal_work` mit Kopffreiheit 1,925 das
+        Minimum setzt) liegt sogar UNTER dem gemessenen Laeufer-Faktor von rund 2. Sie eine Runde
+        spaeter nachzuziehen hiesse, dieselbe Klasse zweimal zu bezahlen — genau der Fehlermodus,
+        gegen den der Anker FIX-THE-CLASS steht.
+
+        Der Faktor ist hier 1,8 und nicht 2,0, damit der Fall das URTEIL prueft und nicht die
+        Deckel-Abstinenz, die bei 2,0 ohnehin zuerst greift.
+        """
+        vorher_k = dict(_KOMBI_MESSUNGEN)
+        vorher_r = list(_REFERENZ_HIER)
+        wieder, _ = self._referenz_kostet([statistics.median(_REFERENZ_FARMER_S) * 1.8])
+        ausgang = "STILLER PASS"
+        try:
+            name, achsen, bau = KOMBIS[0]
+            # Das Dreifache der Referenzlatte: auch bei Faktor 1,8 klar darueber -> ohne die
+            # Bindung ROT, und zwar aus Langsamkeit.
+            _KOMBI_MESSUNGEN[name] = {"erreicht": {}, "dauer_max": achsen * GRENZE_S * 3.0,
+                                      "speicher_peak": 0}
+            _REFERENZ_HIER.clear()
+            fall = TestKombinierteAchsen()
+            with _bauhost_marke("CI"):
+                try:
+                    fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(name, achsen, bau)
+                except Skipped as s:
+                    ausgang = f"SKIP: {s}"
+                except AssertionError as a:
+                    ausgang = f"ROT: {a}"
+        finally:
+            wieder()
+            _KOMBI_MESSUNGEN.clear()
+            _KOMBI_MESSUNGEN.update(vorher_k)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
+        assert ausgang.startswith("SKIP") and "referenzmaschinengebunden" in ausgang, (
+            f"Die KOMBI-Flaeche ist auf einem Bauhost NICHT referenzmaschinengebunden: "
+            f"{ausgang[:300]!r}. Sie misst dieselbe Groesse gegen dieselbe Kalibrierung wie die "
+            f"Einzelachsen — eine Bindung, die nur die eine Flaeche kennt, laesst die andere "
+            f"genau den Fehlschlag erzeugen, den die Owner-Karte abstellt.")
+        assert "OA-dc37e26295" in ausgang and "1.80" in ausgang, (
+            f"Karte oder gemessener Faktor fehlen in der Meldung: {ausgang[:300]!r}")
+
+    def test_die_OWNER_ENTSCHEIDUNG_zur_latte_steht_im_schalter(self):
+        """OWNER-ENTSCHEID OA-133b901337 (08.09.2026): „schnellstes_ende, gilt auf der
+        Referenzmaschine, CI ist nach der zweiten Antwort ausgenommen."
+
+        Der Schalter `LATTE_AUS_DER_KLAMMER` wurde gebaut, damit diese Entscheidung EIN WORT
+        kostet. Ein Wort, das niemand festhaelt, ist aber wieder eine Vorbelegung — und die naechste
+        Runde, die an der Streuungs-Abstinenz arbeitet, stellt es beilaeufig zurueck, ohne dass
+        etwas widerspricht. Gebunden wird deshalb der STAND mitsamt seiner Herkunft.
+
+        Der Fall darueber (`test_der_schalter_..._wirkt_wirklich`) bindet, dass BEIDE Stellungen
+        verschiedene Ausgaenge haben; dieser bindet, WELCHE davon gilt. Das sind zwei Aussagen,
+        und die zweite ist die Owner-Entscheidung.
+        """
+        assert LATTE_AUS_DER_KLAMMER == "schnellstes_ende", (
+            f"Der Schalter steht auf {LATTE_AUS_DER_KLAMMER!r}. Der Owner hat am 08.09.2026 unter "
+            f"OA-133b901337 `schnellstes_ende` entschieden — Weg B, die Latte steht immer am "
+            f"schnellen Ende der Klammer. Damit bleibt eine echte Kostensteigerung trotz "
+            f"Maschinenfaktor rot (die woertliche Auflage aus OA-0646ecdf70), und der Preis "
+            f"dafuer — falsche Rotlaeufe auf einer unruhigen Maschine — ist mit der "
+            f"Referenzmaschinen-Bindung aus OA-dc37e26295 bezahlt, nicht ignoriert.")
+
+    def test_das_bauhost_vokabular_ist_dasselbe_wie_im_signierweg(self):
+        """KOPIE-DRIFT, gebunden statt gehofft.
+
+        `_BAUHOST_MERKMALE` steht hier UND in `scripts/pre_tag_receipt.py`. Zwei Stellen mit
+        demselben Wissen laufen auseinander, sobald eine gepflegt wird und die andere nicht — und
+        kein Test faellt dabei auf, weil jeder genau eine der beiden Fassungen importiert. Genau
+        diese Klasse hat am 08.09.2026 den Messfeld-Zeugen zweimal an derselben Stelle sterben
+        lassen: der Fix lag in der einen Kopie, ausgefuehrt wurde die andere.
+
+        Zusammenlegen waere die andere Loesung — sie scheitert daran, dass `scripts/` bewusst
+        nicht im sdist liegt (siehe `test_sdist_ohne_signierwerkzeug`). Zwei Kopien mit einer
+        gebundenen Gleichheit sind ehrlicher als eine Kopie mit einer Zusage.
+        """
+        import importlib.util
+        q = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt.py"
+        if not q.is_file():
+            pytest.skip("scripts/pre_tag_receipt.py liegt hier nicht (sdist ohne Repo-Kontext)")
+        spec = importlib.util.spec_from_file_location("_ptr_vokabular", str(q))
+        m = importlib.util.module_from_spec(spec)
+        sys.modules["_ptr_vokabular"] = m
+        spec.loader.exec_module(m)
+        assert _BAUHOST_MERKMALE == m._BAUHOST_MERKMALE, (
+            f"Das Bauhost-Vokabular ist auseinandergelaufen: hier {_BAUHOST_MERKMALE}, im "
+            f"Signierweg {m._BAUHOST_MERKMALE}. Eine Marke, die nur eine der beiden Seiten kennt, "
+            f"erzeugt genau die Luecke, die beide zu schliessen behaupten — der Signierweg liesse "
+            f"einen Schluessel zu, wo diese Datei einen Bauhost sieht, oder umgekehrt.")
+
+    def test_die_bindung_teilt_KEIN_erkennungswort_mit_den_anderen_abstinenzen(self):
+        """GEMESSEN AM 08.09.2026, an sechs gefallenen und ZWEI blind bestandenen Faellen.
+
+        Diese Datei hat vier Wege, aus einer Zusicherung herauszukommen: der Deckel, die Streuung,
+        die Kostenfamilie — und seit `OA-dc37e26295` die Referenzmaschinen-Bindung. Die ersten drei
+        sagen 'NICHT MESSBAR': die Messung liegt vor, sie traegt das Urteil nur nicht. Die vierte
+        sagt etwas anderes — auf DIESER Maschine wird nicht bewertet —, und sie darf deshalb nicht
+        dasselbe Wort benutzen.
+
+        WARUM DAS EINE ZUSICHERUNG WERT IST und keine Stilfrage: jeder Fangnachweis dieser Datei
+        prueft den WORTLAUT der Abstinenz, die er sucht ('Streuung', 'Familie', 'ueber dem
+        abgeleiteten Deckel'). Truege die Bindung dieselben Worte, hielte jeder von ihnen sie fuer
+        seinen eigenen Fund und bliebe gruen, ohne etwas gemessen zu haben. Gemessen wurde beides:
+        weil die Bindung 'UEBERSPRUNGEN' statt 'NICHT MESSBAR' sagt, fielen vier Faelle sichtbar
+        auf; die zwei, die nur auf die ABWESENHEIT eines Textes prueften, bestanden blind — und
+        genau die sind daraufhin geschaerft worden.
+        """
+        dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+        limit = getattr(B, dim.name)
+        ruhe = statistics.median(_REFERENZ_FARMER_S)
+        ruhe_frei = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        vorher_m = dict(_MESSUNGEN)
+        ausgang = "STILLER PASS"
+        try:
+            _MESSUNGEN[dim.name] = {
+                "limit": limit, "reihe": [], "arbeit": [], "reihe_wdh": [],
+                "rand": {limit - 1: (limit - 1, 0.1, True), limit: (limit, 0.2, True),
+                         limit + 1: (limit + 1, 0.3, False)},
+                "kosten_am_limit_max": dim.achsen * GRENZE_S * 4.0,
+                "referenz_klammer": [ruhe * 2.0] * (2 * MAX_WIEDERHOLUNGEN),
+                "referenz_klammer_frei": [ruhe_frei * 2.0] * (2 * MAX_WIEDERHOLUNGEN),
+            }
+            fall = TestObergrenzeAmGroesstenZugelassenenWert()
+            with _bauhost_marke("BUILDKITE"):
+                try:
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                except Skipped as s:
+                    ausgang = str(s)
+                except AssertionError as a:
+                    ausgang = f"ROT: {a}"
+        finally:
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+        assert "referenzmaschinengebunden" in ausgang, (
+            f"VORBEDINGUNG: die Bindung hat gar nicht gegriffen, gemeldet: {ausgang[:200]!r}")
+        for wort in ("NICHT MESSBAR", "Streuung", "Messreihe", "Familie",
+                     "ueber dem abgeleiteten Deckel"):
+            assert wort not in ausgang, (
+                f"Die Meldung der Referenzmaschinen-Bindung enthaelt {wort!r} — das Erkennungswort "
+                f"einer ANDEREN Abstinenz dieser Datei. Jeder Fangnachweis, der darauf prueft, "
+                f"haelt die Bindung dann fuer seinen eigenen Fund und bleibt gruen, ohne etwas "
+                f"gemessen zu haben. Gemessen am 08.09.2026: genau so bestanden zwei Faelle blind. "
+                f"Gemeldet wurde: {ausgang[:300]!r}")
+
+    def test_eine_teilnehmerliste_ohne_eigene_rechnung_wird_nicht_gelesen(self):
+        """DER FUND, DEN ICH NICHT ANGESAGT HATTE (08.09.2026).
+
+        `test_die_KOMBI_latte_kennt_die_maschine_auf_der_sie_urteilt` fiel unter einer gesetzten
+        Bauhost-Marke — aber nicht an seiner Zusicherung, sondern daran, dass er die
+        Teilnehmerliste eines FREMDEN Deckel-Aufrufs las (`ausser="renewal_work"` statt
+        `ausser=""`). Der Grund: die Referenzmaschinen-Bindung springt VOR `_faktor_deckel`, es
+        rechnete also niemand mehr, und `_DECKEL_BEITRAEGE` behielt den Stand von vorher.
+
+        Er fiel — diesmal. Waere der fremde Stand zufaellig der erwartete gewesen, waere er GRUEN
+        geblieben und haette eine Rechnung bezeugt, die nie stattgefunden hat. Ein Modul-Global, das
+        seinen Eigentuemer nicht kennt, ist kein Instrument, sondern ein Rest; dieselbe Klasse wie
+        `_ZEIT_MIN_LAEUFE`, in das zwei Wege schrieben.
+
+        Gebunden werden beide Kanten: eine Liste ohne eigene Rechnung wird nicht gelesen, und
+        DIESELBE Rechnung wird nicht zweimal als die eigene ausgegeben.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
+        try:
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
+            _faktor_deckel(ausser="renewal_work")
+            with pytest.raises(AssertionError) as fremd:
+                _deckel_beitraege("")
+            assert "gehoert zu ausser='renewal_work'" in str(fremd.value), (
+                f"Die Absage nennt nicht, WEM die Liste gehoert: {str(fremd.value)[:200]!r}")
+            # Die eigene Rechnung wird gelesen — einmal.
+            _faktor_deckel(ausser="renewal_work")
+            erste = _deckel_beitraege("renewal_work")
+            assert erste, "VORBEDINGUNG: die eigene Rechnung liefert eine leere Liste"
+            with pytest.raises(AssertionError) as zweitmal:
+                _deckel_beitraege("renewal_work")
+            assert "gehoert zu ausser=None" in str(zweitmal.value), (
+                f"Ein zweiter Leser bekommt dieselbe Rechnung noch einmal als seine: "
+                f"{str(zweitmal.value)[:200]!r}. Genau so bleibt ein veralteter Wert unauffaellig.")
+        finally:
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
+            _DECKEL_FUER[0] = None
+
+    def test_die_hashfreie_spanne_teilt_durch_ihre_EIGENE_aufzeichnung(self):
+        """DER FANGNACHWEIS, DEN DIE ZWEITE LINSE VERLANGT HAT (08.09.2026) — und ihr Punkt war,
+        dass ihn keine Fixture dieser Datei fuehren konnte.
+
+        Weg B der hash-freien Familie stand bis heute als HANDGESCHRIEBENE Kopie von
+        `_faktor_spanne` in der Zusicherung. Die Linse rechnete nach: vertauscht man dort
+        `_REFERENZ_FARMER_HASHFREI_S` mit `_REFERENZ_FARMER_S` — ein naheliegender Griff, die
+        Nachbarzeile nennt die andere Konstante —, bleibt JEDE Fixture dieser Datei gruen. Nicht
+        zufaellig: alle halten den hash-freien Messwert bei oder unter beiden Konstanten, und
+        `max(1.0, ...)` schluckt die Differenz dann strukturell. Gemessen an ihrem Beispiel:
+        korrekt 0,06458/0,06458 = 1,000, vertauscht 0,06458/0,06781 = 0,952 — beide werden von der
+        Untergrenze auf exakt 1,0 gehoben, und keine Zusicherung sieht einen Unterschied.
+
+        DIESER Fall waehlt die Reihe so, dass die Untergrenze NICHT greift: das Minimum liegt weit
+        ueber BEIDEN Konstanten, also unterscheiden sich die zwei Nenner im Ergebnis. Die beiden
+        Aufzeichnungen liegen nur 5 % auseinander (0,06458 gegen 0,06781) — die Zusicherung muss
+        deshalb enger sein als dieser Abstand, sonst prueft sie ihn nicht.
+        """
+        dort_f = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        dort_h = statistics.median(_REFERENZ_FARMER_S)
+        assert dort_f != dort_h, (
+            "VORBEDINGUNG: die beiden Aufzeichnungen sind identisch — dann kann dieser Fall die "
+            "Nenner gar nicht unterscheiden und beweist nichts.")
+        # Zehnmal die hash-freie Aufzeichnung: klar ueber beiden Konstanten, Untergrenze inaktiv.
+        reihe = [dort_f * 10.0] * MAX_WIEDERHOLUNGEN
+        unten, oben = _faktor_spanne_hashfrei(reihe)
+        assert unten == pytest.approx(10.0, rel=1e-6), (
+            f"Die hash-freie Spanne meldet {unten:.4f} statt exakt 10,0. Sie teilt also nicht durch "
+            f"ihre EIGENE Aufzeichnung ({dort_f:.5f}), sondern durch eine fremde — mit der "
+            f"Hash-Aufzeichnung ({dort_h:.5f}) kaeme {dort_f * 10.0 / dort_h:.4f} heraus. Der "
+            f"Unterschied betraegt nur rund 5 %, und genau deshalb faellt er in keiner anderen "
+            f"Fixture auf: dort hebt `max(1.0, ...)` beide Ergebnisse auf 1,0.")
+        assert oben == pytest.approx(10.0, rel=1e-6)
+        # Und die Hash-Familie teilt durch IHRE — sonst waere die Trennung nur halb gebunden.
+        h_unten, _ = _faktor_spanne([dort_h * 10.0] * MAX_WIEDERHOLUNGEN)
+        assert h_unten == pytest.approx(10.0, rel=1e-6), (
+            f"Die Hash-Spanne meldet {h_unten:.4f} statt 10,0 — sie teilt durch die falsche "
+            f"Aufzeichnung. Die Bindung muss BEIDE Richtungen halten, sonst verschiebt ein Fix an "
+            f"einer Familie die andere unbemerkt mit.")
+
+    def test_die_ZUSICHERUNG_benutzt_fuer_beide_familien_dieselbe_rechenvorschrift(self):
+        """DIE KLASSE, nicht die Instanz (Anker FIX-THE-CLASS).
+
+        Der Fall darueber bindet, dass jede Familie durch ihre eigene Aufzeichnung teilt. Er wuerde
+        aber gruen bleiben, wenn jemand die Formel EIN DRITTES Mal von Hand in die Zusicherung
+        schriebe — die Funktion waere dann weiter richtig und die Zusicherung trotzdem falsch. Was
+        hier gebunden wird, ist deshalb die IDENTITAET der Wege: der hash-freie Weg-B-Faktor der
+        Zusicherung muss ZAHLENGLEICH dem sein, was `_faktor_spanne_hashfrei` liefert.
+
+        Gemessen wird das ueber eine Klammer, deren Minimum die Untergrenze nicht ausloest — sonst
+        stimmen alle Wege bei 1,0 ueberein und die Bindung ist wieder blind.
+        """
+        dim = next(d for d in DIMENSIONEN if d.name == "renewal_work")
+        limit = getattr(B, dim.name)
+        dort_h = statistics.median(_REFERENZ_FARMER_S)
+        dort_f = statistics.median(_REFERENZ_FARMER_HASHFREI_S)
+        klammer_h = [dort_h * 4.0] * (2 * MAX_WIEDERHOLUNGEN)
+        klammer_f = [dort_f * 4.0] * (2 * MAX_WIEDERHOLUNGEN)
+        vorher_m, vorher_s = dict(_MESSUNGEN), LATTE_AUS_DER_KLAMMER
+        try:
+            globals()["LATTE_AUS_DER_KLAMMER"] = "schnellstes_ende"
+            _MESSUNGEN[dim.name] = {
+                "limit": limit, "reihe": [], "arbeit": [], "reihe_wdh": [],
+                "rand": {limit - 1: (limit - 1, 0.1, True), limit: (limit, 0.2, True),
+                         limit + 1: (limit + 1, 0.3, False)},
+                # Kosten UNTER beiden Latten (4 x 3 = 12 s) -> kein Rot, keine Familien-Abstinenz.
+                "kosten_am_limit_max": dim.achsen * GRENZE_S * 2.0,
+                "referenz_klammer": klammer_h, "referenz_klammer_frei": klammer_f,
+            }
+            fall = TestObergrenzeAmGroesstenZugelassenenWert()
+            ausgang = "kein Fehlschlag"
+            with _bauhost_marke(None):
+                try:
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dim)
+                except Skipped as s:
+                    ausgang = f"SKIP: {s}"
+                except AssertionError as a:
+                    ausgang = f"ROT: {a}"
+        finally:
+            globals()["LATTE_AUS_DER_KLAMMER"] = vorher_s
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+        assert _faktor_spanne_hashfrei(klammer_f)[0] == pytest.approx(4.0, rel=1e-6), (
+            "VORBEDINGUNG: der hash-freie Faktor der gestellten Klammer ist nicht 4,0.")
+        assert _faktor_spanne(klammer_h)[0] == pytest.approx(4.0, rel=1e-6), (
+            "VORBEDINGUNG: der Hash-Faktor der gestellten Klammer ist nicht 4,0.")
+        assert ausgang == "kein Fehlschlag", (
+            f"Beide Familien melden bei Faktor 4,0 dieselbe Latte (12,0 s) und die Kosten liegen "
+            f"mit 6,0 s darunter — die Zusicherung muss schweigend bestehen. Gemeldet: "
+            f"{ausgang[:300]!r}. Eine Familien-Abstinenz hier heisst, dass die beiden Wege "
+            f"AUSEINANDERLAUFEN, obwohl sie dieselbe Maschine beschreiben.")
+
+    def test_zwei_aufrufe_mit_DEMSELBEN_ausser_erben_die_liste_des_ersten_NICHT(self):
+        """DIE MUTATION M2 DER FUENFTEN LINSE (08.09.2026) — die Grenze meines eigenen Stempels.
+
+        Der Eigentuemer-Stempel prueft NAMENSGLEICHHEIT (`_DECKEL_FUER[0] == ausser`), nicht
+        Rechnungs-Identitaet. Zwei aufeinanderfolgende Aufrufe mit demselben `ausser` sind fuer ihn
+        ununterscheidbar. Die Linse nannte die Mutation, die das ausnutzt: das `clear()` nur noch
+        beim EIGENTUEMERWECHSEL ausfuehren —
+
+            if _DECKEL_FUER[0] != ausser:
+                _DECKEL_BEITRAEGE.clear()
+                _DECKEL_FUER[0] = ausser
+
+        — dann haengt der zweite Aufruf seine Achsen an die des ersten an, der Stempel feuert nie,
+        und die Teilnehmerliste beschreibt die VEREINIGUNG zweier verschiedener Rechnungen. Von den
+        fuenf Faellen, die zwei Aufrufe hintereinander machen, liest genau EINER die Liste — dass
+        es auffiele, waere ein Zufall seiner Testdaten, keine Garantie des Mechanismus.
+
+        Was hier gebunden wird, ist deshalb die Eigenschaft, die M2 verletzt: `_faktor_deckel`
+        leert IMMER, nicht nur beim Wechsel. Die zwei Aufrufe tragen denselben `ausser` und
+        verschiedene Aufzeichnungen — die zweite Liste muss die zweite Rechnung beschreiben, nicht
+        beide.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
+        try:
+            # Erster Aufruf: ALLE Achsen sind dabei (Kopffreiheit 4,0 ueberall).
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
+            _faktor_deckel(ausser="renewal_work")
+            erste = _deckel_beitraege("renewal_work")
+            # Zweiter Aufruf, DERSELBE `ausser`, andere Aufzeichnung: alle ausser einer reissen,
+            # fallen also durch den Filter und duerfen NICHT mehr in der Liste stehen.
+            behalten = next(d for d in DIMENSIONEN if d.name != "renewal_work")
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) * 8 for d in DIMENSIONEN})
+            _REFERENZ_FARMER_KOSTEN[behalten.name] = (behalten.achsen * GRENZE_S) / 4.0
+            _faktor_deckel(ausser="renewal_work")
+            zweite = _deckel_beitraege("renewal_work")
+        finally:
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
+        assert len(erste) == len(DIMENSIONEN) - 1, (
+            f"VORBEDINGUNG: die erste Rechnung nimmt {len(erste)} Achsen statt "
+            f"{len(DIMENSIONEN) - 1}: {erste}")
+        assert zweite == [behalten.name], (
+            f"Die zweite Teilnehmerliste ist {zweite}, erwartet wird genau [{behalten.name!r}]. "
+            f"Steht mehr darin, hat der zweite Aufruf die Achsen des ERSTEN geerbt — die Liste "
+            f"beschreibt dann die Vereinigung zweier verschiedener Rechnungen, und der "
+            f"Eigentuemer-Stempel sieht davon nichts, weil beide Aufrufe denselben `ausser` "
+            f"tragen. Genau das ist Mutation M2 der fuenften Linse.")
+
+    def test_eine_achse_GENAU_auf_ihrer_eigenen_latte_zaehlt_noch_mit(self):
+        """DIE LUECKE, DIE DIE VIERTE LINSE OFFEN LIESS (08.09.2026) — der innere Filter hatte
+        keinen Grenzfall, waehrend der aeussere Vergleich einen hat.
+
+        `_faktor_deckel` nimmt eine Achse in den Deckel auf, wenn `frei >= 1.0`. Der AEUSSERE
+        Vergleich (`faktor > deckel`) ist an seiner Grenze gebunden — `test_ein_faktor_GENAU_auf_
+        dem_deckel_wird_noch_gemessen` existiert genau dafuer. Der innere war es nicht: alle
+        Fixturen legen die Kopffreiheit klar darueber (4,0) oder klar darunter (0,125). Eine
+        Mutation `>=` -> `>` faengt deshalb kein Fall der Klasse.
+
+        Die Grenze ist aber dieselbe Aussage wie beim aeusseren Vergleich, nur eine Ebene tiefer:
+        `frei == 1.0` heisst, die Achse liegt EXAKT auf ihrer eigenen Latte — sie reisst NICHT.
+        Der Filter schliesst reissende Achsen aus („eine Achse, die selbst schon ueber ihrer Latte
+        liegt, darf keinen Deckel fuer andere setzen"), und exakt auf der Latte liegt sie nicht
+        darueber. Wer die Grenze verschiebt, nimmt genau die Achse aus der Rechnung, die den
+        Deckel am ehesten setzt — und lockert ihn damit still.
+        """
+        vorher = dict(_REFERENZ_FARMER_KOSTEN)
+        try:
+            self._gefaelschte_aufzeichnung(
+                {d.name: (d.achsen * GRENZE_S) / 4.0 for d in DIMENSIONEN})
+            # EINE andere Achse liegt EXAKT auf ihrer Latte -> Kopffreiheit exakt 1,0.
+            grenzachse = next(d for d in DIMENSIONEN if d.name != "renewal_work")
+            _REFERENZ_FARMER_KOSTEN[grenzachse.name] = grenzachse.achsen * GRENZE_S
+            deckel = _faktor_deckel(ausser="renewal_work")
+            beteiligt = _deckel_beitraege("renewal_work")
+        finally:
+            _REFERENZ_FARMER_KOSTEN.clear()
+            _REFERENZ_FARMER_KOSTEN.update(vorher)
+        assert grenzachse.name in beteiligt, (
+            f"Die Achse {grenzachse.name} liegt mit Kopffreiheit EXAKT 1,0 auf ihrer eigenen Latte "
+            f"— sie reisst nicht — und faellt trotzdem aus der Deckelrechnung ({beteiligt}). Der "
+            f"Filter soll Achsen ausschliessen, die UEBER ihrer Latte liegen; genau auf ihr liegt "
+            f"keine darueber. Wer die Grenze verschiebt, nimmt die Achse heraus, die den Deckel am "
+            f"ehesten setzt, und lockert ihn still.")
+        assert deckel == pytest.approx(1.0, rel=1e-9), (
+            f"Der Deckel ist {deckel:.4f} statt exakt 1,0. Die Grenzachse setzt ihn nicht — dann "
+            f"ist sie entweder nicht beteiligt, oder das Minimum nimmt sie nicht.")
+
+    def test_eine_LEERE_klammer_misst_nicht_still_neu(self):
+        """FUND DER SIEBTEN LINSE — der FREMDEN Modellfamilie (qwen3.8:27b, 08.09.2026).
+
+        Sechs Linsen einer Familie hatten diese Datei gelesen. Diese hier kam von aussen und fand
+        die Hintertuer, durch die der Fehler zurueckkommt, gegen den die Klammer gebaut wurde:
+
+            werte = werte or eigene or _referenz_werte()
+
+        `or` unterscheidet nicht zwischen 'keine Klammer uebergeben' (None — dann ist der Rueckfall
+        richtig) und 'KAPUTTE Klammer uebergeben' (eine leere Liste — dann ist er falsch). Gemessen
+        08.09.2026: `_faktor_spanne([])` loeste EINE frische Messung aus und lieferte einen Faktor,
+        ohne sich zu beschweren. Damit kommt der Faktor wieder aus einem ANDEREN Zeitfenster als die
+        Kosten, die er skaliert — genau der schwerste Fund dieser Runde, nur eine Ebene tiefer.
+
+        Eine leere Klammer ist kein fehlender Wert, sondern ein kaputter. Der Unterschied ist der
+        ganze Fund: fehlend darf ersetzt werden, kaputt muss auffallen.
+        """
+        for name, ruf in (
+            ("_faktor_spanne", lambda: _faktor_spanne([])),
+            ("_faktor_spanne_hashfrei", lambda: _faktor_spanne_hashfrei([])),
+            ("_maschinenfaktor", lambda: _maschinenfaktor([])),
+            ("_maschinenfaktor_hashfrei", lambda: _maschinenfaktor_hashfrei([])),
+        ):
+            with pytest.raises(ValueError) as fehler:
+                ruf()
+            assert "leer" in str(fehler.value).lower(), (
+                f"{name} meldet bei einer leeren Klammer nicht, DASS sie leer ist: "
+                f"{str(fehler.value)[:160]!r}")
+        # GEGENRICHTUNG: ohne Argument bleibt der Rueckfall richtig — sonst haette diese Zeile den
+        # Weg abgeschafft statt eingegrenzt.
+        vorher = list(_REFERENZ_HIER)
+        try:
+            _REFERENZ_HIER.clear()
+            unten, oben = _faktor_spanne()
+            assert unten >= 1.0 and oben >= unten, (
+                f"Ohne Argument liefert die Spanne kein gueltiges Band ({unten}, {oben}) — der "
+                f"Rueckfall auf eine eigene Messung MUSS weiter funktionieren.")
+        finally:
             _REFERENZ_HIER.clear()
             _REFERENZ_HIER.extend(vorher)

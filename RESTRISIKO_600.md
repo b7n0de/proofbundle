@@ -1160,3 +1160,111 @@ whole entry is 3.2 % over a number nobody derived. A different declared budget w
 different verdict about the same code.
 
 Register key: `EINE-SEKUNDE-IST-EINE-ERKLAERTE-POLITIK-KEINE-MESSUNG-01`.
+
+## Two owner cards landed in ONE move, and why they could not land separately (2026-09-08, `OA-133b901337` + `OA-dc37e26295`)
+
+The budget cost surface asserts CPU time against a calibration measured on ONE machine
+(Farmer, 24 cores, CPython 3.10.12). Two cards were open on it, and the owner answered both:
+
+* **`OA-133b901337` → `schnellstes_ende`**, "valid on the reference machine, CI is exempt after
+  the second answer." The lath now always stands at the FAST end of the reference bracket, which
+  is what makes a real cost increase stay red despite the machine factor — the literal condition
+  of `OA-0646ecdf70`. It also tightens the lath on every machine by the spread of the reference
+  load (1.046 on the reference machine, so about 4.6 %).
+* **`OA-dc37e26295` → "C, with a condition"**: mark the budget axis reference-machine-bound, skip
+  it VISIBLY on CI with the MEASURED machine factor as the reason, measure it on the reference
+  machine in the release bundle and carry it that way in the release report.
+
+**They condition each other.** Landing `schnellstes_ende` alone would produce exactly the failure
+mode both cards were raised against: on a runner that measures ~2x slower, a tighter lath turns
+into red runs that say nothing about the code. Landing the binding alone would leave the lath at
+the median, i.e. the state `OA-133b901337` was raised to end. Between the two there is an
+intermediate state, and it is worse than either endpoint — so there is no intermediate commit.
+
+**What "visibly skipped" means, and what it does not.** The skip carries its own vocabulary
+(`UEBERSPRUNGEN`, `referenzmaschinengebunden`, the card number, the detected marker, the measured
+factor) and deliberately shares NO word with the file's three other abstentions (cap, spread, cost
+family — all of which say `NICHT MESSBAR`). That is not style. Every catch-proof in the file greps
+for the WORDING of the abstention it hunts; a shared word would make it mistake this binding for
+its own finding. Measured on 2026-09-08 with a build-host marker set: four cases fell visibly
+BECAUSE the vocabulary differs, and two passed BLIND — they asserted only the ABSENCE of a text.
+Both have since been sharpened to demand the verdict itself.
+
+**Honest limit, three of them.**
+
+1. The build host is recognised by a MARKER (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`,
+   `JENKINS_URL` — the same tuple the signing path uses, and the equality is bound by a test), not
+   by a machine fingerprint. A runner that sets none of them is treated like the reference machine
+   and judges. That is deliberate: the alternative is to mute every unknown machine, and a mute
+   guard cannot be told from a passing one. But it is an assumption about the environment, not a
+   measurement.
+2. The KOMBI surface takes its factor from a FRESH measurement after its costs were measured, not
+   from a bracket around them. That is the same defect the bracket fixed for the single axes, still
+   standing on the neighbouring surface. It is now reference-machine-bound like the single axes, so
+   it cannot produce a false red on a runner — but on the reference machine its factor still comes
+   from a different window than its costs. Named here rather than fixed in the same move, because
+   the freeze head has to stay reproducible.
+3. `median` remains in the code as the position the owner can return to in one word. It is not dead
+   code and it is not the current verdict; both facts are bound by separate tests
+   (`test_der_schalter_..._wirkt_wirklich` binds that the choice decides something,
+   `test_die_OWNER_ENTSCHEIDUNG_zur_latte_steht_im_schalter` binds which way it fell).
+
+**The finding I did not predict.** Under a build-host marker one case failed for a reason I had not
+announced: it read `_DECKEL_BEITRAEGE` — a module global filled by `_faktor_deckel` — while the new
+binding had skipped BEFORE that function ran. It was reading a foreign call's result and judging
+over it. It fell this time; had the stale value happened to be the expected one, it would have
+stayed green while attesting a computation that never happened. Fixed by stamping the instrument
+with its owner and making it ownerless after one read (class 266 in the ledger).
+
+**The CI skip is not free, and that is the price of the owner's condition.** `_messung(dim)` runs
+BEFORE the binding fires, because the skip has to name the MEASURED machine factor — the card says
+"with the measured machine factor as the reason, no typed number". A cheaper binding (skip before
+measuring) would have to state a number it did not measure, which is exactly what the card
+forbids. So on a build host the twelve dimensions are still measured; only the verdict is withheld,
+and the measured factor is what the skip line reports.
+
+### The other half of `OA-dc37e26295` is PREPARED, not DONE — and the attacker path got shorter
+
+An adversarial lens on this very change (2026-09-08) established the following by grep over the
+whole gate, and I verified each count myself:
+
+* `grep -c budget_axis` over `scripts/audit_candidate_matrix.py`, `.github/workflows/` and the
+  `Makefile`: **0**. The audit gate knows `_SOAK_ARTIFACT_REL` and `_DIFFERENTIAL_ARTIFACT_REL`
+  and nothing else.
+* `_ANKER_ROLLEN["readiness_und_register_signierer_600"]` authorises `{C6.2, C6.3, C8.2, C12.2}`.
+  There is no check-ID for the budget axis, so the artifact cannot even be signed into the bundle
+  the way the soak and the differential are.
+* No CI job, no Makefile target and no script calls `scripts/budget_axis_measurement.py`.
+
+So: **the CI half of the card is wired and measured; the reference-machine half is a script plus a
+checklist line.** The release checklist entry added above IS the mechanism today, and a checklist
+line is a person, not a gate. This repo names that exact anti-pattern in its own words at
+`.github/workflows/ci.yml:149-152` — "a harness that only runs when a human remembers protects
+exactly the round in which nobody remembers" — and this is the same shape, applied to this round's
+own third piece of evidence.
+
+**What that costs, concretely.** On CI the following still run: `test_die_last_erreicht_das_limit_
+wirklich`, `test_l_minus_eins_l_und_l_plus_eins` (the DoS boundary itself), the time and work
+exponents, both memory ceilings, `test_kombi_erreicht_jede_benannte_dimension` and the whole of
+`TestProduktbudget`. What no longer runs there is the ABSOLUTE second ceiling, for twelve single
+axes and seven combinations. An exponent is scale-invariant: a change that keeps the order linear
+but multiplies the constant factor — three times more expensive `renewal_work`, exactly the shape
+this file already caught once — passes the exponent test by construction. Before this change such
+a regression had to survive a (noisy, but visible) CI red; now it has to survive nothing that runs
+automatically. The attacker path is strictly shorter, and saying otherwise would be false.
+
+**Why it is still the right change**: the CI reds were real and said nothing about the code, and
+the owner decided. What is NOT decided is leaving the second half unwired. Wiring it means a new
+check-ID in `audit_candidate_matrix.py` plus a role authorisation — a change to the release gate
+surface itself, which is owner territory, not something to slip in beside a test fix. It is filed
+as an open item rather than done quietly, and this paragraph is the honest state until it is:
+**`OA-dc37e26295` is PARTIALLY implemented.**
+
+**Owner decision on this gap (2026-09-08).** The owner accepted the reference half as a recorded
+risk carried by the release-checklist line above, with the check-ID wiring in
+`scripts/audit_candidate_matrix.py` scheduled AFTER the tag. So `OA-dc37e26295` is knowingly
+PARTIAL for this release, not accidentally so — the difference matters: an accepted risk has an
+owner behind it and a named next step; an unnoticed one has neither. The first half of the
+condition is no longer only a script: measured on the reference machine on 2026-09-08 at 08:24Z,
+quiet field before and after, `audit_artifacts/360/budget_axis_latest.json` says **12 axes passed,
+0 skipped, 0 broken, machine factor 1.0, `ist_referenzmessung: true`, `ok: true`**.
