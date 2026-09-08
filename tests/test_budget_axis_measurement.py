@@ -10,7 +10,6 @@ Zusicherung rot ist, und der Unterschied waere von aussen unsichtbar. Genau das 
 from __future__ import annotations
 
 import importlib.util
-import statistics
 import sys
 import types
 from pathlib import Path
