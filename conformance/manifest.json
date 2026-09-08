@@ -69,6 +69,8 @@
     "relation/depth-exceeded",
     "relation/digest-mismatch",
     "relation/malformed-digest",
+    "relation/malformed-relationships-successor",
+    "relation/null-relationships-successor",
     "relation/outcome-declared-supersedes-verified",
     "relation/outcome-decoy-parent-target-mismatch",
     "relation/outcome-digest-mismatch",

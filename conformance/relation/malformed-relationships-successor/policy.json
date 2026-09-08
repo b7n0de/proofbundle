@@ -1,0 +1,7 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "relation-successor-warning",
+ "relations": {
+  "reject_superseded": true
+ }
+}

@@ -1,16 +1,16 @@
 {
   "schema": "proofbundle.unshipped_spec_refs_baseline.v1",
-  "gemessen_am": "2026-09-01",
-  "gemessen_gegen": "sdist proofbundle-5.1.0 aus Baum be51b54e + den fuenf Deep-Gate-Fixes",
+  "gemessen_am": "2026-09-08",
+  "gemessen_gegen": "sdist proofbundle-6.0.0 aus dem 6.0.0-Arbeitsbaum, GEBAUT und EXTRAHIERT gemessen (scripts/build_reproducible.py, dann shipped_docs_check.pruefe im extrahierten Baum) — im Checkout ist die Menge leer, dort liegt jede Datei vor",
   "warum_es_diese_datei_gibt": "Konformitaetsfaelle nennen Dokumente normativ (specRefs), die das Paket nicht enthaelt. Gemessen sind das 143 von 168 Nennungen. Diese Datei ist KEINE Freigabe, sondern die festgeschriebene Groesse der Luecke: der Test laesst sie NICHT WACHSEN und laesst kein neues Dokument dazukommen. Sie zu schliessen heisst, die Dokumente samt der transitiven Huelle ihrer Linkziele auszuliefern — eine Verpackungsentscheidung, die MANIFEST.in bewusst einzeln per Pfad trifft und nicht per `graft docs` (dessen Begruendung dort steht). Sie gehoert dem Owner, nicht einem Tag-Vorlauf.",
   "nicht_enthalten_weil_geschlossen": [
     "docs/AGENT_REVIEW_PREDICATE.md — am 01.09.2026 in MANIFEST.in aufgenommen, 14 Faelle nennen sie"
   ],
-  "anzahl_nennungen_offen": 143,
-  "anzahl_nennungen_gesamt": 168,
+  "anzahl_nennungen_offen": 147,
+  "anzahl_nennungen_gesamt": 175,
   "dokumente": {
-    "docs/design/RELATION_V01_DESIGN.md": 42,
-    "docs/predicates/relation.md": 42,
+    "docs/design/RELATION_V01_DESIGN.md": 44,
+    "docs/predicates/relation.md": 44,
     "SPEC.md": 15,
     "CHANGELOG.md": 11,
     "CONFORMANCE.md": 10,
@@ -19,5 +19,6 @@
     "docs/ANCHORS.md": 2,
     "docs/adr/0004-native-root-authenticity.md": 2,
     "docs/SCITT_CPB_MAPPING.md": 1
-  }
+  },
+  "nachgezogen_am_2026_09_08": "143 -> 147, und die zwei relation-Dokumente je 42 -> 44. Grund: die zwei neuen Vektoren relation/null-relationships-successor und relation/malformed-relationships-successor tragen die specRefs, die JEDER relation-Vektor traegt. KEIN neues Dokument kommt dazu — die schaerfere der beiden Regeln ist unberuehrt. WARUM NICHT DER ANDERE WEG: der Test bietet an, den specRef auf eine absolute URL zu stellen. Das haette die Zahl bei 143 gehalten, ohne dass sich an der Sache das Geringste aendert — die Dokumente fehlten im Paket weiterhin, sie waeren nur anders benannt. Ein Tor gruen zu machen, indem man die Messflaeche verschiebt, ist kein Fix. NEBENBEFUND der Messung: `anzahl_nennungen_gesamt` stieg von 168 auf 175, also um SIEBEN. Vier davon sind die neuen Vektoren (2 Faelle x 2 specRefs). Die restlichen drei nennen bereits ausgelieferte Dokumente und stammen aus anderer Arbeit dieser Runde — die Zahl war also schon vor diesem Nachzug veraltet. Sie wird vom Test nicht geprueft (er liest nur `anzahl_nennungen_offen`), weshalb ihr Veralten niemandem auffiel."
 }
