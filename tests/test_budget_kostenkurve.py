@@ -1332,8 +1332,10 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 fall.test_kosten_am_limit_unter_der_obergrenze(dim)
         finally:
             wieder()
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher_m)
-            _REFERENZ_HIER.clear(); _REFERENZ_HIER.extend(vorher_r)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
         text = str(skip.value)
         assert "NICHT MESSBAR" in text, (
             f"Ueber dem Deckel wird nicht NICHT MESSBAR gemeldet, sondern: {text!r}")
@@ -1385,8 +1387,10 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 ausgang = f"ROT: {a}"
         finally:
             wieder()
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher_m)
-            _REFERENZ_HIER.clear(); _REFERENZ_HIER.extend(vorher_r)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
         assert ausgang.startswith("ROT"), (
             f"Wenn ALLE Achsen reissen, muss der Fall ROT melden. Gemeldet wurde stattdessen: "
             f"{ausgang[:200]!r} (Deckel {deckel}, Faktor {faktor:.2f}). Das ist der lauteste "
@@ -1583,8 +1587,10 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 ausgang = f"ROT: {a}"
         finally:
             wieder()
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher_m)
-            _REFERENZ_HIER.clear(); _REFERENZ_HIER.extend(vorher_r)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
         assert ausgang.startswith("SKIP") and "NICHT MESSBAR" in ausgang, (
             f"Bei einer zweigipfligen Messreihe (fuenf von neun Messungen zehnmal langsamer) meldet "
             f"der Fall nicht NICHT MESSBAR, sondern: {ausgang[:300]!r}. Dann folgt die Latte dem "
@@ -1726,7 +1732,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             einachsig = next(d for d in DIMENSIONEN if d.achsen == 1)
             deckel = _faktor_deckel(ausser=einachsig.name)
         finally:
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher)
         assert deckel == pytest.approx(3.0, rel=0.01), (
             f"Der Deckel ist {deckel:.3f} statt 3,0. Die Achsenzahl der anderen Dimensionen geht "
             f"nicht in ihre Kopffreiheit ein — eine dreiachsige Dimension darf dreimal so viel "
@@ -1751,7 +1758,8 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             _MESSUNGEN[billig.name]["kosten_am_limit_max"] = 0.0
             deckel = _faktor_deckel(ausser="renewal_work")
         finally:
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher)
         assert deckel == pytest.approx(4.0, rel=0.01), (
             f"Der Deckel ist {deckel:.3f} statt 4,0 — die Dimension mit Kosten null hat ihn "
             f"veraendert, statt uebersprungen zu werden. Eine Kopffreiheit ist dort nicht definiert, "
@@ -1794,8 +1802,10 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
                 ausgang = f"ROT: {a}"
         finally:
             wieder()
-            _MESSUNGEN.clear(); _MESSUNGEN.update(vorher_m)
-            _REFERENZ_HIER.clear(); _REFERENZ_HIER.extend(vorher_r)
+            _MESSUNGEN.clear()
+            _MESSUNGEN.update(vorher_m)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
         assert "ueber dem abgeleiteten Deckel" not in ausgang, (
             f"Ein Faktor GENAU auf dem Deckel wird als NICHT MESSBAR gemeldet: {ausgang[:200]!r}. "
             f"Auf dem Deckel reisst noch keine andere Achse — der Fall ist dort messbar, und die "
