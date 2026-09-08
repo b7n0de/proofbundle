@@ -222,10 +222,10 @@ per commit; the head gets named.
 
 | directory | `658ed063` → `68aa6f32` | `658ed063` → `5e9aa66` (after the collector merge) | `658ed063` → `424c5e3` | `658ed063` → `cd91b65` | `658ed063` → **this head** |
 |---|---|---|---|---|---|
-| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files |
-| `tests/` | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) | 54 files (+12747 / −198) | 58 files |
-| `scripts/` | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) | 14 files (+3782 / −277) | 15 files |
-| **total** | **90 files** | **95 files** | **95 files** | **100 files** | **105 files** |
+| `src/` | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) | 32 files (+1577 / −373) |
+| `tests/` | 46 files (+10631 / −165) | 51 files (+11637 / −189) | 51 files (+11851 / −188) | 54 files (+12747 / −198) | 60 files (+16727 / −199) |
+| `scripts/` | 12 files (+3268 / −224) | 12 files (+3577 / −262) | 12 files (+3577 / −262) | 14 files (+3782 / −277) | 16 files (+4142 / −279) |
+| **total** | **90 files** | **95 files** | **95 files** | **100 files** | **108 files** |
 
 **The rightmost column was missing until a lens added it, and its absence was the same defect this
 table exists to record.** The header of the `cd91b65` column read "the head these figures were
@@ -405,10 +405,33 @@ written, one is gone and one stands:
 
 * **Gone:** the collector no longer misses a quarter of the test files. It collects the full
   population, measured above.
-* **Stands:** identity under N11 does **not** hold — **105 files** differ between `658ed063` and
-  the head that would be tagged (100 at `cd91b65`, where the figure was first taken). One changed
-  file already breaks it; a hundred is not a closer call, only a louder one, and the number kept
-  growing while the record said otherwise.
+* **Stands:** identity under N11 does **not** hold — **108 files** differ between `658ed063` and
+  `c08e4650`, measured with the command this document names in the scope section:
+  `git diff --numstat 658ed063 <frozen head> -- src tests scripts`. The figure was 100 at
+  `cd91b65`, 105 at the head this paragraph was first written on, and 108 here.
+
+  **`c08e4650` is NOT the head that would be tagged, and an earlier wording of this bullet said it
+  was.** A lens found the confusion; the correction is measured, not argued. Three test files sit
+  uncommitted at the time of writing — the S25 closure (`test_stille_ruecknahme_position_x_malformation.py`),
+  the collection-abort guard (`test_sammelabbruch_vor_dem_import.py`) and the register-population
+  cross-check (`test_register_population_gegen_restrisiko.py`) — so the bundling commit moves
+  `tests/` from 60 to **63** and the total from 108 to **111**. The table above is a record of
+  measured heads and stays as it is; this bullet is where the two heads are told apart. The failure
+  mode is the one the table's own preamble names, one step further out: a number can name the head
+  it was measured on and still be read as naming a DIFFERENT head, if the sentence around it says
+  "the head that would be tagged". Naming the head is necessary; it is not sufficient while another
+  head is still being built. One
+  changed file already breaks it; a hundred is not a closer call, only a louder one, and the
+  number kept growing while the record said otherwise — which is why it now carries the head it
+  was measured on and the command that produced it, so the next reader can re-run it instead of
+  trusting it.
+
+  **A note on how this number is easy to get wrong, recorded because it nearly happened here**
+  (2026-09-08): a plain `git diff --name-only 658ed063 <head>` gives **127** at `cd91b65`, not
+  100 — because it counts the whole tree instead of `src tests scripts`. The two numbers are
+  both correct and answer different questions. Replacing a number without reproducing its
+  provenance first would have written a wrong figure into a release record while looking like
+  an update.
 
 N11 states what follows when identity fails, and it is not "report and stop": the run **is
 repeated** against the head that gets tagged. That is the path taken here, on the owner's decision

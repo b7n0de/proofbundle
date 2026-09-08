@@ -1325,3 +1325,429 @@ INNERHALB eines Artefakts — der Vergleich ZWISCHEN den beiden Dateien findet n
 die C8.2-Nutzlast aus der Rohmatrix neu erzeugt, senkt die Vektorzahl still von 42 auf 39, und
 keine Pruefung meldet es. Vor dem Neuerzeugen ist zu klaeren, welche der beiden Mengen die richtige
 ist. Dieselbe Klasse wie S20: eine Zahl, die faellt, ohne dass etwas sie vergleicht.
+
+## S23 — Zwei Zweig-Commits, die der Kandidat NICHT hat, bringen ihm nichts — gemessen statt vermutet
+
+**Owner-Entscheid 2026-09-08 (Karte `OA-ada920ee22`, Antwort 3C):** die zwei Commits bleiben
+liegen; geprueft werden soll, ob sie dem Kandidaten etwas bringen. **Sie bringen nichts, und in
+beiden Faellen traegt der Kandidat die haertere Fassung.** Das steht hier, weil ein „liegen
+gelassen" ohne Messung spaeter wie eine Nachlaessigkeit aussieht.
+
+**Ausgangslage, gemessen am Kopf `c08e4650`.** Der Zweig `probe/gatezeile-in-kandidat` traegt fuenf
+Commits. Die Vorfahren-Pruefung je Commit ergibt: `c52884d` (codeql-113), `0aca175` (byte-freeze im
+Bauweg) und `437dd32` (N11-Doku) sind **im Kandidaten**, `eb09cce` und `f67f289` sind es nicht.
+
+**`eb09cce` (`tests/test_byte_freeze_zweite_haelfte.py`).** `xfail`-Vorkommen: **0 im Zweig, 0 im
+Kandidaten** — der xfail, den der Commit-Betreff nennt, ist ohnehin weg. Der inhaltliche
+Unterschied laeuft in die andere Richtung: die Zweig-Fassung macht aus JEDEM Fehlschlag einen
+`pytest.skip`; der Kandidat unterscheidet **drei** Klassen (nicht messbar / Verletzung / **Werkzeug
+defekt**) und benennt in seinem eigenen Kommentar den eingespeisten Fall, den die Zweig-Fassung
+verschluckt haette: der `RuntimeError`, den `_build_wheel` wirft, wenn der Bau kein wheel
+produziert — also ein ECHTER Baudefekt, der als `2 skipped` durchgegangen waere, mit stiller
+Zusicherung UND stiller Anti-Paritaets-Kontrolle. Ein Merge haette diese Haertung zurueckgenommen.
+
+**`f67f289` (`scripts/mutation_check.py`, `tests/test_mutation_isolation.py`).** Zweig 962 Zeilen
+gegen Kandidat 1254. Die einzige Funktion, die nur der Zweig hat, ist `def sieben` — ein
+`unittest.TestSuite`-Filter des ALTEN Mechanismus, den der Kandidat durch `_rote_aus_bericht`,
+`_lauf_der_suite` und `_ausschluss_args` ersetzt hat. In `tests/test_mutation_isolation.py`
+existiert **keine** Testfunktion nur im Zweig.
+
+**Die Klasse dahinter, und warum sie hier wiederkehrt.** Der Kandidat-Kommentar sagt es selbst: die
+Dreiteilung ist woertlich dieselbe, die `c52884d` am Go-Differential geschlossen hat
+(`_beschaffungslage`: beschafft / nicht beschaffbar / Werkzeug defekt). Der Zweig fixte die INSTANZ
+an einer Stelle, der Kandidat hat die KLASSE an beiden. Das ist der Grund, aus dem der aeltere
+Zweig hier der schwaechere ist — nicht sein Alter, sondern seine Reichweite.
+
+**Nebenbefund zu meiner eigenen Arbeit, weil er dieselbe Zeile betrifft.** Ich hatte vor dieser
+Messung berichtet, `mutation_check._red_count` lese am Kandidatenkopf nie den `returncode`, und
+daraus gefolgert, eine Abschlusszeile „0 Luecken" sei kein Beleg. Das war falsch: Zeile 719
+uebergibt `proc.returncode`, Zeile 866 urteilt in der Reihenfolge Rueckgabewert, JUnit-XML, Text.
+Ich hatte den Diff eines Zweigs gelesen, der diese Stelle fixt, und daraus auf den Zustand des
+Kopfes geschlossen — **ein Diff ist eine Aussage ueber eine Differenz, nicht ueber einen Zustand.**
+Aufgedeckt hat es eine Merge-Probe, die aus einem anderen Grund lief.
+
+## S24 — C12.1 gehoert NICHT zu den drei Bindungsluecken, und meine Kettenbeschreibung war zu grob
+
+**Was ich mehrfach berichtet hatte:** „vier rote Matrix-Zeilen, alle vier sind Bindungsluecken,
+alle vier werden nach der Owner-Signatur gruen." Fuer C6.2, C6.3 und C8.2 stimmt das — es sind
+Bereitschaftsartefakte, die der Owner am Mac signiert. **Fuer C12.1 stimmt es nicht**, und der
+Unterschied ist keine Feinheit, sondern eine andere Art von Pruefung.
+
+**Gelesen im Docstring von `c12_1_pretag_audit` (`scripts/audit_candidate_matrix.py`), der die
+Owner-Entscheidung vom 2026-08-30 (Karte `OA-4a8daddb55`) woertlich traegt:**
+
+> „A work branch is not finished and will get at least one more commit when it merges, so a receipt
+> issued against it attests a tree that is about to stop existing. Producing one anyway would be
+> exactly the act this check was built to catch — it would REPRODUCE the finding instead of closing
+> it. C12.1 is a RELEASE gate; the receipt belongs to the tree that actually gets tagged."
+
+Und weiter, zur Farbe auf einem Zweig:
+
+> „So a red C12.1 on a branch is not unfinished work and not a tool defect. It is the check doing
+> its job on an object it was not meant to bless."
+
+**Folge fuer die Reihenfolge.** Der pre-tag-Receipt gehoert NICHT in die kanonischen Bytes, die
+vor der Owner-Signatur emittiert werden. Er wird gegen den Baum erzeugt, der tatsaechlich getaggt
+wird — also nach dem Merge. Wer ihn frueher erzeugt, tut genau das, was diese Pruefung faengt.
+
+**Ehrlichkeitsmarke.** Dass C12.1 auf dem Tag-Baum dann gruen wird, ist die Aussage des Docstrings,
+nicht meine Messung. Er belegt sie mit dem v5.0.0-Receipt
+(`audit_artifacts/500/pre_tag_receipt_v5.0.0.json`, im Baum vorhanden, 1 KiB), der
+`4212087273dc…` bindet; ich habe die Datei gefunden, aber **nicht nachgefahren**. UNGEPRUEFT mit
+benannter Quelle.
+
+**Die Grenze, die der Docstring selbst nennt und die hierher gehoert.** Der signierte
+`audit_output_digest` des Receipts loest auf kein auffindbares Artefakt auf, und nichts in diesem
+Tor loest ihn auf: „the field is signed, which makes it tamper-evident and attributable, not
+checkable." Signiert heisst hier also zurechenbar, nicht geprueft — dieselbe Unterscheidung, die
+S20 fuer das ganze Tor benennt.
+
+**Warum dieser Abschnitt existiert.** Nicht wegen des Fehlers, sondern wegen seiner Form: ich hatte
+vier rote Zeilen zu EINER Ursache zusammengefasst, weil sie gleichzeitig rot waren. Die
+Fremdfamilien-Gegenlesung hatte genau das schon einmal angegriffen (S20, Punkt W3: „ist das
+begruendet, oder ist 'alle vier haben dieselbe Ursache' eine bequeme Annahme?") — und ich hatte
+ihre Frage damals mit einer Messung beantwortet, die nur DREI der vier betraf.
+
+### S22, Nachtrag vom 2026-09-08: die Frage ist am Kandidatenkopf gemessen beantwortet — 42
+
+S22 hielt fest, dass `audit_artifacts/rust_relation_differential_matrix.json` **39** Vektoren
+traegt und `audit_artifacts/360/rust_differential_matrix.json` **42**, und dass niemand die beiden
+Dateien vergleicht. Die offene Frage war, welche der beiden Mengen die richtige ist. Sie ist
+gemessen, und zwar an der Quelle statt am Abzug.
+
+**Der Erzeuger steht im signierten Artefakt selbst**, nicht unter `scripts/`: `producer.tool` =
+`tools/pb_verify_rs/crosscheck.py`, `tool_version` 6.0.0, `produced_at` 2026-09-06T21:04:57Z. Dass
+er unter `tools/` liegt, erklaert, warum eine Suche in `scripts/` nur Leser fand — `tools/` wird
+aus dem sdist gepruned.
+
+**Neu gefahren am Kandidatenkopf `c08e4650`** (`--matrix` ist opt-in, damit der normale Lauf nur
+liest; Ausgabe bewusst AUSSERHALB des Baums, damit der Kandidat sauber bleibt):
+
+    total_relation_vectors: 42
+    rows:                   42
+    all_agree:              true
+    uneins:                 keine
+    environment:            cargo 1.95.0 · rustc 1.95.0 · python 3.10.12
+
+Und die Zusammenfassung des Laufs woertlich: „57/107 conformance-corpus case(s) reproduced
+independently (incl. 42 relation vector(s) differentially, Python==Rust on exit-class + lineage)."
+
+**Damit ist die Richtung klar.** Die 42 sind der Stand des Kandidaten, gemessen; die 39 stammen aus
+einer Datei, die **kein `producer`- und kein `produced_at`-Feld traegt** — ein aelterer Abzug ohne
+Herkunftsangabe. Wer die C8.2-Nutzlast aus der Wurzeldatei erzeugte, senkte die Vektorzahl still
+von 42 auf 39; wer sie aus `crosscheck.py` erzeugt, misst sie.
+
+**Was OFFEN bleibt, und es ist der eigentliche Punkt von S22.** Die Zahl ist jetzt geklaert, der
+fehlende VERGLEICH nicht: nichts im Baum haelt die beiden Dateien gegeneinander, und C8.2 prueft
+`len(rows) == total_relation_vectors` nur INNERHALB eines Artefakts. Ein kuenftiger Abzug ohne
+Herkunftsangabe koennte dieselbe Verwechslung wieder ermoeglichen. Der Riegel dagegen ist derselbe
+Bautyp wie `tests/test_register_population_gegen_restrisiko.py` — zwei erklaerte Flaechen
+vergleichen statt eine aus der anderen abzuleiten — und gehoert in den ersten Zyklus nach dem Tag.
+
+## S25 — GESCHLOSSEN (Owner-Entscheid 2026-09-08): die still unterdrueckte Ruecknahme
+
+**Deep gate Lauf 5 auf `c08e4650`, Fund `L4-600-01`, P1, Jury 3/3 mit ausfuehrbarem Reproducer.**
+
+> **STAND 2026-09-08, ~19:0xZ: GESCHLOSSEN.** Dieser Abschnitt stand hier zuerst als benanntes
+> Restrisiko, weil die Owner-Regel dieser Runde lautet "Fix nur bei P0". Der Owner hat auf Karte
+> `OA-dccd141d78` **gegen** diese Einordnung entschieden: *"Vor dem Tag schliessen: das stille
+> continue durch `relation:malformed_successor` ersetzen, die drei Nachbarn im selben Durchgang
+> mitziehen, parametrisierte Matrix position x malformation als Test — verzoegert den Tag um einen
+> Bau- und Pruefzyklus."* Der Abschnitt bleibt stehen, weil ein geloeschtes Restrisiko keine
+> Geschichte hat; was er beschreibt, ist ab hier der Zustand VOR dem Fix. Was jetzt gilt, steht
+> unten unter "Wie es geschlossen wurde".
+
+**Was passiert.** `relation.successor_warning` (`relation.py:471-473`) ueberspringt ein angehaengtes
+Ziel, dessen EIGENER `relationships`-Block fehlerhaft ist, mit einem stillen `continue`. Erklaert
+dieses Ziel eine Ruecknahme (`retracts` / `supersedes`) ueber das gepruefte Receipt, faellt die
+Ruecknahme damit unter den Tisch: `safeForAutomation` kippt von false auf **true**, die CLI
+`decision verify --policy --with-related` von exit 3 auf **0**. Der Spiegel in Rust
+(`crates/pb_verify_rs/src/main.rs:1120-1122`) macht denselben Fehler.
+
+**Warum das Differential es NICHT gefunden hat, und warum das hierher gehoert.** Python und Rust
+stimmen ueberein — beide falsch. Der Python-Rust-Vergleich, sonst unser staerkstes Orakel, ist an
+dieser Stelle blind; die Linse musste ein Orakel AUSSERHALB beider Implementierungen bauen. Das ist
+dieselbe Anti-Paritaets-Lehre, die das Gate seit v2 fuehrt, hier zum ersten Mal an unserem eigenen
+Kernversprechen.
+
+**Die Klasse, nicht die Instanz.** Ein `continue`, das eine *present-and-wrong*-Struktur
+ueberspringt, statt sie hart abzulehnen. Die Invariante steht im Repo schon (`L4-01`:
+"present-and-wrong ist ein harter FAIL an JEDER Position") und ist an der Vorfahren-Position
+korrekt umgesetzt (`relation:malformed_ancestor`) — nur an der Nachfolger-Position nicht. Drei
+Nachbarn teilen sie: `decision.py:682`, `outcome.py:673`, `main.rs:1120-1122`.
+
+**Wirkung, ehrlich abgegrenzt.** Kein Signaturbypass. Der Schaden ist, dass ein zurueckgezogenes
+Receipt als automatisierungssicher gemeldet wird — und genau das ist die Aussage, wegen der jemand
+dieses Paket einsetzt. Ich hielt es fuer den schwersten offenen Punkt der 6.0.0-Flaeche und empfahl,
+ihn vor dem Tag zu schliessen; die Entscheidung lag beim Owner, und er hat sie so getroffen.
+
+### Wie es geschlossen wurde
+
+**Die Unterscheidung, auf die es ankommt.** Ein angehaengtes Receipt **ohne** `relationships`
+schweigt weiter — es hat nichts erklaert. Eines **mit** einem unlesbaren Block meldet jetzt
+`relation:malformed_successor` (Wire-Code `RELATION_MALFORMED_SUCCESSOR`) — es hat etwas erklaert,
+das der Verifizierer nicht auswerten kann. Fail-closed heisst hier: eine nicht auswertbare
+Erklaerung wird wie eine Ruecknahme behandelt, nicht wie ihre Abwesenheit.
+
+**Ordnungsunabhaengig, und das ist kein Geschmack.** Eine LESBARE Ruecknahme gewinnt gegen die
+unlesbare Meldung. Haenge das Verdikt an der Iterationsreihenfolge von `related`, koennte ein
+Vorleger die praezise Aussage ("dieses Receipt ist zurueckgezogen") durch die unpraezise ersetzen,
+indem er die Reihenfolge waehlt. Beide Sprachen waehlen daher den lexikografisch kleinsten
+Kandidaten — noetig, weil Rusts `HashMap` bewusst randomisiert iteriert und Pythons `dict` die
+Einfuegereihenfolge behaelt.
+
+**Fangnachweis gegen `git HEAD`,** fuenf Faelle, genau einer aendert sich:
+
+| Fall | ALT (HEAD) | NEU |
+|---|---|---|
+| ehrliche Ruecknahme | MELDET | MELDET |
+| **Angriff (Ruecknahme + Fehler)** | **SCHWEIGT** | **MELDET** |
+| kein Block | SCHWEIGT | SCHWEIGT |
+| unverifiziert + malformed | SCHWEIGT | SCHWEIGT |
+| malformed neben echter | MELDET (die echte) | MELDET (die echte) |
+
+**Die drei Nachbarn.** `decision.py` (921 Zeilen) und `outcome.py` (979) wurden vollstaendig
+gelesen: beide haengen an genau EINEM Aufruf von `successor_warning` und ziehen durch den Quellfix
+mit — belegt als je ein End-to-End-Fall bis `safeForAutomation`, nicht als Annahme. Der
+Rust-Verifizierer hat eine eigene Implementierung und wurde gespiegelt. *Pfadkorrektur:* die Karte
+und der Text oben nennen `crates/pb_verify_rs`, im Baum liegt `tools/pb_verify_rs`.
+
+**Der Fix aktivierte eine schlafende Divergenz — gefunden von einer Gegenlesung.** Bei explizitem
+`"relationships": null` liefert `pred.get(...)` in Rust ein `Some(&Value::Null)`, in Python `None`.
+Vor dem Fix uebersprangen beide Seiten still, der Unterschied war folgenlos. Sobald einer der Wege
+etwas TUT, wird er zum Fund: Rust meldete, wo Python schwieg. Geschlossen mit `nested.is_null()`.
+Das ist die unangenehme Haelfte von *fix the class* — ein Fix an EINER Seite kann eine bestehende,
+folgenlose Asymmetrie in eine folgenreiche verwandeln.
+
+**Gemessen.** Matrix `tests/test_stille_ruecknahme_position_x_malformation.py`: 4 Positionen x 9
+Malformationen, 16 passed / 108 subtests, mit Vorbedingungspruefung je Malformation, fuenf
+Anti-Paritaets-Richtungen und einem Meta-Test, der den ECHTEN Quelltext mutiert (die erste Fassung
+prueste einen Nachbau und band nichts — auch das fand eine Gegenlesung). Regression ueber
+relation/decision/outcome/rust-parity: 171 passed / 1 skipped. Vollsuite ueber den Stand:
+**3947 passed / 24 skipped / 1062 subtests / RC=0**.
+
+**Ehrliche Grenze, offen.** Ein ausfuehrbarer Paritaets-Vektor mit genau diesen Bytes
+(`"relationships": null` gegen beide Verifizierer) fehlt noch; er gehoert in
+`conformance/relation/generate_vectors.py::main()`, nicht als handgebautes Fixture — der Generator
+erzeugt frische Schluessel, ein Lauf schreibt alle 43 Vektoren neu. Bis dahin ist die Gleichheit
+der zwei Sprachen fuer DIESEN Fall am Code belegt und uebersetzt, aber **nicht gefahren**. Ebenso
+offen und ungeprueft: `successor_warning` geht genau EINE Ebene ueber `related` — eine Ruecknahme,
+die nur ueber einen zweiten, nicht direkt angehaengten Hop erreichbar waere, hat keine Zelle.
+
+### Ein vierter Linsenfund derselben Runde, gemessen und ENTKRAEFTET
+
+Eine Gegenlesung hielt fest, `successor_warning` gehe nur EINE Ebene ueber `related` und
+uebersehe damit moeglicherweise eine transitiv erklaerte Ruecknahme. **Gemessen am 08.09.2026**
+an einer dreigliedrigen Kette (C supersedes B supersedes A, A ist das gepruefte Receipt):
+
+| angehaengt | Ergebnis |
+|---|---|
+| nur B | `superseded_by_attached` — gefunden, in EINEM Schritt |
+| B und C | `superseded_by_attached` — gleich, C aendert nichts |
+| nur C (B fehlt) | `None` |
+
+**Es gibt keinen Abstieg, den man auslassen koennte.** `_load_related` (`cli.py:1779`) baut
+`related` aus einer FLACHEN Pfadliste — ein Eintrag je `--with-related`, gekeyt am berechneten
+content root. Jedes angehaengte Receipt ist damit unmittelbar Kandidat; die Schleife sieht ALLE,
+nicht nur die vom Subjekt verlinkten. Die dritte Zeile ist keine Luecke, sondern die Grenze des
+Materials: C sagt nichts ueber A, und was nicht angehaengt ist, kennt der Verifizierer nicht.
+Diese Grenze steht bereits in `docs/predicates/relation.md`: Ziele werden OFFLINE angehaengt und
+*never fetched*; eine wohlgeformte Kante ohne angehaengtes Ziel ist `DECLARED_UNRESOLVED` und
+*explicitly NOT an error*.
+
+Kein Fix, kein neuer Restrisiko-Punkt — der Fund ist mit einer ausgefuehrten Messung entkraeftet.
+Er steht hier, weil eine still verworfene Gegenlesung von einer geprueften nicht zu
+unterscheiden ist.
+
+## S26 — `contentRootAlg`: ein vorhandener, aber unregistrierter Wert faellt still auf LEGACY zurueck
+
+**Deep gate Lauf 5, Fund `L1-600-CRA-01`, P3, Jury 3/3.** Nicht gefixt, gleiche Begruendung wie S25.
+
+`proofbundle.intoto._declared_content_root_alg` prueft den Rohwert mit einer str-engen Wache. Ein
+**vorhandener** Wert, der kein String ist (`""`, `0`, `True`, `[]`, `{}`, `null`), faellt dadurch
+in den Abwesenheitszweig und damit auf den LEGACY-Algorithmus — `ok=true`. Eine unbekannte
+**String**-Kennung geht eine Zeile weiter korrekt fail-closed. Abwesenheit und
+vorhanden-aber-falschtypig werden also verwechselt.
+
+**Ehrliche Abgrenzung, die in den Befund gehoert:** `contentRootAlg` liegt INNERHALB der signierten
+Nutzlast. Das ist kein Signaturbypass. Der Schaden ist, dass das Urteil signierten Inhalt falsch
+beschreibt, dass ein vertraglich abzulehnendes Receipt akzeptiert wird, und dass ein strengerer
+Fremdverifizierer bei identischen Bytes anders urteilt.
+
+**Klasse:** `(Feld ABWESEND) == (aufgeloester Algorithmus == LEGACY)` muss streng gelten; ein
+vorhandener, nicht registrierter Wert muss fail-closed enden. Betrifft jedes Algorithmus- oder
+Selektorfeld, das aus geparstem Inhalt gelesen wird, in beiden Sprachen.
+
+## S27 — Der sdist-Bau traegt einen Cache, der eine gestrichene Zeile ueberlebt
+
+**Gemessen am 2026-09-08, zweimal gebaut, EIN Unterschied.** Mit vorhandenem
+`src/proofbundle.egg-info/` enthaelt das sdist `scripts/budget_axis_measurement.py` (35 Dateien
+unter `scripts/`); mit beiseitegelegter `egg-info` nicht (34). `SOURCES.txt` fuehrte die Datei in
+Zeile 452; setuptools SCHREIBT diese Liste neu, ENTFERNT aber vorhandene Eintraege nicht.
+
+**Folge, und sie ist die eigentliche Gefahr:** eine aus `MANIFEST.in` GESTRICHENE Zeile wirkt in
+einem schmutzigen Arbeitsbaum erst nach dem Leeren des Caches. Ein Release-Bau von Hand koennte
+damit genau die Skripte ausliefern, die der Owner-Entscheid zu `OA-8b1a31cc4f` ausgeschlossen hat —
+darunter die zwei, die einen privaten Schluessel LESEN. Der CI-Weg ist nicht betroffen (frischer
+Checkout), der Handweg schon.
+
+`scripts/build_reproducible.py` raeumt `egg-info` nicht (gemessen: 0 Treffer). Der Riegel dagegen
+gehoert in den Bauweg, nicht in eine Notiz — er ist NICHT gebaut, und das steht hier als offener
+Punkt, nicht als erledigt.
+
+## S28 — Der Klassen-Ledger des Gates lief ueber 48,5 % seiner Klassen
+
+Der Pre-Sweep von Lauf 5 meldet `pass` — ueber **95 von 196** gelernten Klassen, Deckung 0,4847,
+`0 unexplained`, `0 regressed`. Woertlich heisst das: fuer **101 Klassen liegt aus dieser Runde
+kein Nichtregressions-Nachweis vor**. Ein `pass` bei knapp der Haelfte ist eine Aussage ueber die
+abgespielte Teilmenge, nicht ueber den Ledger. Das Gate selbst schreibt diese Grenze in sein
+Ergebnis; sie wird hier uebernommen, damit sie nicht in der Zusammenfassung verschwindet.
+
+## S29 — Der Wegwerfbaum der Zahlenbindung stellt seine eigene Vorbedingung her
+
+**Adversariale Gegenlesung 2026-09-08, ausgefuehrt belegt.** Die im Kopf von `tests/conftest.py`
+genannten Skip-Zahlen **34** und **9** sind gebunden — gemessen in einem Wegwerfbaum, den
+`tests/test_paketgrenze_zahlen_sind_abgeleitet.py::_wegwerfbaum` aufbaut. Dieser Baum kopiert
+`scripts/fork_pr_secret_isolation.py` und `scripts/pre_tag_audit_gate.py` **immer** mit hinein,
+unabhaengig davon, ob `MANIFEST.in` sie noch ausliefert.
+
+**Was daran offen ist.** Verlaesst eines der beiden die Auslieferungsliste, misst die Bindung
+weiterhin 34 bzw. 9 SKIPS — waehrend die ECHTE Auslieferung an derselben Stelle etwas anderes tut.
+Die Zahl bliebe richtig und beliefe etwas anderes. **Genau dieses Muster ist in dieser Runde einmal
+eingetreten:** `scripts/budget_axis_measurement.py` stand einzeln in `MANIFEST.in` und verliess die
+Liste am 08.09.; beide hier genannten Skripte stehen ebenfalls einzeln darin.
+
+**Warum es NICHT P0 ist:** heute sind beide ausgeliefert, die Zahlen stimmen, gemessen. Nach der
+Owner-Regel dieser Runde (Fix nur bei P0) bleibt es benanntes Restrisiko.
+
+**Die Klasse:** ein Messaufbau stellt seine Vorbedingung selbst her, statt sie von der Quelle zu
+uebernehmen, die sie im Ernstfall bestimmt — dann misst die Bindung ihre eigene Annahme. Der
+Vorschlag ist entsprechend nicht "mehr kopieren", sondern: nur kopieren, was `MANIFEST.in`
+ausliefert, und sonst **NICHT MESSBAR** melden statt eine Zahl zu bestaetigen, die nichts belegt.
+
+## S30 — Zwei Grenzen des Import-Riegels, die am Artefakt nicht entscheidbar sind
+
+Der Riegel gegen den Sammelabbruch (Fund `L6-600-01`, gefixt) hat zwei benannte Grenzen. Beide
+stammen aus adversarialen Gegenlesungen mit ausgefuehrten Faellen, beide sind **nicht** durch
+Nachbessern schliessbar, und beide stehen deshalb hier statt in einer Zusicherung.
+
+**(1) Ein TIPPFEHLER im Pfad sieht aus wie eine nicht ausgelieferte Datei.** Verlangt ein Modul
+beim Import `scirpts/mutation_check.py` statt `scripts/…`, fuehrt die Dateiliste der Verteilung
+diesen Pfad nicht — also gilt die Abwesenheit als Absicht, und das Modul wird uebersprungen statt
+laut zu fallen. Am Artefakt allein ist das nicht zu unterscheiden: „die Verteilung trug es nie"
+und „der Code fragt nach dem Falschen" ergeben denselben Befund. **Was dagegen steht:** das
+Ueberspringen ist NICHT still — die Zusammenfassung nennt Modul und fehlende Datei. Ein Leser
+sieht es; ein CI-Lauf wird davon nicht rot. Wer das schliessen will, braucht eine Aussage
+AUSSERHALB des Artefakts, etwa eine gepflegte Menge erwarteter Uebersprungen — und die veraltet
+still, sobald die Suite waechst (dieselbe Klasse wie
+`ZAHL-IM-STANDARD-VERALTET-STILL-WENN-DIE-LISTE-WAECHST-01`).
+
+**(2) Ein `conftest.py` in einem UNTERverzeichnis von `tests/` ist nicht abgedeckt.** pytest laedt
+solche Dateien ueber `_importconftest`, einen anderen Weg als `pytest_pycollect_makemodule`; ein
+Importfehler dort bricht das Sammeln unveraendert ab. **Gemessen am Kandidaten:** es gibt genau
+EIN `conftest.py`, `tests/conftest.py`, und die Dateiliste des sdist fuehrt genau dieses eine. Die
+Luecke ist also latent, nicht lebend — sie wird es in dem Augenblick, in dem jemand ein zweites
+`conftest.py` unterhalb von `tests/` anlegt, das eine nicht ausgelieferte Datei anfasst.
+
+**Warum beide hier stehen und nicht als Fix:** die erste ist am Gegenstand nicht entscheidbar, die
+zweite hat heute keinen Gegenstand. Ein Riegel gegen etwas, das es nicht gibt, ist ungetestet und
+damit selbst eine Behauptung.
+
+**(3) NACHTRAG 08.09.2026 — die dritte Grenze war keine, sondern ein Defekt, und ist gefixt.**
+Eine fremdfamiliaere Gegenlesung (qwen, lokaler Host) fragte nach Namespace-Paketen: seit
+Python 3.3 ist ein Verzeichnis OHNE `__init__.py` ein gueltiges Paket, und dieser Baum fuehrt zehn
+davon (`scripts/`, `tests/`, `conformance/`, `tools/…`). Die Formenliste des Riegels kannte nur
+`pkg.py` und `pkg/__init__.py`.
+
+An einem gebauten Fall gemessen: bei VORHANDENEM `scripts/` und bei GANZ FEHLENDEM `scripts/`
+antwortete der Riegel identisch — er meldete beide Male `scripts/__init__.py`, einen Pfad, den ein
+Namespace-Paket nie hat. Im ersten Fall war die Antwort schlicht falsch. Behoben: das Verzeichnis
+ist als dritte Form aufgenommen (`(wurzel / stamm).is_dir()`), Fangnachweis 1 von 19 rot, angesagt
+und getroffen.
+
+Bemerkenswert an der Herkunft: eine Claude-Linse hatte zwei Stunden vorher die INSTANZ derselben
+Klasse gefunden (ein fehlendes Symbol in einer vorhandenen Datei), der fremdfamiliaere Reviewer
+den NACHBARN. Die verletzte Annahme ist in beiden Faellen dieselbe — "ein Modul existiert in genau
+den Formen, die ich aufgezaehlt habe" — und die Aufzaehlung war jedes Mal das Problem, nicht ihre
+Reihenfolge.
+
+**Die VIERTE Form bleibt eine echte Grenze:** Erweiterungsmodule (`.so`, `.pyd`) erfuellen ebenfalls
+keine der drei Formen. Gemessen fuehrt dieser Baum keine (`find` ueber den ganzen Baum, ohne
+`.venv` und `target/`: null Treffer), weshalb sie hier benannt statt verdrahtet ist — ein Riegel
+gegen etwas, das es nicht gibt, ist ungetestet und damit selbst eine Behauptung. Der von der
+Gegenlesung vorgeschlagene Ausweg ueber `importlib.util.find_spec` traegt nicht: scheiterte der
+Import, findet `find_spec` das Modul auch nicht.
+
+## S31 — Der Riegel „stammt der Korpus aus seinem Generator" deckt EINEN der zwei Korpusse
+
+`tests/test_korpus_stammt_aus_seinem_generator.py` haelt eine teuer bezahlte Klasse fest: **eine
+Aenderung am erzeugten Artefakt statt an seiner Quelle ist unsichtbar und wird beim naechsten
+Generatorlauf verworfen.** Der Test erzeugt den Korpus daneben, vergleicht bytegenau, und prueft
+zusaetzlich, dass das Manifest genau die Faelle nennt, die es auf der Platte gibt.
+
+Er tut das ausschliesslich fuer `conformance/agent_review` (Zeile 32: `KORPUS = REPO /
+"conformance" / "agent_review"`). Fuer `conformance/relation` — derselbe Aufbau, eigener Generator
+`conformance/relation/generate_vectors.py`, eigene Eintraege im selben Manifest — gibt es ihn
+nicht.
+
+**GEMESSEN am 08.09.2026**, indem seine drei Pruefungen einmal von Hand gegen den relation-Korpus
+gefahren wurden (Generator in eine Kopie daneben, dann verglichen):
+
+| Pruefung | agent_review | relation |
+|---|---|---|
+| jeder Fall auf der Platte stammt aus dem Generator | verdrahtet | **8 Faelle nicht** |
+| Korpus bytegenau = Generatorausgabe | verdrahtet | nicht gemessen (Schluessel je Lauf frisch) |
+| Manifest nennt genau die Faelle auf der Platte | verdrahtet | von Hand: stimmt (44 = 44) |
+
+Die acht: `statement-malformed`, `statement-retracts-declared-unresolved`,
+`statement-retracts-unauthorized`, `statement-retracts-verified-blocked`,
+`statement-retracts-verified-visible`, `statement-supersedes-verified`,
+`target-subject-ambiguous`, `target-subject-missing`. Ein Neulauf von `generate_vectors.py`
+erzeugt sie nicht; sie laufen im differentiellen Vergleich mit (44 von 44 gruen), aber ihre Quelle
+ist heute die Platte selbst.
+
+**Warum das hier steht und nicht gefixt ist.** Der Riegel auf `relation` auszuweiten faellt nicht
+billig aus: er waere ab der ersten Zeile rot, und gruen wuerde er erst, wenn diese acht Faelle in
+den Generator zurueckgeschrieben sind — Arbeit an acht handgebauten DSSE-Vektoren, mitten in der
+Release-Linie. Die Owner-Regel dieser Runde lautet „Fix nur bei P0", und P0 ist es nicht: der
+Korpus ist heute konsistent (Manifest == Platte, 44/44 differentiell gruen). Was fehlt, ist der
+Schutz gegen die naechste Handarbeit daran.
+
+**Die Klasse ist die des Tages:** eine Bindung bindet nur, was sie ANFASST. Der Riegel ist nicht
+falsch, er ist schmal — und seine Schmalheit ist an keiner Stelle sichtbar, weil er unter einem
+Namen steht, der allgemein klingt. Registerschluessel
+`RIEGEL-DECKT-EINEN-VON-ZWEI-GLEICHGEBAUTEN-KORPUSSEN-01`.
+
+## S32 — `errorContains` prueft nur EINE der beiden Implementierungen, und der Korpus sieht aus, als pruefe es beide
+
+Gefunden von einer Gegenlesung am 08.09.2026 beim Eintragen der zwei Paritaets-Vektoren.
+
+Ein Konformanz-Fall kann in `expected` ein Feld `errorContains` deklarieren — zehn Vektoren tun
+das heute, zuletzt `relation-malformed-relationships-successor` mit
+`RELATION_MALFORMED_SUCCESSOR`. Es liest sich wie eine Zusicherung ueber den Fall.
+
+**Gemessen ist es das nur halb.** `conformance/run_conformance.py:272-275` prueft den String gegen
+Pythons eigenen Bericht und stderr — dort wirkt er. `conformance/common_vocabulary.py:131-144`
+(`expected_label`) liest das Feld **gar nicht**: das gemeinsame Vokabular kennt nur `exitClass`,
+`lineage` und `policyVerdict`. Der differentielle Vergleich in `tools/pb_verify_rs/crosscheck.py`
+laeuft ueber genau dieses Label — und Rusts `verify-relation` gibt ohnehin nur `{"lineage": …}`
+aus, koennte den String also nicht fuehren, selbst wenn jemand ihn dort suchte.
+
+**Die Folge, die zaehlt:** trifft der Rust-Verifizierer dieselbe Exit-Klasse aus einem VOELLIG
+ANDEREN Grund, faellt das nirgends auf. Der Vektor belegt dann „beide sagen POLICY_UNMET", nicht
+„beide sagen POLICY_UNMET WEIL der Nachfolger unlesbar ist". Fuer den aktuellen Stand ist das
+folgenlos — die Quelltexte (`relation.py` und `main.rs`) wurden gelesen und sind an dieser Stelle
+spiegelgleich —, aber der Beleg dafuer ist die Lektuere, nicht der Korpus.
+
+**Warum nicht gefixt:** die ehrliche Loesung ist ein Grund-Feld in Rusts JSON-Ausgabe plus eine
+vierte Achse im gemeinsamen Vokabular. Das ist eine Erweiterung des Konformanz-Vertrags mitten in
+der Release-Linie und faellt unter die Owner-Regel „Fix nur bei P0". Registerschluessel
+`ERWARTUNG-PRUEFT-NUR-EINE-VON-ZWEI-IMPLEMENTIERUNGEN-01`.
+
+**Ein zweiter, kleinerer Befund derselben Gegenlesung** gehoert daneben: die Beweiskraft des
+Vektors `relation/null-relationships-successor` haengt VOLLSTAENDIG an seiner `policy.json`.
+Gemessen mit einem absichtlich kaputten Rust-Build: mit `--policy` weichen die Verifizierer ab
+(exit 0 gegen 3), ohne `--policy` sind beide exit 0 und der Defekt ist unsichtbar. Der Fall
+deklariert die Policy, und `run_conformance.py::_check_relation` wie `crosscheck.py::_relation_argv_common`
+reichen sie nachweislich durch — heute also verdrahtet. Wer diese Verdrahtung einmal loest, macht
+den Vektor still wertlos, ohne dass ein Test rot wird.
