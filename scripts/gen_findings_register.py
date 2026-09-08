@@ -212,6 +212,21 @@ FINDINGS = [
              "signal 9. Neither outcome is a test verdict — what stopped the run was the kernel, "
              "not an assertion — so it is counted in neither sort. This is evidence that the "
              "ceiling the operator removes does its job, not a defect of the candidate"},
+    # N21 FEHLTE HIER BIS 2026-09-08, und die Luecke war strukturell unsichtbar: C12.2 zaehlt
+    # OFFENE P0/P1 im signierten Register, und eine FEHLENDE Zeile kann dort nicht offen sein. Das
+    # Restrisiko-Register fuehrte N1..N21, dieses hier N1..N20, und audit_artifacts/600/README.md
+    # zaehlte ausdruecklich „R1-R7 and N1-N21" — drei Dokumente, zwei Zahlen, kein Vergleich. Der
+    # Riegel dagegen ist jetzt tests/test_register_population_gegen_restrisiko.py: er VERGLEICHT
+    # die beiden Populationen, statt die eine aus der anderen abzuleiten. Owner-GO 08.09.2026.
+    {"id": "N21", "severity": "P3", "status": "open",
+     "note": "the release-deciding check C12.2 flips PASS to FAIL on 2027-09-07 BY DESIGN, and this "
+             "line exists so that a gate which turns red on a calendar date is written down BEFORE "
+             "it does, not explained afterwards. The closing-round fix makes an expired anchor key "
+             "authorise nothing NOW, and the sole key carries not_after=2027-09-06; an empty "
+             "authorised set is FAIL, not DATA_BLOCKED (only an unreadable anchor is the latter). "
+             "From that day the audit matrix goes red until the key is rotated. Intended behaviour "
+             "of a validity window, not a defect of the candidate. Closing action: rotate the key "
+             "before 2027-09-06, or accept the red"},
 ]
 
 
