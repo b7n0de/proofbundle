@@ -372,3 +372,422 @@ because the candidate is what this release ships. It belongs to the round that l
 not carrying this finding as P0 or P1. Measured on this candidate: the register carries ten P2 and
 ten P3 entries and **no** P0 or P1 at all, so condition 6 of the release standard does not engage and
 path A stands. Register key: `DAS-TOR-LAEDT-SEINEN-VERIFIZIERER-AUS-DEM-BAUM-DEN-ES-BEURTEILT-01`.
+
+## What the riegel sweep left open — measured by a lens, and three of four were wrong
+
+**Why this section exists.** The preamble of this file promises that *every finding that stays open
+is named here*. On 2026-09-07 a lens measured that promise against the file and found it broken:
+three findings of the riegel sweep lived only as prose in `audit_artifacts/600/README.md`, without a
+register key, without a severity, without a funnel verdict. This section closes that gap under rule 2
+of the standard rather than as an exception — the round that found them produced a **new freeze**,
+which is exactly the path the section three above prescribes.
+
+**And then a second lens measured the three entries themselves.** It found that they were not
+equally harmless: one was a real P1 with an executed amplification probe, one had a **factually
+wrong** deferral reason and a cheap fix, and one was no finding at all. A residual-risk line that
+files three unequal things as equal is more honest than silence and still wrong. What follows is the
+corrected state; the two P0 the round found are not here, because a closed finding is not a residual
+risk.
+
+### S1 · Budget call sites — five are unreachable, the sixth was a real P1 and is now CLOSED
+
+The sweep filed six unbound budget call sites as one group. A lens mutated **all six at once**
+(`pass` instead of the check, digest compared before and after, mutation read back) and ran the
+1414-test slice on the clean and the mutated tree: **both runs `1412 passed, 2 skipped, 0 failed` —
+identical.** Then it separated them.
+
+**Five are PROVABLY DEAD, not merely untested.** `dsse.load_payload()` — one line earlier in each of
+the six paths — already enforces `string_len` (1 000 000) on the base64 payload, and 1 000 000 base64
+characters decode to at most ~750 KB, so the local `input_bytes` comparison (8 388 608) is never
+reached. Measured with a 2 MB payload probe, corroborated by the project's own cost-curve
+measurement, and both constants are pinned in both directions — so the safe relation cannot lapse
+silently.
+
+**The sixth was real.** `verify_trust_pack` never calls `dsse.verify_envelope` — it has its own
+threshold loop — so it does not benefit from the cap set there. Without its local cap the only
+backstop is `json_nodes` (200 000), roughly 390× looser, because a signature entry costs about three
+nodes. Measured with a genuine signed pack inflated with structurally valid, cryptographically wrong
+entries: with the cap every list over 512 is refused; without it, 66 600 entries are accepted as a
+VALID pack after ~0.17 s of real Ed25519 work, roughly 130× the documented worst case. **No test in
+the repository called `verify_trust_pack` with an overlong signature list** — the similarly named
+`test_resource_budget_bites_on_wide_signatures` exercises `dsse.verify_envelope`, a different path.
+A neighbour that looks like the binding and is not one.
+
+**CLOSED** in this round by `tests/test_trust_pack_signaturdeckel_beisst.py`, which binds the
+**effect** rather than the message: it counts how often the crypto check is entered at all. With the
+cap, zero; without it, one call per entry. The verdict alone cannot tell the two states apart —
+`ok` is `False` either way, because the entries are invalid — which is exactly why the case counts
+work instead of reading text. Catch-proof announced before the run and measured after: **1 of 3**.
+
+### S2 · The package-guard skip assertion — CLOSED, and the deferral reason was wrong
+
+The assertion that was supposed to hold the SKIP count read the COLLECTED count instead. The sweep
+deferred it with the reason *"binding it needs a real sdist as its measurement surface"*. **A lens
+falsified that reason.** A minimal throwaway tree suffices — `conftest.py`, the two cited test
+modules, and the two scripts they load AT IMPORT time; no sdist build. Measured: exactly `34 skipped`
+and `9 skipped`, zero collection errors, matching the header. Control: the same tree WITHOUT
+`scripts/` reproduces the earlier failure exactly (two collection errors). The first attempt failed
+on **incompleteness, not on structure** — and one incomplete measurement was turned into an
+impossibility.
+
+**CLOSED** in this round by
+`test_die_zahl_im_kopf_ist_eine_SKIP_zahl_und_wird_als_SKIP_zahl_gemessen`, which runs a real
+`pytest -rs` in that tree. Catch-proof announced and measured: with `modul_ist_repo_kontext` forced
+to `return False`, **2 of 7** fall — the new case and the derivation control — while the
+collected-count case stays GREEN. That difference is the whole reason the case exists.
+
+### S3 · `pre_tag_audit_gate` first-candidate acceptance — NO FINDING, measured in both directions
+
+The sweep recorded this as "probably intended, measured in neither direction". It is now measured.
+The only genuine first-candidate pattern (`recs[0]` in `audit_artifact_for`) is a vestigial legacy
+function called only from tests; the live gate path (`evaluate()`) does not use it and evaluates ALL
+candidates independently as a union. Measured with two probe repositories, good and bad candidate in
+both alphabetical orders: correct classification regardless of file order. An attacker cannot
+displace a genuine candidate or smuggle a false one through by naming files. **Recorded as closed
+with its measurement, not carried as an open risk.**
+
+### S4 · A shipped prose document drifted from the corpus it describes — CLOSED, and the deferral was again too cautious
+
+`CROSS_IMPLEMENTATION_REPORT.md` states the corpus grew "to 57 cases … 56/56". Measured on this
+head: the corpus holds **107** cases and `crosscheck.py` reproduces **57**, the rest declared
+Python-only. The document opens by saying of itself that it is prose and that prose drifts, and it
+names `scripts/rust_parity_gate.py` as the living source — so the drift is already structurally
+caught. It is listed because the promise at the top of THIS file is about every open finding, not
+about every important one. **Funnel: it can mislead a reader** who takes the prose for the
+measurement. Register key: `PROSA-BERICHT-DRIFTET-VON-SEINEM-KORPUS-01`.
+
+**CLOSED on 2026-09-08, and the closing is itself a data point.** This entry was filed as "already
+structurally caught, the document says of itself that prose drifts" — which is true and was used as a
+reason not to touch it. Ledger class 234 (*a deferral needs the same evidence as a finding*) carried
+a falsifiable prediction: that at least one of the remaining open items would close in under an hour,
+and it named the one I least expected. This was not that one — it was the one I had called
+self-correcting. It took **one command and one sentence**: `crosscheck.py` prints its own verdict,
+and it reads **57 of 107**, 42 of them relation vectors compared differentially.
+
+The sentence that stood there claimed "All corpus cases are reproduced independently" and then
+"56/56 as of v3.7.0". Each half was true of a smaller, older corpus; together they read as full
+coverage of the current one. That is the same shape as the release record's own recurring defect — a
+verdict over an excerpt, phrased as a verdict over the whole — in a document that ships. It now names
+the command, the date, and the remainder that is declared Python-only.
+
+**Score of my own deferral estimates in this cycle: 0 of 4.** Three were closed by someone else
+pointing at them, this one by finally running the command I had argued did not need running.
+
+### What this correction is itself an instance of
+
+Three of four entries written in one round were wrong within the same round — not in their facts but
+in their **severity and their reasons**. The shared shape: a finding was filed with the confidence of
+a measurement while resting on a single incomplete attempt. `S1` grouped six things that measure
+differently, `S2` promoted one failed setup to a law of nature, `S3` called an unmeasured thing
+"probably intended". The lens that took each of them apart did nothing this round could not have
+done — it just did not stop at the first answer. Register key:
+`DREI-VON-VIER-RESTRISIKO-EINTRAEGEN-FALSCH-EINGESTUFT-IN-DERSELBEN-RUNDE-01`.
+
+### S5 · The two new riegel are bound one at a time, never together — open, named by the cross-family lens
+
+Fix 1 bounds the crypto work of `verify_trust_pack`; fix 2 binds the skip count of the package
+guard. **No case asserts that both hold at the same time.** The lens that named it put the
+consequence plainly: cap gone AND skip count wrong means an oversized pack is accepted after real
+Ed25519 work while the guard reports a figure that no longer describes anything — and not one case
+catches the combination.
+
+**Why it stays open rather than being closed here:** the two riegel live on unrelated surfaces
+(a verifier's resource bound and a test-suite bookkeeping figure), so a combined case would be a
+product of two independent axes rather than a property either one has. Building it well is a
+combinatorial question, and building it badly would be a case that passes for reasons neither axis
+supplies — the exact failure this cycle spent its day removing. **Funnel: it does not add a path a
+user can reach**; each riegel is bound individually and measured red without its fix. Register key:
+`ZWEI-RIEGEL-EINZELN-GEBUNDEN-IHRE-KOMBINATION-NICHT-01`.
+
+**A second point from the same lens — and it turned out smaller than a follow-up, so it is CLOSED
+here.** In a real sdist a module could skip for a DIFFERENT reason (a missing optional dependency, a
+platform check); the count would then be right for the wrong reason and the assertion would pass.
+The case now binds the CAUSE as well: `conftest.py` writes the identifier `PKG-2026-0718-01` into the
+skip reason, and the case reads it out of the `-rs` output alongside the count.
+
+Catch-proof, announced before the run and measured after: replace ONLY the reason text, leave the
+count untouched — **1 of 7** falls, and it is the new case, failing on the reason line rather than on
+the number. Sharper than intended: the identifier still appears in the module's docstring and only
+the skip reason lost it, and the case fails anyway. It reads the REASON, not the file. Register key:
+`DIE-SKIP-ZAHL-IST-GEBUNDEN-IHR-GRUND-NICHT-01`, closed.
+
+### Where the round's own method failed, and what actually caught it
+
+The owner reversed the order after the third relapse: catch-proof first, red against the defective
+state, number announced, only then the change. Both remaining fixes were built that way, and both
+announcements were hit exactly. **It was not enough.** The counter case built under the new order
+was itself a form check — it patched a module attribute, and a rename with a leftover alias would
+have left it counting zero for the wrong reason. Measured: **1 of 3 fell under that mutation, and
+the counter case was not among them.** Its neighbour held it.
+
+What found it was not a better rule. It was a lens from a **different model family** — the only one
+of six — asked one question no Claude lens had been given: *what do five lenses of one family agree
+not to see?* The witness had already named the risk (a homogeneous panel amplifies shared bias
+rather than reducing it, arXiv:2505.19477); acting on that naming was a separate step and it is the
+one that produced the finding. Register key: `VIERTE-INSTANZ-GEFUNDEN-ERST-VON-DER-FREMDFAMILIE-01`.
+
+### S6 · A REQUIRED check is red because a wall-clock ceiling is a number from one machine — open, calibrated, not yet measured in CI
+
+`coverage` is a required check under the branch ruleset, and it is RED on the frozen head. **This
+entry exists because the finding would otherwise live only in the release record** — the exact gap a
+lens of this round charged this file with, and repeating it here would be the same defect one round
+later.
+
+**Measured.** `renewal_work` costs 3.096 s at its largest allowed value on the CI runner, against a
+ceiling of 3.0 s. In the parent's GREEN run the same axis measured 2.844 s — **94.8 % of the
+ceiling**. On the reference machine it costs 1.44–1.56 s. The runner is uniformly about twice as
+slow (`input_bytes` 1.8×, `json_nodes` 2.1×, `signatures` 2.5×, `data_digests` 2.0×), every other
+axis carries a factor of ten in headroom, and this one carried 1.9×. **Nothing on this head touches
+`renewal`** — the cause is the machine, not the candidate.
+
+**Owner decision `OA-0646ecdf70`, option A with a cap**, implemented and measured locally: the
+ceiling is expressed in reference units, a deterministic reference load is measured in the same run,
+the machine factor is floored at 1.0 (measured on the reference machine: 1.0116), and the cap is
+DERIVED from the smallest headroom of the other axes in the same run (measured: 19.54). Above the cap
+the case reports NICHT MESSBAR with the factor, never green. Three cases bind the cap's derivation by
+effect; replacing it with the constant that is correct today makes 2 of 3 fall.
+
+**Why it stays open:** the calibration has NOT yet run in CI. Until a green `coverage` exists on a
+head that carries it, this row is the reason the release does not land, and no local measurement
+substitutes for that. **Funnel: no user of the shipped package is affected** — the DoS bound itself
+is unchanged, only the way the ceiling is expressed. Register key:
+`WANDUHR-LATTE-EINER-MASCHINE-AUF-EINER-ANDEREN-DURCHGESETZT-01`.
+
+**The honest limit of the fix — and the first version of this paragraph was WRONG.** A ceiling that
+scales with the machine can be stretched by a real cost increase up to the factor itself: with a
+factor of 2, an increase must exceed 2× to be caught by THIS assertion. That much stood here already.
+What followed was false: *"what catches a smaller one is the machine-independent half — the cost
+curve's exponent and the work count."*
+
+**It does not.** The cross-family lens refuted it and the refutation is arithmetic: a CONSTANT
+multiplier leaves the log-log slope untouched, so the exponent cannot see it. Measured by computing
+both: exponent 1.044646 before, **1.044646** after multiplying every point by 1.5 — difference
+exactly 0.0. The work count is equally blind: it counts operations, and a per-operation slowdown
+(a cache-miss regression, a slower hash path) changes none of them.
+
+**So the gap is real and it is named as a gap, not as a covered case.** A cost increase between 1×
+and the machine factor is caught by NOTHING in this file. On a runner with a factor of 2 that is a
+doubling of the real cost passing green. The lens called it "an open hole, not an edge case", and
+that is the honest description. What bounds it in practice is that the factor itself is bounded by
+the derived cap — but that is a bound on the SIZE of the hole, not a closure of it.
+
+Register key: `EINE-KOSTENSTEIGERUNG-UNTER-DEM-MASCHINENFAKTOR-FAENGT-NICHTS-01`.
+
+**Why the wrong sentence is left visible rather than quietly replaced:** it was written in the same
+round that spent its whole length removing claims stronger than their evidence, by the same hand, in
+the entry that exists to state a limit honestly. A record that silently repairs its own overclaims
+teaches nothing about how they get in.
+
+### S7 · The calibration's own machine factor was frozen on its first measurement — CLOSED, caught by a lens on the fix itself
+
+The fix for S6 carried a P0 that would have **reproduced the very failure it was built to remove**.
+`_referenz_werte()` measured the reference load only `if not _REFERENZ_HIER:` — once per process. The
+machine factor for the entire 1138-second run therefore hung on whatever the machine happened to be
+doing at the moment of its first call.
+
+**Measured, not argued.** With twelve foreign busy loops running: factor **1.2164**. After they
+ended: still **1.2164** — the cached value. Cache cleared and re-measured on the now-idle machine:
+**1.0098**. Ratio **1.205**.
+
+The damage runs in **both directions**, and the second one is the worse: a load spike during the
+first call loosens the ceiling for the rest of the run and hides real regressions; a quiet minute
+tightens it and produces exactly the false red that owner decision `OA-0646ecdf70` exists to prevent.
+
+**The first catch-proof for this was GREEN and therefore worthless**, and that is the more useful
+half of the entry. It wrote values directly into `_REFERENZ_HIER` — bypassing `_referenz_werte()`
+and with it the cache guard it claimed to bind. Announced 1 of 7 falling, measured 0. The second
+attempt replaces the MEASUREMENT (`_cpu` and `_referenzlast`) instead of its result, counts the
+measurements as a precondition, and falls with the message *"9 measurements on the first call, 0 on
+the second"*. Announced 1 of 8, measured 1 of 8.
+
+Fixing it broke **three existing cases of the same class** — they too had planted state instead of
+walking the path, and had silently relied on nothing being measured after them. All four now go
+through the measurement path.
+
+**Cost of the fix, measured on this machine:** the test file goes from 55.44 s to 62.78 s, +7.33 s
+(+13.2 %); against the full suite's 1138 s that is +0.64 %.
+
+Nine mutations, nine announced numbers, nine hits — including the reinstated cache, which falls
+exactly one case. Register keys: `MASCHINENFAKTOR-AUF-DER-ERSTEN-MESSUNG-EINGEFROREN-01` and
+`FANGNACHWEIS-AM-SPEICHER-STATT-AM-PFAD-BEWEIST-NICHTS-01`.
+
+### S7b · The first version of the S7 fix was itself refuted — by three lenses, on three different grounds
+
+The fix recorded in S7 measured the reference load on every call but **appended** the measurements
+and took the median over the whole run. Three independent lenses attacked that, and two of the three
+attacks landed with arithmetic behind them.
+
+**DRIFT (first lens, executed).** `_maschinenfaktor()` runs once per dimension, twelve times in a
+run. With accumulation the first dimension sees 9 values and the twelfth sees 108 — axes of the SAME
+run measured against different ceilings, decided by their position in a list.
+
+**MASKING, the worse one (first lens, re-computed independently here).** A median only follows once
+more than half the values are new; a slowdown starting at call *k* becomes visible around call
+*2k-1*. For a real fivefold slowdown starting at call 11 of 12: the accumulated series reports factor
+**1.000** for both affected dimensions, while a per-call series reports **5.000** immediately. The
+ceiling would stay tight while the machine really is slow — the false red that `OA-0646ecdf70` exists
+to prevent, hidden one level deeper.
+
+**And the accumulation was not bound at all.** The same lens found the mutation that leaves all eight
+cases green: a `clear()` at the start of the function. Every case cleared the series itself before
+its own scenario, so none of them ever observed the behaviour across calls.
+
+**The fix now measures a fresh series on every call and REPLACES the previous one.** Factor and
+measured cost then describe the same time window — they are paired. Against the other danger, a
+single restless series, the protection is no longer smoothing but `_faktor_spanne` (S7c).
+
+**A second lens found a leak, executed rather than argued.** The test helper patched two module
+globals in two separate statements, and every caller obtained the restore function only after the
+call returned. The lens injected a failure between the two assignments and watched a case in a
+DIFFERENT class inherit the fake clock and report a fabricated *"machine factor 20.00"* as a
+clean-looking skip. Both globals are now set in a single `globals().update(...)` as the function's
+last statement: either nothing is patched, or the function returned.
+
+**The same lens showed the counter binds calls, not effect.** One extra unpaired call to the fake
+clock desynchronises its start/stop alternation permanently, every measured delta collapses to 0.0 —
+and `max(1.0, 0/reference)` yields exactly the 1.0 the median case expects. The case would stay green
+on a completely corrupt measurement. The cases now assert that every measured value is positive and
+that the outlier really is forty times the others.
+
+**One deviation of my own, found by my own matrix and worth recording.** The case binding "the span
+describes the SAME series as the median" measured that by the series' LENGTH. When the design changed
+from appending to replacing, the length stopped growing — and the case went from catching that
+mutation to catching nothing (announced 1, measured 0). It is now bound to the measurement COUNTER.
+A riegel whose measured quantity turns under it is silent, and nothing says so.
+
+**And a flaky assertion of my own.** The same case evaluated its last assertion AFTER restoring the
+real clock, so it took a LIVE measurement of the machine inside a case that judges a faked series.
+The same mutated state produced 2 failures in one run and 3 in the next. Moved inside the patched
+window; ten runs of the mutated state now give ten identical results, and ten runs of the clean state
+give ten times eleven green.
+
+Register keys: `ANGEHAEUFTE-REFERENZREIHE-MASKIERT-DIE-SPAETE-VERLANGSAMUNG-01`,
+`ZWEI-GLOBALE-IN-ZWEI-SCHRITTEN-GEPATCHT-LECKT-IN-FREMDE-KLASSEN-01`,
+`EIN-ZAEHLER-ZAEHLT-AUFRUFE-UND-BINDET-KEINE-WIRKUNG-01`,
+`RIEGEL-AN-EINER-MESSGROESSE-DIE-SICH-UNTER-IHM-WEGDREHT-01`.
+
+### S7c · A bimodal machine silently loosened the ceiling tenfold — CLOSED, named by the cross-family lens
+
+The median describes a machine well as long as it has ONE state. The cross-family lens named the
+distribution where it fails exactly as the mean does: five of nine measurements slow, four normal.
+The median then sits in the SLOW group, the ceiling follows it, and a factor of 10 passes unnoticed
+because it stays below the derived cap of about 19.5. Measured across the range: up to four outliers
+of nine the factor stays 1.000; at five of nine it jumps to 40.0 — the median's 50 % breakdown point,
+in this construction and with real consequences.
+
+**The closure needs no typed threshold**, which matters because the owner's decision forbids one. It
+asks a sharper question than "how much does the machine vary": **does the verdict depend on which end
+of the measured series you take?** If the cost lies between the ceiling at the fastest end and the
+ceiling at the slowest, the measurement says nothing in either direction, and the case reports NICHT
+MESSBAR. On a quiet machine that band is as narrow as the machine's own spread (1.046 on the
+reference machine, and no real dimension fell into it in any run here); on a bimodal one it is as
+wide as its jump.
+
+Twelve mutations against the finished construction, twelve numbers announced before each run, ten
+exact and two deviating by one case each — both named, both real catches, neither rounded away.
+
+Register key: `EIN-ZWEIGIPFLIGER-LAUF-LOCKERT-DIE-LATTE-UM-SEINEN-SPRUNG-01`.
+
+### S7d · Three mutants survived the entire class, and a fourth defect was in the test harness itself — CLOSED
+
+The third lens ran mutations the class had never been asked about, and three of them left **all eight
+cases green** while a real property was broken:
+
+* **The axis-count multiplier was unreachable.** `_faktor_deckel` computes headroom as
+  `(d.achsen * GRENZE_S) / k`. Removing the multiplier changed nothing, because every call in the
+  class passed `ausser="renewal_work"` — and `renewal_work` is the ONLY dimension with `achsen != 1`.
+  The one axis whose multiplier matters was always the excluded one. The new case excludes a
+  single-axis dimension instead, so `renewal_work` enters the computation with its three axes.
+* **The `k <= 0` guard was never exercised.** No fixture ever set a cost of zero. It becomes real as
+  soon as an axis is cheap enough to fall under the clock's resolution; without the guard the cap
+  dies on a division by zero, and a riegel that dies on an exception reports nothing at all.
+* **The boundary `faktor > deckel` versus `>=` was undecided.** No fixture constructed equality. The
+  boundary is a statement: the cap is the stretch at which the NEXT axis breaks, so exactly on it
+  nothing has broken yet and the case is still measurable. Shifting it silently converts a measurable
+  case into a NICHT MESSBAR, and a silent riegel is indistinguishable from a passing one.
+
+**Building the third case exposed a defect in the harness rather than in the subject.** The fake
+clock accumulated (`t += cost`), so the difference of two large floats was no longer exactly the
+requested value; the drift pushed the factor just above the cap and the case went red for a reason
+that had nothing to do with the boundary. Each measurement now starts at 0.0. A measuring instrument
+whose own imprecision moves the quantity under test measures itself along with it.
+
+Three mutations, three announced numbers, three hits. Register keys:
+`DIE-EINZIGE-ACHSE-DEREN-MULTIPLIKATOR-ZAEHLT-WAR-IMMER-DIE-AUSGESCHLOSSENE-01`,
+`EIN-SCHUTZ-DEN-KEINE-FIXTURE-ANSTEUERT-IST-UNGEBUNDEN-01`,
+`DIE-GRENZE-EINES-RIEGELS-IST-EINE-AUSSAGE-KEINE-GESCHMACKSFRAGE-01`,
+`EINE-AUFSUMMIERENDE-TESTUHR-VERSCHIEBT-DIE-GEPRUEFTE-GROESSE-01`.
+
+### S10 · Four lines of the advisory matrix are red because three evidence artefacts bind a tree the candidate has overtaken — open, owner-gated on the signature
+
+Measured by running the gate's own command in the full local clone rather than reading CI's verdict:
+`python3 scripts/audit_candidate_matrix.py --json` → **28 PASS, 4 FAIL, 1 EXTERNAL_PENDING**.
+
+The four failures are ONE class. `audit_artifacts/360/fuzz_soak_latest.json` (C6.2, C6.3) and
+`audit_artifacts/360/rust_differential_matrix.json` (C8.2) bind commit `9e742bfa`. That commit IS an
+ancestor of the frozen head — but the changes between it and here are not confined to the mutable
+evidence paths, so the signature no longer covers this tree. C12.1 is the same shape one level up:
+the pre-tag receipt binds `subject_tree_digest 877cd4f9`, this tree is `6c5be10e`.
+
+**Why this cannot be closed here.** `scripts/sign_readiness_artifact.py` says it in its own words:
+*"the release private key lives on the owner's machine, never on the build host."* The measurement is
+mine to redo; the signature is not. Owner card `600_bereitschaftsartefakte_signieren` carries the
+three options. What is prepared without a key: re-measure both artefacts on the final freeze head and
+emit the canonical bytes (`--emit-payload` / `--context-out`), so signing is a single step.
+
+**Two observations about the CI run, neither of which changes the verdict.** The job
+`audit-candidate-matrix` checks out with the default depth (no `fetch-depth`, unlike the jobs at
+lines 23 and 455), so in CI the bound ancestor is genuinely absent and the message reads *"does not
+exist in this repository at all"* — a different sentence for the same correct FAIL. And the step
+immediately before the check regenerates `rust_differential_matrix.json` via
+`crosscheck.py --matrix`, whose writer emits no `version`, no `candidate` and no signature — so in CI
+that check rejects an artefact the workflow itself just overwrote, and C8.2 can never pass there in
+this form. Both are recorded as findings against the CI, not against the candidate:
+`MATRIXJOB-KLONT-FLACH-UND-FINDET-DEN-EIGENEN-VORFAHREN-NICHT-01` and
+`MATRIXJOB-ERZEUGT-DIE-DATEI-NEU-DIE-ER-DANACH-PRUEFT-01`.
+
+**The first version of this entry was wrong and is left visible.** From the differing CI wording I
+concluded the failure was a shallow-clone artefact — that the candidate was fine and CI merely could
+not see the commit. Running the gate's own command locally refuted it in one line: the same three
+checks fail here too, with the ancestor-is-not-evidence-only reason. The lesson is the one this cycle
+keeps relearning: read the gate's verdict by running the gate, not by interpreting its message.
+
+Register key: `DREI-BELEGE-BINDEN-EINEN-VORFAHREN-DEN-DER-BAUM-UEBERHOLT-HAT-01`.
+
+### S8 · The reference load measures sha256 only, and six of the twelve axes are not hash-bound — open, NOT measurable on one machine
+
+`_referenzlast()` is a pure sha256 loop. It was chosen deliberately — it must not be one of the axes
+under test, or a real cost increase there could lift the machine factor along with it and hide
+itself. That reasoning is sound and the choice stands. **What follows from it is a limit that was not
+written down:** the factor describes how fast this machine hashes, and it is then applied to axes
+whose cost is not hashing at all — `input_bytes`, `json_nodes`, `json_depth`, `string_len` (JSON
+parsing), `int_bits` (big-integer arithmetic).
+
+A machine whose SHA-256 is slow relative to its general speed — no hardware hash acceleration, a
+different OpenSSL build — receives a factor above its true general-purpose factor, and the ceilings
+of those six axes are loosened by the difference without anything noticing. The derived cap only
+catches it once the inflated factor exceeds the smallest headroom of the other axes; below that it is
+silent.
+
+**Why this is recorded rather than fixed:** the size of the effect is a property of the DIFFERENCE
+between two machines' instruction mixes. One machine cannot measure it — here both families run on
+the same silicon and the ratio is 1.0 by construction. A number stated here would be a guess wearing
+a measurement's clothes, and this file has spent its length removing exactly those. The mechanism is
+readable in the code and is stated above; the magnitude is **NOT MEASURABLE** from this vantage
+point.
+
+Register key: `REFERENZLAST-MISST-EINE-FAMILIE-UND-SKALIERT-SECHS-ANDERE-01`.
+
+### S9 · The one-second budget is a declared policy, not a derived number — open by design, named because it is load-bearing
+
+`GRENZE_S = 1.0` carries the comment *"the declared upper bound: one second of compute at the largest
+allowed value of ONE dimension"*. It is typed, and it is the only number in the construction that is.
+The owner's requirement — *"the cap comes from the distribution of the runs, no typed number"* —
+applied to the CAP, and the cap is derived. A declared budget may legitimately be a policy choice.
+
+It is named here because it is **load-bearing and close to the edge**: `renewal_work` spans three
+axes, so its ceiling is 3.0 s, and the CI runner measured 3.096 s. The red check that started this
+whole entry is 3.2 % over a number nobody derived. A different declared budget would have produced a
+different verdict about the same code.
+
+Register key: `EINE-SEKUNDE-IST-EINE-ERKLAERTE-POLITIK-KEINE-MESSUNG-01`.

@@ -212,33 +212,84 @@ def test_ANTI_PARITAET_die_ableitung_haelt_ein_reines_paketmodul_NICHT_fuer_repo
         "uebersprungen, und ein Lauf ohne einen einzigen ausgefuehrten Test liest sich als gruen.")
 
 
-# ── OFFEN, GEMESSEN, NICHT GEFIXT: die Zahl im Kopf ist eine SKIP-Zahl, gemessen wird eine ───────
-#   SAMMELMENGE (Riegel-Sweep auf Owner-Auftrag, 2026-09-07)
-#
-# `test_die_im_kopf_zitierten_zahlen_stimmen_mit_dem_sammler_ueberein` vergleicht die Zahl des
-# Kopfes mit `_gesammelte_items(modul)` — der Zahl der im REPO GESAMMELTEN Tests. Der Kopf
-# behauptet aber "34 skipped": die Zahl der aus dem PAKET heraus UEBERSPRUNGENEN. Gemessen am
-# 2026-09-07: beide Module werden im Repo NULL mal uebersprungen (34 gesammelt / 0 skipped,
-# 9 gesammelt / 0 skipped). Die Gleichheit haelt nur, solange ausserhalb des Checkouts ALLE
-# gesammelten Items uebersprungen werden — eine Annahme, die nirgends steht.
-#
-# AUSGEFUEHRTER FANGNACHWEIS: `conftest.modul_ist_repo_kontext` auf `return True` gesetzt (das
-# Paket ueberspringt dann ALLES statt nichts) — von sechs Faellen dieser Datei fiel NUR die
-# Anti-Paritaets-Kontrolle. Die vier Zusicherungen ueber die Zahlen blieben gruen, weil keine von
-# ihnen eine Skip-Zahl misst. Das ist die Klasse des Sweeps in Reinform: der Test prueft die FORM
-# (die Zahl steht da und passt zu einer Sammelmenge) statt der WIRKUNG (aus dem Paket heraus wird
-# genau so oft uebersprungen).
-#
-# WARUM HIER KEIN FALL STEHT, sondern dieser Kommentar: die Wirkung ist nur an einer ECHTEN sdist
-# messbar, nicht an einem nachgebauten Wegwerfbaum. Ein erster Versuch mit `shutil.copy2` von
-# conftest plus den zwei Modulen scheiterte belegbar daran, dass `test_fork_pr_secret_isolation`
-# BEIM IMPORT `scripts/fork_pr_secret_isolation.py` laedt, waehrend `conftest.pytest_collection_
-# modifyitems` (Zeile ~463) erst NACH dem Import ueberspringt: der Wegwerfbaum liefert einen
-# Collection-Error statt eines Skips. Ob die ECHTE sdist dasselbe tut, ist eine andere Frage —
-# `N18` im Release-Beleg fuehrt genau diese Diskrepanz zwischen der Zusage "degrades to clean
-# skips" und einem gemessenen roten Lauf bereits als offenen Punkt.
-#
-# Einen Fall gegen eine Messflaeche zu stellen, die den Gegenstand nicht abbildet, waere an diesem
-# Abend die DRITTE Instanz derselben Falle (siehe Klasse
-# `messbaum_ueberspringt_genau_die_pruefung_um_die_es_geht`). Der Fund steht deshalb hier, benannt
-# und mit Fangnachweis, und der Fix wartet auf die sdist als Messflaeche — ein eigener Zug.
+def _wegwerfbaum(ziel: Path) -> None:
+    """Ein Baum OHNE Repo-Marker, aber MIT allem, was die zwei Module beim IMPORT brauchen.
+
+    DIE ERSTE FASSUNG DIESES BAUMS WAR UNVOLLSTAENDIG, und daraus wurde ein falscher Schluss.
+    Sie kopierte `conftest.py` plus die zwei Testmodule — und bekam zwei Collection-Errors statt
+    Skips, weil `test_fork_pr_secret_isolation` beim IMPORT `scripts/fork_pr_secret_isolation.py`
+    laedt und `test_audit_marker_line_wrap` ebenso `scripts/pre_tag_audit_gate.py`, waehrend
+    `conftest.pytest_collection_modifyitems` erst NACH dem Import ueberspringt. Der Schluss daraus
+    lautete: "die Wirkung ist nur an einer ECHTEN sdist messbar". Eine Linse der Bestaetigungsrunde
+    (2026-09-07) hat das WIDERLEGT — es fehlten die zwei Skripte, nicht die sdist. Aus EINEM
+    unvollstaendigen Messversuch wurde eine Unmoeglichkeit gemacht; das ist dieselbe Klasse wie
+    "unaufgezeichnet gilt als unwiederbringlich", nur eine Etage tiefer.
+    """
+    (ziel / "tests").mkdir(parents=True)
+    (ziel / "scripts").mkdir(parents=True)
+    shutil.copy2(CONFTEST, ziel / "tests" / "conftest.py")
+    for modul in _ZITIERTE_ZAHLEN:
+        shutil.copy2(REPO / "tests" / f"{modul}.py", ziel / "tests" / f"{modul}.py")
+    for skript in ("fork_pr_secret_isolation.py", "pre_tag_audit_gate.py"):
+        shutil.copy2(REPO / "scripts" / skript, ziel / "scripts" / skript)
+
+
+#: Die Kennung, die `conftest.py` in den Skip-GRUND schreibt. Der Grund wird mitgebunden, nicht nur
+#: die Zahl — eine fremdfamiliaere Linse hat darauf gezeigt (Lauf 5, 2026-09-07): in einer echten
+#: sdist koennte ein Modul aus einem ANDEREN Grund uebersprungen werden (fehlende optionale
+#: Abhaengigkeit, Plattform-Check). Die Zahl staende dann richtig da und belegte etwas anderes.
+_SKIP_KENNUNG = "PKG-2026-0718-01"
+
+
+def _skips_im_baum(baum: Path, modul: str) -> tuple[int, str]:
+    """Die Zahl der WIRKLICH uebersprungenen Tests UND ihr Grund, aus einem echten `pytest -rs`-Lauf."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-p", "no:randomly",
+         str(baum / "tests" / f"{modul}.py")],
+        cwd=str(baum), capture_output=True, text=True, timeout=600,
+        env={"PYTHONPATH": str(REPO / "src"), "PATH": "/usr/bin:/bin:/usr/local/bin",
+             "HOME": str(Path.home())})
+    ausgabe = (proc.stdout or "") + (proc.stderr or "")
+    assert "error" not in ausgabe.lower().split("short test summary")[0][-400:] or "skipped" in ausgabe, (
+        f"Der Wegwerfbaum liefert keinen sauberen Lauf fuer {modul}:\n{ausgabe[-1200:]}")
+    # Von HINTEN: die Bilanz ist die letzte passende Zeile, nicht die erste im Blob.
+    gruende = [z for z in ausgabe.splitlines() if z.startswith("SKIPPED")]
+    for zeile in reversed(ausgabe.splitlines()):
+        treffer = re.search(r"(\d+)\s+skipped", zeile)
+        if treffer:
+            return int(treffer.group(1)), " | ".join(gruende)
+    return 0, " | ".join(gruende)
+
+
+def test_die_zahl_im_kopf_ist_eine_SKIP_zahl_und_wird_als_SKIP_zahl_gemessen(tmp_path):
+    """DER FALL, DER DEN OFFENEN PUNKT SCHLIESST — und er misst die WIRKUNG, nicht die Sammelmenge.
+
+    `test_die_im_kopf_zitierten_zahlen_stimmen_mit_dem_sammler_ueberein` vergleicht die Zahl des
+    Kopfes mit der Zahl der im REPO GESAMMELTEN Tests. Der Kopf behauptet aber "34 skipped": die
+    Zahl der aus dem PAKET heraus UEBERSPRUNGENEN. Im Repo werden beide Module NULL mal
+    uebersprungen; die Gleichheit hielt nur unter der nirgends festgehaltenen Annahme, dass
+    ausserhalb des Checkouts ALLE gesammelten Items uebersprungen werden.
+
+    AUSGEFUEHRTER FANGNACHWEIS (2026-09-07): `modul_ist_repo_kontext` auf `return False` gesetzt —
+    dann wird NICHTS mehr uebersprungen. Dieser Fall faellt. Der Sammelmengen-Fall oben bleibt
+    GRUEN, weil die Sammelmenge sich nicht bewegt. Genau diese Differenz ist der Grund, warum es
+    diesen Fall braucht.
+    """
+    _wegwerfbaum(tmp_path)
+    m = _conftest_modul()
+    assert not any((tmp_path / marker).exists() for marker in m._REPO_ONLY_MARKERS), \
+        "Vorbedingung: der Wegwerfbaum darf keinen Repo-Marker tragen"
+    for modul, erwartet in _ZITIERTE_ZAHLEN.items():
+        gemessen, grund = _skips_im_baum(tmp_path, modul)
+        assert gemessen == erwartet, (
+            f"{modul} wird ausserhalb eines Checkouts {gemessen} mal uebersprungen, der Kopf von "
+            f"conftest.py nennt {erwartet}. Die Zahl im Kopf ist eine SKIP-Zahl; wird sie gegen "
+            f"eine Sammelmenge gemessen, belegt sie etwas anderes als das, was dasteht.")
+        # DER GRUND, NICHT NUR DIE ZAHL. Ohne diese Zusicherung waere die Zahl auch dann richtig,
+        # wenn das Modul aus einem voellig anderen Grund uebersprungen wird — und der Kopf von
+        # conftest.py spricht ueber GENAU EINEN Mechanismus.
+        assert _SKIP_KENNUNG in grund, (
+            f"{modul} wird zwar {gemessen} mal uebersprungen, aber nicht aus dem Grund, ueber den "
+            f"der Kopf von conftest.py spricht: die Kennung {_SKIP_KENNUNG!r} steht in keiner "
+            f"SKIPPED-Zeile. Eine richtige Zahl aus dem falschen Grund belegt nichts.\n"
+            f"Gemessene Gruende: {grund[:400]}")

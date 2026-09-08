@@ -117,12 +117,70 @@ class TestTestManifestGate(unittest.TestCase):
             f"{sorted(regex_menge - ast_menge)[:8]}; nur im Syntaxbaum: "
             f"{sorted(ast_menge - regex_menge)[:8]}. Eine Klassifikation, die sich selbst "
             f"widerspricht, ist keine — und ein Boden ueber der GROESSE haette es nicht bemerkt."))
-        # Und das Tor selbst muss die Uneinigkeit zu einem PROBLEM machen, nicht nur berichten.
+        # Der ECHTE Baum muss einig sein — das ist der Gluecksfall-Pfad und mehr nicht.
+        # DASS eine Uneinigkeit das Tor toetet, prueft NICHT dieser Fall, sondern
+        # `test_eine_ECHTE_uneinigkeit_zwingt_das_tor_auf_NICHT_ok`. Diese Trennung steht hier,
+        # weil die erste Fassung dieses Falls den Kommentar "das Tor muss die Uneinigkeit zu einem
+        # PROBLEM machen" ueber eine Zusicherung schrieb, die das GEGENTEIL prueft (dass KEIN
+        # solches Problem gemeldet wird). Eine Linse fand es: der ganze Widerspruchs-Block liess
+        # sich entfernen und alle fuenf Faelle blieben gruen — gemessen, 0 von 5.
         r = self.g.evaluate()
         self.assertNotIn("uneinig", " ".join(r["problems"]).lower(),
                          f"das Tor meldet eine Uneinigkeit, die hier keine sein duerfte: {r['problems']}")
         self.assertEqual(r["pytest_only_modules"], r["pytest_only_modules_ast"], (
             "Das Tor berichtet zwei verschiedene Groessen fuer dieselbe Menge."))
+
+    def test_eine_ECHTE_uneinigkeit_zwingt_das_tor_auf_NICHT_ok(self):
+        """DIE WIRKUNG, nicht der Wortlaut — und ohne Attrappe.
+
+        Es braucht keinen Monkeypatch, um die zwei Ableitungen zu trennen: eine Datei, die
+        ``import unittest`` NUR in einer Zeichenkette traegt, trennt sie von selbst. Die
+        Zeichenketten-Lesart sieht die Zeile am Zeilenanfang und haelt das Modul fuer ein
+        unittest-Modul; der Syntaxbaum sieht keinen Import-Knoten und haelt es fuer pytest-only.
+        Genau so sieht der Fehler in freier Wildbahn aus — Beispielcode in einem Docstring.
+
+        Der Fall verlangt zwei Dinge, die die reine Mengengleichheit oben nicht verlangt: dass die
+        Uneinigkeit ueberhaupt bis in ``problems`` durchschlaegt, und dass sie ``ok`` toetet. Ohne
+        ihn liess sich der ganze Widerspruchs-Block durch ``if False`` ersetzen, ohne dass ein
+        einziger Fall fiel.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "test_schein.py").write_text(
+                'BEISPIEL = """\nimport unittest\n"""\n\n\ndef test_x():\n    assert True\n')
+            (d / "test_echt.py").write_text(
+                'import unittest\n\n\nclass T(unittest.TestCase):\n'
+                '    def test_y(self):\n        pass\n')
+            regex_menge = set(self.g.pytest_only_modules(d))
+            ast_menge = set(self.g.pytest_only_modules_ast(d))
+            self.assertNotEqual(regex_menge, ast_menge, (
+                "VORBEDINGUNG dieses Falls: dieser Baum muss die zwei Ableitungen wirklich "
+                "trennen. Tut er es nicht, prueft der Fall nichts und darf nicht still bestehen."))
+            lock = d / "lock.json"
+            lock.write_text(json.dumps({"min_collected_tests": 0, "min_pytest_only_modules": 0}))
+            r = self.g.evaluate(tests_dir=d, lock_path=lock)
+            self.assertTrue(any("uneinig" in pr.lower() for pr in r["problems"]), (
+                f"Die zwei Ableitungen widersprechen sich, aber das Tor sagt nichts: {r['problems']}"))
+            self.assertFalse(r["ok"], (
+                "Das Tor meldet die Uneinigkeit, laesst den Lauf aber trotzdem durch. Ein Befund, "
+                "der nichts entscheidet, ist ein Bericht und kein Riegel."))
+
+    def test_ANTI_PARITAET_ein_EINIGER_baum_erzeugt_keinen_uneinig_eintrag(self):
+        """Die Kontrolle: der Riegel darf nicht einfach immer rot sein."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "test_a.py").write_text('def test_x():\n    assert True\n')
+            (d / "test_b.py").write_text(
+                'import unittest\n\n\nclass T(unittest.TestCase):\n'
+                '    def test_y(self):\n        pass\n')
+            self.assertEqual(set(self.g.pytest_only_modules(d)),
+                             set(self.g.pytest_only_modules_ast(d)),
+                             "VORBEDINGUNG: dieser Baum ist einig")
+            lock = d / "lock.json"
+            lock.write_text(json.dumps({"min_collected_tests": 0, "min_pytest_only_modules": 0}))
+            r = self.g.evaluate(tests_dir=d, lock_path=lock)
+            self.assertNotIn("uneinig", " ".join(r["problems"]).lower(),
+                             f"Der Riegel schlaegt ueber einem einigen Baum an: {r['problems']}")
 
     def test_die_KLASSIFIKATION_selbst_ist_gebunden_positiv_und_negativ(self):
         """DER FUND DES RIEGEL-SWEEPS (Owner-Auftrag 2026-09-07, P1): die Klassifikation war von
