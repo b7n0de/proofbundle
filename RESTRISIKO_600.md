@@ -778,6 +778,375 @@ point.
 
 Register key: `REFERENZLAST-MISST-EINE-FAMILIE-UND-SKALIERT-SECHS-ANDERE-01`.
 
+### S11 · The reference load now measures TWO cost families, and the choice between them abstains — S8's loosening direction is closed, its magnitude still is not
+
+S8 named the mechanism: the reference load is a pure sha256 loop, six of the twelve axes are not
+hash-bound, and the factor is applied to them anyway. The cross-family lens on the frozen head
+argued this can only produce a false RED, "because the factor only loosens". **Checked rather than
+accepted, and it is wrong in one direction.** The factor is `hash_here / hash_ref`; axis A needs
+`A_here / A_ref`. A false GREEN occurs exactly when the hash slowed down MORE than the axis — the
+profile of a machine without hardware SHA: hash factor 3.0 against a true requirement of 1.5 leaves
+the ceiling three times too loose for those six axes.
+
+**So the family choice became a subject of its own abstention**, the same construction as the noise
+band and again with no typed threshold. A second reference load `_referenzlast_hashfrei` (integer
+arithmetic, no hashlib, calibrated to the same duration: n = 615 000, nine runs recorded on the
+Farmer, median 0.06458 s, spread **1.012** against the hash load's 1.046) yields a second factor with
+the same 1.0 floor. If the verdict differs between the two factors, the case reports NICHT MESSBAR:
+this machine has a different cost profile than the reference machine, and then one family says
+nothing about the six axes of the other. Where both families agree — the normal case on a machine of
+similar profile — nothing changes.
+
+**Measured on this machine.** Five quiet runs of the file: 122 passed, **0 skipped** in each — no
+real dimension abstains in normal operation. That matters more than the mechanism: an abstention that
+fires in the quiet case is not a protection, it is a silent riegel. Cost of the second series: the
+file goes from 61.3 s to ~68 s, **+1.5 % of the suite**.
+
+**Three properties came along with the duplicate and were bound only afterwards**, each catching
+exactly ZERO before its own case existed (announced 0, measured 0, three times): the 1.0 floor of
+the hash-free factor, its median-over-mean robustness, and replace-instead-of-accumulate. A property
+that lives in the copied code is not bound by the original's case — the case calls a different
+function. Catch-proofs: 1 of 15, 1 of 16, 1 of 17, each announced before the run.
+
+**What this does NOT close.** The MAGNITUDE of a family mismatch is still not measurable from one
+machine, exactly as S8 says: both families run on the same silicon here and their ratio is 1.0 by
+construction. What changed is that a mismatch now produces an honest abstention instead of a silent
+verdict in either direction. Register keys:
+`EINE-FAMILIE-GEMESSEN-VIELE-SKALIERT-IRRT-IN-BEIDE-RICHTUNGEN-01`,
+`EINE-KOPIERTE-EIGENSCHAFT-IST-NICHT-MITGEBUNDEN-01`.
+
+### S12 · A calibration that scales a BOUND does not protect a SLOPE — found by a load probe, root cause in the estimator's own repetition policy
+
+The ceiling is calibrated, the cap is derived, three abstentions are in place. A load probe of my own
+(twelve foreign busy loops, `lastprobe.sh`) put the whole construction under exactly the condition
+that made `coverage` fall on the previous head. Result:
+
+```
+quiet:  5 x  122 passed,   0 skipped
+loaded:      118 passed,   3 skipped,  1 FAILED   (85.95 s)
+```
+
+The **three skips are the mechanism working**: machine factors 1.49 / 1.58 / 1.64 above the derived
+cap of 1.13, reported as NICHT MESSBAR instead of a false red. The **one failure is the finding**:
+`renewal_work: time exponent 1.31 > 1.2`.
+
+**Why the calibration cannot catch it.** It scales a BOUND; the exponent is a SLOPE. S6 already
+computed that a constant multiplier leaves the log-log slope exactly unchanged (1.044646 before and
+after x1.5) — and that cuts both ways: what a constant factor cannot tilt, an UNEQUAL load can.
+
+**The root cause is sharper than "unequal load", and it is in the estimator.** `_zeit_min` repeats a
+measurement only while it stays below `WIEDERHOLEN_UNTER_S = 0.2`. Measured on the doubling series of
+`renewal_work`:
+
+```
+n= 5000000  0.18084 s  REPEATED (minimum of 3)
+n=10000000  0.35690 s  measured ONCE
+n=20000000  0.70984 s  measured ONCE
+n=40000000  1.43139 s  measured ONCE
+```
+
+The cheapest point gets a noise floor from three runs, the three expensive ones from one. Under load
+a single sample inflates relatively more than a minimum-of-three, the ratio between consecutive
+points grows, and the slope grows with it. **A slope estimator over unequally treated points is
+biased by construction, not by chance.** For a bound the unequal treatment is harmless — each point
+is judged on its own. For a slope it is not: a slope compares points with each other.
+
+**The fix is the equal treatment, not a bigger number.** `_zeit_min_fest` takes the minimum of
+exactly `WIEDERHOLUNGEN` runs regardless of cost, and the series records how often each point was
+measured (`reihe_wdh`), so the property is bound by EFFECT: all four points of the curve must carry
+the same repetition count. Deliberately scoped to the curve series only — `rand` and the ceiling
+measurement keep their policy, because there every point is judged on its own.
+
+**One methodological note against my own work.** The case first went red through a `KeyError` rather
+than through its curated assertion — the same quality gap a lens charged an earlier case with. So the
+measurement was instrumented first, then the case went red with the real message
+(`UNTERSCHIEDLICH oft gemessen ([1, 3])`), then the fix. Announced 1 of 18, measured 1 of 18.
+
+Register key: `EIN-STEIGUNGSSCHAETZER-UEBER-UNGLEICH-BEHANDELTE-PUNKTE-IST-VERZERRT-01`.
+Ledger class 251.
+
+### S13 · The cap was derived from the SAME measurement it judged — so it fell exactly when it was needed, and `coverage` went green by twelve abstentions
+
+**The headline of the previous head was wrong, and a lens proved it with a position argument.** I
+reported that `coverage` turned green because the ceiling is expressed in reference units. It turned
+green because all twelve dimensions were SKIPPED.
+
+```
+88a5383:  3871 passed, 40 skipped, 0 failed
+d3ca21f:  3861 passed, 28 skipped, 1 failed
+skip delta: +12 = exactly the number of dimensions
+```
+
+The proof is not circumstantial: the sum of progress characters is 3911 = the collected count, so the
+mapping is 1:1 per test item; the twelve `s` sit at positions 745–756, and `--collect-only` places
+`test_kosten_am_limit_unter_der_obergrenze[input_bytes … renewal_work]` at exactly 745–756. Not one
+instance passed. A skipped case is indistinguishable from a passing one from the outside — the silent
+riegel this construction warns about, built by me and reported as success. The lens added a second
+fact that makes it sharper: `renewal_work` measured **2.8098 s** in that run, already under the OLD
+static 3.0 s ceiling. Runner variance alone would have sufficed; the calibration did not cause the
+green outcome.
+
+**Root cause, read from the code.** `_faktor_deckel` computed each headroom from the cost measured in
+THIS run. Under load those costs rise, so the cap FALLS — while the machine factor RISES, because the
+reference load slows down too. Both move toward each other, and `faktor > deckel` becomes true
+exactly when the calibration is needed. Own load probe: quiet, factor ≈ 1.0 against cap 19.54 and no
+skip in five runs; under twelve foreign busy loops, factor 2.4 against cap 1.30 and eight skips.
+
+**Fix: the cap now comes from a RECORDING of the reference machine** (`_REFERENZ_FARMER_KOSTEN`, the
+per-axis cost at the limit from a quiet Farmer run), not from the run under test. It stays derived —
+no typed number — and becomes load-proof. The test helper is split accordingly: `_gefaelschte_messungen`
+sets the CURRENT run's costs, `_gefaelschte_aufzeichnung` sets the cap's source. Faking both with one
+handle would make the separation untestable, and the separation IS the fix.
+
+**Measured after the change:** quiet 124 passed / 0 skipped; under load (factor 2.30–2.35 recorded
+during the run) 113 passed / **11 skipped** / 0 failed — the eleven axes whose cap is 1.925, while
+`renewal_work` with its cap of 7.949 stays measured. Announced 11, measured 11. Catch-proof against
+the old source: announced 1 case, measured **5** — since the cap has its own source, five cases hang
+on that separation instead of on one shared fake. Before the change the same mutation caught zero.
+
+**And the number this uncovers belongs in the record, because it is not a bug but a property of the
+cost model.** `renewal_work` has the smallest headroom of all twelve axes: 1.92 (1.5587 s against a
+3 × 1.0 s ceiling). The next smallest is 7.95. So the derived cap is **1.925 for every axis except
+renewal_work itself**, and the CI runner is documented ~2.0× slower. 2.0 > 1.925 — on that runner the
+budget axis is structurally NICHT MESSBAR, not because of a feedback loop but because the cost model
+has less headroom than the machine difference. Fixing the loop makes the abstention honest; it does
+not make it rarer. Owner card `600_budgetachse_auf_ci_nicht_messbar` carries the three options.
+
+Register keys: `EINE-ABSTENTION-MIT-SCHWELLE-AUS-DERSELBEN-MESSUNG-SCHWEIGT-WENN-SIE-GEBRAUCHT-WIRD-01`,
+`DER-ABGELEITETE-DECKEL-IST-1925-UND-CI-IST-DOPPELT-SO-LANGSAM-01`. Ledger classes 253 and 256.
+
+### S14 · Three guards were bound to the EXCEPTION their removal throws, not to the property they enforce — found by a foreign-family lens that refuted my own prediction
+
+The cap of S13 is derived from a recording, and the derivation has a guard: an axis whose recorded
+cost is zero contributes no headroom (`if k <= 0: continue`). I had a case for it, and the case was
+red when I deleted the guard — so I filed it as bound. It was not. Deleting the guard throws
+`ZeroDivisionError`; what the case bound was **that exception**, not the property.
+
+A cross-family lens (qwen3.8:27b on un_turbov1) named the mutation that walks past it: `k = ...get(d.name, 0.0) or 0.0001`. No
+exception, no skip, and **all nineteen cases of the class stayed green**. I had announced the
+opposite — that the zero-cost case would fall — and I was wrong. The reason is sharper than the
+lens's own: `or` replaces only the zero, whose headroom then becomes 1/0.0001 = 10000, and a
+**minimum** cannot distinguish "skipped" from "present with an enormous value". The result is
+identical either way; only the **participant list** differs.
+
+Bound now by the list, not the result: `_DECKEL_BEITRAEGE` records which axes contributed, and the
+case asserts a zero-cost axis is absent from it and counts the contributors. Counter-probe under
+`or 0.0001`: **1 of 20 falls** (announced 1).
+
+**The class swept, and it had two more members.**
+
+*Neighbour A — an instrument written by two paths.* `_ZEIT_MIN_LAEUFE` reports how many runs stand
+behind one curve point. `_messung` clears it, `_zeit_min_fest` writes it, `_messung` reads `[-1]`.
+But `_zeit_min` — the edge-measurement path — wrote to the same list. That it never corrupted a
+reading was a property of the **call order**, not of the code: the edge measurement happens to run
+after the read. The lens named why no review catches it: as a module global it does not look like a
+fault, it looks like a log. Fixed by giving `_zeit_min` its own `_RAND_LAEUFE`; catch-proof red
+first on the unchanged code (announced 1 of 21, measured 1 failed / 20 passed), green after, and
+the counter-probe falls again when the two are merged back.
+
+*Neighbour B — an abstention that passes the assertion.* `_exponent` returns `nan` when no slope can
+be formed. `nan` fails every comparison, so `nan <= EXPONENT_MAX` is false and the assertion goes
+red — the correct, fail-closed answer. Nothing bound it. Measured: replacing `return float("nan")`
+with `return 0.0` leaves **126 passed, twice, on an unloaded machine**; a zero passes as "linear or
+better" through any ceiling. Now bound by a case over four degenerate series (no points, one point,
+all costs zero, n not increasing): clean **127 passed**, under the mutation **1 failed / 126 passed**
+(announced 1 of 127).
+
+**A second measurement error of my own, in the probe that checked the reviewers.** I reported the
+cross-family reviewer as unreachable. Only half of that was true: the rented card (`127.0.0.1:11435`)
+answers `rc=000` and writes no file, but the GPU rig `192.168.178.117:11434` answers `rc=200` and
+carries `qwen3-coder:30b` and `qwen2.5-coder:32b-instruct-q6_K`. What produced the false half was my
+own loop: `curl` writes no output file on a failed connection, so the probe printed the model list of
+the **previous** iteration under the dead endpoint's heading. Re-measured with `rm -f` before each
+call: `rc=000`, no file. The health tile, separately, reads a surface file rather than the endpoints
+(`inferenz_probe: "usable=2 warm=1 down=0 (surface 180s old)"`) and therefore still lists the dead
+rented card as `WARM` — recorded against owner card `OA-a06a1de8c3`, not against this release.
+
+**A measurement error of my own belongs in this section, because it nearly became a finding.** The
+first run of neighbour B's mutation reported `1 failed, 125 passed` against my announced 0, and the
+case that fell was the load-sensitive slope test of S12. I had been working in parallel — greps,
+patches, a file port — while the timing-sensitive suite ran. The evidence was in the log all along:
+**87 s against 74 s** in the clean runs. Re-measured with nothing else on the machine: mutated
+126/126, clean 126/126. The mutation survives; the contradicting measurement was invalid. It was
+also provably unreachable: the mutated line only runs on an empty slope list, and the failing axis
+has four points with positive costs. A measurement measures the machine it runs on, including
+whatever I am doing to that machine.
+
+### S15 · Two of the cap's own guard tests went blind when I migrated the cap's source — found by review, not by the suite, and my sweep of the previous section had missed them
+
+S14 closed three guards that were bound to an exception rather than to a property, and said the
+class had been swept. **The sweep was incomplete, and the miss was mine.** S13 moved the cap's source
+from the run's own measurement (`_MESSUNGEN`) to a recording (`_REFERENZ_FARMER_KOSTEN`). Two guard
+tests kept faking the old source. Their fakery no longer reaches `_faktor_deckel`, so they ran
+against the real recording and passed unconditionally:
+
+- `test_EINE_reissende_achse_bringt_die_anderen_NICHT_zum_schweigen` defends the filter that keeps
+  an already-torn axis from setting the cap for the others. Delete the filter — `if frei >= 1.0:` →
+  `if True:` — and **21 of 21 cases stay green** (measured, then reproduced by me independently).
+- `test_wenn_ALLE_achsen_reissen_wird_es_NICHT_still` defends the other edge: with every axis torn,
+  the filtered list is empty and the fallback must be infinite, not 1.0, or twelve reds become
+  twelve silences. Against the real recording the list is never empty (smallest headroom 7.95), so
+  the fallback path is never entered. `return float("inf")` → `return 1.0`: **22 of 22 green.**
+
+Three more gaps, all in cases written earlier the same day, all found by review and all reproduced
+here before being fixed:
+
+- The participant list bound only cost-zero, not the neighbouring exclusion `0 < headroom < 1.0`.
+  Moving `_DECKEL_BEITRAEGE.append` out of the `if frei >= 1.0` block: **22 of 22 green.**
+- The instrument case bound the **position** `[-1]`, not the separation of the two write paths.
+  Writing from `_zeit_min` with `insert(0, …)` instead of `append(…)`: **22 of 22 green.**
+- No fixture produced the third kind of degeneracy — costs falling to exactly zero while `n` keeps
+  growing — so removing `k1 <= 0` from `_exponent`'s guard: **22 of 22 green.** That mutation does
+  not return a wrong number; it raises `math domain error` where a non-number was required.
+
+All four "before" states were re-measured by me, announced at zero fallen cases each, and all four
+announcements held. After seven repairs the class is clean at 22 passed, and the counter-probes
+fall: filter removed **3** (announced 2 — I forgot to count a precondition I had added myself in
+the same round), `inf`→`1.0` **1**, `insert(0)` **1**, `k1 <= 0` **1**, append moved out **2**.
+
+**The class one level up:** S14's class was "a guard bound to its exception rather than its effect".
+This section's is "a guard pointing at a source the code no longer reads". A migration that changes
+where truth comes from silently disarms every test that fakes the old place — and the suite cannot
+say so, because a disarmed test is a passing test.
+
+### S16 · The combination surface still judged in seconds while the single axes judged in reference units
+
+Named as a side finding by the same review. Since OA-0646ecdf70 each single axis is judged against
+`achsen * GRENZE_S * machine factor`, with a derived cap and three abstentions. `TestKombinierteAchsen`
+was never carried along: it asserted `dauer <= achsen * GRENZE_S`, a number measured on the reference
+machine. On a runner twice as slow that goes red because the machine is slow, not because the code
+got more expensive — the exact defect this round was opened to fix, left standing on the other surface.
+
+Catch-proof first, red on the unchanged code: a machine of factor 1.8 and a combination costing 1.5×
+its reference bar — comfortably inside — was reported as **`ROT: renewal_ats_chain x int_bits: 3.000 s,
+Obergrenze 2 x 1.0`**. After the change the bar reads `achsen * GRENZE_S * factor` with the same
+derived cap (excluding no axis: a combination is not one of the recorded dimensions, so nothing can
+bound itself). Class green at 22 passed; remove the factor again and exactly **1** falls.
+
+**The first attempt at this catch-proof used factor 2.0 and got an abstention instead of a verdict:**
+*"Maschinenfaktor 2.00 ueber dem abgeleiteten Deckel 1.92."* That is not a flaw in the case — it is
+owner card `OA-dc37e26295` appearing a second time, on a second surface. The cap derived from the
+recording sits at 1.925, and a CI runner at factor 2 cannot judge the combination surface either.
+The fixture was moved below the cap; whether the cap belongs there is the owner's question, not
+this test's.
+
+### S17 · The machine factor was measured in a different time window than the costs it scales — and a real threefold regression walked through the gap, past all three abstentions
+
+This is the heaviest finding of the round, and it was found by review with a **real** cost increase,
+not by a mutation. A reviewer wrapped `renewal_work` in an additional calibrated sha256 burden —
+real CPU cost, not a faked number in a dict — and ran the ceiling case five times on the shared
+machine under ordinary ambient load. **Two of five runs passed silently.** No red, no abstention:
+the derived cap, the cost-family check and the spread check all stayed quiet, because the defect is
+not in any of them.
+
+It is in the order. `test_kosten_am_limit_unter_der_obergrenze` calls `_messung(dim)` first — for
+`renewal_work` that is many seconds of measurement — and only then `_maschinenfaktor()`. The factor
+therefore describes the machine in a window that begins *after* the costs were measured. A load
+spike falling into that late window loosens the bar without having touched the costs, and a real
+regression fits underneath it. The reviewer observed the freshly measured factor swinging between
+1.00 and 1.997 within minutes on the shared machine.
+
+**I could not reproduce the swallow myself, and that is the expected result, not a refutation.** My
+two runs with the same mutant both went red — at machine factor 1.000 both times, because I have
+been deliberately keeping this machine quiet so that the round's other measurements stay valid. A
+load-dependent gap cannot open on an idle machine. Reporting "could not reproduce" as if it
+weakened the finding would have been the dishonest reading; the mechanism is visible in the source
+order, and it is now bound deterministically instead of by a race.
+
+**The repair puts a bracket around the cost measurement.** `_referenz_werte()` now runs both before
+and after the expensive series, for both cost families, and both series are stored in the
+measurement as `referenz_klammer`. The assertion judges that bracket instead of measuring afresh
+afterwards. The bracket lives in `_messung`, not in the assertion, for a concrete reason:
+`_messung` is cached, so if an earlier case already measured that axis, no time passes in the
+assertion at all and a bracket there would enclose nothing.
+
+With the bracket in place the **existing** third abstention does the work: if load hits only one of
+the two windows, the series spans it, the verdict depends on which end you take, and that is
+reported as NICHT MESSBAR instead of passing in silence.
+
+Catch-proof, deterministic rather than racing: costs incurred in the quiet window (factor 1.0), bar
+taken from the loud one (factor 3.2), costs sitting between the two bars. Against the old behaviour
+— only the late window counts — the case falls: **1 failed, 67 passed** (announced 1). With the
+bracket it is green.
+
+**One question is deliberately left open for the owner, as card `600_latte_am_schnellen_ende_oder_abstinenz`.**
+When the machine genuinely changes state mid-measurement, NICHT MESSBAR is the honest answer and red
+would be a claim without ground — but OA-0646ecdf70 asks literally that a real cost increase *stay
+red despite the factor*. Red is obtainable by always taking the bar at the **fast** end of the
+bracket; that also tightens the bar on every machine by the reference load's own spread (1.046 on
+the reference machine, about 4.6 %). Choosing between "no silent pass" and "always red" changes what
+the gate means, and that is not a decision a test should make for its owner.
+
+### S18 · Four of my own repairs each produced a new fault of the same class — and the only thing that improved was how loudly they failed
+
+This section exists because the honest summary of the round is not the list of fixes. It is this
+chain, and it is mine:
+
+| What I built | How it broke | Who noticed |
+|---|---|---|
+| cap from the run's own measurement | went silent exactly under load | position proof — **passed silently** |
+| cap from the recording | disarmed two of its own guard tests | review — **passed silently** |
+| bracket around the cost measurement | six fixtures did not know the new mandatory key | full suite, `KeyError` — **failed loudly** |
+| a flat replacement bracket | took five cases the very quantity they measure | class run, `ROT instead of SKIP` — **failed loudly** |
+| bracket plus a fresh factor | measured the factor twice, from two windows | counter precondition, `27 instead of 9` — **failed loudly** |
+
+The movement is the result, and it is not luck. It comes from the bindings that were added during
+the day: the **participant list** instead of the result, the **counter** instead of the stored
+state, the **bracket** instead of the later measurement, the **measuring field** instead of an
+assumption. Each of them turned a class of silent pass into a loud failure. The fourth row is the
+sharpest: repairing a fault of this class, I committed the same class again inside a single move —
+I gave five cases a fixture whose fake no longer reached the property under test.
+
+**The measuring field is not quiet, and no amount of discipline makes it so.** Measured while the
+full suite ran: nine pytest processes from three origins at load 10.20 on 24 cores — my suite, my
+own mutation shard from an earlier move, two runs from my own commit ceremony, and three from the
+second operator account. `scripts/b7_messfeld.py` now reports that before a timing run and writes
+it into the same log, with eight bound cases of its own; two of them bind the two mistakes the tool
+made on its first real use (it read a tool directory as a foreign account, and counted a wrapper
+and its child as two runs).
+
+**What this means for the open owner card `600_latte_am_schnellen_ende_oder_abstinenz`:** option B,
+taking the bar always at the fast end of the bracket, would fire false reds on this host regularly,
+because the spread does not come from the code but from the neighbouring lane. That is an argument,
+not an answer. Recorded as finding `600-MESSFELD-NICHT-RUHIG-HERSTELLBAR-01`.
+
+### S19 · The owner decision was made executable — and building it showed it would have decided nothing
+
+S17 leaves one question open for the owner: when the machine changes state mid-measurement, should
+the bar stand at the fast end of the bracket (a real cost increase stays RED, as OA-0646ecdf70 asks
+literally) or at the median (the spread abstention says NICHT MESSBAR)? Rather than leave that as
+prose in a card, it is now one word in the code:
+
+```python
+LATTE_AUS_DER_KLAMMER = "median"            # way A — as measured
+#                     = "schnellstes_ende"  # way B — stays red
+```
+
+Both readings are documented at the switch itself, with their prices: way B satisfies the owner's
+wording, and tightens the bar on **every** machine by the reference load's own spread (1.046 on the
+reference machine, ~4.6 %) — on this host, where nine pytest processes from three origins were
+measured, that means regular false reds.
+
+**The switch, as first built, was inert — and only the case that was supposed to bind it revealed
+that.** The docstring named a test that did not yet exist; writing it was the correction of exactly
+the class this whole document is about. On its first run it failed twice, for two different reasons,
+and both are classes rather than incidents:
+
+- **An abstention belongs to a policy, not to every policy** (ledger 262). The spread abstention
+  asks "does the verdict depend on which end you take?". Way B answers precisely that by rule — so
+  the abstention must not fire there. It did, and both switch positions reported NICHT MESSBAR. An
+  open question was overruling a settled decision, invisibly, because both paths were green.
+- **A comparison of two families only measures the families if both answer the same question**
+  (ledger 263). With the hash factor taken at the fast end and the hash-free one still at the
+  median, the cost-family abstention saw a flipping verdict and abstained — although both families
+  described the same machine. It was comparing the formula, not the machine.
+
+The case now runs the same situation twice, once per position, and insists the outcomes **differ**:
+`"median"` → NICHT MESSBAR, `"schnellstes_ende"` → ROT. Without it, the card would have offered two
+options with one outcome — a decision that decides nothing, with a clean rationale and no effect.
+
+The default is not a recommendation. It is the state the measurement found.
+
 ### S9 · The one-second budget is a declared policy, not a derived number — open by design, named because it is load-bearing
 
 `GRENZE_S = 1.0` carries the comment *"the declared upper bound: one second of compute at the largest
