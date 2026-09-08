@@ -142,6 +142,27 @@ _REPO_CONTEXT_TESTS = frozenset({
     # sdist gibt es kein Repository, und ein leerer Bereich ist dort kein Fehlerfall, sondern der
     # Normalzustand.
     "test_release_text_hygiene::test_ein_leerer_commitbereich_bricht_ab",
+    # ── 2026-09-08, gemessen aus der entpackten sdist heraus ─────────────────────────────────────
+    #
+    # Der Gegenstand dieses Falls ist, WAS DER SAMMLER DES MUTATIONSTORS SIEHT. Das Tor laeuft im
+    # Checkout und nie aus einer Verteilung heraus; der Fall erreicht den Baum ueber einen
+    # UNTERPROZESS (`_gesehene_dateien` faehrt `pytest --collect-only` gegen `tests`), also genau
+    # ueber den Weg, fuer den diese Liste als dokumentierter Rueckfall stehengeblieben ist — eine
+    # statische Pfad-Ableitung kann ihn nicht sehen, weil das einzige genannte Literal `tests` ist
+    # und das gibt es hier.
+    #
+    # WARUM ER AUS DER SDIST FAELLT, und warum das KEIN Abdeckungsverlust ist: seit dem Fix zu
+    # L6-600-01 wird `tests/test_budget_axis_measurement.py` in einer Verteilung beim Import
+    # uebersprungen (sein Skript ist nicht ausgeliefert, Owner-Entscheid OA-dc37e26295). Es liefert
+    # dort also null Tests, und der Riegel meldet es als blinde Flaeche. Im Checkout liefert es
+    # unveraendert seine fuenf — gemessen am selben Tag: 3948 gesammelte Tests im Checkout gegen
+    # 3941 vor dieser Runde, die Differenz sind genau die sieben neuen Faelle.
+    #
+    # Die Alternative waere gewesen, die Datei in `_OHNE_TESTS_ERLAUBT` einzutragen. Das waere
+    # FALSCH: dort steht "diese Datei darf dauerhaft keinen Test liefern", und im Checkout — dem
+    # einzigen Ort, an dem das Tor laeuft — liefert sie fuenf. Der Eintrag haette echte Abdeckung
+    # stillgelegt, um eine Messung an der falschen Flaeche gruen zu bekommen.
+    "test_mutationstor_sammler_sieht_die_freigabeflaeche::test_der_sammler_des_tors_sieht_JEDE_testdatei",
 })
 
 
@@ -476,3 +497,321 @@ def pytest_collection_modifyitems(config, items):
         # dependency is not visible as a path literal (an env probe, a subprocess into the tree).
         if entschieden[stem] or f"{stem}::{method}" in _REPO_CONTEXT_TESTS:
             item.add_marker(skip)
+
+
+# ── Ein Importfehler darf das SAMMELN nicht abbrechen ────────────────────────────────────────────
+#
+# HERKUNFT: deep gate Lauf 5 auf dem 6.0.0-Kandidaten (2026-09-08), Fund L6-600-01 /
+# L3-600-SDIST-COLLECT-01, P0, zwei unabhaengige Linsen, Jury 3/3 — und belegt vom CI-Job selbst:
+# `published-artifact-gate / hermetic-cleanroom` brach mit `exit code 2` ab, weil
+# `tests/test_budget_axis_measurement.py` beim MODULIMPORT `scripts/budget_axis_measurement.py`
+# ausfuehrt, das der sdist seit dem Owner-Entscheid zu OA-dc37e26295 nicht mehr ausliefert.
+# `Interrupted: 1 error during collection`, Rueckgabewert 2 — und dann laeuft KEIN einziger der
+# 3935 uebrigen Tests.
+#
+# WARUM `pytest_collection_modifyitems` DAS NICHT AUFFANGEN KANN: der Hook laeuft NACH dem Import.
+# Was ein Modul auf MODULEBENE tut, ist zu diesem Zeitpunkt laengst gescheitert. Der Schutz muss
+# eine Phase frueher greifen.
+#
+# WARUM NICHT STATISCH. Die erste Fassung dieses Fixes fragte den Syntaxbaum: "nennt dieses Modul
+# auf Modulebene einen Pfad, den es hier nicht gibt?" Eine adversariale Gegenlesung hat sie mit
+# FUENF ausgefuehrten Faellen widerlegt, alle mit Rueckgabewert 2, alle dieselbe Klasse:
+#
+#   teil = "scripts"; (REPO / teil / "x.py").read_text()     variables Segment
+#   os.path.join(str(REPO), "scripts", "x.py")               kein `/`-Operator
+#   REPO.joinpath("scripts", "x.py")                         kein `/`-Operator
+#   basis = Path.cwd(); (basis / "scripts" / "x.py")         Wurzel nicht aus __file__
+#   from helfer import X                                     der Zugriff steht im NACHBARMODUL
+#
+# Jede dieser Formen ist semantisch dasselbe und syntaktisch etwas anderes. Eine Form-Erkennung
+# muss hier verlieren: sie zaehlt Schreibweisen, waehrend der Defekt "der Import wirft" heisst.
+# Das ist dieselbe Verwechslung von Form und Wirkung, gegen die dieses Repo an mehreren Stellen
+# antritt — begangen im Riegel dagegen.
+#
+# DESHALB AM EFFEKT. Wir lassen den Import laufen und fangen sein Scheitern: wirft er, weil eine
+# Datei UNTERHALB DIESES BAUMS fehlt, dann traegt die Verteilung sie nicht, und das Modul meldet
+# sich ehrlich als SKIP statt die ganze Sammlung mitzureissen. Ein Importfehler aus einem anderen
+# Grund (fehlendes Paket, Syntaxfehler, ein Pfad ausserhalb des Baums) bleibt unangetastet — er ist
+# eine andere Klasse und soll laut sein.
+#
+# IM CHECKOUT EIN REINER NO-OP: dort ist eine fehlende Datei der Fehler des Autors und muss beim
+# Sammeln knallen, nicht weggeraeumt werden.
+#
+# ZWEI GRENZEN, benannt statt versteckt (adversariale Gegenlesungen 2026-09-08, beide ausgefuehrt;
+# ausfuehrlich als S30 in RESTRISIKO_600.md):
+#   1. Ein TIPPFEHLER im Pfad (`scirpts/…` statt `scripts/…`) sieht wie eine nicht ausgelieferte
+#      Datei aus und wird uebersprungen. Am Artefakt allein ist das nicht unterscheidbar. Dagegen
+#      steht nur, dass das Ueberspringen mit Modul und Datei GEMELDET wird — sichtbar, aber nicht rot.
+#   2. Ein `conftest.py` in einem UNTERverzeichnis von `tests/` laedt pytest ueber
+#      `_importconftest`, einen anderen Weg; dort bricht das Sammeln unveraendert ab. Gemessen gibt
+#      es im Kandidaten genau EIN `conftest.py` — die Luecke ist latent, nicht lebend.
+_UEBERSPRUNGEN_BEIM_IMPORT: dict[str, str] = {}
+
+
+def _liegt_im_baum(datei: object, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Zeigt der Dateiname des Fehlers in DIESEN Baum?
+
+    Die Frage grenzt die Klasse ab: nur was die Verteilung haette mitbringen koennen, wird zu einem
+    ehrlichen SKIP. Ein fehlendes `/etc/...` oder ein Pfad im Zwischenspeicher eines fremden
+    Pakets bleibt ein Fehler.
+    """
+    if not datei:
+        return False
+    try:
+        return pathlib.Path(str(datei)).resolve().is_relative_to(pathlib.Path(wurzel).resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def _verteilung_sollte_enthalten(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Fuehrt die Verteilung diese Datei in ihrer EIGENEN Dateiliste?
+
+    WARUM DIESE FRAGE ZWISCHEN DEM FEHLER UND DEM SKIP STEHT — ohne sie waere dieser ganze Riegel
+    eine Verschlechterung. `published-artifact-gate / hermetic-cleanroom` existiert, um zu finden,
+    dass die AUSGELIEFERTEN Bytes kaputt sind. Wer jeden fehlenden Pfad zu einem SKIP macht,
+    verwandelt "eine Fixture wurde versehentlich nicht mitgeliefert" in einen gruenen Lauf mit
+    einem Skip — der Riegel gegen den Sammelabbruch haette den Riegel gegen falsche Paketierung
+    entwaffnet, dieselbe Klasse eine Ebene hoeher.
+
+    GEFRAGT WIRD DAS ARTEFAKT SELBST, NICHT `MANIFEST.in`. Eine erste Fassung las die
+    Auslieferungsliste — und eine Gegenlesung aus einer FREMDEN Modellfamilie hat das als
+    schwaechste Stelle bezeichnet: `MANIFEST.in` ist eine DEKLARATION, die finale Dateiliste
+    berechnet setuptools daraus PLUS Vorgaben (`packages`, `package_data`, Projektdateien) — und,
+    wie am 2026-09-08 gemessen, plus einem alten `SOURCES.txt`, das eine gestrichene Zeile
+    ueberlebt (Restrisiko S27). Beide Quellen sind an genau dieser Stelle nachweislich
+    auseinandergelaufen. `SOURCES.txt` IST das Ergebnis dieser Rechnung und liegt in jedem sdist.
+
+    GEMESSEN am entpackten Kandidaten-sdist: 912 Eintraege, und in der Richtung, auf die es hier
+    ankommt, exakt — von allen gelisteten Dateien fehlte KEINE. (Umgekehrt liegen im Baum Dateien,
+    die nicht gelistet sind; das sind Spuren des Laufens wie `.hypothesis/`, nicht der Verteilung.)
+
+      * Die Liste fuehrt den Pfad, er fehlt trotzdem -> PAKETIERUNGSFEHLER, laut lassen.
+      * Die Liste fuehrt ihn nicht                   -> die Verteilung trug ihn nie, ehrlicher SKIP.
+
+    FAIL-CLOSED: gibt es keine Liste oder ist sie unlesbar, gilt "sollte enthalten sein" — dann
+    bleibt der Fehler laut. Ein Riegel, der ohne Grundlage nachgibt, ist genau dann am weichsten,
+    wenn am wenigsten bekannt ist.
+    """
+    wurzel = pathlib.Path(wurzel)
+    for liste in sorted(wurzel.glob("*/*.egg-info/SOURCES.txt")) + \
+            sorted(wurzel.glob("*.egg-info/SOURCES.txt")):
+        try:
+            eintraege = {z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()}
+        except OSError:
+            continue
+        if eintraege:
+            return rel in eintraege
+    return True                                    # keine Grundlage -> nicht nachgeben
+
+
+def _verteilung_kennt_den_ort(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Liefert die Verteilung ueberhaupt IRGENDETWAS an diesem Ort des Baums?
+
+    Die Frage trennt "eine Datei DIESES Projekts wurde nicht mitgeliefert" von "ein FREMDES Paket
+    ist nicht installiert". Beide erscheinen als ModuleNotFoundError, und nur die erste darf ein
+    SKIP werden: `import scripts.irgendwas` bei einer Verteilung, die `scripts/` kennt, ist der
+    erste Fall; `import numpy` ist der zweite und bleibt ein Fehler, sonst verschluckt dieser
+    Riegel eine fehlende Abhaengigkeit.
+
+    Gefragt wird nach dem ersten Pfadsegment, weil genau das die Zugehoerigkeit traegt. Ein
+    Top-Level-Modul ohne Verzeichnis (`helfer.py` in der Wurzel) faellt damit durch — fail-closed
+    und gewollt: dort ist "gehoert zum Projekt" nicht vom Ort ablesbar, und im Zweifel bleibt der
+    Fehler laut.
+    """
+    kopf = rel.split("/", 1)[0]
+    if not kopf or kopf == rel:                    # kein Verzeichnis -> nicht entscheidbar
+        return False
+    wurzel = pathlib.Path(wurzel)
+    for liste in sorted(wurzel.glob("*/*.egg-info/SOURCES.txt")) + \
+            sorted(wurzel.glob("*.egg-info/SOURCES.txt")):
+        try:
+            eintraege = [z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()]
+        except OSError:
+            continue
+        if eintraege:
+            return any(e.startswith(kopf + "/") for e in eintraege)
+    return False
+
+
+def _fehlende_datei_aus(fehler: BaseException, wurzel: pathlib.Path = _REPO_ROOT):
+    """Der Pfad einer Datei DIESES Baums, an deren FEHLEN der Import gescheitert ist — oder None.
+
+    WARUM NICHT DIE AUSNAHMEKLASSE ENTSCHEIDET (Gegenlesung 08.09.2026, zwei Linsen unabhaengig):
+    die erste Fassung fing `FileNotFoundError`. Ausfuehrbar gemessen, ein Baum, eine fehlende
+    Datei, zwei Zugriffsformen: `Path.read_text` ergab den ehrlichen SKIP, `from scripts.X import
+    ...` dagegen `Interrupted: 1 error during collection` — also genau den P0, den dieser Riegel
+    schliessen soll. `ModuleNotFoundError` erbt von `ImportError`, nicht von `OSError`; auch
+    `PermissionError` und `IsADirectoryError` sind nur GESCHWISTER von `FileNotFoundError`.
+
+    Das ist dieselbe Klasse, die schon die Fassung davor erledigt hatte: ich hatte den Riegel
+    bewusst von der FORM (einem AST-Muster ueber Zugriffs-Schreibweisen) auf die WIRKUNG
+    umgestellt — und mit `except FileNotFoundError` prompt eine neue Form eingezogen. Eine
+    Ausnahmeklasse IST eine Form des Zugriffs. Die Wirkung ist: der Import scheitert an etwas, das
+    im Baum fehlt und laut Verteilung auch fehlen soll. Danach wird hier gefragt, in zwei
+    Spielarten, weil eine Ausnahme ihren Gegenstand auf zwei Weisen benennt.
+    """
+    wurzel = pathlib.Path(wurzel).resolve()
+
+    # DIE GANZE URSACHENKETTE, nicht nur die aeusserste Ausnahme (gemessen 08.09.2026): pytest
+    # REICHT einen FileNotFoundError aus dem Modulimport durch, VERPACKT einen ImportError aber in
+    # eine eigene Sammelmeldung. Wer nur `fehler.name` der aeussersten Ausnahme liest, sieht beim
+    # Import-Fall nichts — und genau daran scheiterte die erste Fassung dieses Fixes, obwohl sie
+    # `ModuleNotFoundError` ausdruecklich behandeln wollte. Dieselbe Klasse ein drittes Mal: die
+    # Wirkung stand nicht dort, wo ich sie abgefragt habe.
+    #
+    # ABER NUR SOLANGE DIE KETTE DEN GRUND TRAEGT (Gegenlesung 08.09.2026, GESAMT REJECT).
+    # Die erste Fassung lief die GANZE Kette ab und nahm den ersten Treffer auf JEDEM Glied.
+    # Ausfuehrbar gemessen, was das anrichtet:
+    #
+    #     try:
+    #         from scripts.optional_nicht_geliefert import hilf
+    #     except ImportError:
+    #         raise RuntimeError("KONFIGURATION KAPUTT: DB_URL fehlt")
+    #
+    #   -> "1 skipped: nicht ausgeliefert". Die echte Fehlermeldung war SPURLOS weg.
+    #
+    # Das ist schlimmer als der P0, gegen den dieser Riegel antrat: der machte einen Lauf laut
+    # ROT, diese Fassung machte einen echten Fehler STILL. Und es ist dieselbe Klasse wie die
+    # zwei Fassungen davor, ein drittes Mal — die Bindung fragte "gab es IRGENDWO in der Kette
+    # eine fehlende Datei" statt "scheitert der Import AN einer fehlenden Datei".
+    #
+    # DIE REGEL, gemessen statt vermutet: JEDES Glied — auch das erste — muss selbst von der Art
+    # sein, die "der Zugriff auf eine Ressource scheiterte" BEDEUTET (ImportError oder OSError).
+    # Sobald eine andere Klasse auftaucht, hat jemand den urspruenglichen Fehler in einen ANDEREN
+    # uebersetzt; ab da traegt die Kette nicht mehr seinen Grund, sondern nur noch seine
+    # Vorgeschichte, und die entscheidet hier nichts.
+    #
+    # GEMESSEN IM ECHTEN PFAD, in pytests collect() statt per importlib daneben — und erst das
+    # zeigte die Trennung:
+    #     modulweiter `raise RuntimeError` nach `except ImportError`
+    #         builtins.RuntimeError            -> builtins.ModuleNotFoundError
+    #     `from scripts.X import y`
+    #         _pytest.nodes.CollectError       -> builtins.ModuleNotFoundError
+    #     `import fremdes_paket`
+    #         _pytest.nodes.CollectError       -> builtins.ModuleNotFoundError
+    #
+    # Der Unterschied ist NICHT die Kettenlaenge — beide sind zweistufig — sondern WER verpackt
+    # hat: pytest selbst, oder das Testmodul. Eine Zwischenfassung erlaubte der aeussersten
+    # Ausnahme alles und liess damit die Modul-eigene Uebersetzung durch; die naechste verlangte
+    # von JEDEM Glied den Grund und brach damit den legitimen Import-Fall, weil pytests
+    # CollectError kein ImportError ist. Beide Male hatte ich die Kette NEBEN dem echten Pfad
+    # gemessen (per importlib), wo sie einstufig aussieht.
+    #
+    # Durchlaessig ist die Kette daher genau durch pytests EIGENE Sammelmeldung — nicht durch
+    # eine fremde Uebersetzung. Ein Modul, das seinen Importfehler in einen eigenen Fehler
+    # umwandelt, hat damit etwas anderes gesagt, und das Gesagte gilt.
+    _TRAEGT_DEN_GRUND = (ImportError, OSError)
+    _NUR_VERPACKUNG = ("_pytest.",)   # pytests eigene Sammelmeldung, kein Grund fuer sich
+    kette = []
+    gesehen = set()
+    aktuell = fehler
+    while aktuell is not None and id(aktuell) not in gesehen and len(kette) < 20:
+        _ist_verpackung = type(aktuell).__module__.startswith(_NUR_VERPACKUNG)
+        if not _ist_verpackung and not isinstance(aktuell, _TRAEGT_DEN_GRUND):
+            break                    # uebersetzt in eine andere Klasse: der Grund ist ein anderer
+        gesehen.add(id(aktuell))
+        kette.append(aktuell)
+        aktuell = aktuell.__cause__ or aktuell.__context__
+
+    for glied in kette:
+        # (1) ein DATEIzugriff nennt seinen Pfad selbst — FileNotFoundError.filename
+        datei = getattr(glied, "filename", None)
+        if datei:
+            kandidat = pathlib.Path(str(datei))
+            if _liegt_im_baum(kandidat, wurzel) and not kandidat.exists():
+                return kandidat
+
+        # (2) ein IMPORT nennt den Modulnamen — ModuleNotFoundError.name
+        #
+        # GEMESSEN 08.09.2026 von einer Gegenlesung, an einem echten pytest-Subprozess: die erste
+        # Fassung ging die zwei Formen einzeln durch und sprang bei einer VORHANDENEN mit
+        # `continue` zur naechsten. `from scripts.mutation_check import nichtvorhanden` — Datei da,
+        # in SOURCES.txt gefuehrt, nur das SYMBOL fehlt — wirft ein gewoehnliches ImportError mit
+        # `.name == "scripts.mutation_check"`. `scripts/mutation_check.py` existierte, also weiter;
+        # `scripts/mutation_check/__init__.py` existierte nicht und `scripts/` ist der Verteilung
+        # bekannt, also wurde ein Pfad als "fehlend" gemeldet, DEN ES NIE GAB. Ergebnis: ein echter
+        # Programmierfehler (entferntes oder umbenanntes Symbol) lief als gruener, freundlich
+        # begruendeter SKIP durch — genau die Tarnung, gegen die dieser Riegel steht.
+        #
+        # Die Formen gehoeren zusammen, weil sie EIN Modul beschreiben: existiert eine von ihnen,
+        # ist das Modul da und der Import scheiterte an etwas anderem. Erst wenn KEINE existiert,
+        # ist ueberhaupt eine Datei abwesend, ueber die zu reden sich lohnt.
+        #
+        # DAS VERZEICHNIS IST DIE DRITTE FORM, und sie hat gefehlt. Eine fremdfamiliaere
+        # Gegenlesung (qwen, 08.09.2026) hat auf Namespace-Pakete gezeigt: seit Python 3.3 ist ein
+        # Verzeichnis OHNE `__init__.py` ein gueltiges Paket. Dieser Baum fuehrt zehn davon
+        # (`scripts/`, `tests/`, `conformance/`, …). Gemessen an einem gebauten Fall: bei
+        # vorhandenem `scripts/` meldete der Riegel `scripts/__init__.py` als fehlend — und gab
+        # damit dieselbe Antwort wie fuer ein Verzeichnis, das WIRKLICH fehlt. Er konnte die
+        # beiden Lagen nicht unterscheiden.
+        #
+        # Die Aufzaehlung von zwei Formen war also selbst der Fehler, nicht ihre Reihenfolge: die
+        # Frage lautet "existiert dieses Modul in IRGENDEINER Form", und darauf antwortet auch ein
+        # Verzeichnis mit Ja. (Erweiterungsmodule .so/.pyd waeren die vierte Form — dieser Baum
+        # fuehrt gemessen keine, deshalb stehen sie hier als benannte Grenze und nicht im Code.)
+        name = getattr(glied, "name", None)
+        if isinstance(name, str) and name:
+            stamm = name.replace(".", "/")
+            formen = (f"{stamm}.py", f"{stamm}/__init__.py")
+            if (wurzel / stamm).is_dir() or any((wurzel / rel).exists() for rel in formen):
+                continue          # das Modul IST da — der Grund ist ein anderer
+            for rel in formen:
+                if _verteilung_kennt_den_ort(rel, wurzel):
+                    return wurzel / rel
+    return None
+
+
+class _ModulDasFehlendeDateienEhrlichMeldet(pytest.Module):
+    """Ein Testmodul, dessen Import an einer fehlenden Datei des Baums scheitern DARF.
+
+    `pytest_make_collect_report` behandelt ein aus `collect()` geworfenes `Skipped` als
+    uebersprungene Sammlung — das Modul erscheint als SKIP mit Grund, statt als Sammelfehler, der
+    den ganzen Lauf abbricht. Es verschwindet also NICHT still; genau darauf kommt es an.
+    """
+
+    def collect(self):
+        try:
+            return super().collect()
+        except Exception as fehler:  # noqa: BLE001 — die WIRKUNG entscheidet, nicht die Klasse
+            # NUR FileNotFoundError, und die Datei muss WIRKLICH fehlen.
+            #
+            # Eine erste Fassung fing jeden `OSError`. Eine adversariale Gegenlesung hat daran DREI
+            # Faelle ausgefuehrt, in denen die Datei EXISTIERT und trotzdem uebersprungen wurde:
+            # `PermissionError` (vorhanden, unlesbar), `IsADirectoryError` (ein Verzeichnis steht,
+            # wo eine Datei erwartet wird) und `NotADirectoryError` (eine ausgelieferte Datei wird
+            # faelschlich als Verzeichnis behandelt). In allen dreien behauptete die Meldung "diese
+            # Verteilung enthaelt das nicht" — eine falsche Tatsachenbehauptung ueber eine Datei,
+            # die nachweislich da ist. Solche Fehler sind eine ANDERE Klasse und bleiben laut.
+            datei = _fehlende_datei_aus(fehler)
+            if datei is None:
+                raise                  # kein FEHLEN im Baum: eine andere Klasse, bleibt laut
+            rel = str(datei.resolve().relative_to(pathlib.Path(_REPO_ROOT).resolve())).replace("\\", "/")
+            if _verteilung_sollte_enthalten(rel):
+                raise                                # sollte mitgeliefert sein: Paketierungsfehler
+            _UEBERSPRUNGEN_BEIM_IMPORT[self.path.name] = str(datei)
+            pytest.skip(
+                f"nicht ausgeliefert: der Import dieses Moduls braucht {datei!s}, das diese "
+                f"Verteilung nicht enthaelt — N/A ausserhalb eines git-Checkouts "
+                f"(PKG-2026-0718-01, deep gate L6-600-01)",
+                allow_module_level=True)
+
+
+def pytest_pycollect_makemodule(module_path, parent):
+    if running_in_repo_checkout():
+        return None                     # ein Checkout: alles wie bisher, reiner No-op
+    return _ModulDasFehlendeDateienEhrlichMeldet.from_parent(parent, path=module_path)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Der Grund steht im LAUF, auch ohne `-rs`.
+
+    Ein `1 skipped` ohne seinen Grund ist eine Zahl, die alles heissen kann. Die erste Fassung
+    dieser Meldung hing an `pytest_report_header` — der laeuft VOR dem Sammeln, die Menge war dort
+    immer leer, und es erschien nie eine Zeile. Gemessen an der Ausgabe des entpackten sdist:
+    keine einzige.
+    """
+    if not _UEBERSPRUNGEN_BEIM_IMPORT:
+        return
+    terminalreporter.write_sep("-", "beim Import uebersprungen (nicht ausgeliefert)")
+    for name in sorted(_UEBERSPRUNGEN_BEIM_IMPORT):
+        terminalreporter.write_line(f"{name}: braucht {_UEBERSPRUNGEN_BEIM_IMPORT[name]}")
