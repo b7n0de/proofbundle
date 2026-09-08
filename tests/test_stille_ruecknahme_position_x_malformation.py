@@ -197,6 +197,80 @@ class TestAntiParitaet(unittest.TestCase):
             subject_hex=None))
 
 
+class TestEinSCHWEIGENDERNachbarMaskiertKeineEchteRuecknahme(unittest.TestCase):
+    """DER EINWAND EINER FREMDFAMILIAEREN GEGENLESUNG (qwen, 08.09.2026), gebaut und gemessen.
+
+    Vorgelegt waren die zwei neuen Konformanz-Vektoren; der Reviewer fragte nach MEHREREN
+    Nachbarn gleichzeitig: einer schweigt, ein anderer erklaert eine echte Ruecknahme — wird sie
+    gefunden, oder prueft der Verifizierer nur den ersten?
+
+    Der Einwand traegt hier nicht: `successor_warning` prueft ZUERST alle Kandidaten auf eine
+    lesbare Ruecknahme und meldet den unlesbaren Block erst, wenn es keine gibt (die Ordnung, die
+    der 6.0.0-Fix ausdruecklich eingezogen hat). Ein malformierter oder schweigender Nachbar kann
+    eine echte Ruecknahme also nicht maskieren.
+
+    WAS DIE GEGENLESUNG TROTZDEM GEBRACHT HAT: zwei der vier Schweige-Formen standen vorher in
+    KEINEM Fall — das leere Array und das Array mit einem leeren Objekt. Sie verhalten sich
+    richtig, aber das war angenommen, nicht gebunden. Genau dafuer sind fremde Familien da.
+
+    Beide Reihenfolgen, weil der Einwand auf "nur der erste" zielt und `related` ein dict ist,
+    dessen Einfuegereihenfolge ein Angreifer mitbestimmen kann."""
+
+    #: Vier Weisen zu schweigen. Keine davon erklaert etwas ueber DIESES Receipt.
+    SCHWEIGEND = {
+        "feld_fehlt": {},
+        "wert_ist_null": {"relationships": None},
+        "leeres_array": {"relationships": []},
+        "array_mit_leerem_objekt": {"relationships": [{}]},
+        "unlesbar_skalar": {"relationships": 42},
+    }
+
+    def test_die_echte_ruecknahme_wird_neben_JEDER_schweige_form_gefunden(self):
+        echt = {"verified": True, "relationships": [kante(ziel=SUBJ, relation="retracts")]}
+        for name, still_rest in self.SCHWEIGEND.items():
+            still = {"verified": True, **still_rest}
+            for reihenfolge, related in (
+                ("still_zuerst", {ZWEITER: still, NACHBAR: echt}),
+                ("echt_zuerst", {NACHBAR: echt, ZWEITER: still}),
+            ):
+                with self.subTest(schweigen=name, reihenfolge=reihenfolge):
+                    meldung = successor_warning(None, related, subject_hex=SUBJ)
+                    self.assertIsNotNone(meldung, "die echte Ruecknahme verschwindet")
+                    self.assertIn("retracted_by_attached", meldung,
+                                  f"gemeldet wurde etwas anderes als die Ruecknahme: {meldung}")
+
+    #: NUR ZWEI der fuenf Formen schweigen wirklich — und diese Einteilung ist GEMESSEN, nicht
+    #: angenommen. Die erste Fassung dieses Falls zaehlte auch `[]` und `[{}]` zu den stillen,
+    #: weil die Gegenlesung sie so eingeordnet hatte ("[] bedeutet inhaltlich keine Beziehung").
+    #: Der Test fiel — und `validate_relationships` sagt warum:
+    #:   []    -> 'relationships must not be an empty array (omit the field instead)'
+    #:   [{}]  -> 'relationships[0].relation is required' + '.targetReceiptDigest is required'
+    #: Die Spezifikation verbietet das leere Array ausdruecklich und verlangt stattdessen das
+    #: Weglassen des Feldes. Beide Formen sind also UNLESBAR, und die Meldung ist richtig. Der
+    #: Einwand war trotzdem wertvoll: ohne ihn stuende hier keine der beiden Formen.
+    WIRKLICH_STILL = ("feld_fehlt", "wert_ist_null")
+    UNLESBAR = ("leeres_array", "array_mit_leerem_objekt", "unlesbar_skalar")
+
+    def test_ALLEIN_schweigen_die_WIRKLICH_stillen_formen(self):
+        """Die Gegenrichtung: ohne echten Ruecknehmer daneben darf eine wirklich stille Form
+        nichts melden — sonst waere der Fall oben trivial erfuellt."""
+        for name in self.WIRKLICH_STILL:
+            with self.subTest(schweigen=name):
+                related = {NACHBAR: {"verified": True, **self.SCHWEIGEND[name]}}
+                self.assertIsNone(successor_warning(None, related, subject_hex=SUBJ),
+                                  f"{name} meldet, obwohl es nichts erklaert hat")
+
+    def test_die_UNLESBAREN_formen_melden_ALLEIN_sehr_wohl(self):
+        """Und die Gegenprobe dazu, sonst waere die Einteilung nur eine Behauptung: was die
+        Spezifikation verbietet, faellt als unlesbarer Nachfolger auf."""
+        for name in self.UNLESBAR:
+            with self.subTest(unlesbar=name):
+                related = {NACHBAR: {"verified": True, **self.SCHWEIGEND[name]}}
+                meldung = successor_warning(None, related, subject_hex=SUBJ)
+                self.assertIsNotNone(meldung, f"{name} schweigt, obwohl die Spezifikation es verbietet")
+                self.assertIn("malformed_successor", meldung, meldung)
+
+
 class TestDieREICHWEITEIstGEWOLLTUndBenannt(unittest.TestCase):
     """Ein unlesbarer Block blockt AUCH, wenn seine lesbaren Kanten woandershin zeigen.
 
