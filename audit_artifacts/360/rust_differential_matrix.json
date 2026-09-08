@@ -6,7 +6,7 @@
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
     "python": "3.10.12"
   },
-  "total_relation_vectors": 42,
+  "total_relation_vectors": 44,
   "all_agree": true,
   "rows": [
     {
@@ -493,6 +493,52 @@
       "rust_reproduces_expectation": true
     },
     {
+      "caseId": "relation-malformed-relationships-successor",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "POLICY_UNMET",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python_exit": 3,
+      "rust_exit": 3,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
+      "caseId": "relation-null-relationships-successor",
+      "kind": "decision_relation",
+      "expected": {
+        "exitClass": "VERIFIED",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python": {
+        "exitClass": "VERIFIED",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "rust": {
+        "exitClass": "VERIFIED",
+        "lineage": "NOT_EVALUATED",
+        "policyVerdict": null
+      },
+      "python_exit": 0,
+      "rust_exit": 0,
+      "agree_python_rust": true,
+      "rust_reproduces_expectation": true
+    },
+    {
       "caseId": "relation-renews-vector",
       "kind": "decision_relation",
       "expected": {
@@ -975,25 +1021,5 @@
       "agree_python_rust": true,
       "rust_reproduces_expectation": true
     }
-  ],
-  "version": "6.0.0",
-  "candidate": {
-    "commit": "9e742bfa989ee6d081c4aa73bde4a4384ea3cc0b",
-    "tree_digest": "4e4d0d4a4fc0d884aa4025ee68b762026301957af69b1415bbc29ac5e822dca7",
-    "sdist_sha256": "c4490ac46c80474cfcaa5d784073f59924b9135e0dfbfaf1bba87c02c4382d95",
-    "wheel_sha256": "58759ce9add58a95f8d4c44721aa4fda2f11c7448781ca559dfc6b79e6e46cbd"
-  },
-  "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
-  "producer": {
-    "tool": "tools/pb_verify_rs/crosscheck.py",
-    "tool_version": "6.0.0"
-  },
-  "input_digest": "239c52f73d6ebfb920d3847e545490ce775b67360e5c4f17cb26a79858e4ead6",
-  "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-09-06T21:04:57Z",
-  "signature": {
-    "alg": "ed25519",
-    "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "zmxHv6xJ/thBdiU8+f95Wa4zFyehPhREKVksq5pRF03Kc5MU109PBQAiV2KjLBYDPZQRnLCdLjky/0+NqhjfCQ=="
-  }
+  ]
 }
