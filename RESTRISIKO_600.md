@@ -3793,3 +3793,78 @@ einem Zug mit den anderen Nach-Tag-Punkten:
 **Der Ledger hat hier funktioniert, und zwar gegen mich.** Das ist der Zweck eines fail-closed
 Riegels: er unterscheidet nicht, wer schreibt. Registerschluessel
 `KLASSEN-LEDGER-WIES-MEINE-EINTRAEGE-ZURUECK-REGRESSIONSSCHUTZ-LAG-IM-SCRATCH-01`.
+
+## S65 — Die Nach-dem-Tag-Liste an EINER Stelle, mit den Schritten statt der Absicht
+
+Diese Nacht hat sechs Punkte erzeugt, die bewusst NICHT jetzt gefixt wurden — jeder mit demselben
+Grund: kein P0 nach der Rundenregel, und jede Aenderung verschiebt den Kandidatenkopf und startet die
+32 Pruefungen neu. Sie stehen verstreut in S52, S59, S61, S62 und S64. **Verstreute Absichten gehen
+verloren; hier stehen sie einmal, mit den Schritten.**
+
+### 1 · Der Baum-Riegel des Gate-Meta-Tests (aus S59)
+
+Vier Aufbauten lassen einen fremden Baum durch, zwei melden falsch. Ersetzen durch:
+
+* Quelltext ueber `find_spec("proofbundle.relation").loader.get_source()` statt `read_text()` — das
+  mutiert per Konstruktion genau die Bytes, die der Interpreter geladen hat, und macht die halbe
+  Pfadfrage gegenstandslos;
+* Bindung ueber **alle** `*.py` des Pakets statt einer Datei (der Grund fuer den Durchlaesser: das
+  mutierte Modul zieht `.budget`, `.errors`, `._membership` aus dem fremden Paket);
+* bei vorhandener Baumquelle zusaetzlich `im_baum.resolve().is_relative_to(wurzel)` gegen den
+  Symlink-Fall;
+* ohne Baumquelle gegen die **RECORD-sha256** der Distribution (`importlib.metadata`) statt gegen
+  Pfad-Praefixe — das deckt `--target`, `--user`, dist-packages und zipimport mit ab.
+
+**Abnahme:** die Acht-Zeilen-Tabelle aus S59 muss in allen acht Zeilen SOLL treffen, im echten
+Import, nicht per Attribut.
+
+### 2 · Der Klassen-Ledger-Eintrag (aus S64)
+
+Der Ledger hat beide Eintraege zurueckgewiesen. Zum Nachholen fehlt:
+
+* ein **echter Test in `tests/`**, der ueber alle `compile()`-Aufrufe in `tests/` geht und prueft:
+  *der Dateiname ist ein existierender Pfad ODER er beginnt mit `<`*;
+* ein **Meta-Test**, der einen Pfad-Dateinamen einpflanzt und beweist, dass der erste ihn faengt;
+* `env_blocked_reason` fuer die `class_open`-Klasse;
+* `research_refs` fuer beide — **SOTA-Recherche VOR dem Anhaengen**, wie `B7_RESEARCH_FIRST` und der
+  Ledger es beide verlangen.
+
+### 3 · Die `concurrency`-Gruppe (aus S62)
+
+Kein einziger der neun Workflows hat eine. In jede `on: push`-Datei:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+**Abnahme:** zwei Pushes kurz hintereinander; der erste Lauf muss `cancelled` sein, bevor der zweite
+seine Schichten startet.
+
+### 4 · Der Klassen-Nachbar in reiner Pfadform (aus S60)
+
+`tests/test_version_single_source.py:303-307` fuehrt `if REPO not in wo.parents: raise`. Gemessen
+laeuft er in der ausgelieferten Aufstellung **nicht** (36 skipped) — er ist also ungefaehrlich, aber
+er ist dieselbe Klasse. Mit Punkt 1 in einem Zug auf dieselbe Eigenschaft umstellen.
+
+### 5 · Die drei ueberholten Zweige (aus S50)
+
+`fix/trust-anchor-exitcodes`, `probe/gatezeile-in-kandidat` und `fix/meldungstext-nachbarn-nach-dem-tag`
+sind alle drei von der Release-Linie ueberholt (patch-id-Treffer, Blob-Gleichheit, einseitiger Diff
+mit zusaetzlicher Haertung). **Nach dem Tag loeschbar** — vorher nicht, weil sie bis dahin die
+einzigen Traeger ihrer Fassung sind, falls doch etwas daran haengt.
+
+### 6 · Die Gate-Zeile in den Kandidaten (aus S49)
+
+Der Erzeuger `b7_deepgate_gate_zeile.py` liegt in einem **anderen Repo** und dort auf einem
+**nicht gemergten Zweig**. Die drei Feldnamen (`workflow_path` → `workflow_datei`,
+`workflow_digest` → `workflow_sha256`, `verdikt_head` → `head`) sind un_echoXX zugestellt. **Das
+bleibt dort** — diese Bahn fasst keinen 2bedone-Quellcode an.
+
+---
+
+**Was NICHT auf diese Liste gehoert und trotzdem oft dort landet:** die vier roten
+Bereitschaftsartefakte (C6.2, C6.3, C8.2, C12.1). Sie sind kein Nach-Tag-Punkt, sondern die
+**Vorbedingung** des Tags — sie haengen am Deep-Gate-Lauf ueber den Kandidatenkopf, und der haengt
+an gruenem Schritt 50. Registerschluessel `NACH-DEM-TAG-LISTE-AN-EINER-STELLE-01`.
