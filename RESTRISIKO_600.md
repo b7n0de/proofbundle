@@ -2448,6 +2448,20 @@ Der eigene Prozess hatte in beiden Faellen **0 s CPU-Zeit** — er hing rein am 
 (Verdraengung durch die Parallelsitzung am selben Host, eine haengende Anfrage in seiner
 Warteschlange, oder etwas Drittes); nicht gemessen ist auch, ob ein Neustart es loest.
 
+**Und es gibt keinen Ausweichweg — gemessen, nicht angenommen.** Das System kennt zwei
+un-Controller, und nur einer traegt ueberhaupt eine Adresse:
+
+```
+vast     base=http://79.161.122.162:60542   warm=True
+runpod   base=<leer>                        warm=False
+```
+
+Der Familien-Floor ist damit nicht gerissen, weil ich es nicht versucht haette, sondern weil es
+**genau EINE fremdfamiliaere Route gibt und das die ist, die nicht liefert**. Das ist ein anderer
+Zustand als „nicht geprueft", und er hat eine andere Konsequenz: er ist von dieser Bahn aus nicht
+behebbar. Wer den Floor erreichen will, braucht einen zweiten Weg — eine Beschaffungsfrage, keine
+Sorgfaltsfrage.
+
 **Was das fuer den Beweiswert dieser drei Abschnitte heisst, ohne Beschoenigung.** Der Zeuge fordert
 fuer `NORMAL-3L3I` einen Familien-Floor von **zwei** (`_MIN_FAMILIES`), und
 `B7_STANDING_UN_DIVERSITY_DEFAULT_ON` verlangt Vielfalt als Regelfall. Ein Panel aus einer Familie
