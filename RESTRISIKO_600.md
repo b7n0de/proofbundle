@@ -2580,5 +2580,13 @@ Vierer-Zaehlung ueberzeichnete die Zahl unabhaengiger Entscheidungen.
 Fuenf Runden Korrektur an einem Befund, und **die schwerste kam von einer Linse, nicht von mir** —
 zum dritten Mal. Der Fehler ist jedes Mal derselbe Typ: **ich messe eine FORM (heisst das Feld so?)
 und schliesse auf die EIGENSCHAFT (gibt es die Sache?).** Ich habe diese Klasse in derselben Datei
-zweimal benannt, mit Namen, und sie beide Male danach begangen. Registerschluessel
-`WAND-2-WAR-NIE-OWNER-GEBIET-DIESELBE-KLASSE-EINE-SEITE-SPAETER-01`.
+benannt und sie danach begangen.
+
+**Was daran GEMESSEN ist und was nicht, weil der Unterschied hier besonders zaehlt.** Gemessen ist
+das MUSTER: die Klasse steht benannt im Text, und danach steht die Instanz — zweimal heute, beide
+Male mit Datei und Zeile nachweisbar. **NICHT GEMESSEN ist die Erklaerung**, eine benannte Klasse
+fuehle sich erledigt an und greife deshalb nicht mehr; das ist eine Vermutung ueber mich selbst,
+n=2, und sie gehoert nicht als Befund verkauft. Was aus dem Muster unabhaengig von jeder Erklaerung
+folgt, ist die Abhilfe: **eine Klasse braucht neben ihrem Namen eine AUSFUEHRBARE Frage.** Hier
+waere es eine Zeile gewesen — die Feldnamen des Bestands auszaehlen statt einen Namen abzufragen.
+Registerschluessel `WAND-2-WAR-NIE-OWNER-GEBIET-DIESELBE-KLASSE-EINE-SEITE-SPAETER-01`.
