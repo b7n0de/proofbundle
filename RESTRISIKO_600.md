@@ -3220,3 +3220,42 @@ Registerschluessel `UN-GEGENLESUNG-FAND-DEN-STUMMEN-ZWEIG-MEINES-EIGENEN-FIXES-0
 Damit ist die Zusicherung *„pip install \<sdist\> && pytest ist gruen"* an der Flaeche belegt, die
 sie meldete. Offen am selben Kopf bleibt `Audit candidate matrix (advisory)` — der bekannte
 **advisory** Stand aus S10, kein Merge-Blocker; `mutation (6)` lief zum Messzeitpunkt noch.
+
+## S55 — Der Abschluss-Zeuge laesst sich auf dieses Repo richten, und sein Verdikt ist PARTIAL — aus genau den Gruenden aus S35
+
+Der Riegel verlangte fuer die Gruen-Aussage aus S54 einen signierten Beleg. In S50-Nachtrag stand,
+`b7_abschluss_beleg.py` sei dafuer das falsche Werkzeug, weil es aus dem 2bedone-Repo fetcht. **Das
+war zu frueh geschlossen: das Werkzeug hat ein `--repo`.** Zwei Dinge waren wirklich noetig:
+
+1. **Der Zeuge kennt nur zwei Wurzeln** (`zeugen_lage.zuordnung`): `/home/konrad/2bedone` →
+   `sign.sock` und `/home/konrad/proofbundle` → `sign-pb.sock`. Ein **Worktree-Pfad** wie
+   `pb_pushlinie` ist ihm unbekannt — man muss die registrierte Wurzel nennen.
+2. **Er fetcht aus dem LOKALEN Klon, nicht von GitHub.** Solange
+   `/home/konrad/proofbundle` den Commit nicht hatte, kam `not our ref`. Ein
+   `git fetch origin <zweig>` in diesem Klon loeste es.
+
+**Der Beleg ist ausgestellt und signiert:**
+`office/governance/abschluss_belege/p0_l6_600_01_hermetic_cleanroom_gruen_e2e5fedfc479.json`,
+Verdikt **`PARTIAL_GATE_NO_WITHSTANDS[v4/sc2/NORMAL-3L3I/strength=PARTIAL]`**.
+
+**Und seine Begruendungen sind woertlich die Wand aus S35 — jetzt nicht mehr behauptet, sondern
+ausgefuehrt:**
+
+```
+deterministic_pre_sweep: scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum
+class_ledger_replay:     office/governance/berkeley_gate/class_ledger.jsonl fehlt im Baum
+anti_tautology_meta_test: dito
+jury: 0 nicht-leere Linsen-Artefakte in office/governance/berkeley_gate/runs/lenses/<topic>
+```
+
+Der Zeuge sucht seine Pruefmechanik an **2bedone-relativen Pfaden im BEURTEILTEN Baum**. Ueber einem
+proofbundle-Commit findet er sie nicht und sagt das ehrlich: `env_blocked`, `strength=PARTIAL`. **Das
+ist kein Fehler des Zeugen, sondern genau die offene Owner-Frage (Wand 3)** — darf die Mechanik aus
+einem ANDEREN Baum gelesen werden als dem beurteilten? Die Antwort auf diese Frage entscheidet, ob
+aus diesem PARTIAL je ein FULL werden kann.
+
+**Fuer die Gruen-Aussage aus S54 heisst das:** sie ist durch die CI-Messung getragen und traegt jetzt
+zusaetzlich einen signierten, ehrlich als **PARTIAL** ausgewiesenen Beleg — kein `WITHSTANDS`. So
+gehoert es beschriftet.
+
+Registerschluessel `ZEUGE-AUF-DIESES-REPO-RICHTBAR-VERDIKT-PARTIAL-AUS-WAND-3-01`.
