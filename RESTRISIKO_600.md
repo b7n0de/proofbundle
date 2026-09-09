@@ -3758,7 +3758,7 @@ Registerschluessel `ZEUGE-UEBER-FREMDEM-COMMIT-IST-STRUKTURELL-PARTIAL-DREIMAL-G
 ## S64 — Der Klassen-Ledger hat meine zwei Eintraege ABGELEHNT, und alle fuenf Gruende treffen
 
 Nach `B7_STANDING_FIX_THE_CLASS` gehoeren wiederkehrende, korrektheitsrelevante Klassen in den
-append-only Klassen-Ledger. Zwei Klassen dieser Nacht dorthin geschrieben — **beide zurueckgewiesen**,
+Klassen-Ledger, der nur anhaengt und nie loescht. Zwei Klassen dieser Nacht dorthin geschrieben — **beide zurueckgewiesen**,
 `grep -c` im Ledger: **0 und 0**.
 
 **Die Gruende, und keiner davon ist Formalismus:**
@@ -4499,3 +4499,42 @@ dem maskierten Exit-Code entstanden, also fuer Schritt 50 nicht belastbar. **Ein
 einer unbekannten Groesse, die bekannt war.** Der Fix geht jetzt raus, nicht in drei Stunden.
 
 Registerschluessel `SHELL-AM-TATORT-GEMESSEN-EIN-ECHTER-NACHBAR-VON-DREIZEHN-01`.
+
+## S74 — Fuenf test-Jobs und crypto-floor rot, Ursache: EIN Wort in meinem eigenen Registertext
+
+Der Lauf ueber `d454679` faerbte **sieben** Checks rot, wo `a2d375f` genau einen hatte (die advisory
+Audit-Matrix). Der Verdacht lag auf meinem `ci.yml`-Fix — falsch. Der Commit traegt **kein Python**,
+nur `ci.yml` und dieses Register.
+
+```
+[claims-hygiene] FAIL · 53 docs scanned · 1 violation(s)
+  RESTRISIKO_600.md:3761  'append-only' (append-only (needs a public transparency log))
+```
+
+**Es war ein Wort in S64.** Beim Zitieren von `B7_STANDING_FIX_THE_CLASS` habe ich „`append-only`
+Klassen-Ledger" geschrieben. Der Hygiene-Riegel dieses Repos laesst „`append-only`" nur mit einem
+oeffentlichen Transparenz-Log zu — eine Behauptung, die hier niemand belegen kann. Der Riegel hat
+recht. Umformuliert zu „der nur anhaengt und nie loescht"; danach `PASS · 0 violation(s)`, und
+`tests/test_claims_hygiene.py` **37 passed**. Alle drei Fehlschlaege in `crypto-floor` kamen aus
+diesem einen Verstoss.
+
+**Die Klasse, und es ist ihre dritte Instanz in zwei Tagen:** ich fahre die Testsuite und halte sie
+fuer das Tor. Am 08.09. war `coverage` gruen, waehrend alle fuenf `test`-Jobs am Linter fielen
+(`ruff check .`, ci.yml Zeile 81, lokal nie gefahren). Heute dasselbe mit
+`scripts/claims_hygiene_check.py`. **Ein `test`-Job ist eine KETTE von Schritten, und pytest ist nur
+einer davon.** Was die Kette sonst noch faehrt, steht in der `ci.yml` und nirgends sonst.
+
+**Operativ ab jetzt:** vor jedem Push die Schritte des `test`-Jobs aus der `ci.yml` LESEN und die
+nicht-pytest-Schritte einzeln fahren. Fuer diesen Baum sind das `ruff check .`, `mypy src` und
+`scripts/claims_hygiene_check.py`. Das kostet Sekunden und haette beide Male den ganzen Lauf
+gespart.
+
+**Und die kleinere Lehre daneben:** meine erste Vollsuite in dieser Runde lief mit dem
+System-Python und meldete `Interrupted: 5 errors during collection` —
+`ModuleNotFoundError: No module named 'proofbundle'`. Das sah aus wie der P0 L6-600-01 und war ein
+reiner Umgebungsfehler. Der Ledger-Docstring, den ich zwei Minuten spaeter aus einem anderen Grund
+las, warnt woertlich davor: *„Mit dem System-Python (3.10) fielen 3 Tests, mit dem Repo-venv (3.11)
+liefen dieselben 12 gruen."* Richtig ist
+`PYTHONPATH=<baum>/src /home/konrad/proofbundle/.venv/bin/python -m pytest`.
+
+Registerschluessel `EIN-WORT-IM-REGISTER-FAERBTE-SECHS-PFLICHT-CHECKS-ROT-01`.
