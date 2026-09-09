@@ -4322,3 +4322,44 @@ Restrisiko nach der Owner-Entscheidung zu C6.3, und er haelt den Tag nicht auf.
 **Warum das hier steht, obwohl das Ergebnis dasselbe ist:** eine unveraenderte Aussage ueber einen
 VERAENDERTEN Gegenstand ist keine bestaetigte Aussage, sondern eine ungeprueft weitergereichte. Der
 Aufwand war eine Minute. Registerschluessel `SOAK-BINDUNG-AM-AKTUELLEN-KANDIDATEN-NEU-GEMESSEN-01`.
+
+## S71 — Korrektur an S50: mein Suchfenster war zu schmal, und `0aca175` ist selbst Vorfahre der Release-Linie
+
+Der S50-Nachtrag fuehrt eine Tabelle mit dem Eintrag: *„`0aca175` (Wheel-Kanonisierung) — `diff` der
+ganzen Datei: Release-Linie enthaelt den Inhalt **plus 41 Zeilen**"*, und im Commit dazu steht
+„patch-id 0 Treffer". **Beides neu gemessen, und die Zahl war falsch.**
+
+```
+0aca175  patch-id 744d629c0a  Treffer in der Release-Linie: 1
+   TREFFER: 0aca175 fix(byte-freeze): das wheel wird im BAUWEG kanonisiert …
+```
+
+**Der Treffer ist der Commit SELBST.** `0aca175` liegt bereits in der Release-Linie — es ist kein
+Zweig-Commit, der uebernommen werden muesste, sondern ein Vorfahre. Mein `diff` der ganzen Datei
+verglich den Stand **an diesem Commit** mit dem Stand **an HEAD**; die 41 Zusatzzeilen sind spaeter
+dazugekommen. Richtig gerechnet, falsch beschriftet.
+
+**Warum die erste Messung 0 ergab:** mein Suchfenster war `c08e4650~30..b83d163` — **70 Commits**.
+Das reichte nicht bis zu `0aca175` zurueck. Mit `c08e4650~40..HEAD` (**105 Commits**) steht der
+Treffer sofort da. **Eine Menge zu schmal gewaehlt und ihr Ergebnis als Abwesenheit gelesen** — die
+Klasse dieser Nacht, jetzt an einer meiner eigenen Zahlen.
+
+**Vollstaendig neu gemessen, alle vier Zweig-Commits:**
+
+| Commit | patch-id | Treffer in der Release-Linie |
+|---|---|---|
+| `eb09cce` xfail Byte-Freeze | `3174146a2d` | **1** |
+| `0aca175` Wheel-Kanonisierung | `744d629c0a` | **1** (der Commit selbst) |
+| `c52884d` go_note_differential | `8cd05d9495` | **1** |
+| `f67f289` Mutationstor | `bc5dfe8b6c` | **0** |
+
+**`f67f289` bleibt bei 0, und das ist richtig so:** die Release-Linie fuehrt dort eine **andere,
+staerkere** Fassung von `_rote_aus_lauf` (Bannerform, JUnit-XML, Bilanzzeile, `TimeoutExpired` UND
+`OSError`) — nicht denselben Patch. Das war schon in S50 Punkt 2 gemessen und gilt unveraendert.
+
+**Am Schluss aendert sich nichts, und das ist genau der Punkt.** Alle drei Zweige bleiben ueberholt,
+sie bleiben nach dem Tag loeschbar. Aber der Weg dahin trug eine falsche Zahl, und eine falsche
+Zahl, die zufaellig zum richtigen Schluss fuehrt, ist kein Beleg — sie ist die Sorte Glueck, die
+beim naechsten Mal ausbleibt.
+
+Registerschluessel `SUCHFENSTER-ZU-SCHMAL-EIN-VORFAHRE-ALS-ABWESEND-GEZAEHLT-01`.
