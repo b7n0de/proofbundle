@@ -2460,3 +2460,123 @@ Abschnitte nachziehen; bis dahin gilt hier **PARTIAL_PANEL_EINE_FAMILIE**.
 
 Befund `UN-DIREKTWEG-LIEFERT-IN-DIESEM-FENSTER-NICHT-01`. Registerschluessel
 `FAMILIEN-FLOOR-FUER-S37-BIS-S39-NICHT-ERFUELLT-01`.
+
+## S41 — `probe/gatezeile-in-kandidat` traegt nichts, was der Release-Linie fehlt
+
+Der Zweig heisst nach dem Thema dieser Nacht und liegt fuenf Commits vor seinem eigenen Fernstand.
+Naheliegender Verdacht: dort liegt Arbeit, die in 6.0.0 gehoert. **Nachgemessen: nein — beide
+Commits sind vom Release-Kopf ueberholt.**
+
+**1. `f67f289 fix(mutationstor): ein abgebrochener Lauf ist NICHT null rote Tests.** Der Zweig fuehrt
+`_rote_aus_lauf(returncode, stderr)` (Zeile 641). **Der Release-Kopf fuehrt dieselbe Funktion in
+einer STAERKEREN Fassung** (Zeile 866): `_rote_aus_lauf(bericht, text, rc)` prueft nicht nur
+`rc in _RC_NICHT_MESSBAR`, sondern zusaetzlich die **FORM** des Abbruch-Banners und liest die
+JUnit-XML als strukturierte Quelle, bevor sie auf Text zurueckfaellt. Der Kommentar dort nennt den
+Fall, den die Zweig-Fassung noch nicht faengt: `pytest.exit()` schreibt ein Banner mit ANDEREM
+Wortlaut, und dabei melden Bilanz UND JUnit-XML einen sauberen Lauf, waehrend der toetende Test nie
+lief.
+
+**2. `eb09cce fix(byte-freeze): der xfail faellt, weil er angeschlagen hat.** Der Zweig entfernt
+einen `xfail(strict=True)` aus `tests/test_byte_freeze_zweite_haelfte.py`. **Der Release-Kopf hat
+dort ueberhaupt kein `xfail` mehr** — gemessen: `git show release/600-push-linie:<datei> | grep
+xfail` findet nichts, nur die zwei Testfunktionen. Auch das ist also schon da. Passend dazu die
+eigene Messung aus S39: `--check-wheel` meldet `identical: true`.
+
+**Folge:** der Zweig braucht nichts, und aus ihm ist nichts zu holen. Der frueher notierte Punkt
+„lokal fuenf Commits voraus" ist damit beantwortet statt offen.
+
+**Und die Klasse, die hier fast wieder zugeschlagen haette.** Der erste Blick auf den Zweig-Diff
+las sich wie „ein echter Korrektheitsfix fehlt der Release-Linie" — das waere ein Befund gewesen,
+und ein falscher. Es ist woertlich die Klasse aus dem Gedaechtnis dieser Bahn: *eine Aussage ueber
+einen KOPF wird am KOPF gemessen, nie aus einem Diff abgeleitet* („Zweig X fixt Y" heisst nicht
+„Kopf Z hat Y nicht"). Diesmal stand die Gegenfrage vor der Meldung, und sie hat sie kassiert.
+Registerschluessel `PROBEZWEIG-IST-UEBERHOLT-NICHT-VORAUS-01`.
+
+## S42 — Wand 2 ist KEINE Owner-Entscheidung: ich habe dieselbe Klasse begangen, die ich eine Seite vorher benannt habe
+
+Eine Gegenlesung von S37/S38/S39 (`VERDIKT: REJECT`, fuenf Punkte) hat den schwersten Fehler dieser
+Nacht gefunden, und er sitzt in der zentralen Aussage. **Alle fuenf Punkte habe ich selbst
+nachgemessen; alle fuenf treffen.**
+
+### Der Hauptfund: der Zeuge FUEHRT ein Verdikt, ich habe nur das falsche Feld gezaehlt
+
+S35 mass „0 von 412 Belegen tragen ein nicht-leeres `verdict`" und schloss daraus, der Zeuge fuehre
+gar kein Verdikt — also fehle eine Abbildung von `strength` auf ein Urteil, und die sei eine
+**Owner-Festlegung**. Nachgemessen:
+
+```
+Belege 416 · mit nicht-leerem verdict_tag: 414
+  WITHSTANDS_DEEPGATE 135 · PARTIAL_GATE_NO_WITHSTANDS 269 · WITHSTANDS_BERKELEY 6 · REFUTED 4
+```
+
+`b7_berkeley_gate_receipt.verdict_tag()` (Zeilen 384-411) **rechnet genau diese Abbildung** —
+`strength != "FULL"` ergibt `PARTIAL_GATE_NO_WITHSTANDS[...]`, sonst
+`WITHSTANDS_DEEPGATE[v4/sc1/DEEP-6L7I/FULL]` — und schreibt sie in **jeden** Beleg.
+
+**Ich habe nach einem Feld namens `verdict` gesucht und aus seinem Fehlen auf das Fehlen der Sache
+geschlossen. Das ist woertlich die Klasse, die ich als Wand 1 benannt hatte, eine Seite vorher, im
+selben Text.**
+
+### Und es sind DREI Drifts, nicht eine — die Wand wird dadurch schaerfer, nicht kleiner
+
+| | 2bedone (Erzeuger + eigener Konsument) | proofbundle (Pruefer) |
+|---|---|---|
+| Feldname | `verdict_tag` | `verdict` |
+| Vergleichsart | `startswith(("WITHSTANDS_DEEPGATE[", …))` (Z. 637-638) | `not in _GATE_VERDICTS_PASS`, **exakt** (Z. 1178) |
+| Wertform | `WITHSTANDS_DEEPGATE[v4/sc1/DEEP-6L7I/FULL]` | die blanke Zeichenkette `WITHSTANDS_DEEPGATE` |
+
+Selbst ein woertlich kopierter Tag faellt also durch — der Klammerzusatz allein reicht. **Wand 1 hat
+damit nicht drei Felder, sondern vier** (`workflow_datei`, `workflow_sha256`, `head`, `verdict`),
+und die 2bedone-Seite prueft dieselbe Sache mit einer ANDEREN Vergleichsart als die
+proofbundle-Seite.
+
+### Was das an der Owner-Frage aendert, und es ist der zweite Umbau in einer Nacht
+
+**Wand 2 war nie Owner-Gebiet.** Sie ist ein Handgriff derselben Art wie Wand 1. Damit gilt:
+
+> **Nur Wand 3 ist Owner-Gebiet** — soll die Pruefmechanik aus einem ANDEREN Baum gelesen werden
+> duerfen als dem beurteilten. Das ist EINE Frage, nicht zwei.
+
+Die Gegenlesung fuegt dazu einen Nebenbefund an der UND-Ketten-These an, und auch der trifft: **Wand
+3 allein zu schliessen aendert sehr wohl etwas Reales** — es kippt `strength` von PARTIAL auf FULL,
+unabhaengig von Wand 1. Nur die engere Frage „ergibt sich eine SIGNIERBARE Gate-Zeile" bleibt eine
+Kette. S37 hat die Kette also richtig beschrieben, ihren Gegenstand aber zu weit gefasst.
+
+### Vier weitere Punkte derselben Gegenlesung, alle nachgemessen und alle angenommen
+
+**Weg C ist NICHT kostenlos.** `ART_UNSIGNED = "unsigned"` (Z. 330) steht **nicht** in
+`_ART_DATA_BLOCKED_STATES = {ART_UNMEASURABLE_HERE}` (Z. 337). Ein unsigniertes Artefakt ergibt
+damit hartes **FAIL**, nicht DATA_BLOCKED; C6.2/C6.3/C8.2 sind keine informativen Pruefungen,
+`ready_before_binding` verlangt `counts[FAIL] == 0`, und der Lauf endet mit **exit 1**. Richtig
+bleibt „verlangt keinen Bau und keinen Widerruf" — falsch war „kostet nichts": die Matrix wird rot,
+und ob der Owner das ueberstimmt, ist eine zweite Frage.
+
+**S38s Begruendung war sachlich falsch, ihr Ergebnis nur zufaellig richtig.** Ich schrieb, die drei
+Bereitschaftsmessungen fuehren „Parser, Rust-Python-Vergleich und Budget-Achsen, nicht die Suite".
+`scripts/budget_axis_measurement.py` (Z. 44-48) **importiert `tests/test_budget_kostenkurve` als
+Modul und ruft dessen Zusicherungen auf** — es faengt sogar `Skipped`/`Failed` aus
+`_pytest.outcomes`. Es fuehrt also eine Testdatei aus. Dass die Schlussfolgerung trotzdem haelt,
+liegt allein daran, dass die geaenderte Datei eine ANDERE war. **Und das Bittere: ich hatte diese
+Datei in derselben Nacht vollstaendig gelesen und den Import zitiert.**
+
+**S39 fehlt eine vierte ehrliche Grenze, und es sind zwei.** (a) `--check` baut zweimal **mit
+Isolation als Standard** — beide Laeufe koennen ihre eigene Werkzeugkette ziehen. Zwei Laeufe
+Sekunden hintereinander zeigen Determinismus gegen EINE Momentaufnahme der Werkzeugkette, nicht
+Stabilitaet gegen deren Drift (reproducible-builds.org fuehrt genau das als Risiko). (b) Fuer das
+**wheel** gibt es ueberhaupt keinen Zweimal-Bau-Vergleich: `measure_wheel_from_sdist` baut je
+EINMAL direkt und aus dem sdist und vergleicht nur diese beiden, und `normalize_wheel` behaelt die
+ZIP-Reihenfolge **bewusst** bei. Ein Nichtdeterminismus in der Paketierung selbst faende dieser
+Test nie.
+
+**„Vier Bereitschaftsartefakte" sind DREI Dateien.** `MUTABLE_EVIDENCE_RELS` nennt genau drei Pfade,
+und `_soak_artifact()` sagt woertlich: *„EINMAL gelesen und fuer beide Pflichten (C6.2/C6.3)
+derselbe"*. C6.2 und C6.3 teilen sich `fuzz_soak_latest.json`; ein Signieren betrifft beide. Meine
+Vierer-Zaehlung ueberzeichnete die Zahl unabhaengiger Entscheidungen.
+
+### Die Bilanz dieser Nacht, ohne Beschoenigung
+
+Fuenf Runden Korrektur an einem Befund, und **die schwerste kam von einer Linse, nicht von mir** —
+zum dritten Mal. Der Fehler ist jedes Mal derselbe Typ: **ich messe eine FORM (heisst das Feld so?)
+und schliesse auf die EIGENSCHAFT (gibt es die Sache?).** Ich habe diese Klasse in derselben Datei
+zweimal benannt, mit Namen, und sie beide Male danach begangen. Registerschluessel
+`WAND-2-WAR-NIE-OWNER-GEBIET-DIESELBE-KLASSE-EINE-SEITE-SPAETER-01`.
