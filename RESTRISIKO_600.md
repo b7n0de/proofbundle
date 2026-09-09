@@ -3615,3 +3615,63 @@ anders aus.
 Zeilenzahlen waere es relevant.
 
 Registerschluessel `KLASSEN-NACHBAR-TRAEGT-DIE-FORM-HAT-AUSGELIEFERT-KEINEN-GEGENSTAND-01`.
+
+## S61 — `coverage` ist rot, die Suite ist gruen, und der Grund ist ein DATEINAME aus meinem eigenen Meta-Test
+
+`coverage` ist ein **Pflicht-Check des Rulesets** (`ci.yml:114`) und wurde am Kandidaten `e2e5fed`
+rot. GitHub gibt die Job-Logs erst nach dem Gesamtlauf frei — **die API auf Job-Ebene aber schon**
+(`gh api repos/…/actions/jobs/<id>/logs`). Damit gemessen, und der Befund ist eindeutig:
+
+```
+3934 passed, 47 skipped, 2176 warnings, 1077 subtests passed in 2267.78s (0:37:47)
+No source for code: '…/src/proofbundle/relation.py [mutiert]'
+##[error]Process completed with exit code 1
+```
+
+**Die Suite ist vollstaendig gruen. Was fehlschlaegt, ist der REPORT.** Mein Gate-Meta-Test aus dem
+S25-Fix kompiliert die mutierte Fassung mit einem kuenstlichen Dateinamen:
+
+```python
+exec(compile(mutiert, f"{datei} [mutiert]", "exec"), modul.__dict__)
+```
+
+Das ist ein **echter Pfad unter `src/proofbundle/` plus Suffix**. `coverage run
+--source=src/proofbundle` nimmt ihn deshalb in die gemessene Menge auf und bricht im Report ab, weil
+es dafuer keine Quelle findet. **Ein rotes Pflicht-Tor aus einem Dateinamen.**
+
+### Der Fix, und warum er nichts am Verhalten aendert
+
+`f"<mutiert: {datei.name}>"` — spitze Klammern sind die uebliche Kennzeichnung fuer Code-Objekte
+ohne Datei (wie `<string>`); coverage versucht dort keine Aufloesung. Der Name bleibt sprechend,
+damit ein Traceback lesbar bleibt. `modul.__file__` bleibt unveraendert der echte Pfad — die
+Bindung, die der Riegel prueft, ist nicht beruehrt.
+
+### Fangnachweis, zweiseitig, in KOPIEN gefahren (der Release-Baum wurde nicht angefasst)
+
+Zwei Vollkopien, eine auf die alte Fassung zurueckgesetzt, dieselbe Testdatei unter `coverage`:
+
+```
+ALT: No source for code: '…/ALT/src/proofbundle/relation.py [mutiert]'   RC_REPORT = 1
+NEU: TOTAL  11454  10564   8%                                            RC_REPORT = 0
+```
+
+**Kontrolle, und sie ist wichtig:** beide Fassungen melden in der Kopie **identisch 11 failed / 19
+passed / 123 subtests** — die fehlenden `conformance/`- und `examples/`-Verzeichnisse der Kopie
+schlagen in beiden gleich durch. Der EINZIGE Unterschied zwischen ALT und NEU ist der
+Report-Ausgang. Im echten Baum ist die Datei gruen: **21 passed, 132 subtests**.
+
+### Einordnung: das ist ein P0 fuer Schritt 50
+
+Nach der Rundenregel („Fix nur bei P0") faellt das darunter — `coverage` ist ein Pflicht-Check des
+Rulesets, ohne ihn gibt es kein gruenes Schritt 50 und damit keinen Deep-Gate-Lauf ueber den
+Kandidaten. Und die Ursache ist **von mir in derselben Nacht eingebaut**: der S25-Fix hat ein
+Pflicht-Tor gebrochen, ohne dass irgendein lokaler Lauf es zeigte, weil lokal niemand
+`coverage report` fuhr.
+
+**Die Klasse, und sie ist neu in diesem Register:** ein Test, der einen **synthetischen Dateinamen
+in den Namensraum der gemessenen Quellen legt**, macht ein Messwerkzeug rot, ohne die Sache zu
+beruehren, die es misst. Der Nachbar-Sweep (`grep -rn 'compile('` ueber `tests/`) findet genau einen
+weiteren `compile()` mit Dateinamen — `test_sdist_selftest_optional_deps.py:56` mit `str(ZIEL)`, und
+das ist ein **existierender** Pfad, also unproblematisch. Kein weiterer Nachbar.
+
+Registerschluessel `SYNTHETISCHER-DATEINAME-IM-QUELLRAUM-BRICHT-DEN-COVERAGE-REPORT-01`.

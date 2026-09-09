@@ -534,7 +534,17 @@ class TestGateMetaTest(unittest.TestCase):
         modul.__package__ = _rel.__package__
         sys.modules[name] = modul
         try:
-            exec(compile(mutiert, f"{datei} [mutiert]", "exec"), modul.__dict__)
+            # DER DATEINAME IST BEWUSST KEIN PFAD (gemessen 2026-09-09 im CI-Job `coverage`).
+            # Vorher stand hier `f"{datei} [mutiert]"` — ein ECHTER Pfad unter
+            # `src/proofbundle/` plus Suffix. `coverage run --source=src/proofbundle` nimmt
+            # ihn deshalb in die gemessene Menge auf und bricht danach im Report ab:
+            #   No source for code: '…/src/proofbundle/relation.py [mutiert]'
+            # Der Job endete mit exit 1, OBWOHL die Suite vollstaendig gruen war
+            # (3934 passed, 47 skipped, 1077 subtests) — ein rotes Pflicht-Tor aus einem
+            # Dateinamen. Die spitzen Klammern sind die uebliche Kennzeichnung fuer
+            # Code-Objekte ohne Datei (wie `<string>`); coverage versucht dort keine
+            # Aufloesung. Der Name bleibt sprechend, damit ein Traceback lesbar bleibt.
+            exec(compile(mutiert, f"<mutiert: {datei.name}>", "exec"), modul.__dict__)
         finally:
             sys.modules.pop(name, None)
         return modul.successor_warning
