@@ -1963,3 +1963,128 @@ platziert.
 `aufzaehlung_statt_existenzfrage_bindet_nur_die_listeneintraege` bleibt im Klassen-Ledger des deep
 gate zu Recht `class_open`, und sie bleibt es jetzt mit einer Messung in BEIDEN Umgebungen statt
 nur im Checkout. Wer sie nach dem Tag schliesst, hat die Vorbedingung nicht mehr zu klaeren.
+
+## S35 — Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine
+
+(Korrigiert S34 und dessen erste Korrektur. Beide bleiben stehen — was sie messen, stimmt; was sie
+daraus schliessen, war zu weit.)
+
+S34 und seine erste Korrektur enden beide mit derselben Frage an den Owner: *„die Gate-Mechanik
+fuer Fremd-Repos erreichbar machen, oder ausdruecklich entscheiden, welches Verdikt genuegt."*
+**Diese Frage setzt voraus, dass das Fremd-Repo die Wand ist. Nachgemessen ist sie die dritte von
+drei, und die ersten beiden stehen genauso im Verwaltungsrepo selbst.**
+
+Der Fehler ist derselbe, den dieses Register schon zweimal gegen mich fuehrt: ich habe die
+proofbundle-Seite gemessen und ueber den Mechanismus geurteilt. Die Frage „funktioniert das
+ZUHAUSE, wo alle Teile liegen?" habe ich nie gestellt.
+
+**Messung 1 — der Bestand, erschoepfend statt stichprobenartig.** 337 771 JSON-Dateien unter
+`~/2bedone`, `~/proofbundle` und dem Arbeitsbaum gelesen und auf ein `notes.gate_zeile` als Objekt
+geprueft. **Vier Treffer, und es ist VIER MAL DIESELBE DATEI** (`gate_result_600_lauf4b_FIX_FIRST.json`,
+einmal im Hauptbaum, dreimal in Worktrees). Ihre Zeile fuehrt 21 Felder, und `verdict` ist keines
+davon — sie faellt also schon an der Feldpruefung, nicht erst am Kopf-Vergleich.
+
+**Messung 2 — die Belege des Zeugen, alle.** `office/governance/berkeley_gate/runs/` fuehrt **412
+Belege, davon 145 mit `strength: FULL`**, die sechs juengsten aus dem Abend und der Nacht 08./09.09. (bis 00:11Z).
+**Null von 412 tragen `notes` als Objekt.** Alle tragen es als Zeichenkette („Abschluss-Beleg, vom
+b7runner-Oracle ausgestellt…"), und `verdict` ist auf allen `None`. Der Zeuge ist kein Erzeuger von
+Gate-Zeilen — auch nicht bei voller Staerke, auch nicht ueber einen Kopf des eigenen Repos.
+
+**Messung 3 — und das ist der eigentliche Fund. Der Erzeuger und der Pruefer benennen dieselben
+Dinge verschieden.** Ich habe den FULL-Beleg von heute Nacht (`acd65a65…`) in den bestehenden
+Erzeuger `b7_deepgate_gate_zeile.messen()` gegeben und die entstandene Zeile Feld fuer Feld gegen
+`_GATE_LINE_FIELDS` gehalten — ausgefuehrt, nicht aus dem Quelltext geschlossen:
+
+| Pruefer (proofbundle) verlangt | Erzeuger (Verwaltungsrepo) liefert | Ergebnis |
+|---|---|---|
+| `gate_version` | `gate_version` | OK (`"v4"`) |
+| `workflow_datei` | `workflow_path` | **fehlt** |
+| `workflow_sha256` | `workflow_digest` | **fehlt** |
+| `modus` | `modus` | OK (`"NORMAL 3L/3I"`) |
+| `head` (40 hex) | `verdikt_head`, und nur wenn das Laufergebnis `head` fuehrt | **fehlt** |
+| `verdict` | `verdict`, woertlich kopiert | **`None`** |
+
+**Vier von sechs Pflichtfeldern fehlen, drei davon aus reiner Namensdrift.** `workflow_lage()`
+schreibt `workflow_path`/`workflow_digest` (Zeilen 128-140), `messen()` schreibt `verdikt_head`
+(Zeile 227-228) — der Pruefer verlangt `workflow_datei`, `workflow_sha256`, `head`. Das sechste
+Feld ist leer, weil der Zeugenbeleg den Kopf `digest` nennt und `verdict` gar nicht fuehrt.
+
+**Wer hier von wem abgewichen ist, laesst sich datieren.** Die eine handgebaute Datei folgt der
+Benennung des Pruefers exakt (`gate_version`, `head`, `modus`, `workflow_datei`, `workflow_sha256`
+— fuenf von sechs; das sechste, `verdict`, kam am 07.09. per `OA-638966a598` beim Pruefer dazu).
+Das WERKZEUG entstand am 05.09. aus `QITEM-DEEPGATE-VERSIONIERUNG-GATE-ZEILE-EICHKOPF-01` und
+waehlte eigene Namen. Zwei Bahnen, ein Vertrag, zwei getippte Listen, kein gemeinsamer Ort und kein
+Test, der eine gegen die andere faehrt.
+
+**Die drei Waende, getrennt und einzeln bepreist.**
+
+1. **Namensdrift (Verwaltungsrepo, nicht dieser Baum).** Drei Feldnamen. Ein Test, der eine erzeugte
+   Zeile gegen die Pflichtliste des Pruefers faehrt, haette das am Bautag gefangen. Verletzte
+   Invariante: **ein Vertrag zwischen zwei Bahnen als zwei getippte Aufzaehlungen** — dieselbe
+   Klasse, die dieses Register am 08.09. als Ledger-Nr. 295 aufgenommen hat
+   (`aufzaehlung_statt_existenzfrage_bindet_nur_die_listeneintraege`) und die
+   `B7_STANDING_SCHEMA_SSOT` adressiert.
+2. **Der Zeuge fuehrt kein Verdikt.** Er fuehrt `strength: FULL|PARTIAL` und `digest`, nie `verdict`
+   und nie `head`. Selbst nach Wand 1 traegt eine gestempelte Zeile `verdict: None`, und
+   `_GATE_VERDICTS_PASS` haelt an. Das ist kein Versehen: der Stempel KOPIERT und erfindet nichts,
+   aus derselben Begruendung wie `gate_zeile_aus_verdikt`. Es fehlt eine Abbildung von `strength`
+   auf ein Verdikt — und die ist eine Festlegung, keine Messung.
+3. **Fremd-Repo.** Erst hier greift, was S34 als einzige Wand beschrieb. Ueber
+   `60bb6d935df15558…` (zwei Laeufe, beide PARTIAL) nennt der Beleg die Ursache woertlich, viermal
+   dieselbe Form: `scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum`,
+   `office/governance/berkeley_gate/class_ledger.jsonl fehlt im content-adressierten Baum`
+   (zweimal, fuer Ledger-Replay und Anti-Tautologie-Probe), und `0 nicht-leere Linsen-Artefakte`
+   gegen einen Boden von 3. Die Pfade sind feste Konstanten im Zeugen (`_PRE_SWEEP_REL`,
+   `_LEDGER_REL`, `_LENS_ROOT_REL`), und dass sie aus dem BEURTEILTEN Baum gelesen werden, ist die
+   Eigenschaft, die den Beleg faelschungsfest macht — nicht ihr Defekt. Zum Vergleich: **145 von
+   145 FULL-Belegen zaehlen drei oder mehr Linsen**, die vier von heute Nacht je acht.
+
+**Was das an der Owner-Frage aendert.** Sie war zu eng und in der bequemen Richtung falsch: sie
+schob den Halt vollstaendig auf eine Eigenschaft des fremden Repos und damit weg von der Mechanik,
+die in beiden Bahnen gebaut wurde. Richtig gestellt:
+
+> Wand 1 ist eine Namensangleichung im Verwaltungsrepo und braucht keine Owner-Entscheidung, nur
+> einen Zug in der anderen Bahn — mit einem Test, der die erzeugte Zeile gegen die Pflichtliste
+> faehrt, sonst driftet sie wieder. **Wand 2 und Wand 3 sind Owner-Gebiet:** ob ein `strength: FULL`
+> des Zeugen als `WITHSTANDS_DEEPGATE` gelten darf (Wand 2), und ob ein Beleg ueber einen
+> proofbundle-Commit ueberhaupt FULL erreichen koennen soll, wenn die Pruefmechanik dafuer aus einem
+> ANDEREN Baum gelesen werden muesste als dem beurteilten (Wand 3) — was genau die Eigenschaft
+> aufgibt, die den Beleg heute traegt.
+
+**Ehrliche Grenzen dieser Messung.** Ich habe `messen()` mit einem Zeugenbeleg als `gate_json`
+gefahren; das ist die Form, die hier gebraucht wuerde, aber nicht nachweislich die, fuer die das
+Werkzeug gedacht war — es kennt auch Gate-JSONs des Workflows, und ueber DIE habe ich nichts
+gemessen. `workflow_datei`/`workflow_sha256` koennten in einem Workflow-Gate-JSON anders entstehen.
+Was davon unberuehrt bleibt: `head` und `verdict` kommen in beiden Faellen aus dem Laufergebnis, und
+der Zeugenbeleg fuehrt beide nicht. Registerschluessel
+`ERZEUGER-UND-PRUEFER-DER-GATE-ZEILE-BENENNEN-DREI-FELDER-VERSCHIEDEN-01`.
+
+## S36 — Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung"
+
+Nebenbefund derselben Runde, gemessen am 09.09.2026 im echten Verwaltungs-Checkout (also mit
+vollstaendig vorhandener Mechanik, nicht im Wegwerfbaum):
+
+```
+status: env_blocked · roh_ergebnis: env · trackung_lage: gemessen
+detail: pytest riss das Zeitlimit von 240s ueber 190 Knoten (ausfuehrbar, aber zu langsam)
+n_classes_total: 200 · n_classes_replayed: 98 · replayed_class_coverage: 0.49
+n_class_closed_fields_unusable: 0 · MESSFELD: GETEILT (Last 5,59 auf 24 Kernen)
+```
+
+**Zwei Dinge daran gehen ueber diesen Lauf hinaus.**
+
+Erstens: der Ledger waechst monoton — das ist sein Zweck —, das Zeitbudget von 240 s ist fest. 190
+Knoten passen nicht mehr hinein. Das Gedaechtnis des Tores waechst aus der Zeit heraus, die es
+erinnern darf, und der Ausgang davon ist ein blockierender Zustand. Kein Defekt, eine Bauart.
+
+Zweitens, und das ist die Klasse: `_RES_TO_STATUS` bildet `env` auf `env_blocked` ab, und
+`env_blocked` heisst laut seinem eigenen Modul *„die Messstation hat die deklarierte Umgebung
+nicht"*. Hier fehlt der Station nichts — sie ist zu langsam. Der Text muss seinem eigenen
+Zustandswort widersprechen (*„NICHT die Umgebung"*), damit der Leser es richtig liest, und der
+Verbraucher im Beleg (`_measured_replay_problems`) liest nur `status`. **Zwei verschiedene Ursachen
+teilen ein Wort; im Beleg sind sie nicht mehr unterscheidbar.** Das ist derselbe Gedanke, den
+`riegel_haben_drei_zustaende.md` gegen die Verwechslung von `error` und `env_blocked` schon einmal
+durchgesetzt hat — hier fehlt die vierte Unterscheidung.
+
+**Nicht meine Bahn:** beides liegt im Verwaltungsrepo. Aufgeschrieben, damit es nicht verloren geht,
+und weitergegeben statt gefixt. Registerschluessel `PRESWEEP-ZEITLIMIT-HEISST-UMGEBUNG-FEHLT-01`.
