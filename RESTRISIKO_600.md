@@ -2426,3 +2426,37 @@ eigenen Beleg** — und es heisst nicht, dass die Messung schlechter ist, sonder
 ueber einem fremden Baum nicht bezeugen KANN. Die Byte-Freeze-Zahlen selbst stehen unabhaengig
 davon: sie kommen aus zwei Laeufen von `build_reproducible.py`, deren Ausgabe oben woertlich
 zitiert ist und die jeder nachfahren kann.
+
+## S40 — Der Familien-Floor ist fuer S37-S39 NICHT erfuellt, und das gehoert an die Abschnitte selbst
+
+S35 und S36 wurden von drei Linsen aus zwei Familien gegengelesen (`71be4f2e5`). **S37, S38 und S39
+haben diesen Stand nicht**, und der Grund ist gemessen, nicht organisatorisch.
+
+**Der fremdfamiliaere Weg liefert in diesem Fenster nicht.** Zwei Laeufe gegen denselben Host, der
+sich als warm meldete und laut `/api/ps` `qwen3.8:27b` geladen hatte:
+
+| Lauf | Eingabe | Ergebnis |
+|---|---|---|
+| Gegenlesung der Nachtraege | 221 Zeilen Diff, `num_ctx 16384` | nach **1800 s** `TimeoutError`, **null Bytes** |
+| Diskriminator, bewusst winzig | drei Saetze, `num_ctx 2048`, `num_predict 200` | nach **300,2 s** `TimeoutError`, **null Bytes** |
+
+Der eigene Prozess hatte in beiden Faellen **0 s CPU-Zeit** — er hing rein am Lesen der Antwort.
+**Die Eingabegroesse ist damit als Erklaerung nicht unwahrscheinlich, sondern gemessen widerlegt:**
+200 Ausgabetoken verhalten sich wie ein 16384-Token-Kontext. **Die Ursache ist NICHT BESTIMMT**
+(Verdraengung durch die Parallelsitzung am selben Host, eine haengende Anfrage in seiner
+Warteschlange, oder etwas Drittes); nicht gemessen ist auch, ob ein Neustart es loest.
+
+**Was das fuer den Beweiswert dieser drei Abschnitte heisst, ohne Beschoenigung.** Der Zeuge fordert
+fuer `NORMAL-3L3I` einen Familien-Floor von **zwei** (`_MIN_FAMILIES`), und
+`B7_STANDING_UN_DIVERSITY_DEFAULT_ON` verlangt Vielfalt als Regelfall. Ein Panel aus einer Familie
+mindert korrelierte Fehler nicht, es verstaerkt sie — das steht so im Staerke-Kontrakt sc3 des
+Zeugen, mit Quelle. **S37, S38 und S39 tragen deshalb keine familienvielfaeltige Gegenlesung, und
+diese Zeile ist ihre ehrliche Beschriftung.**
+
+Das entwertet ihre MESSUNGEN nicht — die stehen als ausfuehrbare Kommandos in den Abschnitten und
+wurden fuer S35/S36 von einer unabhaengigen Linse Zahl fuer Zahl nachgefahren. Es entwertet die
+Aussage „gegengelesen". Wer nach dem Ausfall eine zweite Familie erreicht, sollte die drei
+Abschnitte nachziehen; bis dahin gilt hier **PARTIAL_PANEL_EINE_FAMILIE**.
+
+Befund `UN-DIREKTWEG-LIEFERT-IN-DIESEM-FENSTER-NICHT-01`. Registerschluessel
+`FAMILIEN-FLOOR-FUER-S37-BIS-S39-NICHT-ERFUELLT-01`.
