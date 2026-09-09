@@ -4538,3 +4538,109 @@ liefen dieselben 12 gruen."* Richtig ist
 `PYTHONPATH=<baum>/src /home/konrad/proofbundle/.venv/bin/python -m pytest`.
 
 Registerschluessel `EIN-WORT-IM-REGISTER-FAERBTE-SECHS-PFLICHT-CHECKS-ROT-01`.
+
+## S75 — `pipefail` rettet die `echo`-Huelle nicht, und der Riegel dagegen sah die Datei gar nicht an
+
+Uebernahme durch un_echoXX. Die Gegenlesung von un_deltaXX' Nacht-Commits kam nach der Abgabe
+zurueck und meldete einen P0 in `.github/workflows/reusable-build-attest.yml:73`:
+
+```
+echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+```
+
+Die Datei setzt `defaults: run: shell: bash`, hat also `-eo pipefail` — und verliert den Exit-Code
+trotzdem. Mit Kontrollzeile gemessen:
+
+```
+bash -eo pipefail -c 'echo "sdist=$(sha256sum FEHLT | cut -d" " -f1)" > out; echo WEITER'
+   -> RC=0 · WEITER wird gedruckt · out enthaelt  sdist=  (LEER)
+dieselbe Pipe OHNE die echo-Huelle
+   -> RC=1 · Abbruch
+```
+
+`pipefail` gilt fuer die Pipe INNERHALB der Substitution, ihr Exit-Code wird aber verworfen, weil
+das aeussere Kommando `echo` ist und immer gelingt. `release.yml` traegt den Handfix dafuer seit
+2026-08-16, woertlich begruendet; portiert wurde er nie, und der Kommentar dieser Datei behauptete,
+`defaults: shell: bash` habe den Fehlermodus geschlossen.
+
+**Die Klasse sass eine Ebene hoeher, im Ledger-Eintrag selbst.** Die Klasse
+`exitcode_geht_durch_pipe_verloren_weil_shell_kein_pipefail_setzt` band ihre Eigenschaft woertlich
+an *„faehrt er OHNE pipefail"* — also an ein MERKMAL statt an die verletzte Eigenschaft. Der Riegel
+`tests/test_workflow_pipe_exitcode.py` uebersprang folgerichtig jede Datei MIT `pipefail` komplett
+und meldete ueber `release.yml` + `reusable-build-attest.yml` **null** Funde. Ein Riegel, der ueber
+eine reale Flaeche null meldet, ist ein Anlass zur Pruefung, nicht zur Freude.
+
+**Drei adversariale Linsen auf meinen eigenen Fix, alle FIX_FIRST, alle mit ausgefuehrtem Beleg.**
+Sie fanden, dass ich zum zweiten Mal die INSTANZFORM gehaertet hatte statt der Klasse:
+
+* Falschnegative: `export`, `declare`, `readonly` und `local` verwerfen den Code genauso wie `echo`
+  (ShellCheck SC2155), und Backtick-Substitution suchte der Melder gar nicht.
+* Falschpositive: `echo "$((5|2))"` ist Arithmetik, `echo "$(printf 'a|b')"` traegt sein Pipezeichen
+  in Anfuehrungszeichen, `echo "$(true \| true)"` hat es escapt. Alle drei wurden gemeldet.
+* Gegen meine eigene Commit-Nachricht: sie nannte `sdist-sha256` „den attestierten Subjekt-Digest,
+  den jeder Aufrufer uebernimmt". Gemessen am Kandidatenbaum sind das **null** Verbraucher ausserhalb
+  der erzeugenden Datei, `release.yml` ruft den reusable workflow **null**-mal auf, und
+  `actions/attest-build-provenance` berechnet seinen Digest selbst aus `subject-path`.
+
+**Die Wurzel aller sechs Funde:** die Datei hatte DREI Leser fuer EINE Struktur — einen Regex fuer
+Pipes, eine nackte Klammerzaehlung fuer Substitutionen, und nur der Kommentar-Schneider kannte
+Kontext. Genau der hielt in rund zwanzig adversarialen Proben gegen echtes bash. Jetzt gibt es
+einen Durchgang, `analysiere()`, der Escape, einfache und doppelte Anfuehrungszeichen,
+`${...}`-Tiefe, `$(( ))`-Arithmetik, `$( )`-Substitution und Backticks mitfuehrt; alle drei Fragen
+kommen aus seinem Zustand. Beim Bauen zeigte die Messung einen echten Semantikfehler in diesem
+Laeufer: eine Substitution eroeffnet einen NEUEN Quote-Kontext, in `"$(printf 'a|b')"` gilt das
+aeussere Doppelquote drinnen nicht.
+
+**Am Kandidaten `2a842b7` gemessen:** vier Formen, die still sein muessen, sind still; sieben, die
+melden muessen, melden; der Riegel ueber die echten Workflows meldet **0** Funde; die ganze
+Testdatei **18 passed** ohne Warnung; `ruff` `All checks passed`; die Workflow-Datei ist gueltiges
+YAML. Die Instanz traegt jetzt Zuweisung statt Huelle, eine Formatpruefung auf 64 Hexziffern (der
+eine reale Korruptionsweg war ein Backslash im Dateinamen, GNU `sha256sum` stellt dann ein `\` vor
+den Hash) und die Wheel-Kardinalitaet, die aus `release.yml` nur zur Haelfte portiert war.
+
+**Ehrliche Grenze:** alle drei Linsen stammen aus EINER Modellfamilie. Der Zeuge warnt zu Recht,
+dass ein homogenes Panel Verzerrungen eher verstaerkt als mindert. Der Abschluss-Beleg dazu traegt
+Staerke FULL (drei Linsen im Baum gezaehlt), deckt aber nur die oben genannten Zahlen, nicht die
+Vollstaendigkeit der Suche.
+
+Registerschluessel `PIPE-IN-ECHO-HUELLE-UEBERLEBT-PIPEFAIL-UND-MEIN-RIEGEL-SIEHT-DIE-DATEI-NICHT-01`
+und `MEIN-KLASSENFIX-WAR-WIEDER-EINE-INSTANZFORM-EXPORT-UND-BACKTICKS-01`.
+
+## S76 — Korrektur der AS-SHIPPED-Zahl aus `b048829`, am gebauten Artefakt gemessen
+
+Die Commit-Nachricht von `b048829` behauptet fuer einen Baum ohne `.github` **5 passed, 3 skipped**.
+Eine Linse hat das widerlegt, und ich habe es am Kandidaten neu gemessen — nicht am nachgestellten
+Baum, sondern am **gebauten** Artefakt, denn das Nachstellen war ja der Fehler.
+
+```
+sdist gebaut aus 2a842b7 mit scripts/build_reproducible.py
+  proofbundle-6.0.0.tar.gz · sha256 fb5686e09c622237edc7dcb2e32713f191cf28d991e3770ab6ca742053ba7f11
+  2171856 Bytes · 926 Dateien · kein .git im entpackten Baum
+  dirty im Gate-Baum vor UND nach dem Bau: 0
+
+tests/test_workflow_pipe_exitcode.py aus der entpackten sdist
+  18 skipped, 0 passed
+nur GateMetaTest
+  15 skipped, 0 passed
+```
+
+Die Zahl in der Commit-Nachricht ist damit falsch, und die Fassung des Blattes (`0 passed / 8
+skipped`) war zum Zeitpunkt ihrer Messung richtig — die Datei traegt seither zehn Faelle mehr.
+
+**Ursache, und sie ist KEIN Defekt.** `tests/conftest.py` ueberspringt ein Modul ausserhalb eines
+git-Checkouts, sobald dessen Quelltext ein wurzelrelatives Pfad-Literal nennt, das im Baum fehlt.
+Dieses Modul bildet `WURZEL / ".github" / "workflows"`, und `.github` ist aus der sdist entfernt.
+Der Skip ist absichtlich, dokumentiert unter `PKG-2026-0718-01`, und er ist richtig: ein Nutzer der
+sdist braucht den Workflow-Riegel nicht. Falsch war allein die ZAHL, die ihn beschrieb.
+
+**Die uebertragbare Lehre:** der Negativzustand wurde NACHGESTELLT statt das Artefakt zu BAUEN. Im
+nachgestellten Baum blieben `tools/` und `SPEC.md` erhalten, also griff nur das eigene
+`skipUnless` — plausibel, und falsch. *Eine Zahl gehoert zu dem Baum, in dem sie gemessen wurde.*
+
+**Benannte Folge, ausdruecklich nicht repariert:** der `GateMetaTest` ist der Selbstbeweis, dass der
+Riegel einen eingepflanzten Defekt seiner Klasse faengt — und er laeuft aus keiner ausgelieferten
+sdist. Das gilt seit jeher fuer jeden Repo-Kontext-Test dieses Baums und ist keine Regression
+dieses Release. Ein Umbau der Modulstruktur Stunden vor einer Signatur waere das groessere Risiko;
+die Eigenschaft wird deshalb als benannte Grenze gefuehrt, nicht stillschweigend behoben.
+
+Registerschluessel `AS-SHIPPED-ZAHL-AM-NACHGESTELLTEN-STATT-AM-ECHTEN-ARTEFAKT-GEMESSEN-01`.
