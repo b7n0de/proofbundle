@@ -2416,3 +2416,13 @@ beide Digests** — sie sind ein Angebot fuer den Fall, dass hier eingefroren wi
 Werkzeug des Verwaltungsrepos und liegt in diesem Baum nicht). Fuer eine Digest-Messung ist das
 folgenlos — ein Digest ist deterministisch, Last aendert nur die Dauer —, aber es gehoert benannt
 statt weggelassen.
+
+**Der Beleg dazu ist geholt und ist PARTIAL, aus demselben Grund wie der zu S37.**
+`office/governance/abschluss_belege/byte_freeze_beide_haelften_94a7a0faa45d.json`, gebunden an
+`94a7a0faa45d2311af7d192529fbbd8377349c85` mit `--repo /home/konrad/proofbundle`. Vier Gruende,
+woertlich dieselben: Pre-Sweep, Klassen-Ledger (zweimal) und Linsenablage fehlen im
+content-adressierten Baum, 0 Linsen gegen Boden 3. **Das ist Wand 3 zum dritten Mal an einem
+eigenen Beleg** — und es heisst nicht, dass die Messung schlechter ist, sondern dass der Zeuge sie
+ueber einem fremden Baum nicht bezeugen KANN. Die Byte-Freeze-Zahlen selbst stehen unabhaengig
+davon: sie kommen aus zwei Laeufen von `build_reproducible.py`, deren Ausgabe oben woertlich
+zitiert ist und die jeder nachfahren kann.
