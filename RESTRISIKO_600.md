@@ -2312,3 +2312,31 @@ der Quelle bestaetigt: `scripts/b7_berkeley_class_ledger.py:182` gibt bei `Timeo
 Ursachen — Station unvollstaendig, Station zu langsam — teilen ein Wort, und im signierten Beleg
 sind sie nicht mehr unterscheidbar.** Das ist ein Befund ueber die Mechanik, keine Aussage ueber
 eine Maschine, und er haengt an keiner Lastmessung.
+
+### Der Beleg zu diesem Abschnitt ist an Wand 3 gescheitert — an genau dem Mechanismus, den er beschreibt
+
+Nach dem Schreiben von S37 habe ich fuer seine Kernaussage einen Abschluss-Beleg beim Zeugen geholt,
+korrekt gebunden (`--repo /home/konrad/proofbundle`, volle SHA `9906d91439e2ef5a…`). Vorher lagen
+drei Gegenlesungen als Linsen-Artefakte bereit, **committet** im Verwaltungsrepo (`71be4f2e5`), zwei
+Familien, Panel-Boden erreicht — `b7_linsen_ablage.py lage` meldete `reicht: true`.
+
+Der Zeuge zaehlte **null**:
+
+```
+strength: PARTIAL
+  deterministic_pre_sweep : scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum
+  class_ledger_replay     : .../class_ledger.jsonl fehlt im content-adressierten Baum
+  anti_tautology_meta_test: .../class_ledger.jsonl fehlt im content-adressierten Baum
+  jury                    : 0 nicht-leere Linsen-Artefakte gezaehlt, Boden 3
+```
+
+Und das Werkzeug sagte den Grund vorher, woertlich: *„das Verzeichnis existiert im Baum von
+9906d91439e2 nicht — null committete Linsen-Artefakte."* Die Linsen liegen im Verwaltungsrepo, der
+beurteilte Baum ist ein proofbundle-Commit, und der Zeuge liest **aus dem beurteilten Baum**.
+
+**Damit ist Wand 3 nicht mehr nur beschrieben, sondern vorgefuehrt** — an dem Beleg, der sie
+beschreibt. Der Zusammenhang ist kein Argument mehr, sondern ein Lauf: dieselbe Mechanik, die den
+vier Bereitschaftsartefakten die Signatur verweigert, verweigert auch dem Registereintrag ueber sie
+sein FULL. Der Beleg bleibt ehrlich `PARTIAL`
+(`office/governance/abschluss_belege/drei_waende_der_gate_zeile_9906d91439e2.json`), und das ist
+hier die richtige Zahl, nicht die aergerliche.
