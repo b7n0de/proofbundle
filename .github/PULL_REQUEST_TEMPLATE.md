@@ -19,8 +19,12 @@ Closes #
 ## Checks
 
 - [ ] `ruff check .` and `mypy src` pass locally (or CI will tell me)
-- [ ] Tests pass (`python -m unittest discover -s tests`) and I added a test if this fixes a bug
-      or adds behaviour
+- [ ] Tests pass (`python -m pytest -q`) and I added a test if this fixes a bug
+      or adds behaviour. **pytest is required, not a preference** — see CONTRIBUTING.md:
+      `unittest discover` cannot see plain `def test_*()` functions, so a stdlib-only run
+      reports OK while silently running hundreds of tests fewer. Measured 09.09.2026 on
+      this tree: 653 module-level test functions across 279 test modules, 71 of which
+      import pytest at module level.
 - [ ] The library keeps its core promise: it proves authorship and integrity, deliberately **not**
       that a number is true — I did not add a claim it cannot back
 

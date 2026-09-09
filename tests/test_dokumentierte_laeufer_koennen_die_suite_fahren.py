@@ -166,7 +166,13 @@ _DOKUMENTE = (".github/PULL_REQUEST_TEMPLATE.md", "CONTRIBUTING.md", "README.md"
 #: gefahren hat: die Zusicherung unten war danach rot, und zwar an einer Datei, die der Diff gar
 #: nicht anfasst.
 BEKANNTE_LAEUFER_OHNE_PYTEST = [
-    ".github/PULL_REQUEST_TEMPLATE.md",
+    # .github/PULL_REQUEST_TEMPLATE.md ist am 09.09.2026 aus dieser Liste GEFALLEN, und das ist
+    # genau die gute Nachricht, die der Test unten meint: die Vorlage nannte
+    # `python -m unittest discover -s tests` und nennt jetzt `python -m pytest -q`. GEMESSEN an
+    # diesem Baum sieht `unittest discover` 653 Testfunktionen auf Modulebene nicht, verteilt auf
+    # 279 Testmodule, von denen 71 pytest auf Modulebene importieren — ein stdlib-Lauf meldet OK
+    # und faehrt mehrere hundert Tests weniger. Der Eintrag bleibt als Kommentar stehen, damit ein
+    # spaeterer Rueckfall auf unittest nicht wie ein Neuzugang aussieht.
     ".github/workflows/ci.yml",
 ]
 
