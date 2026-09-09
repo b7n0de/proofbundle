@@ -2219,12 +2219,14 @@ Die zwei Zeilen in S35 nannten nur die Folge von JA. Vollstaendig:
 |---|---|---|
 | **A — alle drei Waende** | Namen angleichen (andere Bahn) · Abbildung `strength: FULL` → `WITHSTANDS_DEEPGATE` festlegen · die Pruefmechanik aus einem anderen Baum lesen lassen als dem beurteilten | die Bereitschaftsartefakte werden signierbar. Preis: Wand 3 gibt genau die Eigenschaft auf, die den Beleg heute faelschungsfest macht |
 | **B — den Pruefer aendern** | `_GATE_VERDICTS_PASS` um ein Verdikt erweitern, das ein ehrliches PARTIAL traegt | schneller, aber **widerruft eine per Test gebundene Festlegung**: `tests/test_freigabe_evidenz_provenienz_l5_g7_02.py` bindet `WITHSTANDS_DEEPGATE_PARTIALLY` ausdruecklich als ABLEHNUNG. Und es ist eine Aenderung an der Zulassung JEDER freigabeentscheidenden Pruefung |
-| **C — gar nichts** | die vier Bereitschaftsartefakte bleiben UNSIGNIERT; ihre Messungen liegen vor und reisen als benanntes Restrisiko mit | **kostet nichts und haelt den Tag nicht auf.** Der Owner hat fuer C6.3 (24h-Soak) bereits genau so entschieden: „bleibt benanntes Restrisiko und haelt den Tag nicht" |
+| **C — gar nichts** | die vier Bereitschaftsartefakte bleiben UNSIGNIERT; ihre Messungen liegen vor und reisen als benanntes Restrisiko mit | verlangt keinen Bau und keinen Widerruf. **Dass er den Tag nicht aufhaelt, ist NICHT GEMESSEN, sondern meine Folgerung aus einem Praezedenzfall:** der Owner hat fuer C6.3 (24h-Soak) woertlich so entschieden („bleibt benanntes Restrisiko und haelt den Tag nicht"). Ob dasselbe fuer die uebrigen drei Artefakte gilt, hat er NICHT gesagt und kann nur er sagen |
 
 **Weg C habe ich in keinem der bisherigen Blaetter angeboten, und das war die eigentliche
 Auslassung.** Er ist der einzige Weg, der ohne Bau, ohne Widerruf und ohne Eigenschaftsverlust
-auskommt — und der Owner hat das Muster fuer ihn schon einmal selbst gewaehlt. Ob er fuer alle vier
-Artefakte taugt, entscheidet er; meine Aufgabe war, ihn ueberhaupt zu nennen.
+auskommt. **Ehrliche Grenze, und sie gehoert in denselben Satz:** dass er den Tag nicht aufhaelt,
+ist eine FOLGERUNG aus einem einzigen Praezedenzfall (C6.3), nicht eine Messung — die uebrigen drei
+Artefakte hat der Owner nie so eingeordnet, und ein Praezedenzfall ist keine Regel. Meine Aufgabe
+war, den Weg ueberhaupt zu nennen; seine Reichweite bestimmt er.
 
 ### Vier weitere Einwaende, angenommen
 
