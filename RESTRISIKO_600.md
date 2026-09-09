@@ -1966,6 +1966,13 @@ nur im Checkout. Wer sie nach dem Tag schliesst, hat die Vorbedingung nicht mehr
 
 ## S35 — Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine
 
+> ⚠ **DIESER ABSCHNITT IST IN EINEM KERNPUNKT WIDERLEGT — siehe S42.** Er beschreibt „Wand 2" (der
+> Zeuge fuehre kein Verdikt, es fehle eine Abbildung, und die sei eine Owner-Festlegung) als
+> Owner-Gebiet. **Das ist falsch.** Gemessen: 414 von 416 Belegen tragen `verdict_tag`, und
+> `verdict_tag()` rechnet genau diese Abbildung. Wand 2 ist Namens-, Vergleichs- und Formdrift wie
+> Wand 1 — **nur Wand 3 ist Owner-Gebiet**. Der Abschnitt bleibt unveraendert stehen, weil er die
+> Messungen traegt, die weiterhin gelten; wer nur ihn liest, liest den Schluss falsch.
+
 (Korrigiert S34 und dessen erste Korrektur. Beide bleiben stehen — was sie messen, stimmt; was sie
 daraus schliessen, war zu weit.)
 
@@ -2178,6 +2185,13 @@ durchgesetzt hat — hier fehlt die vierte Unterscheidung.
 und weitergegeben statt gefixt. Registerschluessel `PRESWEEP-ZEITLIMIT-HEISST-UMGEBUNG-FEHLT-01`.
 
 ## S37 — Die Korrektur in EINEM Zug: die drei Waende sind eine UND-Kette, und ich habe den dritten Weg nie angeboten
+
+> ⚠ **DIESER ABSCHNITT IST IN EINEM KERNPUNKT WIDERLEGT — siehe S42.** Er beschreibt „Wand 2" (der
+> Zeuge fuehre kein Verdikt, es fehle eine Abbildung, und die sei eine Owner-Festlegung) als
+> Owner-Gebiet. **Das ist falsch.** Gemessen: 414 von 416 Belegen tragen `verdict_tag`, und
+> `verdict_tag()` rechnet genau diese Abbildung. Wand 2 ist Namens-, Vergleichs- und Formdrift wie
+> Wand 1 — **nur Wand 3 ist Owner-Gebiet**. Der Abschnitt bleibt unveraendert stehen, weil er die
+> Messungen traegt, die weiterhin gelten; wer nur ihn liest, liest den Schluss falsch.
 
 Dies ist bewusst KEIN vierter Nachtrag. Eine Gegenlesung hat genau das beanstandet: in S34/S35
 stehen vier Korrekturrunden hintereinander, und eine so dichte Folge Behauptung → Widerlegung →
