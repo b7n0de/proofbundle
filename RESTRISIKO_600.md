@@ -3018,3 +3018,36 @@ den finalen Kopf `ad906a9` erst nach gruenem Schritt 50."*
 | davor | **es existiert kein Workflow-Lauf ueber den Kandidatenkopf** | **ich, nach Schritt 50** |
 
 Registerschluessel `S42-VERGLICH-DEN-NACHBARN-STATT-DES-ERZEUGERS-01`.
+
+## S50 — Die drei lokalen Zweige sind ueberholt, und ich haette daraus fast einen Befund gegen die Release-Linie gemacht
+
+Die Haltbarkeitspruefung der lokal liegenden Zweige (Stop-Hinweis „sibling repo push truth") ergab
+dreierlei, und der dritte Punkt ist wieder einer gegen mich.
+
+**1. Zwei der drei Zweige sind byte-gleich.** `git diff` ueber
+`fix/meldungstext-nachbarn-nach-dem-tag` (Basis `c335b26`) und `fix/trust-anchor-exitcodes`
+(Basis `c52884d`) ergibt **denselben sha256** (`c2bc73fa2d0ff2dd…`), vier Dateien, 209/17 Zeilen.
+`c52884d` ist Vorfahre von `c335b26` — der zweite Zweig ist die aeltere Auflage derselben Arbeit.
+Gesichert wurde deshalb **nur der juengere**; der aeltere traegt keinen Inhalt, der sonst
+verschwinden koennte.
+
+**2. Beide sind von der Release-Linie ueberholt.** Der Zweig fuehrt ein `_rote_aus_lauf`, das den
+Rueckgabewert liest und sonst `failures=`/`errors=` auf `stderr` sucht — die unittest-Form. Die
+Release-Linie fuehrt **dieselbe Funktion in einer strikt staerkeren Fassung**: Rueckgabewert zuerst,
+dann ein Riegel auf die **Bannerform** eines Abbruchs (weil `pytest.exit()` einen anderen Wortlaut
+schreibt als `Interrupted`, gemessen 07.09.), dann die **JUnit-XML**, und erst dann ein Textpfad,
+der ausdruecklich nur die **Bilanzzeile** liest statt des ganzen Blobs. Dazu faengt sie
+`TimeoutExpired` **und** `OSError`. Damit ist `probe/gatezeile-in-kandidat` nicht der einzige
+ueberholte Zweig — es sind alle drei.
+
+**3. Und beinahe haette ich das Gegenteil aufgeschrieben.** Meine erste Messung war: „andere Blobs,
+und `grep -c returncode` sagt 5 in der Release-Linie gegen 9 im Zweig — der Fix fehlt also." Beide
+Zahlen stimmen, der Schluss war falsch: die Release-Linie nennt `returncode` **seltener**, weil sie
+ihn nicht mehr als einzige Quelle braucht. **Zum dritten Mal in dieser Nacht eine Zusicherung am
+Stellvertreter statt an der Eigenschaft** — Blob-Ungleichheit und Trefferzahl statt des
+Verhaltens. Diesmal ist er vor dem Register aufgefallen, weil ich die Funktion danach gelesen habe;
+die beiden Male davor nicht.
+
+Folge: keine Nachlandung noetig, kein neuer Kandidatenkopf, die CI ueber `0add122` bleibt gueltig.
+Nach dem Tag sind alle drei Zweige loeschbar. Registerschluessel
+`DREI-LOKALE-ZWEIGE-UEBERHOLT-UND-ZWEI-DAVON-IDENTISCH-01`.
