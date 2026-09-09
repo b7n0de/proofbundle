@@ -4018,3 +4018,49 @@ Erkenntnis ist kein Bestehen.
 Tests (`…unbestimmbare_stellen_werden_GENANNT…`) entweder auf eine bestimmbare Form gebracht oder
 ausdruecklich als geprueft eingetragen werden. Sonst landet ein Test, der beim ersten Lauf rot ist —
 und das waere derselbe Fehler eine Ebene hoeher.
+
+### S61, dritter Nachtrag — die Testdatei ist landbar, und der Weg dorthin war dreimal dieselbe Klasse
+
+Nach dem zweiten Nachtrag war die Datei lauffaehig, aber **nicht landbar**: ihr zweiter Test
+verlangte `unbestimmbar == []` und waere beim ersten Lauf ROT gewesen, weil zwei Stellen im Bestand
+`str(<variable>)` uebergeben. **Ein Test, der beim Landen rot ist, ist derselbe Fehler eine Ebene
+hoeher.**
+
+**Umgebaut auf die Form, die dieses Repo schon fuehrt** (`_REPO_CONTEXT_TESTS` als „dokumentierter
+Rueckfall"): eine Ausnahmeliste **mit Grund je Eintrag**, plus die Gegenrichtung — eine Ausnahme,
+die keine vorhandene Stelle mehr deckt, faellt auf. Ohne die zweite Haelfte waechst die Liste monoton
+und traegt irgendwann eine Erlaubnis fuer nichts.
+
+```
+UNBESTIMMBAR_MIT_GRUND:
+  test_gate_population_and_nested_leaf.py:95  str(datei) auf eine soeben geschriebene planted.py
+  test_sdist_selftest_optional_deps.py:56     str(ZIEL) auf eine vorhandene Quelldatei
+```
+
+**Und dann fiel der Test erneut — an der SCHLUESSELFORM, nicht an der Sache.** Der Sammler bildete
+den Pfad relativ zu `REPO`; laeuft er ueber einen Ordner ausserhalb (der tmpdir der Meta-Tests, oder
+ein Baum an anderer Stelle), liefert er **absolute** Pfade, und die Ausnahmeliste mit relativen
+Schluesseln trifft nichts mehr. Der Test wurde rot, **weil der Schluessel eine andere Form hatte**.
+
+Richtig ist der Pfad **relativ zur gescannten Wurzel** — stabil, egal wo der Baum liegt. Damit sind
+beide frueheren Fassungen erschlagen (die werfende und die absolut zurueckfallende).
+
+**Schlussstand, alle sechs Tests gegen den echten Bestand:**
+
+```
+test_kein_compile_dateiname_liegt_als_phantom_im_quellraum          ok
+test_jede_unbestimmbare_stelle_traegt_einen_GRUND                   ok
+test_die_ausnahmeliste_verfaellt_wenn_eine_stelle_verschwindet      ok
+test_META_ein_eingepflanzter_pfad_dateiname_wird_GEFANGEN           ok
+test_META_gegenrichtung_ein_markierter_name_wird_NICHT_gefangen     ok
+test_META_gegenrichtung_ein_existierender_pfad_wird_NICHT_gefangen  ok
+                                     Ran 6 tests — failures=0 errors=0
+```
+
+**Die Bilanz dieses einen kleinen Tests, und sie ist die Bilanz der ganzen Nacht:** drei Fassungen,
+drei Fehlschlaege, **alle drei dieselbe Klasse** — eine Zusicherung an der FORM (Pfadausdruck,
+leere Liste, Schluesselform) statt an der EIGENSCHAFT (liegt ein Phantom im gemessenen Quellraum).
+Gefunden hat sie jedes Mal nicht das Nachdenken, sondern das **Ausfuehren**.
+
+Der Test liegt fertig im Scratch und wandert nach dem Tag als `tests/` in den Baum — dann mit einem
+echten pytest-Node, den der Klassen-Ledger als `regression_test` akzeptiert (S64).
