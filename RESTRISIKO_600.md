@@ -1966,12 +1966,13 @@ nur im Checkout. Wer sie nach dem Tag schliesst, hat die Vorbedingung nicht mehr
 
 ## S35 — Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine
 
-> ⚠ **DIESER ABSCHNITT IST IN EINEM KERNPUNKT WIDERLEGT — siehe S42.** Er beschreibt „Wand 2" (der
-> Zeuge fuehre kein Verdikt, es fehle eine Abbildung, und die sei eine Owner-Festlegung) als
-> Owner-Gebiet. **Das ist falsch.** Gemessen: 414 von 416 Belegen tragen `verdict_tag`, und
-> `verdict_tag()` rechnet genau diese Abbildung. Wand 2 ist Namens-, Vergleichs- und Formdrift wie
-> Wand 1 — **nur Wand 3 ist Owner-Gebiet**. Der Abschnitt bleibt unveraendert stehen, weil er die
-> Messungen traegt, die weiterhin gelten; wer nur ihn liest, liest den Schluss falsch.
+> ⚠ **ZWEIMAL KORRIGIERT — die gueltige Fassung steht in S49.** Dieser Abschnitt nennt „Wand 2"
+> Owner-Gebiet mit der Begruendung, der Zeuge fuehre kein Verdikt. **Die Begruendung ist falsch**
+> (416 von 418 Belegen tragen `verdict_tag`), **der Schluss ist richtig**: Wand 2 bleibt eine
+> Festlegung, weil der Zeuge nicht der Erzeuger der Gate-Zeile ist — das ist das Workflow-Verdikt,
+> und dessen Wertform ist mit dem Pruefer deckungsgleich. S42 zog daraus den Gegenschluss („nur
+> Wand 3 ist Owner-Gebiet"); **S42 ist von einer Opus-Linse widerlegt und von mir nachgemessen.**
+> Der Abschnitt bleibt unveraendert, weil er die Messungen traegt, die weiterhin gelten.
 
 (Korrigiert S34 und dessen erste Korrektur. Beide bleiben stehen — was sie messen, stimmt; was sie
 daraus schliessen, war zu weit.)
@@ -2186,12 +2187,13 @@ und weitergegeben statt gefixt. Registerschluessel `PRESWEEP-ZEITLIMIT-HEISST-UM
 
 ## S37 — Die Korrektur in EINEM Zug: die drei Waende sind eine UND-Kette, und ich habe den dritten Weg nie angeboten
 
-> ⚠ **DIESER ABSCHNITT IST IN EINEM KERNPUNKT WIDERLEGT — siehe S42.** Er beschreibt „Wand 2" (der
-> Zeuge fuehre kein Verdikt, es fehle eine Abbildung, und die sei eine Owner-Festlegung) als
-> Owner-Gebiet. **Das ist falsch.** Gemessen: 414 von 416 Belegen tragen `verdict_tag`, und
-> `verdict_tag()` rechnet genau diese Abbildung. Wand 2 ist Namens-, Vergleichs- und Formdrift wie
-> Wand 1 — **nur Wand 3 ist Owner-Gebiet**. Der Abschnitt bleibt unveraendert stehen, weil er die
-> Messungen traegt, die weiterhin gelten; wer nur ihn liest, liest den Schluss falsch.
+> ⚠ **ZWEIMAL KORRIGIERT — die gueltige Fassung steht in S49.** Dieser Abschnitt nennt „Wand 2"
+> Owner-Gebiet mit der Begruendung, der Zeuge fuehre kein Verdikt. **Die Begruendung ist falsch**
+> (416 von 418 Belegen tragen `verdict_tag`), **der Schluss ist richtig**: Wand 2 bleibt eine
+> Festlegung, weil der Zeuge nicht der Erzeuger der Gate-Zeile ist — das ist das Workflow-Verdikt,
+> und dessen Wertform ist mit dem Pruefer deckungsgleich. S42 zog daraus den Gegenschluss („nur
+> Wand 3 ist Owner-Gebiet"); **S42 ist von einer Opus-Linse widerlegt und von mir nachgemessen.**
+> Der Abschnitt bleibt unveraendert, weil er die Messungen traegt, die weiterhin gelten.
 
 Dies ist bewusst KEIN vierter Nachtrag. Eine Gegenlesung hat genau das beanstandet: in S34/S35
 stehen vier Korrekturrunden hintereinander, und eine so dichte Folge Behauptung → Widerlegung →
@@ -2523,6 +2525,13 @@ einen KOPF wird am KOPF gemessen, nie aus einem Diff abgeleitet* („Zweig X fix
 Registerschluessel `PROBEZWEIG-IST-UEBERHOLT-NICHT-VORAUS-01`.
 
 ## S42 — Wand 2 ist KEINE Owner-Entscheidung: ich habe dieselbe Klasse begangen, die ich eine Seite vorher benannt habe
+
+> ⛔ **DIESER ABSCHNITT IST WIDERLEGT — siehe S49.** Sein Hauptfund („der Zeuge fuehrt ein Verdikt")
+> stimmt; sein SCHLUSS nicht. Der Zeuge ist nicht der Erzeuger der Gate-Zeile — das ist das
+> Workflow-Laufergebnis, dessen `verdict` in Name UND Wertform mit `_GATE_VERDICTS_PASS`
+> deckungsgleich ist (ausgefuehrt gegen `_gate_line_error`, vier Faelle). Es driften genau **drei
+> Feldnamen**, nicht das Urteil. Wand 2 bleibt eine Festlegung. Der Abschnitt bleibt stehen, weil
+> die Punkte 2-5 seiner Gegenlesung (`unsigned`, drei Pfade in `MUTABLE_EVIDENCE_RELS`) tragen.
 
 Eine Gegenlesung von S37/S38/S39 (`VERDIKT: REJECT`, fuenf Punkte) hat den schwersten Fehler dieser
 Nacht gefunden, und er sitzt in der zentralen Aussage. **Alle fuenf Punkte habe ich selbst
@@ -2893,3 +2902,119 @@ diesmal gutging, ist kein Argument gegen ihn.
 jetzt, dass die vorhandene Familie ihre adversarialen Linsen auf der falschen Stufe gefahren hat.
 Wer sie nachziehen will, faehrt sie auf Opus und deklariert die Klasse im Auftrag UND im Beleg.
 Registerschluessel `ADVERSARIALE-LINSEN-AUF-SONNET-STATT-OPUS-01`.
+
+## S49 — S42 ist widerlegt: ich habe den Erzeuger der Gate-Zeile nie gemessen, sondern einen Nachbarn
+
+Eine adversariale Linse auf **Opus** (Klasse im Auftrag UND im Beleg deklariert, Abhilfe zu S48) hat
+S42 mit `VERDIKT: REJECT` beantwortet. **Ich habe jeden ihrer Punkte selbst nachgemessen; der
+Hauptpunkt trifft, und er dreht die Aussage der ganzen Nacht zurueck.**
+
+### Was ich falsch gemacht habe, in einem Satz
+
+S42 verglich `_GATE_VERDICTS_PASS` mit `verdict_tag` aus den **Zeugen-Belegen** — und der Zeuge ist
+gar nicht der Erzeuger der Gate-Zeile. Der Erzeuger ist
+`scripts/b7_deepgate_gate_zeile.py::messen()`, gespeist aus dem **Laufergebnis des Workflows**. Ich
+habe zwei Flaechen verglichen, die nie miteinander sprechen, und ihren Unterschied „Drift" genannt.
+
+### Die Kette, jedes Glied an der Quelle gelesen
+
+| Glied | Datei:Zeile | Was dort steht |
+|---|---|---|
+| Der Workflow spricht das Urteil | `deepgate_600_lauf3/berkeley_gate_workflow_600.js:312` | `verdict: {enum: ['WITHSTANDS_DEEPGATE','FIX_FIRST','BLOCKED']}` — **blank** |
+| Der Erzeuger uebernimmt es woertlich | `b7_deepgate_gate_zeile.py:250-258` | `if "verdict" in gj: z["verdict"] = roh` — und urteilt ausdruecklich NICHT |
+| Das Signaturwerkzeug kopiert die Zeile | `sign_readiness_artifact.py:193-208` | `notes.gate_zeile` **aus dem Verdikt-JSON**, „refusing to invent one" |
+| Der Pruefer liest sie | `audit_candidate_matrix.py:315` | `_GATE_VERDICTS_PASS = {"WITHSTANDS_DEEPGATE"}` — **blank** |
+
+`b7_deepgate_gate_zeile.py:242-245` sagt die Arbeitsteilung woertlich: *„Dieses Werkzeug urteilt
+nicht und filtert nicht … Die Allowlist liegt beim PRUEFER der anderen Bahn
+(`_GATE_VERDICTS_PASS`), und das ist die richtige Seite."* Das ist keine Drift, das ist ein
+begruendeter Schnitt.
+
+### Ausgefuehrt, nicht verglichen — vier Faelle gegen `_gate_line_error`
+
+Beide Haelften geladen (`messen()` aus dem `deepgate-version`-Worktree, `_gate_line_error` aus
+`pb_pushlinie`) und auf dem echten Laufergebnis `gate_result_600_lauf4b_FIX_FIRST.json`
+(`verdict='FIX_FIRST'`, `head=917edc695b28`) gefahren:
+
+```
+1. wie der Erzeuger sie liefert     -> gate_line_unbound: workflow_datei=None, workflow_sha256=None, head=None
+2. NUR die drei Namen angeglichen   -> gate_line_unbound: verdict 'FIX_FIRST' is not a pass
+3. Namen + verdict='WITHSTANDS_DEEPGATE' -> gate_line_unbound: attests head 917edc695b28 but artifact binds None
+4. mit einem Zeugen-verdict_tag     -> gate_line_unbound: 'WITHSTANDS_DEEPGATE[v4/sc1/DEEP-6L7I/FULL]' is not a pass
+```
+
+**Fall 2 ist der Beweis:** sobald nur die drei Namen stimmen, ist das Urteil das einzige, was noch
+zaehlt — und es wird an derselben Zeichenkette gemessen, die der Erzeuger schreibt. **Null Drift in
+der Wertform.** Fall 4 zeigt umgekehrt, dass genau der Wert, den S42 fuer den richtigen hielt,
+abgelehnt wird.
+
+### Was von S42 bleibt: drei Feldnamen, und nur die
+
+| Der Pruefer verlangt | Der Erzeuger schreibt | Inhalt |
+|---|---|---|
+| `gate_version` | `gate_version` | `v4` ✔ |
+| `modus` | `modus` | `DEEP 6L/7I` ✔ |
+| `verdict` | `verdict` | `FIX_FIRST` ✔ (Form und Name deckungsgleich) |
+| `workflow_datei` | `workflow_path` | vorhanden, Name driftet |
+| `workflow_sha256` | `workflow_digest` | vorhanden, Name driftet |
+| `head` | `verdikt_head` | vorhanden, Name driftet |
+
+Drei Namen, drei richtige Inhalte. Das ist genau die Vorgabe, die am 09.09. an un_echoXX ging
+(`20260909T0145Z__un_echoXX__gate_zeile_vorgabe_vier_felder_drei_drifts.md`) — **sie war richtig,
+und S42 hat sie hinterher falsch begruendet.**
+
+### Warum „einfach angleichen" der Defekt waere, gegen den ein Test steht
+
+`tests/test_freigabe_evidenz_provenienz_l5_g7_02.py:281-288` fuehrt den Fall
+`gate_zeile_verdikt_traegt_erlaubtes_als_praefix` mit dem Wert `WITHSTANDS_DEEPGATE_PARTIALLY` —
+nachgetragen am 07.09. nach einer gemessenen Abdeckungsluecke, weil die Mutation
+`not in _GATE_VERDICTS_PASS` → `.startswith(...)` die ganze Matrix ueberlebt hatte. **Gefahren:
+49 passed, RC=0.** Ein Pruefer, der den Zeugen-Tag per Praefix akzeptierte, liesse „teilweise
+standgehalten" als Standhalten durch.
+
+### Wand 2 stand richtig — nur ihre Begruendung war falsch
+
+Nicht *„der Zeuge fuehrt kein Verdikt"* (das war S35s Fehler, S42 hat ihn zu Recht korrigiert),
+sondern: **der Zeuge ist nicht der Erzeuger der Gate-Zeile, und ihn dazu zu machen hiesse zu
+entscheiden, dass ein Receipt-`FULL` als Workflow-`WITHSTANDS_DEEPGATE` gilt.** Die beiden Woerter
+sind nicht dasselbe:
+
+* Workflow-`WITHSTANDS_DEEPGATE` (`berkeley_gate_workflow_600.js:306`): **null bestaetigte Funde
+  UND** RT-01..RT-04 je ausdruecklich angegriffen und fail-closed bestaetigt.
+* Zeugen-`strength: FULL` (`b7_berkeley_gate_receipt.py:83-87`): vier Komponenten plus Linsen-Boden
+  — **kein RT-Ziel**. Gemessen: `rt_targets_confirmed` in **0 von 418** Belegen, `head` ebenso 0/418.
+
+Sie gleichzusetzen laesst die RT-Bedingung fallen und aendert die Zulassung **jeder**
+freigabeentscheidenden Pruefung. Das ist eine Festlegung, und sie ist bereits getroffen:
+Owner-Anordnung `OA-638966a598`, Option A. **Wand 2 ist damit weder Drift noch offen.**
+
+### Der Fangnachweis, den S42 nicht hatte
+
+S42 enthaelt keinen: er zaehlt Feldnamen mit einem `Counter`. Das ist woertlich Form statt
+Eigenschaft — die Klasse, die derselbe Abschnitt als Lehre formuliert. Gefallen waere er an drei
+Laeufen von je unter fuenf Sekunden: `_gate_line_error` mit einer echten Zeile, `messen()` auf einem
+echten Laufergebnis, und dem Test oben.
+
+### Und der Halt liegt noch frueher, als S47 sagte
+
+Gemessen ueber `office/governance/**/gate_result*.json`: **es gibt im ganzen System drei
+Workflow-Laufergebnisse.** Zwei tragen `head=049b3195`, eines `head=917edc69`; die Urteile sind
+`FIX_FIRST`, `UNADJUDICATED`, `FIX_FIRST`; genau **eines** traegt ueberhaupt eine
+`notes.gate_zeile`. Der Kandidatenkopf ist `9d506be` (Signaturkopf `ad906a9`).
+
+**Es fehlt also kein Feld und keine Owner-Entscheidung, sondern ein LAUF.** Ohne ein
+Workflow-Verdikt ueber den Kandidatenkopf gibt es keine Gate-Zeile zum Kopieren — und Fall 3 oben
+zeigt, dass selbst eine formal vollstaendige Zeile am Kopfvergleich scheitert, wenn sie einen
+anderen Lauf bezeugt. Das ist genau die Reihenfolge der Owner-Karte `OA-f680f7cc3f`: *„gebunden an
+den finalen Kopf `ad906a9` erst nach gruenem Schritt 50."*
+
+### Stand der drei Waende nach dieser Messung
+
+| | Was es ist | Wer |
+|---|---|---|
+| Wand 1 | drei Feldnamen im Erzeuger, Inhalte richtig | **un_echoXX** (2bedone-Quellcode, Vorgabe liegt) |
+| Wand 2 | keine Drift; die Festlegung ist getroffen (`OA-638966a598` Option A) | erledigt |
+| Wand 3 | darf die Pruefmechanik aus einem ANDEREN Baum gelesen werden als dem beurteilten? | **Owner** |
+| davor | **es existiert kein Workflow-Lauf ueber den Kandidatenkopf** | **ich, nach Schritt 50** |
+
+Registerschluessel `S42-VERGLICH-DEN-NACHBARN-STATT-DES-ERZEUGERS-01`.
