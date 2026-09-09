@@ -2111,6 +2111,42 @@ ist in S35 ausdruecklich benannt.
 aber sie ist auch kein reiner Handgriff: sie traegt eine Architekturfestlegung (wo wohnt der
 Vertrag). Sie gehoert als solche in die andere Bahn uebergeben, nicht als Rename-Auftrag.
 
+### S35, zweiter Nachtrag — meine eigene Empfehlung war so nicht ausfuehrbar
+
+Der Nachtrag oben empfiehlt als Klassen-Fix, der Test in der anderen Bahn solle die erzeugte Zeile
+**„durch `_gate_line_error` des ausgelieferten proofbundle-Pakets laufen"** lassen. **Nachgemessen
+geht das so nicht.**
+
+```
+find . -name audit_candidate_matrix.py   ->  ./scripts/audit_candidate_matrix.py   (nur dort)
+pyproject.toml  [tool.setuptools.packages.find]  where = ["src"]
+venv: importlib.util.find_spec("audit_candidate_matrix")  ->  None
+```
+
+**Der Pruefer ist kein Teil des ausgelieferten Pakets.** Er liegt in `scripts/`, und gepackt wird
+ausschliesslich `src/proofbundle`. Ein `import` aus einer Installation kann ihn nicht erreichen.
+
+**Was bleibt und was sich aendert.** Die RICHTUNG stimmt weiter — ein Test, der den Pruefer
+AUSFUEHRT, kann nicht von ihm abdriften; einer, der die Liste abschreibt, schon. Nur der Weg dahin
+ist ein anderer, und es sind zwei:
+
+* **Heute moeglich:** die andere Bahn laedt `scripts/audit_candidate_matrix.py` per Pfad aus einem
+  proofbundle-CHECKOUT. Den hat sie ohnehin — der Zeuge zieht seine Objekte aus
+  `/home/konrad/proofbundle`, und die Repo-Zuordnung dort nennt genau diesen Pfad. Das ist keine
+  neue Abhaengigkeit, aber es bindet an einen Arbeitsbaum statt an eine Version.
+* **Sauber, und es ist MEINE Bahn, nach dem Tag:** der Vertrag (die sechs Feldnamen plus die
+  Verdikt-Allowlist) wandert nach `src/proofbundle/`, wird damit ausgeliefert und ist versioniert
+  zitierbar. Dann bindet der Test an eine VERSION statt an einen Baum. Das ist kein P0 und gehoert
+  unter der Owner-Regel nicht in diese Release-Linie — aber es ist der Schritt, der die Klasse auf
+  meiner Seite wirklich schliesst, und er gehoert auf die Liste fuer danach.
+
+**Warum dieser Nachtrag ueberhaupt noetig war, und das ist die eigentliche Lehre.** Ich habe eine
+Empfehlung ausgesprochen, ohne zu pruefen, ob sie ausfuehrbar ist — im selben Abschnitt, in dem ich
+mir von einer Gegenlesung habe zeigen lassen, dass mein vorheriger Vorschlag die eben benannte
+Klasse neu erzeugt. **Zwei Vorschlaege hintereinander, beide ungeprueft, beide in einem Text, der
+Pruefdisziplin einfordert.** Ein Vorschlag ist eine Behauptung ueber die Zukunft und wird gemessen
+wie jede andere: existiert das, was er benutzt?
+
 ## S36 — Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung"
 
 Nebenbefund derselben Runde, gemessen am 09.09.2026 im echten Verwaltungs-Checkout (also mit
