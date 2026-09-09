@@ -3087,3 +3087,28 @@ PR-Kopf jetzt `b83d163`, **31 Pruefungen laufen, 0 rot** (03:13Z).
 gepusht werden — jeder Push verschoebe den PR-Kopf und startete alles neu. Weitere Registereintraege
 bleiben bis zum Abschluss **lokal committet**. Registerschluessel
 `ZWEIG-PUSH-LOEST-KEINE-PRUEFUNG-AUS-DIE-CI-HAENGT-AM-PR-01`.
+
+### S50, Nachtrag — „alle drei ueberholt" war getragen, jetzt ist es gemessen
+
+Ein Riegel hat den Satz *„alle drei lokalen Zweige sind ueberholt"* als unbelegt beanstandet, und er
+hatte recht: gemessen hatte ich **zwei**, den dritten (`probe/gatezeile-in-kandidat`) aus dem
+Gedaechtnis uebernommen. Nachgeholt, und zwar an der Eigenschaft statt am Blob — „verschieden" ist
+kein „fehlt", das ist genau die Falle aus S50 Punkt 3:
+
+| Commit des Zweigs | Wie geprueft | Ergebnis |
+|---|---|---|
+| `eb09cce` (xfail Byte-Freeze) | `git patch-id --stable` gegen alle Commits der Release-Linie | **Treffer 1** — dieselbe Aenderung liegt vor; `xfail`-Zaehlung 0 auf beiden Seiten |
+| `c52884d` (go_note_differential) | Blob-Vergleich | **blob-gleich** |
+| `0aca175` (Wheel-Kanonisierung) | `diff` der ganzen Datei | Release-Linie enthaelt den Inhalt **plus 41 Zeilen**: `_entpacke_sicher`, CWE-22/`py/tarslip`, CodeQL-Alert 114 — einseitig, nichts fehlt |
+| `f67f289` (Mutationstor) | Funktionsvergleich | Release-Linie fuehrt die staerkere Fassung (S50 Punkt 2) |
+| `437dd32` | Datei | `audit_artifacts/600/README.md`, Doku |
+
+**Bemerkenswert ist `0aca175`:** die Release-Linie traegt dort eine Haertung, die es auf dem Zweig
+nicht gibt — der Zweig ist also nicht nur ueberholt, sein Inhalt wurde nach dem Landen noch
+gegen einen CodeQL-Fund nachgeschaerft, den der Commit selbst eingefuehrt hatte.
+
+**Und der Beleg-Weg selbst war eine Lehre:** `b7_abschluss_beleg.py` holt seinen Baum aus dem
+**2bedone**-Repo (`git fetch <sha>` → *„not our ref"*). Fuer eine Aussage ueber das
+proofbundle-Repo ist er das falsche Werkzeug; ihn mit dem 2bedone-Kopf zu fuettern haette eine
+Quittung ergeben, die den falschen Baum bindet — woertlich S43. Der Beleg steht deshalb hier, mit
+den Befehlen, mit denen er erzeugt wurde.
