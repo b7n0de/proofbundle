@@ -3348,3 +3348,55 @@ Ein Kuerzel mit **NEIN** in der Vorfahren-Spalte bezeichnet einen Stand, den die
 enthaelt — etwa einen lokalen Zweig oder einen ueberholten Versuch. Zahlen von dort gelten fuer den
 Kandidaten nur, wenn der Abschnitt es ausdruecklich sagt.
 
+
+## S57 — Die zweite Opus-Linse sagte REJECT zu S54/S55, und drei ihrer fuenf Punkte treffen
+
+Was sie BESTAETIGT hat (alles selbst nachgefahren, `gh api` auf Job- und Lauf-Ebene): der Check
+`hermetic-cleanroom` traegt `head_sha = e2e5fed…`, `run_attempt 1` — **kein Stale-Run**. Die Kette
+`c08e4650 → b83d163 → e2e5fed` stimmt woertlich in allen vier Zahlen. `git diff --stat
+b83d163..e2e5fed` = zwei Dateien, **kein `src/`** — das Gruen kam nicht aus einer Abschwaechung. Die
+Signatur des Belegs ist gueltig, `payload_b64 == record_b64`, `digest` passt, und `notes` sagt selbst,
+dass sie ohne Owner-Cutover Selbstauskunft ist.
+
+**F2 (trifft, schwerster Punkt): mein `muss_fehlschlag` belegte eine ANDERE Klasse als der Befund.**
+Die Eigenschaft beider Befunde lautet *„6 repo-context tests FAIL statt SKIP aus dem entpackten
+sdist"*. Ich nannte als Muss-Fehlschlag den **Sammelabbruch** an `c08e4650` — eine dritte Klasse;
+`b83d163` war aus einer vierten rot. **Kein einziger der drei Koepfe zeigt den Job rot, WEIL ein
+repo-Kontext-Test fehlschlug.** Die Zahlen stimmten, der Beleg traf die Sache nicht.
+
+Korrigiert, mit dem Beleg, den der Befund wirklich verlangt:
+
+| Feld | jetzt |
+|---|---|
+| `muss_fehlschlag` | `test_sdist_selftest_derivation.py:60 test_META_eine_neu_gepflanzte_methode_im_selben_modul_ist_mitgedeckt` — eine NEU gepflanzte Methode faellt ohne die abgeleitete Mechanik durch; genau der Instanz-Fix, den das Annahmekriterium verbietet. Gemessen: die sechs ids stehen **nicht** in `_REPO_CONTEXT_TESTS` (`grep -c` je 0) |
+| `anti_tautologie` | drei Gegenrichtungen in derselben Datei (`…mit_nur_vorhandenen_pfaden…`, `…ganz_ohne_wurzelpfade…`, `…im_echten_checkout_ist_die_ableitung_ein_no_op`) — die Ableitung ueberspringt nicht alles |
+| Lauf | **23 passed, 6 subtests, RC=0** am Kandidaten |
+
+**F3 (trifft): die Schliessung widerspricht ihrem eigenen Annahmekriterium.**
+`DEEPGATE-L6-03-D3401A7` sagt woertlich *„This finding and L6-02 must be closed in one increment"* —
+und steht auf `offen`, ebenso `DEEPGATE-L6-02-EE356C3`. Die abgeleitete Mechanik IST gelandet
+(`conftest.py:449` + `:484`), aber L6-03 verlangt zusaetzlich den **Familien-Sweep** ueber die anderen
+handgepflegten Listen, und der ist **nicht gemessen**. Als Vermerk an beiden Befunden festgehalten,
+statt weggelassen: die Verknuepfung „in einem Inkrement" ist nicht eingehalten.
+
+**F1 (trifft): S54 hat die offene Flaeche kleingeschrieben.** Ich schrieb „`mutation (6)` lief zum
+Messzeitpunkt noch". Gemessen liefen **elf** Jobs, darunter `coverage` — nach `ci.yml:114` ein
+**Pflicht-Check** des Rulesets, keine Nebensache.
+
+**F4 (halb): die Topic-Wahl war falsch, aber nicht die Ursache.** Der Beleg zaehlte `jury: 0 lenses`,
+waehrend unter `sdist_sammelabbruch_l6_600_01` **sechs committete Linsen zu genau diesem P0** liegen
+— der Fehlermodus, den das Werkzeug im eigenen Docstring beschreibt. **Gegenprobe gefahren**: Beleg
+erneut geholt, gleicher Baum, gleicher Kopf, richtiges Topic → **wieder `jury: 0`**, Begruendung
+*„das Verzeichnis existiert im Baum von `e2e5fedfc479` nicht"*. Die Linsenablage ist ein
+2bedone-Pfad; im proofbundle-Baum ist sie ebenso unerreichbar wie Pre-Sweep und Ledger. **Die
+strukturelle Ursache genuegt allein** — meine Topic-Wahl war zusaetzlich falsch, aber folgenlos. Was
+bleibt: S55 nannte nur eine der beiden Ursachen.
+
+**F5 (trifft, klein): der gruene Job installiert `[dev,eval]` UND `[test]`.** Die Zusicherung gilt
+fuer `pip install "<sdist>[test]" && pytest`, nicht fuer die kuerzere Form, die S54 zitiert. Ein
+Befund haelt fest, dass die Form OHNE Extras weiterhin rot ist.
+
+**Was das ueber die Runde sagt.** Die Linse hat nichts an der MESSUNG umgestossen — Kopf, Kette,
+Zahlen, Signatur halten alle. Sie hat drei **Beschriftungsfehler** gefunden, und der schwerste ist
+derselbe Fehlertyp wie den ganzen Abend: ein Beleg, der neben der Eigenschaft liegt, die er belegen
+soll. Registerschluessel `MUSS-FEHLSCHLAG-TRAF-EINE-ANDERE-KLASSE-ALS-DER-BEFUND-01`.
