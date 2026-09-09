@@ -1822,6 +1822,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     from ._statement_payload import load_statement_strict  # noqa: PLC0415
     from .relation import _SHA256_HEX as _RELATION_SHA256_HEX  # noqa: PLC0415
     related: dict = {}
+    #: Alle gelesenen Kopien je content root — die Zusammenfuehrung passiert NACH der
+    #: Schleife, damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
+    roh: dict[str, list[dict]] = {}
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
@@ -1906,13 +1909,70 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 subject_digest_state = "present"
             else:
                 subject_digest_state = "malformed"   # single subject but no well-formed sha-256
-        related[root_hex] = {
+        roh.setdefault(root_hex, []).append({
             "verified": verified, "relationships": rels,
             "verified_under": base64.b64encode(verify_key).decode(),
             "subject_digest": subject_digest,
             "subject_digest_state": subject_digest_state,
             "payload_malformed": payload_malformed,
-        }
+        })
+    # ---- Zusammenfuehrung statt last-wins (deep gate Lauf 9, Fund L4-900-01, P0) ----
+    #
+    # VORHER stand hier `related[root_hex] = {...}` direkt in der Schleife. Der Schluessel ist der
+    # content root des SIGNIERTEN PAYLOADS — er wird also aus dem angehaengten Material ABGELEITET,
+    # und der Wert traegt ein VERIFIKATIONSURTEIL. Zwei Anhaenge mit demselben Payload und
+    # verschiedenen Umschlaegen kollidieren damit, und die zuletzt gelesene Kopie ersetzte die
+    # fruehere still.
+    #
+    # GEMESSEN am Kopf 8626618: eine angehaengte Kopie mit VERFAELSCHTER SIGNATUR loeschte eine
+    # gueltige, verifizierte Ruecknahme. `decision verify --with-related good.json` endet mit exit 3
+    # und safeForAutomation=False; dieselbe Aufrufung mit zusaetzlich `--with-related bad.json`
+    # endet mit exit 0, safeForAutomation=TRUE und lineage.supersededByAttached=None. Wer eine Datei
+    # ANHAENGEN kann, hebt damit eine Ruecknahme auf, ohne einen einzigen Schluessel zu brechen.
+    #
+    # WARUM `verified` HIER EIN ODER IST und kein UND. Der naheliegende Vorschlag lautet "verified
+    # nur, wenn ALLE Kopien verifizieren". Das waere ein Scheinfix: der Angreifer haengt dieselbe
+    # kaputte Kopie an, `verified` faellt auf False, die Ruecknahme zaehlt wieder nicht, und der
+    # Schaden ist derselbe unter anderem Namen. `verified` beantwortet die Frage "existiert eine
+    # gueltige Signatur ueber DIESE Bytes" — und eine verfaelschte Kopie derselben Bytes beantwortet
+    # sie nicht mit Nein. Sie beweist nur, dass jemand Bytes veraendern kann.
+    #
+    # DIE PAYLOAD-FELDER sind bei gleichem root_hex identisch, weil root_hex genau ueber diesen
+    # Payload gebildet wird. Weichen sie doch ab, ist eine Annahme dieses Codes verletzt — dann
+    # bricht die Aufloesung ab, statt eine der beiden Lesarten zu waehlen.
+    #
+    # `verified_under` wird DETERMINISTISCH gewaehlt (kleinster Schluessel unter den verifizierenden,
+    # sonst kleinster ueberhaupt), damit das Urteil nicht von der Reihenfolge der --with-related
+    # Argumente abhaengt. Die same-key-Regel in relation.py:720 vergleicht dieses Feld byte-genau;
+    # eine reihenfolgeabhaengige Wahl waere dort eine reihenfolgeabhaengige Autorisierung.
+    for root_hex, kopien in roh.items():
+        erste = kopien[0]
+        if len(kopien) == 1:
+            related[root_hex] = erste
+            continue
+        for feld in ("relationships", "subject_digest", "subject_digest_state", "payload_malformed"):
+            if any(k[feld] != erste[feld] for k in kopien):
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but disagree on {feld!r} — the content root is derived from exactly these "
+                    "bytes, so this cannot happen without a broken assumption; refusing to pick one")
+                break
+        else:
+            schluessel = sorted(k["verified_under"] for k in kopien)
+            verifizierende = sorted(k["verified_under"] for k in kopien if k["verified"])
+            if len({k["verified"] for k in kopien}) > 1 or len(set(schluessel)) > 1:
+                # Widerspruch NENNEN statt still aufloesen: der Aufrufer hat zwei Kopien desselben
+                # Statements uebergeben, die verschieden ausgehen. Der CLI-Pfad macht daraus exit 2.
+                errs.append(
+                    f"--with-related: {len(kopien)} attachments share content root {root_hex[:12]}… "
+                    f"but verify differently (verified={sorted({k['verified'] for k in kopien})}, "
+                    f"keys={len(set(schluessel))}) — a duplicate that disagrees is a contradiction, "
+                    "not a tie to be broken silently")
+            related[root_hex] = {
+                **erste,
+                "verified": any(k["verified"] for k in kopien),
+                "verified_under": (verifizierende or schluessel)[0],
+            }
     return related, errs
 
 

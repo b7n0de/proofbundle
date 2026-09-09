@@ -250,6 +250,35 @@ def _receipt_candidates(repo: Path, version: str) -> list:
         return out
     for f in sorted(scoped.rglob("*.json")):
         if not f.is_file():
+            # NICHT-REGULAER IST EBENFALLS REJECTED (deep gate Lauf 9, L5-600-PRETAG-NONREG-01, P2).
+            # Der Absatz oben schloss am 05.09.2026 den UNLESBAREN Beleg — und liess die Zeile
+            # DARUEBER stehen, die denselben Fehler eine Ebene frueher macht: ein Kandidat, der
+            # vorhanden, aber kein regulaeres Artefakt ist (haengender Symlink, Verzeichnis mit
+            # .json-Endung, FIFO, unlesbarer Modus, Symlink-Schleife), wurde still uebersprungen.
+            # Damit fiel er in dieselbe Nachsicht wie echte ABWESENHEIT: state='absent', und C12.1
+            # macht daraus auf einem Pull Request NOT_APPLICABLE.
+            #
+            # Reichweite ist nicht theoretisch: ein haengender Symlink ist committierbar (git mode
+            # 120000) und ueberlebt einen frischen Klon.
+            #
+            # WARUM NUR HIER und nicht an den beiden anderen `is_file()`-Zeilen dieser Datei:
+            # gemessen muendet nur DIESE Sammelschleife in die Unterscheidung rejected/absent
+            # (Zeile ~323). `attesting_records_for` und `audit_records_for` geben Pfadlisten
+            # zurueck, deren Leere fail-CLOSED wirkt (kein Audit gefunden = kein Bestehen). Die
+            # Klasse ist "eine Skip-Kante, die in einen NACHSICHTSPFAD muendet", nicht "jedes
+            # is_file()" — ein Sweep nach der Code-Form haette hier zwei Stellen ohne Schaden
+            # mitgeaendert und die Eigenschaft trotzdem nicht benannt.
+            if f.is_symlink():
+                art = "a symlink that does not resolve to a regular file"
+            elif f.is_dir():
+                art = "a directory"
+            elif not f.exists():
+                art = "a path that no longer resolves"
+            else:
+                art = "not a regular file"
+            out.append((str(f.relative_to(repo)), None,
+                        f"receipt path is present but {art} — present-but-unusable is a finding "
+                        "about the artefact, never the leniency reserved for absence"))
             continue
         try:
             rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))

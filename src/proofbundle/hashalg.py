@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
-from .budget import render_safe
+from .budget import DEFAULT_BUDGET, render_safe
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -143,6 +143,12 @@ def compute_dual_hash(data: bytes, alg_ids: Sequence[str]) -> dict[str, str]:
     return {alg_id: compute_digest(data, alg_id) for alg_id in seen}
 
 
+def _enforce_structural_budget(obj, *, budget=None):
+    """Lokaler Zugriff auf den Strukturwaechter, spaet importiert (Zirkelbezug-frei)."""
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415
+    enforce_structural_budget(obj, budget=budget)
+
+
 def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationResult:
     """Verify that EVERY declared digest binds ``data``, and that at least one is a CURRENT algorithm.
 
@@ -161,6 +167,47 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
         # never-raise surface must return a fail-closed VerificationResult, not crash a relying party.
         result.checks.append(Check("hashalg:dual", False, "data must be bytes-like"))
         return result
+    # DAS STRUKTURBUDGET GILT AUCH FUER EIN ARGUMENT, DAS NICHT DAS ERSTE IST (deep gate Lauf 9,
+    # L2-600-DUALHASH-NODES-INERT-01, P3). `digests` ist eine unvertraute Abbildung, und die Schleife
+    # darunter arbeitet PRO EINTRAG. Gemessen: eine Million Eintraege kosteten 3,68 s und +399 MB,
+    # linear unbegrenzt — waehrend derselbe Inhalt ueber den Parse-Weg an `json_nodes` abgewiesen
+    # wird. Die Ablehnung muss auf BEIDEN Wegen gleich ausfallen, sonst ist die Schranke eine Aussage
+    # ueber den Eingabeweg statt ueber die Last.
+    #
+    # Diese Flaeche darf nie werfen, deshalb wird die Budgetverletzung in einen fail-closed Check
+    # uebersetzt statt durchgereicht.
+    #
+    # GEFANGEN WIRD ProofBundleError, NICHT NUR BudgetExceeded (Gegenlesung 09.09.2026 durch
+    # qwen3.8:27b, Frage F6 — ihr Befund war richtig und meiner falsch). Der Waechter wirft ZWEI
+    # Arten: `BudgetExceeded` bei Ueberbreite und `BundleFormatError` bei Uebertiefe. Sein eigener
+    # Docstring sagt das woertlich, und die erste Fassung dieses Blocks fing nur die erste.
+    # GEMESSEN: `digests` mit einem 300 Ebenen tiefen Wert liess `BundleFormatError: JSON nesting
+    # is too deep` durch diese never-raise-Flaeche entweichen. Ein Fix gegen eine Ueberlast hatte
+    # damit einen neuen Weg geoeffnet, den Aufrufer abstuerzen zu lassen.
+    #
+    # Beide sind ProofBundleError-Subklassen, also faengt die Oberklasse beide — und jede kuenftige
+    # Art, die der Waechter dazubekommt, ebenfalls. Eine Aufzaehlung neben einer Hierarchie ist eine
+    # zweite Quelle und wandert nicht mit.
+    #
+    # OHNE DIE GROESSEN-ACHSE `int_bits` (Vollsuite 09.09.2026, zwei rote Faelle in
+    # tests/test_ablehnungstext_rendert_beschraenkt.py). Diese Flaeche hat die Magnitude-Klasse
+    # BEREITS geloest, und zwar besser: `render_safe` BESCHREIBT einen riesigen Schluessel
+    # (`<int, 16610 bits>`), statt ihn zu drucken, und die Ablehnung nennt damit den Uebeltaeter.
+    # Der Budget-Waechter haette davor abgebrochen und nur allgemein "int_bits ueberschritten"
+    # gemeldet — dieselbe Ablehnung, aber ohne die Angabe, WELCHER Eintrag sie ausgeloest hat.
+    #
+    # Der Fund, gegen den dieser Block gebaut ist, war die ANZAHL der Eintraege (eine Million
+    # Digest-Eintraege = 3,68 s und +399 MB), nicht die Groesse eines einzelnen. Die Achsen
+    # `json_nodes`, `json_depth` und `string_len` bleiben deshalb scharf; nur `int_bits` tritt hier
+    # zurueck, weil sie an dieser Flaeche schon typisiert behandelt wird — und der rote Test ist der
+    # Beleg dafuer, dass sie es tut.
+    _budget_ohne_intachse = replace(DEFAULT_BUDGET, int_bits=1 << 30)
+    try:
+        _enforce_structural_budget(digests, budget=_budget_ohne_intachse)
+    except ProofBundleError as exc:
+        result.checks.append(Check("hashalg:dual", False,
+                                   f"digests exceed the structural budget: {exc}"))
+        return result
 
     current_ok = 0
     for alg_id, expected in digests.items():
@@ -172,8 +219,25 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
             result.checks.append(Check(f"hashalg:{render_safe(alg_id, quote=False)}", False, str(exc)))
             continue
         actual = compute_digest(data, alg_id, allow_deprecated=True)
-        match = isinstance(expected, str) and actual == expected.lower()
+        # KEINE NORMALISIERUNG DES ERWARTETEN (deep gate Lauf 9, L1-600-HEXCASE-01, P3).
+        # Hier stand `actual == expected.lower()`. `actual` ist per Konstruktion die kanonische
+        # Kleinbuchstaben-Hexform; das `.lower()` auf der ANDEREN Seite machte daraus zwei
+        # akzeptierte Drahtformen desselben Digests — ein signiertes Artefakt hatte auf dieser
+        # oeffentlichen Flaeche mehr als eine gueltige Schreibweise.
+        #
+        # Das ist dieselbe Eigenschaft, die `_wire_b64` auf der base64-Achse durchsetzt: der Wert
+        # wird als die Form verglichen, die er zu sein ERKLAERT. Der Sweep von damals fegte die
+        # base64-Achse und liess die Hex-Achse stehen — ein Klassenfix, der eine Achse traf und die
+        # benachbarte nicht.
+        #
+        # Ehrliche Einordnung: ein FALSCHER Digest wurde nie angenommen (gemessen), deshalb P3.
+        # Eine abweichende Schreibweise bekommt ihren EIGENEN Grund, damit sie nicht als
+        # inhaltlicher Fehlschlag missverstanden wird.
+        match = isinstance(expected, str) and actual == expected
         detail = "digest matches" if match else "digest mismatch"
+        if (not match and isinstance(expected, str) and expected.lower() == actual):
+            detail = ("digest matches the payload but is not in canonical lowercase hex — a digest "
+                      "field has exactly one accepted wire form")
         if match and spec.status == "deprecated":
             detail = "digest matches but algorithm is deprecated (does not carry a PASS on its own)"
         result.checks.append(Check(f"hashalg:{render_safe(alg_id, quote=False)}", match, detail))

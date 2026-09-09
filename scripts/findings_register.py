@@ -59,6 +59,14 @@ _GATING_SEVERITIES = {"P0", "P1"}
 # not a KNOWN token is an anomaly, never silently non-gating. So an open P0 cannot hide behind an invisible
 # zero-width (U+200B) or confusable/fullwidth severity char that renders as "P0" to a human reviewer.
 _KNOWN_SEVERITIES = {"P0", "P1", "P2", "P3", "INFO"}
+#: Rangordnung derselben Marken. Sie steht hier, weil eine Abloesung nur dann eine Abloesung ist,
+#: wenn der Nachfolger die VERPFLICHTUNG mittraegt (deep gate Lauf 9, Fund L5-600-REG-SUPERSEDE-01).
+#: Abgeleitet aus _KNOWN_SEVERITIES statt zweitgeschrieben: kaeme eine Marke dazu und fehlte hier,
+#: waere sie rangfrei und jede Abloesung auf sie hin waere ungeprueft — deshalb der Gleichheitstest
+#: direkt darunter, der genau das zum Startfehler macht statt zum stillen Loch.
+_SEVERITY_RANG = {"P0": 4, "P1": 3, "P2": 2, "P3": 1, "INFO": 0}
+assert set(_SEVERITY_RANG) == _KNOWN_SEVERITIES, (
+    "jede bekannte Severity braucht einen Rang, sonst ist eine Abloesung auf sie hin ungeprueft")
 
 
 def _norm(s: str) -> str:
@@ -151,6 +159,8 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
     anomalies: list[str] = []
     legit_superseded: set[str] = set()
     sby_map: dict[str, str] = {}
+    rang_by_id: dict[str, int] = {}
+    status_by_id: dict[str, str] = {}
     # KEINE Sammel-Menge fuer die Kollisionen. Die erste Fassung fuehrte hier ein `_kollision`-Set,
     # das befuellt und nie gelesen wurde — eine Variable, die wie ein Riegel aussieht und keiner ist.
     # Das ist die Form des Nachbarbefunds L1-03 ("die Klasse ist per Konstruktion geschlossen"), und
@@ -205,14 +215,33 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
             else:
                 legit_superseded.add(fid)
                 sby_map[fid] = sby
+        # Rang und Status je Kennung fuer die Abloesungspruefung unten. Beide Felder sind an dieser
+        # Stelle schon als String und als bekannte Marke geprueft.
+        rang_by_id[fid] = _SEVERITY_RANG[_norm(f["severity"]).upper()]
+        status_by_id[fid] = _norm(f["status"]).lower()
     # 6-lens gate L5-01: a supersession CYCLE (a ring A->B->A, or a longer loop) makes EVERY member point to
     # a present+different id, so all members drop as "legitimately superseded", accounted==population holds,
     # and open P0s hidden inside the ring are never counted (ok=True, 0 open — the exact fail-open this module
     # exists to close). A legit chain must TERMINATE at a present, non-superseded node; walk each chain with a
     # visited-set and treat any cycle as an anomaly -> fail-closed (no ring member stays legitimately dropped).
+    #
+    # UND DIE VERPFLICHTUNG MUSS WEITERGETRAGEN WERDEN (deep gate Lauf 9, L5-600-REG-SUPERSEDE-01,
+    # P1). Bis hierher genuegte der LINKFORM: ein Ziel, das vorhanden und verschieden ist. Gemessen:
+    # ein OFFENER P0 mit `superseded_by` auf einen beliebigen GESCHLOSSENEN P3 fiel aus der Zaehlung,
+    # ohne eine einzige Anomalie — ein gueltig signiertes Register meldete 0 offene P0/P1, und die
+    # Bilanz `accounted == population` hielt dabei, weil der Befund als "rechtmaessig abgeloest"
+    # gezaehlt wurde. Genau diese Bilanz maskiert den Verlust, statt ihn zu zeigen.
+    #
+    # Eine Abloesung ist deshalb nur dann eine, wenn die KETTE zwei Dinge erfuellt:
+    #   * jedes Glied traegt mindestens den Rang des Ausgangsbefunds — ein P0 wird nicht dadurch
+    #     erledigt, dass ihn ein P3 beerbt;
+    #   * sie endet an einem GESCHLOSSENEN Knoten — ein Befund, der auf einen offenen zeigt, ist
+    #     nicht erledigt, sondern verschoben, und Verschieben ist keine Erledigung.
+    # Beides faellt fail-closed in `anomalies`, also in denselben Kanal wie Zyklus und Sackgasse.
     for fid in list(legit_superseded):
         seen_chain: set[str] = set()
         cur = fid
+        eigener_rang = rang_by_id.get(fid, 0)
         while cur in sby_map:
             if cur in seen_chain:
                 anomalies.append(f"{fid}:supersession-cycle")
@@ -220,6 +249,18 @@ def _resolve_current(findings: list) -> tuple[dict, list, list, set]:
                 break
             seen_chain.add(cur)
             cur = sby_map[cur]
+            if rang_by_id.get(cur, -1) < eigener_rang:
+                anomalies.append(
+                    f"{fid}:supersession-downgrades-severity="
+                    f"{cur}@rang{rang_by_id.get(cur, -1)}<rang{eigener_rang}")
+                legit_superseded.discard(fid)
+                break
+        else:
+            # Die Kette hat regulaer geendet: `cur` ist der letzte, selbst nicht abgeloeste Knoten.
+            if status_by_id.get(cur) != "closed":
+                anomalies.append(
+                    f"{fid}:supersession-ends-open={cur}@{status_by_id.get(cur)!r}")
+                legit_superseded.discard(fid)
     for idx, f in enumerate(findings):
         if not isinstance(f, dict):
             continue

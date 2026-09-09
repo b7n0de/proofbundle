@@ -712,7 +712,10 @@ const EIGENE_PRAEDIKATTYPEN: [&str; 3] = [
 /// und ein NULL-Praedikat bleiben unberuehrt (in-toto v1 erlaubt beides), und eine fremde
 /// Attestation wird nicht beurteilt.
 fn praedikat_ist_positiv_falsch(stmt: &serde_json::Value) -> bool {
-    let ptype = stmt.get("predicateType").and_then(|v| v.as_str()).unwrap_or("");
+    let ptype = stmt
+        .get("predicateType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if !EIGENE_PRAEDIKATTYPEN.contains(&ptype) {
         return false;
     }
@@ -1383,7 +1386,10 @@ fn load_related(
     main_pub_b64: &str,
     expected_payload_type: &str,
 ) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
-    let mut related = std::collections::HashMap::new();
+    // Alle gelesenen Kopien je content root; die Zusammenfuehrung passiert NACH der Schleife,
+    // damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
+    let mut roh: std::collections::HashMap<String, Vec<TargetInfo>> =
+        std::collections::HashMap::new();
     for (i, path) in paths.iter().enumerate() {
         let rp = related_pubs
             .get(i)
@@ -1451,16 +1457,61 @@ fn load_related(
         // verified_under = the base64 key the target actually verified under (main pub or --related-pub).
         let verified_under =
             base64::engine::general_purpose::STANDARD.encode(b64_strict(verify_key_b64)?);
-        related.insert(
-            root_hex,
-            TargetInfo {
-                verified,
-                verified_under,
-                subject_digest,
-                relationships,
-                payload_malformed,
-            },
-        );
+        roh.entry(root_hex).or_default().push(TargetInfo {
+            verified,
+            verified_under,
+            subject_digest,
+            relationships,
+            payload_malformed,
+        });
+    }
+    // ---- Zusammenfuehrung statt last-wins (deep gate Lauf 9, Fund L4-900-01, P0) ----
+    //
+    // SPIEGEL zu Python `cli._load_related`. Vorher stand hier `related.insert(root_hex, ...)`
+    // direkt in der Schleife, und `HashMap::insert` ist ebenso last-wins wie die Python-Zuweisung.
+    // Der Schluessel ist der content root des SIGNIERTEN PAYLOADS, also aus dem angehaengten
+    // Material ABGELEITET, und der Wert traegt ein Verifikationsurteil: eine angehaengte Kopie mit
+    // verfaelschter Signatur loeschte damit eine gueltige, verifizierte Ruecknahme.
+    //
+    // BEIDE Implementierungen teilten den Defekt, weshalb das Differential daran STILL blieb — der
+    // Grund, warum dieser Spiegel im selben Zug faellt und nicht spaeter.
+    //
+    // Da `root_hex` genau ueber diesen Payload gebildet wird, sind die Payload-Felder bei einer
+    // Kollision identisch. Weichen sie ab, oder gehen die Kopien im Verifikationsurteil
+    // auseinander, endet die Aufloesung mit einem Fehler — dasselbe Ergebnis wie Python, wo der
+    // Widerspruch ueber `errs` zu exit 2 fuehrt. Ein Duplikat, das widerspricht, ist ein
+    // Widerspruch und kein still zu brechender Gleichstand.
+    let mut related = std::collections::HashMap::new();
+    for (root_hex, kopien) in roh {
+        let kurz: String = root_hex.chars().take(12).collect();
+        let mut iter = kopien.into_iter();
+        let erste = iter
+            .next()
+            .expect("or_default().push() garantiert mindestens eine Kopie");
+        let rest: Vec<TargetInfo> = iter.collect();
+        if rest.is_empty() {
+            related.insert(root_hex, erste);
+            continue;
+        }
+        let anzahl = rest.len() + 1;
+        if rest.iter().any(|k| {
+            k.relationships != erste.relationships
+                || k.subject_digest != erste.subject_digest
+                || k.payload_malformed != erste.payload_malformed
+        }) {
+            return Err(format!(
+                "--with-related: {anzahl} attachments share content root {kurz}\u{2026} but disagree                  on payload fields \u{2014} the content root is derived from exactly these bytes, so                  this cannot happen without a broken assumption; refusing to pick one"
+            ));
+        }
+        if rest
+            .iter()
+            .any(|k| k.verified != erste.verified || k.verified_under != erste.verified_under)
+        {
+            return Err(format!(
+                "--with-related: {anzahl} attachments share content root {kurz}\u{2026} but verify                  differently \u{2014} a duplicate that disagrees is a contradiction, not a tie to be                  broken silently"
+            ));
+        }
+        related.insert(root_hex, erste);
     }
     Ok(related)
 }

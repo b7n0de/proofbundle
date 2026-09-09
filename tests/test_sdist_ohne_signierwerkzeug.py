@@ -40,6 +40,97 @@ _LADENDE_ATTRIBUTE = {"from_private_bytes"}
 _PRIVATKLASSE = "Ed25519PrivateKey"
 
 
+#: Namen, aus denen ein KONSTANTER Wegwerf-Seed gebaut wird. Alles andere im Argument von
+#: ``from_private_bytes`` kommt von aussen — aus einer Datei, einer Umgebungsvariablen, einem
+#: Funktionsergebnis — und ist damit ein Signierweg.
+_KONSTANTE_ERZEUGER = {"bytes", "bytearray", "range", "len"}
+
+
+def _konstante_modulnamen(baum: ast.AST) -> set[str]:
+    """Modul-Namen, die auf einen im Quelltext ausgeschriebenen Wert gesetzt sind.
+
+    GEMESSEN: ``tests/test_intoto_examples.py`` schreibt ``_SEED = bytes(range(32))`` und uebergibt
+    ``_SEED``. Ohne diese Aufloesung waere der Name kein konstanter Erzeuger und ein voellig
+    harmloser Wegwerf-Seed stuende rot — der Riegel waere zu scharf und wuerde dadurch abgeschaltet
+    statt geschaerft. Eine Zuweisung aus einer Datei (``_SEED = open(...).read()``) faellt hier
+    durch, weil ``open`` kein konstanter Erzeuger ist; die Umgehung ueber eine Zwischenvariable
+    bleibt also zu.
+    """
+    namen: set[str] = set()
+    for k in getattr(baum, "body", []):
+        ziele = (k.targets if isinstance(k, ast.Assign)
+                 else [k.target] if isinstance(k, ast.AnnAssign) and k.value else [])
+        wert = getattr(k, "value", None)
+        if wert is None:
+            continue
+        for z in ziele:
+            if isinstance(z, ast.Name) and _ist_wegwerf_seed(wert, set()):
+                namen.add(z.id)
+    return namen
+
+
+def _ist_wegwerf_seed(knoten: ast.AST, zusaetzlich: set[str] | None = None) -> bool:
+    """Ist dieses Argument ein im Quelltext AUSGESCHRIEBENER Seed?
+
+    DIE EIGENSCHAFT, nicht der Ort (deep gate Lauf 9, L6-600-9-GRAFTSCOPE-01). ``from_private_bytes``
+    allein trennt nicht: die 17 ausgelieferten Test- und Konformanzmodule bauen damit einen
+    wegwerfbaren Schluessel aus einem Literal (``bytes(range(32))``, ``b"\x01" * 32``), der den
+    Prozess nie verlaesst — genau die Form, die die Gate-Mechanik braucht. Ein Signierweg dagegen
+    holt sein Material von aussen.
+
+    Freigestellt wird deshalb ueber diese Eigenschaft und NIE ueber einen Verzeichnisnamen. Eine
+    Freistellung nach Ordner waere derselbe Fehler wie die alte Korbgrenze: sie beschreibt, wo der
+    Code heute liegt, nicht was er tut.
+
+    BENANNTE GRENZE (Gegenlesung 09.09.2026 durch qwen3.8:27b, Frage F4 — der Befund ist richtig).
+    Aus Sicht des AST sind "wegwerfbarer Testschluessel" und "harter Schluessel im Quelltext"
+    IDENTISCH: ein Werkzeug, das `_SIGN = bytes([0x4b, 0x67, ...])` schreibt und damit signiert,
+    wird hier freigestellt. Diese Pruefung faengt es NICHT.
+
+    Warum sie trotzdem so bleibt: die Owner-Auflage, aus der der Riegel stammt, zielt auf einen
+    schluessel-LESENDEN Weg im sdist — auf `--privkey-file` und `from_private_bytes(<von aussen>)`.
+    Ein im Quelltext ausgeschriebener Schluessel liest nichts und ist zugleich kein Geheimnis: wer
+    das sdist hat, hat ihn. Der Riegel schuetzt gegen die Auslieferung eines Signierwegs, nicht
+    gegen einen veroeffentlichten Schluessel — das waere eine andere Pruefung mit einem anderen
+    Orakel (etwa: ein konstanter Seed, der in einen `.sign(`-Aufruf fliesst, kombiniert mit einer
+    Verwendung ausserhalb einer Testfunktion).
+
+    Die Grenze steht hier, statt still zu bleiben, weil eine ungeschriebene Grenze beim naechsten
+    Leser zur angenommenen Abdeckung wird.
+    """
+    erlaubt = _KONSTANTE_ERZEUGER | (zusaetzlich or set())
+    for k in ast.walk(knoten):
+        if isinstance(k, ast.Constant):
+            continue
+        if isinstance(k, (ast.BinOp, ast.Add, ast.Mult, ast.Load, ast.Tuple, ast.List)):
+            continue
+        if isinstance(k, ast.Call):
+            if not (isinstance(k.func, ast.Name) and k.func.id in erlaubt):
+                return False
+            continue
+        if isinstance(k, ast.Name):
+            if k.id not in erlaubt:
+                return False
+            continue
+        return False
+    return True
+
+
+def _ist_cli_flagge(baum: ast.AST, knoten: ast.Constant) -> bool:
+    """Steht dieses ``--privkey``-Literal in einem ``add_argument``-Aufruf?
+
+    Sonst ist es Testdaten oder ein Meldungstext — der Riegel selbst nennt die Flagge in seinen
+    eigenen Pflanzvektoren, und ein Riegel, der daran anschlaegt, verbannt sich selbst.
+    """
+    for k in ast.walk(baum):
+        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
+                and k.func.attr == "add_argument"):
+            for arg in k.args:
+                if arg is knoten:
+                    return True
+    return False
+
+
 def schluessel_lesende_stellen(quelltext: str) -> list[str]:
     """Die Codestellen, die einen privaten Schluessel LADEN — per AST, nie aus Prosa."""
     try:
@@ -47,11 +138,23 @@ def schluessel_lesende_stellen(quelltext: str) -> list[str]:
     except SyntaxError:                                       # pragma: no cover
         return ["<nicht parsebar>"]
     fund: list[str] = []
+    # Die Aufrufe von `from_private_bytes` mit ihrem Argument, damit der Attributzweig darunter
+    # einen ausgeschriebenen Seed von einem hereingereichten Wert unterscheiden kann.
+    konstanten = _konstante_modulnamen(baum)
+    wegwerf_zeilen = {
+        k.lineno for k in ast.walk(baum)
+        if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
+        and k.func.attr in _LADENDE_ATTRIBUTE and len(k.args) == 1
+        and _ist_wegwerf_seed(k.args[0], konstanten)
+    }
     for k in ast.walk(baum):
         if isinstance(k, ast.Attribute) and k.attr in _LADENDE_ATTRIBUTE:
+            if k.lineno in wegwerf_zeilen:
+                continue
             fund.append(f"{k.attr} (Zeile {k.lineno})")
         # eine --privkey-Flagge als echtes String-Literal im Code (argparse), nicht im Docstring
-        if isinstance(k, ast.Constant) and isinstance(k.value, str) and k.value.startswith("--privkey"):
+        if (isinstance(k, ast.Constant) and isinstance(k.value, str)
+                and k.value.startswith("--privkey") and _ist_cli_flagge(baum, k)):
             fund.append(f"{k.value!r} (Zeile {k.lineno})")
         # Direktkonstruktion mit Schluesselmaterial: Ed25519PrivateKey(<argument>)
         if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name)
@@ -116,7 +219,23 @@ def sdist_dateien():
             andere = {}
             for n in namen:
                 teile = n.split("/", 1)
-                if len(teile) != 2 or not teile[1].startswith("scripts/"):
+                # DER KORB FOLGT DEN VOLLMACHTEN, NICHT EINEM ORDNER (deep gate Lauf 9,
+                # L6-600-9-GRAFTSCOPE-01, P2). Vorher stand hier `startswith("scripts/")` — die
+                # Owner-Auflage war fuer scripts/ geschrieben, und der Riegel uebernahm den Ordner
+                # statt die Eigenschaft. MANIFEST.in bevollmaechtigt aber SECHS Verzeichnisse per
+                # graft (tests, schemas, examples, conformance, formal, docs/readiness_pack); ein
+                # gepflanztes Signierwerkzeug unter conformance/ wurde ausgeliefert, und der Riegel
+                # blieb gruen. Gemessen liegt aus genau diesem Unterbaum bereits
+                # conformance/agent_review/_generator/build_vectors.py im echten sdist.
+                #
+                # Geprueft wird jetzt jede ausgelieferte .py AUSSERHALB von src/ — die Bibliothek
+                # selbst ist nicht gemeint, sie ist der Gegenstand und nicht das Werkzeug. Die 17
+                # Test- und Konformanzmodule mit einem wegwerfbaren Seed bleiben gruen, aber ueber
+                # die EIGENSCHAFT (`_ist_wegwerf_seed`), nie ueber ihren Ordner.
+                if len(teile) != 2:
+                    continue
+                rel = teile[1]
+                if rel.startswith("src/") or not (rel.endswith(".py") or rel.startswith("scripts/")):
                     continue
                 f = tf.extractfile(n)
                 if f is None:
@@ -127,7 +246,7 @@ def sdist_dateien():
                 # deckungsgleich mit "alles". Seit die ausdrueckliche Liste `demo.sh` und
                 # `demo_tamper.sh` mitnimmt, ist er es nicht mehr — und ein Filter, der frueher
                 # alles traf, faellt beim Aufhoeren nicht auf.
-                (skripte if n.endswith(".py") else andere)[teile[1]] = inhalt
+                (skripte if n.endswith(".py") else andere)[rel] = inhalt
         yield {"namen": namen, "skripte": skripte, "andere": andere}
     finally:
         shutil.rmtree(arbeit, ignore_errors=True)
