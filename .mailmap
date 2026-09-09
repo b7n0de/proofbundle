@@ -1,0 +1,28 @@
+# Eine Person, viele Adressen — .mailmap fasst die ANZEIGE zusammen und fasst KEINEN Commit an.
+#
+# Owner-Entscheid OA-5c4120abb8, 09.09.2026, Weg C woertlich: "alle sieben Zeilen mit meinen
+# Adressen auf kraxo <kontakt@b7n0de.com>, die crissi.jane-Zeile war ich. Fremde Beitraege bleiben
+# unangetastet."
+#
+# WARUM DAS HIER STEHT UND NICHT IN DER HISTORIE: am selben Tag wurden 57 Commits umgeschrieben,
+# weil sie eine PLATZHALTER-Identitaet trugen (test@test.local). Das kostete einen Force-Push mit
+# Admin-Bypass und zwei Owner-Karten. Die Adressen unten sind keine Platzhalter, sondern echte
+# Adressen desselben Menschen aus verschiedenen Jahren und Geraeten — die gehoeren zusammengefasst,
+# nicht umgeschrieben. Eine .mailmap ist dafuer das richtige Werkzeug: sie aendert die Anzeige von
+# `git shortlog`, `git log` und `git blame`, und kein einziges Commit-Objekt.
+#
+# GEMESSEN am Kopf a9bfa4ae vor dieser Datei (git shortlog -sne, 13 Zeilen): kraxo@b7n0de.com 642 ·
+# 45888075+b7n0de@users.noreply 173 · support@zudiroderzumir.de 132 · kontakt@b7n0de.com 98 ·
+# Konrad Gruszka <raponchen@me.com> 23 · dependabot 18 · b7n0de@users.noreply 17 ·
+# kraxo <raponchen@me.com> 5 · security@b7n0de.com 3 · tuodijihua 3 ·
+# Konrad Gruszka <kontakt@b7n0de.com> 2 · MarkovianProtocol 1 · crissi.jane <raponchen@me.com> 1.
+
+kraxo <kontakt@b7n0de.com> <kraxo@b7n0de.com>
+kraxo <kontakt@b7n0de.com> <45888075+b7n0de@users.noreply.github.com>
+kraxo <kontakt@b7n0de.com> <support@zudiroderzumir.de>
+kraxo <kontakt@b7n0de.com> <b7n0de@users.noreply.github.com>
+kraxo <kontakt@b7n0de.com> <security@b7n0de.com>
+kraxo <kontakt@b7n0de.com> <raponchen@me.com>
+kraxo <kontakt@b7n0de.com> Konrad Gruszka <kontakt@b7n0de.com>
+
+# NICHT abgebildet, ausdruecklich: tuodijihua und MarkovianProtocol sind fremde Beitraege.
