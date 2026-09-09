@@ -2618,3 +2618,46 @@ n=2, und sie gehoert nicht als Befund verkauft. Was aus dem Muster unabhaengig v
 folgt, ist die Abhilfe: **eine Klasse braucht neben ihrem Namen eine AUSFUEHRBARE Frage.** Hier
 waere es eine Zeile gewesen — die Feldnamen des Bestands auszaehlen statt einen Namen abzufragen.
 Registerschluessel `WAND-2-WAR-NIE-OWNER-GEBIET-DIESELBE-KLASSE-EINE-SEITE-SPAETER-01`.
+
+## S43 — Die Vorab-Quittung ist GUELTIG, sie bindet nur den falschen Baum
+
+Ich habe diese Quittung die ganze Nacht als „sagt `FIX_FIRST`" mitgetragen, aus dem Gedaechtnis.
+**Gemessen stimmt das nicht.** `audit_artifacts/600/pre_tag_receipt_v6.0.0.json`:
+
+```
+schema  b7n0de.pre_tag_audit_receipt.v1   version 6.0.0
+audit_exit_code      0                      produced_at 2026-09-06T20:27:33Z
+subject_tree_digest  877cd4f98ffc8924…      runner_identity b7n0de-release-runner
+signature + signer_pubkey  vorhanden
+```
+
+Sie traegt **kein** `verdict`-Feld und **keinen** Fehlschlag: `audit_exit_code` ist **0**. Der
+`FIX_FIRST`-Satz, den ich ihr zugeschrieben habe, gehoert zu einer ANDEREN Datei (dem Gate-Ergebnis
+`gate_result_600_lauf4b_FIX_FIRST.json`). Zwei Artefakte, ein Gedaechtniseintrag — genau die
+Verwechslung, gegen die dieses Register sonst argumentiert.
+
+**Gegengeprueft mit dem echten Verifizierer, beide Richtungen:**
+
+```
+verify_receipt gegen den HEUTIGEN Baum : False
+  "receipt subject_tree_digest does not bind THIS tree
+   ('877cd4f9…' != 'e24dc75c…')"
+verify_receipt gegen den EIGENEN Baum  : True
+  "signed, tree-bound, successful-audit receipt verified"
+```
+
+**Die Quittung ist also in Ordnung — sie ist nur drei Tage alt.** Sie bindet den Baum vom
+06.09. 20:27Z, und jeder Registereintrag dieser Nacht hat den Baum bewegt. Der Verifizierer lehnt
+sie aus genau EINEM Grund ab, und es ist nicht das Urteil, sondern die Bindung.
+
+**Was daraus fuer die Kette folgt, und es ist eine gute Nachricht.** Die Vorab-Quittung braucht
+keinen neuen Audit-BEFUND — der bestehende ging mit Exit 0 aus. Sie braucht eine **Neuausstellung
+ueber den dann finalen Kopf**: derselbe Vorgang, neuer `subject_tree_digest`, neue Signatur. Das ist
+ein Schritt der Signaturrunde und kein offener Defekt.
+
+**Und die vierte Instanz derselben Sache in einer Nacht.** Viermal habe ich eine mitgetragene
+Annahme fuer gemessen gehalten: der Zeuge fuehre kein Verdikt (er fuehrt `verdict_tag`) · der
+Probezweig sei der Release-Linie voraus (er ist ueberholt) · die Bereitschaftsartefakte seien vier
+(es sind drei Dateien) · und jetzt, die Vorab-Quittung sage `FIX_FIRST` (sie sagt Exit 0). **Jede
+dieser Annahmen kostete eine Zeile im Gedaechtnis und war in unter zwei Minuten pruefbar.**
+Registerschluessel `VORAB-QUITTUNG-IST-GUELTIG-NUR-DER-BAUM-IST-ALT-01`.
