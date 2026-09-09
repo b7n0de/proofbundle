@@ -2059,6 +2059,58 @@ Was davon unberuehrt bleibt: `head` und `verdict` kommen in beiden Faellen aus d
 der Zeugenbeleg fuehrt beide nicht. Registerschluessel
 `ERZEUGER-UND-PRUEFER-DER-GATE-ZEILE-BENENNEN-DREI-FELDER-VERSCHIEDEN-01`.
 
+### S35, Nachtrag vom 09.09.2026 — die Gegenlesung hat vier Stellen getroffen, drei davon tragen
+
+Fremdfamiliaere Gegenlesung von S35/S36 (`qwen3.8:27b`, `VERDIKT: ACCEPT` mit fuenf Punkten). Ein
+ACCEPT ist hier kein Freibrief: vier der fuenf Punkte benennen echte Luecken, und einer davon ist
+schwerer als alles, was S35 selbst gefunden hat.
+
+**Punkt 1, angenommen und NACHGEMESSEN.** Die Feld-fuer-Feld-Tabelle lief an EINEM Beleg; der Satz
+„der Zeuge fuehrt nie `head`" galt darueber hinaus nicht. Jetzt ueber alle gemessen:
+**0 von 412 Belegen tragen ein nicht-leeres `head`; 410 von 412 tragen `digest`.** Genau EIN Beleg
+fuehrt ein nicht-leeres `verdict`, und er ist kein Abschluss-Beleg, sondern eine Fund-Aufzeichnung
+(`af79b988ac8726e9_20260722_FULL_DEEP_findings.json`, `record_type`, Feld
+`not_a_withstands_receipt`, `verdict: DOES_NOT_WITHSTAND`, `strength: NOT_COMPUTED_FINDINGS_OPEN`).
+Der zweite Beleg ohne `digest` ist ein `.components.json`-Beiwerk. Die Aussage haelt also fuer die
+Beleg-Familie — aber sie hielt sie vorher aus einer Stichprobe von eins, und das war der Fehler.
+
+**Punkt 2, angenommen.** „Drei davon aus reiner Namensdrift" stimmt fuer zwei. Bei `head` steht die
+Bedingung in derselben Tabelle zwei Zeilen darueber (`und nur wenn das Laufergebnis head fuehrt`) —
+das Feld ist anders benannt UND bedingt. Richtig: **zwei aus reiner Namensdrift, das dritte
+zusaetzlich bedingt, und die Bedingung ist nach Punkt 1 in 412 von 412 Faellen nicht erfuellt.**
+
+**Punkt 3 — und das ist der schwerste Fund dieses Abschnitts, gegen mich.** S35 benennt die Klasse
+(*„ein Vertrag als zwei getippte Aufzaehlungen, ohne gemeinsame Quelle und ohne Test"*) und schlaegt
+im selben Atemzug einen Fix vor, **der die Klasse neu erzeugt**: ein Test, der „die erzeugte Zeile
+gegen die Pflichtliste faehrt", muss diese Liste irgendwo hernehmen — hartkodiert waere sie die
+DRITTE getippte Aufzaehlung, importiert waere sie eine Abhaengigkeit der Werkstatt vom Produkt.
+
+Damit ist Wand 1 auch nicht mehr das, was S35 aus ihr gemacht hat („keine Entscheidung, nur ein
+Zug"). Zwei Festlegungen stecken darin, und beide gehoeren benannt:
+
+* **Welche Seite gibt die Namen vor?** Das Indiz zeigt in eine Richtung — die eine handgebaute Datei
+  im Bestand folgt dem Pruefer in fuenf von sechs Feldern, und das Werkzeug ist der juengere
+  Abweichler —, aber ein Indiz ist keine Entscheidung.
+* **Wo wohnt der Vertrag, damit er EINE Quelle hat?** Die Form, die die Klasse wirklich schliesst,
+  restated die Liste nicht, sondern **fuehrt den Pruefer aus**: der Test in der anderen Bahn laesst
+  die erzeugte Zeile durch `_gate_line_error` des ausgelieferten proofbundle-Pakets laufen. Dann gibt
+  es genau eine Autoritaet, und der Test kann von ihr nicht abdriften, weil er sie benutzt. Das ist
+  keine neue Abhaengigkeit: das Verwaltungsrepo verifiziert Zeugen-Belege bereits gegen ein
+  installiertes `proofbundle`.
+
+**Punkt 4, angenommen.** S35 nennt nicht, WO `messen()` ausgefuehrt wurde. Nachgetragen: im Worktree
+`.claude/worktrees/deepgate-version` (Zweig
+`feat/deepgate/ownergo-versionierung-gate-zeile-eichkopf`), also in genau dem Baum, in dem das
+Werkzeug ueberhaupt existiert — es liegt nicht im HEAD des Verwaltungsrepos. Die zitierten
+Zeilennummern (128-140, 227-228) gehoeren zu dieser Fassung.
+
+**Punkt 5 traf nicht** und wurde von der Gegenlesung selbst so entschieden: der Widerspruch zu S34
+ist in S35 ausdruecklich benannt.
+
+**Was das an der Owner-Frage aendert.** Wand 1 bleibt kein Owner-Gate im Sinne von „Tuer auf/zu",
+aber sie ist auch kein reiner Handgriff: sie traegt eine Architekturfestlegung (wo wohnt der
+Vertrag). Sie gehoert als solche in die andere Bahn uebergeben, nicht als Rename-Auftrag.
+
 ## S36 — Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung"
 
 Nebenbefund derselben Runde, gemessen am 09.09.2026 im echten Verwaltungs-Checkout (also mit
