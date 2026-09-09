@@ -2701,3 +2701,49 @@ Signaturrunde und nicht davor.
 **Was das an der Lage aendert:** die Vorab-Quittung war in meinen Berichten ein offener Punkt mit
 unklarem Weg. Sie ist ein **Ablaufschritt mit vorhandenem Werkzeug**. Registerschluessel
 `VORAB-QUITTUNG-HAT-EINEN-SCHLUESSELLOSEN-ZWEI-HAELFTEN-WEG-01`.
+
+## S45 — Der laufende Soak bindet einen 30 Commits alten Kopf, und das ist gemessen folgenlos
+
+Zwei getragene Annahmen ueber den 24h-Soak nachgemessen. **Eine war um zwei Stunden falsch, die
+andere fuehrte auf eine echte Frage — die sich dann aufloest.**
+
+**Die Zeit.** Ich habe „landet ~16:00Z" berichtet. Gemessen (PID 2640683, `etimes`):
+
+```
+Start        2026-09-08T14:00Z      Stand 2026-09-09T02:09Z (12 h 08 min gelaufen)
+24h-Ende ca. 2026-09-09T14:00Z      noch 11 h 51 min
+```
+
+**Die Bindung, und hier wurde es kurz ernst.** Der Soak-Arbeitsbaum steht auf
+`c08e4650eca1ebd6df05c9836ec80cecb4e6b32e` (dirty 0) — dem Fernstand. Der Release-Kopf ist
+**30 Commits weiter**, und der Unterschied ist NICHT nur Doku: genau **eine** `src/`-Datei weicht
+ab, und es ist ausgerechnet `src/proofbundle/relation.py` — die Datei, die den P1-Fix dieser Runde
+bekam (S25, Karte `OA-dccd141d78`: die still uebersprungene Ruecknahme, die `safeForAutomation` von
+false auf true und den Ausgang von 3 auf 0 kippen liess).
+
+**Die Frage war also berechtigt: fuzzt der Soak einen Parser ohne den Fix?** Nachgemessen mit der
+Vorfahren-Pruefung von `0159bc7` gegen `c08e4650`: **NEIN — der Fix ist nicht im Soak-Baum.**
+
+**Und dann loest es sich auf, funktionsgenau.** Der Soak zieht seine Ziele aus
+`discover_python_verify_functions()` — 64 Funktionen, davon **zwei** aus `relation`. Ein
+AST-Vergleich beider Baeume:
+
+| Funktion | c08e4650 → HEAD | vom Soak angefasst? |
+|---|---|---|
+| `successor_warning` | **VERSCHIEDEN** (`f3a44619…` → `a2421d08…`) | **nein** — kein `verify_*`-Ziel |
+| `validate_relationships` | GLEICH (`76ab5311…`) | ja |
+| `verify_relationship_edges` | GLEICH (`08654dbe…`) | ja |
+
+**Die geaenderte Funktion ist kein Soak-Ziel, und die beiden Soak-Ziele sind byte-gleich.** Der
+laufende Soak fuzzt in `relation` also exakt denselben Code, der auch im Release-Kandidaten steht.
+Die veraltete Kopf-Bindung ist fuer SEINE Aussage folgenlos — nicht weil es egal waere, sondern weil
+es nachgemessen ist.
+
+**Was trotzdem stehen bleibt, und es ist eine Grenze, keine Entwarnung.** Der Vergleich deckt
+`relation.py` ab, weil dort der einzige `src/`-Unterschied liegt. Er sagt nichts darueber, ob ein
+SPAETERER Commit vor dem Tag wieder eine gesoakte Funktion aendert — dann waere dieselbe Pruefung
+erneut faellig. **Die Regel, die daraus folgt:** wer den Soak als Beleg heranzieht, vergleicht die
+`src/`-Differenz zwischen Soak-Baum und Tag-Kopf und prueft, ob eine GESOAKTE Funktion darin liegt.
+Ein Blick auf die Commit-Zahl genuegt nicht — 30 Commits klangen alarmierend und waren es nicht.
+
+Registerschluessel `SOAK-BINDET-ALTEN-KOPF-ABER-DIE-GESOAKTEN-FUNKTIONEN-SIND-GLEICH-01`.
