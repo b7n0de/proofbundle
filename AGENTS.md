@@ -59,6 +59,11 @@ topic per branch.
   no naming, no reformatting.
 - Name the defect class before the instance, and say where else the class could stand.
 - Cite file and line, quote the property that is violated, give the smallest reproduction.
+- Name every identifier with its kind and its location at the commit under review: function,
+  parameter, flag or policy key, with file and line. Never name a symbol that does not exist at
+  that commit, and never conclude that one is absent from a truncated search.
+- Measure at the pull request head commit and cite its full SHA. A merge commit built in a sandbox
+  is not a reference anyone else can check.
 - Distinguish measured from estimated in every comment.
 - Do not propose fixes to release plumbing or workflows. Point at them, the maintainer decides.
 - Never post a fix commit from a review. Comments only.
