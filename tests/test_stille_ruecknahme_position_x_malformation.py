@@ -485,13 +485,41 @@ class TestGateMetaTest(unittest.TestCase):
         # verglichen — eine fremde editable-Installation mit abweichendem Code faellt weiterhin
         # auf, eine mit identischem Code ist per Definition harmlos. Fehlt die Baumquelle, gibt
         # es keinen zweiten Kandidaten; dann traegt die Vorlagenpruefung darunter den Fall.
-        im_baum = (Path(__file__).resolve().parents[1] / "src" / "proofbundle" / "relation.py")
+        # NACHGESCHAERFT nach einer un-Gegenlesung derselben Nacht (VERDIKT REJECT, fuenf Punkte;
+        # nachgemessen traf einer). Die erste Fassung dieses Riegels prueft die Bytes NUR, wenn die
+        # Baumquelle existiert — und schweigt sonst vollstaendig. Ich hatte behauptet, die
+        # Vorlagenpruefung darunter trage den Fall; das stimmt nicht: sie prueft, ob die MUTATION
+        # passt, nicht ob der Baum der richtige ist. Ein fremder Baum DESSELBEN Projekts erfuellt
+        # sie muehelos. Deshalb steht hier jetzt eine Pruefung, die IMMER etwas sagt.
+        self.assertTrue(
+            datei.suffix == ".py" and datei.is_file(),
+            f"das geladene Modul zeigt auf {datei} — keine lesbare .py-Quelle; ein Meta-Test, der "
+            "den Quelltext mutiert, braucht den Quelltext")
+        wurzel = Path(__file__).resolve().parents[1]
+        im_baum = wurzel / "src" / "proofbundle" / "relation.py"
         if im_baum.is_file():
+            # Der starke Fall: es gibt eine Baumquelle, also ist der Vergleich moeglich.
             self.assertEqual(
                 datei.read_bytes(), im_baum.read_bytes(),
                 f"dieser Meta-Test mutiert {datei}, und dessen Bytes weichen von {im_baum} ab. "
                 "Das Modul kommt aus einem fremden Baum (editable-Installation?) — die Messung "
                 "liefe ueber anderen Code als den unter Pruefung")
+        else:
+            # Der schwaechere, aber nie stumme Fall: keine Baumquelle zum Vergleichen. Dann muss das
+            # Modul wenigstens aus einer INSTALLATION DIESES Interpreters kommen oder aus dem Baum,
+            # in dem dieser Test liegt. Eine fremde editable-Installation liegt unter keinem von
+            # beiden — genau das ist der Aufbau, gegen den der Riegel gebaut wurde.
+            import sysconfig
+            erlaubt = [wurzel]
+            for schluessel in ("purelib", "platlib"):
+                ort = sysconfig.get_paths().get(schluessel)
+                if ort:
+                    erlaubt.append(Path(ort).resolve())
+            self.assertTrue(
+                any(w == datei or w in datei.parents for w in erlaubt),
+                f"keine Baumquelle zum Vergleichen, und {datei} liegt weder im Baum dieses Tests "
+                f"({wurzel}) noch in einer Installation dieses Interpreters ({erlaubt[1:]}) — "
+                "das ist ein fremder Baum")
         quelle = datei.read_text(encoding="utf-8")
         self.assertEqual(
             quelle.count(self._NEUER_ZWEIG), 1,

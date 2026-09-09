@@ -3164,3 +3164,59 @@ IMPORTIERTEN Moduls ab (`test_ablehnungstext_rendert_beschraenkt`, `test_int_mag
 Baumpfad** — die anderen fuenf leiten ab und vergleichen nicht. Ein Nachbar existiert nicht.
 
 Registerschluessel `RIEGEL-GEGEN-FREMDEN-BAUM-ALS-PFADGLEICHHEIT-STATT-INHALT-01`.
+
+## S53 — Die un-Gegenlesung sagte REJECT, einer ihrer fuenf Punkte traf, und er zeigte auf den Zweig, den ich selbst eingebaut hatte
+
+Der Fix aus S52 ging als Diff an die un-Gegenlesung. **Verdikt REJECT, fuenf Punkte.** Alle fuenf
+nachgemessen; **einer trifft, und er ist der wichtigste.**
+
+| Punkt | Nachgemessen | Urteil |
+|---|---|---|
+| 1 · „ein fremder Baum mit IDENTISCHEN Bytes wird nicht mehr erkannt" | der Meta-Test mutiert den QUELLTEXT und kompiliert ihn selbst; bei gleichen Bytes ist der mutierte Code derselbe | **kein Schaden** — das ist die Absicht, nicht der Fehler |
+| 2 · „`.pyc` statt `.py`" | `__file__` zeigt bei vorhandener Quelle auf die `.py`; ein `.pyc` haette die Vorlagenpruefung rot gemacht | **stimmt als Luecke**, jetzt ausdruecklich gepruefte Vorbedingung |
+| 3 · „`im_baum` fehlt → GAR KEINE Pruefung" | **trifft.** Ich hatte behauptet, die Vorlagenpruefung trage den Fall. Sie prueft, ob die MUTATION passt — nicht, ob der Baum der richtige ist. Ein fremder Baum DESSELBEN Projekts erfuellt sie muehelos | **TRIFFT** |
+| 4 · „Symlink im Baum auf den fremden Baum" | dann IST die Baumquelle diese Datei; gemessen wird der Code, auf den der Baum zeigt | **kein Schaden** |
+| 5 · Verdikt „REJECT, weil der Ort ignoriert wird" | der Ort war nie die Eigenschaft — aber wegen Punkt 3 blieb ein stummer Zweig | **im Ergebnis richtig, in der Begruendung nicht** |
+
+**Die Nachschaerfung.** Der Riegel sagt jetzt IMMER etwas:
+
+* Vorbedingung: die geladene Datei ist eine lesbare `.py` — sonst rot.
+* Baumquelle vorhanden → Byte-Vergleich (wie in S52).
+* Baumquelle FEHLT → das Modul muss aus einer **Installation dieses Interpreters**
+  (`sysconfig purelib/platlib`) oder aus dem Baum dieses Tests kommen. Eine fremde
+  editable-Installation liegt unter keinem von beiden — **genau der Aufbau, gegen den der Riegel
+  gebaut wurde**.
+
+**Fangnachweis, jetzt fuenf Faelle, jede Zeile vorher angesagt und getroffen:**
+
+```
+ANGESAGT: A meldet · B schweigt · C schweigt · D meldet · E schweigt
+  A fremder Baum, anderer Inhalt                        MELDET
+  B anderer Ort, byte-gleich (ausgeliefert)             SCHWEIGT
+  C im Baum (Kontrolle)                                 SCHWEIGT
+  D fremder Baum OHNE Baumquelle  (der un-Fund)         MELDET
+  E Installation DIESES Interpreters, ohne Baumquelle   SCHWEIGT
+```
+
+D und E gibt es erst wegen der Gegenlesung; **die erste Fassung schwieg in BEIDEN**. Testlauf:
+**21 passed, 132 subtests, RC=0**.
+
+**Ehrliche Randnotiz zur Messung selbst:** Fall E lief zuerst gegen eine `purelib`, in die der
+Prozess nicht schreiben darf (`PermissionError`) — das ist kein Ergebnis, sondern eine fehlende
+Messung, und es stand als solche da, bis der Lauf im schreibbaren venv wiederholt war.
+
+Registerschluessel `UN-GEGENLESUNG-FAND-DEN-STUMMEN-ZWEIG-MEINES-EIGENEN-FIXES-01`.
+
+## S54 — Der P0 L6-600-01 ist auf der entscheidenden Flaeche GRUEN
+
+`gh pr view 194` am Kandidaten `e2e5fed`: **`hermetic-cleanroom` → SUCCESS.** Die Kette, in Zahlen:
+
+| Kopf | Ergebnis des Jobs |
+|---|---|
+| `c08e4650` | `Interrupted: 1 error during collection`, exit 2 — **die Suite lief nicht** |
+| `b83d163` | laeuft durch: 3303 passed / 672 skipped / 975 subtests / 338 s, **2 failed** (mein Riegel aus S52) |
+| `e2e5fed` | **SUCCESS** |
+
+Damit ist die Zusicherung *„pip install \<sdist\> && pytest ist gruen"* an der Flaeche belegt, die
+sie meldete. Offen am selben Kopf bleibt `Audit candidate matrix (advisory)` — der bekannte
+**advisory** Stand aus S10, kein Merge-Blocker; `mutation (6)` lief zum Messzeitpunkt noch.
