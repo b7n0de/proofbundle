@@ -236,6 +236,17 @@ jobs:
         # repo root, and the leftover guard below reported them -- correctly: it fails on ANY
         # working tree change after the probe run, and it must not learn exceptions, or it stops
         # catching the live mutants it exists for. Three shards went red on exactly this.
+        #
+        # `shell: bash` IST HIER DER GANZE RIEGEL, und er ist nicht kosmetisch. GEMESSEN am
+        # abgeschlossenen Job `mutation (2)` des Laufs 34235429542 (Log-Zeile direkt unter diesem
+        # Schritt): `shell: /usr/bin/bash -e {0}` — der Standard traegt KEIN `pipefail`. Ohne ihn
+        # ist der Exit-Code der Pipeline der von `tee`, und der ist 0, solange das Schreiben
+        # klappt. Ein `mutation_check.py`, das eine LUECKE meldet (Exit 1), faerbte den Job
+        # trotzdem gruen — und der Sammel-Job unten prueft `needs.mutation.result`, also genau
+        # das Ergebnis, das hier maskiert wuerde. Das Tor, dessen ganzer Zweck das laute
+        # Fehlschlagen ist, koennte still bestehen. Mit `shell: bash` faehrt GitHub
+        # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
+        shell: bash
         run: |
           python scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
             | tee "$RUNNER_TEMP/mutation-shard.log"
@@ -252,7 +263,8 @@ jobs:
         run: |
           # `|| true` AUCH HIER, und der Grund ist der Nachbar (Gegenlesung 2026-09-07): der
           # Sammel-Job unten hatte genau diese ungeschuetzte Pipeline und stuerzte darueber ab.
-          # GitHub Actions faehrt `bash -eo pipefail`. Fehlt die Logdatei oder das Muster — der
+          # Dieser Schritt faehrt ohne `shell:`, also `bash -e` OHNE pipefail (gemessen, s.o.);
+          # `set -e` allein reicht aber schon. Fehlt die Logdatei oder das Muster — der
           # Shard ist vor seiner Schlusszeile gestorben —, liefert `grep` 1, der Schritt bricht VOR
           # dem `echo > file` ab, und die Datei entsteht nie. Der Sammel-Job meldet dann "fehlender
           # Shard" statt "Shard lief, aber sein Log traegt keine Schlusszeile": fail-closed bleibt,
