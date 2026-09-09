@@ -2747,3 +2747,55 @@ erneut faellig. **Die Regel, die daraus folgt:** wer den Soak als Beleg heranzie
 Ein Blick auf die Commit-Zahl genuegt nicht — 30 Commits klangen alarmierend und waren es nicht.
 
 Registerschluessel `SOAK-BINDET-ALTEN-KOPF-ABER-DIE-GESOAKTEN-FUNKTIONEN-SIND-GLEICH-01`.
+
+## S46 — Der CI-Stand am Fernkopf, selbst gemessen: zwei von sechs rot, und der rote ist der bekannte P0
+
+Ich habe den CI-Stand die ganze Runde aus dem Gedaechtnis zitiert („22 von 25 Jobs gruen"). Jetzt
+selbst abgefragt — **und die erste Abfrage log**.
+
+**Die Abfrage ueber den ZWEIGNAMEN liefert nichts:**
+
+```
+gh run list --branch release/600-push-linie   ->  []
+```
+
+**Die Abfrage ueber den SHA liefert sechs Laeufe:**
+
+```
+40 Laeufe abgerufen · davon am Fernkopf c08e4650: 6
+Zweige in der Liste: fix/deepgate600/integration-600 (38) · main (2)
+```
+
+**GitHub schreibt die Laeufe dem ANDEREN Zweignamen zu.** Beide Zweige zeigen auf denselben SHA
+(im Register mehrfach notiert), und der Dienst haengt seine Laeufe an den Namen, unter dem gepusht
+wurde. Wer nach `release/600-push-linie` fragt, bekommt eine leere Liste und koennte daraus „keine
+CI" lesen. **Das ist woertlich die Klasse „ein leeres Ergebnis aus dem falschen Schluessel ist kein
+leerer Bestand"** — sie steht seit gestern im Gedaechtnis dieser Bahn, und genau deshalb hat sie
+diesmal nur eine Abfrage gekostet statt eines Fehlschlusses im Bericht.
+
+**Der gemessene Stand am Fernkopf `c08e4650`:**
+
+| Lauf | Ergebnis |
+|---|---|
+| `published-artifact-gate` | **failure** |
+| `CI` | **failure** |
+| `demo-reproducible` | success |
+| `fork-pr-isolation` | success |
+| `release-integrity` | success |
+| `CodeQL` | success |
+
+**Beide roten sind erklaert und keiner ist neu.** `published-artifact-gate` scheitert am P0
+`L6-600-01` — die Suite aus dem AUSGELIEFERTEN sdist bricht mit `Interrupted: 1 error during
+collection` ab. Dieser Fix liegt seit dieser Runde im Arbeitsbaum und ist **nicht uebertragen**,
+also muss der Fernkopf ihn rot zeigen. `CI` traegt die Mutations-Jobs, deren Rot im Register bereits
+als Runner-Abbruch (exit 143) und nicht als Defekt eingeordnet ist.
+
+**Ehrliche Grenze:** das sind WORKFLOW-Laeufe, nicht die einzelnen Jobs darin. Die frueher zitierte
+Job-Zahl („22 von 25") ist eine andere Granularitaet und stammt nicht aus dieser Messung; ich fuehre
+sie hier nicht als bestaetigt. Was gemessen ist: sechs Laeufe am Fernkopf, zwei rot, beide mit
+bekannter Ursache.
+
+**Fuer den Tag heisst das:** der Fernkopf zeigt rot, solange der P0-Fix nicht uebertragen ist — das
+ist erwartet und kein neuer Befund. Wer die Kette beurteilt, vergleicht den CI-Stand des DANN
+gepushten Kopfes, nicht den von `c08e4650`. Registerschluessel
+`CI-LAEUFE-HAENGEN-AM-ANDEREN-ZWEIGNAMEN-DESSELBEN-SHA-01`.
