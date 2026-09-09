@@ -3976,3 +3976,45 @@ Interpreterversion, andere Extras, andere Skip-Menge. **Der Bruch ist von all de
 * Die Maschine trug waehrend des Laufs **fuenf parallele pytest-/coverage-Laeufe aus drei Konten**
   (`b7_messfeld.py`). Fuer die Frage „bricht der Report" ist das ohne Belang; die **28:58 min** sind
   unter dieser Last gemessen und taugen nicht als Laufzeit-Referenz.
+
+### S61, zweiter Nachtrag — der vorbereitete Test war beim ersten Lauf selbst kaputt, und er hat einen Nachbarn gefunden, den mein `grep` uebersah
+
+Fuer den Ledger-Einwand aus S64 habe ich die verlangte Testdatei geschrieben: ein AST-Test ueber alle
+`compile()`-Aufrufe in `tests/` plus drei Meta-Tests. Ich nannte sie **fertig**, ohne sie ausgefuehrt
+zu haben. Ein Riegel hat das beanstandet. **Er hatte recht, und der erste Lauf war rot.**
+
+**Der Defekt in meiner eigenen Vorbereitung:** `compile_aufrufe()` rief hart
+`p.relative_to(REPO)` — das wirft, sobald die Funktion mit einem Ordner **ausserhalb** des Repos
+laeuft, und genau das tun die Meta-Tests mit ihrem `tmpdir`. Gemessen: `ValueError`, bevor eine
+einzige Zeile geprueft war. **Ein Sammler, der nur an einer Stelle laeuft, kann seine eigene Klasse
+nicht einpflanzen** — der Meta-Test waere nie gelaufen, und die Datei haette „gruen" ausgesehen,
+wenn ich sie nur an ihrem Zielort geprueft haette.
+
+Nach dem Fix (relativ wenn moeglich, sonst absolut):
+
+```
+Eigenschaft ueber den echten Testbestand:
+  1 bestimmbarer compile()-Dateiname:  OK  test_stille_ruecknahme_…:547 -> '<mutiert: >'
+  2 UNBESTIMMBARE Stellen:  test_gate_population_and_nested_leaf.py:95
+                            test_sdist_selftest_optional_deps.py:56
+Meta-Tests: run=3 failures=0 errors=0   (eingepflanzter Pfadname GEFANGEN,
+            beide Gegenrichtungen schweigen)
+```
+
+**Und damit ist S61 an einer Stelle zu korrigieren.** Dort steht, der Nachbar-Sweep habe **genau
+einen** weiteren `compile()` mit Dateinamen gefunden. **Es sind zwei.** Mein `grep -rn 'compile('`
+sah `test_gate_population_and_nested_leaf.py:95` nicht — dort steht der Aufruf in einer
+`__enter__`-Methode, mehrere Ebenen eingerueckt, und mein Blick blieb an der Trefferliste haengen.
+**Der AST hat ihn sofort.** Genau dafuer ist er da, und genau das ist der Grund, warum die Datei ein
+Test werden soll und kein Suchbefehl bleibt.
+
+**Beide Stellen sind harmlos, gemessen und nicht vermutet:** beide uebergeben `str(<variable>)` auf
+eine Datei, die kurz vorher wirklich geschrieben wurde (`Path(tmp)/"planted.py"` bzw. `ZIEL`). Zur
+Laufzeit existiert der Pfad, `coverage` findet dort eine Quelle. Statisch sind sie **unbestimmbar**,
+und der Test sagt das ausdruecklich, statt sie stillschweigend zu bestehen — eine Abwesenheit von
+Erkenntnis ist kein Bestehen.
+
+**Folge fuer die Landung nach dem Tag:** die beiden Stellen muessen VOR dem Aktivieren des zweiten
+Tests (`…unbestimmbare_stellen_werden_GENANNT…`) entweder auf eine bestimmbare Form gebracht oder
+ausdruecklich als geprueft eingetragen werden. Sonst landet ein Test, der beim ersten Lauf rot ist —
+und das waere derselbe Fehler eine Ebene hoeher.
