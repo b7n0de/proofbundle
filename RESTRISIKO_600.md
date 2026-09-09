@@ -4119,3 +4119,59 @@ Ausfuehren sichtbar, **jeder** vorher fuer richtig gehalten.
 Installationen geprueft — F4 deckt nur die Form „keine Baumquelle". Der zipimport-Zweig ist im Code
 vorhanden (`loader.get_source()`), aber **ungetestet**. Beides gehoert in denselben Zug wie die
 Landung. Registerschluessel `NEUER-BAUM-RIEGEL-GEBAUT-FUENF-VON-FUENF-ZWEI-FAELLE-UNGEPRUEFT-01`.
+
+### S66, Nachtrag — die zwei offenen Faelle sind gemessen, und dazwischen lagen ein LOCH und ein UEBERFANGEN
+
+S66 nannte zwei Faelle ungeprueft: `pip install --target` und zipimport. Beide sind jetzt mit
+echten Aufbauten gefahren — und der Weg dorthin hat zwei weitere Fehler in meinem eigenen Riegel
+freigelegt.
+
+**Erst das LOCH, und ich habe es beim LESEN des eigenen Codes vermutet, nicht von einer Linse
+erfahren.** Der Rueckfallzweig hashte die Dateiliste der installierten Distribution
+(`record_digest`). Das belegt: *„eine Distribution dieses Namens ist installiert"* — und sonst
+nichts. Gemessen mit einem eigens gebauten Gegenfall:
+
+```
+geladenes Modul: /tmp/…/fremd/src/proofbundle/relation.py   (ANDERER Inhalt)
+Testbaum ohne src/
+URTEIL: ok   "das Modul gehoert zur installierten Distribution (RECORD 9e3e8846c446)"
+```
+
+**Ein fremder Baum kam als `ok` durch**, weil irgendwo ein gleichnamiges Paket lag. Die RECORD
+belegt die **Installation**, nicht die **Herkunft** — fuenfte Instanz derselben Klasse in diesem
+einen Werkzeug.
+
+**Dann das UEBERFANGEN.** Der Fix fragte, ob die geladene Datei wirklich in der Dateiliste der
+Distribution steht — und meldete daraufhin **beide legitimen Aufstellungen**:
+
+```
+F3  zipimport            -> MELDET     (legitim: das Paket liegt in einem ZIP)
+F4b pip install --target -> MELDET     (legitim: --target registriert keine Distribution)
+```
+
+Ein Loch gegen zwei Falschmeldungen getauscht — genau der Fehlermodus, vor dem eine fruehere Linse
+gewarnt hatte.
+
+**Die richtige Antwort ist die dritte, die der Riegel ohnehin fuehrt: `SCHWACH`.** `--target`,
+zipimport und ein fremder Baum sehen von dort aus **gleich** aus; die Herkunft ist in dieser
+Aufstellung nicht entscheidbar, und das sagt er jetzt. **`MELDET` bleibt dem Fall vorbehalten, in
+dem wirklich verglichen wurde und der Vergleich scheiterte.** Das Loch ist damit nicht wieder offen:
+`ok` gibt es in diesem Zweig nur bei nachgewiesener Zugehoerigkeit, alles andere ist ausdruecklich
+kein Bestehen.
+
+**Schlussstand, drei Proben:**
+
+```
+fuenf Grundfaelle          5/5   C ok · F1 F2 F5 MELDET · F4 SCHWACH
+zwei Falschmeldungsfaelle  2/2   F3 zipimport und F4b --target: KEIN MELDET
+das Loch                   SCHWACH statt ok — ehrlich statt falsch beruhigend
+```
+
+**Ehrliche Restgrenze:** der `loader.get_source()`-Zweig fuer zipimport ist weiterhin **ungetestet**
+— gemessen endet `__file__` auch im ZIP auf `.py`, der Zweig wird also gar nicht erreicht. Er steht
+im Code als Vorsorge fuer Lader, die das anders halten, und das ist eine Annahme, keine Messung.
+
+**Die Bilanz dieses einen Riegels: SECHS Anlaeufe, sechs Fehler, alle derselben Klasse** — und die
+letzten beiden sind das lehrreichste Paar, weil sie in entgegengesetzte Richtungen falsch waren.
+Zwischen „zu lasch" und „zu streng" liegt nicht die richtige Schaerfe, sondern die ehrliche dritte
+Antwort. Registerschluessel `LOCH-UND-UEBERFANGEN-IN-EINEM-ZUG-DIE-DRITTE-ANTWORT-IST-NICHT-MESSBAR-01`.
