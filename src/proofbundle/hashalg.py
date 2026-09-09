@@ -189,6 +189,19 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     # Art, die der Waechter dazubekommt, ebenfalls. Eine Aufzaehlung neben einer Hierarchie ist eine
     # zweite Quelle und wandert nicht mit.
     #
+    # FAENGT DIESE OBERKLASSE ZU VIEL? Die Gegenlesung liess das als NICHT PRUEFBAR offen, weil ihr
+    # `_strict_json.py` nicht vorlag — zu Recht, denn eine Ausnahme, die NICHTS mit dem Budget zu
+    # tun hat, waere hier als "digests exceed the structural budget" gemeldet und haette ihre
+    # eigentliche Ursache verdeckt. NACHGEMESSEN per AST ueber
+    # `_strict_json._enforce_structural_budget` (09.09.2026): 28 Aufrufe, davon 0 unbenennbare;
+    # genau ZWEI Wurf-Arten (BudgetExceeded an 5 Stellen, BundleFormatError an 2), und alles sonst
+    # Aufgerufene ist ein Builtin (append, bit_length, isinstance, items, len, pop, type). Der Fang
+    # kann hier also keine fremde Ursache tarnen.
+    #
+    # Die Zahl der UNBENENNBAREN Aufrufe steht mit im Ergebnis, weil die erste Messung sie
+    # stillschweigend wegfilterte: "es gab keine" und "ich habe keine gesehen" sind verschiedene
+    # Aussagen, und nur die erste traegt.
+    #
     # OHNE DIE GROESSEN-ACHSE `int_bits` (Vollsuite 09.09.2026, zwei rote Faelle in
     # tests/test_ablehnungstext_rendert_beschraenkt.py). Diese Flaeche hat die Magnitude-Klasse
     # BEREITS geloest, und zwar besser: `render_safe` BESCHREIBT einen riesigen Schluessel

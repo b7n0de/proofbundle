@@ -1,0 +1,30 @@
+{
+ "schema": "proofbundle.ruecknahme_belegte_knoten.v1",
+ "zweck": "Jeder Fangnachweis-Knoten mit seinem GEMESSENEN Verhalten gegen den Kopf OHNE die Fixes. 'rot' heisst: dieser Knoten faellt ohne den Fix und beweist damit etwas. 'gruen' heisst: er ist eine Gegenrichtung oder ein Massstab und MUSS auch ohne den Fix durchkommen.",
+ "gemessen_gegen": "434e3a3411d4ced5b2695ecadda5b2ba1ac5a727",
+ "gemessen_utc": "2026-09-09T11:56:00Z",
+ "angesagt_rot": 10,
+ "gemessen_rot": 10,
+ "knoten": {
+  "tests/test_lauf8_klassenfixes_600.py::SchluesselLaufenDurchDieselbeSchranke::test_ein_zu_langer_bytes_schluessel_faellt_wie_ein_zu_langer_wert": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::SchluesselLaufenDurchDieselbeSchranke::test_ein_container_schluessel_wird_gezaehlt_und_betreten": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::SchluesselLaufenDurchDieselbeSchranke::test_der_massstab_haelt": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::SchluesselLaufenDurchDieselbeSchranke::test_GEGENRICHTUNG_gewoehnliche_schluessel_kommen_durch": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::DieGrenzeMisstBytesNichtZeichen::test_gleiche_zeichenzahl_verschiedene_bytezahl_entscheidet_verschieden": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::DieGrenzeMisstBytesNichtZeichen::test_GEGENRICHTUNG_kleine_dokumente_mit_umlauten_und_emoji_kommen_durch": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_eine_liste_als_praedikat_ist_ein_formfehler": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_eine_zeichenkette_als_praedikat_ist_ein_formfehler": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_null_und_fehlend_bleiben_unberuehrt": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_eine_fremde_attestation_wird_nicht_beurteilt": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_ein_objekt_als_praedikat_wird_gelesen": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_ein_unlesbarer_payload_meldet_sich": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_er_maskiert_keine_echte_ruecknahme": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_GEGENRICHTUNG_eine_gebrochene_signatur_bleibt_uebersprungen": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_GEGENRICHTUNG_ein_gewoehnlicher_stiller_nachbar_bleibt_still": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_ueberzaehliges_padding_faellt": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_kanonische_form_kommt_durch": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_dokumentierte_pad_bit_duldung_bleibt": "gruen"
+ },
+ "gemessen_rot_in_dieser_datei": 8,
+ "hinweis_zur_gesamtzahl": "angesagt_rot/gemessen_rot 10 gelten fuer den GESAMTEN Nachweisbestand aus drei Dateien; in DIESER Datei sind es 8, die zwei anderen liegen in test_c2sp_freiheitsachse_ergaenzung.py und test_wire_bytes_strict.py."
+}
