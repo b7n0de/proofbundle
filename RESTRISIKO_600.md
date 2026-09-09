@@ -3259,3 +3259,92 @@ zusaetzlich einen signierten, ehrlich als **PARTIAL** ausgewiesenen Beleg — ke
 gehoert es beschriftet.
 
 Registerschluessel `ZEUGE-AUF-DIESES-REPO-RICHTBAR-VERDIKT-PARTIAL-AUS-WAND-3-01`.
+
+## S56 — Das advisory Tor am Kandidaten selbst gefahren: 28 PASS, 1 EXTERNAL, 4 FAIL — und die vier sind die bekannten vier
+
+`Audit candidate matrix (advisory)` ist der einzige rote eigene Check am Kandidaten `e2e5fed`. GitHub
+gibt die Job-Logs erst nach dem GESAMTLAUF frei (`gh run view --log` lieferte null Zeilen, `status:
+in_progress`), also **den Befehl des Tors im Wortlaut selbst gefahren** — `ci.yml:135`:
+
+```
+PYTHONPATH=src python scripts/audit_candidate_matrix.py
+-> 33 checks · PASS 28 · PENDING 0 · DATA_BLOCKED 0 · EXTERNAL 1 · NICHT ANWENDBAR 0 · FAIL 4   RC=1
+```
+
+**Die vier FAIL sind woertlich die vier aus der Owner-Karte `OA-f680f7cc3f`, kein neuer Defekt:**
+
+| Check | Grund, woertlich |
+|---|---|
+| C6.2 · C6.3 | `audit_artifacts/360/fuzz_soak_latest.json`: *„carries no version field, so it cannot be shown to be about '6.0.0'"* |
+| C8.2 | `audit_artifacts/360/rust_differential_matrix.json`: dasselbe |
+| C12.1 | *„no valid pre-tag audit RECEIPT binds tree `ffcac08746cd` + version 6.0.0"* — das eine Kandidaten-Receipt bindet `877cd4f9…`, einen anderen Baum |
+
+Und der eine EXTERNAL ist ausdruecklich so gewollt: *„the independent external human crypto/protocol
+audit — the SINGLE deliberately open gate to stable; no internal instrument can substitute for it"*.
+
+**Drei Dinge, die diese Messung klaert:**
+
+1. **Der rote advisory Check ist kein Hindernis, das ich uebersehen habe** — er ist die Anzeige
+   genau der Arbeit, die die Owner-Karte beschreibt. `continue-on-error: true` in `ci.yml:123` sagt
+   es auch: DATA_BLOCKED ist in CI der erwartete Ausgang, die Pflichten haengen je an einem eigenen
+   blockierenden Tor.
+2. **Der Mangel ist ein FEHLENDES FELD, nicht eine fehlende Signatur.** Die drei Artefakt-Meldungen
+   sagen „carries no version field" — das ist der EMIT-Schritt. Damit haengt die Kette genau da, wo
+   S47 sie verortet hat, und nicht erst bei der Owner-Signatur.
+3. **C12.1 nennt den Baum beim Namen:** `ffcac08746cd` ist der Kandidatenbaum, `877cd4f9…` der, den
+   die vorhandene Quittung bindet. Das ist S43, jetzt mit der Zahl des aktuellen Kopfes.
+
+**Und die Disziplin dahinter, weil sie in dieser Runde schon einmal gefehlt hat:** ich habe nicht auf
+das CI-Log gewartet, sondern die eigene Kontrolle durch die des Tores ersetzt. Der Befehl steht
+oben, damit die Zahlen nachfahrbar sind. Registerschluessel
+`ADVISORY-TOR-LOKAL-GEFAHREN-VIER-FAIL-SIND-DIE-BEKANNTEN-VIER-01`.
+
+## Kopf-Zeitleiste — welcher Commit war der Kandidat, als eine Zahl gemessen wurde
+
+**Warum diese Tabelle hier steht.** Das Register nennt Kopf-Kuerzel in fast jedem Abschnitt, und der
+Kandidat ist in dieser Runde mehrfach weitergewandert. Eine Zahl gehoert zu dem Baum, in dem sie
+gemessen wurde — wer S38 liest und den heutigen Kopf annimmt, liest falsch. Erzeugt aus dem Register
+selbst (jedes 7-8-stellige Kuerzel gegen `git cat-file -t` geprueft, nur echte Commits stehen hier).
+
+| gemessen am | Kuerzel | voll (12) | im Register | Vorfahre von HEAD | Betreff |
+|---|---|---|---|---|---|
+| 2026-09-05 02:54 | `bc95dd6` | `bc95dd65aad1` | 2x | ja | fix(agent-review): drei Linsen auf PR 185 — Zeitkonflikt fatal,  |
+| 2026-09-05 03:37 | `72c21e7` | `72c21e7711cf` | 1x | ja | fix(readme): der CHANGELOG-Link im Abschnitt "New in 6.0.0" ist  |
+| 2026-09-05 04:05 | `5657a98` | `5657a98bb423` | 1x | ja | fix(readiness): 6.0.0-Slot gefuellt — die Matrix urteilt ueber d |
+| 2026-09-05 04:37 | `658ed063` | `658ed0635e09` | 9x | ja | Merge pull request #186 from b7n0de/chore/version-6.0.0 |
+| 2026-09-05 08:28 | `049b3195` | `049b3195def2` | 1x | ja | Merge pull request #187 from b7n0de/docs/restrisiko-scope-600 |
+| 2026-09-05 16:51 | `917edc69` | `917edc695b28` | 4x | ja | Merge pull request #193 from b7n0de/fix/deepgate-600-relation |
+| 2026-09-06 14:57 | `59d0679` | `59d06795c26a` | 1x | ja | docs(600): die Release-Notiz nennt das Verdikt, die drei Funde u |
+| 2026-09-06 16:20 | `7eba21e` | `7eba21e84e15` | 2x | ja | fix(600): not_after wirkt jetzt auch auf dem Registerpfad, und d |
+| 2026-09-06 17:04 | `3385d80` | `3385d8014f1a` | 1x | ja | fix(gate): eine Frist gegen einen selbstbehaupteten Zeitpunkt is |
+| 2026-09-06 17:30 | `2ba939b` | `2ba939bef3e0` | 1x | ja | fix(gate): die Frist war ein ZEICHENvergleich — zwei Linsen habe |
+| 2026-09-06 17:52 | `a382eae` | `a382eae24486` | 2x | ja | docs(600): die Ausschnittszahl bekommt ihren Messstand, und der  |
+| 2026-09-06 22:58 | `9e742bfa` | `9e742bfa989e` | 6x | ja | evidence(600): die vom Owner signierte Pre-Tag-Quittung fuer bf1 |
+| 2026-09-07 11:00 | `0aca175` | `0aca17516439` | 3x | ja | fix(byte-freeze): das wheel wird im BAUWEG kanonisiert — Bedingu |
+| 2026-09-07 11:00 | `437dd32` | `437dd32c2b4b` | 2x | ja | docs(600): die Identitaetsmessung nach N11 wird aufgezeichnet —  |
+| 2026-09-07 11:00 | `c52884d` | `c52884d8770d` | 5x | ja | fix(codeql-113): die Fehlerklasse kommt aus Exit-Codes, nicht au |
+| 2026-09-07 11:05 | `f67f289` | `f67f2897e0a6` | 4x | **NEIN** | fix(mutationstor): ein abgebrochener Lauf ist NICHT null rote Te |
+| 2026-09-07 11:28 | `eb09cce` | `eb09cce82ead` | 4x | **NEIN** | fix(byte-freeze): der xfail faellt, weil er angeschlagen hat — u |
+| 2026-09-07 11:34 | `c335b26` | `c335b26fa91d` | 2x | ja | fix(byte-freeze): der xfail faellt, weil er angeschlagen hat — u |
+| 2026-09-07 12:15 | `b9d35d4` | `b9d35d492db8` | 1x | ja | fix(gate): die Gate-Zeile traegt ihr Urteil, und der Pre-Tag-Ank |
+| 2026-09-08 00:26 | `d3ca21f` | `d3ca21f4f1b4` | 1x | ja | freeze(600): der zweite Einfrier-Kopf — und ein Riegel-Sweep, de |
+| 2026-09-08 04:34 | `88a5383` | `88a538315056` | 1x | ja | freeze(600): der dritte Einfrier-Kopf — die Latte misst jetzt di |
+| 2026-09-08 15:37 | `3962c771` | `3962c771a912` | 3x | ja | test(packaging): die Ausschlussmenge wird mit der Auslieferungsl |
+| 2026-09-08 15:59 | `c08e4650` | `c08e4650eca1` | 12x | ja | fix(packaging): die include-Zeile ist ZURUECKGEKEHRT — zwei Verz |
+| 2026-09-08 22:58 | `0159bc7` | `0159bc7bacba` | 2x | ja | fix(relation): eine unlesbare Relation eines angehaengten Nachba |
+| 2026-09-08 22:58 | `ad906a9` | `ad906a9f6c08` | 9x | ja | docs(600): N21 ins signierte Register, Restrisiko S25-S31, und e |
+| 2026-09-08 23:58 | `b28b938` | `b28b9382f5ac` | 3x | ja | test(relation): fuenf Weisen zu schweigen, und nur zwei davon sc |
+| 2026-09-09 00:25 | `21669b6` | `21669b61ac63` | 5x | ja | evidence(600): das dritte Bereitschaftsartefakt am finalen Kopf  |
+| 2026-09-09 00:58 | `ce0bad5` | `ce0bad546bea` | 4x | ja | docs(600): S33 — ein Vollstaendigkeits-Check, der sich mit sich  |
+| 2026-09-09 03:07 | `a5613d3` | `a5613d3d721d` | 2x | ja | belege(600): S38 — die Owner-Karte bindet einen Kopf, der 15 Com |
+| 2026-09-09 04:36 | `9d506be` | `9d506bebf39b` | 1x | ja | belege(600): S48 — meine vier Claude-Linsen waren adversarial un |
+| 2026-09-09 04:58 | `0add122` | `0add12225753` | 2x | ja | belege(600): S49 — meine eigene Korrektur war falsch, ich hatte  |
+| 2026-09-09 05:12 | `b83d163` | `b83d163694b6` | 4x | ja | belege(600): S50 — die drei lokalen Zweige sind ueberholt, und d |
+| 2026-09-09 05:25 | `e2e5fed` | `e2e5fedfc479` | 3x | ja | fix(metatest): der Riegel gegen den fremden Baum prueft den INHA |
+
+**Nicht aufgeloeste Kuerzel** (im Register genannt, aber kein Commit dieses Repos): `08654dbe`, `10000000`, `168d1e4c`, `20000000`, `2640683`, `40000000`, `44f7d50c`, `5000000`, `58759ce9`, `6c5be10e`, `76ab5311`, `877cd4f9`, `a2421d08`, `a2b98e33`, `acd65a65`, `b900ce74`, `be66743a`, `c4490ac4`, `e24dc75c`, `f3a44619`, `fa6a019b`.
+
+Ein Kuerzel mit **NEIN** in der Vorfahren-Spalte bezeichnet einen Stand, den die Release-Linie NICHT
+enthaelt — etwa einen lokalen Zweig oder einen ueberholten Versuch. Zahlen von dort gelten fuer den
+Kandidaten nur, wenn der Abschnitt es ausdruecklich sagt.
+
