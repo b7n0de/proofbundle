@@ -2430,7 +2430,9 @@ zitiert ist und die jeder nachfahren kann.
 ## S40 — Der Familien-Floor ist fuer S37-S39 NICHT erfuellt, und das gehoert an die Abschnitte selbst
 
 S35 und S36 wurden von drei Linsen aus zwei Familien gegengelesen (`71be4f2e5`). **S37, S38 und S39
-haben diesen Stand nicht**, und der Grund ist gemessen, nicht organisatorisch.
+haben inzwischen EINE Linse — aus EINER Familie** (Claude, abgelegt und committet als `302f6135a`;
+ihr Verdikt und seine Folgen stehen in S42). Der Familien-Floor bleibt damit gerissen, und der Grund
+ist gemessen, nicht organisatorisch.
 
 **Der fremdfamiliaere Weg liefert in diesem Fenster nicht.** Zwei Laeufe gegen denselben Host, der
 sich als warm meldete und laut `/api/ps` `qwen3.8:27b` geladen hatte:
