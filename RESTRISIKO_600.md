@@ -2384,3 +2384,35 @@ Code-Flaeche zwischen dem gemessenen Stand und HEAD nachweislich unveraendert is
 dann geltenden Kopf binden, seine beiden Digests frisch messen (jeder weitere Registereintrag
 bewegt sie) und die Distributions-Digests an ihm neu bauen — `SOURCE_DATE_EPOCH` haengt an der
 Commit-Zeit. Registerschluessel `OWNER-KARTE-BINDET-EINEN-UEBERHOLTEN-KOPF-01`.
+
+## S39 — Die Distributionen am jetzigen Kopf, beide Haelften des Byte-Freeze gruen
+
+S38 sagt, wer signiert, muesse die Distributions-Digests am dann geltenden Kopf neu bauen. Fuer den
+jetzigen Kopf ist das erledigt, damit dieser Schritt nicht mehr im Signierpfad haengt.
+
+**Gebaut ueber `a5613d3d721d7fcbb81b864ed72b542b227541e2` (dirty 0), `SOURCE_DATE_EPOCH = 1788916069`
+(die Commit-Zeit dieses Kopfes):**
+
+| Artefakt | Groesse | sha256 |
+|---|---|---|
+| `proofbundle-6.0.0.tar.gz` | 2 162 252 B | `b900ce74c4271af9dd120ebc2ee7b4d6f9aa0836d517ebdca320a5dacc8a359f` |
+| `proofbundle-6.0.0-py3-none-any.whl` | 542 451 B | `a2b98e337aac78ff7adeb0c8e17768efc255753035434627619ffda1f218b6e9` |
+
+**Beide Haelften des Byte-Freeze, getrennt gefahren und beide gruen:**
+
+* `--check` (Fundament F2): zweimal gebaut, `sha256_a == sha256_b == b900ce74…`, `reproducible: true`.
+* `--check-wheel`: das wheel AUS DEM AUSGELIEFERTEN sdist ist byte-identisch mit dem direkt aus dem
+  Baum gebauten — `sha256_direct == sha256_from_sdist == a2b98e33…`, `identical: true`.
+
+Die zweite Haelfte ist die, die man vergisst: ein reproduzierbarer sdist sagt nichts darueber, ob das
+wheel, das ein Nutzer aus ihm baut, dasselbe ist wie das, das wir veroeffentlichen. Sie war nach dem
+ersten Lauf offen und ist jetzt gemessen.
+
+**Ehrliche Grenzen, drei.** (1) Gebaut auf DIESER Maschine mit DIESEM Interpreter — Reproduzierbarkeit
+ueber Hosts hinweg ist damit nicht gezeigt, nur ueber zwei Laeufe hier. (2) Die Zahlen gelten fuer
+`a5613d3`; **jeder weitere Registereintrag aendert die Commit-Zeit und damit den Epoch, und mit ihm
+beide Digests** — sie sind ein Angebot fuer den Fall, dass hier eingefroren wird, kein Dauerwert.
+(3) Die Maschinenlage wurde fuer diesen Lauf nicht mitprotokolliert (`b7_messfeld.py` ist ein
+Werkzeug des Verwaltungsrepos und liegt in diesem Baum nicht). Fuer eine Digest-Messung ist das
+folgenlos — ein Digest ist deterministisch, Last aendert nur die Dauer —, aber es gehoert benannt
+statt weggelassen.
