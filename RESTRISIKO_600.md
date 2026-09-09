@@ -2176,3 +2176,139 @@ durchgesetzt hat — hier fehlt die vierte Unterscheidung.
 
 **Nicht meine Bahn:** beides liegt im Verwaltungsrepo. Aufgeschrieben, damit es nicht verloren geht,
 und weitergegeben statt gefixt. Registerschluessel `PRESWEEP-ZEITLIMIT-HEISST-UMGEBUNG-FEHLT-01`.
+
+## S37 — Die Korrektur in EINEM Zug: die drei Waende sind eine UND-Kette, und ich habe den dritten Weg nie angeboten
+
+Dies ist bewusst KEIN vierter Nachtrag. Eine Gegenlesung hat genau das beanstandet: in S34/S35
+stehen vier Korrekturrunden hintereinander, und eine so dichte Folge Behauptung → Widerlegung →
+naechste Behauptung senkt das Vertrauen in die jeweils STEHENDE Aussage, statt Reife zu belegen.
+Der Einwand trifft. Also einmal richtig, statt ein fuenftes Mal knapp daneben.
+
+**Was aus S35 unveraendert stehen bleibt: die MESSUNGEN.** Eine unabhaengige Gegenlesung hat sie
+Zahl fuer Zahl selbst nachgefahren und bestaetigt: 412 Belege, 145 FULL, 0 mit `notes` als Objekt,
+410 mit `digest`, **0 mit nicht-leerem `head`**, genau 1 mit einem `verdict` (und der ist eine
+Fund-Aufzeichnung mit `not_a_withstands_receipt: true`, kein Abschluss-Beleg), 145 von 145 FULL mit
+mindestens drei Linsen, die Feldnamen-Tabelle exakt, `find_spec("audit_candidate_matrix") is None`.
+
+**Was falsch war, ist die STRUKTUR der Schlussfolgerung.**
+
+### Die drei Waende sind kein Menue, sondern eine UND-Kette
+
+S35 schrieb „Die drei Waende, getrennt und einzeln bepreist" — das liest sich wie drei Baustellen,
+von denen man eine anfassen kann. Der eigene Text widerlegt es zwei Absaetze weiter: *„Selbst nach
+Wand 1 traegt eine gestempelte Zeile `verdict: None`."*
+
+Richtig ist:
+
+* **Wand 1 allein zu schliessen aendert am Ergebnis NICHTS** — die Zeile traegt danach die richtigen
+  Feldnamen und immer noch kein Verdikt.
+* **Wand 1 und 2 zusammen aendern am Ergebnis NICHTS**, solange der Gegenstand ein
+  proofbundle-Commit ist: der Beleg bleibt strukturell `PARTIAL` (drei Komponenten `env_blocked`,
+  0 Linsen gegen Boden 3).
+* Erst **alle drei** oeffnen die Tuer. Es sind drei notwendige Bedingungen fuer DIESELBE Tuer, nicht
+  drei Tueren.
+
+„Einzeln bepreist" war die bequeme Lesart. „Gemeinsam scharf" ist die richtige, und sie aendert die
+Entscheidungslage: eine einzelne Ja-Antwort kauft nichts.
+
+### Und damit der Punkt, den ich dem Owner schuldig geblieben bin: was passiert bei NEIN?
+
+Die zwei Zeilen in S35 nannten nur die Folge von JA. Vollstaendig:
+
+| Weg | Was zu tun ist | Folge |
+|---|---|---|
+| **A — alle drei Waende** | Namen angleichen (andere Bahn) · Abbildung `strength: FULL` → `WITHSTANDS_DEEPGATE` festlegen · die Pruefmechanik aus einem anderen Baum lesen lassen als dem beurteilten | die Bereitschaftsartefakte werden signierbar. Preis: Wand 3 gibt genau die Eigenschaft auf, die den Beleg heute faelschungsfest macht |
+| **B — den Pruefer aendern** | `_GATE_VERDICTS_PASS` um ein Verdikt erweitern, das ein ehrliches PARTIAL traegt | schneller, aber **widerruft eine per Test gebundene Festlegung**: `tests/test_freigabe_evidenz_provenienz_l5_g7_02.py` bindet `WITHSTANDS_DEEPGATE_PARTIALLY` ausdruecklich als ABLEHNUNG. Und es ist eine Aenderung an der Zulassung JEDER freigabeentscheidenden Pruefung |
+| **C — gar nichts** | die vier Bereitschaftsartefakte bleiben UNSIGNIERT; ihre Messungen liegen vor und reisen als benanntes Restrisiko mit | **kostet nichts und haelt den Tag nicht auf.** Der Owner hat fuer C6.3 (24h-Soak) bereits genau so entschieden: „bleibt benanntes Restrisiko und haelt den Tag nicht" |
+
+**Weg C habe ich in keinem der bisherigen Blaetter angeboten, und das war die eigentliche
+Auslassung.** Er ist der einzige Weg, der ohne Bau, ohne Widerruf und ohne Eigenschaftsverlust
+auskommt — und der Owner hat das Muster fuer ihn schon einmal selbst gewaehlt. Ob er fuer alle vier
+Artefakte taugt, entscheidet er; meine Aufgabe war, ihn ueberhaupt zu nennen.
+
+### Vier weitere Einwaende, angenommen
+
+**Die vier Dateien mit einer Gate-Zeile sind NICHT byte-gleich.** Gegengemessen: nur die drei
+Worktree-Kopien sind identisch; die Kopie im Hauptbaum traegt ein Feld mehr
+(`presweep_kanonisch_pin_art`, am 08.09. nachgetragen) und hat damit **21 Felder, die anderen drei
+20**. Mein „ihre Zeile fuehrt 21 Felder" galt fuer eine von vieren. Die tragende Aussage — `verdict`
+fehlt — ist in allen vier Fassungen nachgemessen wahr.
+
+**Mein Ersatzweg verletzt einen eigenen Anker.** S35 bot an, den Pruefer „per Pfad aus einem
+proofbundle-CHECKOUT" zu laden, und nannte als Nachteil nur „bindet an einen Arbeitsbaum statt an
+eine Version". Der schwerere Nachteil fehlte: ein Pruefer aus einem mutierbaren, ungepinnten
+Checkout ist genau das, was `B7_STANDING_DETERMINISTIC_VERIFIER` ausschliessen soll — und er ist
+selbst das Freigabe-Tor. Damit bleibt von den zwei angebotenen Wegen nur der zweite: den Vertrag
+nach `src/proofbundle/` verlegen, ausliefern, versioniert zitieren. Meine Bahn, nach dem Tag.
+
+**Ein Widerspruch zu S34 stand unbenannt.** S34 schrieb „kein Defekt des Tores. Beide Riegel sind
+einzeln richtig." Wand 1 ist ein echter Koordinationsfehler zwischen Erzeuger und Pruefer, und ich
+habe ihn selbst als Klassendefekt gebucht. Eine verletzte Vertragsinvariante IST ein Defekt. Der
+Satz aus S34 gilt nur noch fuer das Zusammenspiel der beiden Riegel, nicht fuer die Mechanik als
+Ganzes; hiermit benannt statt stehen gelassen.
+
+**Die Grenze von „erschoepfend".** Die Durchsuchung lief mit `os.walk` ueber `/home/konrad/2bedone`,
+`/home/konrad/proofbundle` und `/mnt/bigstore/claude_scratch/pb_pushlinie`, ohne `.git`,
+`node_modules`, `__pycache__`, `.venv`, `venv`, `.mypy_cache`, `.pytest_cache`, und ohne Dateien
+ueber 8 MB. Worktrees UNTERHALB dieser Wurzeln waren eingeschlossen (drei der vier Treffer liegen
+in `.claude/worktrees/`), Worktrees ausserhalb nicht. Das ist die Menge, ueber die „vier Treffer"
+gilt — nicht „das ganze System".
+
+### Wie man die zwei Kernzahlen selbst nachfaehrt
+
+```
+# 412 Belege / 145 FULL / notes-Typ / head / digest
+python3 - <<'P'
+import json, glob
+b=[json.load(open(p)) for p in glob.glob(
+   "office/governance/berkeley_gate/runs/*.json")]
+print(len(b), sum(1 for j in b if j.get("strength")=="FULL"),
+      sum(1 for j in b if isinstance(j.get("notes"), dict)),
+      sum(1 for j in b if str(j.get("head") or "").strip()),
+      sum(1 for j in b if str(j.get("digest") or "").strip()))
+P
+# die Feldtabelle: Erzeuger auf einen echten Beleg anwenden und gegen den Pruefer halten
+#   messen() aus .claude/worktrees/deepgate-version/scripts/b7_deepgate_gate_zeile.py
+#   gegen _GATE_LINE_FIELDS aus proofbundle scripts/audit_candidate_matrix.py:298
+```
+
+**Und die Lehre der Gegenlesung, die keine Zahl betrifft:** vier Korrekturrunden an EINEM Befund in
+einer Nacht sind selbst ein Messwert. Sie sagen, dass der Befund zu frueh geschrieben wurde — nicht,
+dass der Autor gruendlich ist. Registerschluessel `DREI-WAENDE-SIND-EINE-UND-KETTE-KEIN-MENUE-01`.
+
+### S36 nachgemessen — und die Messung entscheidet die Frage NICHT, die sie entscheiden sollte
+
+Eine Gegenlesung hielt S36 vor, dass die Messfeld-Zeile (`GETEILT`, Last 5,59) zwar im Register
+steht, aber im Blatt fehlte — der Zeitlimit-Fund erschien dort als reine Bauart, obwohl die Maschine
+unter fremder Teillast lief. Der Einwand trifft, und ich habe nachgemessen.
+
+**Die 190 Knoten einzeln gefahren, mit `--durations=0`, ohne das Zeitlimit des Sweeps:**
+
+```
+Wanduhr 290 s · pytest meldet 272,96 s · 194 passed, 2 skipped, RC=0
+Summe nur der call-Phasen: 251,3 s ueber 75 Tests (496 weitere unter 5 ms)
+MESSFELD vorher GETEILT (Last 5,35) · nachher GETEILT (Last 10,02) auf 24 Kernen
+```
+
+**Was das zeigt und was NICHT.** Die reine Testarbeit allein (251,3 s) liegt schon ueber dem Budget
+von 240 s, bevor Sammlung, Auf- und Abbau dazukommen. **Aber `--durations` misst unter derselben
+Last** — ein Test, der verdraengt wird, meldet selbst eine laengere Dauer. Der Abstand betraegt
+4,6 %, und das ist genau die Groessenordnung, die Verdraengung bei Last 5 bis 10 erklaeren kann.
+**Diese Messung entscheidet also NICHT, ob das Zeitlimit auf einer ruhigen Maschine halten wuerde.**
+Eine ruhige Maschine ist hier nicht herstellbar: der 24h-Soak des Owners laeuft und soll laufen.
+
+**Was unabhaengig von der Last stehen bleibt, und das ist der eigentliche Punkt:** der Klassen-Ledger
+waechst monoton — er ist ein Gedaechtnis, das ist sein Zweck —, und das Budget ist eine feste Zahl.
+Zwischen der Messung von gestern Nacht (200 Klassen) und heute (201) ist er wieder gewachsen. Ob
+der heutige Lauf durch Last oder durch Umfang ueber die Linie ging, aendert nichts daran, dass die
+Reserve aufgebraucht ist. Der Fund ist damit belastbar als **Trend**, nicht als Einzelurteil — und
+so gehoert er formuliert, in beiden Dokumenten.
+
+**Der zweite Teil von S36 ist von der Last voellig unberuehrt** und wurde von einer Gegenlesung an
+der Quelle bestaetigt: `scripts/b7_berkeley_class_ledger.py:182` gibt bei `TimeoutExpired` den Wert
+`"env"` zurueck, mit einem Text, der woertlich sagt *„NICHT die Umgebung"*;
+`b7_berkeley_pre_sweep.py:35` bildet `"env"` auf `env_blocked` ab; und
+`b7_berkeley_gate_receipt._measured_replay_problems` liest nur `status`. **Zwei verschiedene
+Ursachen — Station unvollstaendig, Station zu langsam — teilen ein Wort, und im signierten Beleg
+sind sie nicht mehr unterscheidbar.** Das ist ein Befund ueber die Mechanik, keine Aussage ueber
+eine Maschine, und er haengt an keiner Lastmessung.
