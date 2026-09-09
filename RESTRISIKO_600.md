@@ -3051,3 +3051,39 @@ die beiden Male davor nicht.
 Folge: keine Nachlandung noetig, kein neuer Kandidatenkopf, die CI ueber `0add122` bleibt gueltig.
 Nach dem Tag sind alle drei Zweige loeschbar. Registerschluessel
 `DREI-LOKALE-ZWEIGE-UEBERHOLT-UND-ZWEI-DAVON-IDENTISCH-01`.
+
+## S51 — Ein Zweig-Push loest hier GAR KEINE Pruefung aus; die CI haengt am Pull Request
+
+Nach dem Sichern von `release/600-push-linie` (`0add122`) lief ein Beobachter fuenf Minuten lang
+gegen `gh run list --branch release/600-push-linie` und meldete jedes Mal **„noch kein Lauf
+registriert"**. Statt weiter zu warten: die Ausloeser gelesen.
+
+**Gemessen ueber alle neun Workflow-Dateien:** `ci.yml`, `codeql.yml`, `demo-reproducible.yml`,
+`fork-pr-isolation.yml`, `published-artifact-gate.yml`, `release-integrity.yml` und `scorecard.yml`
+haben `branches: ['main']`. Ein Push auf einen Arbeitszweig loest **nichts** aus. Die einzige
+Flaeche, auf der die 33 Pruefungen laufen, ist der **Pull Request gegen `main`** — hier
+**PR #194**, `fix/deepgate600/integration-600` → `main`, Titel woertlich *„NUR PRUEFUNGSAUSLOESER,
+NICHT MERGEN"*.
+
+**Der Stand, den ich vorfand:** PR-Kopf `c08e4650`, **29 SUCCESS / 4 FAILURE** — `hermetic-cleanroom`
+(der bekannte P0 L6-600-01, im Baum gefixt), `Audit candidate matrix (advisory)` (S10),
+`mutation (6)` (Exit 143, Laeuferabbruch) und die daraus folgende `mutation-summary`.
+
+**Was daraus folgt, und es ist die Antwort auf „gruener Schritt 50":** der Kandidat muss auf den
+**Ausloeser-Zweig** des PR, sonst prueft ihn niemand. Fast-Forward `c08e4650..b83d163` gesetzt;
+PR-Kopf jetzt `b83d163`, **31 Pruefungen laufen, 0 rot** (03:13Z).
+
+**Zwei Lehren, beide gegen eine Annahme von mir:**
+
+1. *„Gesichert" und „geprueft" sind hier zwei verschiedene Zweige.* Die stehende Owner-Erlaubnis
+   („reine Fix-Zweige duerfen als Arbeitszweige nach origin, das ist nur Haltbarkeit") sagt
+   woertlich **Haltbarkeit** — nicht Pruefung. Ich hatte beides in einem Zug erwartet.
+2. *Ein Beobachter auf der falschen Flaeche meldet ruhig und dauerhaft nichts.* Fuenf Abfragen
+   „noch kein Lauf registriert" lasen sich wie „laeuft noch an". Die Klasse ist bekannt: **die
+   Regel befolgt und die falsche Flaeche gemessen.** Der Riegel dagegen ist billig — wenn eine
+   erwartete Wirkung zweimal ausbleibt, die AUSLOESEBEDINGUNG lesen statt weiter zu zaehlen.
+
+**Folge fuer den Ablauf:** solange die 31 Pruefungen laufen, darf nichts weiter auf diesen Zweig
+gepusht werden — jeder Push verschoebe den PR-Kopf und startete alles neu. Weitere Registereintraege
+bleiben bis zum Abschluss **lokal committet**. Registerschluessel
+`ZWEIG-PUSH-LOEST-KEINE-PRUEFUNG-AUS-DIE-CI-HAENGT-AM-PR-01`.
