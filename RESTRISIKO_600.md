@@ -2843,3 +2843,53 @@ nicht ihre Umgehung.
 (Zeile 20/28, nachgeholt als `OA-314aa3b04f`) und das Emittieren (Zeile 19, hier gemessen). Beide
 standen in der Quelle, beide fehlten in meiner mitgetragenen Fassung. Registerschluessel
 `SCHRITT-5-NICHT-ERREICHBAR-DAS-EMITTIEREN-VERLANGT-DIE-GATE-ZEILE-01`.
+
+## S48 — Meine vier Claude-Linsen dieser Nacht waren adversarial und liefen auf Sonnet; der Standard verlangt Opus
+
+Nach dem Fund aus S42 („Anordnung aus der Zusammenfassung statt aus der Quelle") habe ich den
+Standard gelesen, den ich die ganze Nacht zitiert hatte, ohne ihn je zu oeffnen:
+`kraxo/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md`, 33 Zeilen, vollstaendig.
+
+**Was mich entlastet, weil es geprueft ist.** Zeile 25 verlangt vier Tauglichkeitsproben VOR der
+ersten Anwendung von Sonnet. Sie liegen vor: `office/governance/linsen_tauglichkeit.jsonl` fuehrt
+`claude-sonnet-5`, Familie `claude`, `P1_FORM` / `P2_GATE_META` / `P3_EHRLICHKEIT` / `P4_SPIEGEL`
+alle bestanden, `tauglich: true`, gemessen 2026-09-08T11:05:46Z. Und meine Familienzaehlung stimmt
+mit Zeile 29: *„Sonnet neben Opus ist eine Familie, nicht zwei."* Auch mein Umgang mit dem Ausfall
+war standardkonform — Zeile 7: *„Faellt eine fremde Familie aus, wird sie als nicht gelaufen
+protokolliert, ein Ersatz aus der Mehrheitsfamilie ist verboten, der Lauf endet sichtbar als
+PARTIAL."* Genau so steht es in S40.
+
+**Was ich verletzt habe.** Zeile 27, woertlich: *„Adversariale Linsen, Sweep gegen sich selbst,
+Zusicherungen falsifizieren, Riegel pruefen, Fangnachweise bewerten, bleiben bei Opus."*
+
+**Alle vier Claude-Linsen dieser Nacht liefen auf Sonnet, und alle vier waren adversarial.** Ihre
+Auftraege beginnen woertlich mit „Du bist eine FALSIFIKATIONS-LINSE" und verlangen: den Gegenfall
+konstruieren, pruefen ob eine Zusicherung mehr behauptet als ihre Messung traegt, finden was FEHLT,
+beurteilen ob eine Einteilung eine bequeme Erzaehlung ist. Das ist Punkt fuer Punkt die Liste aus
+Zeile 27, nicht Form- oder Beleg-Arbeit.
+
+**Und der zweite Teil derselben Zeile ist ebenfalls verletzt:** *„Die Zuordnung einer Linse zu einer
+Klasse steht im Linsen-Auftrag und im Beleg, nicht im Gedaechtnis."* Meine vier abgelegten
+Linsen-Artefakte nennen ihre Klasse nirgends.
+
+**Woher der Fehler kam, und das entschuldigt ihn nicht.** Die Umgebung weist bei substanzieller
+Arbeit auf „Linsen = CLAUDE-Subagenten (model='sonnet')" hin, und ich bin dem gefolgt. Der Standard
+des Owners sagt etwas Engeres, und **Owner steht ueber Kontext** — genau diese Rangfolge ist die
+erste Zeile der eigenen Regeln. Ich habe einen Hinweis der Werkzeugumgebung ueber eine Owner-Regel
+gestellt, ohne den Widerspruch auch nur zu bemerken.
+
+**Was das fuer die Funde dieser Nacht heisst, nuechtern und ohne Selbstentlastung in beide
+Richtungen.** Die Sonnet-Linsen haben real geliefert — eine von ihnen fand den schwersten Fehler der
+Runde (`verdict_tag`, S42), zwei weitere trugen REJECT-Verdikte mit Datei-und-Zeile-Belegen, die
+sich alle nachmessen liessen. Die Funde sind damit **nicht entwertet**: sie sind gemessen, nicht
+geglaubt. Entwertet ist die **Stufe des Panels** — ein adversariales Panel auf der falschen
+Modellstufe ist nach diesem Standard kein volles Panel, unabhaengig davon, was es gefunden hat.
+
+**Und die unbequeme Gegenprobe:** haette die Sonnet-Linse den `verdict_tag` NICHT gefunden, waere
+die falsche Owner-Frage stehengeblieben. Der Standard existiert genau fuer dieses Risiko. Dass es
+diesmal gutging, ist kein Argument gegen ihn.
+
+**Folge fuer die Beschriftung:** S37-S47 tragen bereits `PARTIAL_PANEL_EINE_FAMILIE`; dazu kommt
+jetzt, dass die vorhandene Familie ihre adversarialen Linsen auf der falschen Stufe gefahren hat.
+Wer sie nachziehen will, faehrt sie auf Opus und deklariert die Klasse im Auftrag UND im Beleg.
+Registerschluessel `ADVERSARIALE-LINSEN-AUF-SONNET-STATT-OPUS-01`.
