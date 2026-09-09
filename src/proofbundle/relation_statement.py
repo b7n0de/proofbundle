@@ -261,6 +261,26 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # cycle/depth/attached-but-wrong/subject-mismatch -> FAIL).
         r["lineage"] = verify_relationship_edges(
             predicate.get("relationships"), related, subject_hex=_subject_hex)
+        # DER ANGEHAENGTE ARM FEHLTE AUF DIESER FLAECHE (deep gate Lauf 7, Fund L4-600-02, P1).
+        #
+        # `reject_superseded` traegt zwei disjunkte Bedeutungen (relation.py:604-610): den EIGENEN
+        # verifizierten Nachfolge-Rand des Statements (die Selbstauskunft, weiter unten) UND einen
+        # ANGEHAENGTEN, verifizierten Nachbarn, der eine Nachfolge oder Ruecknahme ueber DIESES
+        # Objekt erklaert. Den zweiten wertet der gemeinsame Bewerter aus (relation.py:637), aber
+        # nur, wenn jemand ihm den Schluessel `supersededByAttached` fuellt. decision.py:682 und
+        # outcome.py:673 tun das seit jeher; diese Flaeche tat es nie, und deshalb war der Arm hier
+        # WIRKUNGSLOS: die Flaeche nimmt die Flagge entgegen und konnte sie in diesem Fall nie
+        # behaupten.
+        #
+        # DER UNABHAENGIGE ZEUGE, an dem es auffiel: der Rust-Verifizierer setzt den Schluessel in
+        # BEIDEN Modi (tools/pb_verify_rs/src/main.rs:1482, ausserhalb des statement_mode-Zweigs)
+        # und legt den Selbstauskunfts-Arm nur OBENDRAUF (main.rs:1502). Python endete mit 0, wo
+        # Rust mit 3 endet — ein Paritaetsbruch auf einer ausgelieferten Eigenschaft, und kein
+        # Vektor dieser Flaeche stand im Kreuzvergleich, weshalb das Differential still blieb.
+        # Gesetzt hat ihn verify_relationship_edges selbst (siehe dort); hier wird er nur GELESEN.
+        _sw = r["lineage"].get("supersededByAttached")
+        if _sw:
+            r["warnings"].append(f"lineage: {_sw}")
         if r["lineage"]["lineage"] == LINEAGE_FAIL:
             r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
         r["lineage_ok"] = False if r["lineage"]["lineage"] == LINEAGE_FAIL else None

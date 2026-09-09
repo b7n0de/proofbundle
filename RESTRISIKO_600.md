@@ -4644,3 +4644,98 @@ dieses Release. Ein Umbau der Modulstruktur Stunden vor einer Signatur waere das
 die Eigenschaft wird deshalb als benannte Grenze gefuehrt, nicht stillschweigend behoben.
 
 Registerschluessel `AS-SHIPPED-ZAHL-AM-NACHGESTELLTEN-STATT-AM-ECHTEN-ARTEFAKT-GEMESSEN-01`.
+
+## S77 — `reject_superseded` war auf der Statement-Flaeche wirkungslos: Python endete 0, wo Rust 3 endet
+
+Deep-Gate Lauf 7 ueber `e3341b9` endet auf **FIX_FIRST**, nicht WITHSTANDS. Erster Fund, P1.
+
+Die Flagge `reject_superseded` traegt zwei disjunkte Bedeutungen, und das steht so im Modul
+(`relation.py:604-610`): den EIGENEN verifizierten Nachfolge-Rand des Statements (die
+Selbstauskunft) und einen ANGEHAENGTEN, verifizierten Nachbarn, der eine Nachfolge oder Ruecknahme
+ueber DIESES Objekt erklaert. Den zweiten wertet `evaluate_relations_policy` aus — aber nur, wenn
+jemand den Schluessel `lineage["supersededByAttached"]` fuellt.
+
+```
+decision.py:682          _sw = successor_warning(...) ; r["lineage"]["supersededByAttached"] = _sw
+outcome.py:673           dasselbe
+relation_statement.py    NICHTS — der Schluessel wurde dort nie gesetzt
+relation.py:637          liest genau diesen Schluessel
+```
+
+**Selbst nachgestellt, nicht der Jury geglaubt.** Ein angehaengter Nachbar erklaert `supersedes`
+ueber das Statement; die eigene Kante ist `retracts`, der Selbstauskunfts-Arm greift also nicht.
+
+```
+vor dem Fix:  supersededByAttached = None · policy_ok = True  · codes = None
+nach dem Fix: supersededByAttached = "superseded_by_attached: …" · policy_ok = False
+              codes = ['LINEAGE_REQUIREMENT_FAILED']
+```
+
+**Der unabhaengige Zeuge** ist der Rust-Verifizierer: `tools/pb_verify_rs/src/main.rs:1482` setzt
+den Schluessel in BEIDEN Modi, ausserhalb des `statement_mode`-Zweigs, und legt den
+Selbstauskunfts-Arm nur obendrauf (`main.rs:1502`). Ein Paritaetsbruch auf einer ausgelieferten
+Eigenschaft. Das Differential blieb still, weil im Kreuzvergleich **kein einziger Vektor** dieser
+Flaeche steht.
+
+**Der Klassenfix ist ein anderer als der vorgeschlagene.** Die Jury wollte den gemeinsamen
+Dreizeiler aus allen drei Aufrufern in einen Helfer heben. Das haette die Pflicht beim Aufrufer
+gelassen, nur besser verpackt. Stattdessen setzt jetzt `verify_relationship_edges` den Schluessel
+SELBST — sie bekommt `related` und `subject_hex` ohnehin. Danach KANN ihn kein Aufrufer mehr
+auslassen, weil er ihn nicht mehr setzt. Geaendert: `relation.py` und `relation_statement.py`,
+beide vollstaendig gelesen. `decision.py` und `outcome.py` ueberschreiben mit demselben Wert, ein
+No-Op; ihre Zeilen zu entfernen ist Nacharbeit, keine Bedingung.
+
+**Breiter als der Befund:** `successor_warning` liest seinen ersten Parameter gar nicht (er heisst
+`_subject_relationships`). Ein Nachbar kann also eine Ruecknahme ueber ein Objekt erklaeren, das
+selbst KEINE Kante traegt — deshalb traegt auch der `NOT_EVALUATED`-Zweig den Schluessel. Monoton:
+der Schluessel kann eine Verletzung nur hinzufuegen, nie eine entfernen.
+
+Nachweis `tests/test_relation_superseded_by_attached_600.py`, 6 Faelle. Vier pruefen die
+Eigenschaft der gemeinsamen Funktion ueber JEDEN Rueckgabepfad, zwei die Wirkung auf der Flaeche.
+Der letzte ist die Gegenrichtung: ohne die Flagge bleibt es eine Warnung. Ein Fix, der immer
+blockt, waere so falsch wie einer, der nie blockt.
+
+Registerschluessel `FLAGGE-DIE-EINE-FLAECHE-ANNIMMT-UND-NIE-BEHAUPTEN-KANN-01`.
+
+## S78 — Die Strukturschranke band einen TYP statt der EIGENSCHAFT, und der Tupel-Fix aus Lauf 3 war die Instanz davon
+
+Zweiter Fund desselben Laufs, P2. `_enforce_structural_budget` hatte vier Zweige — `str`, `dict`,
+`list/tuple`, `int` — und **kein Sonst**. Was auf keinen passte, fiel lautlos hindurch.
+
+```
+angesagt: 5 Faelle muessen fallen. gemessen: 5 von 5.
+  bytes        -> KEHRT ZURUECK      (keine Abweisung)
+  bytearray    -> KEHRT ZURUECK
+  memoryview   -> KEHRT ZURUECK
+  set          -> KEHRT ZURUECK
+  eigener Typ  -> KEHRT ZURUECK
+  str          -> abgewiesen, string_len   <- der Massstab greift, der Test misst also etwas
+```
+
+`bytes` ist auf genau diesen Flaechen eine UNTERSTUETZTE Form: `_wire_b64.decode_b64` ist als
+`str | bytes` typisiert. Es traegt eine Laenge wie ein String und trug trotzdem keine Schranke.
+
+**Warum das kein Einzelfall war.** Der Tupel-Fix aus Lauf 3 hat EINEN Typ nachgetragen und die
+Familie offen gelassen. Eine Aufzaehlung ist immer nur so vollstaendig wie der Tag, an dem sie
+geschrieben wurde; nach dem naechsten Fix waeren es vier andere Typen gewesen.
+
+**Der Fix hat zwei Haelften.** `bytes`, `bytearray` und `memoryview` fallen unter `string_len` wie
+`str`; `set` und `frozenset` unter `json_nodes` wie Listen. Dazu ein **Schluss-Arm**: JSON-Skalare
+kommen durch, alles andere wird mit `BundleFormatError` abgewiesen statt uebersprungen. Damit
+faengt der Lauf auch den Typ, den morgen jemand einfuehrt.
+
+**Vor dem Abweisen gemessen, nicht angenommen:** alle 13 Aufrufstellen von
+`enforce_structural_budget` uebergeben geparste Strukturen, keine rohen Bytes als Wurzel. Ein
+`bytes`-WERT in einem Umschlag ist dagegen plausibel — deshalb wird `bytes` GEBUNDEN und nicht
+abgewiesen. Ohne diese Messung haette der Schluss-Arm jeden DSSE-Pfad brechen koennen.
+
+Nachweis `tests/test_strukturbudget_typfamilie_600.py`: 11 Faelle plus 9 Untertests gruen.
+Ruecknahmeprobe gegen das HEAD-Modul in einem Wegwerf-Baum: **angesagt 7 rot, gemessen 7 rot und
+4 gruen**. Rot sind die fuenf Achsen-Faelle und die zwei Schluss-Arm-Faelle; der Massstab und die
+drei Gegenrichtungs-Faelle bleiben gruen.
+
+**Nebenbefund derselben Familie, NICHT repariert:** `anchors_ots.py` traegt NULL Laengenschranken.
+`string_len` ist dort die einzige Grenze zwischen einem fremden `proof` und `b64decode` plus
+OTS-Deserialisierung. Als benannte Grenze gefuehrt, nicht Stunden vor einer Signatur umgebaut.
+
+Registerschluessel `SCHRANKE-BINDET-EINEN-TYP-STATT-DER-EIGENSCHAFT-STRUKTURBUDGET-01`.

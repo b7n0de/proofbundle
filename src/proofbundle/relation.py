@@ -257,8 +257,33 @@ def verify_relationship_edges(
     # (TypeError: unhashable type). A non-str hex can never legitimately equal a str target_hex, so
     # None is the correct fail-closed coercion (self-reference check + cycle seed both stay honest).
     subject_hex = subject_hex if isinstance(subject_hex, str) else None
+    # DER SCHLUESSEL WIRD HIER GESETZT, NICHT BEIM AUFRUFER (deep gate Lauf 7, Fund L4-600-02, P1).
+    #
+    # WAS WAR: `supersededByAttached` fuellten die AUFRUFER — decision.py:682 und outcome.py:673 taten
+    # es, relation_statement.py nicht. Der Arm in evaluate_relations_policy (unten, (2)) liest genau
+    # diesen Schluessel, und deshalb war `reject_superseded` auf der Statement-Flaeche fuer den
+    # ANGEHAENGTEN Fall wirkungslos: die Flaeche nimmt die Flagge entgegen und konnte sie nie
+    # behaupten. Der unabhaengige Zeuge war der Rust-Verifizierer, der den Schluessel in BEIDEN Modi
+    # setzt (tools/pb_verify_rs/src/main.rs:1482) — Python endete mit 0, wo Rust mit 3 endet.
+    #
+    # DIE KLASSE, nicht die Instanz: drei Aufrufer, dreimal derselbe Dreizeiler, einer davon fehlte.
+    # Eine Pflicht, die an der Disziplin des Aufrufers haengt, wird irgendwann vergessen — der vierte
+    # Aufrufer haette sie genauso vergessen koennen. Diese Funktion bekommt `related` und
+    # `subject_hex` ohnehin, also gehoert der Schluessel in IHRE Rueckgabe. Danach KANN ihn kein
+    # Aufrufer mehr auslassen, weil er ihn nicht mehr selbst setzt.
+    #
+    # `successor_warning` haengt NICHT an den eigenen Kanten — sein erster Parameter heisst
+    # `_subject_relationships` und wird nicht gelesen. Deshalb traegt auch der NOT_EVALUATED-Zweig den
+    # Schluessel: ein angehaengter Nachbar kann eine Ruecknahme ueber dieses Objekt erklaeren, auch
+    # wenn das Objekt selbst gar keine Kante hat. Die Richtung ist monoton: der Schluessel kann eine
+    # Politik-Verletzung nur HINZUFUEGEN, nie eine entfernen.
+    #
+    # Die Aufrufer, die ihn heute selbst setzen, ueberschreiben ihn mit demselben Wert — ein
+    # No-Op. Ihre Zeilen zu entfernen ist die Nacharbeit, nicht die Bedingung dieser Haertung.
+    _sba = successor_warning(None, related, subject_hex=subject_hex)
     if relationships is None:
-        return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": []}
+        return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
+                "supersededByAttached": _sba}
 
     # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface — the caller
     # hands over an already-parsed structure, so loads_strict's input_bytes cap never runs here.
@@ -279,12 +304,14 @@ def verify_relationship_edges(
     except ProofBundleError as exc:
         return {"lineage": LINEAGE_FAIL, "edges": [],
                 "errors": [f"relation:over_budget: relationships exceed the verification budget "
-                           f"(fail-closed): {exc}"]}
+                           f"(fail-closed): {exc}"],
+                "supersededByAttached": _sba}
 
     structural = validate_relationships(relationships)
     if structural:
         return {"lineage": LINEAGE_FAIL, "edges": [],
-                "errors": [f"relation:malformed:{e}" for e in structural]}
+                "errors": [f"relation:malformed:{e}" for e in structural],
+                "supersededByAttached": _sba}
 
     edges_out: list[dict] = []
     errors: list[str] = []
@@ -356,7 +383,8 @@ def verify_relationship_edges(
         lineage = LINEAGE_VERIFIED
     else:  # pragma: no cover — empty list is structurally rejected above
         lineage = LINEAGE_NOT_EVALUATED
-    return {"lineage": lineage, "edges": edges_out, "errors": errors}
+    return {"lineage": lineage, "edges": edges_out, "errors": errors,
+            "supersededByAttached": _sba}
 
 
 def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,

@@ -82,11 +82,19 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             if cur.bit_length() > int_bits:
                 raise BudgetExceeded("int_bits", cur.bit_length(), int_bits)
             continue
-        if isinstance(cur, str):
+        if isinstance(cur, (str, bytes, bytearray, memoryview)):
             # RT-BDOS-01 / RT09-STRINGLEN-INERT: cap a single oversized string VALUE. On the direct-dict
             # path input_bytes is inert (no bytes to measure), so without this a ~13 MB payload_b64 string
             # is processed uncapped (memory-amplification DoS) while the identical content on the str/file
             # path is rejected by input_bytes. This restores rejection parity between both paths.
+            #
+            # BYTES ZAEHLEN WIE STRINGS (deep gate Lauf 7, Fund L2-600-BYTES-01, P2) — der ungefegte
+            # Zwilling des Tupel-Fixes aus Lauf 3. `bytes` ist auf genau diesen Flaechen eine
+            # UNTERSTUETZTE Form (`_wire_b64.decode_b64` ist als `str | bytes` typisiert), traegt eine
+            # Laenge wie ein String, fiel aber auf keinen Zweig und wurde weder begrenzt noch betreten.
+            # Gemessen: 16/64/256/512 MB als bytes liefen 0,099/0,312/1,248/2,509 s bei RSS
+            # +5/107/427/671 MB durch, waehrend derselbe Inhalt als str in 0,007/0,033/0,133/0,254 s
+            # abgewiesen wurde. Die Achse ist dieselbe, also ist es dieselbe Schranke.
             if len(cur) > string_len:
                 raise BudgetExceeded("string_len", len(cur), string_len)
         elif isinstance(cur, dict):
@@ -115,6 +123,32 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
                 raise BudgetExceeded("json_nodes", count, json_nodes)
             for value in cur:
                 stack.append((value, depth + 1))
+        elif isinstance(cur, (set, frozenset)):
+            # Dieselbe Achse wie Liste und Tupel: eine Elementzahl. Ein JSON-Parser erzeugt keine Menge,
+            # ein Aufrufer auf dem Direkt-Dict-Weg kann eine uebergeben.
+            count += len(cur)
+            if count > json_nodes:
+                raise BudgetExceeded("json_nodes", count, json_nodes)
+            for value in cur:
+                stack.append((value, depth + 1))
+        elif cur is None or isinstance(cur, (bool, int, float)):
+            # JSON-Skalare. Keine Laenge, keine Elementzahl, nichts zu begrenzen. `int` steht hier auch
+            # fuer den Fall int_bits=None, in dem der Zweig ganz oben nicht greift.
+            continue
+        else:
+            # DER SCHLUSS-ARM, damit die Klasse nicht mit dem naechsten Typ wieder aufgeht.
+            #
+            # Bis hierher war der Walk eine AUFZAEHLUNG: str, dict, list, tuple — und alles andere fiel
+            # lautlos hindurch. Genau daran ist der Tupel-Fix aus Lauf 3 gescheitert: er nahm das Tupel
+            # dazu und liess `bytes`, `bytearray`, `memoryview` und `set` offen. Eine Aufzaehlung ist
+            # immer nur so vollstaendig wie der Tag, an dem sie geschrieben wurde.
+            #
+            # Ab hier ist der Lauf GESCHLOSSEN statt aufgezaehlt: ein Wert, der auf keinen Zweig passt,
+            # wird abgewiesen, nicht uebersprungen. Das faengt auch den Typ, den morgen jemand einfuehrt,
+            # und es ist die einzige Form, in der diese Zusicherung ueber die Zeit traegt.
+            raise BundleFormatError(
+                f"value of type {type(cur).__name__!r} is not a JSON value — the structural budget "
+                "cannot bound it, so it is rejected fail-closed (never silently skipped)")
 
 
 def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
