@@ -36,6 +36,13 @@ permissions:
 # `bash -e {0}`, also OHNE `pipefail` -- eine Pipeline meldet dann den Erfolg ihres LETZTEN Gliedes.
 # Der Schritt darunter haengt zwei Pipelines an `sha256sum`; scheitert das erste Glied, schrieb er
 # bisher eine leere bzw. unvollstaendige Pruefsummendatei und endete mit rc=0.
+#
+# WAS DIESER BLOCK NICHT LEISTET (korrigiert 09.09.2026). Hier stand, der Fehlermodus sei damit
+# geschlossen. Das ist falsch und hat den P0 in Zeile 87ff. jahrelang unsichtbar gehalten:
+# `pipefail` deckt nur den Fall, in dem die Pipe das AEUSSERE Kommando ist. Steht sie in einer
+# Kommandosubstitution innerhalb eines Kommandos, das immer gelingt (`echo`, `printf`), wird ihr
+# Exit-Code verworfen und `set -e` sieht nur den Erfolg der Huelle. Ein Kommentar, der eine
+# Sicherheit behauptet, die es nicht gibt, ist teurer als gar keiner: er beendet die Suche.
 defaults:
   run:
     shell: bash
@@ -70,7 +77,24 @@ jobs:
       - name: Record artifact digests (the attested subjects)
         id: digests
         run: |
-          echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # ZUWEISUNG STATT HUELLE, und das ist keine Stilfrage (Gegenlesung 09.09.2026, P0).
+          # Hier stand `echo "sdist=$(sha256sum dist/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"`.
+          # Der `defaults: shell: bash`-Block darueber setzt `-eo pipefail`, und der Kommentar dort
+          # behauptete, damit sei der Fehlermodus geschlossen. Er ist es NICHT: pipefail gilt fuer
+          # die Pipe INNERHALB der Substitution, aber ihr Exit-Code wird verworfen, weil das
+          # aeussere Kommando `echo` ist und immer gelingt. Mit Kontrollzeile gemessen:
+          #   bash -eo pipefail -c 'echo "sdist=$(sha256sum FEHLT | cut -d" " -f1)" > out; echo WEITER'
+          #     -> RC=0, WEITER gedruckt, out enthaelt `sdist=` (LEER)
+          #   dieselbe Pipe ohne die echo-Huelle -> RC=1, Abbruch
+          # Folge: `sdist-sha256` — der ATTESTIERTE Subjekt-Digest, den jeder Aufrufer dieses
+          # reusable workflow uebernimmt — kann leer werden, ohne dass ein Schritt rot wird.
+          # Bei einer Zuweisung ist der Status der Zuweisung der der Substitution, `set -e` greift.
+          # Gleiche Form wie release.yml seit 2026-08-16, die den Handfix bereits trug und deren
+          # Begruendung woertlich sagt, dass pipefail diese Form NICHT rettet; portiert wurde er nie.
+          test "$(ls -1 dist/*.tar.gz 2>/dev/null | wc -l)" -eq 1
+          sdist="$(sha256sum dist/*.tar.gz | cut -d' ' -f1)"
+          test -n "$sdist"
+          echo "sdist=$sdist" >> "$GITHUB_OUTPUT"
           # DERSELBE Fix wie in release.yml, im selben Durchgang. Diese Zeile schrieb
           # `…  dist/proofbundle-…tar.gz`; wer die Datei neben die Artefakte legt und
           # `sha256sum -c SHA256SUMS` fahrt, bekam `No such file or directory`. Hier gefegt, weil
