@@ -2799,3 +2799,47 @@ bekannter Ursache.
 ist erwartet und kein neuer Befund. Wer die Kette beurteilt, vergleicht den CI-Stand des DANN
 gepushten Kopfes, nicht den von `c08e4650`. Registerschluessel
 `CI-LAEUFE-HAENGEN-AM-ANDEREN-ZWEIGNAMEN-DESSELBEN-SHA-01`.
+
+## S47 — Schritt 5 der Anweisung ist nicht erreichbar: schon das EMITTIEREN verlangt die Gate-Zeile
+
+Nachdem S42 zeigte, dass ich die Owner-Anordnung aus einer Zusammenfassung statt aus der Quelle
+gefuehrt hatte, habe ich die Uebernahme-Anweisung **vollstaendig gelesen** (32 Zeilen, Anfang bis
+Dateiende). Sie enthaelt eine zweite Pflicht, die ich uebersprungen hatte — und deren Pruefung den
+Halt schaerfer macht als jede bisherige Formulierung.
+
+**Die Anweisung, Schritt 5 (Zeile 19), woertlich:** *„Kanonische Bytes fuer die
+Bereitschaftsartefakte C6.2, C6.3, C8.2 und das Findings-Register emittieren, Pfade und sha256 im
+Blatt, dann Halt BLOCKED_OWNER_DECISION_REQUIRED vor der Signatur. Der Owner signiert am Mac, danach
+assemblieren."*
+
+**Ich habe die ganze Runde „nicht signierbar" berichtet und dabei uebersehen, dass das EMITTIEREN
+ein eigener, VORGELAGERTER Schritt ist** — der Schritt, der dem Owner ueberhaupt erst die Bytes
+liefert, die er signieren soll.
+
+**Nachgeholt und gemessen.** `sign_readiness_artifact.py` hat den schluessellosen Weg
+(`--emit-payload` / `--context-out`, wie die Vorab-Quittung). Aufgerufen fuer C6.2 mit den frischen
+Distributions-Digests, ohne Gate-Zeile:
+
+```
+emit mode needs: --producer-tool-version, --input-digest, --gate-zeile-aus-verdikt
+```
+
+**Das EMITTIEREN verlangt die Gate-Zeile selbst.** Sie geht in den signierten Rumpf
+(`build_body` setzt `body["gate_zeile"]`), und die kanonischen Bytes sind der Rumpf — ohne sie gibt
+es keine Bytes, nicht nur keine Signatur.
+
+**Damit ist der Halt praeziser verortet als bisher.** Er liegt nicht „vor der Signatur", sondern
+**vor dem Emittieren** — also einen Schritt frueher als die Anweisung ihn vorsieht. Der Owner kann
+derzeit **nichts zum Signieren bekommen**, nicht nur nichts signieren. Das ist keine Verschaerfung
+der Lage, sondern eine genauere Beschreibung derselben Lage: dieselbe eine Ursache (die Gate-Zeile),
+aber eine Stufe frueher wirksam, als ich berichtet habe.
+
+**Was das fuer die Abgabe heisst (Zeile 32):** *„Die letzte Meldung vor der Signatur nennt die Pfade
+und sha256 der emittierten Bytes."* Diese Pfade kann es heute nicht geben. Die Meldung nennt
+stattdessen den Grund an der Stelle, an der er wirkt — und das ist die ehrliche Form dieser Zeile,
+nicht ihre Umgehung.
+
+**Zwei uebersprungene Pflichten aus derselben Wurzel.** Die Meldung auf die Signaturkarte
+(Zeile 20/28, nachgeholt als `OA-314aa3b04f`) und das Emittieren (Zeile 19, hier gemessen). Beide
+standen in der Quelle, beide fehlten in meiner mitgetragenen Fassung. Registerschluessel
+`SCHRITT-5-NICHT-ERREICHBAR-DAS-EMITTIEREN-VERLANGT-DIE-GATE-ZEILE-01`.
