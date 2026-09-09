@@ -100,93 +100,175 @@ def _linke_seiten_harmlos(zeile: str) -> bool:
     return True
 
 
-# Kommandos, die IMMER gelingen. Steht eine Kommandosubstitution mit Pipe INNERHALB eines
-# solchen Kommandos, ist ihr Exit-Code verloren — auch unter `pipefail`.
-IMMER_GELINGT = re.compile(r"^\s*(echo|printf|true|:)\b")
+# EIN KONTEXTBEWUSSTER DURCHGANG STATT DREI LEXIKALISCHER SCANNER (09.09.2026).
+#
+# Die erste Fassung dieses Melders hatte drei Leser: `PIPE` (Regex), `_ohne_kommentar` (mit
+# Quote- und ${...}-Kontext) und `_pipe_in_substitution` (nackte Klammerzaehlung). Nur der
+# mittlere kannte Kontext, und genau der hielt in ~20 adversarialen Proben gegen echtes bash.
+# Die beiden anderen fielen: drei Falschpositive (`$((5|2))` ist Arithmetik, ein `|` in
+# Anfuehrungszeichen ist Text, ein `\|` ist escapt) und sechs Falschnegative (export/declare/
+# readonly/local verwerfen den Code wie echo — ShellCheck SC2155 —, und Backticks wurden gar
+# nicht gesucht). Alle neun mit `bash --noprofile --norc -eo pipefail` gegengemessen.
+#
+# DIE KLASSE dahinter ist dieselbe wie beim urspruenglichen P0, nur eine Ebene hoeher: wer eine
+# Shell-Zeile nach MUSTERN liest statt nach ihrer STRUKTUR, trifft die Eigenschaft nicht. Es gibt
+# genau eine Struktur, also gibt es hier jetzt genau einen Durchgang, und alle drei Fragen
+# (wo endet der Kommentar, wo steht eine echte Pipe, steckt eine Pipe in einer Substitution)
+# werden aus SEINEM Zustand beantwortet.
+IMMER_GELINGT = re.compile(r"^\s*(echo|printf|true|:|export|declare|readonly|local|typeset)\b")
 
 
-def _ohne_kommentar(zeile: str) -> str:
-    """Schneidet einen Shell-Kommentar ab, ohne `${VAR#muster}` zu zerteilen.
+class _Lage:
+    """Das Ergebnis EINES Durchgangs durch eine logische Zeile."""
 
-    HIER STAND `zeile.split("#", 1)[0]` (Gegenlesung 09.09.2026, Fund P1). Das schneidet mitten
-    in eine Parametererweiterung: `release.yml` nutzt `${GITHUB_REF_NAME#v}` zweimal. Teilt sich
-    eine solche Erweiterung eine Zeile mit einer echten Pipe, wird die Pipe unsichtbar — der
-    Riegel schweigt, ohne dass irgendetwas danach aussieht. Heute nicht ausgeloest, gemessen an
-    beiden Vorkommen (Zeilen 76 und 225, keine Pipe daneben); eine strukturelle Mine bleibt es
-    trotzdem, und sie zu entschaerfen kostet diesen Scanner.
+    __slots__ = ("nackt", "pipe_oben", "pipe_in_substitution")
 
-    Ein `#` beginnt einen Kommentar nur, wenn es ein Wort EROEFFNET (Zeilenanfang oder Leerraum
-    davor), nicht in Anfuehrungszeichen steht und nicht in einer `${...}`-Erweiterung liegt.
+    def __init__(self, nackt: str, pipe_oben: bool, pipe_in_substitution: bool):
+        self.nackt = nackt
+        self.pipe_oben = pipe_oben
+        self.pipe_in_substitution = pipe_in_substitution
+
+
+def analysiere(zeile: str) -> _Lage:
+    r"""Geht die Zeile EINMAL zeichenweise ab und fuehrt den Shell-Kontext mit.
+
+    Gefuehrt werden: Escape (`\`), einfache und doppelte Anfuehrungszeichen, `${...}`-Tiefe,
+    Arithmetik `$((...))`, Kommandosubstitution `$(...)` und Backtick-Substitution. Daraus
+    ergeben sich alle drei Fragen ohne eine zweite Lesart:
+
+      nackt                 die Zeile ohne ihren Kommentar. Ein `#` beginnt einen Kommentar nur,
+                            wenn es unquotiert, unescapt, auf oberster Ebene steht UND ein Wort
+                            eroeffnet (Zeilenanfang oder Leerraum davor). `${V#muster}` und
+                            `x=a#b` sind damit keine Kommentare — an echtem bash geprueft.
+      pipe_oben             eine echte Pipe auf oberster Ebene (nicht `||`, nicht in Quotes,
+                            nicht escapt, nicht in Arithmetik).
+      pipe_in_substitution  eine echte Pipe INNERHALB einer Kommandosubstitution. Arithmetik
+                            zaehlt ausdruecklich NICHT: `$((5|2))` ist ein Bit-Oder ohne
+                            Subprozess.
     """
+    nackt_bis = len(zeile)
     einfach = doppelt = False
-    tiefe = 0
+    escape = False
+    geschweift = 0                       # ${...}
+    arith = 0                            # $((...))
+    subst: list[int] = []                # Klammertiefe je offener $( ... )
+    quote_stapel: list[tuple[bool, bool]] = []   # Quote-Lage VOR jeder offenen Substitution
+    backtick = False
+    pipe_oben = pipe_sub = False
     i = 0
     while i < len(zeile):
         c = zeile[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
         if c == "\\" and not einfach:
-            i += 2
+            escape = True
+            i += 1
+            continue
+        if einfach:
+            if c == "'":
+                einfach = False
+            i += 1
             continue
         if c == "'" and not doppelt:
-            einfach = not einfach
-        elif c == '"' and not einfach:
+            einfach = True
+            i += 1
+            continue
+        if c == '"':
             doppelt = not doppelt
-        elif not einfach and c == "$" and zeile[i + 1:i + 2] == "{":
-            tiefe += 1
+            i += 1
+            continue
+        if c == "$" and zeile[i + 1:i + 3] == "((":
+            arith += 1
+            i += 3
+            continue
+        if arith:
+            if c == ")" and zeile[i + 1:i + 2] == ")":
+                arith -= 1
+                i += 2
+                continue
+            i += 1
+            continue                      # in der Arithmetik ist | ein Bit-Oder, keine Pipe
+        if c == "$" and zeile[i + 1:i + 2] == "(":
+            # EINE SUBSTITUTION EROEFFNET EINEN NEUEN QUOTE-KONTEXT (09.09.2026, an der eigenen
+            # Messung gefunden). In `"$(printf 'a|b')"` gelten die AEUSSEREN Doppelquotes
+            # innerhalb von $( ) nicht — das `'a|b'` ist dort ein echter einfach-quotierter
+            # String, und sein `|` ist Text. Ohne diese Rettung las der Laeufer `doppelt=True`
+            # weiter, uebersprang das `'` und meldete einen Fehlalarm. Genau der Fall, den die
+            # zweite Linse als Falschpositiv 2 nachgewiesen hat.
+            quote_stapel.append((einfach, doppelt))
+            einfach = doppelt = False
+            subst.append(1)
             i += 2
             continue
-        elif not einfach and c == "}" and tiefe > 0:
-            tiefe -= 1
-        elif c == "#" and not einfach and not doppelt and tiefe == 0:
-            if i == 0 or zeile[i - 1].isspace():
-                return zeile[:i]
+        if c == "$" and zeile[i + 1:i + 2] == "{":
+            geschweift += 1
+            i += 2
+            continue
+        if c == "}" and geschweift:
+            geschweift -= 1
+            i += 1
+            continue
+        if c == "`":
+            backtick = not backtick
+            i += 1
+            continue
+        if subst:
+            if c == "(":
+                subst[-1] += 1
+            elif c == ")":
+                subst[-1] -= 1
+                if subst[-1] == 0:
+                    subst.pop()
+                    if quote_stapel:
+                        einfach, doppelt = quote_stapel.pop()
+                i += 1
+                continue
+        if c == "|":
+            if zeile[i + 1:i + 2] == "|":
+                i += 2
+                continue                  # ODER-Operator, keine Pipe
+            if subst or backtick:
+                pipe_sub = True
+            elif not doppelt and not geschweift:
+                pipe_oben = True
+            i += 1
+            continue
+        if (c == "#" and not doppelt and not geschweift and not subst and not backtick
+                and (i == 0 or zeile[i - 1].isspace())):
+            nackt_bis = i
+            break
         i += 1
-    return zeile
+    return _Lage(zeile[:nackt_bis], pipe_oben, pipe_sub)
 
 
-def _pipe_in_substitution(zeile: str) -> bool:
-    """Liegt in einer `$( ... )`-Substitution eine Pipe auf oberster Ebene?"""
-    i = 0
-    while True:
-        start = zeile.find("$(", i)
-        if start < 0:
-            return False
-        tiefe = 1
-        j = start + 2
-        while j < len(zeile) and tiefe:
-            if zeile[j] == "(":
-                tiefe += 1
-            elif zeile[j] == ")":
-                tiefe -= 1
-            j += 1
-        if PIPE.search(zeile[start + 2:j - 1]):
-            return True
-        i = start + 2
+def _ohne_kommentar(zeile: str) -> str:
+    """Duenne Huelle ueber `analysiere` — der Name bleibt, weil Faelle auf ihn zeigen."""
+    return analysiere(zeile).nackt
 
 
 def huelle_verliert_exitcode(zeile: str) -> bool:
     """Die ZWEITE Art, auf der ein Exit-Code verschwindet — und `pipefail` rettet sie NICHT.
 
-    GEMESSEN 09.09.2026 mit Kontrollzeile:
+    GEMESSEN mit Kontrollzeile:
 
         bash --noprofile --norc -eo pipefail -c \
-          'echo "sdist=$(sha256sum FEHLT | cut -d" " -f1)" > out; echo WEITER'
+          'echo "sdist=$(sha256sum FEHLT | cut -d\" \" -f1)" > out; echo WEITER'
             -> RC=0, WEITER wird gedruckt, out enthaelt `sdist=` (LEER)
         dieselbe Pipe OHNE die echo-Huelle
             -> RC=1, Abbruch
 
     `pipefail` gilt fuer die Pipe INNERHALB der Substitution, aber ihr Exit-Code wird verworfen,
-    weil das aeussere Kommando `echo` ist und immer gelingt; `set -e` sieht nur den Erfolg von
-    echo. Eine ZUWEISUNG (`x="$(a | b)"`) ist NICHT betroffen: dort ist der Status der Zuweisung
-    der der Substitution. `test "$(a | b)" = x` ebenfalls nicht: `test` gelingt nicht immer, und
-    der Vergleich faellt ueber den WERT um.
-
-    WARUM DAS EIN EIGENER MELDER IST: der Riegel wies bis heute jede Datei mit `pipefail`
-    komplett ab (Zeile 104 alt, `is not False: continue`). Damit war die gepruefte Menge nach dem
-    MERKMAL `hat pipefail` gewaehlt statt nach der EIGENSCHAFT `kann einen Exit-Code verlieren` —
-    und `.github/workflows/reusable-build-attest.yml:73` fiel durch, obwohl der Nachbar
-    `release.yml` seit 2026-08-16 den Handfix genau dafuer traegt.
+    weil das aeussere Kommando immer gelingt; `set -e` sieht nur dessen Erfolg. Die MENGE dieser
+    Kommandos ist groesser als `echo`: `export`, `declare`, `readonly`, `local` und `typeset`
+    tragen ihren EIGENEN Status, nicht den der Substitution — in ShellCheck als SC2155 gefuehrt,
+    von einer adversarialen Linse am 09.09.2026 an allen vier Formen ausgefuehrt nachgewiesen.
+    Eine nackte ZUWEISUNG (`x="$(a | b)"`) ist NICHT betroffen und ausdruecklich kein Fund:
+    dort IST der Status der Zuweisung der der Substitution (gegengemessen, RC=1).
     """
-    return bool(IMMER_GELINGT.match(zeile)) and _pipe_in_substitution(zeile)
+    lage = analysiere(zeile)
+    return bool(IMMER_GELINGT.match(zeile)) and lage.pipe_in_substitution
 
 
 def sammle_riskante_pipes(wf_dir: Path) -> list[dict]:
@@ -210,12 +292,16 @@ def sammle_riskante_pipes(wf_dir: Path) -> list[dict]:
                 # aeusseres Kommando), nicht den zweiten (die Pipe in einer Substitution
                 # innerhalb eines immer-gelingenden Kommandos). `None` heisst weiterhin
                 # python/node: dort gibt es keine Shell-Pipes.
-                lage = _hat_pipefail(step.get("shell") or job_shell or wf_shell, skript)
-                if lage is None:
+                pipefail = _hat_pipefail(step.get("shell") or job_shell or wf_shell, skript)
+                if pipefail is None:
                     continue
                 for zeile in _logische_zeilen(skript):
-                    nackt = _ohne_kommentar(zeile)
-                    if not PIPE.search(nackt):
+                    lage = analysiere(zeile)
+                    nackt = lage.nackt
+                    # AUS DEM EINEN DURCHGANG, nicht aus einem zweiten Regex-Blick: eine Pipe
+                    # zaehlt nur, wenn sie wirklich eine ist — nicht in Anfuehrungszeichen,
+                    # nicht escapt, nicht `||`, nicht das Bit-Oder in `$(( ))`.
+                    if not (lage.pipe_oben or lage.pipe_in_substitution):
                         continue
                     if any(x in nackt for x in ("|| true", "|| echo", "|| :")):
                         continue
@@ -227,8 +313,10 @@ def sammle_riskante_pipes(wf_dir: Path) -> list[dict]:
                     if huelle_verliert_exitcode(nackt):
                         befunde.append({**eintrag, "art": "huelle_verwirft_code"})
                         continue
-                    if lage is True:
+                    if pipefail is True:
                         continue          # pipefail deckt die uebrigen Formen ab
+                    if not lage.pipe_oben:
+                        continue          # nur in einer Substitution, ohne Huelle: die Zuweisung traegt
                     if _linke_seiten_harmlos(nackt):
                         continue
                     befunde.append({**eintrag, "art": "kein_pipefail"})
@@ -326,6 +414,59 @@ class GateMetaTest(unittest.TestCase):
             "          n=\"$(grep -oE 'x' log \\\n            | tail -1 || true)\"\n"
         )
         self.assertEqual(sammle_riskante_pipes(d), [])
+
+    def _mit_pipefail(self, zeile: str) -> Path:
+        return self._baum(
+            "on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n"
+            "    defaults:\n      run:\n        shell: bash\n    steps:\n"
+            "      - name: T\n        run: |\n          " + zeile + "\n"
+        )
+
+    def test_weitere_huellen_tragen_ihren_eigenen_status(self):
+        """export/declare/readonly/local sind Huellen wie echo — ShellCheck SC2155.
+
+        Von einer adversarialen Linse am 09.09.2026 an allen vier Formen mit echtem
+        `bash -eo pipefail` nachgewiesen: RC=0, der Code der Pipe ist weg. Die erste Fassung
+        des Melders kannte nur echo/printf/true/: und schwieg zu allen vieren.
+        """
+        for zeile in ('export x="$(a | b)"', 'declare x="$(a | b)"',
+                      'readonly x="$(a | b)"', 'local x="$(a | b)"'):
+            b = sammle_riskante_pipes(self._mit_pipefail(zeile))
+            self.assertEqual(len(b), 1, f"{zeile} -> {b}")
+            self.assertEqual(b[0]["art"], "huelle_verwirft_code", zeile)
+
+    def test_backtick_substitution_zaehlt_auch(self):
+        """`a | b` verliert den Code genauso wie $(a | b); der erste Melder suchte nur nach `$(`."""
+        b = sammle_riskante_pipes(self._mit_pipefail('echo "x=`a | b`"'))
+        self.assertEqual(len(b), 1, b)
+        self.assertEqual(b[0]["art"], "huelle_verwirft_code")
+
+    def test_arithmetik_ist_keine_pipe(self):
+        """`$((5|2))` ist ein Bit-Oder ohne Subprozess. Falschpositiv 1 der zweiten Linse:
+        `$((` ist praefixgleich mit `$(`, und eine nackte Klammerzaehlung merkt es nicht."""
+        self.assertEqual(sammle_riskante_pipes(self._mit_pipefail('echo "$((5|2))"')), [])
+
+    def test_pipe_in_anfuehrungszeichen_ist_text(self):
+        """Falschpositiv 2, und der Fall trug zusaetzlich einen echten Semantikfehler: eine
+        Substitution eroeffnet einen NEUEN Quote-Kontext. In `"$(printf 'a|b')"` gilt das
+        aeussere Doppelquote drinnen nicht, das `'a|b'` ist ein echter Textstring.
+        Giftprobe der Linse: `printf 'a|nonexistent_cmd_xyz123'` laeuft RC=0 ohne
+        'command not found' — es gibt keine zweite Pipeline-Stufe."""
+        self.assertEqual(sammle_riskante_pipes(self._mit_pipefail(
+            """echo "$(printf 'a|b')\"""")), [])
+
+    def test_escaptes_pipezeichen_ist_keine_pipe(self):
+        r"""Falschpositiv 3. Kontrollpaar der Linse: `true \| nichtexistent` -> RC=0,
+        `true | nichtexistent` -> RC=127. Das escapte Zeichen wird nie als Stufe gefahren."""
+        self.assertEqual(sammle_riskante_pipes(self._mit_pipefail(
+            'echo "$(true \\| true)"')), [])
+
+    def test_echte_pipe_neben_einem_textkoeder_wird_gemeldet(self):
+        """Die Gegenprobe zu den drei Falschpositiven: ein Textkoeder darf den Melder nicht
+        taub machen. Hier steht eine ECHTE Pipe (printf|sed) neben dem Koeder `a|b`."""
+        b = sammle_riskante_pipes(self._mit_pipefail(
+            """echo "$(printf 'x' | sed -n 's/a|b/c/p')\""""))
+        self.assertEqual(len(b), 1, b)
 
     def test_faengt_die_huelle_TROTZ_pipefail(self):
         """Der P0 vom 09.09.2026 als Fall: pipefail und trotzdem verloren.

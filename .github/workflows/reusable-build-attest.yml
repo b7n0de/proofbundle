@@ -86,14 +86,34 @@ jobs:
           #   bash -eo pipefail -c 'echo "sdist=$(sha256sum FEHLT | cut -d" " -f1)" > out; echo WEITER'
           #     -> RC=0, WEITER gedruckt, out enthaelt `sdist=` (LEER)
           #   dieselbe Pipe ohne die echo-Huelle -> RC=1, Abbruch
-          # Folge: `sdist-sha256` — der ATTESTIERTE Subjekt-Digest, den jeder Aufrufer dieses
-          # reusable workflow uebernimmt — kann leer werden, ohne dass ein Schritt rot wird.
+          # Folge: `sdist-sha256` kann leer werden, ohne dass ein Schritt rot wird.
+          #
+          # RICHTIGSTELLUNG ZUR TRAGWEITE (Gegenlesung 09.09.2026, Fund A). Hier stand, das sei
+          # 'der ATTESTIERTE Subjekt-Digest, den jeder Aufrufer uebernimmt'. GEMESSEN ist das
+          # falsch, und zwar dreifach: der einzige Aufrufer ist published-artifact-gate.yml mit
+          # dry_run=true; NIRGENDS im Repo liest ein `needs:` outputs.sdist-sha256; und
+          # actions/attest-build-provenance weiter unten liest den Wert gar nicht, es berechnet
+          # seinen Subjekt-Digest selbst aus `subject-path`. Der Fix bleibt richtig — ein Output,
+          # der still leer werden kann, ist ein Defekt, sobald ihn jemand liest. Aber die
+          # Behauptung ueber seine heutige Wirkung war ungemessen, und genau diese Art Satz hat
+          # den Defekt hier ueber Monate gedeckt.
           # Bei einer Zuweisung ist der Status der Zuweisung der der Substitution, `set -e` greift.
           # Gleiche Form wie release.yml seit 2026-08-16, die den Handfix bereits trug und deren
           # Begruendung woertlich sagt, dass pipefail diese Form NICHT rettet; portiert wurde er nie.
+          # Fund C derselben Gegenlesung: release.yml prueft die Kardinalitaet fuer BEIDE
+          # Artefakte, portiert war nur die sdist-Haelfte. Mit zwei .whl im dist/ lief der ganze
+          # Schritt RC=0 durch und schrieb beide Wheel-Hashes kommentarlos in SHA256SUMS — und
+          # `subject-path` unten attestiert dann zwei Wheels. Dieselbe Invariante, eine Haelfte
+          # gesweept; jetzt beide.
+          test "$(ls -1 dist/*.whl    2>/dev/null | wc -l)" -eq 1
           test "$(ls -1 dist/*.tar.gz 2>/dev/null | wc -l)" -eq 1
           sdist="$(sha256sum dist/*.tar.gz | cut -d' ' -f1)"
-          test -n "$sdist"
+          # FORMAT STATT NUR NICHT-LEER (Fund B). `test -n` war im realistischen Fehlerraum
+          # toter Code — die Zuweisung bricht vorher ab. Der eine reale Korruptionsweg rutschte
+          # aber durch: bei einem Backslash im Dateinamen stellt GNU sha256sum ein `\` vor den
+          # Hash (dokumentiertes coreutils-Escaping), der Wert ist dann verstuemmelt und
+          # trotzdem nicht leer. 64 Hexziffern zu verlangen faengt beides.
+          [[ "$sdist" =~ ^[0-9a-f]{64}$ ]]
           echo "sdist=$sdist" >> "$GITHUB_OUTPUT"
           # DERSELBE Fix wie in release.yml, im selben Durchgang. Diese Zeile schrieb
           # `…  dist/proofbundle-…tar.gz`; wer die Datei neben die Artefakte legt und
