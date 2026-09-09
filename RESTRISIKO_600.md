@@ -3871,7 +3871,7 @@ an gruenem Schritt 50. Registerschluessel `NACH-DEM-TAG-LISTE-AN-EINER-STELLE-01
 
 ## Abschnitts-Verzeichnis (erzeugt, nicht gepflegt)
 
-**74 Abschnitte**, aus den Ueberschriften dieser Datei erzeugt — eine handgepflegte Liste waere eine zweite Quelle und wuerde driften. Die Zeilennummern gelten fuer den Stand, an dem dieses Verzeichnis erzeugt wurde; die Reihenfolge bleibt.
+**74 Abschnitte** zum Zeitpunkt der Erzeugung — **VERALTET seit Deep-Gate Lauf 8**, der S79 bis S85 angehaengt hat; das Verzeichnis unten kennt sie nicht und die Zeilennummern gelten nur bis S78. Aus den Ueberschriften dieser Datei erzeugt — eine handgepflegte Liste waere eine zweite Quelle und wuerde driften. Die Zeilennummern gelten fuer den Stand, an dem dieses Verzeichnis erzeugt wurde; die Reihenfolge bleibt.
 
 | Zeile | Abschnitt | worum es geht |
 |---|---|---|
@@ -4739,3 +4739,127 @@ drei Gegenrichtungs-Faelle bleiben gruen.
 OTS-Deserialisierung. Als benannte Grenze gefuehrt, nicht Stunden vor einer Signatur umgebaut.
 
 Registerschluessel `SCHRANKE-BINDET-EINEN-TYP-STATT-DER-EIGENSCHAFT-STRUKTURBUDGET-01`.
+
+## S79 — Deep-Gate Lauf 8 endet FIX_FIRST: fuenf Funde, vier davon EINE Klasse, einer davon meiner
+
+Lauf 8 lief ueber `434e3a34`, DEEP 6L/7I, 39 Agenten, 3195 s. Zehn Kandidaten, fuenf bestaetigt,
+fuenf von der Jury verworfen. Beim Schliessen kam ein sechster dazu, den keine Linse gesehen hat.
+
+**Die Klasse des Laufs:** eine Pruefung bindet an eine FORM statt an die EIGENSCHAFT, meist als
+Fallunterscheidung ohne Sonst-Zweig. Vier der fuenf Funde sind das, und zwei davon sind Nachbarn
+von Fixes aus Lauf 7 — also meine eigenen, einen Zug alt.
+
+| Fund | Klasse in einem Satz |
+|---|---|
+| S80 Schluessel-Achse | mein Schluss-Arm schloss die WERT-Achse, die SCHLUESSEL-Achse blieb Aufzaehlung |
+| S81 Byte gegen Zeichen | die Schranke heisst `input_bytes` und zaehlt Codepoints |
+| S82 Aufloeser | `isinstance(..., dict)` ohne Sonst — ein unlesbares Praedikat war Schweigen |
+| S83 C2SP-Padding | eine benannte Ausnahme deckt EINE Abweichung, der Mechanismus liess ZWEI durch |
+| S84 sdist-Waechter | "hier wurzelt ein git-Baum" statt "das ist DIESES Projekts Checkout" |
+| S85 maskierter Nachbar | EIN Flag traegt ZWEI Bedeutungen, ein Konsument liest die falsche |
+
+## S80 — Der geschlossene Strukturlauf war nur auf der WERT-Achse geschlossen
+
+`_enforce_structural_budget` prueft je Schluessel `isinstance(str)` und `isinstance(int)` und legt
+danach nur den WERT auf den Stapel. Ein Schluessel aus `bytes`, `bytearray`, `tuple` oder
+`frozenset` bekam damit WEDER Schranke NOCH Abweisung; ein Container-Schluessel wurde nicht einmal
+gezaehlt und konnte beliebig viele Elemente tragen.
+
+```
+angesagt 3 von 7 abgewiesen, gemessen 3 von 7
+  WERT str · WERT bytes · SCHLUESSEL str          -> abgewiesen
+  SCHLUESSEL bytes/bytearray/tuple/frozenset      -> KEHREN ZURUECK
+```
+
+**Fix:** der Schluessel kommt auf DENSELBEN Stapel wie der Wert. Danach gilt fuer ihn dieselbe
+geschlossene Fallunterscheidung samt Schluss-Arm, und der naechste eingefuehrte Typ ist automatisch
+mit abgedeckt. Nach dem Fix 7 von 7 abgewiesen, Gegenrichtung 4 von 4 durch. Monoton: ein
+`str`-Schluessel faellt weiter unter `string_len`, ein `int`-Schluessel unter `int_bits`.
+
+## S81 — `input_bytes` misst Zeichen, nicht Bytes
+
+`loads_strict` vergleicht `len(text)` gegen `budget.input_bytes`. Auf einem `str` zaehlt das
+Codepoints. Zwei Dokumente GLEICHER Zeichenzahl (8 100 007):
+
+| Zeichenvorrat | Bytes | Anteil der Grenze | Verdikt vorher |
+|---|---|---|---|
+| ASCII | 8 100 007 | 0,97 | angenommen |
+| vierbyteig | 31 050 007 | 3,70 | **angenommen** |
+
+**Fix ohne Kodierkosten im Normalfall:** Zeichen groesser als die Grenze heisst sicher abweisen
+(Bytes sind nie weniger als Zeichen), Zeichen mal vier kleiner gleich der Grenze heisst sicher
+annehmen (UTF-8 braucht hoechstens 4 Byte je Zeichen), nur das Band dazwischen wird kodiert.
+**NICHT MONOTON, und das ist Absicht:** Dokumente ueber der Bytegrenze, die bisher durchkamen,
+fallen jetzt. Genau das ist die dokumentierte Bedeutung der Grenze.
+
+## S82 — Das Wohlgeformt-Orakel des Aufloesers endete auf der Statement-Ebene
+
+`cli._load_related` las das Praedikat nur, wenn es zufaellig ein Objekt war, ohne Sonst-Zweig. Ein
+signiertes, kanonisches Statement mit einer LISTE als Praedikat galt als `verified=True` mit
+`relationships=None` — also stumm — waehrend dieselben Bytes ALLEIN geprueft mit exit 2 durchfallen.
+Eine angehaengte Ruecknahme darin war damit unsichtbar. Direkt ueber dem Zweig steht im selben Code
+der Kommentar zu genau dieser Klasse, eine Ebene hoeher am 05.09. geschlossen.
+
+**Meine erste Fassung war ZU BREIT, und die Jury hat sie widerlegt.** Sie fragte nur
+`"predicate" in stmt` und wies damit auch `predicate: null` ab; in-toto v1 erlaubt ein fehlendes
+oder leeres Praedikat, und `relationships: null` ist eine bewusst gezogene Python/Rust-Paritaetslinie.
+Enge Fassung: nur bei EINEM UNSERER drei Praedikattypen und nur bei einem positiv falschen Wert.
+Angesagt 2 von 6 als Formfehler, gemessen 2 von 6, alle sechs Zeilen wie erwartet.
+
+**Der Spiegel im Rust-Verifizierer ist gesetzt**, sonst bliebe das Differential fuer diese Klasse
+blind — beide Seiten schwiegen gleich. Gemessen ueber beide Implementierungen: das Kantenziel geht
+von `py 0 / rs 0` auf `py 2 / rs 2` mit `lineage=FAIL`, und dasselbe Ziel allein geprueft endet
+ebenfalls 2.
+
+## S83 — Der C2SP-Dekoder duldete eine ZWEITE, undokumentierte Abweichung
+
+Der Docstring nennt GENAU EINE geduldete Abweichung, die Pad-Bits, mit Go's StdEncoding als
+Massstab. Der Aufruf darunter nahm auch UEBERZAEHLIGES Padding an, und Go weist das ab — die
+genannte Begruendung deckt diese Achse also nicht. `QUI=`, `QUJ=` und `QUI==` ergaben alle drei
+`b"AB"`, `QUJD` und `QUJD=` beide `b"ABC"`.
+
+**Fix:** Laenge und Pad-Struktur gegen die kanonische Kodierung; abweichen darf ausschliesslich das
+letzte Datenzeichen, weil dort die geduldeten Pad-Bits sitzen. Angesagt 2 von 5 abgewiesen, gemessen
+2 von 5. Ueber die sechs echten Materiallaengen: 6 von 6 kanonisch durch, 5 von 6 mit Extra-Pad
+gefallen — bei zwei Fuellzeichen scheitert ein drittes schon an der Blockgroesse.
+
+**Der Waechter konnte die Achse nie erreichen.** `canonicity_preserving_variants` erzeugte
+`surplus_padding` im SONST-Zweig von `if s.endswith("=")`, und der Korpus bestand aus EINEM String,
+der immer den anderen Zweig nahm. Das Glied war tot. Jetzt wird es IMMER erzeugt, und der Korpus
+traegt fuenf Laengen ueber alle drei Fuellklassen. Fangnachweis: gegen den reparierten Dekoder
+224 Untertests gruen, gegen den unreparierten rot an genau diesem Glied.
+
+## S84 — Zwei Testwaechter fragen nach einem git-Baum statt nach diesem Projekt
+
+`_in_git_checkout()` und `cf._dieser_baum_ist_das_repo(REPO)` fragen, ob HIER ein Repositorium
+wurzelt. Ein Paketierer, der im entpackten sdist `git init` ruft (dpkg-source, gbp, Nix, Guix, oder
+wer lokale Patches verfolgt), macht die Form wahr, waehrend die Eigenschaft falsch bleibt: das sdist
+liefert weder `tools/` noch `.gitignore`. Die ausgelieferte Suite FIEL dann, statt zu ueberspringen.
+
+Nachgebildetes sdist mit `git init`: angesagt 2 failed, gemessen 2 failed; nach dem Fix 2 skipped.
+Der eigenschafts-gebundene Helfer lag die ganze Zeit eine Datei weiter:
+`conftest.running_in_repo_checkout()` prueft die Marker `.github`, `tools`, `SPEC.md`.
+
+## S85 — Ein unlesbarer Nachbar maskierte die Ruecknahme, die er erklaert
+
+Beim Schliessen des Nachbar-Arms von S82 gefunden, von keiner Linse gesehen. `successor_warning`
+uebersprang jeden Nachbarn mit `verified is not True`. Der Aufloeser setzt dieses Feld seit dem
+L4-01-Fix vom 05.09. AUCH fuer einen unlesbaren Payload — **ein Flag, zwei Bedeutungen**, und diese
+Schleife las es fuer die andere.
+
+```
+angesagt 4 Zeilen, gemessen 4 von 4
+  verifiziert, Block unlesbar          -> meldet malformed_successor
+  verifiziert, echte Ruecknahme        -> meldet retracted_by_attached
+  Payload unlesbar, ohne Ruecknahme    -> NICHTS
+  Payload unlesbar, MIT echter Ruecknahme ueber uns  -> NICHTS
+```
+
+Die letzte Zeile ist der Angriff: eine echte Ruecknahme in einem Statement mit kaputtem Payload ist
+unsichtbar. Genau der Fehlermodus, den ein Absatz in derselben Funktion ausschliesst — umgesetzt
+fuer den unlesbaren Block, vergessen fuer den unlesbaren Payload. Mein Fix zu S82 hat den Eingang
+dorthin verbreitert, indem er die Menge der `payload_malformed`-Nachbarn vergroessert hat.
+
+**Fix in beiden Sprachen:** ein unlesbarer Payload landet im selben unlesbar-Zweig wie ein
+unlesbarer Block; eine gebrochene SIGNATUR bleibt uebersprungen, denn eine unsignierte Behauptung
+ist keine Aussage ueber uns. Angesagt 6 Zeilen, gemessen 6 von 6, beide Gegenrichtungen halten.

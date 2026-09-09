@@ -107,8 +107,12 @@ def canonicity_preserving_variants(s: str, *, alphabet: str) -> dict[str, str]:
         v["padbits"] = pv
     if s.endswith("="):
         v["unpadded"] = s.rstrip("=")
-    else:
-        v["surplus_padding"] = s + "="
+    # UEBERZAEHLIGES PADDING IMMER, nicht im SONST-Zweig (deep gate Lauf 8, Jury zu L1-C2SPPAD-01).
+    # Vorher stand diese Zeile im `else`, und der Korpus bestand aus EINEM String, der immer den
+    # `if`-Zweig nahm — das Glied war damit tot, und genau die Achse, auf der `decode_b64_c2sp`
+    # eine zweite Schreibweise annahm, konnte der Waechter nie erreichen. Ein Generator, dessen
+    # Glieder sich gegenseitig ausschliessen, prueft weniger, als seine Liste behauptet.
+    v["surplus_padding"] = s + "="
     if alphabet == "std":
         other = s.replace("+", "-").replace("/", "_")
     else:
@@ -192,23 +196,30 @@ class TestStrictDecoderFamily(unittest.TestCase):
     def _family(self):
         from proofbundle._wire_b64 import decode_b64, decode_b64_c2sp, decode_b64_either, decode_b64url
 
-        klar = b"hallo welt, ein laengerer koerper damit die laenge variiert"
-        std = base64.b64encode(klar).decode("ascii")
-        url = base64.urlsafe_b64encode(klar).decode("ascii")
-        # (decoder, canonical clean form, alphabet of that form, variants that this decoder MAY accept
-        #  because its format says so — everything else in the population must be refused)
-        return klar, (
-            (decode_b64, std, "std", set()),
-            (decode_b64url, url.rstrip("="), "url", set()),
-            (decode_b64_either, std, "std", {"other_alphabet"}),          # DSSE: both alphabets, padded
-            (decode_b64_either, url, "url", {"other_alphabet"}),
-            (decode_b64_c2sp, std, "std", {"padbits"}),                    # C2SP note: Go-parity pad bits
-        )
+        # DREI PAD-KLASSEN, nicht eine (deep gate Lauf 8, Jury zu L1-C2SPPAD-01). Der Korpus war
+        # EIN String von 59 Byte, also immer genau ein Fuellzeichen. Damit war der halbe Generator
+        # unerreichbar. Die Laengen unten decken Rest 0, 1 und 2 ab und nehmen die vier echten
+        # Materiallaengen dieser Flaeche mit: ed25519-Schluessel 33, note root 32,
+        # Signaturzeile 68, ed25519-Cosignatur 76.
+        koerper = (b"hallo welt, ein laengerer koerper damit die laenge variiert",  # 59, Rest 2
+                   b"\x5a" * 33, b"\x5a" * 32, b"\x5a" * 68, b"\x5a" * 76)
+        familie = []
+        for klar in koerper:
+            std = base64.b64encode(klar).decode("ascii")
+            url = base64.urlsafe_b64encode(klar).decode("ascii")
+            familie.extend((
+                (decode_b64, std, "std", set(), klar),
+                (decode_b64url, url.rstrip("="), "url", set(), klar),
+                (decode_b64_either, std, "std", {"other_alphabet"}, klar),   # DSSE: beide Alphabete, gepolstert
+                (decode_b64_either, url, "url", {"other_alphabet"}, klar),
+                (decode_b64_c2sp, std, "std", {"padbits"}, klar),            # C2SP: Go-Paritaet Pad-Bits
+            ))
+        return koerper[0], familie
 
     def test_every_probeable_decoder_rejects_junk_and_accepts_the_clean_form(self):
-        klar, familie = self._family()
-        for fn, sauber, _alph, _allowed in familie:
-            with self.subTest(fn=fn.__name__, alphabet=sauber[-6:]):
+        _erstes, familie = self._family()
+        for fn, sauber, _alph, _allowed, klar in familie:
+            with self.subTest(fn=fn.__name__, laenge=len(klar), alphabet=sauber[-6:]):
                 # ANTI-PARITY, first and non-negotiable: without this a decoder that refuses
                 # EVERYTHING passes every assertion below.
                 self.assertEqual(
@@ -231,12 +242,12 @@ class TestStrictDecoderFamily(unittest.TestCase):
         spelling of the same bytes: refused, unless the decoder's format explicitly allows that
         spelling (DSSE: the other alphabet, padded; C2SP: non-zero pad bits, Go parity) — and those
         allowances are LISTED, so a new one cannot creep in silently."""
-        klar, familie = self._family()
-        for fn, sauber, alph, allowed in familie:
+        _erstes, familie = self._family()
+        for fn, sauber, alph, allowed, klar in familie:
             varianten = canonicity_preserving_variants(sauber, alphabet=alph)
             self.assertGreaterEqual(len(varianten), 5, "the generator produced too few members")
             for name, val in varianten.items():
-                with self.subTest(fn=fn.__name__, variant=name):
+                with self.subTest(fn=fn.__name__, laenge=len(klar), variant=name):
                     if name in allowed:
                         self.assertEqual(fn(val), klar, f"{fn.__name__} must accept its format's {name}")
                         continue

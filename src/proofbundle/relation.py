@@ -527,7 +527,33 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     unlesbar: str | None = None
     unlesbar_hex: str | None = None
     for other_hex, other in related.items():
-        if not isinstance(other, dict) or other.get("verified") is not True:
+        if not isinstance(other, dict):
+            continue
+        # EIN UNLESBARER PAYLOAD IST NICHT DASSELBE WIE EINE UNGUELTIGE SIGNATUR (Lauf 8, beim
+        # Schliessen von L4-800-01 am Nachbar-Arm gemessen). `verified` traegt seit dem L4-01-Fix
+        # vom 05.09. ZWEI Bedeutungen: "Signatur haelt" UND "Payload lesbar" — der Aufloeser setzt
+        # es fuer beides auf False. Diese Schleife las es fuer die erste, und damit fiel ein
+        # Nachbar mit unlesbarem Payload STUMM aus der Betrachtung, mitsamt der Ruecknahme, die er
+        # erklaert. GEMESSEN, 4 von 4 Zeilen wie angesagt: ein solcher Nachbar meldete NICHTS,
+        # sogar dann, wenn er eine echte `retracts`-Kante ueber unser Subjekt trug. Die Verformung
+        # maskierte die Ruecknahme — genau der Fehlermodus, den der Absatz oben ausschliesst.
+        #
+        # Ein Nachbar mit gebrochener SIGNATUR bleibt uebersprungen: eine unsignierte Behauptung
+        # ist keine Aussage ueber uns. Ein Nachbar mit unlesbarem PAYLOAD dagegen hat etwas
+        # erklaert, das wir nicht auswerten koennen, und faellt in denselben unlesbar-Zweig wie ein
+        # unlesbarer relationships-Block.
+        _payload_kaputt = other.get("payload_malformed")
+        if other.get("verified") is not True and not _payload_kaputt:
+            continue
+        if _payload_kaputt:
+            if unlesbar_hex is None or other_hex < unlesbar_hex:
+                unlesbar_hex = other_hex
+                unlesbar = (
+                    f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
+                    f"receipt {other_hex[:12]}… carries a signed payload this verifier cannot read "
+                    f"({str(_payload_kaputt)[:80]}); a retraction or supersession declared in it "
+                    "cannot be evaluated and is therefore NOT ruled out (fail-closed — an "
+                    "unreadable statement about this receipt is never silence)")
             continue
         nested = other.get("relationships")
         if nested is None:

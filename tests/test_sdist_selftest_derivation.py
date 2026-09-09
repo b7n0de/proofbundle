@@ -320,9 +320,17 @@ class BauartefakteZaehlenNicht(unittest.TestCase):
         Skip sagt das. Die Eigenschaft selbst haelt der Cleanroom-Job ueber
         `test_ohne_git_bleibt_das_strengere_alte_verhalten` weiter, nur von der anderen Seite.
         """
-        if not _in_git_checkout():
-            self.skipTest("kein git-Checkout (entpacktes sdist) — die Ignore-Regel ist hier nicht "
-                          "messbar, und nicht messbar ist keine Freigabe")
+        # ZWEITE BEDINGUNG (deep gate Lauf 8, Fund L6-600-04): `_in_git_checkout` fragt, ob HIER
+        # ein Repositorium wurzelt — eine FORM. Ein Paketierer, der im entpackten sdist `git init`
+        # ausfuehrt (dpkg-source, gbp, Nix/Guix, oder wer lokale Patches verfolgt), macht die Form
+        # wahr, waehrend die EIGENSCHAFT falsch bleibt: das sdist liefert weder `tools/` noch
+        # `.gitignore`, und ohne Ignore-Datei kann `_ist_bauartefakt` gar nicht antworten. Gemessen:
+        # in dieser Lage FIEL der Fall, statt zu ueberspringen. `running_in_repo_checkout` fragt
+        # genau die Eigenschaft (Marker .github/tools/SPEC.md) und liegt eine Datei weiter.
+        if not (_in_git_checkout() and cf.running_in_repo_checkout()):
+            self.skipTest("kein Quell-Checkout dieses Projekts (entpacktes sdist, ggf. mit eigenem "
+                          "git init) — die Ignore-Regel ist hier nicht messbar, und nicht messbar "
+                          "ist keine Freigabe")
         self.assertFalse(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/crosscheck.py"),
                          "eine echte Quelldatei gilt als Bauartefakt — die Ableitung wuerde blind")
         self.assertTrue(cf._ist_bauartefakt(REPO, "tools/pb_verify_rs/target/release/pb_verify_rs"),

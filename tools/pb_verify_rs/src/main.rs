@@ -697,6 +697,31 @@ const LINEAGE_NOT_EVALUATED: &str = "NOT_EVALUATED";
 const RELATION_STATEMENT_PREDICATE_TYPE: &str =
     "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1";
 
+/// Die Praedikattypen, deren Inhalt DIESES Paket liest. Nur fuer sie ist "predicate ist kein
+/// Objekt" ein Formfehler; bei einer fremden Attestation waere dieselbe Aussage eine Anmassung.
+/// Spiegel von `_EIGENE_PRAEDIKATTYPEN` in `src/proofbundle/cli.py` (deep gate Lauf 8, L4-800-01).
+const EIGENE_PRAEDIKATTYPEN: [&str; 3] = [
+    "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1",
+    RELATION_STATEMENT_PREDICATE_TYPE,
+];
+
+/// Traegt ein Statement EINES UNSERER Typen ein `predicate`, das ein positiv falscher Typ ist?
+///
+/// ENG GEFASST wie auf der Python-Seite: vorhanden, nicht null, und kein Objekt. Ein FEHLENDES
+/// und ein NULL-Praedikat bleiben unberuehrt (in-toto v1 erlaubt beides), und eine fremde
+/// Attestation wird nicht beurteilt.
+fn praedikat_ist_positiv_falsch(stmt: &serde_json::Value) -> bool {
+    let ptype = stmt.get("predicateType").and_then(|v| v.as_str()).unwrap_or("");
+    if !EIGENE_PRAEDIKATTYPEN.contains(&ptype) {
+        return false;
+    }
+    match stmt.get("predicate") {
+        None => false,
+        Some(v) => !v.is_null() && !v.is_object(),
+    }
+}
+
 fn is_sha256_hex(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
@@ -1135,6 +1160,30 @@ fn successor_warning(
     let subject = subject_hex?;
     let mut unlesbar: Option<(String, String)> = None;
     for (other_hex, other) in related {
+        // EIN UNLESBARER PAYLOAD IST NICHT DASSELBE WIE EINE UNGUELTIGE SIGNATUR — gespiegelt aus
+        // relation.py (Lauf 8, Nachbar-Arm von L4-800-01). `verified` traegt zwei Bedeutungen, und
+        // diese Schleife las es fuer die falsche: ein Nachbar mit unlesbarem Payload fiel stumm
+        // heraus, MITSAMT der Ruecknahme, die er erklaert. Eine gebrochene Signatur bleibt
+        // uebersprungen, ein unlesbarer Payload landet im unlesbar-Zweig.
+        if other.payload_malformed {
+            let ist_kleiner = match &unlesbar {
+                None => true,
+                Some((bisher, _)) => other_hex.as_str() < bisher.as_str(),
+            };
+            if ist_kleiner {
+                unlesbar = Some((
+                    other_hex.clone(),
+                    format!(
+                        "relation:malformed_successor (RELATION_MALFORMED_SUCCESSOR): attached \
+                         receipt {} carries a signed payload this verifier cannot read; a \
+                         retraction or supersession declared in it cannot be evaluated and is \
+                         therefore NOT ruled out (fail-closed)",
+                        &other_hex[..12.min(other_hex.len())]
+                    ),
+                ));
+            }
+            continue;
+        }
         if !other.verified {
             continue;
         }
@@ -1371,7 +1420,15 @@ fn load_related(
             }
         };
         if let Some(stmt) = parsed {
-            if let Some(pred) = stmt.get("predicate") {
+            // DER SONST-ARM, gespiegelt aus cli.py (deep gate Lauf 8, Fund L4-800-01, P1). `pred.get`
+            // liefert auf einem Nicht-Objekt schlicht None, und damit kam ein signiertes, kanonisches
+            // Statement mit einer LISTE als `predicate` als "geprueft, keine Kanten" durch — stumm,
+            // waehrend dieselben Bytes standalone durchfallen. Ohne diesen Arm bliebe das Differential
+            // gegen Python genau fuer diese Klasse blind, denn beide Seiten schwiegen gleich.
+            if praedikat_ist_positiv_falsch(&stmt) {
+                payload_malformed = true;
+                verified = false;
+            } else if let Some(pred) = stmt.get("predicate") {
                 if let Some(r) = pred.get("relationships") {
                     relationships = Some(r.clone());
                 }

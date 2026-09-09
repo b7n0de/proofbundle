@@ -1776,6 +1776,36 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Die Praedikattypen, deren Inhalt DIESES Paket liest. Nur fuer sie ist "predicate ist kein
+#: Objekt" ein Formfehler; bei einer fremden Attestation waere dieselbe Aussage eine Anmassung,
+#: und ihr Praedikat traegt ohnehin keine Kanten, die dieser Aufloeser lesen wuerde.
+_EIGENE_PRAEDIKATTYPEN = (
+    "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1",
+    "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1",
+)
+
+
+def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
+    """Traegt ein Statement EINES UNSERER Typen ein `predicate`, das ein positiv falscher Typ ist?
+
+    ENG GEFASST, und die Enge ist der Punkt (deep gate Lauf 8, Jury zu L4-800-01): meine erste
+    Fassung fragte nur `"predicate" in stmt` und wies damit auch `predicate: null` ab. in-toto v1
+    erlaubt ein fehlendes oder leeres Praedikat, und `relationships: null` ist hier eine bewusst
+    gezogene Python/Rust-Paritaetslinie — die Jury hat den breiten Arm deshalb widerlegt, und sie
+    hat recht. Ein FEHLENDES und ein NULL-Praedikat bleiben also unberuehrt.
+
+    Positiv falsch heisst: vorhanden, nicht null, und kein Objekt — eine Liste, eine Zeichenkette,
+    eine Zahl. Dann ist das Ziel nicht lesbar, und nicht lesbar ist nie Schweigen.
+    """
+    if str(stmt.get("predicateType") or "") not in _EIGENE_PRAEDIKATTYPEN:
+        return False
+    if "predicate" not in stmt:
+        return False
+    wert = stmt["predicate"]
+    return wert is not None and not isinstance(wert, dict)
+
+
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
     STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
@@ -1840,6 +1870,28 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
         if stmt is not None:
             if isinstance(stmt.get("predicate"), dict):
                 rels = stmt["predicate"].get("relationships")
+            elif _praedikat_ist_positiv_falsch(stmt):
+                # DER SONST-ARM (deep gate Lauf 8, Fund L4-800-01, P1). Der Zweig darueber zaehlte
+                # EINEN Typ auf und hatte kein Sonst — dieselbe Klasse, die der Absatz oben eine
+                # Ebene hoeher am 2026-09-05 geschlossen hat, hier eine Ebene tiefer wieder offen.
+                # GEMESSEN am Kopf 434e3a3: ein kanonisches, DSSE-gueltiges Statement mit
+                # `predicate` als LISTE oder ZEICHENKETTE kam als `verified=True` mit
+                # `relationships=None` durch — also stumm. Dieselben Bytes enden standalone mit
+                # exit 2. Eine angehaengte Ruecknahme in so einem Statement war damit unsichtbar,
+                # waehrend die identische Ruecknahme in einem lesbaren Nachbarn blockt.
+                #
+                # `predicate` ist im in-toto-Statement ein OBJEKT. Vorhanden und kein Objekt ist
+                # deshalb dasselbe wie ein Parse-Fehler: das Ziel ist NICHT lesbar, und
+                # "nicht lesbar" ist nie Schweigen. FEHLENDES `predicate` bleibt unberuehrt — das
+                # ist ein Statement ohne Kanten und kein Formfehler.
+                payload_malformed = (
+                    "statement predicate is "
+                    f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
+                    "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
             # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
             subj = stmt.get("subject")
