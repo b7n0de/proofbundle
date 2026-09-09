@@ -466,12 +466,32 @@ class TestGateMetaTest(unittest.TestCase):
         from proofbundle import relation as _rel
 
         datei = Path(_rel.__file__).resolve()
-        erwartet = (Path(__file__).resolve().parents[1] / "src" / "proofbundle" / "relation.py")
-        self.assertEqual(
-            datei, erwartet.resolve(),
-            f"dieser Meta-Test mutiert {datei}, gemeint ist {erwartet}. Das Modul kommt aus einem "
-            "fremden Baum (editable-Installation?) — die Messung liefe ueber anderen Code als den "
-            "unter Pruefung")
+        # DER RIEGEL PRUEFT JETZT DEN INHALT, NICHT DEN PFAD (gemessen 2026-09-09 im Job
+        # `hermetic-cleanroom` an PR 194). Vorher stand hier ein Vergleich des geladenen
+        # `__file__` mit `<baum>/src/proofbundle/relation.py`. Der stimmt im Checkout mit
+        # editable-Installation und ist genau dort falsch, wo es zaehlt: in der AUSGELIEFERTEN
+        # Aufstellung wird das sdist in ein sauberes venv installiert, das Modul kommt aus
+        # `site-packages` — und ist trotzdem der Code unter Pruefung, weil es aus genau diesem
+        # sdist gebaut wurde. Gemessen fiel der Fall dort mit
+        # `/tmp/clean/lib/python3.12/site-packages/... != /tmp/sdisttree/src/...`, also in dem
+        # einen Job, dessen Zweck die Pruefung der ausgelieferten Bytes ist.
+        #
+        # DIE KLASSE: eine Zusicherung am STELLVERTRETER (Pfadgleichheit) statt an der
+        # EIGENSCHAFT (es ist derselbe Code). Der Pfad stimmt fast immer und irrt genau in der
+        # Aufstellung, die der Test absichern soll.
+        #
+        # Die Eigenschaft, die der Riegel wirklich meint: das mutierte Modul darf nicht aus einem
+        # FREMDEN Baum mit ANDEREM Code stammen. Liegt die Quelle im Baum, wird byteweise
+        # verglichen — eine fremde editable-Installation mit abweichendem Code faellt weiterhin
+        # auf, eine mit identischem Code ist per Definition harmlos. Fehlt die Baumquelle, gibt
+        # es keinen zweiten Kandidaten; dann traegt die Vorlagenpruefung darunter den Fall.
+        im_baum = (Path(__file__).resolve().parents[1] / "src" / "proofbundle" / "relation.py")
+        if im_baum.is_file():
+            self.assertEqual(
+                datei.read_bytes(), im_baum.read_bytes(),
+                f"dieser Meta-Test mutiert {datei}, und dessen Bytes weichen von {im_baum} ab. "
+                "Das Modul kommt aus einem fremden Baum (editable-Installation?) — die Messung "
+                "liefe ueber anderen Code als den unter Pruefung")
         quelle = datei.read_text(encoding="utf-8")
         self.assertEqual(
             quelle.count(self._NEUER_ZWEIG), 1,
