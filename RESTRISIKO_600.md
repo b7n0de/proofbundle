@@ -4064,3 +4064,58 @@ Gefunden hat sie jedes Mal nicht das Nachdenken, sondern das **Ausfuehren**.
 
 Der Test liegt fertig im Scratch und wandert nach dem Tag als `tests/` in den Baum — dann mit einem
 echten pytest-Node, den der Klassen-Ledger als `regression_test` akzeptiert (S64).
+
+## S66 — Nach-dem-Tag-Punkt 1 ist gebaut und belegt: der neue Baum-Riegel, 5 von 5 mit ECHTEN Baeumen
+
+Der Riegel aus S65-Punkt 1 liegt fertig im Scratch und ist gegen **wirklich gebaute Baeume**
+gefahren — kein gesetztes Attribut, keine Attrappe. Fuer jeden Fall entsteht ein Wegwerf-Baum mit
+`src/proofbundle` und `tests/`, und das Modul wird per `importlib` **daraus** geladen. Der
+Release-Baum wurde nicht angefasst.
+
+**Die Eigenschaft, die er jetzt bindet** (statt der Pfadform): das geladene **Paket** ist
+byte-fuer-byte dasselbe wie das Paket im Baum dieses Tests — ueber **alle** `*.py`, nicht ueber die
+eine mutierte Datei. Fehlt die Baumquelle, entscheidet die **RECORD** der installierten
+Distribution. Fehlt auch die, lautet das Urteil **`SCHWACH`** — ausdruecklich kein Bestehen, sondern
+„hier nicht messbar".
+
+```
+ANGESAGT:  C ok · F1 MELDET · F2 MELDET · F5 MELDET · F4 ok/SCHWACH
+
+  ✓ C  Kontrolle, Modul aus DIESEM Baum            ok       Paket byte-gleich (d6be9fdbeb8b)
+  ✓ F1 fremder Baum, GESCHWISTER sabotiert         MELDET   Paket weicht ab
+  ✓ F2 fremder Baum unter der Wurzel geschachtelt  MELDET   Paket weicht ab
+  ✓ F5 Baumquelle ist ein Symlink nach aussen      MELDET   zeigt aufgeloest ausserhalb
+  ✓ F4 keine Baumquelle (legitime Installation)    SCHWACH  keine RECORD — NICHT MESSBAR
+                                                            5/5 wie angesagt
+```
+
+**F1 ist der Fall, den die alte Fassung durchliess:** `relation.py` byte-identisch, nur `budget.py`
+sabotiert. Der Dateivergleich schwieg dort; der Paketvergleich meldet.
+
+### Und der neue Riegel hatte beim ersten Lauf denselben Fehler wie alles andere heute Nacht
+
+**F5 kam als `ok` durch.** Nicht wegen der Logik, sondern wegen des Vergleichs:
+
+```
+wurzel     = /tmp/riegel-neu-xxxx/f5
+aufgeloest = /tmp/riegel-neu-xxxx/f5_fremd/src/proofbundle
+str(a).startswith(str(b))  ->  True     ("f5_fremd" beginnt mit "f5")
+```
+
+**Ein STRING-Praefix ist nicht dieselbe Sache wie ein PFAD-Praefix.** Das ist die Klasse, gegen die
+dieser Riegel gebaut wird — in ihm selbst, im ersten Lauf. Ersetzt durch echte Pfad-Enthaltenheit
+(`aufgeloest == w or w in aufgeloest.parents`).
+
+**Gefunden hat es der Fangnachweis, nicht das Nachdenken** — und zwar nur, weil eine Zeile der
+Ansage widersprach. Haette ich `F5` nicht vorher auf `MELDET` festgelegt, waere ein `ok` als
+Bestaetigung durchgegangen.
+
+**Damit ist die Zaehlung dieser Nacht:** in einem einzigen kleinen Werkzeug **vier** Fehler
+derselben Klasse (Pfadausdruck · leere Liste · Schluesselform · String-Praefix), **jeder** erst beim
+Ausfuehren sichtbar, **jeder** vorher fuer richtig gehalten.
+
+**Was noch fehlt, ehrlich benannt:** die beiden Falschmeldungs-Faelle der alten Fassung
+(`pip install --target` ohne `src/` im Testbaum, zipimport) sind hier **nicht** mit echten
+Installationen geprueft — F4 deckt nur die Form „keine Baumquelle". Der zipimport-Zweig ist im Code
+vorhanden (`loader.get_source()`), aber **ungetestet**. Beides gehoert in denselben Zug wie die
+Landung. Registerschluessel `NEUER-BAUM-RIEGEL-GEBAUT-FUENF-VON-FUENF-ZWEI-FAELLE-UNGEPRUEFT-01`.
