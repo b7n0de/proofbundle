@@ -329,6 +329,12 @@ AUSGESCHLOSSEN = {
     "gen_findings_register.py": "liest denselben Weg aus Umgebung oder Datei",
     # Kein sdist-Verbraucher: der git-Hook des Checkouts und der CI-Kanal, beides gibt es dort nicht.
     "install_git_hooks.sh": "Verbraucher sind der Checkout-Hook und CI, nicht das Paket",
+    # Owner-Auftrag B1 (09.09.2026): richtet die SETUP-Phase einer Agenten-Umgebung ein — pip
+    # install -e ., cargo build des zweiten Verifizierers, Versionsausgabe. Sein Verbraucher ist
+    # ein CHECKOUT mit Netz und cargo, nicht ein entpacktes sdist: dort gibt es weder .git noch
+    # die Rust-Quellen, und `pip install -e .` auf ein entpacktes Archiv ist nicht der Weg eines
+    # Paketnutzers. Dieselbe Begruendung wie bei install_git_hooks.sh, andere Phase.
+    "codex_setup.sh": "richtet einen Checkout mit Netz und cargo ein, kein sdist-Verbraucher",
     # Rekursion, gefunden 2026-09-06 von einer Review-Linse gegen den Fix, der die Ebene darueber
     # schloss: `graft` ist REKURSIV, `iterdir()` ist es nicht. Diese Datei lag unter dem Radar
     # BEIDER Fassungen der Liste.
