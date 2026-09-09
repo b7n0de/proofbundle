@@ -3949,3 +3949,30 @@ an gruenem Schritt 50. Registerschluessel `NACH-DEM-TAG-LISTE-AN-EINER-STELLE-01
 | 3716 | **S63** | Dreimal gemessen, dreimal dasselbe: der Zeuge kann ueber einem proofbundle-Commit nie FULL we… |
 | 3758 | **S64** | Der Klassen-Ledger hat meine zwei Eintraege ABGELEHNT, und alle fuenf Gruende treffen |
 | 3797 | **S65** | Die Nach-dem-Tag-Liste an EINER Stelle, mit den Schritten statt der Absicht |
+
+### S61, Nachtrag — der Muss-Fehlschlag in voller Groesse, unabhaengig reproduziert
+
+Der Zwei-Kopien-Fangnachweis aus S61 lief ueber EINE Testdatei. Parallel lief der Befehl des Tors im
+Wortlaut ueber die **ganze Suite**, am ALTEN Kopf `df15844` (also der Fassung VOR dem Fix). Ergebnis
+nach 28:58 min:
+
+```
+3957 passed, 24 skipped, 2 warnings, 1086 subtests passed in 1738.52s      RC_PYTEST = 0
+coverage report -m --fail-under=83
+  -> No source for code: '…/src/proofbundle/relation.py [mutiert]'
+```
+
+**Damit ist der Befund unabhaengig bestaetigt**, und zwar auf einer anderen Maschine und einem
+anderen Interpreter als die CI (lokal 3.10, CI 3.12): die Suite ist gruen, der Report bricht. Die
+Testzahlen unterscheiden sich erwartbar (lokal 3957 / 24 skipped, CI 3934 / 47 skipped) — andere
+Interpreterversion, andere Extras, andere Skip-Menge. **Der Bruch ist von all dem unabhaengig.**
+
+**Zwei ehrliche Anmerkungen zur Messung selbst:**
+
+* Das Protokoll zeigt `RC_REPORT=0`. Das ist **nicht** der Rueckgabewert des Reports, sondern der
+  der `tail`-Kette dahinter — genau die Falle, die in diesem Register schon einmal steht
+  (*„der Rueckgabewert aus der Pipe ist der des letzten Glieds"*). Der Beleg ist die Zeile
+  `No source for code`, nicht die Zahl daneben.
+* Die Maschine trug waehrend des Laufs **fuenf parallele pytest-/coverage-Laeufe aus drei Konten**
+  (`b7_messfeld.py`). Fuer die Frage „bricht der Report" ist das ohne Belang; die **28:58 min** sind
+  unter dieser Last gemessen und taugen nicht als Laufzeit-Referenz.
