@@ -3868,3 +3868,84 @@ bleibt dort** — diese Bahn fasst keinen 2bedone-Quellcode an.
 Bereitschaftsartefakte (C6.2, C6.3, C8.2, C12.1). Sie sind kein Nach-Tag-Punkt, sondern die
 **Vorbedingung** des Tags — sie haengen am Deep-Gate-Lauf ueber den Kandidatenkopf, und der haengt
 an gruenem Schritt 50. Registerschluessel `NACH-DEM-TAG-LISTE-AN-EINER-STELLE-01`.
+
+## Abschnitts-Verzeichnis (erzeugt, nicht gepflegt)
+
+**74 Abschnitte**, aus den Ueberschriften dieser Datei erzeugt — eine handgepflegte Liste waere eine zweite Quelle und wuerde driften. Die Zeilennummern gelten fuer den Stand, an dem dieses Verzeichnis erzeugt wurde; die Reihenfolge bleibt.
+
+| Zeile | Abschnitt | worum es geht |
+|---|---|---|
+| 392 | ↳ **S1 · Budget call sites** | five are unreachable, the sixth was a real P1 and is now CLOSED |
+| 422 | ↳ **S2 · The package-guard skip assertion** | CLOSED, and the deferral reason was wrong |
+| 439 | ↳ **S3 · `pre_tag_audit_gate` first-candidate acceptance** | NO FINDING, measured in both directions |
+| 449 | ↳ **S4 · A shipped prose document drifted from the corpus it describes** | CLOSED, and the deferral was again too cautious |
+| 486 | ↳ **S5 · The two new riegel are bound one at a time, never together** | open, named by the cross-family lens |
+| 529 | ↳ **S6 · A REQUIRED check is red because a wall-clock ceiling is a number from one machine** | open, calibrated, not yet measured in CI |
+| 581 | ↳ **S7 · The calibration's own machine factor was frozen on its first measurement** | CLOSED, caught by a lens on the fix itself |
+| 614 | ↳ **S7b · The first version of the S7 fix was itself refuted** | by three lenses, on three different grounds |
+| 669 | ↳ **S7c · A bimodal machine silently loosened the ceiling tenfold** | CLOSED, named by the cross-family lens |
+| 691 | ↳ **S7d · Three mutants survived the entire class, and a fourth defect was in the test harness itself** | CLOSED |
+| 721 | ↳ **S10 · Four lines of the advisory matrix are red because three evidence artefacts bind a tree the candidate has overtaken** | open, owner-gated on the signature |
+| 757 | ↳ **S8 · The reference load measures sha256 only, and six of the twelve axes are not hash-bound** | open, NOT measurable on one machine |
+| 781 | ↳ **S11 · The reference load now measures TWO cost families, and the choice between them abstains** | S8's loosening direction is closed, its magnitude still is not |
+| 818 | ↳ **S12 · A calibration that scales a BOUND does not protect a SLOPE** | found by a load probe, root cause in the estimator's own repetition policy |
+| 868 | ↳ **S13 · The cap was derived from the SAME measurement it judged** | so it fell exactly when it was needed, and `coverage` went green by twelve abstentions |
+| 918 | ↳ **S14 · Three guards were bound to the EXCEPTION their removal throws, not to the property they enforce** | found by a foreign-family lens that refuted my own prediction |
+| 975 | ↳ **S15 · Two of the cap's own guard tests went blind when I migrated the cap's source** | found by review, not by the suite, and my sweep of the previous section had missed them |
+| 1033 | ↳ **S17 · The machine factor was measured in a different time window than the costs it scales** | and a real threefold regression walked through the gap, past all three abstentions |
+| 1080 | ↳ **S18 · Four of my own repairs each produced a new fault of the same class** | and the only thing that improved was how loudly they failed |
+| 1113 | ↳ **S19 · The owner decision was made executable** | and building it showed it would have decided nothing |
+| 1150 | ↳ **S9 · The one-second budget is a declared policy, not a derived number** | open by design, named because it is load-bearing |
+| 1274 | **S20** | Ein Tor, dessen rote Zeilen der Kandidat selbst wegerklaeren darf |
+| 1300 | **S21** | C6.3 verlangt einen 24-Stunden-Soak, den es zum Kandidatenkopf nicht gibt |
+| 1315 | **S22** | Rohmatrix und signiertes Differential-Artefakt tragen verschiedene Zahlen |
+| 1329 | **S23** | Zwei Zweig-Commits, die der Kandidat NICHT hat, bringen ihm nichts — gemessen statt vermutet |
+| 1369 | **S24** | C12.1 gehoert NICHT zu den drei Bindungsluecken, und meine Kettenbeschreibung war zu grob |
+| 1411 | ↳ **S22, Nachtrag vom 2026-09-08: die Frage ist am Kandidatenkopf gemessen beantwortet** | 42 |
+| 1447 | **S25** | GESCHLOSSEN (Owner-Entscheid 2026-09-08): die still unterdrueckte Ruecknahme |
+| 1562 | **S26** | `contentRootAlg`: ein vorhandener, aber unregistrierter Wert faellt still auf LEGACY zurueck |
+| 1581 | **S27** | Der sdist-Bau traegt einen Cache, der eine gestrichene Zeile ueberlebt |
+| 1598 | **S28** | Der Klassen-Ledger des Gates lief ueber 48,5 % seiner Klassen |
+| 1606 | **S29** | Der Wegwerfbaum der Zahlenbindung stellt seine eigene Vorbedingung her |
+| 1628 | **S30** | Zwei Grenzen des Import-Riegels, die am Artefakt nicht entscheidbar sind |
+| 1700 | **S31** | Der Riegel „stammt der Korpus aus seinem Generator" deckt EINEN der zwei Korpusse |
+| 1740 | **S32** | `errorContains` prueft nur EINE der beiden Implementierungen, und der Korpus sieht aus, als p… |
+| 1774 | **S33** | Der Vollstaendigkeits-Check des Budget-Belegs vergleicht sich mit sich selbst |
+| 1825 | **S34** | Zwei einzeln korrekte Riegel schliessen zusammen die Tuer zur Signatur |
+| 1881 | ↳ **S34, Korrektur vom 09.09.2026** | die un-Gegenlesung hat ein Glied dieser Kette widerlegt |
+| 1939 | ↳ **S30 (4), Nachtrag vom 09.09.2026** | die vierte Modulform verhaelt sich im sdist genauso, und das entscheidet ueber den Meta-Test |
+| 1967 | **S35** | Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine |
+| 2070 | ↳ **S35, Nachtrag vom 09.09.2026** | die Gegenlesung hat vier Stellen getroffen, drei davon tragen |
+| 2122 | ↳ **S35, zweiter Nachtrag** | meine eigene Empfehlung war so nicht ausfuehrbar |
+| 2158 | **S36** | Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung" |
+| 2188 | **S37** | Die Korrektur in EINEM Zug: die drei Waende sind eine UND-Kette, und ich habe den dritten Weg… |
+| 2297 | ↳ **S36 nachgemessen** | und die Messung entscheidet die Frage NICHT, die sie entscheiden sollte |
+| 2362 | **S38** | Der Kopf, an den die Owner-Karte die vier Bereitschaftsartefakte bindet, ist ueberholt |
+| 2404 | **S39** | Die Distributionen am jetzigen Kopf, beide Haelften des Byte-Freeze gruen |
+| 2446 | **S40** | Der Familien-Floor ist fuer S37-S39 NICHT erfuellt, und das gehoert an die Abschnitte selbst |
+| 2496 | **S41** | `probe/gatezeile-in-kandidat` traegt nichts, was der Release-Linie fehlt |
+| 2527 | **S42** | Wand 2 ist KEINE Owner-Entscheidung: ich habe dieselbe Klasse begangen, die ich eine Seite vo… |
+| 2631 | **S43** | Die Vorab-Quittung ist GUELTIG, sie bindet nur den falschen Baum |
+| 2674 | **S44** | Fuer die Neuausstellung der Vorab-Quittung gibt es einen schluessellosen Weg, und er ist gena… |
+| 2714 | **S45** | Der laufende Soak bindet einen 30 Commits alten Kopf, und das ist gemessen folgenlos |
+| 2760 | **S46** | Der CI-Stand am Fernkopf, selbst gemessen: zwei von sechs rot, und der rote ist der bekannte P0 |
+| 2812 | **S47** | Schritt 5 der Anweisung ist nicht erreichbar: schon das EMITTIEREN verlangt die Gate-Zeile |
+| 2856 | **S48** | Meine vier Claude-Linsen dieser Nacht waren adversarial und liefen auf Sonnet; der Standard v… |
+| 2906 | **S49** | S42 ist widerlegt: ich habe den Erzeuger der Gate-Zeile nie gemessen, sondern einen Nachbarn |
+| 3022 | **S50** | Die drei lokalen Zweige sind ueberholt, und ich haette daraus fast einen Befund gegen die Rel… |
+| 3055 | **S51** | Ein Zweig-Push loest hier GAR KEINE Pruefung aus; die CI haengt am Pull Request |
+| 3091 | ↳ **S50, Nachtrag** | „alle drei ueberholt" war getragen, jetzt ist es gemessen |
+| 3116 | **S52** | Der P0 ist weg, und was jetzt rot ist, ist mein eigener Riegel vom Vorabend |
+| 3168 | **S53** | Die un-Gegenlesung sagte REJECT, einer ihrer fuenf Punkte traf, und er zeigte auf den Zweig, … |
+| 3210 | **S54** | Der P0 L6-600-01 ist auf der entscheidenden Flaeche GRUEN |
+| 3224 | **S55** | Der Abschluss-Zeuge laesst sich auf dieses Repo richten, und sein Verdikt ist PARTIAL — aus g… |
+| 3263 | **S56** | Das advisory Tor am Kandidaten selbst gefahren: 28 PASS, 1 EXTERNAL, 4 FAIL — und die vier si… |
+| 3352 | **S57** | Die zweite Opus-Linse sagte REJECT zu S54/S55, und drei ihrer fuenf Punkte treffen |
+| 3404 | **S58** | Die dritte Opus-Linse hat den schwersten Fehler der ganzen Nacht gefunden: ich habe dem Owner… |
+| 3502 | **S59** | Die erste Opus-Linse hat meinen Fangnachweis entwertet: er stellt den Zustand her, statt den … |
+| 3579 | **S60** | Der Klassen-Nachbar aus S59 gemessen: er traegt die Pfadform, laeuft in der Auslieferung aber… |
+| 3619 | **S61** | `coverage` ist rot, die Suite ist gruen, und der Grund ist ein DATEINAME aus meinem eigenen M… |
+| 3679 | **S62** | Kein einziger Workflow hat eine `concurrency`-Gruppe, und das erklaert den alten `mutation`-A… |
+| 3716 | **S63** | Dreimal gemessen, dreimal dasselbe: der Zeuge kann ueber einem proofbundle-Commit nie FULL we… |
+| 3758 | **S64** | Der Klassen-Ledger hat meine zwei Eintraege ABGELEHNT, und alle fuenf Gruende treffen |
+| 3797 | **S65** | Die Nach-dem-Tag-Liste an EINER Stelle, mit den Schritten statt der Absicht |
