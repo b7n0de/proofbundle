@@ -4943,3 +4943,84 @@ ein Fund der Schlussrunde eine neue Iteration mit neuem Freeze verlangt und kein
 Genau deshalb steht S86 auf dem Arbeitszweig `arbeit/601-nachzug` fuer 6.0.1 und **nicht** auf dem
 Kandidatenkopf `1b2adc2`: dessen Baum-Digest bleibt unveraendert, und das pre-tag-Receipt bindet
 weiterhin die Fassung ohne diesen Abschnitt.
+
+## S87 — `verified=False` traegt zwei Bedeutungen, und `payload_malformed` sticht sie beide
+
+Von der Codex-Gegenlesung des Kopfes `a9bfa4ae` gemeldet (PR 194, Kommentar 3971677336, P2,
+"Skip malformed payloads when their signature is invalid"), **am Kandidatenkopf nachgemessen**.
+`successor_warning` (`relation.py:545`) prueft `payload_malformed` VOR der Signaturlage und meldet
+`RELATION_MALFORMED_SUCCESSOR`, auch wenn der Nachbar `verified=False` traegt.
+
+```
+gemessen an 1b2adc2, vier Faelle:
+  verified=False + payload_malformed   -> Warnung          <- der Fall
+  verified=False, ohne malformed       -> None             <- Signatur wird korrekt geprueft
+  verified=True  + payload_malformed   -> Warnung
+  verified=True,  sauber               -> None
+```
+
+**Die Ursache ist ein Flag mit zwei Bedeutungen** — dieselbe Klasse wie S85, nur in der anderen
+Richtung. `cli.py:1867-1869` setzt seit dem L4-01-Fix vom 2026-09-05 `verified = False` **gemeinsam
+mit** `payload_malformed`, wenn der signierte Payload nicht lesbar ist. Seither heisst
+`verified=False` entweder „die DSSE-Signatur ist ungueltig" oder „die Signatur war gueltig, der
+Payload ist unlesbar". `successor_warning` kann die beiden nicht unterscheiden. S85 hat die eine
+Richtung geschlossen (ein unlesbarer Payload ist nie Schweigen); die andere blieb offen.
+
+**Der Zustand ist real erzeugbar**, nicht theoretisch: die DSSE-Pruefung laeuft in `cli.py:1845`,
+der Payload-Parse danach — bei ungueltiger Signatur UND kaputtem Payload sind beide Felder gesetzt.
+
+**Und der Meldungstext behauptet, was gerade nicht geprueft wurde:** „carries a **signed** payload
+this verifier cannot read".
+
+**Wirkung, ehrlich eingeordnet und der Grund fuer die Stufe:** die Richtung ist **fail-closed**, nicht
+fail-open. Ein unauthentifizierter Anhang kann eine Verifikation zum SCHEITERN bringen
+(`reject_superseded` macht daraus `LINEAGE_REQUIREMENT_FAILED`), er kann nichts Falsches
+durchwinken. Kein Receipt wird faelschlich gueltig; die Schadenswirkung ist Verfuegbarkeit, nicht
+Faelschung. **P2.**
+
+**Fix in 6.0.1:** die zwei Bedeutungen trennen, statt die Reihenfolge zu drehen. Ein eigenes Feld
+fuer die Signaturlage (etwa `signature_ok`) macht `verified` wieder eindeutig; `successor_warning`
+meldet dann nur, was signiert IST. Die Reihenfolge zu tauschen waere die Instanz — dann faellt beim
+naechsten Leser dieses Flags dieselbe Frage erneut an. **Rust-Geschwister mitpruefen:** Codex nennt
+`tools/pb_verify_rs/src/main.rs:1171` mit derselben Ordnung; die Zwei-Sprachen-Paritaet ist Teil des
+Fixes, nicht eine Nacharbeit.
+
+## S88 — Die Strukturschranke bindet wieder einen TYP, und diesmal bricht sie den Mapping-Vertrag
+
+Von der Codex-Gegenlesung des Kopfes `a9bfa4ae` gemeldet (PR 194, Kommentar 3971677341, P2,
+"Preserve the advertised Mapping input contract"), **am Kandidatenkopf nachgemessen**.
+`verify_dual_hash` nimmt laut Signatur ein `Mapping[str, str]` und prueft eingangs auch auf abstrakte
+Mappings — `enforce_structural_budget` kennt aber nur konkrete JSON-Typen.
+
+```
+gemessen an 1b2adc2, dieselben korrekten SHA-256/SHA-512-Werte:
+  dict              -> ok=True   (beide Pruefungen 'digest matches')
+  MappingProxyType  -> ok=False  "value of type 'mappingproxy' is not a JSON value"
+  UserDict          -> ok=False  "value of type 'UserDict' is not a JSON value"
+```
+
+**Derselbe Container-Inhalt, drei verschiedene Verdikte.** Diese Eingaben bestanden vor dem
+hinzugefuegten Budget-Aufruf.
+
+**Die Ironie ist der eigentliche Befund.** S78 heisst woertlich „Die Strukturschranke band einen TYP
+statt der EIGENSCHAFT" — vier Zweige, kein Sonst, `bytes`/`bytearray`/`memoryview`/`set` fielen
+lautlos durch. Der Fix ergaenzte einen **Schluss-Arm, der Nicht-JSON abweist**, und genau dieser
+Arm bindet jetzt wieder an TYPEN, nur in die andere Richtung: er weist ab, was kein konkreter
+JSON-Typ IST, statt zu fragen, ob es sich wie einer VERHAELT. Ein `Mapping` mit
+Zeichenketten-Werten ist strukturell bounded; der Prueferblick auf die Klasse sagt etwas anderes.
+
+**Wirkung:** kein falsches Gruen — die Richtung ist wieder fail-closed. Aber ein dokumentierter,
+in der Signatur zugesagter Eingabetyp wird abgewiesen, und das aendert das Verifikationsverdikt fuer
+unterstuetzte Formen. **P2.**
+
+**Fix in 6.0.1:** die Schranke an der EIGENSCHAFT ausrichten — ein Mapping wird als Mapping
+durchlaufen (`collections.abc.Mapping`), eine Sequenz als Sequenz (`Sequence`, ohne `str`/`bytes`),
+und der Schluss-Arm weist ab, was sich zu keinem von beidem verhaelt. Der Schluss-Arm selbst bleibt:
+er ist der Fix zu S78 und faengt weiterhin, was strukturell nicht begrenzbar ist. **Nachbar-Sweep
+mitmachen:** Codex nennt „other structural-budget call sites" ausdruecklich — jede Stelle, die
+`enforce_structural_budget` auf einem Wert mit oeffentlich zugesagtem abstrakten Typ ruft, gehoert
+in denselben Durchgang.
+
+**Beide Zeilen gehoeren nach 6.0.1, nicht auf den Kandidatenkopf.** Sie stehen auf dem Arbeitszweig
+`arbeit/601-nachzug`; der Kandidatenbaum bleibt unveraendert und das pre-tag-Receipt bindet weiterhin
+die Fassung ohne sie. Kein Resolve der Threads: der Fix liegt nicht am PR-Kopf.
