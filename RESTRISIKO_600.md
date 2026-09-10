@@ -5024,3 +5024,42 @@ in denselben Durchgang.
 **Beide Zeilen gehoeren nach 6.0.1, nicht auf den Kandidatenkopf.** Sie stehen auf dem Arbeitszweig
 `arbeit/601-nachzug`; der Kandidatenbaum bleibt unveraendert und das pre-tag-Receipt bindet weiterhin
 die Fassung ohne sie. Kein Resolve der Threads: der Fix liegt nicht am PR-Kopf.
+
+## S89 — „advisory" steht im Namen des CI-Jobs, nicht in seinem Mechanismus
+
+Gemessen 10.09.2026 am Kopf `1b2adc2`. Der einzige rote CI-Job heisst
+`Audit candidate matrix (advisory)`; sein Schritt in `ci.yml:130` traegt den vollen Namen
+`Audit-candidate matrix (advisory; DATA_BLOCKED expected for the 24h soak in CI)`. Beide Klammern
+sind falsch.
+
+**Erstens: kein `continue-on-error`.** Der Schritt hat keinen, also blockt er wie jeder andere.
+„advisory" ist eine Zusage im NAMEN, die im Mechanismus nicht steht — und ein Leser, der den Namen
+liest, hält das rote Kreuz für folgenlos.
+
+**Zweitens: der genannte Grund liegt nicht vor.** Gemessen am selben Kopf:
+
+```
+counts: PASS 28 · FAIL 4 · EXTERNAL_PENDING 1 · DATA_BLOCKED 0 · PENDING_JUSTIFIED 0
+unmet_deciding: ['C6.2', 'C6.3', 'C8.2', 'C12.1']
+```
+
+**Null DATA_BLOCKED-Zeilen.** Der Name erklärt einen Grund, den es nicht gibt. `DATA_BLOCKED` steht
+ohnehin in `_NON_FAIL` und setzt den Exit-Code gar nicht; der Aufruf in `ci.yml:131` benutzt kein
+`--strict`. Der Job ist rot wegen vier echter `FAIL`-Zeilen.
+
+**Der Name ist heute versehentlich richtig.** Nach dem Owner-Entscheid `OA-93dd2be19c` ist der Satz
+„advisory, hält den Fast-Forward nicht auf" **zurückgezogen**; die unerfüllten Zeilen blockieren bis
+zur Signatur. Ein Schritt ohne `continue-on-error` verhält sich damit korrekt — aber aus dem
+falschen Grund, und ein Mechanismus, der zufällig stimmt, stimmt nur bis zur nächsten Änderung.
+
+**Der Kandidatenkopf wird für einen Namen nicht bewegt** (Owner, Auftrag `20260910T2011Z` Punkt 4).
+In **6.0.1** folgt der Name dem Mechanismus: die Klammer `(advisory; DATA_BLOCKED expected …)` fällt
+weg, weil beide Hälften unzutreffend sind. Was in den Namen gehört, ist das, was der Schritt TUT —
+die Freigabe-Matrix messen —, nicht eine Vorhersage über ihren Ausgang.
+
+**Die vier unerfüllten Zeilen selbst gehören nicht hierher, sondern an die Signatur** (Owner,
+`OA-93dd2be19c`, sinngemäß auf alle vier ausgedehnt): C6.2, C6.3 und C8.2 sind **ein** Defekt
+dreimal gezählt — zwei Belege in `audit_artifacts/360/` ohne `version`-Feld, also nicht auf 6.0.0
+beziehbar. C12.1 ist etwas anderes: eine pre-tag-Audit-Quittung EXISTIERT, wird aber abgewiesen,
+weil ihr `subject_tree_digest` einen **fremden** Baum bindet — vom Prüfer wörtlich „a copied record"
+genannt. Ein kopierter Beleg ist schlimmer als ein fehlender: er sieht aus wie Deckung.
