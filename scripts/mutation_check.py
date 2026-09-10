@@ -288,8 +288,13 @@ MUTATIONS = [
     # 3.2.0 anchor-longevity (ADR 0006) — the new fail-closed defenses. Killed by the unittest property
     # tests in tests/test_anchor_longevity_property.py (which run under unittest discover).
     # B2 — a dual-hash leg that never actually compares the digest lets forged bytes verify.
+    # 2026-09-10: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Lauf 9
+    # (L1-600-HEXCASE-01) nahm das `.lower()` von der ERWARTETEN Seite weg, damit ein signiertes
+    # Artefakt genau eine gueltige Drahtform hat; der Operator nannte weiter den alten Wortlaut
+    # und war damit STALE (`GAP [...] pattern not found`, CI-Lauf 34383833738, Job mutation (6)).
+    # Ersatz mitgezogen, Verdikt unveraendert: der Vergleich faellt ganz weg, jeder Digest gilt.
     ("src/proofbundle/hashalg.py",
-     "        match = isinstance(expected, str) and actual == expected.lower()",
+     "        match = isinstance(expected, str) and actual == expected",
      "        match = True",
      "hashalg: B2 dual-hash digest comparison disabled (forged bytes verify)", True),
     # B2 — a deprecated hash must never resolve by default (algorithm-confusion / RFC 7696).
@@ -405,8 +410,22 @@ MUTATIONS = [
     # Crypto-review 2026-07-15 refuter residuals — each new fail-closed guard killed by its own test.
     # C1.1: removing the raw-size cap re-opens the pre-parse DoS (a 50 MB envelope parses fully before the
     # signatures loop cap runs) — killed by tests/test_budget.py's test_rejects_oversized_raw_input_before_parse.
+    # 2026-09-10: die Zielzeile auf den heutigen Quelltext gezogen. Deep gate Lauf 8
+    # (L3-600-BYTESUNIT-01) ersetzte das einzelne `if len(text) > b.input_bytes:` durch eine
+    # Kaskade, die BYTES statt Codepoints misst; die alte Zeile heisst dort jetzt `elif` und die
+    # Abweisung sitzt eine Ebene tiefer. Der Operator nannte weiter den alten Wortlaut und war
+    # damit STALE — er meldete eine Luecke im PRUEFER, nicht im Code (`GAP [...] pattern not
+    # found`, CI-Lauf 34383833738, Job mutation (4), 2026-09-09T21:44:29Z).
+    #
+    # ER ZIELT JETZT AUF DIE ABWEISUNG, NICHT AUF DIE ABKUERZUNG. Der naheliegende Nachzug waere
+    # `elif len(text) > b.input_bytes:` -> `elif False:` gewesen; das ist ein AEQUIVALENTER Mutant
+    # und haette die Luecke nur umbenannt: faellt dieser Zweig weg, traegt der else-Zweig
+    # (`len(text.encode(...))`) dieselbe Byte-Zahl bei und `if _n_bytes > b.input_bytes` weist
+    # unveraendert ab. Die Eigenschaft, die das Label beschreibt ("pre-parse cap removed"), haengt
+    # an der Abweisung — dort greift der Operator, und dort toetet ihn
+    # tests/test_budget.py::test_rejects_oversized_raw_input_before_parse.
     ("src/proofbundle/_strict_json.py",
-     "    if len(text) > b.input_bytes:",
+     "    if _n_bytes > b.input_bytes:",
      "    if False:",
      "_strict_json: C1.1 raw input_bytes pre-parse cap removed (oversized envelope parsed unbounded)", True),
     # json_nodes: disabling the node walk lets a wide-but-small-bytes structure (many nodes under the byte
