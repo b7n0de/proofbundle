@@ -4863,3 +4863,83 @@ dorthin verbreitert, indem er die Menge der `payload_malformed`-Nachbarn vergroe
 **Fix in beiden Sprachen:** ein unlesbarer Payload landet im selben unlesbar-Zweig wie ein
 unlesbarer Block; eine gebrochene SIGNATUR bleibt uebersprungen, denn eine unsignierte Behauptung
 ist keine Aussage ueber uns. Angesagt 6 Zeilen, gemessen 6 von 6, beide Gegenrichtungen halten.
+
+## S86 — Die Release-Flaeche wird ueber den hoechsten Ordnernamen gewaehlt, und ein Ordner ueber 600 nimmt 6.0.0 lautlos aus der Pruefung
+
+Von der Codex-Gegenlesung des Kopfes `1b2adc2` gemeldet (PR 194, Bot `chatgpt-codex-connector`,
+Kommentar 3982202163), am Kandidatenbaum reproduziert und von einer dreikoepfigen Jury unabhaengig
+bestaetigt. `scripts/claims_hygiene_check.py:318-320` waehlt die zu scannende Release-Flaeche als das
+numerisch **hoechste** Unterverzeichnis von `audit_artifacts/`:
+
+```python
+token = [q for q in verzeichnis.iterdir() if q.is_dir() and q.name.isdigit()]
+if token:
+    aktuell = max(token, key=lambda q: int(q.name))
+```
+
+Das ist ein Ordinal-Proxy: der Verzeichnisname vertritt die Version, statt dass die Version die
+Flaeche bestimmt. Heute stimmt die Wahl zufaellig — `600` ist zugleich das hoechste Token und das
+der laufenden Version 6.0.0.
+
+```
+angesagt: Flaeche wechselt, 6.0.0 faellt heraus, und alle drei Vertragsfaelle bleiben gruen
+gemessen 3 von 3 getroffen
+  Baum 510 + 600                -> ['audit_artifacts/600/README.md']  · 3/3 gruen
+  Baum 510 + 600 + 610          -> ['audit_artifacts/610/README.md']  · 3/3 gruen · 600 RAUS
+```
+
+**Die Ausloesebedingung ist ein Ordner ueber 600, und sie braucht keinen Angreifer.** Es genuegt
+`audit_artifacts/610` — die natuerliche Flaeche fuer 6.1.0. Ein Juror zeigte, dass ein **leerer**
+Ordner reicht: `PASS · 52 docs scanned · 0 violations`, waehrend ein gepflanzter Overclaim in
+`audit_artifacts/600/` unberuehrt liegen bleibt. Der Check meldet dabei **keinen Fehler** — die
+Flaeche ist dann einfach leer und damit sauber. Ein zweiter Juror zeigte, dass die Ordinalordnung
+nicht die SemVer-Ordnung ist: Version 6.10.0 ergibt Token `6100`, und `6100 > 700 > 600`; ab dem
+ersten Minor `>= 10` bricht die Wahl **dauerhaft**.
+
+**Was ein Leser faelschlich glaubt.** `audit_artifacts/600/README.md` zitiert das Urteil dieses Tors
+woertlich in der Freigabetabelle (`PASS · 53 docs scanned · 0 violation(s)`),
+`docs/AUDIT_READINESS.md` nennt es "Mechanical no-overclaim enforcement", der
+`REPRODUCTION_RUNBOOK` reicht es an externe Auditoren weiter. Die Zahl **53** ist zugleich die, die
+bei einem Stoerordner herauskaeme — der Verdacht waere von der dokumentierten Lage nicht zu
+unterscheiden.
+
+**Kein doppeltes Netz.** `audit_candidate_matrix.c11_1` ruft denselben Check **ohne Argumente** und
+teilt die Schwaeche; `release_text_hygiene.py` scannt eine andere Flaeche; `pre_tag_audit_gate.py`
+ist korrekt an `_version_token(pyproject_version())` verankert, prueft aber eine andere Eigenschaft.
+Der Baustein fuer den Fix liegt also im Baum, die **Bindung** fehlt: kein Code prueft
+`max(token) == _version_token(<kanonische Version>)`.
+
+**Entlastung, ehrlich gemessen und der Grund fuer die Stufe.** Ueber 400 Commits wich das hoechste
+Token 105-mal von der Version ab — **ausnahmslos nachlaufend** (Token hinkt hinterher), nie
+vorauseilend; nachlaufend ist konstruktionsbedingt harmlos, weil der hoehere Ordner dann noch nicht
+existiert. Kein Zweig im Repository trug je ein Token `> 600`. Der ordnererzeugende Inline-Pfad in
+`pre_tag_receipt.py:214` ist auf dem Bau- und Pruefhost fail-closed (Owner-Entscheid
+`OA-8b1a31cc4f`). Die 49 getippten, fremdgelesenen Dokumente bleiben in **jedem** Zustand gescannt;
+blind wird allein die abgeleitete Release-Beleg-Flaeche.
+
+**Verdikt: P2 nach Reichweite** (Owner-Karte `OA-deccb88dab`, Option 3C; die dreikoepfige Jury kam
+unabhaengig auf dieselbe Stufe). Fail-open und still, hebelt genau den Zweck von
+`release_flaeche_docs()` aus — aber latent, ohne lebendes falsches Gruen am gefrorenen Kopf.
+
+**Die Sperre, die bis zum Fix haelt.** Der Kandidatenkopf wird dafuer nicht bewegt. Stattdessen
+weist ein Riegel **ausserhalb dieses Repositoriums** (`2bedone`,
+`scripts/lib/b7_ordinal_sperre.py` mit den Daten in
+`office/governance/ordinal_sperre_audit_artifacts.json`) jeden Commit ab, der ein
+`audit_artifacts/<n>` mit `n > 600` anlegt — mit Fangnachweis in beide Richtungen und einer
+pruefbaren Endebedingung. `audit_artifacts/600` selbst bleibt beschreibbar.
+
+**Fix in 6.0.1, und er landet vor jedem `audit_artifacts/610`:** die Flaeche aus der kanonischen
+Version ableiten (`_version_token(pyproject_version())`) statt aus der Ordnung der Verzeichnisnamen,
+**plus** ein Riegel gegen eine leere Pruefmenge — eine Flaeche ohne Dokumente ist kein sauberer
+Scan, sondern ein nicht durchgefuehrter. Dabei sind zwei Vertragsfaelle mitzuaendern, die das
+Ordinal-Verhalten heute als Sollzustand festschreiben
+(`tests/test_claims_hygiene_deckt_die_release_flaeche.py`,
+`test_ANTI_PARITAET_ein_HISTORISCHES_token_wird_NICHT_mitgescannt` und
+`test_die_flaeche_folgt_dem_TOKEN_und_nicht_einem_getippten_namen`); ein reiner Produktivcode-Fix
+scheitert an ihnen.
+
+**Warum dieser Abschnitt den gefrorenen Baum nicht beruehrt.** Der Kopf dieser Datei haelt fest, dass
+ein Fund der Schlussrunde eine neue Iteration mit neuem Freeze verlangt und keine Bearbeitung hier.
+Genau deshalb steht S86 auf dem Arbeitszweig `arbeit/601-nachzug` fuer 6.0.1 und **nicht** auf dem
+Kandidatenkopf `1b2adc2`: dessen Baum-Digest bleibt unveraendert, und das pre-tag-Receipt bindet
+weiterhin die Fassung ohne diesen Abschnitt.
