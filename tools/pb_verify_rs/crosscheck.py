@@ -28,9 +28,39 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
-BIN = ROOT / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"
-if not BIN.exists():
-    BIN = ROOT / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
+#: WELCHE BINAERDATEI GEMESSEN WIRD, ist eine Eigenschaft des Laufs und gehoert in seine Ausgabe.
+#:
+#: GEMESSEN AN MIR SELBST, 10.09.2026: ich habe die RELEASE-Binaerdatei gegen eine mit korrigierter
+#: JCS-Crate getauscht und zweimal dasselbe Urteil bekommen. Daraus wurde ein Befund
+#: ("das Differential unterscheidet die Implementierungen nicht"), und er war falsch. In diesem
+#: Baum lag eine `target/debug`-Datei vom 18.07.2026, zwei Monate alt — und die Auswahl unten
+#: nimmt debug MIT VORRANG. Beide Laeufe gingen gegen dieselbe alte Datei; ich habe die falsche
+#: Flaeche ersetzt und das Ergebnis als Eigenschaft des Pruefstands gelesen.
+#:
+#: Die Reihenfolge bleibt (debug zuerst ist beim Entwickeln richtig, weil `cargo build` ohne
+#: --release dorthin schreibt). Was sich aendert: der Lauf SAGT, welche Datei er nimmt, mit
+#: Aenderungszeit — und er sagt es auch, wenn beide existieren. Wer filtert, nennt die
+#: Ausschussmenge; das gilt auch, wenn der Filter nur zwei Kandidaten hat.
+_KANDIDATEN = [ROOT / "tools" / "pb_verify_rs" / "target" / t / "pb_verify_rs"
+               for t in ("debug", "release")]
+BIN = next((b for b in _KANDIDATEN if b.exists()), _KANDIDATEN[0])
+
+
+def _binaer_herkunft() -> str:
+    """Eine Zeile, die sagt WOMIT gemessen wurde — und was daneben lag, aber nicht genommen wurde."""
+    import datetime  # noqa: PLC0415
+    def _zeit(b: pathlib.Path) -> str:
+        try:
+            return datetime.datetime.fromtimestamp(
+                b.stat().st_mtime, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except OSError:
+            return "?"
+    andere = [b for b in _KANDIDATEN if b != BIN and b.exists()]
+    zeile = f"BINARY UNDER TEST: {BIN} (mtime {_zeit(BIN)})"
+    if andere:
+        zeile += ("; NOT used, though present: "
+                  + ", ".join(f"{b} (mtime {_zeit(b)})" for b in andere))
+    return zeile
 
 sys.path.insert(0, str(SRC))
 # F1: the differential reproduces the SAME corpus in the SAME common vocabulary as the
@@ -45,6 +75,33 @@ _RELATION_KINDS = {
     "decision_relation": ("verify-relation", "decision"),
     "outcome_relation": ("verify-relation", "outcome"),
     "relation_statement": ("verify-relation-statement", "relation-statement"),
+}
+
+#: Korpus-`kind`s, die dieses Differential BEWUSST nicht faehrt — je mit Grund, nicht stillschweigend.
+#:
+#: WARUM DIESE LISTE UEBERHAUPT EXISTIERT (gemessen 10.09.2026, deep gate Lauf 10, Fund
+#: L1-JCS-IMPL-SPLIT-01). Die Korpus-Schleife unten war ein `if/elif/elif` OHNE `else`. Ein Fall mit
+#: einer unbekannten `kind` fiel lautlos heraus: kein Vergleich, keine Meldung, `reproduced` blieb
+#: stehen. Die Zahl ging exakt auf — 94 Faelle im Manifest, 57 gemeldet, und die Differenz von 37
+#: verteilte sich auf genau drei ungedeckte `kind`s (agent_review_predicate 17,
+#: envelope_profile_rule 10, provenance_version_status 10).
+#:
+#: WAS DAS GEKOSTET HAT: unter den zehn stummen `envelope_profile_rule`-Faellen lag
+#: `r1-positive-control-canonical-root`, der die kanonische Wurzel NORMATIV pinnt. Der
+#: ausgelieferte Rust-Verifizierer verfehlt sie (2131bd93… statt cbb19685…), weil serde_jcs 0.1.0
+#: nach UTF-8-Bytes statt nach UTF-16-Code-Units sortiert. Dieses Differential hat das nicht
+#: gemeldet — gemessen gab es fuer eine KONFORME und eine NICHT-konforme Binaerdatei zeichengleich
+#: `CROSS-IMPL OK … 57/94`. Ein Differential, das zwei messbar verschiedene Implementierungen nicht
+#: unterscheidet, misst die Implementierung nicht.
+#:
+#: DIE REGEL AB HIER: eine Luecke ist entweder GEFAHREN oder NAMENTLICH GENANNT. Ein `kind`, der in
+#: keiner der beiden Mengen steht, BLOCKT — derselbe Schluss-Arm wie bei der Strukturschranke
+#: (S78): vier Zweige ohne Sonst sind vier Zweige und ein Loch.
+_NICHT_DIFFERENTIELL = {
+    "agent_review_predicate": ("das agent-review-Praedikat hat im Rust-Verifizierer keine "
+                               "Entsprechung; es wird vom Python-Konformanzlauf gefahren"),
+    "provenance_version_status": ("der Provenance-/Versionsstatus ist eine Python-seitige "
+                                  "Ableitung ohne Rust-Unterbefehl"),
 }
 
 
@@ -85,6 +142,9 @@ def main() -> int:
     if not BIN.exists():
         print(f"FAIL: rust binary not built ({BIN}) — run `cargo build` in tools/pb_verify_rs first")
         return 2
+    # VOR der Messung, nicht erst im Erfolgsfall: ein Lauf, der scheitert, muss genauso sagen,
+    # womit er gescheitert ist.
+    print(_binaer_herkunft())
 
     from datetime import datetime, timedelta, timezone
 
@@ -183,6 +243,8 @@ def main() -> int:
     manifest = json.loads((corpus / "manifest.json").read_text())
     reproduced = 0
     skipped: list[str] = []
+    #: kind -> Fall-Kennungen, die BENANNT nicht differentiell gefahren werden.
+    nicht_gedeckt: dict[str, list[str]] = {}
     matrix_rows: list[dict] = []
     for cid in manifest.get("cases", []):
         cdir = corpus / cid
@@ -244,6 +306,74 @@ def main() -> int:
                 "agree_python_rust": ok_pr, "rust_reproduces_expectation": ok_re,
             })
             reproduced += 1
+        elif kind == "envelope_profile_rule":
+            # R1, die EINE normative Kanonisierung. Der positive Kontrollfall pinnt die content-root
+            # des Eingabeobjekts; der unabhaengige Rust-Verifizierer muss sie byte-genau
+            # reproduzieren. Genau dieser Fall lag bis zum 10.09.2026 im stummen Pfad.
+            # GENAU EINE ERWARTUNGSACHSE, uebernommen aus run_conformance.py Zeile 359 folgende:
+            # ein unter-deklarierter Fall kann nicht fehlschlagen, ein ueber-deklarierter verdeckt
+            # alles nach der ersten Achse. Die Achsenliste wird DORT gefuehrt; hier wird nur
+            # geprueft, dass genau eine davon dasteht.
+            _ACHSEN = ("contentRootHex", "nonConformantDiffers", "canonicalizeRefuses",
+                       "classification")
+            genannt = [a for a in _ACHSEN if a in expected]
+            if len(genannt) != 1:
+                failures.append(f"corpus {cid}: envelope_profile_rule muss GENAU EINE "
+                                f"Erwartungsachse tragen, gefunden {genannt or 'keine'}")
+                continue
+            want = expected.get("contentRootHex")
+            if want:
+                _, got = _run("content-root", str(cdir / case.get("input", "object.json")))
+                if got != want:
+                    failures.append(f"corpus {cid}: content root pinned={want} rust={got} "
+                                    f"— the second verifier does not reproduce the normative "
+                                    f"canonical root (RFC 8785 §3.2.3)")
+                reproduced += 1
+            elif "canonicalizeRefuses" in expected:
+                # ZURUECKGENOMMEN, gemessen 10.09.2026. Mein erster Entwurf fuhr diese Achse ueber
+                # `content-root` auf der Eingabedatei und meldete "rust emitted a root, Python
+                # refuses". Das war FALSCH und haette einen erfundenen Befund gelandet: gemessen
+                # liefert `statement_content_root([{"x":1e-07},{"x":2.0}])` den Hash 62f69993…,
+                # also GENAU den, den Rust liefert — Python weist hier gar nichts ab.
+                #
+                # Die Achse meint etwas anderes: run_conformance.py Zeile 391 folgende prueft
+                # JEDES OBJEKT DER LISTE EINZELN mit `proofbundle.evalclaim.canonicalize` und
+                # erwartet EvalClaimError. Das ist die Profilschicht, nicht die
+                # RFC-8785-Kanonisierung — und dafuer hat der Rust-Verifizierer keinen
+                # Unterbefehl. Eine benannte Luecke, kein Fehler.
+                #
+                # Die Lehre steht hier, weil sie teuer war: eine Erwartung auf den falschen
+                # PRUEFPFAD zu legen erzeugt einen Befund, der ueberzeugend aussieht und niemanden
+                # meint. Vor jedem neuen Zweig lesen, was die bestehende Fassung damit TUT.
+                nicht_gedeckt.setdefault(kind, []).append(cid)
+            elif expected.get("nonConformantDiffers") is True:
+                # Der Gegenbeweis-Vektor sagt etwas ueber einen FREMDEN, nicht-konformen
+                # Serialisierer aus, nicht ueber uns. Dazu hat dieser Verifizierer nichts
+                # beizutragen — eine benannte Grenze, keine stille.
+                nicht_gedeckt.setdefault(kind, []).append(cid)
+            elif "classification" in expected:
+                # R2/R3/R4 pruefen Schema-Klassifikation, Sample-Binding und Issuer-Bindung. Der
+                # Rust-Verifizierer hat dafuer keinen Unterbefehl; der Python-Konformanzlauf faehrt
+                # sie. GEMESSEN am 10.09.2026: sieben der zehn envelope_profile_rule-Vektoren
+                # tragen genau diese Form.
+                nicht_gedeckt.setdefault(kind, []).append(cid)
+            else:
+                # Die vier Erwartungsformen oben sind GEMESSEN, nicht angenommen. Eine fuenfte ist
+                # damit neu — und neu heisst hier: jemand hat eine Regel hinzugefuegt, ohne zu
+                # sagen, ob der zweite Verifizierer sie tragen soll.
+                failures.append(f"corpus {cid}: kind={kind} traegt eine unbekannte Erwartungsform "
+                                f"{sorted(expected)} — gefahren werden contentRootHex und "
+                                f"canonicalizeRefuses, benannt uebersprungen nonConformantDiffers "
+                                f"und classification. Nicht lesbar ist keine Freigabe")
+        elif kind in _NICHT_DIFFERENTIELL:
+            nicht_gedeckt.setdefault(kind, []).append(cid)
+        else:
+            # DER SCHLUSS-ARM. Ohne ihn ist jede kuenftige `kind` ein stiller Durchgang, und die
+            # Erfolgszeile zaehlt sie trotzdem nicht — der Leser sieht eine Zahl und keinen Grund.
+            failures.append(f"corpus {cid}: unbekannte kind {kind!r}. Dieses Differential faehrt "
+                            f"sie nicht und kennt sie auch nicht als benannte Luecke. Entweder "
+                            f"einen Zweig dafuer bauen oder sie in _NICHT_DIFFERENTIELL mit Grund "
+                            f"eintragen — schweigend ueberspringen ist keine der beiden Optionen")
 
     if failures:
         print("CROSS-IMPL DISAGREEMENT:")
@@ -257,6 +387,15 @@ def main() -> int:
     if matrix_path is not None:
         _write_matrix_artifact(matrix_path, matrix_rows)
         print(f"wrote relation differential matrix ({rel_n} vector(s)) -> {matrix_path}")
+    # DIE ZAHL MUSS SAGEN, WAS SIE NICHT ENTHAELT. Bis zum 10.09.2026 stand hier nur
+    # "57/94 reproduced" — woertlich wahr und trotzdem irrefuehrend: die fehlenden 37 waren nicht
+    # etwa geprueft und schwach, sie waren NIE BETRACHTET. Wer eine Erfolgszeile liest, nimmt das
+    # Gegenteil an. Die benannten Luecken stehen deshalb ab jetzt mit Zahl und Grund daneben.
+    if nicht_gedeckt:
+        n_offen = sum(len(v) for v in nicht_gedeckt.values())
+        print(f"NOT RUN DIFFERENTIALLY: {n_offen} of {total} corpus case(s), by kind — "
+              + "; ".join(f"{k} ({len(v)}): {_NICHT_DIFFERENTIELL.get(k, 'siehe Zweig oben')}"
+                          for k, v in sorted(nicht_gedeckt.items())))
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
           "trust-pack root-threshold (met+unmet) agree; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"

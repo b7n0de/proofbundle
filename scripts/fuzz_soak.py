@@ -46,6 +46,7 @@ for _p in (str(SRC), str(REPO / "scripts")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from pre_tag_audit_gate import pyproject_version  # noqa: E402
 from rust_parity_gate import discover_python_verify_functions  # noqa: E402
 from type_confusion_gate import _benign_fixtures, _is_json_primary  # noqa: E402
 from proofbundle.errors import ProofBundleError  # noqa: E402
@@ -238,6 +239,17 @@ def soak(duration_seconds: float, seed: int = 0, max_iters: int | None = None) -
     elapsed = time.monotonic() - start
     return {
         "schema": "proofbundle.fuzz_soak.v1",
+        # DAS ARTEFAKT SAGT, UEBER WELCHE VERSION ES SPRICHT (Owner OA-ac1fbcadea, 11.09.2026:
+        # "Vorher pruefen, ob der Schreiber ein Versionsfeld schreibt, wenn nicht, den Schreiber
+        # fixen, nicht die Zeilen"). GEMESSEN am Kandidaten 1b2adc2: das Artefakt trug keines, und
+        # `audit_candidate_matrix` wies C6.2 und C6.3 deshalb ab — "carries no version field, so it
+        # cannot be shown to be about '6.0.0'". Der Pruefer verlangt einen nicht-leeren String, der
+        # GLEICH der Version unter Test ist (audit_candidate_matrix.py:1309).
+        #
+        # BEI UNLESBARER pyproject.toml BLEIBT ES `null`, und das ist Absicht: dann ist die Bindung
+        # ehrlich UNGEBUNDEN und der Pruefer sagt genau das. Ein erfundener Platzhalter waere die
+        # schlechtere Antwort — er saehe aus wie eine Bindung und waere keine.
+        "version": pyproject_version(REPO),
         "seed": seed,
         "requested_duration_seconds": duration_seconds,
         "elapsed_seconds": round(elapsed, 3),

@@ -31,6 +31,41 @@ use sha2::{Digest, Sha256};
 // Strict JSON: reject a duplicate key at every object level (the C1 Bishop-Fox
 // parser-differential defense — Python rejects it via _strict_json; we must too).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// I-JSON-GANZZAHLDOMAIN — die EINE Zahlenregel, auf beiden Seiten dieselbe.
+//
+// OWNER-ANORDNUNG OA-2f7da83522 vom 10.09.2026, woertlich: „Eine Zahlenregel auf beiden Seiten.
+// Ganzzahl-Literale ausserhalb plus minus 2^53 minus 1 lehnen Python und Rust ab, Rust im
+// Ganzzahlpfad visit_i64 visit_u64 visit_i128, nicht in visit_f64."
+//
+// DIE GRENZE IST NICHT HIER ERFUNDEN. Sie steht auf der Python-Seite in rfc8785/_impl.py Zeile 23
+// und 24 (`_INT_MAX = 2**53 - 1`, `_INT_MIN = -(2**53) + 1`) und wirft dort `IntegerDomainError`.
+// Diese Konstanten bilden dieselbe Regel ab, damit BEIDE Implementierungen denselben Wert
+// abweisen — der Sinn des zweiten Verifizierers ist Uebereinstimmung, nicht eigene Strenge.
+//
+// WARUM AUSDRUECKLICH NICHT IN `visit_f64`, und das ist der Punkt, an dem mein erster Vorschlag
+// falsch war: JEDER Double ab 2^53 ist ganzzahlig. Eine Ganzzahlpruefung im Float-Pfad wuerde
+// deshalb `1e+21` und `2^68` abweisen — beides sind LEGITIME Zeilen aus Anhang B von RFC 8785.
+// Der Split waere damit nicht geschlossen, sondern nur auf die andere Seite gewandert.
+//
+// DIE FLOAT-GEGEN-FLOAT-KOLLISION BLEIBT und ist kein Defekt: dass 9223372036854775807.0 und
+// 9223372036854775808.0 auf denselben Double fallen, ist eine Eigenschaft von IEEE 754 und damit
+// von RFC 8785. Sie steht im Register als Eigenschaft, nicht als Befund (Owner-Entscheid, selbe
+// Karte). Was der Fix schliesst, ist die Kollision zwischen einem GANZZAHL-Literal und einem
+// Float-Literal — nach ihm wird das Ganzzahl-Literal abgewiesen, und es bleibt nur ein Weg.
+const IJSON_INT_MAX: i128 = 9_007_199_254_740_991; // 2^53 - 1
+const IJSON_INT_MIN: i128 = -9_007_199_254_740_991; // -(2^53) + 1
+const DOMAIN_MELDUNG: &str =
+    "integer literal outside the I-JSON safe range [-(2^53)+1, 2^53-1] (RFC 7493 section 2.2); \
+     Python's rfc8785 raises IntegerDomainError for the same value";
+
+fn pruefe_ganzzahl_domain(v: i128) -> Result<(), &'static str> {
+    if v > IJSON_INT_MAX || v < IJSON_INT_MIN {
+        return Err(DOMAIN_MELDUNG);
+    }
+    Ok(())
+}
+
 struct StrictValue(serde_json::Value);
 
 impl<'de> Deserialize<'de> for StrictValue {
@@ -47,11 +82,44 @@ impl<'de> Deserialize<'de> for StrictValue {
             fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
                 Ok(serde_json::Value::Bool(v))
             }
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> {
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(i128::from(v)).map_err(de::Error::custom)?;
                 Ok(serde_json::Value::Number(v.into()))
             }
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(i128::from(v)).map_err(de::Error::custom)?;
                 Ok(serde_json::Value::Number(v.into()))
+            }
+            // DER SCHLUSS-ARM DES GANZZAHLPFADS. serde_json ohne `arbitrary_precision` reicht
+            // heute keine 128-Bit-Ganzzahl durch — es faellt jenseits von u64 auf f64. Der Arm
+            // steht trotzdem, weil eine Regelmenge ohne Sonst genau die Bauart ist, an der dieses
+            // Repo zweimal gemessen gescheitert ist (S78, und der Korpus-Filter im crosscheck).
+            // Ein Pfad, der heute nicht getroffen wird, ist morgen ein Loch.
+            fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                pruefe_ganzzahl_domain(v).map_err(de::Error::custom)?;
+                i64::try_from(v)
+                    .map(|n| serde_json::Value::Number(n.into()))
+                    .map_err(|_| de::Error::custom("integer out of i64 range"))
+            }
+            fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let n = i128::try_from(v)
+                    .map_err(|_| de::Error::custom(DOMAIN_MELDUNG))?;
+                pruefe_ganzzahl_domain(n).map_err(de::Error::custom)?;
+                u64::try_from(v)
+                    .map(|u| serde_json::Value::Number(u.into()))
+                    .map_err(|_| de::Error::custom("integer out of u64 range"))
             }
             fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
             where
@@ -100,7 +168,90 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 
+/// Ganzzahl-LITERALE ausserhalb der I-JSON-Domain, lexikalisch am Rohtext erkannt.
+///
+/// WARUM DIESE STELLE ZUSAETZLICH ZUM VISITOR NOETIG IST, gemessen 11.09.2026: die
+/// Owner-Anordnung OA-2f7da83522 nennt den Ganzzahlpfad `visit_i64 visit_u64 visit_i128`. Die
+/// ersten beiden greifen; `visit_i128` wird von `serde_json` OHNE `arbitrary_precision` NIE
+/// gerufen — ein Ganzzahl-Literal jenseits von u64 wird sofort auf `f64` abgebildet, und der
+/// Ganzzahlpfad kommt gar nicht vor. Gemessen an `{"v":295147905179352825856}` (2^68): Python
+/// wirft IntegerDomainError, Rust lieferte eine Wurzel. Der Visitor allein erfuellt das
+/// Fertig-Kriterium der Anordnung also nicht.
+///
+/// GEPRUEFT WIRD DAS LITERAL, NICHT DER WERT, und genau darin liegt die Trennung, die die
+/// Anordnung verlangt: ein Zahl-Token OHNE `.`, `e` oder `E` ist ein Ganzzahl-Literal und faellt
+/// unter die Domain-Regel; sobald eines dieser Zeichen vorkommt, ist es ein Float-Literal und
+/// bleibt unangetastet. Damit passieren `1e21`, `2.9514790517935283e20` und
+/// `295147905179352825856.0` unveraendert — die Anhang-B-Zeilen von RFC 8785, die der Owner
+/// ausdruecklich schuetzt. `visit_f64` bleibt unberuehrt.
+///
+/// KEIN JSON-NACHBAU: gesucht werden Zahl-Token in der Byte-Folge, Zeichenketten werden dabei
+/// uebersprungen (ein Ziffernblock in einem String ist keine Zahl). Die eigentliche Struktur
+/// prueft danach weiterhin serde_json.
+fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
+    let mut i = 0usize;
+    let n = bytes.len();
+    while i < n {
+        let c = bytes[i];
+        if c == b'"' {
+            // Zeichenkette ueberspringen, Escapes beachten.
+            i += 1;
+            while i < n {
+                if bytes[i] == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == b'"' {
+                    break;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        let beginnt_zahl = c == b'-' && i + 1 < n && bytes[i + 1].is_ascii_digit();
+        if !(c.is_ascii_digit() || beginnt_zahl) {
+            i += 1;
+            continue;
+        }
+        // Ein Zahl-Token darf nicht mitten in einem Bezeichner beginnen.
+        if i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        if c == b'-' {
+            i += 1;
+        }
+        let mut ist_float = false;
+        while i < n {
+            let b = bytes[i];
+            if b.is_ascii_digit() {
+                i += 1;
+            } else if b == b'.' || b == b'e' || b == b'E' || b == b'+' || b == b'-' {
+                if b == b'.' || b == b'e' || b == b'E' {
+                    ist_float = true;
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if ist_float {
+            continue;
+        }
+        let text = std::str::from_utf8(&bytes[start..i]).map_err(|_| "invalid utf-8".to_string())?;
+        match text.parse::<i128>() {
+            Ok(v) => pruefe_ganzzahl_domain(v).map_err(|e| e.to_string())?,
+            // Mehr Stellen als i128 traegt: erst recht ausserhalb der I-JSON-Domain.
+            Err(_) => return Err(DOMAIN_MELDUNG.to_string()),
+        }
+    }
+    Ok(())
+}
+
 fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    ganzzahl_literale_pruefen(bytes)?;
     let mut de = serde_json::Deserializer::from_slice(bytes);
     let v = StrictValue::deserialize(&mut de).map_err(|e| e.to_string())?;
     de.end().map_err(|e| e.to_string())?;

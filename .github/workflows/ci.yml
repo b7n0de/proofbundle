@@ -248,7 +248,19 @@ jobs:
         # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
         shell: bash
         run: |
-          python scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
+          # `-u` IS NOT COSMETIC — it is the condition under which this step can be diagnosed at all.
+          # MEASURED 2026-09-10 on head 1b2adc2, shard 6 of this very matrix: the step started at
+          # 18:15:34Z, produced ZERO progress lines for 140 minutes (grep for `operator|mutant` over
+          # the whole 57 KB log: 0 hits), and was terminated at 20:35:24Z with exit 143 — SIGTERM
+          # from a GitHub-hosted runner shutdown. The follow-up step "Record how many operators this
+          # shard actually ran" was then skipped, so the one question that mattered — how far did it
+          # get, and was the fix in this head complete — became unanswerable at that run.
+          #
+          # The silence is a property of the pipe, not of the mutation gate: piping into `tee`
+          # switches Python's stdout from line- to block-buffering, so nothing is visible until a
+          # 4-8 KB buffer fills. A long run without visible progress is indistinguishable from a
+          # hung one, and both look identical to whoever reads the job while it is red.
+          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
             | tee "$RUNNER_TEMP/mutation-shard.log"
       - name: Record how many operators this shard actually ran
         # The count comes from the run's OWN closing line, not from the matrix index. A shard that

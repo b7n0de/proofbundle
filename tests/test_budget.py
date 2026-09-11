@@ -13,6 +13,22 @@ from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudge
 from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError, ProofBundleError
 
+#: OBERGRENZE FUER JEDE LAST, DIE EIN TEST AUS EINEM BUDGETFELD ABLEITET.
+#:
+#: WOFUER, gemessen in der Nacht zum 11.09.2026: der Mutationsoperator idx=90 hebt
+#: ``budget.data_digests`` von 2.000 auf 2.000.000.000. Ein Test, der seine Last als
+#: ``DEFAULT_BUDGET.data_digests + 1`` bildet, baut daraufhin zwei Milliarden 64-Zeichen-Strings.
+#: Drei Sampler massen 428,9 -> 51.129,2 MiB in 58 s (rund 874 MiB/s); unter ``RLIMIT_AS`` von
+#: 6 GiB endete derselbe Ausdruck nach 7,87 s mit ``MemoryError`` an dieser Zeile. Auf dem
+#: CI-Runner ist das kein Fehlschlag des Tests, sondern sein Tod — und ein toter Test toetet den
+#: Mutanten nicht, er meldet nur SIGKILL.
+#:
+#: DIE KLASSE: eine Testlast, die aus dem GEPRUEFTEN Wert abgeleitet wird, ist vom Mutanten
+#: steuerbar. Der Deckel trennt beides — die Last bleibt beschraenkt, und die Aussage ueber den
+#: Wert wird separat und direkt gefuehrt (siehe ``_zusichern_budget_im_rahmen``).
+#: Owner-Anordnung OA-afa1e17cfa, Option B (11.09.2026 06:54:52Z).
+HARTER_LASTDECKEL = 100_000
+
 
 class TestVerificationBudgetUnit(unittest.TestCase):
     def test_within_true_at_and_under_limit(self):
@@ -128,7 +144,19 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
         own dimension, its own named check."""
         from proofbundle.renewal import ArchiveTimeStamp
         from proofbundle.renewal import verify_sequence as _verify_sequence
-        over = DEFAULT_BUDGET.data_digests + 1
+        # DIE DIREKTE BEHAUPTUNG UEBER DEN WERT, und sie steht VOR der Last (Owner OA-afa1e17cfa B):
+        # so stirbt der Mutant idx=90 an dieser Zeile, statt den Lauf per SIGKILL mitzunehmen. Ohne
+        # sie wuerde der Deckel darunter den Mutanten UEBERLEBEN lassen — die Last bliebe klein, das
+        # Budget bliebe unbemerkt astronomisch, und der Test saehe gruen aus.
+        self.assertLessEqual(
+            DEFAULT_BUDGET.data_digests, HARTER_LASTDECKEL,
+            f"budget.data_digests ist {DEFAULT_BUDGET.data_digests:,} und damit ueber dem "
+            f"Lastdeckel {HARTER_LASTDECKEL:,} — ein Budget dieser Groesse ist keine Schranke "
+            "mehr, und jede daraus abgeleitete Testlast sprengt den Lauf")
+        # DER DECKEL AUF DIE ABGELEITETE LAST: auch wenn die Zusicherung oben einmal faellt, baut
+        # dieser Test nie mehr als HARTER_LASTDECKEL + 1 Elemente. Ein Test darf an einer Aussage
+        # scheitern, nie am Speicher.
+        over = min(DEFAULT_BUDGET.data_digests, HARTER_LASTDECKEL) + 1
         daten = ["%064x" % i for i in range(over)]
         seq = [[ArchiveTimeStamp("sha256", "a" * 64, 1)]]
         res = _verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
