@@ -665,6 +665,16 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     out: list[dict] = []
     if not isinstance(relations_section, dict):
         return out
+    # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached
+    # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
+    # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein
+    # unbekannter Schluessel ist hier eine Verletzung, kein Wurf (diese Funktion wirft nie).
+    from .policy import PolicyError, _huelle_relations  # noqa: PLC0415 - lokal, wie die Nachbarn
+    try:
+        _huelle_relations(relations_section)
+    except PolicyError as exc:
+        return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                 "message": f"relations policy section rejected before evaluation (fail-closed): {exc}"}]
     # R7-2b (3.6.3 adversarial re-audit sibling): coerce lineage_result at entry — a non-dict 2nd arg
     # crashed the reject_superseded branch (lineage_result.get('supersededByAttached')) which sits
     # outside the isinstance guard on the edges read below (fail-closed to {}, no violation from a

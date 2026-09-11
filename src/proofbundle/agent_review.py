@@ -47,7 +47,6 @@ validator; the JSON schema is docs.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -870,11 +869,26 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
         vorhanden[d] = env
 
     ungeprueft_mit_anspruch: list[str] = []
+    # LAUF 14, LINSE L1, F1 (11.09.2026, P1 am Wheel): hier stand `json.loads`, waehrend JEDER
+    # Verifier dieses Moduls denselben Payload mit `loads_strict` liest. Gemessen am Kopf f6c5c8a:
+    # eine 3000-fach verschachtelte `supersession` liess einen ROHEN RecursionError aus dieser
+    # Funktion fallen (die except-Klausel kannte ihn nicht), ein einsames Surrogat im
+    # `priorDigest` ordnete die Kette (`corrected=['\ud800AAAA']`), und ein doppelter Schluessel
+    # wurde last-wins gelesen — drei Formen, die der Verifier als malformed abweist und die hier
+    # trotzdem entschieden, welches Receipt JETZT gilt. Ein Umschlag, dessen Payload der strikte
+    # Leser nicht annimmt, bestimmt die Ordnung nicht, und er ist KEIN Schweigen: er zaehlt wie ein
+    # nicht adressierbarer gegen `integrity_ok` (dieselbe Regel wie zwei Absaetze weiter oben).
+    from ._strict_json import loads_strict  # noqa: PLC0415
     for d, env in vorhanden.items():
         try:
-            st = json.loads(decode_b64(env["payload"]))
+            st = loads_strict(decode_b64(env["payload"]))
+            if not isinstance(st, dict):
+                raise AgentReviewError("payload is not a JSON object")
             sup = (st.get("predicate") or {}).get("supersession") or {}
-        except (ValueError, KeyError, TypeError):
+        except (ProofBundleError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            nicht_adressierbar.append(
+                f"{d[:12]}…: payload not readable by the strict parser, so its supersession "
+                f"claims cannot be evaluated ({exc})")
             continue
         if sup and (verified is None or d not in verified):
             # Ein Umschlag, den der Aufrufer nicht geprueft hat, darf die Ordnung nicht bestimmen.

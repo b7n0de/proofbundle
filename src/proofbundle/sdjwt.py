@@ -253,6 +253,14 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
                 result["sig_ok"] = verifier(issuer_pubkey, _b64url_decode(sig_b64), signing_input)
             except ValueError:
                 result["sig_ok"] = False
+            except ProofBundleError as exc:
+                # LAUF 14 L2 F1 (11.09.2026): `_b64url_decode` wirft bei einem Segment ueber dem
+                # input_bytes-Deckel BundleFormatError — ein ProofBundleError, KEIN ValueError.
+                # Header und Payload oben fingen das laengst; das Signatur-Segment war der Nachbar,
+                # den der Fix nicht erreicht hatte, und liess diese dict-zurueckgebende Flaeche
+                # crashen. Ein Verdikt, nie ein Wurf.
+                result["sig_ok"] = False
+                result["detail"] = f"issuer signature segment rejected: {exc}"
         else:
             result["detail"] = f"issuer signature alg {alg} not supported in v0.1"
 
