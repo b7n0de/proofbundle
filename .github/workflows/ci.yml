@@ -22,7 +22,20 @@ jobs:
         with:
           fetch-depth: 0
       - name: Fetch tags and base branch
-        run: git fetch --tags --force origin "${{ github.event.pull_request.base.ref }}"
+        # Through env, not interpolated — the step below already does exactly this with the
+        # same two values. A branch name is attacker-influenceable text, and an interpolated
+        # expression is spliced into the script before bash sees it. Found by the sweep in
+        # tests/test_action_input_injection.py, which was written for the composite action
+        # and turned up this neighbour one file over.
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE_REF" ]; then
+            git fetch --tags --force origin "$BASE_REF"
+          else
+            git fetch --tags --force origin
+          fi
       - name: Branch-base advisory
         env:
           BRANCH_BASE_REF: ${{ github.event.pull_request.base.ref }}
