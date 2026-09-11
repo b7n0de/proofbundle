@@ -17,9 +17,15 @@ import json
 
 import pytest
 
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt
 from proofbundle import sdjwt, sdjwt_vc
 from proofbundle.budget import DEFAULT_BUDGET
 from proofbundle.errors import BundleFormatError
+
+# Die Last ist GEDECKELT (tests/_lastdeckel.py): ein Mutationsoperator, der input_bytes hochsetzt, darf den
+# Speicherbedarf dieses Tests nicht steuern — der L3-Riegel test_lauf11_l3_testlast_ist_gedeckelt hat genau
+# diese ungedeckelte Form in der ersten Fassung gefangen (Vollsuite r5 am Kopf 54aa5de, 1 failed).
+_UEBER_DEM_DECKEL = gedeckelt(DEFAULT_BUDGET.input_bytes, bytes_je_element=KOSTEN_JE_ELEMENT["input_bytes"])
 
 
 def _b64u(obj) -> str:
@@ -29,7 +35,7 @@ def _b64u(obj) -> str:
 def _compact_mit_uebergrossem_signatursegment() -> str:
     header = _b64u({"alg": "EdDSA", "typ": "dc+sd-jwt"})
     payload = _b64u({"sub": "x", "vct": "urn:x"})
-    return f"{header}.{payload}." + "A" * (DEFAULT_BUDGET.input_bytes + 10)
+    return f"{header}.{payload}." + "A" * (_UEBER_DEM_DECKEL + 10)
 
 
 def test_verify_sd_jwt_liefert_ein_verdikt_statt_zu_crashen():
@@ -51,7 +57,7 @@ def test_sdjwt_vc_dekodiert_mit_demselben_gedeckelten_dekoder_wie_sdjwt():
     # EINE Quelle fuer den Vor-Deckel, nicht drei Kopien — und die Schranke greift VOR dem Dekodieren.
     assert sdjwt_vc._b64url_decode is sdjwt._b64url_decode
     with pytest.raises(BundleFormatError):
-        sdjwt_vc._b64url_decode("A" * (DEFAULT_BUDGET.input_bytes + 1))
+        sdjwt_vc._b64url_decode("A" * (_UEBER_DEM_DECKEL + 1))
 
 
 def test_positivkontrolle_eine_bloss_ungueltige_signatur_bleibt_ein_gewoehnliches_verdikt():
