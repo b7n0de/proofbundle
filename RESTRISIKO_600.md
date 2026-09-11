@@ -5063,3 +5063,247 @@ dreimal gezählt — zwei Belege in `audit_artifacts/360/` ohne `version`-Feld, 
 beziehbar. C12.1 ist etwas anderes: eine pre-tag-Audit-Quittung EXISTIERT, wird aber abgewiesen,
 weil ihr `subject_tree_digest` einen **fremden** Baum bindet — vom Prüfer wörtlich „a copied record"
 genannt. Ein kopierter Beleg ist schlimmer als ein fehlender: er sieht aus wie Deckung.
+
+## Werkzeugfunde vom 11.09.2026 — Übersicht über S90 bis S99
+
+Owner-Anweisung 11.09.: *„Ab jetzt bis zum Tag v6.0.0 gilt Regel 2 auch für die Messgeräte … Jeder
+Fund am Werkzeug geht als Registerzeile nach RESTRISIKO_600 und in 6.0.1."* Keiner der folgenden
+Funde ist gefixt — sie sind gemessen, benannt und gestundet. **Die Nummern S86–S89 waren beim
+Eintragen bereits vergeben** (Codex-Gegenlesung des Kopfes `1b2adc2`, drei Commits auf
+`arbeit/601-nachzug`); der Entwurf trug sie doppelt. Gemessen mit einem Lauf über alle
+Register-Überschriften beider Bäume, nicht über den zuletzt gesehenen Abschnitt — deshalb beginnt
+diese Reihe bei S90.
+
+| Fund | Klasse in einem Satz |
+|---|---|
+| S90 veraltete Gewichte | LPT optimiert gegen Sekunden vom 02.09., die um Faktor ~18 danebenliegen |
+| S91 stillgelegte Killer | 26 Tests sind in der Tor-Baseline rot und koennen dort keinen Mutanten mehr toeten |
+| S92 Anker lehrt leer | der Vertrauensanker beschreibt sich als leer, waehrend er einen Schluessel traegt |
+| S93 Docstring gegen Code | das Usage-Beispiel nennt 600/, Schreiber und Leser nennen 360/ |
+| S94 Tor ohne Rufer | ein Deploy-Gate steht auf class_closed und wird von niemandem aufgerufen |
+| S95 Wortlisten-Pruefer | mein Nullaussagen-Pruefer band an 'null'/'kein' statt an die Eigenschaft |
+| S96 read-only als Mutation | ein Office-Root-Riegel blockte `git merge-base --is-ancestor` als Baum-Mutation |
+| S97 Wrapper gegen Original | der Pre-Sweep-Wrapper von Lauf 4b bricht am heutigen Original ab — TypeError |
+| S98 Pre-Sweep rot in 2bedone | der deterministische Vorlauf von Lauf 11 meldet regression an einem 2bedone-Ledgertest |
+| S99 Lauf 11 am Messgeraet | drei der fuenf Funde von Lauf 11 sitzen im Pruefwerkzeug, nicht im Kandidaten |
+
+**Die verbindende Klasse, siebenmal an einem Tag:** eine Pruefung bindet an die **FORM** statt an
+die **EIGENSCHAFT**. S95 (Wortliste statt Aussageform), S96 (Zeichenkette statt Wirkung des
+Unterbefehls), S97 (eingefrorene Signatur statt gelesener Vertrag), S94 (Ledger-Zustand aus der
+Trackung von Belegdateien statt aus der Verdrahtung des Tores) — und in S99 zweimal in der
+Freigabekette selbst.
+
+## S90 — Die gewichtete Shard-Partition rechnet mit Zahlen von vorgestern
+
+`scripts/mutation_shard_weights.json` trägt Sekunden aus CI-Lauf `33674268995` (02.09.). Gemessen
+am 11.09.: eine Suite-Runde dauert **~950 s** auf dem Farmer und **~1320 s** in CI, die Datei sagt
+40–80 s. Drei lokale Einzelmessungen aus `mutation (6)`: `bundle: KB check unwired` **933,3 s**
+gegen Gewicht 51,5 s (Faktor 18,1), `statuslist: every status reads VALID` **988,2 s** gegen 66,9 s
+(Faktor 14,8), `bundle: cnf-without-issuer-key fail-closed removed` **957,2 s** gegen 49,1 s
+(Faktor 19,5).
+
+**Die Faktoren streuen** (15,1 / 22,2 / 32,8 über 80 gemeinsame Operatoren), also hat sich die
+Rangfolge geändert — die einzige Eingabe von LPT. Simuliert mit dem echten Code, Last immer mit
+den neuen Dauern: LPT-alt **13704 s**, Round-Robin **13417 s**, LPT-neu **13147 s**. Die
+Optimierung ist damit **schlechter als der Rückfall**, gegen den sie antrat.
+
+*Ehrliche Grenze:* eine adversariale Gegenprüfung zeigte, dass unter MIN-Ersatzwert Round-Robin
+(13063,9 s) auch LPT-neu schlägt, und dass die neun Operatoren ohne frische Dauer **exakt Shard 6**
+sind — der in 35 von 40 CI-Läufen scheiterte. Die Zahlen sind eine **Untergrenze**.
+
+**Nach 6.0.1.** Kein Verdikt verschiebt sich, nur Wanduhr.
+
+## S91 — 26 Tests sind im Mutationstor als Killer stillgelegt
+
+Die Vollsuite am Kandidaten meldet **0 Fehler**, die Tor-Baseline meldet **26 rote**
+(`baseline red (environment-only failures allowed): 26`). Das ist bauartbedingt erlaubt — das Tor
+fährt in einem isolierten `/tmp`-Baum mit schmalem `PATH` und ohne die Trägermodule des venv.
+
+**Die Lücke liegt woanders:** ein Test, der schon in der Baseline rot ist, wird durch eine Mutation
+nicht röter und trägt zur Differenz `killed = red > baseline` nichts bei. 26 von rund 3700 Tests
+sind als Killer stillgelegt, und **welche**, steht nirgends — das Log nennt nur die Zahl, und der
+JUnit-Bericht liegt in einem `TemporaryDirectory`, das nach dem Lauf verschwindet.
+
+**Nach 6.0.1.** Ob einer der 26 der einzige Killer eines der 100 Operatoren ist, ist **nicht
+gemessen**.
+
+## S92 — Der Vertrauensanker beschreibt sich als leer und trägt einen Schlüssel
+
+`audit_artifacts/readiness_trusted_pubkeys.txt` sagt in Zeile 10–11 *„An EMPTY file (only
+comments) = NO trust anchor … That is the state today, on purpose"* und in Zeile 64 *„BECAUSE this
+file is empty"*. Beide stammen aus der Zeit vor Commit `9ce9361`, der den Schlüssel einfügte.
+
+Gemessen: Zeile 120 trägt
+`iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8= role=readiness_und_register_signierer_600
+not_after=2027-09-06`, beide Pflichtfelder erfüllt, committet. `_trust_anchor(REPO)` liefert
+**1 Schlüssel, Status `ok`**.
+
+**Gemessene Wirkung, zwei Leser:** eine adversariale Linse las den Kopftext und meldete „der Anker
+ist leer"; ich zählte nach, bekam **1** — eine Zahl, die das widerlegt — und las sie als
+Bestätigung. Daraus wurde die falsche Aussage „die Zulassungskette ist doppelt zu" in einem
+committeten Artefakt. Das ist die teuerste Klasse des Tages: **eine Gegenmessung fahren und ihr
+Ergebnis in die erwartete Richtung lesen.**
+
+**Nach 6.0.1** (zwei Kommentarzeilen). **Für die Signaturrunde ist das eine Hürde weniger, nicht
+eine mehr.**
+
+## S93 — Doku und Code nennen verschiedene Pfade für dieselbe Datei
+
+`scripts/sign_readiness_artifact.py` nennt im Usage-Beispiel (Z. 67, 75)
+`audit_artifacts/600/fuzz_soak_latest.json`. `MUTABLE_EVIDENCE_RELS` (Z. 113),
+`fuzz_soak.DEFAULT_OUT` (Z. 55) und `audit_candidate_matrix._SOAK_ARTIFACT_REL` (Z. 1875) nennen
+alle `audit_artifacts/`**`360`**`/fuzz_soak_latest.json`.
+
+**Gemessene Wirkung:** ein Gegenleser schloss aus dem Docstring, die Rohdatei sei eine temporäre
+Eingabe unter `600/`, die kein Gate liest — und begründete damit ein falsches Urteil.
+
+**Nach 6.0.1.**
+
+## S94 — Ein Deploy-Gate steht auf `class_closed` und wird von niemandem gerufen
+
+`scripts/b7_deploy_aktualitaets_gate.py` (252 Z., 2bedone) ist als **Tor** gebaut — vier Ausgänge,
+eigener Docstring: *„Ein Gate, das bei fehlender Auskunft durchwinkt, ist kein Gate."* Gemessen
+über `.claude`, `scripts`, `Makefile`, `.github`, `office/runbooks`: **ein einziger Treffer**, sein
+eigener Docstring. Der Klassen-Ledger steht trotzdem auf `class_closed` — die Bedingung dafür war
+die **Trackung** der Belegdateien, nicht die **Verdrahtung** des Tores.
+
+**Nach 6.0.1**, und in der Bahn 2bedone, die ohnehin ruht.
+
+## S95 — Mein eigener Nullaussagen-Prüfer band an eine Wortliste
+
+Ich prüfte meine zehn Befunde eines Tages gegen die stehende Regel „jede Nullaussage nennt den
+Messbefehl". Der Prüfer meldete **sechs** Verstöße; einzeln nachgemessen waren **zwei** echt, einer
+grenzwertig, **drei falsch positiv**. Er suchte nach `null|kein|nirgends` — Wörter, die in
+gewöhnlicher deutscher Prosa häufiger stehen als in Nullaussagen.
+
+Dritte Ausprägung derselben Klasse binnen zwei Tagen (Blockaden-Prüfer, `_NR_RE` im Warte-Riegel).
+**Nach 6.0.1.** Brauchbar bleibt er, solange jede Meldung einzeln nachgemessen wird und die Quote
+im selben Satz steht wie die Zahl.
+
+## S96 — Ein Riegel liest eine read-only-Abfrage als Baum-Mutation
+
+`scripts/session_close_envelope.py` meldet für die Sitzung vom 11.09. **1 `pavg_block`** gegen 20
+`intent_warn`. Der eine Block, 08:59:31:
+
+    OFFICE_ROOT_CHECKOUT_SWITCH_BLOCKED: bare git switch/checkout/reset --hard/clean/gh-pr-checkout
+    im Office-Root (Segment 'echo "  ist HEAD Vorfahr des Ziels? $(git merge-base --is-an')
+    mutiert session-…
+
+**`git merge-base --is-ancestor` schreibt nichts.** Es beantwortet eine Ja/Nein-Frage über zwei
+Commits und berührt weder Index noch Arbeitsbaum. Der Riegel hat das Wort `checkout` in einem
+längeren Kommandotext gesehen — beziehungsweise ein Muster, das auf die ZEICHENKETTE bindet statt
+auf die WIRKUNG des Unterbefehls.
+
+Dieselbe Klasse wie S95 und wie der Warte-Riegel: **eine Prüfung bindet an die FORM statt an die
+EIGENSCHAFT**. Hier in der harmloseren Richtung (er blockt zu viel statt zu wenig), aber die
+Kosten sind real: der Zug musste umformuliert werden, und ein Riegel, der bei read-only anschlägt,
+wird mit der Zeit umgangen statt gelesen.
+
+Das Ergebnis wurde als `UNKNOWN_REQUIRES_REVIEW` klassifiziert — das ist die ehrliche Einstufung
+des Werkzeugs, nicht eine Fehlklassifikation.
+
+**Nach 6.0.1.**
+
+## S97 — Ein Wrapper, der eine Signatur einfror, die sich weiterentwickelt hat
+
+`office/governance/deepgate_600_lauf3/presweep_weites_fenster.py` bricht beim Start von Lauf 11 ab:
+
+    TypeError: fabrik_mit_fenster.<locals>.fabrik.<locals>.mit_fenster()
+               got an unexpected keyword argument 'timeout'
+    b7_berkeley_pre_sweep.py:458 -> lib.run_nodes_strict(nodes, repo=REPO, timeout=budget_s)
+
+**Der Wrapper hatte recht und ist trotzdem überholt.** Er entfernte den `timeout`-Parameter am
+05.09. bewusst, mit Begründung im Code: *„Befund WRAPPER-SIGNATUR-VERSPRICHT-EIN-TIMEOUT-DAS-SIE-
+VERWIRFT-01: die alte Signatur nahm eines entgegen und verwarf es still. Eine Signatur, die mehr
+verspricht als sie hält, ist eine Falle für den nächsten Aufrufer."* Sein Docstring nennt als
+Anlass `b7_berkeley_pre_sweep.py` **Zeile 214**, wo damals `run_nodes_strict(nodes, repo=REPO)`
+**ohne** Timeout stand.
+
+Heute steht derselbe Aufruf in **Zeile 458** und übergibt `timeout=budget_s`. Das Original leitet
+sein Zeitbudget inzwischen **selbst** aus der Knotenzahl ab (`zeitbudget_fuer_knoten`, Z. 453) und
+dokumentiert die Herkunft im Ergebnis. **Damit ist der Wrapper nicht nur kaputt — er ist
+überflüssig geworden**: sein einziger Zweck war, ein weiteres Zeitfenster durchzureichen, das das
+Original nun selbst kennt.
+
+**Die Klasse:** ein Wrapper friert die Signatur seines Gegenstands zum Bauzeitpunkt ein. Ändert
+sich der Gegenstand, bricht der Wrapper — und zwar **laut**, was hier der glückliche Fall ist.
+Der gefährliche Fall wäre gewesen, dass die Ersetzung weiterhin greift und still ein anderes
+Fenster setzt als das Original meint.
+
+**Nicht repariert** (Regel 2 für Messgeräte). Lauf 11 fährt das Original direkt; der Wrapper
+bleibt unangetastet, damit die Gate-Zeile von Lauf 4b ihren `presweep_wrapper_sha256` behält.
+**Nach 6.0.1** zu entscheiden: löschen oder auf die heutige Signatur ziehen.
+
+## S98 — Der Pre-Sweep von Lauf 11 endet `regression`, und die Ursache liegt AUSSERHALB des Kandidaten
+
+Gemessen 2026-09-11 beim Start von Lauf 11, `scripts/b7_berkeley_pre_sweep.py` direkt (der
+Wrapper ist überholt, siehe S97):
+
+    status                = "regression"
+    failures              = 1
+    detail                = tests.test_standing_berkeley_gate_learns_anchor::
+                            test_durable_baseline_seeded_and_complete
+                            AssertionError: live-Ledger nicht monoton: [...]
+    interpreter           = /home/konrad/2bedone/.venv/bin/python
+    zeitbudget_s          = 480 (abgeleitet aus 194 Knoten)
+    n_test_nodes_replayed = 194
+
+**Was der Vorlauf sonst sagt, und es ist die gute Nachricht:** von 232 Ledger-Klassen werden 100
+replayt (194 pytest-Knoten), 132 tragen keinen in-repo ausführbaren Test — **davon 132 mit
+ausgeschriebener Begründung deklariert und `n_classes_unexplained = 0`**. Der Vorlauf nennt das
+selbst den einzigen Zustand, der hier nicht vorkommen darf: *„eine Deckungslücke ohne Grund ist
+von einer vergessenen Klasse nicht zu unterscheiden."* Diese Zahl ist sauber.
+
+**Der rote Knoten misst 2bedone, nicht proofbundle.** Belege, gemessen statt angenommen: der
+Interpreter ist `/home/konrad/2bedone/.venv/bin/python` (nicht das proofbundle-venv, das die
+kanonische Messfläche des Kandidaten ist); der Test liegt in `2bedone/tests/`; und die zwei in
+der Assertion genannten Klassen **sind** im live-Ledger vorhanden (346 Zeilen, 283 eindeutige
+Klassen) — beanstandet wird ihre **Monotonie**, nicht ihr Fehlen. Eine
+`class_ledger_baseline.jsonl` existiert an keinem der beiden erwarteten Pfade.
+
+**Nicht weiter untersucht und nicht repariert** — Owner-Anweisung vom 11.09., Regel 2 gilt ab
+sofort auch für die Messgeräte. **Nach 6.0.1.**
+
+**Was das für Lauf 11 heißt, ehrlich:** der deterministische Vorlauf ist **nicht grün**. Seine
+Ursache ist außerhalb des Prüfgegenstands messbar, aber das macht ihn nicht grün. Die Jury läuft
+unabhängig davon gegen den Kandidatenkopf; ihr Ergebnis steht für sich. Ein Gate-Verdikt, das
+diesen Vorlauf als bestanden führte, wäre falsch — er ist `regression` mit benannter, externer
+Ursache, und genau so gehört er in die Gate-Zeile.
+
+*Nummernkorrektur:* `VERDIKT_LAUF11_FIX_FIRST.md` nennt diesen Fund noch „Registerzeile S94" — das
+war die Entwurfsnummer, bevor die Kollision mit den drei Codex-Nachträgen S86–S89 gemessen war.
+Maßgeblich ist **S98**.
+
+## S99 — Drei der fünf Funde von Lauf 11 sitzen im Prüfwerkzeug, nicht im Kandidaten
+
+Lauf 11 (DEEP 6L/7I, Kopf `e95e72fd8cb11e35a946f9ad8289e60e72622f7d`) endet **FIX_FIRST** mit zwei
+P0 und drei P1; das Verdikt steht vollständig in
+`office/governance/berkeley_gate/runs/lauf11_600/VERDIKT_LAUF11_FIX_FIRST.md` (2bedone). Drei der
+fünf Funde treffen **Messgeräte** und gehören damit nach der Owner-Regel vom 11.09. hierher:
+
+* **L5 (P0) — `scripts/audit_candidate_matrix.py:748-755`: kanonisieren vor verifizieren.**
+  `canonicalize_statement` läuft **vor** `verify_ed25519`; das `except Exception` darüber ist als
+  „fehlender Kanonisierer = Umgebung" kommentiert und fängt auch `BudgetExceeded`. Von mir
+  ungestubbt nachgefahren, zwei Artefakte mit **derselben gefälschten** Signatur (32/64 Nullbytes):
+  ohne Zusatzfeld `untrusted → FAIL`, mit einem Feld von 1.000.001 Zeichen `unmeasurable_here →
+  DATA_BLOCKED`. Ein Inhaltsfehler wird als Umgebungsfehler klassifiziert — in genau der Datei, die
+  über hunderte Zeilen begründet, dass `DATA_BLOCKED` ausschließlich die Umgebung meinen darf.
+* **L2 (P1) — `scripts/pre_tag_receipt_lib.py:280`: `b64decode` ohne `validate=True`.** Von mir
+  ausgeführt: 35 Mutanten der Signaturfelder erzeugt, **35 von 35 verifizieren weiter als `True`**
+  (erster Fall: `junk='!'` an Position 0, Bytes verschieden, dekodiert identisch). AST-Messung über
+  den Baum: `src/` 4 Aufrufe, davon 0 ohne `validate=True`; `scripts/` 14 Aufrufe, davon **11 ohne**.
+  Die Bibliothek ist gehärtet, die Werkzeugschicht davor nicht.
+* **L4 (P1) — der Kreuzvergleich ist blind für die Fläche, die er prüfen soll.** Eine eingepflanzte
+  Regression der gerade geschlossenen Klasse `DEEPGATE600-L4-600-02` lässt `crosscheck.py` weiter
+  `CROSS-IMPL OK` melden: für diese Fläche steht kein Vektor im Kreuzvergleich. Dritte Ausprägung
+  derselben Klasse — jetzt auf der **Meta-Ebene des Gates selbst**. Von mir **nicht** nachgefahren
+  (die Linse hat einen Rust-Debug-Build mutiert, den ich nicht nachgebaut habe).
+
+Die beiden übrigen Funde treffen den **Kandidaten** und gehören nicht in dieses Register, sondern
+ins Gate-Verdikt: L1 (P0, `tools/pb_verify_rs` ohne Strukturbudget, `grep -cEi
+'budget|json_nodes|json_depth|string_len|input_bytes'` über `main.rs` → **0**, und **0 `#[test]`**)
+und L3 (P1, `HARTER_LASTDECKEL` deckt eine von sieben Dimensionen).
+
+**Nichts davon ist gefixt** — Owner-Anweisung vom 11.09.: kritischer Pfad allein, keine
+Werkzeugarbeit. Die Funde stehen in der Befund-Queue als `LAUF11-L1…L5`. **Nach 6.0.1**, die
+Entscheidung über L1 liegt beim Owner, weil sie den Kandidaten betrifft.
