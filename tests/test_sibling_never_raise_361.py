@@ -25,6 +25,7 @@ from proofbundle.relation_statement import verify_relation_statement
 from proofbundle.run_ledger import verify_run_ledger
 from proofbundle.trust_pack import verify_trust_pack
 from proofbundle.verification_summary import verify_verification_summary
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 _INTOTO = "application/vnd.in-toto+json"
 
@@ -147,7 +148,7 @@ class MerklePathBudgetDirectDict(unittest.TestCase):
     def test_over_budget_proof_is_failclosed(self):
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.merkle import verify_consistency, verify_inclusion
-        cap = DEFAULT_BUDGET.merkle_path
+        cap = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64)
         big = [b"\x00" * 32] * (cap + 1)
         self.assertFalse(verify_inclusion(b"leaf", 0, 1, big, b"\x00" * 32))
         self.assertFalse(verify_inclusion(b"leaf", 0, 1, [b"\x00" * 32] * 65536, b"\x00" * 32))

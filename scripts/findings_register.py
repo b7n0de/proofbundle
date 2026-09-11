@@ -20,7 +20,6 @@ structured, fail-closed replacement:
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import sys
@@ -104,8 +103,10 @@ def _signature_ok(register: dict, authorised_pubkeys: set[str] | None) -> tuple[
                        f"{str(pub_b64)[:16]}…, which the trust anchor does not authorise for this "
                        "check")
     try:
-        pub = base64.b64decode(pub_b64)
-        raw_sig = base64.b64decode(sig.get("sig_b64", ""))
+        # LAUF11-L2: strikt und kanonisch statt stdlib-lax.
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        pub = decode_b64(pub_b64)
+        raw_sig = decode_b64(sig.get("sig_b64", ""))
     except (ValueError, TypeError) as exc:
         return False, f"signature fields are not valid base64: {exc}"
     body = {k: register[k] for k in register if k != "signature"}

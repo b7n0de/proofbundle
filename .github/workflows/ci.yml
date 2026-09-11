@@ -85,8 +85,20 @@ jobs:
         run: python scripts/claims_hygiene_check.py
       - name: Doc links (no broken internal Markdown links)
         run: python scripts/doc_link_check.py
+      # LAUF11-L6: DER NORMATIVE RUNNER, auf ALLEN fuenf Pflicht-Versionen.
+      # Vorher stand hier `python -m unittest discover -s tests -v`. `unittest discover` sammelt nur
+      # TestCase-Klassen; eine Testdatei aus reinen pytest-Funktionen ist dort unsichtbar. Gemessen
+      # am Kopf e95e72f: unittest 2711 Tests / 209 Module gegen 4080 unter pytest — eine Luecke von
+      # 1369 Tests / 71 Modulen, und darin liegt die Freigabeflaeche selbst (test_renewal*,
+      # test_audit_candidate_ready_logic, test_audit_matrix_version_pin_binding,
+      # test_freigabe_evidenz_provenienz_l5_g7_02, test_ausfuehrung_aus_quelltext_l5_g7_04).
+      # `coverage` fing sie auf 3.12 — also Einfach- statt Fuenffachabdeckung, keine Blindheit. Fuer
+      # ein Release, das 3.10 bis 3.14 verspricht, reicht das nicht.
+      # `scripts/test_manifest_gate.py` nennt pytest seit jeher "the normative runner"; hier folgt
+      # der Pflicht-Job dem Namen, den die Sache schon trug. pytest liegt im `[dev]`-Extra, das der
+      # Install-Schritt oben schon zieht — kein neuer Abhaengigkeitsschritt.
       - name: Test
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest -q
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
         run: python conformance/run_conformance.py
       - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)

@@ -67,7 +67,8 @@ def build_context(repo: Path, version: str, audit_command: str, audit_exit: int,
 def build_and_sign(repo: Path, version: str, audit_command: str, audit_exit: int,
                    audit_output: str, runner_identity: str, produced_at: str, privkey_b64: str) -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    priv = Ed25519PrivateKey.from_private_bytes(base64.b64decode(privkey_b64))
+    from proofbundle._wire_b64 import decode_b64
+    priv = Ed25519PrivateKey.from_private_bytes(decode_b64(privkey_b64))
     pub_b64 = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
     receipt = build_context(repo, version, audit_command, audit_exit, audit_output, runner_identity, produced_at)
     sig = priv.sign(canonical_bytes(receipt))
@@ -81,11 +82,19 @@ def assemble_receipt(context: dict, sig_b64: str, signer_pubkey_b64: str) -> dic
     ``canonical_bytes(context)`` into a receipt. Self-checks the signature under signer_pubkey — a mismatch
     REFUSES (fail-closed), so a bad sig/context pair never becomes a receipt on disk. The bytes signed here
     are byte-identical to what verify_receipt reconstructs, so the assembled receipt verifies at the gate."""
+    import binascii
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(signer_pubkey_b64))
+    from proofbundle._wire_b64 import decode_b64
+    # LAUF11-L2: eine nicht-kanonische Schreibweise ist ein URTEIL (refusing), kein Absturz —
+    # ein Werkzeug der Freigabekette darf nicht sterben, wo es abweisen kann.
     try:
-        pub.verify(base64.b64decode(sig_b64), canonical_bytes(context))
+        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
+        roh_sig = decode_b64(sig_b64)
+    except (binascii.Error, ValueError) as e:
+        raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}")
+    try:
+        pub.verify(roh_sig, canonical_bytes(context))
     except InvalidSignature:
         raise SystemExit("assemble: signature does not verify over canonical_bytes(context) — refusing (fail-closed)")
     receipt = dict(context)

@@ -528,7 +528,10 @@ def _anker_pubkey_ok(pub: str) -> bool:
     if not _ANKER_B64.match(pub):
         return False
     try:
-        roh = base64.b64decode(pub, validate=True)
+        # LAUF11-L2: der strikte Wrapper. `validate=True` allein weist die von null verschiedenen
+        # Pad-Bits nicht ab — zwei Schreibweisen desselben Schluessels waeren zwei Ankereintraege.
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        roh = decode_b64(pub)
     except (binascii.Error, ValueError):
         return False
     if len(roh) != 32:
@@ -730,7 +733,6 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     „Anker nicht im selben Commit wie der Kandidat eingefuehrt" uebersprungen statt zu raten — sie
     braucht einen echten Baum, um etwas zu messen.
     """
-    import base64                                        # noqa: PLC0415
     sig = artifact.get("signature")
     if not isinstance(sig, dict):
         return ART_UNSIGNED, "the artifact carries no signature block"
@@ -740,18 +742,57 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     if not isinstance(pub_b64, str) or not pub_b64:
         return ART_UNTRUSTED, "the signature block names no public key"
     try:
-        pub = base64.b64decode(pub_b64, validate=True)
-        raw_sig = base64.b64decode(sig.get("sig_b64", ""), validate=True)
+        # LAUF11-L2: strikt UND kanonisch — eine zweite Schreibweise derselben Signatur ist eine
+        # zweite Drahtform desselben Artefakts, und genau das schliesst diese Kette aus.
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        pub = decode_b64(pub_b64)
+        raw_sig = decode_b64(sig.get("sig_b64", ""))
     except (ValueError, TypeError) as exc:
         return ART_UNTRUSTED, f"signature fields are not valid base64: {exc}"
     body = {k: v for k, v in artifact.items() if k != "signature"}
+    # ── LAUF11-L5 (P0): DIE REIHENFOLGE IST DER FIX ───────────────────────────────────────────────
+    # Vorher standen der IMPORT des Verifizierers und der AUFRUF des Kanonisierers in DEMSELBEN
+    # `try`, dessen `except` als „fehlender Kanonisierer = Umgebung" kommentiert war. Damit wurde
+    # jeder Fehler BEIM Kanonisieren zu `unmeasurable_here` und damit zu DATA_BLOCKED — auch
+    # `BudgetExceeded` und `FloatDomainError`, die Eigenschaften des ARTEFAKTS sind, nicht der
+    # Maschine. Ungestubbt gemessen am Kopf e95e72f: zwei Artefakte mit DERSELBEN gefaelschten
+    # Signatur (32/64 Nullbytes) bekamen zwei Urteile, und der einzige Unterschied war ein Feld von
+    # 1.000.001 Zeichen — `untrusted -> FAIL` gegen `unmeasurable_here -> DATA_BLOCKED`.
+    #
+    # Jetzt beantwortet der erste Block GENAU die Frage, die er im Kommentar behauptet: ist der
+    # Verifizierer hier ueberhaupt vorhanden? Das ist eine Aussage ueber die Umgebung. Alles, was
+    # DANACH beim Kanonisieren schiefgeht, ist eine Aussage ueber das Artefakt — ein Dokument, das
+    # sich nicht kanonisieren laesst, ist nicht unverifizierbar, es ist unverifiziert.
     try:
         from proofbundle import canonical                # noqa: PLC0415
         from proofbundle.signature import verify_ed25519  # noqa: PLC0415
-        msg = canonical.canonicalize_statement(body)
-    except Exception as exc:                             # noqa: BLE001 — fehlender Kanonisierer = Umgebung
-        return ART_UNMEASURABLE_HERE, (f"the artifact cannot be canonicalized in this environment "
-                                       f"({type(exc).__name__}: {exc}) — not measurable is not verified")
+        _kanonisierer = canonical.canonicalize_statement
+    except Exception as exc:                             # noqa: BLE001 — HIER ist es wirklich die Umgebung
+        return ART_UNMEASURABLE_HERE, (f"the canonicalizer/verifier is not available in this "
+                                       f"environment ({type(exc).__name__}: {exc}) — not measurable "
+                                       "is not verified")
+    if not callable(_kanonisierer):
+        return ART_UNMEASURABLE_HERE, ("the canonicalizer is present but not callable in this "
+                                       "environment — not measurable is not verified")
+    try:
+        msg = _kanonisierer(body)
+    except MemoryError as exc:
+        # DER EINE GRENZFALL, benannt statt verschwiegen (Gegenlesung phi4:14b, 11.09.2026): ein
+        # MemoryError kann BEIDES heissen — ein Dokument, das jeden Speicher sprengt, oder eine
+        # Maschine, die zu klein ist. Er bleibt UMGEBUNG, weil die zweite Lesart auf einem kleinen
+        # Runner die wahrscheinlichere ist und weil „hier nicht messbar" die ehrlichere Aussage
+        # ueber einen Abbruch ist, dessen Ursache diese Funktion nicht unterscheiden kann. Die
+        # Bereitschaft leidet darunter nicht: `ready` verlangt PASS, und DATA_BLOCKED ist keins.
+        return ART_UNMEASURABLE_HERE, (f"canonicalization ran out of memory ({exc}) — this can mean "
+                                       "an oversized document OR an undersized machine, and this "
+                                       "function cannot tell them apart, so it reports not-measurable "
+                                       "rather than claiming a property of the document")
+    except Exception as exc:                             # noqa: BLE001 — ab hier ist es das ARTEFAKT
+        # RecursionError gehoert AUSDRUECKLICH hierher: die Verschachtelungstiefe ist eine
+        # Eigenschaft des Dokuments, nicht der Maschine — dieselbe Achse, die `json_depth` deckelt.
+        return ART_UNTRUSTED, (f"the artifact cannot be canonicalized ({type(exc).__name__}: {exc}) "
+                               "— this is a property of the document, not of this environment, so it "
+                               "is not verified rather than not measurable")
     try:
         gueltig = verify_ed25519(pub, raw_sig, msg)
     except Exception as exc:                             # noqa: BLE001

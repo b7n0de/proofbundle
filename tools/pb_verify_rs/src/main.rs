@@ -250,11 +250,97 @@ fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// STRUKTURBUDGET (LAUF11-L1, P0). Deep Gate Lauf 11 mass: ein echtes, RFC-8785-kanonisches,
+// gueltig signiertes DSSE-Ziel mit einem Feld ueber 1 MB laesst Python mit `exit 2` abbrechen
+// (`verification budget exceeded: string_len = 1333724 > limit 1000000`), waehrend dieser
+// Verifizierer `exit 0` und `{"lineage":"VERIFIED"}` meldete. Ein `grep` ueber diese Datei nach
+// `budget|json_nodes|json_depth|string_len|input_bytes` lieferte 0 Treffer; die einzigen
+// Konstanten waren MAX_CHAIN_DEPTH und MAX_EDGES_PER_RECEIPT, beide unverwandt, und `read_file`
+// war ein nacktes `std::fs::read`.
+//
+// WARUM DAS ZAEHLT: dieser Verifizierer IST die unabhaengige Instanz der Release-Zusage
+// (SPEC.md, "Independent Rust cross-verification"). Bestaetigt er eine Abstammung, bei der die
+// erste Instanz aus Sicherheitsgruenden gar nicht prueft, ist die Unabhaengigkeit ein Schaden
+// statt einer Absicherung.
+//
+// DIE ZAHLEN SIND DIESELBEN WIE IN PYTHON und duerfen nicht driften. Damit das nicht von einem
+// Kommentar abhaengt, gibt der Unterbefehl `budget` sie als JSON aus, und ein Test der
+// Python-Suite vergleicht sie mit `DEFAULT_BUDGET` — gemessen wird, was der Binary WIRKLICH
+// benutzt, nicht was im Quelltext steht.
+const BUDGET_INPUT_BYTES: usize = 8_388_608;
+const BUDGET_JSON_NODES: usize = 200_000;
+const BUDGET_JSON_DEPTH: usize = 64;
+const BUDGET_STRING_LEN: usize = 1_000_000;
+
+/// Die Meldungsform ist die von Python, damit ein Differentialtest beide Seiten vergleichen kann.
+fn budget_ueberschritten(dimension: &str, got: usize, limit: usize) -> String {
+    format!("verification budget exceeded: {dimension} = {got} > limit {limit}")
+}
+
+/// Knoten, Tiefe und Zeichenkettenlaenge eines geparsten Dokuments — iterativ, nicht rekursiv:
+/// eine Tiefenpruefung, die selbst den Stack sprengt, ist keine.
+fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
+    let mut stapel: Vec<(&serde_json::Value, usize)> = vec![(value, 1)];
+    let mut knoten: usize = 0;
+    while let Some((v, tiefe)) = stapel.pop() {
+        if tiefe > BUDGET_JSON_DEPTH {
+            return Err(budget_ueberschritten("json_depth", tiefe, BUDGET_JSON_DEPTH));
+        }
+        match v {
+            serde_json::Value::String(s) => {
+                if s.len() > BUDGET_STRING_LEN {
+                    return Err(budget_ueberschritten("string_len", s.len(), BUDGET_STRING_LEN));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                knoten += items.len();
+                if knoten > BUDGET_JSON_NODES {
+                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                }
+                for it in items {
+                    stapel.push((it, tiefe + 1));
+                }
+            }
+            serde_json::Value::Object(map) => {
+                knoten += map.len();
+                if knoten > BUDGET_JSON_NODES {
+                    return Err(budget_ueberschritten("json_nodes", knoten, BUDGET_JSON_NODES));
+                }
+                for (k, val) in map {
+                    // DER SCHLUESSEL ZAEHLT MIT. Python schloss genau diese Achse am 2026-09-09
+                    // (Fund S80: der Schluessel bekam weder Schranke noch Abweisung); eine
+                    // Nachbildung, die ihn auslaesst, waere von Anfang an die halbe Pruefung.
+                    if k.len() > BUDGET_STRING_LEN {
+                        return Err(budget_ueberschritten("string_len", k.len(), BUDGET_STRING_LEN));
+                    }
+                    stapel.push((val, tiefe + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    // LAUF11-L1: die Eingangsgroesse VOR dem Parsen — ein Dokument, das die Schranke reisst, soll
+    // nicht erst vollstaendig in einen Baum verwandelt werden.
+    if bytes.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            bytes.len(),
+            BUDGET_INPUT_BYTES,
+        ));
+    }
     ganzzahl_literale_pruefen(bytes)?;
     let mut de = serde_json::Deserializer::from_slice(bytes);
     let v = StrictValue::deserialize(&mut de).map_err(|e| e.to_string())?;
     de.end().map_err(|e| e.to_string())?;
+    // LAUF11-L1: und die Struktur NACH dem Parsen. `strict_parse` ist der eine Eingang jedes
+    // Dokuments in diesen Verifizierer — die Schranke gehoert hierher und nicht in jeden Aufrufer,
+    // sonst ist sie beim naechsten neuen Unterbefehl still nicht dabei.
+    strukturbudget_pruefen(&v.0)?;
     Ok(v.0)
 }
 
@@ -1864,6 +1950,18 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
 }
 
 fn read_file(path: &str) -> Vec<u8> {
+    // LAUF11-L1: die Groesse wird an der METADATEN-Abfrage geprueft, nicht nach dem Lesen. Vorher
+    // war dies ein nacktes `std::fs::read` — eine Datei beliebiger Groesse landete vollstaendig im
+    // Speicher, bevor irgendeine Schranke sie sah.
+    if let Ok(md) = std::fs::metadata(path) {
+        if md.len() as usize > BUDGET_INPUT_BYTES {
+            fatal(&budget_ueberschritten(
+                "input_bytes",
+                md.len() as usize,
+                BUDGET_INPUT_BYTES,
+            ));
+        }
+    }
     std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
 }
 
@@ -1876,12 +1974,21 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: pb_verify_rs <content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
+            "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
 verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-report> ..."
         );
         exit(2);
     }
     match args[1].as_str() {
+        // LAUF11-L1: die Grenzen, die dieser Binary WIRKLICH benutzt. Ein Python-Test vergleicht sie
+        // mit DEFAULT_BUDGET — eine Drift zwischen den beiden Verifizierern faellt damit auf,
+        // bevor sie zu zwei Urteilen ueber dieselbe Datei wird.
+        "budget" => {
+            println!(
+                "{{\"input_bytes\":{},\"json_nodes\":{},\"json_depth\":{},\"string_len\":{}}}",
+                BUDGET_INPUT_BYTES, BUDGET_JSON_NODES, BUDGET_JSON_DEPTH, BUDGET_STRING_LEN
+            );
+        }
         "content-root" => {
             let path = args
                 .get(2)
@@ -2055,5 +2162,119 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             dispatch_verify_relation(&args, "verify-relation-statement", true)
         }
         other => fatal(&format!("unknown subcommand: {other}")),
+    }
+}
+
+
+// ===========================================================================
+// TESTS IM VERIFIZIERER SELBST (LAUF11-L1).
+//
+// Deep Gate Lauf 11 mass: `grep -c '#\[test\]'` ueber diese Datei lieferte **0**. Der unabhaengige
+// Zweitverifizierer wurde ausschliesslich ueber `crosscheck.py` geprueft — also von aussen, durch
+// dieselbe Python-Seite, gegen die er unabhaengig sein soll. Faellt der Kreuzvergleich aus oder
+// fehlt ihm ein Vektor (genau das war Fund L4), prueft diesen Verifizierer niemand.
+//
+// Diese Tests laufen mit `cargo test` und brauchen weder Python noch Netz.
+// ===========================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wert(roh: &str) -> Result<serde_json::Value, String> {
+        strict_parse(roh.as_bytes())
+    }
+
+    #[test]
+    fn anti_paritaet_ein_gewoehnliches_dokument_geht_durch() {
+        // ZUERST und nicht verhandelbar: ohne diese Zusicherung bestuende ein Parser, der ALLES
+        // abweist, jede Probe darunter.
+        let v = wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
+        assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn zu_lange_zeichenkette_wird_abgewiesen() {
+        let lang = "x".repeat(BUDGET_STRING_LEN + 1);
+        let roh = format!("{{\"a\":\"{lang}\"}}");
+        let e = wert(&roh).expect_err("eine Zeichenkette ueber der Schranke wurde angenommen");
+        assert!(e.contains("string_len"), "falsche Dimension gemeldet: {e}");
+        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+    }
+
+    #[test]
+    fn ein_zu_langer_schluessel_wird_ebenso_abgewiesen() {
+        // DIE ACHSE, DIE PYTHON ERST SPAETER SCHLOSS (Fund S80, 2026-09-09): der SCHLUESSEL bekam
+        // dort weder Schranke noch Abweisung. Eine Nachbildung, die ihn auslaesst, waere von
+        // Anfang an die halbe Pruefung.
+        let lang = "k".repeat(BUDGET_STRING_LEN + 1);
+        let roh = format!("{{\"{lang}\":1}}");
+        let e = wert(&roh).expect_err("ein Schluessel ueber der Schranke wurde angenommen");
+        assert!(e.contains("string_len"), "falsche Dimension gemeldet: {e}");
+    }
+
+    #[test]
+    fn zu_tiefe_verschachtelung_wird_abgewiesen() {
+        let n = BUDGET_JSON_DEPTH + 5;
+        let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
+        let e = wert(&roh).expect_err("eine zu tiefe Verschachtelung wurde angenommen");
+        assert!(e.contains("json_depth") || e.contains("recursion"), "unerwartete Meldung: {e}");
+    }
+
+    #[test]
+    fn die_tiefe_knapp_unter_der_schranke_bleibt_erlaubt() {
+        // Die Gegenrichtung zur Zeile darueber: der Deckel darf nicht schon darunter beissen,
+        // sonst weist er zulaessige Dokumente ab und die Probe oben sagt nichts ueber die Grenze.
+        let n = BUDGET_JSON_DEPTH - 2;
+        let roh = format!("{}1{}", "[".repeat(n), "]".repeat(n));
+        assert!(wert(&roh).is_ok(), "ein Dokument unter der Tiefenschranke wurde abgewiesen");
+    }
+
+    #[test]
+    fn zu_viele_knoten_werden_abgewiesen() {
+        let n = BUDGET_JSON_NODES + 10;
+        let mut roh = String::from("[");
+        for i in 0..n {
+            if i > 0 {
+                roh.push(',');
+            }
+            roh.push('0');
+        }
+        roh.push(']');
+        let e = wert(&roh).expect_err("ein Dokument ueber der Knotenschranke wurde angenommen");
+        assert!(e.contains("json_nodes"), "falsche Dimension gemeldet: {e}");
+    }
+
+    #[test]
+    fn eine_zu_grosse_eingabe_wird_vor_dem_parsen_abgewiesen() {
+        let roh = format!("[{}]", "1,".repeat(BUDGET_INPUT_BYTES / 2 + 10));
+        let e = strict_parse(roh.as_bytes()).expect_err("eine Eingabe ueber der Schranke ging durch");
+        assert!(e.contains("input_bytes"), "die Eingangsschranke meldete etwas anderes: {e}");
+    }
+
+    #[test]
+    fn die_meldungsform_ist_die_von_python() {
+        // Der Differentialtest der Python-Seite vergleicht Meldungen. Weicht die Form ab, wird aus
+        // einer echten Uebereinstimmung ein gemeldeter Unterschied — und aus einem Riegel Laerm.
+        assert_eq!(
+            budget_ueberschritten("string_len", 1_333_724, 1_000_000),
+            "verification budget exceeded: string_len = 1333724 > limit 1000000"
+        );
+    }
+
+    #[test]
+    fn die_schranken_sind_die_von_python() {
+        // Die Zahlen stehen hier noch einmal ausgeschrieben, damit eine Aenderung an den
+        // Konstanten eine BEWUSSTE ist. Der Abgleich gegen Python fuehrt der Test auf der
+        // Gegenseite; dieser hier faengt das versehentliche Verstellen.
+        assert_eq!(BUDGET_INPUT_BYTES, 8_388_608);
+        assert_eq!(BUDGET_JSON_NODES, 200_000);
+        assert_eq!(BUDGET_JSON_DEPTH, 64);
+        assert_eq!(BUDGET_STRING_LEN, 1_000_000);
+    }
+
+    #[test]
+    fn ein_doppelter_schluessel_wird_weiter_abgewiesen() {
+        // Eine bestehende Eigenschaft, die das neue Budget nicht beschaedigt haben darf.
+        assert!(wert(r#"{"a":1,"a":2}"#).is_err(), "der Duplikat-Schluessel geht jetzt durch");
     }
 }

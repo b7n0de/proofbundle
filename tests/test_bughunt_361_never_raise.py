@@ -8,6 +8,7 @@ import io
 import unittest
 
 from proofbundle.errors import BundleFormatError
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 
 class TlogProofNeverRaisesOnMalformedCheckpoint(unittest.TestCase):
@@ -57,7 +58,7 @@ class CliBoundedReadCapsHugeInput(unittest.TestCase):
     def test_over_cap_read_is_typed(self):
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.cli import _read_capped
-        cap = DEFAULT_BUDGET.input_bytes
+        cap = gedeckelt(DEFAULT_BUDGET.input_bytes, bytes_je_element=1)
 
         class Huge:
             def read(self, n=-1):
@@ -75,7 +76,7 @@ class CliBoundedReadCapsHugeInput(unittest.TestCase):
         # use the bytes-mode cap
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.cli import _read_capped_bytes
-        cap = DEFAULT_BUDGET.input_bytes
+        cap = gedeckelt(DEFAULT_BUDGET.input_bytes, bytes_je_element=1)
 
         class HugeB:
             def read(self, n=-1):
@@ -94,7 +95,7 @@ class PolicyLoadBoundedRead(unittest.TestCase):
         import tempfile
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.policy import PolicyError, load_policy
-        cap = DEFAULT_BUDGET.input_bytes
+        cap = gedeckelt(DEFAULT_BUDGET.input_bytes, bytes_je_element=1)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             f.write("{" + '"pad":' + "9" * (cap + 16) + "}")
             tmp = f.name
@@ -134,7 +135,7 @@ class LibrarySurfaceBudgetSiblingIsFailClosed(unittest.TestCase):
         import json
 
         from proofbundle.budget import DEFAULT_BUDGET
-        over = DEFAULT_BUDGET.json_nodes + 50
+        over = gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 50
         payload = {"pad": list(range(over))}
         if extra_top:
             payload.update(extra_top)
@@ -168,7 +169,7 @@ class LibrarySurfaceBudgetSiblingIsFailClosed(unittest.TestCase):
 
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.evalclaim import EvalClaimError, load_claim_text
-        over = DEFAULT_BUDGET.json_nodes + 50
+        over = gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 50
         text = json.dumps({"pad": list(range(over))})
         with self.assertRaises(EvalClaimError):
             load_claim_text(text)
@@ -189,7 +190,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
 
     def _node_heavy_dict(self):
         from proofbundle.budget import DEFAULT_BUDGET
-        return {"schema": "proofbundle/v0.1", "big": list(range(DEFAULT_BUDGET.json_nodes + 50))}
+        return {"schema": "proofbundle/v0.1", "big": list(range(gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 50))}
 
     def _node_heavy_file(self):
         import os
@@ -199,7 +200,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         # atomically and returns an open fd, no name-then-open race.
         fd, p = tempfile.mkstemp(suffix=".json")
         with os.fdopen(fd, "wb") as fh:
-            fh.write(b"[" + b"1," * (DEFAULT_BUDGET.json_nodes + 50) + b"1]")
+            fh.write(b"[" + b"1," * (gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 50) + b"1]")
         return p
 
     def test_verify_bundle_node_heavy_dict_and_file_are_bundleformat(self):
@@ -228,7 +229,7 @@ class Round4TopLevelSurfacesFailClosed(unittest.TestCase):
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.experimental.enclave import verify_enclave_attestation
         b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()  # noqa: E731
-        over = DEFAULT_BUDGET.json_nodes + 50
+        over = gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 50
         eat = b(b"{}") + "." + b(b"[" + b"1," * over + b"1]") + ".AAAA"
         res = verify_enclave_attestation(eat, verifier_pubkey=b"\x00" * 32, expected_binding="x")
         self.assertIsInstance(res, dict)

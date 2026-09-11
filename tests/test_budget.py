@@ -12,6 +12,7 @@ import unittest
 from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError, ProofBundleError
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 #: OBERGRENZE FUER JEDE LAST, DIE EIN TEST AUS EINEM BUDGETFELD ABLEITET.
 #:
@@ -79,7 +80,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
 
     def test_trust_pack_keys_count_capped(self):
         from proofbundle.trust_pack import validate_trust_pack_predicate
-        over = DEFAULT_BUDGET.witnesses + 1
+        over = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=2048) + 1
         keys = {f"k-{i}": {"publicKey": _pub(generate_signer())} for i in range(over)}
         pred = {
             "schemaVersion": "0.1.0", "trustPackId": "t", "version": 1,
@@ -104,7 +105,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
 
     def test_trust_pack_role_keyids_count_capped(self):
         from proofbundle.trust_pack import validate_trust_pack_predicate
-        over = DEFAULT_BUDGET.witnesses + 1
+        over = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=2048) + 1
         # keys map itself stays small (isolates the ROLE keyIds cap from the top-level keys-map cap); the
         # role references key ids that need not all exist in `keys` for THIS specific check to fire first.
         keys = {"k-0": {"publicKey": _pub(generate_signer())}}
@@ -120,7 +121,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
     def test_renewal_ats_chain_length_capped(self):
         from proofbundle.renewal import ArchiveTimeStamp
         from proofbundle.renewal import verify_sequence as _verify_sequence
-        over = DEFAULT_BUDGET.renewal_ats_chain + 1
+        over = gedeckelt(DEFAULT_BUDGET.renewal_ats_chain, bytes_je_element=256) + 1
         # a synthetic (not necessarily chain-consistent) sequence — the budget check runs BEFORE the
         # covering-consistency walk, so this fires purely on count.
         chain = [ArchiveTimeStamp("sha256", "a" * 64, i) for i in range(over)]
@@ -233,7 +234,7 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
         dsse, env, pub = self._env()
         # one real sig + enough junk entries to exceed the cap: without the guard this drives O(n) ed25519
         # verifies (none match, no early exit) = seconds of CPU; the input_bytes cap bounds only the payload.
-        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures)]
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256))]
         # adversarial re-audit round 6: verify_envelope is a public verify surface whose docstring signals only
         # BundleFormatError; the over-cap list now maps the internal BudgetExceeded to it (still a
         # ProofBundleError, so in-repo `except ProofBundleError` callers are unaffected — see the note at
@@ -243,7 +244,7 @@ class TestDsseSignaturesCapDoS(unittest.TestCase):
 
     def test_verify_envelope_accepts_at_signatures_limit(self):
         dsse, env, pub = self._env()
-        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(DEFAULT_BUDGET.signatures - 1)]
+        env["signatures"] = env["signatures"] + [{"sig": "AA=="} for _ in range(gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256) - 1)]
         self.assertEqual(len(env["signatures"]), DEFAULT_BUDGET.signatures)
         self.assertTrue(dsse.verify_envelope(env, pub))   # at the limit is fine; real sig still verifies
 
@@ -294,7 +295,7 @@ class TestLoadsStrictResourceCaps(unittest.TestCase):
     def test_json_nodes_default_is_wired_not_dead(self):
         # regression: json_nodes was a documented budget field never referenced by any code.
         import proofbundle._strict_json as sj
-        big = "[" + ",".join("0" for _ in range(DEFAULT_BUDGET.json_nodes + 5)) + "]"
+        big = "[" + ",".join("0" for _ in range(gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8) + 5)) + "]"
         with self.assertRaises(BudgetExceeded):
             sj.loads_strict(big)
 

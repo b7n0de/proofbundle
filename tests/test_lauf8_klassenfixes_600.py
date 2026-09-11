@@ -26,6 +26,7 @@ from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded
 from proofbundle.cli import _load_related
 from proofbundle.emit import generate_signer
 from proofbundle.relation_statement import RELATION_STATEMENT_PREDICATE_TYPE
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 
 class SchluesselLaufenDurchDieselbeSchranke(unittest.TestCase):
@@ -56,7 +57,7 @@ class SchluesselLaufenDurchDieselbeSchranke(unittest.TestCase):
     def test_GEGENRICHTUNG_gewoehnliche_schluessel_kommen_durch(self):
         for name, obj in (("JSON-Dict", {"a": 1, "b": ["x", None, True], "c": {"d": 2.5}}),
                           ("int-Schluessel", {7: "ok"}),
-                          ("erlaubte Laenge", {"k": "y" * (DEFAULT_BUDGET.string_len - 1)}),
+                          ("erlaubte Laenge", {"k": "y" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=1) - 1)}),
                           ("verschachtelt", {"a": {"b": {"c": [1, 2, 3]}}})):
             with self.subTest(fall=name):
                 enforce_structural_budget(obj, budget=self.b)   # darf nicht werfen

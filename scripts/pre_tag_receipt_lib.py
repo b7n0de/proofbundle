@@ -228,7 +228,7 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
                    subject_tree_digest: str, gate_source_digest: str) -> "tuple[bool, str]":
     """(ok, reason). ok iff the receipt is a well-formed, SIGNED (by a trusted key) attestation that
     BINDS this exact tree + version + gate source, and records a SUCCESSFUL audit (exit 0)."""
-    import base64  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     from proofbundle.signature import verify_ed25519  # noqa: PLC0415
     if not isinstance(receipt, dict):
         return False, "receipt is not an object"
@@ -277,7 +277,9 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
         return False, "receipt carries no signature"
     try:
         msg = canonical_bytes(receipt)
-        ok = verify_ed25519(base64.b64decode(signer), base64.b64decode(sig), msg)
+        # LAUF11-L2: strikt und kanonisch. Vorher nahm diese Zeile jede zweite Schreibweise
+        # derselben Bytes an — 35 von 35 Mutanten verifizierten weiter (Deep Gate Lauf 11).
+        ok = verify_ed25519(decode_b64(signer), decode_b64(sig), msg)
     except Exception as e:  # noqa: BLE001
         return False, f"signature check errored (fail-closed): {type(e).__name__}: {e}"
     if not ok:

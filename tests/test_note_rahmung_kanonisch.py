@@ -77,6 +77,7 @@ from proofbundle import tlogproof
 from proofbundle.budget import DEFAULT_BUDGET
 from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.errors import BundleFormatError, ProofBundleError
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 EM = "—"
 
@@ -574,7 +575,7 @@ class DieKappeBleibtVorDerArbeit(unittest.TestCase):
         a = _Aufbau()
         grundlinie = self._zaehle_dekodierungen(lambda: cp._parse_vkey(a.vkey))
         self.assertEqual(grundlinie, 1, "die Grundlinie selbst hat sich geaendert — Messung neu ansetzen")
-        note = _bau(a.text, [a.block[0]] * (DEFAULT_BUDGET.signatures + 1))
+        note = _bau(a.text, [a.block[0]] * (gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256) + 1))
 
         def lauf():
             with self.assertRaises(BundleFormatError) as cm:
@@ -629,7 +630,7 @@ class DieGrenzeZwischenEmitterUndVerifizierer(unittest.TestCase):
         self.assertIsNone(orakel_rahmung(self.koerper + "\n")[0])
 
     def test_der_emitter_erbt_die_zeilenkappe_nicht(self):
-        viele = _bau(self.a.text, self.a.block * (DEFAULT_BUDGET.signatures // len(self.a.block) + 2))
+        viele = _bau(self.a.text, self.a.block * (gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256) // len(self.a.block) + 2))
         self.assertIsInstance(tlogproof.format_tlog_proof(0, [], viele), str)
         with self.assertRaises(BundleFormatError):       # der Verifizierer sehr wohl
             cp.verify_checkpoint(viele, self.a.vkey)

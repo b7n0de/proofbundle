@@ -57,9 +57,23 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     for s in ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
               "sign_readiness_artifact.py"):
         (repo / "scripts" / s).write_bytes((SCRIPTS / s).read_bytes())
+    # DER MINIMALBAUM WIRD KOPIERT, NICHT GETIPPT (LAUF11, gemessen am eigenen Fix).
+    # Vorher standen hier zwei Dateinamen: __init__.py und signature.py. Als der L2-Fix
+    # `pre_tag_receipt.py` auf den strikten Dekoder `proofbundle._wire_b64` umstellte, fiel dieser
+    # Test mit `ModuleNotFoundError` um — die getippte Liste war beim ersten neuen Import still zu
+    # kurz. Der Kommentar acht Zeilen darueber warnt genau davor ("Zwei getippte Listen waeren zwei
+    # Aussagen darueber, was ein Kandidat bindet"), fuer die scripts/-Liste; die src/-Liste darunter
+    # war dieselbe Klasse und hat sie niemand angewandt.
+    #
+    # Jetzt kommt das ganze Paket mit. Die Minimalitaet des Baums ist nicht der Pruefgegenstand —
+    # der ist "ein committetes Receipt verifiziert, und eine src-Aenderung wird abgelehnt".
+    import shutil  # noqa: PLC0415
+    shutil.rmtree(repo / "src" / "proofbundle")
+    shutil.copytree(SRC / "proofbundle", repo / "src" / "proofbundle",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    # Die Version wird DANACH gesetzt: der Test bindet einen 5.0.0-Kandidaten, und die echte
+    # __init__.py traegt die heutige Version.
     (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n")
-    (repo / "src" / "proofbundle" / "signature.py").write_bytes(
-        (SRC / "proofbundle" / "signature.py").read_bytes())
     (repo / "pyproject.toml").write_text('[project]\nname = "proofbundle"\nversion = "5.0.0"\n')
     (repo / "CHANGELOG.md").write_text(
         "## [5.0.0] - 2026-08-25\naudit passed, pre-tag adversarial audit ran\n")

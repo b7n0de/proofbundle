@@ -153,6 +153,8 @@ def main() -> int:
     from proofbundle.outcome import build_outcome_statement, emit_outcome_receipt
     from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
 
+    #: Der in-toto-Statement-Payloadtyp, unter dem dieses Projekt signiert.
+    INTOTO_PT = "application/vnd.in-toto+json"
     failures: list[str] = []
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="pb_crosscheck_"))
 
@@ -182,7 +184,9 @@ def main() -> int:
         failures.append(f"real DSSE verify should be OK/exit0, got {out}/exit{code}")
 
     # (3) tampered payload -> FAIL
-    body = json.loads(base64.b64decode(env["payload"]))
+    from proofbundle._wire_b64 import decode_b64_either  # noqa: PLC0415
+    # LAUF11-L2: DSSE-Feld -> der DSSE-Decoder (beide Alphabete, gepolstert, kanonisch).
+    body = json.loads(decode_b64_either(env["payload"]))
     body["predicate"]["outcomeId"] = "EVIL"
     env_t = dict(env)
     env_t["payload"] = base64.b64encode(json.dumps(body).encode()).decode()
@@ -196,6 +200,78 @@ def main() -> int:
     code, out = _run("strict-parse", str(tmp / "dup.json"))
     if not (code == 1 and out.startswith("REJECT")):
         failures.append(f"duplicate key should REJECT/exit1, got {out}/exit{code}")
+
+    # (4b) LAUF11-L4: DIE BUDGET-ACHSE, der negative Vektor, der in Lauf 11 fehlte.
+    #
+    # WARUM ER FEHLTE UND WAS ES KOSTETE: dieser Kreuzvergleich prueft, worueber er Vektoren hat.
+    # Fuer die Ressourcenschranken hatte er keine — und genau dort liefen die beiden
+    # Implementierungen auseinander, ohne dass hier etwas aufgefallen waere. Gemessen in Lauf 11:
+    # ein echtes, kanonisches, GUELTIG SIGNIERTES DSSE-Ziel mit einem Feld ueber 1 MB liess Python
+    # mit exit 2 abbrechen ("verification budget exceeded: string_len = 1333724 > limit 1000000"),
+    # waehrend der Rust-Verifizierer exit 0 und {"lineage":"VERIFIED"} meldete. Der Kreuzvergleich
+    # meldete in derselben Runde CROSS-IMPL OK.
+    #
+    # DIE KLASSE, dritte Auspraegung an dieser Flaeche: ein Kreuzvergleich ohne Vektor fuer eine
+    # Flaeche SCHWEIGT ueber sie — und sein Schweigen liest sich wie Uebereinstimmung. Der Vektor
+    # unten ist der Unterschied zwischen "die Flaechen stimmen ueberein" und "die Flaechen, die ich
+    # kenne, stimmen ueberein".
+    #
+    # Zwei Haelften, weil zwei Dinge auseinanderlaufen koennen: die WIRKUNG (weist derselbe Fall
+    # beide ab?) und die ZAHL (haben beide dieselbe Schranke?). Die erste ohne die zweite ginge
+    # gruen, solange irgendeine Schranke greift, auch eine andere.
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    from proofbundle.dsse import sign_envelope as _sign_env  # noqa: PLC0415
+    from proofbundle.dsse import verify_envelope as _verify_env  # noqa: PLC0415
+
+    # Das DSSE-Primitiv direkt, nicht ueber ein Predicate: `emit_outcome_receipt` weist ein
+    # unbekanntes Feld schon am Schema ab (additionalProperties:false), und dann traegt der Vektor
+    # gar kein Feld ueber der Schranke mehr — er pruefte die Schema-Schicht statt der Budget-Achse.
+    # Genau dieselbe Verwechslung wie beim `canonicalize_refuses`-Zweig weiter unten: eine
+    # Erwartung auf den falschen Pruefpfad gelegt.
+    gross = {"a": 1, "ueberDerSchranke": "x" * (DEFAULT_BUDGET.string_len + 1)}
+    env_b = _sign_env(json.dumps(gross).encode(), sk, payload_type=INTOTO_PT)
+    (tmp / "env_budget.json").write_text(json.dumps(env_b))
+    try:
+        # LAUF11-L2, MEIN EIGENER RUECKFALL: diese Zeile entstand BEIM Bau des L4-Vektors und
+        # rief wieder den stdlib-Dekoder — genau die Klasse, die derselbe Commit schliesst.
+        # Der Riegel hat sie gefangen, nicht ich.
+        py_budget_ok = bool(_verify_env(env_b, decode_b64(pub)))
+    except Exception as exc:  # noqa: BLE001 — eine typisierte Abweisung IST das Urteil
+        py_budget_ok, py_budget_grund = False, f"{type(exc).__name__}: {exc}"
+    else:
+        py_budget_grund = "accepted"
+    code, out = _run("verify-dsse", str(tmp / "env_budget.json"), pub)
+    rust_budget_ok = code == 0
+    if py_budget_ok != rust_budget_ok:
+        failures.append(
+            f"budget axis: python_ok={py_budget_ok} ({py_budget_grund}) but rust exit={code} "
+            f"({out}) — one verifier accepts a target the other refuses to even parse; the "
+            f"independent instance is then not a second opinion but a second door")
+    if py_budget_ok:
+        failures.append(f"budget fixture bug: python should refuse a field over string_len, "
+                        f"got {py_budget_grund}")
+
+    # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
+    # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
+    code, out = _run("budget")
+    if code != 0:
+        failures.append(f"the rust verifier does not report its budget (exit {code}: {out}) — a "
+                        f"drift between the two schedules would be unmeasurable from here")
+    else:
+        try:
+            rust_budget = json.loads(out)
+        except ValueError:
+            rust_budget = None
+        if not isinstance(rust_budget, dict) or not rust_budget:
+            failures.append(f"`pb_verify_rs budget` is not a JSON object: {out!r}")
+        else:
+            for dim, wert in sorted(rust_budget.items()):
+                py_wert = getattr(DEFAULT_BUDGET, dim, None)
+                if py_wert != wert:
+                    failures.append(f"budget drift on {dim}: rust={wert} python={py_wert} — the "
+                                    f"same document gets two verdicts depending on which verifier "
+                                    f"reads it")
 
     # (5) RFC 6962 Merkle head
     la = hashlib.sha256(b"leafA").hexdigest()
@@ -397,6 +473,7 @@ def main() -> int:
               + "; ".join(f"{k} ({len(v)}): {_NICHT_DIFFERENTIELL.get(k, 'siehe Zweig oben')}"
                           for k, v in sorted(nicht_gedeckt.items())))
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
+          "budget axis (over-limit refused by both, schedules identical), "
           "trust-pack root-threshold (met+unmet) agree; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage)"

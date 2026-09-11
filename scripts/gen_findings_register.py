@@ -43,7 +43,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import sys
 from pathlib import Path
@@ -247,12 +246,19 @@ def canonical_bytes(body: dict) -> bytes:
 def assemble(body: dict, sig_b64: str, signer_pubkey_b64: str) -> dict:
     """Wrap an externally produced signature. REFUSES on a mismatch — fail-closed, so a bad
     signature/body pair never becomes a register on disk."""
+    import binascii  # noqa: PLC0415
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
         Ed25519PublicKey)
-    pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(signer_pubkey_b64))
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    # LAUF11-L2: strikt und kanonisch; unkanonisch wird abgewiesen, nicht geworfen.
     try:
-        pub.verify(base64.b64decode(sig_b64), canonical_bytes(body))
+        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
+        roh_sig = decode_b64(sig_b64)
+    except (binascii.Error, ValueError) as e:
+        raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}") from None
+    try:
+        pub.verify(roh_sig, canonical_bytes(body))
     except InvalidSignature:
         raise SystemExit("assemble: the signature does not verify over the canonical register body "
                          "— refusing") from None

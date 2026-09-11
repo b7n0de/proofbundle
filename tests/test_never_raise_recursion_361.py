@@ -22,6 +22,7 @@ from proofbundle.decision import INTOTO_STATEMENT_PAYLOAD_TYPE, verify_decision_
 from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError
 from proofbundle._strict_json import loads_strict
+from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 _DEEP_ARRAY = "[" * 4000 + "]" * 4000
 _DEEP_OBJECT = '{"a":' * 4000 + "1" + "}" * 4000
@@ -49,7 +50,7 @@ class BoundedDepth(unittest.TestCase):
         # C-recursion limit) yet exceeds the explicit budget.json_depth (64) — so it must be refused by the
         # explicit bound, not by an interpreter-version accident. It fails on 3.11 too without the fix.
         from proofbundle.budget import DEFAULT_BUDGET
-        n = DEFAULT_BUDGET.json_depth + 20
+        n = gedeckelt(DEFAULT_BUDGET.json_depth, bytes_je_element=2) + 20
         for opener, closer, tail in (("[", "]", ""), ('{"a":', "}", "1")):
             payload = opener * n + tail + closer * n
             with self.assertRaises(BundleFormatError) as ctx:
