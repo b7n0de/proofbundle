@@ -5333,6 +5333,18 @@ Fangnachweis der Linse: ein eingepflanzter B2-Defekt in `hashalg.py:111` macht
 `tests/test_hashalg.py` unter pytest rot (`14 passed` -> `3 failed, 11 passed`); dieselbe Datei
 hat **0** `unittest`-Importzeilen und laeuft auf den vier Matrix-Jobs ausser 3.12 nie.
 
+Die drei Nullaussagen dieses Abschnitts mit ihrem Messbefehl, damit sie nachmessbar sind
+(stehende Regel: „0 Treffer" ist keine Messung, ein Befehl mit Startpunkt ist eine):
+
+```
+/bin/grep -c 'import unittest\|unittest.TestCase' tests/test_hashalg.py            -> 0
+/bin/grep -cE '_version_token|pyproject_version' scripts/claims_hygiene_check.py    -> 0
+PYTHONPATH=src python -c "import unittest; s=unittest.TestLoader().discover('tests'); ..." -> 2711
+```
+
+`/bin/grep` ausdruecklich statt `grep`: die Shellfunktion dieser Umgebung filtert nach
+`.gitignore` und liefert bei einer Suche ueber `.` weniger Treffer als die Platte hergibt.
+
 **Die Gegenrichtung, gemessen, und sie begrenzt die Schwere:** `coverage` ist ein required Check
 (`ci.yml:114`: *„ruleset protect-main requires guard, coverage and the five test matrix jobs"*) und
 faehrt `python -m coverage run --source=src/proofbundle -m pytest -q` auf Python 3.12. **Das Gate
