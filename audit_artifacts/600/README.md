@@ -1115,3 +1115,73 @@ on one tree. Rollback verified byte-identical against the object store, the run 
 log renamed to carry `UNGUELTIG` rather than deleted, so the gap stays visible. Recorded as its own
 class: the expensive form of that mistake is not the run you lose, it is the one you KEEP — this one
 surfaced only because the mutation was large enough to be obvious.
+
+
+## Rounds 11 to 14 — the severity rule sharpened, three more fixes in the shipped package, and no round 15
+
+Written 2026-09-11T14:44:14Z, on the head this file is committed in (see the note on shas above: a file cannot name the
+commit that introduces it). Everything below names the head it was measured on.
+
+**The rule changed on 2026-09-11, by owner decision, and the change is the reason this section exists.**
+Rounds 11 to 13 kept finding P0/P1-graded defects — 2 P0 + 4 P1 (round 11), 2 P0 + 12 P1 (round 12), 1 P0 +
+12 P1 (round 13) — and almost all of them lived in test riegel, measurement scripts or the Rust cross-verifier,
+none of which a `pip install proofbundle` delivers. Each fix moved the head, each head needed a round, and the
+series had no stopping rule. The owner set one: **P0/P1 is reserved for the wheel on PyPI — a verdict, an exit
+code, a bound or a security property of the shipped verifier; everything else is a register row for 6.0.1 or
+6.1, and the Rust cross-verifier is experimental for 6.0.0 with no conformance promise.** Measured before the
+rule was applied: the wheel built from `d94ef34` carries 82 entries, all under `proofbundle/` plus `dist-info`;
+the sdist (1107 entries) carries `scripts/`, `conformance/`, `tests/` and nothing under `tools/`. So "the
+shipped verifier" means `src/proofbundle/**`, and the re-grading of rounds 12 and 13 under that rule left
+**zero** P0/P1 in it except the one the cross-family reader of round 13 found — a lone UTF-16 surrogate
+accepted by Python's `json` and refused by `serde_json` (`d94ef34`).
+
+**Round 14 was the one round the owner allowed after the rule, six lenses on `f6c5c8a` and a cross-family
+jury (un_turbov1, qwen3.8:27b) on the fixes.** Verdict: **FIX_FIRST** — three P1 in the shipped package,
+all three closed on `54aa5de`, each red on the examined head and green on the fix head; three P2 at the edge
+of the package (emit-side FIFO hang, empty `--json` on the exit-2 path, documentation) recorded as `S111` to
+`S114` in `RESTRISIKO_600.md`. The jury's one objection (a missing `RecursionError` clause) was refuted with a
+measurement: `loads_strict` bounds the depth itself, interpreter-independently, 3000 and 100 000 levels both
+end in a typed `BundleFormatError`. **`WITHSTANDS_DEEPGATE` is NOT claimed for 6.0.0.** There is no
+round 15 by owner decision, and there is no deep-gate *workflow* verdict over any head of this line — rounds
+10 to 14 ran as lens-and-jury rounds outside the workflow (round 10 was blocked by the pre-sweep, card
+`OA-dcf17fc652`). What that means for the readiness artefacts is stated in `RESTRISIKO_600.md` S120 rather than
+discovered at signing time: emitting C6.2/C6.3/C8.2 needs the gate line of a workflow verdict, so those three
+rows stay red until the owner decides how they are closed.
+
+| head | what it is | full suite (sister venv, `PYTHONPATH=src`, clean tree) |
+|---|---|---|
+| `e8a7f8e` | round-11 fixes (six findings, one head) | 4077 passed · 25 skipped · 0 failed · 1243.78 s |
+| `d94ef34` | round-12 fixes (fourteen findings under the old rule) + lone-surrogate bound | (recorded in the operator repo, rounds sheet 12) |
+| `f6c5c8a` | + the one red test of round 2 + the Rust policy-shape check (round 13, owner addition) | 4104 passed · 25 skipped · 0 failed · 1221.27 s |
+| **`54aa5de`** | **+ the three round-14 fixes** | **1 failed** · 4141 passed · 25 skipped · 1190.55 s · rc=1 — the one red case is this tree's own riegel `test_lauf11_l3_testlast_ist_gedeckelt` catching the NEW round-14 L2 test building an uncapped load from `DEFAULT_BUDGET.input_bytes` (exactly the class the riegel exists for, see N20); the load is capped on the next head and the suite re-run there (row below) |
+| **`816db70`** | **+ the test-load cap (this tree's own riegel, no change under `src/`)** | **4142 passed · 25 skipped · 0 failed** · 1209.89 s · rc=0 — verbatim result line of the run the pre-tag receipt binds: `4142 passed, 25 skipped, 2 warnings, 1612 subtests passed in 1209.89s (0:20:09)` |
+
+Collected on `54aa5de` with the gate's own collector: `4167 tests collected` (`--collect-only`, `-p no:randomly`).
+
+**N11, measured on `54aa5de`** with the command this document already names
+(`git diff --numstat <base> 54aa5de -- src tests scripts`):
+
+| base | files | `src/` | `tests/` | `scripts/` |
+|---|---|---|---|---|
+| `658ed063` (base of the canonical run) | 139 (+29422 / −936) | 33 | 89 | 17 |
+| `e8a7f8e` (last head with a completed `mutation (6)`) | 21 (+1636 / −150) | 7 | 13 | 1 |
+| `f6c5c8a` (the head round 14 examined) | 9 (+371 / −22) | 6 | 3 | 0 |
+
+Identity does not hold against any head that carries a completed mutation run. `mutation (6)` on `e8a7f8e`
+ended `=> FAILED (10 operators, 1 gap(s))`: 9 killed, one NOT MEASURABLE — operator 90, the `data_digests`
+ceiling (`N20`), 915.5 s without a balance line. The run on `54aa5de` (started 14:19Z on 2026-09-11) was stopped when the head moved; the run on `816db70`
+(started 14:47Z, `src/` and `scripts/` identical to `54aa5de`, `tests/` plus the cap) is the one that counts and its
+outcome belongs to the signature card, not to this file. The documentation commit that carries this section
+changes no file under `src/`, `tests/` or `scripts/`, so the N11 figures above are invariant across it —
+checkable with the same command.
+
+**Candidate matrix on the working tree of `54aa5de` (2026-09-11 14:35Z, 40 s):** 33 checks, 28 PASS, 4 FAIL
+(C6.2, C6.3, C8.2, C12.1), 1 EXTERNAL_PENDING — the same set as on `1b2adc2` (card `OA-93dd2be19c`), all four
+signature-bound. `crosscheck.py` on `54aa5de` (binary sha `951057390166015e`, advisory): `CROSS-IMPL OK`, 61 of
+110 corpus cases reproduced independently, 45 relation vectors differentially.
+
+**What this section can and cannot show.** Six lenses of one model family and a jury of a second; the lens
+reports and the jury evidence are filed in the operator repository (`runs/lenses/lauf14_600`, six files, and
+`data/audits/un_review/proofbundle_lauf14_…_54aa5de….json`). The three fixes were written by the same hand that
+ran the round and read by the foreign family; a further lens round on the fix head does not take place, by
+owner decision, and this file says so instead of implying one.

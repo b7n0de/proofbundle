@@ -6,9 +6,58 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
 
-### Fixed
+**The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.
+
+
+### Fixed — after the freeze of 2026-09-05, before the tag
+
+The freeze head of 2026-09-05 was not the tagged head. Twelve more deep-gate rounds ran on the
+candidate between the freeze and the tag (rounds 3 to 14, six lenses each, a cross-family
+reader on every fix head), and what they found in the shipped package is closed here — each entry
+names its measurement. From round 12 on the severity rule was sharpened by the owner (2026-09-11):
+P0/P1 is reserved for the wheel on PyPI — a verdict, exit code, bound or security property of the
+shipped verifier — and everything found in test riegel, measurement scripts, the Rust cross-verifier
+or documentation is a register row for 6.0.1 or 6.1 (see *Known issues at the tag* below).
+
+- **A lone UTF-16 surrogate in any JSON string is refused, on the file path and the dict path**
+  (2026-09-11, round 13, found by the cross-family reader, not by the six lenses). Python's `json`
+  accepts `"\ud800"`, `serde_json` does not, and RFC 8785 cannot canonicalize it — so a DSSE
+  envelope carrying a lone surrogate in `keyid` verified in Python (`verify_envelope -> True`) and
+  was refused by the Rust verifier: the same file, two verdicts. `_strict_json` now rejects it
+  fail-closed as `BundleFormatError` (not I-JSON, RFC 7493 §2.1) wherever the structural budget is
+  enforced, so both verifiers agree, and the crosscheck carries the negative vector.
+- **The receipt-chain resolver reads the payload with the same strict parser as the verifiers**
+  (2026-09-11, round 14, L1). `agent_review.resolve_receipt_chain` parsed the DSSE payload with a raw
+  `json.loads` while every `verify_agent_review*` reads the same bytes with `loads_strict`. Measured
+  on the candidate: a 3000-deep `supersession` let a raw `RecursionError` out of the resolver, a lone
+  surrogate in `priorDigest.sha256` ordered the chain, and a duplicated `sha256` key was read
+  last-wins — three forms the verifier refuses that nevertheless decided which receipt is *current*.
+  An envelope whose payload the strict parser refuses no longer orders anything; it is named under
+  `unaddressable` and counts against `integrity_ok`, exactly like a non-addressable envelope.
+- **`verify_sd_jwt` returns a verdict when the SIGNATURE segment exceeds the input budget**
+  (2026-09-11, round 14, L2). `_b64url_decode` refuses a segment above `input_bytes` before decoding
+  it, raising `BundleFormatError` — a `ProofBundleError`, not a `ValueError` — and the signature call
+  site caught only `ValueError`, so the documented never-crash surface crashed; header and payload
+  two blocks above had caught `ProofBundleError` for months. The same exception ran through
+  `sdjwt_vc.verify_sdjwt_vc`, and `sdjwt_vc` carried a third copy of `_b64url_decode` without the
+  pre-decode cap (a 40 MiB segment was fully decoded before any bound applied). Now one decoder, one
+  except clause per its contract, and a fail-closed verdict; the sibling in `statuslist` is widened
+  the same way although it is unreachable today.
+- **`evaluate_policy`, `evaluate_decision_policy` and `relation.evaluate_relations_policy` check the
+  policy's shape themselves** (2026-09-11, round 14, L4). `load_policy` promised that "a typo that
+  silently weakens a policy is impossible" — and kept it only for the caller that goes through
+  `load_policy`. The three evaluators every `verify_*` surface calls read their switches with
+  `.get(name)`; measured: `{"signature": {"require_expected_signerr": true}}` (one `r` too many)
+  produced `policy_ok: True, checks: []` for a bundle whose signer is the literal text
+  `any-attacker-key-at-all`, and `{"reject_superseeded": true}` left an attached supersession
+  unenforced. The CLI was never affected (it calls `load_policy` first at all seven sites); the
+  library was. One shape check, `_huelle_pruefen`, now serves `load_policy` and the three evaluators —
+  no second key list to drift. **Behaviour change for library callers:** a policy dict handed
+  directly to an evaluator with an unknown key at any level is now a fail-closed verdict
+  (`policy_ok: False`, reason `unknown field(s) in …`), not a silent pass; required fields and types
+  remain `load_policy`'s business, so partial policies stay accepted.
 
 - **A placeholder the subject can carry is not a comparison** (2026-09-07). The pre-tag gate
   replaces an unmeasurable tree with `"unknown"` and an unreadable gate source with `"unreadable"`
@@ -201,11 +250,6 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   directory. git is now consulted only when this tree is itself the repository (`--show-toplevel`
   equality); otherwise the stricter no-git behaviour applies.
 
-## [6.0.0] - 2026-09-05 (v0.2 is what the emitter produces · MAJOR)
-
-**The break in one sentence:** `agent-review/v0.2` is what `build_agent_review_statement` and `emit_agent_review` produce without an argument; v0.1 needs an explicit `legacy_v01=True`, stays readable and verifiable without a deadline, and is reported as `predicateVersionStatus: legacy`.
-
-
 ### Changed
 
 - **BREAKING (6.0.0): `agent-review/v0.2` is what the emitter produces without an argument.** The
@@ -365,6 +409,65 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - docs(run-ledger): state the local-chain limit; equivocation across readers is detected only
   by a witnessed checkpoint (SPEC 7d).
+
+### Known issues at the tag
+
+Stated here so a reader of the release notes does not have to open the residual-risk register to
+learn them; each has its row in [`RESTRISIKO_600.md`](RESTRISIKO_600.md).
+
+- **The Rust cross-verifier is experimental and advisory.** `tools/pb_verify_rs` is not part of the
+  wheel or the sdist (measured: 82 wheel entries, all under `proofbundle/`; 0 of 1107 sdist entries
+  under `tools/`). For 6.0.0 it carries no conformance promise: `tools/pb_verify_rs/crosscheck.py`
+  and the parity registry are differential-agreement instruments over the recorded vectors, not a
+  correctness proof of either implementation (SPEC, "Independent Rust cross-verification";
+  `docs/readiness_pack/rust_parity_scope.md`). On the tagged head the crosscheck reports
+  `CROSS-IMPL OK` and reproduces 61 of the 110 conformance-corpus cases independently (45 relation
+  vectors differentially); the other 49 are Python-only predicates with no Rust counterpart. Rust
+  conformance is its own milestone, 6.1; the Rust findings of rounds 12 to 14 (an empty
+  `signatures` list classified as malformed by Python and as not-verified by Rust; five `Err(_)`
+  sites that print no reason) are 6.1 register rows. The policy-shape check on the Rust side
+  (a typo made Rust ignore the whole policy with exit 0 where Python refuses with exit 2) landed in
+  the candidate in round 13 with a crosscheck vector, without a conformance claim.
+- **`C8.2` (Python↔Rust differential) is a signed, candidate-bound artefact.** The candidate matrix
+  reads it from `audit_artifacts/`; it is produced over the tagged tree and signed by the owner on
+  the key-holding machine together with the other readiness artefacts, so on any head before that
+  signature the check reports the artefact as absent. What is measured on the tagged head without a
+  signature is the crosscheck run above. **A constraint on the way to that signature, stated rather
+  than discovered later:** emitting the canonical bytes of the readiness artefacts (`C6.2`, `C6.3`,
+  `C8.2`) requires the gate line of a deep-gate *workflow* verdict over the tagged head
+  (`scripts/sign_readiness_artifact.py --gate-zeile-aus-verdikt`, copied verbatim, never invented),
+  and the candidate matrix accepts only `WITHSTANDS_DEEPGATE` there. Rounds 10 to 14 ran as
+  lens-and-jury rounds outside that workflow, and the owner closed the round series after round 14;
+  at the time of writing no workflow verdict over this head exists, so those three rows stay red
+  until the owner decides how they are closed (register row S120).
+- **One mutation operator is recorded as NOT MEASURABLE, not as killed (N20).** On the round-11
+  fix head `e8a7f8e`, the sharded mutation run `mutation (6)` killed 9 of its 10 operators; operator
+  90 (`budget: data_digests` ceiling practically removed, `2_000 -> 2_000_000_000`) left no balance
+  line inside its window (915.5 s): the mutated tree's own load-building tests explode before any
+  test can go red, so the tool reports the third state rather than a kill or a survivor. The
+  operator is bounded in the follow-up release. The mutation run on the tagged head, and the
+  `git diff --numstat` between the last measured head and the tagged head (N11), are recorded in
+  the signature card rather than here.
+- **Register rows for 6.0.1 from rounds 12 to 14** (found in the shipped tree, not changing a
+  verdict, exit code, bound or security property of the verifier): eight emit-side CLI paths open a
+  writer-less FIFO without the stat guard the verify side has (`decision emit <fifo>` hangs, no
+  verdict; `decision verify <fifo>` refuses with exit 2); `--json` prints no error object on the
+  exit-2 path of nine subcommands (exit code and stderr are correct, stdout is empty, so an
+  integrator parsing stdout stops rather than misreads); `rfc8785` has been a core dependency since
+  3.6.1 while a dozen messages still say "install proofbundle[eval]"; `SUPPORT.md` says "the current
+  line is 3.x"; the sd-jwt structure gate folds every parser refusal into the "duplicate JSON key"
+  text (the verdict is right, the sentence is not); the artefact reader of the candidate matrix
+  maps `EACCES`/`ELOOP` to "malformed" although they are the machine's state; the AST riegel that
+  scan for lax decoders and uncapped test load cannot see dynamically computed imports or
+  budget values read from files; the L2 riegel's scan roots omit `conformance/`.
+- **`C12.2` turns red on 2027-09-07 by design (N21):** the only anchor key carries
+  `not_after=2027-09-06`; rotate it before that date or accept the red.
+- **Operator-side gate instrumentation, named because it sits in this tag's evidence chain and
+  not because it concerns the package:** the release-side gate replay reports a `regression` on a
+  ledger-monotonicity check since 2026-09-09 that is an ordered correction (owner card
+  `OA-dcf17fc652`, register row `DAS-LIVE-LEDGER-IST-SEIT-DEM-09-09-NICHT-MONOTON-01`), and its
+  witness ran 96 of 192 evidence nodes (the other 96 ran once by hand on 2026-09-11, green). Both
+  are fixed after the tag, on the operator's side.
 
 ### Known limitation of the 6.0.0 artefacts (N15)
 

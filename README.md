@@ -174,6 +174,7 @@ proofbundle is a **beta project**. Shipped does not mean that every profile has 
 | Decision receipts | A gate's verdict over named evidence, bound to the receipts it judged, never a claim that the verdict was correct | Shipped |
 | Outcome, relation, run ledger, trust pack, and verification summary predicates | Typed evidence graphs and relying party policy inputs | Experimental |
 | TEE attestation bridge | RATS and EAT based enclave evidence | Preview, experimental |
+| Independent Rust cross-verifier (`tools/pb_verify_rs`) | A second implementation that cross-checks the conformance corpus differentially; not part of the wheel or the sdist | Experimental in 6.0.0 and advisory only: agreement on recorded vectors, no conformance promise; own milestone 6.1 |
 
 The full predicate inventory and maturity labels live in [docs/predicates/README.md](https://github.com/b7n0de/proofbundle/blob/main/docs/predicates/README.md).
 
@@ -184,6 +185,7 @@ The full predicate inventory and maturity labels live in [docs/predicates/README
 - The test suite sits behind a mutation gate and property based parser fuzzing.
 - The receipt signature is Ed25519 and is not post quantum. Post quantum coverage today is limited to witness side ML-DSA-44 cosignatures. A post quantum payload signature is on the roadmap and not yet built. Detail in [docs/ANCHORS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/ANCHORS.md).
 - Releases are built once, carry SLSA build provenance, and are published through PyPI Trusted Publishing, where PyPI records PEP 740 attestations for the same bytes.
+- A second, independent verifier written in Rust cross-checks the conformance corpus. It is advisory: differential agreement on the recorded vectors, not a correctness proof of either implementation, and it does not ship in the package.
 - The conformance corpus includes positive controls and counter proofs. Read what it does and does not establish in [CONFORMANCE.md](https://github.com/b7n0de/proofbundle/blob/main/CONFORMANCE.md).
 - The 30 minute adversarial adoption path is in [docs/REVIEWERS.md](https://github.com/b7n0de/proofbundle/blob/main/docs/REVIEWERS.md).
 - Security reports follow [SECURITY.md](https://github.com/b7n0de/proofbundle/blob/main/SECURITY.md).

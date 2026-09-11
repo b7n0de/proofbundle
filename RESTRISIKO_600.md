@@ -4863,3 +4863,171 @@ dorthin verbreitert, indem er die Menge der `payload_malformed`-Nachbarn vergroe
 **Fix in beiden Sprachen:** ein unlesbarer Payload landet im selben unlesbar-Zweig wie ein
 unlesbarer Block; eine gebrochene SIGNATUR bleibt uebersprungen, denn eine unsignierte Behauptung
 ist keine Aussage ueber uns. Angesagt 6 Zeilen, gemessen 6 von 6, beide Gegenrichtungen halten.
+
+
+## S102 bis S114 — Deep-Gate Läufe 12 bis 14 unter der geschärften Schwereregel (Owner-Entscheid 11.09.2026)
+
+Ab Lauf 12 gilt die vom Owner geschärfte Regel 1: P0/P1 heißt „ändert Urteil, Exit-Code, Schranke oder
+Sicherheitseigenschaft des AUSGELIEFERTEN Verifiers" — des Wheels auf PyPI, das sind genau `src/proofbundle/**`
+(gemessen an `d94ef34`: 82 Wheel-Einträge, alle unter `proofbundle/`; das sdist trägt `scripts/`, `conformance/`,
+`tests/`, aber keinen Eintrag unter `tools/`). Funde in Riegeln (`tests/`), Messgeräten (`scripts/`), nicht
+ausgelieferten Werkzeugen (`tools/`) und Doku sind Registerzeilen für 6.0.1; Funde am Rust-Zweitverifizierer für
+6.1, weil der für 6.0.0 EXPERIMENTELL ist — keine Konformitätszusage, `crosscheck.py` advisory (README, CHANGELOG
+„Known issues at the tag"). Die Nummern sind über beide Bäume abgeleitet, die dieses Register führen (Kandidat:
+S85; `arbeit/601-nachzug`: S101), und beginnen deshalb bei S102. Der Fixsatz für die Riegel-Funde liegt als Patch
+mit Rot/Grün-Protokoll im Operator-Repo (`runs/lauf13_600/nachzug/`), nicht im Release-Kopf.
+
+Was in diesen Läufen am Wheel gefunden wurde, ist GEFIXT und steht im CHANGELOG („Fixed — after the freeze"):
+einsames Surrogat (Lauf 13, Gegenlesung), Kettenauflöser mit rohem `json.loads` (Lauf 14 L1), SD-JWT-Signatursegment
+über dem Budget (Lauf 14 L2), Policy-Hülle in den drei Auswertern (Lauf 14 L4). Die Zeilen hier sind der Rest.
+
+### S102 · Ein AST-Scanner sieht keine dynamische Form — benannte Grenze der Riegel L2 und L3, gemessen 11.09.2026 (Lauf 12/13, P2, 6.0.1)
+`tests/test_wire_bytes_strict.py::laxe_dekodierstellen` und `tests/test_lauf11_l3_testlast_ist_gedeckelt.py::ungedeckelte_lastquellen`
+lösen Bindungen statisch auf (Alias, `from`-Import, Rebinding, `getattr`/`__import__` mit Konstante, Funktionen mit
+Budget-`return`, Scopes). `importlib.import_module("base64")`, `exec`, `getattr(base64, name)` mit berechnetem Namen oder
+ein Budget-Wert, der über eine Datei oder Umgebungsvariable hereinkommt, sind für beide Riegel unsichtbar. **Wirkung auf
+6.0.0:** keine gemessene — im Baum gibt es heute keine solche Form. **Ehrliche Grenze:** ein Riegel, der die Eigenschaft
+nur für statisch auflösbare Formen beweist, beweist sie nicht für Code, der seine Ziele zur Laufzeit berechnet. Ein
+Laufzeit-Zeuge (Import-Hook auf `base64`/`binascii`/`codecs` während der Suite; `tracemalloc`-Deckel je Test) wäre die
+vollständige Form. Befund `LAUF13-DYNAMISCHE-IMPORTFORMEN-SIND-FUER-DIE-AST-RIEGEL-UNSICHTBAR-01`.
+
+### S103 · `EACCES`/`ELOOP` beim Artefaktleser fallen als MALFORMED, obwohl Auflage C2 sie zur Umgebung zählt — gemessen 11.09.2026 (Lauf 12 L5, P2, 6.0.1)
+`scripts/audit_candidate_matrix.py::_signed_versioned_artifact` bildet jeden `OSError` beim Öffnen auf `ART_MALFORMED`
+(→ FAIL) ab. Für `EISDIR` und `ENOENT` ist das die Eigenschaft des Artefakts; für `EACCES` (Rechte) und `ELOOP`
+(Symlink-Schleife) ist es der Zustand der Maschine — und dieselbe Funktion unterscheidet `MemoryError` bereits als Umgebung,
+die Zuordnung ist also inkonsistent. **Wirkung auf 6.0.0:** keine gemessene, und die Richtung ist die sichere (ein
+unlesbares Artefakt verhindert die Freigabe). **Fix:** `errno.EACCES/EPERM/ELOOP → ART_UNMEASURABLE_HERE`, Test in
+beide Richtungen. Befund `LAUF13-EACCES-BEIM-ARTEFAKTLESER-IST-UMGEBUNG-UND-FAELLT-ALS-ARTEFAKT-01`.
+
+### S104 · sd-jwt meldet jede `BundleFormatError` als „duplicate JSON key" — der Text nennt nicht den Grund, gemessen 11.09.2026 (Lauf 13/14, P3, 6.0.1)
+Ein sd-jwt-Payload mit einem einsamen Surrogat (seit `d94ef34` vom strikten Parser abgewiesen) oder über der Tiefen-/
+Knotenschranke erscheint als `duplicate JSON key in SD-JWT header/payload (parser-differential, rejected)`
+(`sdjwt.py:136-145`). Das Verdikt ist richtig (`structure_ok=False`, exit 1, kein Traceback — RT-06 hält), die
+Begründung ist die einer anderen Ablehnung. **Fix:** die Meldung des Parsers durchreichen statt sie auf einen festen
+Text zu falten. Befund `LAUF13-SDJWT-FALTET-JEDE-PARSERABWEISUNG-AUF-DEN-DOPPELSCHLUESSEL-TEXT-01`.
+
+### S105 · `_anker_pubkey_ok` wirft `TypeError` bei einem Nicht-`str` — heute unerreichbar, gemessen 11.09.2026 (Lauf 12 L2, P3, 6.0.1)
+Der Aufrufer reicht immer einen `str`; ein anderer Typ kommt auf keinem Pfad an. **Wirkung auf 6.0.0:** keine.
+**Fix:** typisierte Abweisung statt `TypeError`. Befund `LAUF12-L2-ANKER-PUBKEY-OK-WIRFT-TYPEERROR-BEI-NICHT-STR-01`.
+
+### S106 · `signatures: []` bekommt in Python und Rust zwei Klassifikationen — gemessen 11.09.2026 (Lauf 13 L1, P3, 6.1)
+Python (`dsse.py:127`, `trust_pack.py:456`) wirft `BundleFormatError` („must be a non-empty list", exit 2 malformed);
+Rust (`main.rs:474`, `:892`) läuft mit null Elementen durch die Schleife zu `Ok(false)` (exit 1, „nicht verifiziert").
+**Wirkung auf 6.0.0:** keine — beide verweigern. **Ehrliche Grenze:** die Taxonomie „leerer Container = fehlgeformt" ist
+nur auf einer Seite verdrahtet. **Fix (6.1):** Rust weist eine leere Liste als MALFORMED ab, crosscheck-Vektor.
+Befund `LAUF13-L1-LEERE-SIGNATURLISTE-ZWEI-TAXONOMIEN-01`.
+
+### S107 · Die Scanwurzeln des L2-Riegels sind `src/`, `scripts/`, `tools/` — `conformance/` fehlt, gemessen 11.09.2026 (Lauf 13 L2, P2, 6.0.1)
+`conformance/run_conformance.py:230` ruft `base64.b64decode(pub_b64, validate=True)` als Vorprüfung; dieselbe Zeichenkette
+geht danach unverändert an `cli.py`, das strikt über `_wire_b64.decode_b64` dekodiert — eine Pad-Bit-Variante passiert die
+Vorprüfung und fällt am echten Pfad (gemessen). **Wirkung auf 6.0.0:** kein Urteilswechsel. **Ehrliche Grenze:** die
+Scanwurzel folgt Verzeichnisnamen, nicht der Eigenschaft „trifft eine Sicherheitsentscheidung". **Fix:**
+`run_conformance.py` auf `decode_b64`, Scanwurzel = jeder `.py` außerhalb `tests/`/`examples/` mit benannter
+Ausnahmeliste. Befund `LAUF13-L2-SCANWURZEL-OHNE-CONFORMANCE-01`.
+
+### S108 · Fünf `Err(_)`-Verwürfe in `main.rs` nennen keinen Grund — gemessen 11.09.2026 (Lauf 13 L4, P2, 6.1)
+`verify-trust-pack-threshold` (:2201) und `verify-bundle` (:2155, :2172) drucken nacktes `MALFORMED`, `load_related` (:1886)
+und `dispatch_verify_relation` (:1991) nur `{"lineage":null}`; ein Dokument über `string_len` liefert in Rust keinen
+Achsennamen, in Python „string_len = 1000001 > limit". **Wirkung auf 6.0.0:** keine auf Urteil oder Exit. **Ehrliche
+Grenze:** `_run_mit_grund` vergleicht Gründe; ein künftiger Vektor am strukturellen Pfad ergäbe einen Schein-Widerspruch.
+Befund `LAUF13-L4-ERR-VERWURF-OHNE-GRUND-AN-FUENF-CLI-EINSTIEGEN-01`.
+
+### S109 · `_artifact_verdict(..., absent=FAIL)` trägt einen ungetesteten Vorgabewert — gemessen 11.09.2026 (Lauf 13 L5, P2, 6.0.1)
+Alle drei produktiven Aufrufer setzen `absent=` explizit; die Mutation `absent=PASS` bleibt vom Riegel unbemerkt und ist
+heute folgenlos. **Ehrliche Grenze:** ein künftiger Aufrufer ohne `absent=` fiele still auf den Vorgabewert — dieselbe
+Klasse wie `bytes_je_element=64`. **Fix:** Parameter ohne Vorgabewert.
+Befund `LAUF13-L5-ABSENT-VORGABEWERT-VON-ARTIFACT-VERDICT-UNGETESTET-01`.
+
+### S110 · FIFO, Symlink auf ein Gerät und Verzeichnis werden vom Artefaktleser als `absent` gemeldet — gemessen 11.09.2026 (Lauf 13 L5, P3, 6.0.1)
+`_signed_versioned_artifact` prüft `is_file()` und sagt „is absent", obwohl am Pfad etwas liegt. **Wirkung auf 6.0.0:**
+keine — `absent` läuft über den `absent=`-Parameter in dasselbe Urteil wie eine gelöschte Datei. **Fix:** eigener Zustand
+„nicht regulär" (MALFORMED). Befund `LAUF13-L5-NICHT-REGULAERE-PFADE-WERDEN-ALS-ABSENT-GEMELDET-01`.
+
+### S111 · Acht emit-seitige CLI-Pfade öffnen einen Pfad ohne Stat-Guard — ein schreiberloses FIFO hängt den Prozess, gemessen 11.09.2026 (Lauf 14 L3, P2, 6.0.1)
+`cli.py:369` (`emit-eval --claim`), `:1037` (`emit --payload-file`), `:1358` (`anchor upgrade --target-file`), `:1766`
+(`decision emit`), `:2188` (`outcome emit`), `:2355` (`relation-statement emit`), `:2572/:2579` (`policy instantiate
+--issuer-key/--expected-root-file`) und `emit.py:99` (`load_signer`, über `--key` aus jedem Emit-Kommando) rufen `open()`
+ohne den `os.stat`-Guard, den `_open_input` auf JEDEM Verify-Pfad hat. Gemessen: `decision emit <fifo>` → `exit 124`
+unter `timeout 8`, kein Urteil; `decision verify <fifo>` → typisiert exit 2. Verzeichnis und Symlink-Schleife sind an
+denselben Stellen korrekt behandelt (typisiertes `OSError`, exit 2). **Einstufung unter Regel 1 geschärft:** kein
+Verify-Pfad — kein Urteil, Exit-Code, keine Schranke, keine Sicherheitseigenschaft des Verifiers ändert sich; der Operator
+hängt seinen eigenen Signiervorgang an einem selbst gewählten Pfad auf. Kein Test im Baum deckt eine der acht Stellen.
+**Fix:** `_open_input` (bzw. eine Bibliotheksform des Stat-Guards für `emit.py`) an allen acht Stellen, Test mit FIFO.
+Befund `LAUF14-L3-EMIT-SEITIGE-OPEN-OHNE-STAT-GUARD-FIFO-HAENGT-01`.
+
+### S112 · `--json` liefert auf dem exit-2-Pfad von neun Subkommandos leeres stdout statt eines Fehlerobjekts — gemessen 11.09.2026 (Lauf 14 L5, P2, 6.0.1)
+`decision/outcome/relation-statement verify`, `verify-enclave`, `verify-opening`, `audit-challenge`, `evalcard`,
+`prereg`, `anchor upgrade`/`verify-pack`: bei malformed input exit 2 korrekt, `ERROR:` auf stderr, stdout 0 Bytes trotz
+`--json` (18 `except … _err(exc); return 2`-Stellen ohne `if args.json:`-Zweig; neun davon live reproduziert). `verify`,
+`verify-proof`, `policy lint/explain/instantiate` liefern das Fehlerobjekt. `_error_verify_fields` verspricht wörtlich,
+dass ein Integrator „always" das JSON lesen kann. **Einstufung:** Urteil und Exit-Code sind richtig; ein Integrator, der
+stdout parst, bekommt einen Parse-Fehler und stoppt (fail-safe), er leitet kein falsches Urteil ab. Kein Test im Baum
+fährt `--json` gegen eine parse-fehlgeschlagene Eingabe dieser Verben (`test_exit_codes_and_json_projection` deckt 0/1/3).
+**Fix:** EIN Fehler-Emitter, den alle Verben mit `--json` benutzen — keine Aufzählung von Ausnahmen.
+Befund `LAUF14-L5-JSON-LEER-AUF-DEM-EXIT-2-PFAD-AN-18-STELLEN-01`.
+
+### S113 · `rfc8785` ist seit 3.6.1 Core-Dependency, über zehn Docstrings und Fehlermeldungen sagen weiter „install proofbundle[eval]" — gemessen 11.09.2026 (Lauf 14 L6, P2, 6.0.1)
+`canonical.py:20-22,56,86`, `decision.py`, `evalclaim.py`, `outcome.py`, `adapters/eee.py`, `intoto.py`,
+`agent_review.py:291,1074`, `run_ledger.py`, `verification_summary.py`, `trust_pack.py`, `relation_statement.py`,
+`subject_binding.py` und der Kommentar zum `[eval]`-Extra in `pyproject.toml` beschreiben den Kanonisierer als optional
+und den Basisverifier als „dependency-free"; `pyproject.toml:39` führt `rfc8785>=0.1.4` als Pflicht. Gemessen: ein
+frisches venv mit dem Wheel ohne Extras trägt `rfc8785 0.1.4`. **Wirkung auf 6.0.0:** keine auf Urteil oder Exit — jede
+Aufrufstelle ist bei fehlendem Modul fail-closed; nur die Abhilfe im Text ist die falsche.
+Befund `LAUF14-L6-RFC8785-DOKU-NENNT-EIN-EXTRA-FUER-EINE-CORE-DEPENDENCY-01`.
+
+### S114 · `SUPPORT.md` sagt „the current line is 3.x", `RELEASE.md` „the 5.x line" — der Versions-Riegel kennt die Form nicht, gemessen 11.09.2026 (Lauf 14 L6, P2, 6.0.1)
+`scripts/check_version_and_changelog.py` (Check 6) findet Behauptungsformen wie `current: X.Y.Z`; die Prosa „current line
+is 3.x" (`SUPPORT.md:12`) und „moved on to the 5.x line" (`RELEASE.md:100`) stehen daneben und bleiben grün — `docs/
+version_truth_list.md` benennt diese Grenze selbst. Gate-Meta-Test der Linse: `__version__` auf 6.0.1 gesetzt → Riegel
+rot, zurückgesetzt (sha256 identisch) → grün; er lebt, er kennt nur diese Form nicht. **Wirkung auf 6.0.0:** keine am
+Paket; eine falsche Aussage in zwei Prosadateien des Repos. **Fix:** die zwei Sätze berichtigen und den Riegel um die
+Form „line is X.x" erweitern. Befund `LAUF14-L6-SUPPORT-MD-NENNT-DIE-3X-LINIE-ALS-AKTUELL-01`.
+
+### S115 · `addopts --ignore=…` in `pyproject.toml` verengt die Sammlung, und Riegel wie Manifest-Gate vergleichen zwei Messungen aus derselben Quelle — gemessen 11.09.2026 (Lauf 13 L6, P2, 6.0.1)
+Die ini-Verengung nimmt 187 Tests aus der Sammlung; `tests/test_lauf11_l6_…` und `scripts/test_manifest_gate.py`
+lesen beide die verengte Zahl und bleiben grün. **Wirkung auf 6.0.0:** keine am Paket; der Riegel beweist die
+Vollständigkeit der Suite nur relativ zur ini. **Fix:** die Sammlung einmal OHNE `addopts` messen und gegen die
+Manifest-Zahl halten. Befund `LAUF13-L6-INI-VERENGUNG-IN-PYPROJECT-FUER-RIEGEL-UND-MANIFEST-GATE-UNSICHTBAR-01`.
+
+### S116 · Die starken Pflichtjob-Prüfungen sind an den Job `test` hartcodiert; `-k` in der `coverage`-Zeile bleibt unentdeckt — gemessen 11.09.2026 (Lauf 13 L6, P2, 6.0.1)
+`guard` lebt in `fork-pr-isolation.yml`, nicht in `ci.yml`; die Pflichtjob-Menge wird aus der schwachen Prüfung gelesen.
+**Fix:** die Menge der required Jobs aus der Branch-Protection ableiten und jede Job-Zeile mit derselben Prüfung fahren.
+Befund `LAUF13-L6-REQUIRED-JOBS-NUR-VON-DER-SCHWACHEN-PRUEFUNG-GELESEN-01`.
+
+### S117 · Der Zeitexponent der Kostenkurve ist unter Last flaky — gemessen 11.09.2026 (Lauf 13 L6 und Lauf 12 Vollsuite, P2, 6.0.1)
+`tests/test_budget_kostenkurve.py::test_die_kurve_ist_nicht_ueberlinear[input_bytes]`: isoliert 4/4 grün, in Kombination
+1 von 2 rot (Exponent 1,30 > 1,2); `[json_nodes]` fiel in einer Vollsuite unter Last 31 (1,22 > 1,2) und war im
+Wiederholungslauf grün. Eine Zeitmessung ohne Lasttoleranz. **Wirkung auf 6.0.0:** keine am Paket; ein roter CI-Lauf
+auf einem belasteten Runner wäre ein Fehlalarm. **Fix:** Maschinenfaktor wie beim Budget-Beleg oder Speicher statt Zeit.
+Befund `LAUF13-L6-KOSTENKURVE-ZEITEXPONENT-FLAKY-UNTER-LAST-01`.
+
+### S118 · `_gesammelt()` liest nur die letzte `collected`-Zeile und kennt das `deselected`-Format nicht — gemessen 11.09.2026 (Lauf 13 L6, P2, 6.0.1)
+Ein Collection-ERROR bleibt für den Riegel unsichtbar (das produktive Gate prüft ihn); `X/Y tests collected (Z deselected)`
+endet in einem `ValueError` — rot, aber kryptisch. **Fix:** die pytest-Zusammenfassung strukturiert lesen (`--junitxml`
+oder `-p` Plugin), nicht als Text. Befunde `LAUF13-L6-GESAMMELT-UEBERSIEHT-COLLECTION-ERROR-01`,
+`LAUF13-L6-GESAMMELT-KENNT-DAS-DESELECTED-FORMAT-NICHT-01`.
+
+### S119 · `--ff`/`--failed-first` ordnet nur um, steht aber in `_VERENGENDE_OPTIONEN` — gemessen 11.09.2026 (Lauf 13 L6, P3, 6.0.1)
+Ein Fehlalarm des Riegels, kein Loch. **Fix:** aus der Liste nehmen, mit Fall.
+Befund `LAUF13-L6-FF-FAELSCHLICH-ALS-VERENGEND-GELISTET-01`.
+
+### S120 · Ohne Workflow-Verdikt keine Gate-Zeile, ohne Gate-Zeile keine Bytes für C6.2/C6.3/C8.2 — gemessen 11.09.2026, Lage vor der Signaturkarte
+`scripts/sign_readiness_artifact.py` emittiert die kanonischen Bytes der Bereitschaftsartefakte nur mit
+`--gate-zeile-aus-verdikt`, kopiert `notes.gate_zeile` wörtlich aus einem Verdikt-JSON und erfindet keine
+(S47); `audit_candidate_matrix.py::_gate_line_error` lässt nur `verdict == WITHSTANDS_DEEPGATE` mit Kopf-
+Bindung zu (S49, vier ausgeführte Fälle); ein Zeugen-Receipt mit `strength: FULL` gilt NICHT als
+Workflow-Verdikt (Owner `OA-54c37c5ab8`, 09.09.). Die Läufe 10 bis 14 liefen als Linsen-und-Jury-Runden
+ohne den Workflow (Lauf 10 war durch den Pre-Sweep gesperrt, `OA-dcf17fc652`); der Owner hat die Reihe nach
+Lauf 14 geschlossen („kein Lauf 15", 11.09.). Über den Kandidatenkopf existiert deshalb kein Verdikt-JSON
+mit `notes.gate_zeile` (gemessen: `find office/governance -name 'gate_result*.json'` liefert drei Dateien,
+Köpfe `049b3195` und `917edc69`, Urteile FIX_FIRST/UNADJUDICATED/FIX_FIRST). **Folge:** C6.2 (Soak),
+C6.3 (24h-Soak, ohnehin benanntes Restrisiko nach `OA-f680f7cc3f`) und C8.2 (Differential) sind am Kopf
+nicht emittierbar und bleiben in der Matrix rot; nach `OA-93dd2be19c` (3C) blockieren sie den
+Fast-Forward „bis zur Signatur". Was am Kopf OHNE Signatur gemessen ist: der Kurz-Soak-Mechanismus und
+`crosscheck.py` (CROSS-IMPL OK, 61/110, 45 Relationsvektoren differentiell). **Das ist eine
+Owner-Entscheidung, keine meine** — die Signaturkarte stellt sie als Option: die drei Zeilen als bekannte,
+signaturabhängige Zeilen ausweisen (Option B von `OA-93dd2be19c`, damals abgelehnt zugunsten von 3C, das
+einen Workflow-Lauf voraussetzte), oder doch ein Workflow-Lauf über den finalen Kopf (widerspricht „kein
+Lauf 15"). C12.1 (Vorab-Quittung, `pre_tag_receipt.py --emit-payload`, braucht keine Gate-Zeile) und C12.2
+(signiertes Register, 20 Einträge vom 06.09., Version 6.0.0 gebunden, 0 offene P0/P1) sind davon nicht
+betroffen.
