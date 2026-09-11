@@ -25,7 +25,7 @@ from proofbundle.relation_statement import verify_relation_statement
 from proofbundle.run_ledger import verify_run_ledger
 from proofbundle.trust_pack import verify_trust_pack
 from proofbundle.verification_summary import verify_verification_summary
-from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 _INTOTO = "application/vnd.in-toto+json"
 
@@ -148,7 +148,7 @@ class MerklePathBudgetDirectDict(unittest.TestCase):
     def test_over_budget_proof_is_failclosed(self):
         from proofbundle.budget import DEFAULT_BUDGET
         from proofbundle.merkle import verify_consistency, verify_inclusion
-        cap = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=64)
+        cap = gedeckelt(DEFAULT_BUDGET.merkle_path, bytes_je_element=KOSTEN_JE_ELEMENT["merkle_path"])
         big = [b"\x00" * 32] * (cap + 1)
         self.assertFalse(verify_inclusion(b"leaf", 0, 1, big, b"\x00" * 32))
         self.assertFalse(verify_inclusion(b"leaf", 0, 1, [b"\x00" * 32] * 65536, b"\x00" * 32))
@@ -447,11 +447,18 @@ class CallerPathTypedErrors(unittest.TestCase):
         # disclosure.encode("ascii") raised a raw UnicodeEncodeError. Now a fail-closed verdict (ok=False).
         import base64
         from proofbundle import verify_sample_opening
+        from proofbundle.errors import BundleFormatError
         root = base64.b64encode(b"\x00" * 32).decode()
-        for disc in ("café☕", "\ud800sur", "emoji🎯"):
+        for disc in ("café☕", "emoji🎯"):
             r = verify_sample_opening({"index": 0, "disclosure": disc, "proof_b64": []}, root, 1)
             self.assertIsInstance(r, dict)
             self.assertFalse(r["ok"])
+        # Seit d94ef34 (Lauf 13, Gegenlesung Stelle 6) ist ein einsames Surrogat fehlgeformte STRUKTUR und
+        # faellt am strikten Parser mit der typisierten BundleFormatError — diese Funktion wirft bei
+        # fehlgeformter Struktur laut eigener Konvention, ein Verdikt gibt es nur fuer wohlgeformte
+        # Oeffnungen. Kein roher UnicodeEncodeError, das ist die Eigenschaft dieses Tests.
+        with self.assertRaises(BundleFormatError):
+            verify_sample_opening({"index": 0, "disclosure": "\ud800sur", "proof_b64": []}, root, 1)
 
     def test_verify_dual_hash_non_bytes_data_is_result_not_raise(self):
         # 6-lens gate L3-02: verify_dual_hash's compute_digest(data, ...) call sat outside the guards, so a
