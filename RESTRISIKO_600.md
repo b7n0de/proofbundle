@@ -5362,3 +5362,41 @@ misst?).
 
 **Nach 6.0.1.** Die Aenderung ist klein — die fuenf Matrix-Jobs auf `pytest -q` ziehen —, aber sie
 aendert die Wanduhr aller fuenf Pflicht-Jobs und gehoert deshalb nicht in eine Release-Nacht.
+
+## S101 — Der Abschluss-Beleg-Riegel trifft WOERTER, nicht Aussagen
+
+Gemessen 11.09.2026 ueber eine ganze Arbeitssitzung, an mir selbst. Der Stop-Riegel
+`berkeley_gate_receipt_enforcement_stop.py` beanstandet Saetze als „unbelegte
+Zustandsbehauptung", wenn sie eines seiner Schluesselwoerter tragen — `gruen`, `geschlossen`,
+`fertig`, `haelt`, `alle`, `n_von_n`. Gemessene Fehlschlaege an eigenen Texten desselben Tages:
+
+* **Ein woertliches Zitat aus einem signierten Beleg.** Der Satz gab
+  `"1 von 99 class_closed-Klassen wurden NICHT gruen exekutiert"` aus dem ed25519-signierten
+  Abschluss-Beleg wieder — beanstandet wegen `gruen`. Der Beleg IST der Beleg.
+* **Eine ausdrueckliche NICHT-Behauptung.** Der Satz lautete: *„Was ich nicht habe, ist die Aussage
+  'die ganze Suite ist gruen' — die laeuft gerade."* Beanstandet wegen `gruen`. Der Riegel liest
+  die Verneinung nicht.
+* **Eine Tabellen-Kopfzeile.** `| Fund | rot vorher | gruen nachher |` — eine Spaltenueberschrift,
+  die ueber gar nichts eine Aussage macht.
+* **Eine Aussage ueber zwei Ledger-KLASSEN**, nicht ueber einen Lauf: „zwei Wege zu demselben
+  stillen Gruen".
+
+**Die Klasse ist die dieses Registers**, und der Riegel steht ausdruecklich gegen sie: **eine
+Pruefung bindet an die FORM (ein Wort im Text) statt an die EIGENSCHAFT (behauptet dieser Satz
+einen messbaren Zustand?).** Dieselbe Auspraegung wie S95 (Wortlisten-Pruefer) und S96
+(Zeichenkette statt Wirkung des Unterbefehls) — hier in einem Riegel, der genau diese Klasse
+verhindern soll.
+
+**Die Kosten sind gemessen und zweiseitig.** Er blockte in dieser Sitzung 3x hart und meldete
+danach rund 8x nicht-blockierend; **in keinem dieser Faelle** war eine unbelegte Zustandsaussage
+der Grund. Die teurere Richtung ist aber die andere: ein Pruefer, der so oft danebentrifft,
+erzieht seinen Leser zum Wegklicken — und die eine echte Meldung geht mit unter. Genau das ist die
+Begruendung, die im Repo schon fuer S95 steht.
+
+**Nicht repariert** (Owner-Regel 2 fuer Messgeraete; der Weg-A-Auftrag hebt sie nur fuer die sechs
+Lauf-11-Funde auf). **Nach 6.0.1.** Ein moeglicher Weg, ohne dass er hier entschieden waere: an
+die Satzform binden statt an das Wort — ein Zustandssatz hat ein Subjekt, das ein Artefakt oder
+ein Lauf ist, und ein Praedikat im Indikativ Praesens. Zitate, Verneinungen, Tabellenzellen und
+Konjunktive fallen damit von selbst heraus. Die Messbefehle dieses Abschnitts:
+`/bin/grep -c 'gruen\|geschlossen\|fertig' <text>` gegen die Zahl der Saetze, die wirklich einen
+Zustand behaupten — bei den vier Faellen oben 0 von 4.
