@@ -1,0 +1,30 @@
+Registerform, Vorher-Zahl am Tag v6.0.0
+=======================================
+Gemessen 2026-09-12 an 4e32e83b647235bfedf23b55cebe69fdf14fd6f5.
+
+  Zeilen              5039        (wc -l)
+  Woerter            50605        (wc -w)
+  Bytes             355042        (wc -c)
+  Ueberschriften       202        (grep -c '^#')
+  Kennungen            139        R 7 · S 107 · N 21 · A 4
+
+ABWEICHUNG ZUR OWNER-MESSUNG VOM 11.09., ausgeschrieben statt geglaettet:
+  Woerter    Owner 49568, hier 50605 (+1037) — verschiedene Wortzaehler.
+  Kennungen  Owner 134, hier 139 (+5) — die Differenz ist exakt N21 plus A1..A4.
+             Die Owner-Zaehlung nennt "N1 bis N20 als Listen" und die A-Reihe nicht.
+  Zeilen, Bytes, Ueberschriften stimmen auf die Einheit genau ueberein.
+Die Abweichung liegt also in der ZAEHLMENGE, nicht im Text.
+
+Sprachmischung im englisch gefuehrten Dokument:
+  Umlautzeichen (aeoeueAOEUEss)   101
+  ae/oe/ue-Ersatzschreibungen     253
+Die Datei traegt ab S20 durchgaengig deutsche Abschnitte in einem Dokument, dessen
+Kopf und R/N/A-Reihen englisch sind. Das ist kein Stilfehler, sondern eine zweite
+Leserschaft im selben Text: die R/N-Reihen sind fuer externe Auditoren geschrieben,
+die S-Reihe fuer den Betrieb.
+
+Zeilen ohne Belegpfad: NICHT MASCHINELL BESTIMMBAR an dieser Datei, weil die Belege
+als Fliesstext eingebettet sind (Befehle in Codebloecken, Zahlen im Satz) und nicht
+als Feld. Genau das ist der Fund: eine Belegpflicht, die kein Pruefer durchsetzen kann,
+ist eine Bitte. Die Nachher-Zahl wird an der v2-Fassung gemessen, wo `evidence` ein
+Pfad-Array ist und der Erzeuger eine leere Liste abweist.

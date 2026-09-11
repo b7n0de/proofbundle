@@ -1,0 +1,51 @@
+Deckung des signierten Traegers, gemessen am Tag v6.0.0
+========================================================
+Schema                 proofbundle.findings_register.v1
+Version                6.0.0
+generated_at           2026-09-06T10:27:05Z
+Eintraege im Traeger   20   ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N10', 'N11', 'N12', 'N13', 'N14', 'N15', 'N16', 'N17', 'N18', 'N19', 'N20']
+Kennungen in der Prosa 139
+
+NUR in der Prosa, ohne Trageeintrag: 119
+  R:   7   R1 .. R7
+  S: 107   S1 .. S120
+  N:   1   N21 .. N21
+  A:   4   A1 .. A4
+NUR im Traeger, ohne Prosa-Abschnitt: 0  []
+
+DECKUNG: 20 von 139 = 0.144
+
+Der Traeger ist ed25519-signiert und entscheidet die Zusicherung '0 offene P0/P1'.
+Die uebrigen Kennungen stehen NUR in der Prosa. Die Prosa ist als GANZE Datei per
+sha256 in der Vorab-Quittung gebunden - also manipulationsSICHTBAR, aber nicht je
+Eintrag signiert und nicht maschinell lesbar. Wer '20 Eintraege, 0 offene P0/P1'
+liest, liest eine Aussage ueber 14 Prozent der Kennungen als Aussage ueber alle.
+
+NACHTRAG 2026-09-12: DIE ZAHL IST 143, NICHT 139 — UND ES SIND FUENF REIHEN
+===========================================================================
+Der Deckungspruefer des Erzeugers meldete 140 Beanstandungen gegen den Arbeitszweig,
+wo meine eigene Messung 136 Kennungen gezaehlt hatte. Eine Differenz ist ein
+Widerspruch, kein Rundungsfehler, also nachgemessen.
+
+Die Ursache: mein Messregex kannte VIER Kennungsreihen (R, S, N, A). Der Erzeuger bindet
+an die FORM einer Kennung (Grossbuchstabe + Zahl in einer Ueberschrift oder am Anfang
+einer Tabellenzeile) und fand eine FUENFTE: Z2 bis Z5, die vier Punkte einer Gegenlesung
+in S58. Sie sind benannte Befunde ohne Trageeintrag — also genau der Fund dieser Zeile,
+und der engere Zaehler hat sie uebersehen.
+
+Gemessen ueber beide Baeume:
+                      R    S    N   A   Z   gesamt  Reihen
+  TAG v6.0.0          7  107   21   4   4     143      5
+  arbeit/601-nachzug  7  104   21   4   4     140      5
+
+DIE KETTE DER DREI ZAHLEN, damit niemand sie gegeneinander liest:
+  134  Owner-Messung 11.09.  R + S + N1..N20            (ohne A, ohne Z, ohne N21)
+  139  meine erste Messung    R + S + N + A             (ohne Z)
+  143  gemessen mit dem Erzeuger  R + S + N + A + Z     — das ist die Zahl
+
+DECKUNG: 20 von 143 = 0,140.
+
+Die Lehre gehoert zur Sache: eine Zusicherung ueber "alle Kennungen" braucht zuerst eine
+Antwort darauf, was eine Kennung IST. Drei Zaehler, drei Zahlen, und der breiteste war
+der richtige — weil er an der Form bindet, die das Dokument wirklich benutzt, statt an
+einer Liste von Reihen, die jemand aufgeschrieben hat.

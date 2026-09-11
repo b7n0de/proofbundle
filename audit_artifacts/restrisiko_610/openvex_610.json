@@ -1,0 +1,12 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://b7n0de.com/registers/proofbundle/6.1.0/r1/openvex",
+  "author": "b7n0de",
+  "timestamp": "2026-09-12",
+  "version": 1,
+  "statements": [],
+  "_projection_of": {
+    "document_id": "https://b7n0de.com/registers/proofbundle/6.1.0/r1",
+    "register_revision": 1
+  }
+}

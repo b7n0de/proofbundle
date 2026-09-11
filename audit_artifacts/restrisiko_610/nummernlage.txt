@@ -1,0 +1,31 @@
+Die S-Reihe ueber beide Baeume, und warum keiner von ihnen sie vollstaendig kennt
+=================================================================================
+Gemessen 2026-09-12, Kennungen aus UEBERSCHRIFTEN (S/R) und TABELLENZEILEN (N/A)
+beider Fassungen von RESTRISIKO_600.md.
+
+                      Zeilen  Woerter   Bytes   R    S    N   A   gesamt
+TAG v6.0.0             5039    50605  355042   7  107   21   4     139
+arbeit/601-nachzug     5402    53034  372239   7  104   21   4     136
+
+nur am TAG:            S102 S103 S104 S105 S106 S107 S108 S109 S110
+                       S111 S112 S113 S114 S115 S116 S117 S118 S119 S120   (19)
+nur am ARBEITSZWEIG:   S86 S87 S88 S89 S90 S91 S92 S93 S94 S95 S96 S97
+                       S98 S99 S100 S101                                    (16)
+in beiden:             120
+
+VEREINIGT: S1..S120, 120 Nummern, KEINE frei. Naechste freie Nummer: S121.
+
+ZWEIGLAGE — die beiden sind DIVERGENT, nicht Vorfahr und Nachfahr:
+  Tag v6.0.0    4e32e83b6472
+  601-nachzug   df8d591bbd32
+  Abzweigpunkt  1b2adc2e3336
+  Tag -> Zweig  7 Commits        Zweig -> Tag  11 Commits
+  "ist der Tag Vorfahr des Arbeitszweigs?"  NEIN
+
+S102-S120 kam Tag-seitig in b5099eb ("release notes with known issues, register rows
+S102-S120"), S86-S101 zweig-seitig. Beide Seiten schrieben dieselbe Datei an
+verschiedenen Stellen fort, ohne voneinander zu wissen.
+
+FOLGE: wer die naechste Nummer aus dem Baum ableitet, in dem er gerade steht, vergibt
+eine, die im anderen schon weg ist. Genau das ist am 11.09. passiert: der Entwurf von
+S90-S99 trug zuerst S86-S89, weil die Codex-Nachtraege im anderen Baum lagen.

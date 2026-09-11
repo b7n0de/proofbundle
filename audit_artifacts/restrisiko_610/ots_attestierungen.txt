@@ -1,0 +1,33 @@
+Die eine vorhandene Zeitmarke: gebunden, aber unbestaetigt
+==========================================================
+Gemessen 2026-09-12, ausgepackt mit der opentimestamps-Bibliothek.
+
+BINDUNG — sie haelt:
+  sha256 der Quittung          e48c3f498b979fbbe5f08ad0b08fb23adbea17b0e12365183a811346d955bac7
+  Datei-Digest im Proof        e48c3f498b979fbbe5f08ad0b08fb23adbea17b0e12365183a811346d955bac7
+  -> der Proof gehoert zu genau diesen Bytes.
+
+ATTESTIERUNGEN — sie halten nicht:
+  PendingAttestation x3    bob.btc.calendar.opentimestamps.org
+                           alice.btc.calendar.opentimestamps.org
+                           finney.calendar.eternitywall.com
+  BitcoinBlockHeaderAttestation: 0
+
+PENDING HEISST EINGEREICHT, NICHT VERANKERT. Ein Kalender hat zugesagt, das
+Commitment in einen Block zu nehmen; bis eine Block-Attestierung vorliegt, ist die
+Zeitmarke eine Anfrage.
+
+UND DIE BESTAETIGUNG LIEGT SEIT WOCHEN ABHOLBAR VOR (lesender GET, auf einer KOPIE,
+das Original wurde nicht angefasst):
+  bob.btc.calendar.opentimestamps.org      HTTP 200, 1000 B  -> abholbar
+  alice.btc.calendar.opentimestamps.org    HTTP 200, 1000 B  -> abholbar
+  finney.calendar.eternitywall.com         HTTP 200, 1035 B  -> abholbar
+Eingereicht am 2026-08-31 (Commit 3d4cf7f). Nie nachgefuehrt.
+
+DAS HAUS KENNT DEN UNTERSCHIED — im Konformanzkorpus, nicht im Release:
+  conformance/decision/crossimpl/confirmed-anchor-lifecycle    Bitcoin, Hoehe 957504
+  conformance/decision/crossimpl/schema-conformant             Bitcoin, Hoehe 958761
+  conformance/decision/crossimpl/canonicalization-root-binding nur pending
+
+Der Befund ist also nicht "wir koennen es nicht", sondern "wir wenden es auf unsere
+eigenen Quittungen nicht an, und die eine Ausnahme wurde nach dem Einreichen vergessen".

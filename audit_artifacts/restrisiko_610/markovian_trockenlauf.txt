@@ -1,0 +1,62 @@
+Markovian-Log: Trockenlauf und eigenstaendige Nachrechnung
+==========================================================
+Gemessen 2026-09-12. Werkzeug scripts/markovian_submit.py, Tests
+tests/test_markovian_submit.py (14 Faelle).
+
+1. NACHRECHNUNG DES INKLUSIONSPFADS, unabhaengiges Orakel
+   Gegen die eingefrorene Fixture tests/fixtures/anchors/markovian_log/submit_7727.
+   Der Rechenweg ist RFC 6962 Abschnitt 2.1.1, aus der Spezifikation geschrieben — NICHT
+   ein Aufruf in den eigenen Ankercode. Ein Beweis, den nur die Implementierung prueft,
+   die ihn erzeugt hat, ist von niemandem geprueft.
+
+     origin                markovianprotocol.com/log
+     leaf index / size     7727 / 7728
+     path length           9 Knoten
+     leaf hash (RFC 6962)  82bb024352863c9cd80e2de4081d09f4e87cb5c6f435fbe57f3d39e977adf00d
+     root recomputed       N9rmdtCUMVkId/T5rLPe2g49K70hh4dKkps8ZnBqjr4=
+     root witnessed        N9rmdtCUMVkId/T5rLPe2g49K70hh4dKkps8ZnBqjr4=
+     VERDIKT               OK
+
+   ZWEITE, UNABHAENGIGE UEBEREINSTIMMUNG: das MANIFEST der Fixture nennt die Zahlen,
+   die am 31.08.2026 gemessen wurden (leaf_hash_b64, recomputed_root_b64,
+   inclusion_path_nodes 9). Meine Nachrechnung trifft alle drei. Mit einer Zahl
+   uebereinzustimmen, die jemand anders aufgeschrieben hat, ist mehr wert als mit sich
+   selbst uebereinzustimmen.
+
+2. EIN FEHLER IN MEINEM EIGENEN RIEGEL, und er gehoert hierher
+   Die erste Fassung trug einen zweiten Laengen-Riegel: erwartete Pfadlaenge =
+   max(1, size-1).bit_length(), die Tiefe eines VOLLSTAENDIGEN Baums. Er meldete FAIL
+   auf einem korrekten Pfad — 9 Knoten, wo die Formel 13 verlangte. Ein Merkle-Baum aus
+   7728 Blaettern ist nicht vollstaendig, und das letzte Blatt liegt auf einem kuerzeren
+   Pfad. Die Fixture selbst nennt 9 als "required_by_rfc6962".
+
+   Der tiefere Fehler war nicht die Arithmetik: die Laenge ist VOM LAUF SELBST gebunden
+   (zu kurz laesst sn != 0, zu lang laeuft aus dem Baum, beide werfen). Eine Formel
+   danebenzustellen schuf eine ZWEITE QUELLE fuer eine Wahrheit — genau die Bauart, die
+   dieses Register seit Wochen sammelt. Der Riegel ist entfernt, der Grund steht im
+   Quelltext, und zwei Testfaelle binden beide Richtungen.
+
+3. TROCKENLAUF GEGEN DIE VORAB-QUITTUNG VON 6.0.0
+     receipt   audit_artifacts/600/pre_tag_receipt_v6.0.0.json   8621 Bytes
+     sha256    a07785160ba511fcb79f436c46cdab0f15c5ced0fc5ded6455b5d85fe8cc7a0e
+     Blatt     public-note:v1 sha256:a0778516... <RFC3339 zur Einreichung>
+
+   Was das Haus verlaesst: diese eine Zeile. Nicht die Quittung, nicht ihr Inhalt —
+   ein Digest und ein Zeitstempel.
+
+4. DIE OWNER-TUER IST STRUKTURELL, NICHT VERSPROCHEN
+   Das Skript hat keinen Pfad, der sendet. Ein Testfall prueft per AST, dass weder
+   socket noch http noch urllib noch requests importierbar sind, und ein Meta-Test
+   beweist, dass diese Pruefung einen eingepflanzten Import wirklich faengt — auch einen,
+   der in einer Funktion versteckt ist. Eine Abwesenheitspruefung, die nie eine Anwesenheit
+   gesehen hat, ist von einer immer-gruenen nicht zu unterscheiden.
+
+   Eine echte Einreichung ist aussenwirksam UND DAUERHAFT: ein Transparenzprotokoll kann
+   nicht vergessen. Sie bleibt Owner-Tuer.
+
+5. ABLAGEFORM neben den Release-Assets (nicht im Baum)
+     <asset>.logproof     c2sp.org/tlog-proof@v1: Index, Inklusionspfad, Checkpoint
+     <asset>.checkpoint   der bezeugte Checkpoint, gegen den der Pfad geprueft wurde
+     SHA256SUMS           liegt bereits; das Blatt bindet genau diese Digests
+   Grund fuer "nicht im Baum": ein Beweis, der in den Baum geschrieben wird, ueber den er
+   spricht, ist ein Fixpunkt — das Schreiben aendert den Digest, auf den er sich festlegt.

@@ -1,0 +1,35 @@
+Interne Bezeichner auf der veroeffentlichten Flaeche
+====================================================
+Gemessen 2026-09-12 an RESTRISIKO_600.md, Tag v6.0.0.
+
+DIE BEGRIFFE STEHEN HIER NICHT. Sie werden aus der UMGEBUNG abgeleitet (Heimatpfad,
+Maschinenname, Kontonamen, und der Verzeichnisname des Tors ueber seine EIGENSCHAFT:
+das Verzeichnis unter office/governance, das ein runs/ und einen Klassen-Ledger
+traegt). Eine abgeleitete Menge veraltet nicht; eine getippte Liste tut es.
+Owner-Auflage: die Wortliste geht nie ins Repository, nie in den Chat, nie in den Bericht.
+
+  Klasse                        Treffer
+  ------------------------------------
+  Heimatpfad/Vorname                  9
+  Maschinenname                       9
+  Kontonamen                          6
+  Verzeichnisname des Tors           13
+  ------------------------------------
+  GESAMT                             37   auf 35 verschiedenen Zeilen
+
+Am Arbeitszweig arbeit/601-nachzug: 43 auf 41 Zeilen (die Datei ist dort laenger).
+
+ABWEICHUNG ZUR OWNER-MESSUNG (48): meine 37 sind eine UNTERGRENZE. Ich leite vier
+Klassen ab, die Wortliste des Owners ist breiter. Die Differenz ist die Liste, nicht
+der Text — und sie ist der Grund, warum der Pruefer des Erzeugers seine Liste vom Mac
+bekommen muss und nicht aus dem Repository ableiten darf.
+
+EIN MESSFEHLER IM EIGENEN ZAEHLER, weil er zur Klasse gehoert: die erste Fassung zaehlte
+55 statt 37. Sie suchte Heimatpfad UND Vornamen getrennt — der Vorname ist ein Teilstring
+des Pfades, also wurde jeder Vollpfad zweimal gezaehlt. Jetzt gewinnt der laengste
+Treffer je Stelle, Ueberlappungen werden verworfen. Ein Zaehler, der Treffer summiert
+statt Stellen zu belegen, zaehlt Verschachtelungen doppelt.
+
+FUER 6.0.0 BLEIBT DIE DATEI UNVERAENDERT. Die Vorab-Quittung bindet sie per sha256;
+eine Korrektur wuerde die Quittung brechen, und der Fund erreicht keinen Anwender des
+Werkzeugs — nur jeden Leser des Repositoriums.

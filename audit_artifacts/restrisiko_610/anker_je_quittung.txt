@@ -1,0 +1,34 @@
+Zeitanker und Log-Registrierung je Quittung von 6.0.0
+=====================================================
+Gemessen 2026-09-12 am Tag v6.0.0 (4e32e83b647235bfedf23b55cebe69fdf14fd6f5).
+
+MESSART: feldbasiert, nicht per Textsuche. Gesucht werden FELDNAMEN, die einen Anker
+bzw. eine Registrierung AUSMACHEN, plus Nebendateien (.ots/.tsr). Der DSSE-Payload wird
+base64-entpackt und mitgelesen — wer nur die Huelle liest, misst die Huelle.
+Ein Wort im Fliesstext eines Berichts ist kein Anker.
+
+Datei                                                          Zeitanker   Log-Reg.
+-----------------------------------------------------------------------------------
+audit_artifacts/600/pre_tag_receipt_v6.0.0.json                nein        nein
+receipts/agent_review/inspect_ai_5141.r2.receipt.json          nein        nein
+receipts/agent_review/inspect_ai_5141.r3.receipt.json          JA          nein
+    Anker: Nebendatei inspect_ai_5141.r3.receipt.json.ots (705 B)
+receipts/agent_review/inspect_ai_5141.receipt.json             nein        nein
+receipts/agent_review/proofbundle_147_comment.r2.receipt.json  nein        nein
+receipts/agent_review/proofbundle_147_comment.receipt.json     nein        nein
+receipts/agent_review/proofbundle_162.receipt.json             nein        nein
+receipts/agent_review/proofbundle_185.r2.receipt.json          nein        nein
+receipts/agent_review/proofbundle_185.receipt.json             nein        nein
+-----------------------------------------------------------------------------------
+GESAMT 9 Quittungen · mit Zeitanker 1 · mit Log-Registrierung 0
+
+Gegenprobe ueber die Gate-Belege des 600er-Zugs (2bedone,
+office/governance/<tor>/runs/lauf{5,10,11,12,13,14}_600): 4 JSON-Belege,
+0 mit Zeitanker, 0 mit Log-Registrierung.
+
+DIE ERWARTUNG DES AUFTRAGS WAR NULL UND IST AN EINER STELLE ZU KORRIGIEREN:
+es ist eine von neun, nicht null. Was null bleibt, ist die Log-Registrierung.
+
+Die Vorab-Quittung traegt produced_at = 2026-09-11T15:56:54Z als SELBSTAUSKUNFT
+(Feld des Ausstellers), keinen dritten Zeugen. Treffer fuer rfc3161, timestamp, ots,
+opentimestamps, anchor, tsa, markovian, inclusion, log_id, submit: je 0.

@@ -1,0 +1,427 @@
+{
+  "schema": "proofbundle.findings_register.v2",
+  "profile_version": "2026-09-12.1",
+  "document_id": "https://b7n0de.com/registers/proofbundle/6.1.0/r1",
+  "register_revision": 1,
+  "publisher": "b7n0de",
+  "language": "en",
+  "issued": "2026-09-12",
+  "supersedes_register": null,
+  "release_subject": {
+    "product": "proofbundle",
+    "version": "6.1.0",
+    "purl": "pkg:pypi/proofbundle@6.1.0",
+    "commit": null
+  },
+  "assessment_cutoff": "2026-09-12",
+  "inventory": {
+    "source_identifiers_total": 139,
+    "series_counts": {
+      "R": 7,
+      "S": 107,
+      "N": 21,
+      "A": 4
+    },
+    "subordinate_identifiers": {
+      "S58": [
+        "Z2",
+        "Z3",
+        "Z4",
+        "Z5"
+      ]
+    },
+    "sources": [
+      {
+        "path": "RESTRISIKO_600.md@v6.0.0",
+        "sha256": "73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc",
+        "note": "the published prose at tag v6.0.0: R1-R7, S1-S85, S102-S120, N1-N21, A1-A4"
+      },
+      {
+        "path": "RESTRISIKO_600.md@arbeit/601-nachzug",
+        "sha256": "eac653795a9859083038640fcc32f411d9c5832479699579720e35feda6c83f3",
+        "note": "the work branch: the SAME file carrying S86-S101 instead of S102-S120"
+      },
+      {
+        "path": "audit_artifacts/findings_register_361.json@v6.0.0",
+        "sha256": "d84a6165f90641322cc90722a70e7b92b7ee6f15b4c54c317a1d3c0016da3b15",
+        "note": "the signed v1 carrier, 20 entries N1-N20"
+      }
+    ],
+    "coverage_gaps": [
+      {
+        "identifiers": "S86-S101 in the published prose at tag v6.0.0",
+        "state": "NOT_APPLICABLE",
+        "note": "RESOLVED for this register, with evidence rather than assertion. The external review could not close this because the other work state was not supplied to it. It was supplied here: the sixteen identifiers stand on arbeit/601-nachzug, whose digest is listed above, and entry N28 carries the measurement. NOT APPLICABLE means: this is not an unresolved gap of THIS register, not that nothing was missing."
+      },
+      {
+        "identifiers": "the three-word rule STANDARD_nicht_gemessen_nicht_messbar_nicht_anwendbar_20260911",
+        "state": "NOT_MEASURED",
+        "note": "Owner decision of 2026-09-11 names this file with sha256 8cdc9889 and 2946 bytes. It is not present in this repository and was not found on the authoring workstation under the paths checked, so its digest is absent from policy_refs. Entering the announced digest without measuring the file would be exactly the placeholder this profile forbids."
+      }
+    ]
+  },
+  "policy_refs": [
+    {
+      "name": "release_600_autonom_fail_closed",
+      "version": "2026-09",
+      "sha256": "a7b8582f4d9a651955048983451a7efb289927c3ebd9afc3a8e9de2a8dca4985",
+      "path": "kraxo/00_standards_regeln/STANDARD_release_600_autonom_fail_closed_20260905.md"
+    },
+    {
+      "name": "jeder_riegel_traegt_seinen_fangnachweis",
+      "version": "2026-09",
+      "sha256": "3b3c64097e98a647fd7611010c2309d8201b98fd5458af9d8692e21bcf72f2d2",
+      "path": "kraxo/00_standards_regeln/STANDARD_jeder_riegel_traegt_seinen_fangnachweis_20260906.md"
+    },
+    {
+      "name": "modellvielfalt_gate",
+      "version": "2026-09",
+      "sha256": "c4b7c1f8f6d97e3e3a8a7cc85b2e93e7d2beb98a2ff9c9e4152be0d2b29b543b",
+      "path": "kraxo/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md"
+    }
+  ],
+  "entries": [
+    {
+      "id": "N22",
+      "record_revision": 1,
+      "title": "Our own receipts carry no proof of when they existed",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "EIGENE-QUITTUNGEN-OHNE-ZEITANKER-01",
+      "origin": "owner order 20260911T2132Z line one; measured 2026-09-12 on tag v6.0.0",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "the nine receipts proofbundle 6.0.0 ships",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "Measured field by field, through the DSSE payload: one of nine carries a time anchor and it is three pending calendar promises with no block attestation; zero carry a log registration. The pre-tag receipt states produced_at as self-report. The house can do better and proves it in its own conformance corpus, where two fixtures carry confirmed bitcoin attestations.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": true,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "accepted_known_risk"
+        ],
+        "rationale": "A reader of the receipt takes produced_at for evidence when it is a self-report. No verification verdict changes, so it does not block; it is accepted and named."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "scripts/receipt_anchor.py attaches, upgrades and verifies; what is missing is the run over every issued receipt and the verifier binding on the signature axis."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/anker_je_quittung.txt",
+          "sha256": "40f35e2d88c489d8855253b2b75f96613c1a8520f791109ab5b73cdf4d19ab18",
+          "role": "measurement"
+        },
+        {
+          "path": "audit_artifacts/restrisiko_610/ots_attestierungen.txt",
+          "sha256": "12f8e3ebab214f9ca7e4e0a47cd7467c31b8dc140c91646c68c9b2c84650d3d1",
+          "role": "measurement"
+        },
+        {
+          "path": "tests/test_receipt_anchor.py",
+          "sha256": "735fd2c8d23bab9ec1ca98d7a6a8ec6be4880e13d89fe862b4a3041b5d4b9a57",
+          "role": "catch_proof"
+        }
+      ],
+      "first_seen": "2026-09-12",
+      "last_measured": "2026-09-12"
+    },
+    {
+      "id": "N23",
+      "record_revision": 1,
+      "title": "No receipt of 6.0.0 is registered in a transparency log",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "KEINE-LOG-REGISTRIERUNG-NULL-VON-NEUN-01",
+      "origin": "owner order 20260911T2132Z line two; measured 2026-09-12",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "the nine receipts proofbundle 6.0.0 ships",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "Zero of nine carry a log registration, measured on field names rather than on text. The tool has verified a foreign log proof since 5.1.0 and submitted one entry of its own; the gap is the use for our own receipts, not the capability.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": true,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "accepted_known_risk"
+        ],
+        "rationale": "A receipt with no third-party witness rests on the issuer alone. No shipped verification changes, so it does not block. A real submission is permanent and stays an owner gate."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "Dry run and independent RFC 6962 recomputation are built and green against the frozen fixture; the submission itself is deliberately unreachable from code."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/markovian_trockenlauf.txt",
+          "sha256": "19e590eea799988d0f66bb52363bfe061d3ccb94a2cd8a53f2501f71a9624ada",
+          "role": "measurement"
+        },
+        {
+          "path": "tests/test_markovian_submit.py",
+          "sha256": "1ad1154b84390aa07701820b6ced50b946f732eec4d26ff7043419f2067c9d53",
+          "role": "catch_proof"
+        }
+      ],
+      "first_seen": "2026-09-12",
+      "last_measured": "2026-09-12"
+    },
+    {
+      "id": "N24",
+      "record_revision": 1,
+      "title": "The twelve model-seal conditions have no mapping onto TRACE",
+      "record_role": "limitation",
+      "kind": "quality",
+      "class_id": "MODELLSIEGEL-OHNE-ABBILDUNG-AUF-TRACE-01",
+      "origin": "owner order 20260911T2132Z line three; TRACE v0.2 retrieved 2026-09-12",
+      "severity": "P3",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "the model identity our gate records today",
+          "quality_status": "under_investigation",
+          "reason_code": "measurement_incomplete",
+          "rationale": "Mapped condition by condition: four are fillable with existing TRACE fields, one needs a TEE we do not run, two are partial, one is near, and four have no TRACE field. Our own level is unchanged by the mapping — the model name still comes from response data.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": false,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "separate_release_subject"
+        ],
+        "rationale": "This is about how our own review evidence is labelled, not about a shipped property of the package. It reaches no user of proofbundle."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "undecided",
+        "target_version": null,
+        "fix_reference": null,
+        "details": "TRACE v0.2 calls itself an RFC; building against a draft is a decision, not a task."
+      },
+      "evidence": [
+        {
+          "path": "docs/trace_modellsiegel_abbildung.md",
+          "sha256": "80d7c85b01e57fd479b924db8785041190d648e402e4133d7b24837d23fc94a1",
+          "role": "measurement"
+        }
+      ],
+      "first_seen": "2026-09-12",
+      "last_measured": "2026-09-12",
+      "measurement_state": {
+        "state": "NOT_MEASURABLE",
+        "reason": "the magnitude of the gap depends on a TEE this house does not operate; it cannot be measured from here, only named"
+      }
+    },
+    {
+      "id": "N25",
+      "record_revision": 1,
+      "title": "The residual-risk record is a report, not a register: its prose is the source",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "PROSA-IST-DIE-QUELLE-STATT-DER-ABZUG-01",
+      "origin": "owner order 20260911T2142Z, superseded in parts by 20260911T2226Z after the external review",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "RESTRISIKO_600.md at tag v6.0.0",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "5039 lines, 50605 words, 355042 bytes, 202 headings, and every measurement embedded in prose. No checker can enforce the record's own promise that each open finding is named with its proof, because there is no field to check.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": true,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "accepted_known_risk"
+        ],
+        "rationale": "It reaches every reader of the repository and no user of the package."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "The generator exists; what remains is the migration of 139 identifiers."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/registerform_vorher.txt",
+          "sha256": "be1ba3e9665c7b84801073daea7872a1fc22fe4f1eecf30a87d4283c2cc31119",
+          "role": "measurement"
+        },
+        {
+          "path": "schemas/findings_register_v2.schema.json",
+          "sha256": "0f44dd89eed4cc2385b8da305ca85674f2798976bd95c2b3fc0ead9362a39bdc",
+          "role": "decision"
+        }
+      ],
+      "first_seen": "2026-09-11",
+      "last_measured": "2026-09-12"
+    },
+    {
+      "id": "N26",
+      "record_revision": 1,
+      "title": "The signed carrier binds 20 of 139 identifiers and is read as binding all of them",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "TRAEGER-DECKT-20-VON-139-KENNUNGEN-01",
+      "origin": "owner order 20260911T2151Z finding one; figure corrected by the external review of 2026-09-11",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "audit_artifacts/findings_register_361.json at tag v6.0.0",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "The signed carrier holds 20 entries, N1 to N20. The prose carries 139 main identifiers in four series plus four subordinate ones inside S58. Direct structured coverage is 20/139, 14.4 percent. N21 is in the prose and NOT in the carrier, although it states that a release-deciding check turns red on a calendar date.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": true,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "accepted_known_risk"
+        ],
+        "rationale": "The assurance '0 open P0/P1' is true of the carrier and is read as true of the record. The prose is bound as a whole file by the pre-tag receipt, so it is tamper-evident but not machine-readable per entry."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "The coverage check is built and refuses a prose-only identifier; the migration of the 119 uncovered identifiers is the work that remains."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/traeger_deckung.txt",
+          "sha256": "7cc48bf4358913a53bfcd5a92e469be069ef24ef8c52c3831cff04742ac23348",
+          "role": "measurement"
+        },
+        {
+          "path": "tests/test_restrisiko_render.py",
+          "sha256": "1fba1e7cb20dafeb430667231c627ed39b4d42981a109cbd79a40281fc680d81",
+          "role": "catch_proof"
+        }
+      ],
+      "first_seen": "2026-09-11",
+      "last_measured": "2026-09-12"
+    },
+    {
+      "id": "N27",
+      "record_revision": 1,
+      "title": "Internal identifiers appear on a published surface",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "INTERNE-BEZEICHNER-AUF-DER-AUSSENFLAECHE-01",
+      "origin": "owner order 20260911T2151Z finding two; measured 2026-09-12",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "RESTRISIKO_600.md at tag v6.0.0",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "37 overlap-free hits on 35 lines with identifiers DERIVED from the environment, against 48 with the owner's full word list. The derived figure is a lower bound; the difference is the list, not the text. The file itself stays byte-identical because its receipt binds it.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": true,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "accepted_known_risk"
+        ],
+        "rationale": "It reaches every reader of the repository and no user of the package. Reputational, not technical."
+      },
+      "remediation": {
+        "category": "workaround",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "The generator carries the check; the word list is read from OUTSIDE the repository and a list inside it is refused. The archive under audit_artifacts/600/restrisiko is an explicitly stated exempt area, never a silent exception."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/bezeichner_zahl.txt",
+          "sha256": "57d72ac8fa9114b1baa88a99bd71cc06e61ee1c59b5fe10c45e8b7de6c9cb080",
+          "role": "measurement"
+        },
+        {
+          "path": "tests/test_restrisiko_render.py",
+          "sha256": "1fba1e7cb20dafeb430667231c627ed39b4d42981a109cbd79a40281fc680d81",
+          "role": "catch_proof"
+        }
+      ],
+      "first_seen": "2026-09-11",
+      "last_measured": "2026-09-12"
+    },
+    {
+      "id": "N28",
+      "record_revision": 1,
+      "title": "The S series is issued independently in two divergent trees, and neither carries all of it",
+      "record_role": "finding",
+      "kind": "quality",
+      "class_id": "S-REIHE-IN-ZWEI-DIVERGENTEN-BAEUMEN-01",
+      "origin": "owner order 20260911T2151Z step 12; the external review left this open for lack of the second tree",
+      "severity": "P2",
+      "severity_is_historical": false,
+      "quality_assessments": [
+        {
+          "subject": "the identifier sequence of RESTRISIKO_600.md across both trees",
+          "quality_status": "open",
+          "reason_code": "defect_confirmed",
+          "rationale": "The tag carries S1-S85 and S102-S120; the work branch carries S1-S85 and S86-S101. United they are S1-S120 with no free number, and NO tree carries all of them. The two are divergent: branch point 1b2adc2, eleven commits on the tag side, seven on the branch side, and the tag is not an ancestor of the branch. This ANSWERS the gap the external review had to leave open, because the other work state was not supplied to it.",
+          "assessed_on": "2026-09-12"
+        }
+      ],
+      "funnel": {
+        "reaches_user": false,
+        "verdict": "does_not_block_release",
+        "reason_codes": [
+          "separate_release_subject"
+        ],
+        "rationale": "Bookkeeping of our own record. It reaches no user, and it reaches a reader only as a seeming gap where none is."
+      },
+      "remediation": {
+        "category": "none_available",
+        "planning_state": "planned",
+        "target_version": "6.1.0",
+        "fix_reference": null,
+        "details": "The next free identifier must be derived across ALL trees carrying the record. Deriving it from the tree one happens to stand in is how S86-S89 were issued twice on 2026-09-11."
+      },
+      "evidence": [
+        {
+          "path": "audit_artifacts/restrisiko_610/nummernlage.txt",
+          "sha256": "48b7a468c7a8775289236d2fa795538086ceab8fbbc49370dbaa602999efae85",
+          "role": "measurement"
+        }
+      ],
+      "first_seen": "2026-09-12",
+      "last_measured": "2026-09-12"
+    }
+  ]
+}

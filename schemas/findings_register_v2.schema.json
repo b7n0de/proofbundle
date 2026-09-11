@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b7n0de.com/schemas/proofbundle.findings_register.v2.json",
+  "title": "proofbundle findings register, profile v2",
+  "description": "The single structured carrier. Built to the external review of 2026-09-11 (sha256 59a14a7c), which is binding where it contradicts our own draft. Three things it changes over v1 and over our first draft: security and quality assessments do NOT share a status field, `deferred` is a planning state and not a remediation category, and `closed` is not `fixed`. This profile is OUR application profile — it is never emitted as a complete OpenVEX or CSAF document.",
+  "type": "object",
+  "required": ["schema", "profile_version", "document_id", "register_revision", "publisher",
+               "language", "issued", "release_subject", "assessment_cutoff", "inventory",
+               "policy_refs", "entries"],
+  "additionalProperties": false,
+  "$defs": {
+    "gap_word": {
+      "enum": ["NOT_MEASURED", "NOT_MEASURABLE", "NOT_APPLICABLE"],
+      "description": "Owner decision 2026-09-11: three words for three gaps. NOT_MEASURED = a measurement is missing. NOT_MEASURABLE = a measurement limit is CLAIMED and must carry its reason. NOT_APPLICABLE = outside the scope under test. None of the three is an all-clear, and none means 'not needed'."
+    },
+    "gap": {
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"$ref": "#/$defs/gap_word"},
+        "reason": {"type": "string", "minLength": 12,
+                   "description": "MANDATORY for NOT_MEASURABLE — a claimed limit without its ground is indistinguishable from a forgotten measurement"}
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "date_or_null": {"type": ["string", "null"], "description": "date, or null — never an invented clock time"}
+  },
+  "properties": {
+    "schema": {"const": "proofbundle.findings_register.v2"},
+    "profile_version": {"type": "string"},
+    "document_id": {"type": "string", "format": "uri-reference"},
+    "register_revision": {"type": "integer", "minimum": 1},
+    "publisher": {"type": "string"},
+    "language": {"const": "en", "description": "generated outward surfaces are English"},
+    "issued": {"type": "string", "description": "publication date — NEVER a substitute for a measurement time"},
+    "supersedes_register": {
+      "type": ["object", "null"],
+      "required": ["document_id", "register_revision", "sha256"],
+      "additionalProperties": false,
+      "description": "the previous edition with its digest. The old signed document is never amended and never re-signed.",
+      "properties": {
+        "document_id": {"type": "string"},
+        "register_revision": {"type": "integer"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "release_subject": {
+      "type": "object",
+      "required": ["product", "version"],
+      "additionalProperties": false,
+      "description": "the release the funnel judges about. Individual findings may have a DIFFERENT subject.",
+      "properties": {
+        "product": {"type": "string"},
+        "version": {"type": "string"},
+        "purl": {"type": "string"},
+        "commit": {"type": ["string", "null"]}
+      }
+    },
+    "assessment_cutoff": {"type": "string"},
+    "inventory": {
+      "type": "object",
+      "required": ["source_identifiers_total", "sources", "coverage_gaps"],
+      "additionalProperties": false,
+      "description": "Completeness is ALWAYS bounded to a named source state. No blanket 'all findings'.",
+      "properties": {
+        "source_identifiers_total": {"type": "integer"},
+        "series_counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "subordinate_identifiers": {
+          "type": "object",
+          "description": "identifiers nested inside a main entry — counted separately, but they must not vanish in extraction",
+          "additionalProperties": {"type": "array", "items": {"type": "string"}}
+        },
+        "sources": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256"],
+            "additionalProperties": false,
+            "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"},
+                           "note": {"type": "string"}}
+          }
+        },
+        "coverage_gaps": {
+          "type": "array",
+          "description": "UNRESOLVED gaps, stated as such. Marking a known gap as resolved without evidence is the defect the acceptance table plants.",
+          "items": {
+            "type": "object",
+            "required": ["identifiers", "state", "note"],
+            "additionalProperties": false,
+            "properties": {
+              "identifiers": {"type": "string"},
+              "state": {"$ref": "#/$defs/gap_word"},
+              "note": {"type": "string", "minLength": 20}
+            }
+          }
+        }
+      }
+    },
+    "policy_refs": {
+      "type": "array", "minItems": 1,
+      "description": "severity, funnel and classification rules with version and digest, available locally for offline checking",
+      "items": {
+        "type": "object",
+        "required": ["name", "version", "sha256"],
+        "additionalProperties": false,
+        "properties": {"name": {"type": "string"}, "version": {"type": "string"},
+                       "sha256": {"$ref": "#/$defs/sha256"}, "path": {"type": "string"}}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "record_revision", "title", "record_role", "kind",
+                     "severity", "funnel", "remediation", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Z]+[0-9]+[a-z]?$"},
+          "legacy_id": {"type": ["string", "null"]},
+          "record_revision": {"type": "integer", "minimum": 1,
+                              "description": "a changed assessment raises this and names the previous state"},
+          "title": {"type": "string", "minLength": 8, "description": "short English title"},
+          "record_role": {
+            "enum": ["finding", "limitation", "assessment_update"],
+            "description": "so re-assessments and stated limits are not counted as independent open defects"
+          },
+          "kind": {"enum": ["security", "quality"]},
+          "class_id": {"type": ["string", "null"], "description": "public class key with a checkable ledger reference"},
+          "origin": {"type": ["string", "null"],
+                     "description": "measured run or lens identifier — never an invented model identity"},
+          "severity": {"enum": ["P0", "P1", "P2", "P3"]},
+          "severity_is_historical": {
+            "type": "boolean", "default": false,
+            "description": "true when the grade was carried over and NOT re-assessed in this edition"
+          },
+          "vex_statements": {
+            "type": "array",
+            "description": "security only, native OpenVEX field names. A wrong documentation figure does not become a vulnerability by being labelled `affected`.",
+            "items": {
+              "type": "object",
+              "required": ["vulnerability", "products", "status"],
+              "properties": {
+                "vulnerability": {"type": "object"},
+                "products": {"type": "array", "minItems": 1},
+                "status": {"enum": ["not_affected", "affected", "fixed", "under_investigation"]},
+                "justification": {"enum": ["component_not_present", "vulnerable_code_not_present",
+                                           "vulnerable_code_not_in_execute_path",
+                                           "vulnerable_code_cannot_be_controlled_by_adversary",
+                                           "inline_mitigations_already_exist"]},
+                "impact_statement": {"type": "string"},
+                "action_statement": {"type": "string"}
+              }
+            }
+          },
+          "quality_assessments": {
+            "type": "array",
+            "description": "quality only. OUR documented extension — never called a VEX or SARIF standard.",
+            "items": {
+              "type": "object",
+              "required": ["subject", "quality_status", "reason_code", "rationale"],
+              "additionalProperties": false,
+              "properties": {
+                "subject": {"type": "string", "description": "the object and state this assessment is about"},
+                "quality_status": {"enum": ["open", "fixed", "not_a_defect", "under_investigation"]},
+                "reason_code": {"enum": ["defect_confirmed", "fix_verified", "claim_refuted",
+                                         "expected_behavior", "measurement_incomplete", "sources_conflict"]},
+                "rationale": {"type": "string", "minLength": 20,
+                              "description": "short English reason — the carrier must be readable without interpretation"},
+                "assessed_on": {"$ref": "#/$defs/date_or_null"}
+              }
+            }
+          },
+          "funnel": {
+            "type": "object",
+            "required": ["reaches_user", "verdict", "reason_codes", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "reaches_user": {"type": ["boolean", "null"],
+                               "description": "null is a real value — unknown must not be turned into false"},
+              "verdict": {"enum": ["blocks_release", "does_not_block_release", "unresolved"]},
+              "reason_codes": {
+                "type": "array", "minItems": 1,
+                "items": {"enum": ["affects_release_contract", "separate_release_subject",
+                                   "fixed_in_subject", "refuted_finding", "accepted_known_risk",
+                                   "insufficient_evidence", "assurance_dependency"]}
+              },
+              "rationale": {"type": "string", "minLength": 20}
+            }
+          },
+          "remediation": {
+            "type": "object",
+            "required": ["category", "planning_state"],
+            "additionalProperties": false,
+            "properties": {
+              "category": {"enum": ["none_available", "vendor_fix", "workaround", "no_fix_planned"],
+                           "description": "a deliberately small slice of the CSAF categories, not a new synonym set"},
+              "planning_state": {"enum": ["planned", "deferred", "undecided", null]},
+              "target_version": {"type": ["string", "null"],
+                                 "description": "may be unknown; a target release alone NEVER justifies vendor_fix"},
+              "fix_reference": {"type": ["string", "null"],
+                                "description": "MANDATORY for vendor_fix: a published correction for a named product state"},
+              "details": {"type": "string"}
+            }
+          },
+          "evidence": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["path", "sha256", "role"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {"type": "string", "description": "relative, inside the evidence root — no escaping"},
+                "sha256": {"$ref": "#/$defs/sha256"},
+                "role": {"enum": ["historical_record", "measurement", "catch_proof", "decision"],
+                         "description": "a historical report is NOT a catch-proof the generator ran"},
+                "source_sha256": {"$ref": "#/$defs/sha256"},
+                "byte_range": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2,
+                               "description": "for historical excerpts: source digest and byte range; line numbers are reading aids only"}
+              }
+            }
+          },
+          "first_seen": {"$ref": "#/$defs/date_or_null"},
+          "last_measured": {"$ref": "#/$defs/date_or_null"},
+          "measurement_state": {"$ref": "#/$defs/gap"},
+          "related_records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["relation", "target"],
+              "additionalProperties": false,
+              "properties": {
+                "relation": {"enum": ["supersedes", "duplicate_of", "corrects"]},
+                "target": {"type": "string"},
+                "target_revision": {"type": ["integer", "null"]},
+                "target_sha256": {"type": ["string", "null"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
