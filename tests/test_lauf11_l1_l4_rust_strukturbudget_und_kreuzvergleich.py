@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _lastdeckel import gedeckelt  # noqa: E402 — LAUF11-L3, eigene Testlast gedeckelt
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402 — LAUF11-L3, eigene Testlast gedeckelt
 
 REPO = Path(__file__).resolve().parent.parent
 RUST_DIR = REPO / "tools" / "pb_verify_rs"
@@ -127,7 +127,183 @@ class TestBudgetParitaet(unittest.TestCase):
             "die beiden Verifizierer tragen verschiedene Schranken — dieselbe Datei bekommt damit "
             "zwei Urteile, und welches gilt, entscheidet der Zufall der Aufrufreihenfolge:\n  "
             + "\n  ".join(abweichungen))
-        self.assertGreaterEqual(len(rust), 4, "der Binary nennt weniger Achsen als erwartet")
+        # DIE MENGE, nicht nur die Werte (LAUF12-L1 F1/F2, zwei P0): `signatures` und `witnesses`
+        # setzt Python auf Pfaden durch, die dieser Binary AUCH faehrt (DSSE-Umschlag, Trust Pack) —
+        # und er kannte sie nicht. Ein Vergleich, der nur ueber die Achsen laeuft, die Rust nennt,
+        # kann eine fehlende Achse nicht sehen; deshalb wird hier die Menge festgehalten.
+        gemeinsam = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"}
+        self.assertEqual(
+            set(rust), gemeinsam,
+            f"der Binary setzt nicht genau die Achsen der gemeinsamen Pfade durch — fehlt: "
+            f"{sorted(gemeinsam - set(rust))}, zu viel: {sorted(set(rust) - gemeinsam)}")
+
+    def test_zu_viele_signaturen_werden_von_BEIDEN_abgewiesen(self):
+        """LAUF12-L1 F1 (P0, ausgefuehrt): ein gueltig signiertes Ziel plus 512 Muell-Eintraege in
+        `signatures` — Python fail-closed (601 > 512), Rust verifizierte mit exit 0."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        env, pub = self._signiertes_ziel()
+        env["signatures"] = list(env["signatures"]) + [{"sig": "AA=="}] * gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"])
+        py_ok, py_grund = self._python_urteil(env, pub)
+        rc, rust_aus = self._rust_urteil(env, pub)
+        self.assertFalse(py_ok, "Vorbedingung verfehlt: Python nimmt das Ziel mit 513 Signaturen an")
+        self.assertNotEqual(rc, 0, f"Rust verifiziert ein Ziel mit {len(env['signatures'])} Signaturen, "
+                                   f"das Python abweist ({py_grund}) — Rust: {rust_aus!r}")
+        self.assertIn("signatures", rust_aus.lower(), f"Rust weist ab, aber nicht an der Achse: {rust_aus!r}")
+
+    def test_genau_die_schranke_bleibt_in_beiden_erlaubt(self):
+        """Gegenrichtung: genau 512 Signaturen sind erlaubt — ein Fix, der die Schranke um eins
+        verschiebt, faellt hier. Die Zusatzeintraege sind Muell; Python urteilt dann 'nicht
+        verifiziert' (False, keine Budget-Abweisung), Rust muss dasselbe sagen."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        env, pub = self._signiertes_ziel()
+        env["signatures"] = list(env["signatures"]) + [{"sig": "AA=="}] * (gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"]) - 1)
+        self.assertEqual(len(env["signatures"]), DEFAULT_BUDGET.signatures)
+        py_ok, py_grund = self._python_urteil(env, pub)
+        self.assertNotIn("budget", py_grund.lower(), f"Python weist genau die Schranke ab: {py_grund}")
+        rc, rust_aus = self._rust_urteil(env, pub)
+        self.assertNotIn("budget", rust_aus.lower(), f"Rust weist genau die Schranke ab: {rust_aus!r}")
+
+    def test_zu_viele_zeugen_werden_von_BEIDEN_abgewiesen(self):
+        """LAUF12-L1 F2 (P0, ausgefuehrt): ein Trust Pack mit 257 root-keyIds (Limit 256) — Python
+        structure_ok=false, Rust `root_threshold_met=true`."""
+        from datetime import datetime, timedelta, timezone
+        from proofbundle import dsse
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.emit import generate_signer
+        import hashlib
+        from proofbundle.trust_pack import (INTOTO_STATEMENT_PAYLOAD_TYPE, STATEMENT_TYPE,
+                                            TRUST_PACK_PREDICATE_TYPE, _rfc8785_bytes, verify_trust_pack)
+        n = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=KOSTEN_JE_ELEMENT["witnesses"]) + 1
+        # 257 VERSCHIEDENE Schluessel: die einzige Abweichung vom gueltigen Pack ist die Zahl. Signiert
+        # wird ohne `sign_trust_pack`, denn der Python-Signierer weist das Pack selbst ab (Budget +
+        # Sybil) — ein Vektor, den die Referenz nicht erzeugen kann, muss von Hand gebaut werden.
+        signer = [generate_signer() for _ in range(n)]
+        pubs = {f"w{i}": base64.b64encode(s.public_key().public_bytes_raw()).decode() for i, s in enumerate(signer)}
+        exp = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pred = {"schemaVersion": "0.1.0", "trustPackId": "tp-witnesses-l1", "version": 1,
+                "expires": exp, "prevVersionDigest": None,
+                "roles": {"root": {"keyIds": list(pubs), "threshold": 2}},
+                "keys": {kid: {"publicKey": pk} for kid, pk in pubs.items()},
+                "nonClaims": ["budget vector: more root keyIds than the witnesses budget admits"]}
+        # Auch `build_trust_pack_statement` validiert und wirft — das Statement entsteht hier in
+        # derselben Form von Hand (Subjekt = sha256 des kanonischen Praedikats).
+        statement = {"_type": STATEMENT_TYPE,
+                     "subject": [{"name": "trust-pack:tp-witnesses-l1:v1",
+                                  "digest": {"sha256": hashlib.sha256(_rfc8785_bytes(pred)).hexdigest()}}],
+                     "predicateType": TRUST_PACK_PREDICATE_TYPE, "predicate": pred}
+        body = _rfc8785_bytes(statement)
+        msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
+        env = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
+               "signatures": [{"keyid": f"w{i}", "sig": base64.b64encode(signer[i].sign(msg)).decode("ascii")}
+                              for i in (0, 1)]}
+        try:
+            py = verify_trust_pack(env)
+            py_ok = bool(py.get("root_threshold_met")) and bool(py.get("structure_ok", True))
+        except Exception:  # noqa: BLE001 — eine typisierte Abweisung ist ein Urteil
+            py_ok = False
+        self.assertFalse(py_ok, f"Vorbedingung verfehlt: Python nimmt {n} root-keyIds an")
+        with tempfile.TemporaryDirectory() as d:
+            fp = Path(d) / "tp.json"
+            fp.write_text(json.dumps(env), encoding="utf-8")
+            p = subprocess.run([str(self.rust), "verify-trust-pack-threshold", str(fp)],  # noqa: S603
+                               capture_output=True, text=True, timeout=120)
+        aus = (p.stdout + p.stderr).strip()
+        self.assertNotEqual(p.returncode, 0, f"Rust meldet root_threshold_met bei {n} Zeugen: {aus!r}")
+        self.assertIn("witnesses", aus.lower(), f"Rust weist ab, aber nicht an der Achse: {aus!r}")
+
+    def test_genau_die_zeugenschranke_bleibt_in_beiden_erlaubt(self):
+        """POSITIVKONTROLLE (Gegenlesung un_turbov1, Lauf 13, Stelle 1): ohne sie unterschiede der
+        Zeugen-Test nicht 'Budget-Abweisung' von 'Struktur-Abweisung' — ein Binary, das das
+        handgebaute Statement aus einem ANDEREN Grund abweist, bestuende ihn. Genau 256 verschiedene
+        Zeugen, threshold 2, zwei Signaturen: beide Seiten verifizieren. Gemessen: die Bauform von
+        Hand ist payload- und signaturidentisch mit `sign_trust_pack`."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.emit import generate_signer
+        from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
+        from datetime import datetime, timedelta, timezone
+        n = gedeckelt(DEFAULT_BUDGET.witnesses, bytes_je_element=KOSTEN_JE_ELEMENT["witnesses"])
+        signer = [generate_signer() for _ in range(n)]
+        pubs = {f"w{i}": base64.b64encode(s.public_key().public_bytes_raw()).decode() for i, s in enumerate(signer)}
+        exp = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pred = {"schemaVersion": "0.1.0", "trustPackId": "tp-witnesses-kontrolle", "version": 1,
+                "expires": exp, "prevVersionDigest": None,
+                "roles": {"root": {"keyIds": list(pubs), "threshold": 2}},
+                "keys": {kid: {"publicKey": pk} for kid, pk in pubs.items()},
+                "nonClaims": ["positive control: exactly the witnesses budget"]}
+        env = sign_trust_pack(pred, {"w0": signer[0], "w1": signer[1]})
+        py = verify_trust_pack(env)
+        self.assertTrue(py.get("ok") and py.get("structure_ok") and py.get("root_threshold_met"),
+                        f"Python weist genau die Schranke ab: {py.get('errors')}")
+        with tempfile.TemporaryDirectory() as d:
+            fp = Path(d) / "tp.json"
+            fp.write_text(json.dumps(env), encoding="utf-8")
+            p = subprocess.run([str(self.rust), "verify-trust-pack-threshold", str(fp)],  # noqa: S603
+                               capture_output=True, text=True, timeout=120)
+        self.assertEqual(p.returncode, 0, f"Rust weist genau die Schranke ab: {(p.stdout + p.stderr).strip()!r}")
+        self.assertIn("root_threshold_met=true", p.stdout)
+
+    def test_ein_einsames_surrogat_wird_von_BEIDEN_abgewiesen(self):
+        """Gegenlesung un_turbov1 (Lauf 13, Stelle 6; P1 der L1-Klasse, ausgefuehrt): `"\\ud800"` —
+        Python `json` nahm es als EIN Zeichen, `verify_envelope` verifizierte einen Umschlag mit
+        `keyid = "\\ud800"`, Rust `verify-dsse` meldete exit 2 (serde_json: unexpected end of hex
+        escape). Dieselbe Datei, zwei Urteile. Jetzt weisen beide ab — und ein GUELTIGES Paar
+        (`\\ud83d\\ude00`, ein Codepoint) nehmen beide an."""
+        from proofbundle._strict_json import loads_strict
+        from proofbundle.dsse import verify_envelope
+        from proofbundle.errors import ProofBundleError
+        faelle = ((b'{"a":"\\ud800"}', False), (b'{"\\udfff":1}', False), (b'{"a":"\\ud83d\\ude00"}', True))
+        for roh, erlaubt in faelle:
+            try:
+                loads_strict(roh)
+                py_ok = True
+            except ProofBundleError:
+                py_ok = False
+            with tempfile.TemporaryDirectory() as d:
+                fp = Path(d) / "s.json"
+                fp.write_bytes(roh)
+                p = subprocess.run([str(self.rust), "strict-parse", str(fp)],  # noqa: S603
+                                   capture_output=True, text=True, timeout=120)
+            with self.subTest(roh=roh):
+                self.assertEqual(py_ok, erlaubt, f"Python: {roh!r}")
+                self.assertEqual(p.returncode == 0, erlaubt, f"Rust: {roh!r} -> {(p.stdout + p.stderr).strip()!r}")
+        # Der Verifikationspfad selbst, nicht nur der Parser: ein sonst gueltiger Umschlag.
+        env, pub = self._signiertes_ziel()
+        env["signatures"][0]["keyid"] = "\ud800"
+        with self.assertRaises(ProofBundleError, msg="Python verifiziert einen Umschlag mit einsamem Surrogat"):
+            verify_envelope(env, base64.b64decode(pub))
+        with tempfile.TemporaryDirectory() as d:
+            fp = Path(d) / "env.json"
+            fp.write_text(json.dumps(env), encoding="utf-8")   # json.dumps schreibt \ud800 als Escape
+            p = subprocess.run([str(self.rust), "verify-dsse", str(fp), pub],  # noqa: S603
+                               capture_output=True, text=True, timeout=120)
+        self.assertNotEqual(p.returncode, 0, "Rust verifiziert einen Umschlag mit einsamem Surrogat")
+
+    def test_string_len_zaehlt_in_beiden_zeichen_nicht_bytes(self):
+        """LAUF12-L1 F3 (P1, ausgefuehrt): Python misst `string_len` in Codepoints (`len(str)`),
+        Rust mass Bytes (`s.len()`). Ein Feld aus 600.000 `é` (1,2 MB, 600.000 Zeichen) liegt unter
+        der Schranke und wurde von Rust abgewiesen; dieselbe Datei, zwei Urteile. Beide Richtungen:
+        unter der Schranke nehmen BEIDE an, darueber weisen BEIDE ab."""
+        from proofbundle._strict_json import loads_strict
+        from proofbundle.budget import DEFAULT_BUDGET
+        knapp = gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=2) - 1
+        drueber = DEFAULT_BUDGET.string_len + 1
+        for n, erlaubt in ((knapp, True), (drueber, False)):
+            roh = json.dumps({"a": "\u00e9" * n}, ensure_ascii=False).encode("utf-8")
+            try:
+                loads_strict(roh)
+                py_ok = True
+            except Exception:  # noqa: BLE001
+                py_ok = False
+            with tempfile.TemporaryDirectory() as d:
+                fp = Path(d) / "s.json"
+                fp.write_bytes(roh)
+                p = subprocess.run([str(self.rust), "strict-parse", str(fp)],  # noqa: S603
+                                   capture_output=True, text=True, timeout=120)
+            with self.subTest(codepoints=n, bytes=len(roh)):
+                self.assertEqual(py_ok, erlaubt, f"Python-Vorbedingung verfehlt bei {n} Zeichen")
+                self.assertEqual(p.returncode == 0, erlaubt,
+                                 f"Rust urteilt anders als Python bei {n} Zeichen / {len(roh)} Bytes: "
+                                 f"exit {p.returncode} {(p.stdout + p.stderr).strip()!r}")
 
     def test_eine_zu_tiefe_verschachtelung_wird_von_BEIDEN_abgewiesen(self):
         """Die zweite Achse, damit der Fix nicht an einer einzigen Dimension hängt."""
@@ -159,6 +335,10 @@ class TestKreuzvergleichHatEinenNegativenVektor(unittest.TestCase):
         self.assertIn("LAUF11-L4", quelle,
                       "der negative Vektor trägt keine Kennung — dann ist beim nächsten Lesen "
                       "nicht erkennbar, welche Klasse er offenhält")
+        for achse in ("signatures", "witnesses"):
+            self.assertIn(f"budget axis ({achse})", quelle,
+                          f"crosscheck.py traegt keinen Negativvektor fuer die {achse}-Achse — die "
+                          "Regression von Lauf 12 waere fuer den Kreuzvergleich wieder unsichtbar")
 
 
 if __name__ == "__main__":

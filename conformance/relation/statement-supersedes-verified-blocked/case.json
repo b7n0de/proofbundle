@@ -1,0 +1,25 @@
+{
+  "caseId": "relation-statement-supersedes-verified-blocked",
+  "kind": "relation_statement",
+  "input": "receipt.json",
+  "pub": "pub.b64",
+  "expected": {
+    "exitCode": 3,
+    "lineage": "VERIFIED",
+    "errorContains": "LINEAGE_REQUIREMENT_FAILED"
+  },
+  "attribution": "b7n0de / relation-v0.1 corpus, LAUF12-L4 vector (emitted with proofbundle.relation_statement.emit_relation_statement + proofbundle.decision.emit_decision_receipt, 2026-09-11)",
+  "specRefs": [
+    "docs/predicates/relation.md",
+    "docs/design/RELATION_V01_DESIGN.md"
+  ],
+  "rationale": "WP-A: a standalone supersedes statement of the PINNED signer over the attached, verified target. lineage VERIFIED (the declaration resolves); reject_superseded makes continued automated use of the target an exit-3 block \u2014 the successor-relation twin of statement-retracts-verified-blocked. LAUF12-L4 (deep gate, 2026-09-11): the self-assertion arm for reject_superseded on the standalone statement path had NO corpus vector; its removal survived run_conformance and the Rust cross-check. This case is that vector: a verifier without the arm ends with exit 0 here.",
+  "testKeys": "fresh throwaway keys, generated at emission (this case's own signer signs statement and target)",
+  "related": [
+    "related_t.json"
+  ],
+  "relatedPubs": [
+    "KuuG4HLzwI3yGs5z5Y1iEl1d1yuHpHe9kUYJExRhXzQ="
+  ],
+  "policy": "policy.json"
+}

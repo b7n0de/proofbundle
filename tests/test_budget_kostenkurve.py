@@ -95,6 +95,9 @@ import proofbundle as pb
 from proofbundle import dsse, merkle, sdjwt
 from proofbundle._strict_json import loads_strict
 from proofbundle.budget import DEFAULT_BUDGET as B
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402 — LAUF12-L3: die drei Lastquellen aus B.data_digests waren ungedeckelt (Alias B, vom Riegel nicht gesehen)
 from proofbundle.budget import VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import ProofBundleError
@@ -909,7 +912,7 @@ def _last_renewal_work(n):
     Gerundet wird zur richtigen SEITE der Grenze: ein Zielwert unterhalb des Limits darf nicht
     versehentlich darueber landen (sonst prueft der Randtest bei ``limit - 1`` eine Ablehnung, die
     er nicht erwartet), einer oberhalb nicht darunter."""
-    D = B.data_digests
+    D = gedeckelt(B.data_digests, bytes_je_element=KOSTEN_JE_ELEMENT["data_digests"])
     A = 2
     ueber = n > B.renewal_work
     def _n_ats(a):
@@ -1323,7 +1326,8 @@ class TestKostenkurve:
 # dass jede benannte Achse wirklich an ihrem Limit steht, statt es nur zu behaupten.
 def _kombi_renewal_x_int_bits():
     gross = 2 ** (B.int_bits - 1)
-    seq = [[ArchiveTimeStamp("sha256", HEX32, gross + i)] for i in range(B.renewal_ats_chain)]
+    seq = [[ArchiveTimeStamp("sha256", HEX32, gross + i)]
+           for i in range(gedeckelt(B.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]))]
     erreicht = {"renewal_ats_chain": len(seq), "int_bits": gross.bit_length()}
     return (lambda: pb.verify_sequence(seq, [HEX32], allow_unauthenticated_anchor=True)), erreicht
 
@@ -1331,7 +1335,7 @@ def _kombi_renewal_x_int_bits():
 def _kombi_renewal_x_algorithmen():
     algs = ["sha256", "sha512", "sha3-256", "sha3-512", "sha384"]
     seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)]
-           for i in range(B.renewal_ats_chain)]
+           for i in range(gedeckelt(B.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]))]
     # "5 hash-algorithmen" ist keine Budget-Dimension (die Menge ist durch HASH_REGISTRY auf eine
     # kleine Konstante begrenzt, siehe renewal._PraefixDeckung) — hier wird nur renewal_ats_chain
     # gegen die eigene Dimension geprueft.
@@ -1343,8 +1347,9 @@ def _kombi_renewal_x_data_digests():
     """Review Runde 2, B1: GENAU der Fall, den diese Lane selbst als 15,9 s / 16,2 s Befund gemessen
     hat (siehe Modul-Kopf und ``budget.VerificationBudget.data_digests``) — jetzt als Kombination mit
     BEIDEN Achsen an ihrem eigenen Limit, nicht als spaeterer, von dieser Datei ungedeckter Befund."""
-    daten = ["%064x" % i for i in range(B.data_digests)]
-    seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)] for i in range(B.renewal_ats_chain)]
+    daten = ["%064x" % i for i in range(gedeckelt(B.data_digests, bytes_je_element=KOSTEN_JE_ELEMENT["data_digests"]))]
+    seq = [[ArchiveTimeStamp("sha256", HEX32, i + 1)]
+           for i in range(gedeckelt(B.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]))]
     erreicht = {"renewal_ats_chain": len(seq), "data_digests": len(daten)}
     return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
 
@@ -1365,9 +1370,9 @@ def _kombi_renewal_x_data_digests_x_algorithmen():
     Kostentest mehr messen. Dass der abgewiesene Fall wirklich abgewiesen wird, prueft
     ``TestProduktbudget`` weiter unten."""
     algs = ["sha256", "sha512"]                      # zwei Kettenanfangs-Kennungen
-    daten = ["%064x" % i for i in range(B.data_digests)]
-    n = B.renewal_work // (len(daten) * len(algs))   # so viele ATS, wie das Produktbudget zulaesst
-    n = min(n, B.renewal_ats_chain)
+    daten = ["%064x" % i for i in range(gedeckelt(B.data_digests, bytes_je_element=KOSTEN_JE_ELEMENT["data_digests"]))]
+    n = min(B.renewal_work // (len(daten) * len(algs)),   # so viele ATS, wie das Produktbudget zulaesst
+            gedeckelt(B.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]))
     seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)] for i in range(n)]
     erreicht = {"renewal_work": n * len(daten) * len(algs)}
     return (lambda: pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)), erreicht
@@ -1387,7 +1392,7 @@ def _kombi_merkle_x_int_bits():
     hoechste Eins) UND ``popcount(idx) == merkle_path`` — beide Achsen gleichzeitig an ihrem Limit."""
     idx = (1 << (B.int_bits - 1)) + ((1 << (B.merkle_path - 1)) - 1)
     groesse = idx + 1
-    beweis = [bytes([i % 251]) * 32 for i in range(B.merkle_path)]
+    beweis = [bytes([i % 251]) * 32 for i in range(gedeckelt(B.merkle_path, bytes_je_element=KOSTEN_JE_ELEMENT["merkle_path"]))]
     wurzel = merkle.root_from_inclusion(idx, groesse, merkle.leaf_hash(b"x"), beweis)
     erreicht = {"int_bits": idx.bit_length(), "merkle_path": len(beweis)}
     return (lambda: pb.verify_inclusion(b"x", idx, groesse, beweis, wurzel)), erreicht
@@ -1414,7 +1419,8 @@ def _kombi_signatures_x_input_bytes():
     nutz = b"a" * (3 * (ziel_b64 // 4))
     echt = dsse.sign_envelope(nutz, _SK, payload_type="application/x.pb-kostenkurve")
     env = dict(echt)
-    env["signatures"] = [{"sig": "AA=="} for _ in range(B.signatures - 1)] + list(echt["signatures"])
+    env["signatures"] = ([{"sig": "AA=="} for _ in range(gedeckelt(B.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"]) - 1)]
+                         + list(echt["signatures"]))
     erreicht = {"signatures": len(env["signatures"]), "string_len": len(env["payload"])}
     return (lambda: dsse.verify_envelope(env, _PUB)), erreicht
 
@@ -1432,7 +1438,7 @@ def _kombi_parser_alle_achsen():
     Signatur-Kombination oben, eine sofortige Ablehnung statt einer Grenzlast. Mit ``tief - 2``
     Wickel-Ebenen sitzen die Blaetter GENAU auf Tiefe ``json_depth`` (zugelassen, nicht ueberschritten,
     reproduziert: ``tief - 1`` Wickel-Ebenen werfen weiterhin, ``tief - 2`` nicht)."""
-    tief = B.json_depth
+    tief = gedeckelt(B.json_depth, bytes_je_element=KOSTEN_JE_ELEMENT["json_depth"])
     leaf_len = 999_000                          # >= 95 % von string_len, echt kleiner als string_len
     anzahl = 8                                  # 8 Blaetter dieser Laenge erreichen >= 95 % von input_bytes
     kern = json.dumps(["a" * leaf_len] * anzahl)
@@ -1591,9 +1597,9 @@ class TestProduktbudget:
         weshalb dieser Test in Millisekunden zurueckkommt und nicht in Sekunden."""
         algs = [n for n, s in HASH_REGISTRY.items() if s.status == "current"]
         assert len(algs) >= 5, f"Vorbedingung: mindestens 5 aktuelle Algorithmen, gefunden {algs}"
-        daten = ["%064x" % i for i in range(B.data_digests)]
+        daten = ["%064x" % i for i in range(gedeckelt(B.data_digests, bytes_je_element=KOSTEN_JE_ELEMENT["data_digests"]))]
         seq = [[ArchiveTimeStamp(algs[i % len(algs)], HEX32, i + 1)]
-               for i in range(B.renewal_ats_chain)]
+               for i in range(gedeckelt(B.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]))]
         r = pb.verify_sequence(seq, daten, allow_unauthenticated_anchor=True)
         treffer = self._budget_checks(r)
         assert treffer, "kein Budget-Check auf die gemessene Kombination"

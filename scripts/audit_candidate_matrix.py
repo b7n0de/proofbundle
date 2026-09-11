@@ -765,6 +765,7 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     # sich nicht kanonisieren laesst, ist nicht unverifizierbar, es ist unverifiziert.
     try:
         from proofbundle import canonical                # noqa: PLC0415
+        from proofbundle.canonical import CanonicalizerUnavailable as _KanonisiererFehlt  # noqa: PLC0415
         from proofbundle.signature import verify_ed25519  # noqa: PLC0415
         _kanonisierer = canonical.canonicalize_statement
     except Exception as exc:                             # noqa: BLE001 — HIER ist es wirklich die Umgebung
@@ -776,6 +777,14 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
                                        "environment — not measurable is not verified")
     try:
         msg = _kanonisierer(body)
+    except _KanonisiererFehlt as exc:
+        # LAUF12-L5 F1 (P1, ausgefuehrt): `rfc8785` wird in canonical.py LAZY importiert — erst beim
+        # AUFRUF, nicht beim Attributzugriff oben. Fehlt das Extra `proofbundle[eval]`, faellt der
+        # Aufruf mit CanonicalizerUnavailable, und das landete im Artefakt-Zweig darunter: FAIL statt
+        # DATA_BLOCKED, "das Artefakt ist eine Faelschung" statt "hier fehlt eine Abhaengigkeit".
+        # Der L5-Fix von Lauf 11 hat diese Luecke geoeffnet, als er den einen try in zwei teilte.
+        return ART_UNMEASURABLE_HERE, (f"the canonicalizer extra is not installed in this "
+                                       f"environment ({exc}) — not measurable is not verified")
     except MemoryError as exc:
         # DER EINE GRENZFALL, benannt statt verschwiegen (Gegenlesung phi4:14b, 11.09.2026): ein
         # MemoryError kann BEIDES heissen — ein Dokument, das jeden Speicher sprengt, oder eine
@@ -1318,18 +1327,51 @@ def _signed_versioned_artifact(rel: str, version: str, *,
     leer = {"signed_body": None, "unverified": None, "source_digest": None}
     if not p.is_file():
         return {"state": ART_ABSENT, "detail": f"{rel} is absent", **leer}
+    # LAUF12-L5 F2 (P1): dieser Leser war der EINE Eingang ohne Kappe. `read_bytes()` plus rohes
+    # `json.loads` — ein Artefakt beliebiger Groesse wurde vollstaendig eingelesen und geparst, und
+    # ein budgetkonformes Dokument aus 4.200 Strings zu je 999.999 Zeichen trieb danach den
+    # Kanonisierer in MemoryError -> DATA_BLOCKED, von den echten Maengeln ausgenommen. Ein Artefakt
+    # darf ein Urteil nicht in "nicht messbar" verwandeln koennen; deshalb gilt hier dieselbe Kappe
+    # wie an jedem anderen Eingang (input_bytes VOR dem Lesen, loads_strict NACH dem Lesen), und ein
+    # Artefakt darueber ist MALFORMED — eine Eigenschaft des Artefakts, nie der Umgebung.
     try:
-        roh = p.read_bytes()
+        from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+        from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+        from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    except Exception as exc:                             # noqa: BLE001 — die Bibliothek fehlt: Umgebung
+        return {"state": ART_UNMEASURABLE_HERE,
+                "detail": f"the strict parser is not available in this environment ({exc})", **leer}
+    kappe = int(DEFAULT_BUDGET.input_bytes)
+    try:
+        groesse = p.stat().st_size
+        if groesse > kappe:
+            return {"state": ART_MALFORMED,
+                    "detail": (f"{rel} is {groesse} bytes, over the input_bytes budget of {kappe} — "
+                               f"refused before reading"), **leer}
+        with p.open("rb") as fh:
+            roh = fh.read(kappe + 1)
     except OSError as exc:
         return {"state": ART_MALFORMED, "detail": f"{rel} is unreadable: {exc}", **leer}
+    if len(roh) > kappe:
+        return {"state": ART_MALFORMED,
+                "detail": f"{rel} grew past the input_bytes budget of {kappe} while being read", **leer}
     digest = "sha256:" + hashlib.sha256(roh).hexdigest()
     if not roh.strip():
         return {"state": ART_MALFORMED, "detail": f"{rel} is empty (zero bytes of content)",
                 "signed_body": None, "unverified": None, "source_digest": digest}
     try:
-        art = json.loads(roh.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as exc:
-        return {"state": ART_MALFORMED, "detail": f"{rel} is not valid JSON: {exc}",
+        art = loads_strict(roh)
+    except (ProofBundleError, ValueError, UnicodeDecodeError, RecursionError) as exc:
+        return {"state": ART_MALFORMED, "detail": f"{rel} is not valid strict JSON: {exc}",
+                "signed_body": None, "unverified": None, "source_digest": digest}
+    except MemoryError as exc:
+        # Gegenlesung un_turbov1 (Lauf 13, Stelle 5b): der Vertrag dieser Funktion ist "wirft nie". Ein
+        # Dokument, das die Kappe passiert hat (<= input_bytes) und dessen Knoten/Tiefe/Strings der
+        # strikte Parser selbst begrenzt, kann den Speicher nur ausschoepfen, wenn die MASCHINE ihn
+        # nicht hat — das ist Umgebung, dieselbe Zuordnung wie MemoryError beim Kanonisieren.
+        return {"state": ART_UNMEASURABLE_HERE,
+                "detail": f"{rel}: the interpreter ran out of memory while parsing a document within the "
+                          f"input_bytes budget ({exc!r}) — not measurable is not verified",
                 "signed_body": None, "unverified": None, "source_digest": digest}
     if not isinstance(art, dict):
         return {"state": ART_MALFORMED, "detail": f"{rel} is not a JSON object",
@@ -2056,8 +2098,15 @@ def c8_2_differential_agrees():
         blockiert = DATA_BLOCKED
         try:
             blockiert = DATA_BLOCKED if not _rust_parity().get("binary_available") else FAIL
-        except Exception:                                # noqa: BLE001 — Gate kaputt = nicht messbar
-            blockiert = DATA_BLOCKED
+        except ImportError:
+            blockiert = DATA_BLOCKED                     # das Gate-Modul fehlt: Umgebung
+        except Exception:                                # noqa: BLE001
+            # LAUF12-L5 F3 (P1, ausgefuehrt mit Ruecknahmeprobe): `scripts/rust_parity_registry.json`
+            # liegt IM begutachteten Baum. Eine korrupte Registry liess `_rust_parity()` werfen, und
+            # das wurde hier als "Gate kaputt = nicht messbar" gelesen — DATA_BLOCKED statt FAIL, von
+            # den echten Maengeln ausgenommen, obwohl sich an der Umgebung nichts geaendert hatte.
+            # Was der Baum selbst kaputt macht, ist ein Mangel des Baums.
+            blockiert = FAIL
         verdikt, grund = _artifact_verdict(res, absent=blockiert)
         return verdikt, f"{grund}. {_ABHILFE_SIGNIEREN}"
     b = res["signed_body"]

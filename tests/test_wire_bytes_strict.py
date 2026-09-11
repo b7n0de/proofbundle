@@ -44,8 +44,12 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "proofbundle"
 RUST_DIR = Path(__file__).resolve().parent.parent / "tools" / "pb_verify_rs"
 RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
-# The one module allowed to call the stdlib decoders directly: it IS the strict wrapper.
+# The one module allowed to call the stdlib decoders directly: it IS the strict wrapper. Its
+# IDENTITY is its path, not its basename (LAUF12-L2, P1): a scanner that skipped every file NAMED
+# `_wire_b64.py` skipped a planted `scripts/x/_wire_b64.py` too. `DER_WRAPPER` stays as the name
+# tests and ledgers cite; the exemption below compares resolved paths.
 DER_WRAPPER = "_wire_b64.py"
+WRAPPER_PFAD = SRC / DER_WRAPPER
 
 # Non-alphabet perturbations. NUL and the whitespace family are the ones CPython discards; the
 # non-ASCII one is the control that was ALREADY refused before the fix, and it stays in the set so
@@ -54,28 +58,101 @@ JUNK = ("!", "\n", " ", "\t", "\x00", "\r", "\x0b")
 
 _STD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
+#: Every stdlib entry point that decodes base64 LAXLY (discards or tolerates what the wrapper
+#: refuses). Bound to the PROPERTY "reaches a lax decoder", not to a spelling: an alias, a `from`
+#: import, `__import__`, `getattr` or a local rebinding all resolve to the same (module, name).
+#: LAUF12-L2 (P1, executed by the lens): `binascii.a2b_base64` and `codecs.decode(x, "base64")`
+#: reach the identical laxness and were invisible to the three-name list that stood here.
+_LAXE_MODULE = ("base64", "binascii", "codecs")
+_LAXE_ZIELE = {
+    ("base64", "b64decode"), ("base64", "urlsafe_b64decode"), ("base64", "standard_b64decode"),
+    ("base64", "decodebytes"), ("base64", "decodestring"),
+    ("binascii", "a2b_base64"),
+}
+_LAXE_CODECS = ("base64", "base64_codec", "base_64")
 
-def laxe_dekodierstellen(baum: Path) -> list[str]:
-    """Every `base64.b64decode(...)` / `base64.urlsafe_b64decode(...)` / `standard_b64decode(...)` call
-    under `baum` -- with or without `validate=True` -- as 'datei:zeile'. Since v1.1 of the wrapper the
-    rule is stricter than before: the stdlib decoders are called NOWHERE outside the wrapper, because
-    `validate=True` alone does not refuse non-zero pad bits and the property has to live in one place.
-    Reads the AST, so a mention inside a comment or a docstring is not a call and a call spread over
-    several lines still is one."""
+
+def _konstante(knoten) -> "str | None":
+    return knoten.value if isinstance(knoten, ast.Constant) and isinstance(knoten.value, str) else None
+
+
+def _ziel_von(expr, modul_alias: dict, funk_alias: dict) -> "tuple[str, str] | None":
+    """(module, name) that `expr` denotes, following the bindings collected for this file."""
+    if isinstance(expr, ast.Name):
+        return funk_alias.get(expr.id)
+    if isinstance(expr, ast.Attribute):
+        basis = expr.value
+        if isinstance(basis, ast.Name) and basis.id in modul_alias:
+            return (modul_alias[basis.id], expr.attr)
+        # __import__("base64").b64decode(...)
+        if (isinstance(basis, ast.Call) and isinstance(basis.func, ast.Name) and basis.func.id == "__import__"
+                and basis.args and _konstante(basis.args[0]) in _LAXE_MODULE):
+            return (_konstante(basis.args[0]), expr.attr)
+        return None
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "getattr":
+        # getattr(base64, "b64decode")
+        if len(expr.args) >= 2:
+            modul = expr.args[0]
+            name = _konstante(expr.args[1])
+            if isinstance(modul, ast.Name) and modul.id in modul_alias and name:
+                return (modul_alias[modul.id], name)
+    return None
+
+
+def _ist_laxer_aufruf(call: ast.Call, modul_alias: dict, funk_alias: dict) -> bool:
+    ziel = _ziel_von(call.func, modul_alias, funk_alias)
+    if ziel in _LAXE_ZIELE:
+        return True
+    if ziel == ("codecs", "decode"):
+        # codecs.decode(x, "base64") — the codec name is the second argument or `encoding=`.
+        codec = _konstante(call.args[1]) if len(call.args) >= 2 else None
+        for kw in call.keywords:
+            if kw.arg == "encoding":
+                codec = _konstante(kw.value)
+        return bool(codec) and codec.lower().replace("-", "_") in _LAXE_CODECS
+    return False
+
+
+def laxe_dekodierstellen(baum: Path, *, wrapper: "Path | None" = None) -> list[str]:
+    """Every call under `baum` that reaches a LAX stdlib base64 decoder -- through any spelling -- as
+    'datei:zeile'. Since v1.1 of the wrapper the rule is: the stdlib decoders are called NOWHERE
+    outside the wrapper, because `validate=True` alone does not refuse non-zero pad bits and the
+    property has to live in one place. Reads the AST, so a mention inside a comment or a docstring is
+    not a call and a call spread over several lines still is one.
+
+    THE PROPERTY, NOT THE SPELLING (LAUF12-L2): the file's own import and assignment bindings are
+    resolved first, so `import base64 as b`, `from base64 import b64decode as d`, `dec = base64.b64decode`,
+    `getattr(base64, "b64decode")`, `__import__("base64").b64decode`, `binascii.a2b_base64` and
+    `codecs.decode(x, "base64")` are all one property: a lax decode is reachable. The wrapper is
+    exempt by its resolved PATH, never by its basename."""
+    wrapper_pfad = (wrapper or WRAPPER_PFAD).resolve()
     treffer: list[str] = []
     for p in sorted(baum.rglob("*.py")):
-        if p.name == DER_WRAPPER:
+        if p.resolve() == wrapper_pfad:
             continue
         try:
             baum_ast = ast.parse(p.read_text(encoding="utf-8"))
         except (OSError, SyntaxError):
             continue
+        modul_alias: dict[str, str] = {}
+        funk_alias: dict[str, tuple[str, str]] = {}
         for knoten in ast.walk(baum_ast):
-            if not isinstance(knoten, ast.Call):
-                continue
-            f = knoten.func
-            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
-            if name in ("b64decode", "urlsafe_b64decode", "standard_b64decode"):
+            if isinstance(knoten, ast.Import):
+                for a in knoten.names:
+                    if a.name in _LAXE_MODULE:
+                        modul_alias[a.asname or a.name] = a.name
+            elif isinstance(knoten, ast.ImportFrom) and knoten.module in _LAXE_MODULE:
+                for a in knoten.names:
+                    funk_alias[a.asname or a.name] = (knoten.module, a.name)
+        # Local rebindings, after the imports are known: `dec = base64.b64decode`.
+        for knoten in ast.walk(baum_ast):
+            if isinstance(knoten, ast.Assign) and len(knoten.targets) == 1 \
+                    and isinstance(knoten.targets[0], ast.Name):
+                ziel = _ziel_von(knoten.value, modul_alias, funk_alias)
+                if ziel:
+                    funk_alias[knoten.targets[0].id] = ziel
+        for knoten in ast.walk(baum_ast):
+            if isinstance(knoten, ast.Call) and _ist_laxer_aufruf(knoten, modul_alias, funk_alias):
                 treffer.append(f"{p.relative_to(baum)}:{knoten.lineno}")
     return treffer
 
@@ -173,21 +250,63 @@ class TestDecoderProvenanceGate(unittest.TestCase):
     def test_anti_tautology_blinded_scanner_stops_catching_the_violation(self):
         """THE OTHER DIRECTION, and it is the half that makes the first one mean something. If the
         same planted violation is still 'caught' when the scanner is blinded to it, the catch came
-        from somewhere else and the meta-test is a tautology. Here the blinding is the scanner's own
-        exemption rule: name the planted file like the wrapper, and the sweep must fall silent."""
+        from somewhere else and the meta-test is a tautology. The blinding is the scanner's own
+        exemption rule — and since LAUF12-L2 that rule is the wrapper's PATH, not its basename:
+        name the planted file `_wire_b64.py` and it is STILL reported; point the exemption at that
+        exact path and the sweep falls silent."""
         with tempfile.TemporaryDirectory() as d:
             fremd = Path(d) / "fremd"
             fremd.mkdir(parents=True)
-            (fremd / DER_WRAPPER).write_text(
+            gepflanzt = fremd / DER_WRAPPER
+            gepflanzt.write_text(
                 "import base64\n"
                 "def lies(s):\n"
                 "    return base64.b64decode(s, validate=True)\n"
             )
             self.assertEqual(
-                laxe_dekodierstellen(fremd), [],
+                len(laxe_dekodierstellen(fremd)), 1,
+                "a planted file that merely CARRIES the wrapper's basename was exempted — the "
+                "exemption binds to a name, not to the one module that is the wrapper",
+            )
+            self.assertEqual(
+                laxe_dekodierstellen(fremd, wrapper=gepflanzt), [],
                 "the blinded scanner still reported a finding — then its catch in the test above "
                 "did not come from the scan, and that test proves nothing",
             )
+
+    def test_meta_every_spelling_of_a_lax_decode_is_one_property(self):
+        """LAUF12-L2 (P1, gate blindness executed by the lens): `binascii.a2b_base64` and
+        `codecs.decode(x, "base64")` reach the same laxness as `base64.b64decode`, and an alias or a
+        rebinding is the same call under another name. Each form, planted alone, is exactly one
+        finding; the strict wrapper's own call is none."""
+        formen = {
+            "binascii": "import binascii\ndef f(s):\n    return binascii.a2b_base64(s)\n",
+            "codecs": "import codecs\ndef f(s):\n    return codecs.decode(s, 'base64')\n",
+            "codecs_kw": "import codecs\ndef f(s):\n    return codecs.decode(s, encoding='base64_codec')\n",
+            "modul_alias": "import base64 as b\ndef f(s):\n    return b.b64decode(s)\n",
+            "from_alias": "from base64 import b64decode as dec\ndef f(s):\n    return dec(s)\n",
+            "from_plain": "from base64 import urlsafe_b64decode\ndef f(s):\n    return urlsafe_b64decode(s)\n",
+            "rebinding": "import base64\ndec = base64.b64decode\ndef f(s):\n    return dec(s)\n",
+            "getattr": "import base64\ndef f(s):\n    return getattr(base64, 'b64decode')(s)\n",
+            "dunder_import": "def f(s):\n    return __import__('base64').b64decode(s)\n",
+            "from_binascii": "from binascii import a2b_base64\ndef f(s):\n    return a2b_base64(s)\n",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            for name, quelle in formen.items():
+                einzeln = Path(d) / name
+                einzeln.mkdir()
+                (einzeln / "m.py").write_text(quelle)
+                with self.subTest(form=name):
+                    self.assertEqual(len(laxe_dekodierstellen(einzeln)), 1,
+                                     f"form {name!r} not caught exactly once: {laxe_dekodierstellen(einzeln)}")
+            harmlos = Path(d) / "harmlos"
+            harmlos.mkdir()
+            (harmlos / "m.py").write_text(
+                "import codecs\nimport base64\n"
+                "def f(s):\n    return codecs.decode(s, 'utf-8')\n"
+                "def g(b):\n    return base64.b64encode(b)\n")
+            self.assertEqual(laxe_dekodierstellen(harmlos), [],
+                             "a utf-8 codec call or an ENcode is not a lax decode")
 
 
 class TestStrictDecoderFamily(unittest.TestCase):

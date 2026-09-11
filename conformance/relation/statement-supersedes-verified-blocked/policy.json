@@ -1,0 +1,15 @@
+{
+ "schema": "proofbundle/trust-policy/v0.2",
+ "policy_id": "stmt-reject-superseded",
+ "relations": {
+  "relation_signer": {
+   "supersedes": {
+    "mode": "pinned",
+    "keys": [
+     "KuuG4HLzwI3yGs5z5Y1iEl1d1yuHpHe9kUYJExRhXzQ="
+    ]
+   }
+  },
+  "reject_superseded": true
+ }
+}

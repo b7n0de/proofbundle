@@ -33,19 +33,28 @@ MAX_TESTLAST_BYTES = 64 * 1024 * 1024
 HARTER_LASTDECKEL = MAX_TESTLAST_BYTES // 64
 
 
-#: Was ein Element auf welcher Achse kostet — GEMESSEN an dem, was die Teststellen wirklich
-#: bauen, nicht geschaetzt. EINE Quelle: die Aufrufstellen und der Gegenrichtungs-Test lesen
-#: dieselbe Tabelle, sonst sind es zwei Aussagen ueber dieselbe Sache.
+#: Was ein Element auf welcher Achse kostet, in Bytes. GEMESSEN, nicht geschaetzt — und der Beleg
+#: ist ausfuehrbar: `tests/test_lauf11_l3_testlast_ist_gedeckelt.py` traegt je Achse die Messform
+#: (die Struktur, die die Suite wirklich baut) und misst sie mit `tracemalloc` nach; liegt diese
+#: Tabelle unter der Wirklichkeit, faellt `test_die_kostentabelle_ist_gemessen_nicht_geschaetzt`.
+#:
+#: LAUF12-L3 F3/F4/F5 (P1): die erste Fassung dieser Tabelle behauptete im Kommentar „GEMESSEN" und
+#: war es nicht. Gemessen von der Linse (tracemalloc, CPython 3.10): `list(range(n))` kostet 35,97 B
+#: je Element (jeder Wert über 256 ist ein eigenes PyLong), nicht 8 — unter dem Mutanten
+#: `json_nodes = 200_000_000` wuchs EINE Testlast auf 521 MiB statt der versprochenen 64 MiB.
+#: `ArchiveTimeStamp("sha256", "a"*64, i)` kostet 292 B, nicht 256 (305 MiB gemessen); ein
+#: 64-Zeichen-Hex-String in einer Liste 121 B, nicht 64. Dieselbe Klasse wie der phi4-Fund an
+#: `bytes_je_element=64`: eine Zahl, die an der Form hängt statt an der Messung.
 KOSTEN_JE_ELEMENT = {
-    "data_digests": 64,  # sha256-Hex
+    "data_digests": 128,  # ["%064x" % i ...]: 121,9 B/Element gemessen (str-Objekt + Zeiger)
     "disclosures": 256,  # sd-jwt-Disclosure
     "input_bytes": 1,  # ein Byte
     "int_bits": 1,  # ein Bit
     "json_depth": 2,  # eine Klammer je Ebene
-    "json_nodes": 8,  # JSON-Knoten, hier Zahlen
-    "merkle_path": 64,  # sha256-Hex
-    "renewal_ats_chain": 256,  # ArchiveTimeStamp-Objekt
-    "signatures": 256,  # Signatur-Eintrag/Notizblock
+    "json_nodes": 40,  # list(range(n)): 36,0 B/Element gemessen (PyLong + Zeiger)
+    "merkle_path": 128,  # [bytes(32)]: 73,5 B gemessen; Hex-Form wie data_digests 121,9 B
+    "renewal_ats_chain": 384,  # [[ArchiveTimeStamp]] wie in der Kostenkurve: 356,7 B gemessen (nackt 292,8)
+    "signatures": 320,  # [{"sig": "AA=="} ...] je ein frisches dict: 240,1 B gemessen
     "string_len": 1,  # ein Zeichen
     "witnesses": 2048,  # Witness-vkey: ML-DSA-44 = 1313 B Schluesselmaterial, base64 ~1800 B
 }

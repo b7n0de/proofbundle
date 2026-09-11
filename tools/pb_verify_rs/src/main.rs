@@ -272,6 +272,42 @@ const BUDGET_INPUT_BYTES: usize = 8_388_608;
 const BUDGET_JSON_NODES: usize = 200_000;
 const BUDGET_JSON_DEPTH: usize = 64;
 const BUDGET_STRING_LEN: usize = 1_000_000;
+// LAUF12-L1 (P0, zweimal ausgefuehrt gemessen): `signatures` und `witnesses`. Python kennt zwoelf
+// Achsen, dieser Verifizierer kannte nach Lauf 11 vier — und Lauf 12 fuhr ein Ziel mit 601 Signaturen
+// (Python: fail-closed, Limit 512; Rust: OK, exit 0) und ein Trust Pack mit 300 root-keyIds (Python:
+// structure_ok=false, Limit 256; Rust: root_threshold_met=true). Eine Nachbildung, die nur die beim
+// ERSTEN Fund gemessenen Achsen kennt, ist selbst eine Stichprobe. Hier stehen deshalb ALLE Achsen,
+// die dieser Binary auf einem seiner Pfade durchsetzt; `budget` gibt genau diese MENGE aus, und die
+// Python-Seite vergleicht die Menge, nicht nur die Werte.
+const BUDGET_SIGNATURES: usize = 512;
+const BUDGET_WITNESSES: usize = 256;
+
+/// Die Achsen, die dieser Binary durchsetzt — EINE Liste, aus der `budget` und die Tests lesen.
+const BUDGET_ACHSEN: &[(&str, usize)] = &[
+    ("input_bytes", BUDGET_INPUT_BYTES),
+    ("json_nodes", BUDGET_JSON_NODES),
+    ("json_depth", BUDGET_JSON_DEPTH),
+    ("string_len", BUDGET_STRING_LEN),
+    ("signatures", BUDGET_SIGNATURES),
+    ("witnesses", BUDGET_WITNESSES),
+];
+
+fn budget_json() -> String {
+    let felder: Vec<String> = BUDGET_ACHSEN
+        .iter()
+        .map(|(name, wert)| format!("\"{name}\":{wert}"))
+        .collect();
+    format!("{{{}}}", felder.join(","))
+}
+
+/// LAUF12-L1 (P1, ausgefuehrt): `string_len` zaehlt in Python CODEPOINTS (`len(str)`), hier zaehlte
+/// `s.len()` UTF-8-BYTES. Dieselbe Datei mit 1.000.000 Codepoints eines Vier-Byte-Zeichens: Python
+/// nahm sie an, dieser Verifizierer wies sie ab (4.000.000 > 1.000.000). Die Richtung war "Rust
+/// strenger", also kein Bypass — aber zwei Urteile ueber ein Dokument sind der Fehler, gegen den ein
+/// Zweitverifizierer steht. `input_bytes` bleibt bewusst in Bytes: dort misst Python ebenfalls Bytes.
+fn zeichen(s: &str) -> usize {
+    s.chars().count()
+}
 
 /// Die Meldungsform ist die von Python, damit ein Differentialtest beide Seiten vergleichen kann.
 fn budget_ueberschritten(dimension: &str, got: usize, limit: usize) -> String {
@@ -289,8 +325,9 @@ fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
         }
         match v {
             serde_json::Value::String(s) => {
-                if s.len() > BUDGET_STRING_LEN {
-                    return Err(budget_ueberschritten("string_len", s.len(), BUDGET_STRING_LEN));
+                let n = zeichen(s);
+                if n > BUDGET_STRING_LEN {
+                    return Err(budget_ueberschritten("string_len", n, BUDGET_STRING_LEN));
                 }
             }
             serde_json::Value::Array(items) => {
@@ -311,8 +348,9 @@ fn strukturbudget_pruefen(value: &serde_json::Value) -> Result<(), String> {
                     // DER SCHLUESSEL ZAEHLT MIT. Python schloss genau diese Achse am 2026-09-09
                     // (Fund S80: der Schluessel bekam weder Schranke noch Abweisung); eine
                     // Nachbildung, die ihn auslaesst, waere von Anfang an die halbe Pruefung.
-                    if k.len() > BUDGET_STRING_LEN {
-                        return Err(budget_ueberschritten("string_len", k.len(), BUDGET_STRING_LEN));
+                    let nk = zeichen(k);
+                    if nk > BUDGET_STRING_LEN {
+                        return Err(budget_ueberschritten("string_len", nk, BUDGET_STRING_LEN));
                     }
                     stapel.push((val, tiefe + 1));
                 }
@@ -430,6 +468,17 @@ fn verify_dsse(
     let body = b64_dsse(payload_b64)?;
     let msg = dsse_pae(payload_type, &body);
 
+    // LAUF12-L1 (P0): dieselbe Kappe wie Python `dsse.verify_envelope` (DEFAULT_BUDGET.check
+    // "signatures"), VOR dem Schluessel und vor der Verify-Schleife — ein DoS-Riegel, der erst nach
+    // der Arbeit greift, ist keiner.
+    let sigs = envelope
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .ok_or("envelope has no signatures array")?;
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+    }
+
     let pk_bytes = b64_strict(pubkey_b64)?;
     let pk_arr: [u8; 32] = pk_bytes
         .as_slice()
@@ -437,10 +486,6 @@ fn verify_dsse(
         .map_err(|_| "public key is not 32 bytes".to_string())?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
 
-    let sigs = envelope
-        .get("signatures")
-        .and_then(|v| v.as_array())
-        .ok_or("envelope has no signatures array")?;
     for s in sigs {
         let Some(sig_b64) = s.get("sig").and_then(|v| v.as_str()) else {
             continue;
@@ -804,6 +849,12 @@ fn verify_trust_pack_threshold(
         .get("keys")
         .and_then(|v| v.as_object())
         .ok_or("predicate.keys missing")?;
+    // LAUF12-L1 (P0): Python `trust_pack.validate_trust_pack_predicate` weist `keys` UND jede
+    // Rolle mit mehr als `witnesses` Eintraegen ab, BEVOR es Schluesselmaterial anfasst. Hier
+    // zaehlte niemand — 300 Root-Schluessel bestaetigten eine Schwelle von 2.
+    if keys.len() > BUDGET_WITNESSES {
+        return Err(budget_ueberschritten("witnesses", keys.len(), BUDGET_WITNESSES));
+    }
     let revoked: HashSet<String> = predicate
         .get("revoked")
         .and_then(|v| v.as_array())
@@ -817,10 +868,16 @@ fn verify_trust_pack_threshold(
         .get("roles")
         .and_then(|r| r.get("root"))
         .ok_or("predicate.roles.root missing")?;
-    let root_ids: HashSet<String> = root_role
+    let root_kids = root_role
         .get("keyIds")
         .and_then(|v| v.as_array())
-        .ok_or("predicate.roles.root.keyIds missing")?
+        .ok_or("predicate.roles.root.keyIds missing")?;
+    // Die ROHE Laenge, vor dem Widerruf-Filter — so zaehlt Python (`len(kids)`), und ein Angreifer
+    // waehlt die Liste, nicht der Verifizierer.
+    if root_kids.len() > BUDGET_WITNESSES {
+        return Err(budget_ueberschritten("witnesses", root_kids.len(), BUDGET_WITNESSES));
+    }
+    let root_ids: HashSet<String> = root_kids
         .iter()
         .filter_map(|x| x.as_str().map(String::from))
         .filter(|k| !revoked.contains(k))
@@ -832,11 +889,17 @@ fn verify_trust_pack_threshold(
 
     let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
     let mut skipped_non_ed25519: u64 = 0;
-    for entry in envelope
+    let sigs = envelope
         .get("signatures")
         .and_then(|v| v.as_array())
-        .ok_or("envelope.signatures missing")?
-    {
+        .ok_or("envelope.signatures missing")?;
+    // Nachbar derselben Klasse: Python `verify_trust_pack` kappt auch die Signaturliste des
+    // Umschlags (trust_pack.py, DEFAULT_BUDGET.check "signatures") — ein Umschlag mit einer Million
+    // Eintraegen ist sonst eine Million Ed25519-Pruefungen.
+    if sigs.len() > BUDGET_SIGNATURES {
+        return Err(budget_ueberschritten("signatures", sigs.len(), BUDGET_SIGNATURES));
+    }
+    for entry in sigs {
         let Some(kid) = entry.get("keyid").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -1950,19 +2013,43 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
 }
 
 fn read_file(path: &str) -> Vec<u8> {
-    // LAUF11-L1: die Groesse wird an der METADATEN-Abfrage geprueft, nicht nach dem Lesen. Vorher
-    // war dies ein nacktes `std::fs::read` — eine Datei beliebiger Groesse landete vollstaendig im
-    // Speicher, bevor irgendeine Schranke sie sah.
-    if let Ok(md) = std::fs::metadata(path) {
-        if md.len() as usize > BUDGET_INPUT_BYTES {
-            fatal(&budget_ueberschritten(
-                "input_bytes",
-                md.len() as usize,
-                BUDGET_INPUT_BYTES,
-            ));
-        }
+    read_file_begrenzt(path).unwrap_or_else(|e| fatal(&e))
+}
+
+/// Die Eingabe ist VOR dem vollstaendigen Einlesen begrenzt — an der Eigenschaft, nicht an der Form.
+///
+/// LAUF11-L1 prueft die Groesse an den METADATEN; LAUF12-L1 (P1, ausgefuehrt) zeigte, dass das an
+/// die FORM "regulaere Datei mit bekannter Groesse" bindet: eine FIFO traegt die stat-Groesse 0,
+/// passierte die Vorpruefung und wurde mit 12,58 MB vollstaendig materialisiert, bevor `input_bytes`
+/// griff; `/dev/zero` haette nie ein Ende geliefert. Python hat fuer denselben Pfad zwei Mechanismen
+/// (`cli._open_input`: S_ISREG-Stat-Guard VOR dem Oeffnen, `_read_capped`: der LESEAUFRUF selbst ist
+/// gekappt). Beide stehen jetzt auch hier: keine Nicht-Regulaerdatei, und `take(limit + 1)` — mehr als
+/// die Schranke plus ein Byte wird nie gelesen, egal was die Metadaten sagen.
+fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    if !md.is_file() {
+        return Err(format!(
+            "cannot read {path}: not a regular file (a FIFO, device or directory is refused before \
+             any byte is read)"
+        ));
     }
-    std::fs::read(path).unwrap_or_else(|e| fatal(&format!("cannot read {path}: {e}")))
+    if md.len() as usize > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten(
+            "input_bytes",
+            md.len() as usize,
+            BUDGET_INPUT_BYTES,
+        ));
+    }
+    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let mut buf: Vec<u8> = Vec::new();
+    f.take(BUDGET_INPUT_BYTES as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("cannot read {path}: {e}"))?;
+    if buf.len() > BUDGET_INPUT_BYTES {
+        return Err(budget_ueberschritten("input_bytes", buf.len(), BUDGET_INPUT_BYTES));
+    }
+    Ok(buf)
 }
 
 fn fatal(msg: &str) -> ! {
@@ -1984,10 +2071,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
         // mit DEFAULT_BUDGET — eine Drift zwischen den beiden Verifizierern faellt damit auf,
         // bevor sie zu zwei Urteilen ueber dieselbe Datei wird.
         "budget" => {
-            println!(
-                "{{\"input_bytes\":{},\"json_nodes\":{},\"json_depth\":{},\"string_len\":{}}}",
-                BUDGET_INPUT_BYTES, BUDGET_JSON_NODES, BUDGET_JSON_DEPTH, BUDGET_STRING_LEN
-            );
+            println!("{}", budget_json());
         }
         "content-root" => {
             let path = args
@@ -2122,6 +2206,13 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 }
             };
             match verify_trust_pack_threshold(&v) {
+                // LAUF12-L4: der GRUND einer Ablehnung gehoert in die Ausgabe, sonst kann kein
+                // Kreuzvergleich "beide lehnen ab" von "beide lehnen aus demselben Grund ab"
+                // unterscheiden. Praefix und Exit-Klasse bleiben.
+                Err(e) => {
+                    println!("MALFORMED: {e}");
+                    exit(2);
+                }
                 Ok((true, signers, threshold, skipped)) => {
                     println!(
                         "OK root_threshold_met=true signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
@@ -2133,10 +2224,6 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         "FAIL root_threshold_met=false signers={signers} threshold={threshold} skipped_non_ed25519={skipped}"
                     );
                     exit(1);
-                }
-                Err(_) => {
-                    println!("MALFORMED");
-                    exit(2);
                 }
             }
         }
@@ -2190,6 +2277,16 @@ mod tests {
         // abweist, jede Probe darunter.
         let v = wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
         assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn ein_einsames_surrogat_wird_abgewiesen_ein_paar_nicht() {
+        // Lauf 13, Gegenlesung Stelle 6: Python nahm `"\ud800"` an, serde_json weist es ab. Python
+        // weist jetzt ebenfalls ab; dieser Test pinnt die Rust-Seite, damit ein Parserwechsel die
+        // Paritaet nicht still kippt.
+        assert!(strict_parse(br#"{"a":"\ud800"}"#).is_err(), "einsames Surrogat angenommen");
+        assert!(strict_parse(br#"{"\udfff":1}"#).is_err(), "einsames Surrogat als Schluessel angenommen");
+        assert!(strict_parse(br#"{"a":"\ud83d\ude00"}"#).is_ok(), "gueltiges Paar abgewiesen");
     }
 
     #[test]
@@ -2270,6 +2367,122 @@ mod tests {
         assert_eq!(BUDGET_JSON_NODES, 200_000);
         assert_eq!(BUDGET_JSON_DEPTH, 64);
         assert_eq!(BUDGET_STRING_LEN, 1_000_000);
+        assert_eq!(BUDGET_SIGNATURES, 512);
+        assert_eq!(BUDGET_WITNESSES, 256);
+    }
+
+    #[test]
+    fn der_budget_bericht_nennt_jede_durchgesetzte_achse() {
+        // LAUF12-L1: die MENGE der Achsen ist die Aussage, nicht nur ihre Werte. Lauf 11 schloss
+        // vier, Lauf 12 fand die fuenfte und sechste — ein Bericht, der nur die bekannten nennt,
+        // haette beide verschwiegen.
+        let j = budget_json();
+        for name in ["input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"] {
+            assert!(j.contains(&format!("\"{name}\":")), "Achse {name} fehlt im Bericht: {j}");
+        }
+        assert_eq!(BUDGET_ACHSEN.len(), 6, "eine Achse kam dazu oder fiel weg — bewusst?");
+    }
+
+    // RFC 8032 Abschnitt 7.1, Testvektor 1: ein GUELTIGER Ed25519-Schluessel, damit die Proben
+    // unten am Budget scheitern und nicht am Schluessel.
+    fn gueltiger_pubkey_b64() -> String {
+        let roh = hex::decode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+            .expect("hex");
+        base64::engine::general_purpose::STANDARD.encode(roh)
+    }
+
+    fn umschlag_mit_signaturen(n: usize) -> serde_json::Value {
+        let sigs: Vec<serde_json::Value> = (0..n).map(|_| serde_json::json!({"sig": "AA=="})).collect();
+        serde_json::json!({"payloadType": "application/vnd.test", "payload": "e30=", "signatures": sigs})
+    }
+
+    #[test]
+    fn zu_viele_signaturen_werden_vor_der_pruefung_abgewiesen() {
+        // LAUF12-L1 F1 (P0): 601 Signaturen — Python fail-closed, Rust bestaetigte.
+        let env = umschlag_mit_signaturen(BUDGET_SIGNATURES + 1);
+        let e = verify_dsse(&env, &gueltiger_pubkey_b64(), None)
+            .expect_err("ein Umschlag ueber der Signaturschranke wurde geprueft");
+        assert!(e.contains("signatures"), "falsche Dimension: {e}");
+        assert!(e.contains("budget"), "die Meldung nennt das Budget nicht: {e}");
+    }
+
+    #[test]
+    fn genau_die_signaturschranke_bleibt_erlaubt() {
+        // Die Gegenrichtung: an der Grenze wird geprueft (und mangels echter Signatur abgelehnt),
+        // nicht am Budget verweigert.
+        let env = umschlag_mit_signaturen(BUDGET_SIGNATURES);
+        let r = verify_dsse(&env, &gueltiger_pubkey_b64(), None);
+        assert_eq!(r, Ok(false), "an der Schranke muss geprueft werden, nicht verweigert: {r:?}");
+    }
+
+    fn trust_pack_mit_root_keyids(n: usize) -> serde_json::Value {
+        let kids: Vec<String> = (0..n).map(|i| format!("k{i}")).collect();
+        let keys: serde_json::Map<String, serde_json::Value> = kids
+            .iter()
+            .map(|k| (k.clone(), serde_json::json!({"publicKey": gueltiger_pubkey_b64()})))
+            .collect();
+        let statement = serde_json::json!({
+            "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
+        });
+        let body = serde_json::to_vec(&statement).expect("json");
+        serde_json::json!({
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": base64::engine::general_purpose::STANDARD.encode(body),
+            "signatures": [{"keyid": "k0", "sig": "AA=="}]
+        })
+    }
+
+    #[test]
+    fn zu_viele_zeugen_werden_abgewiesen() {
+        // LAUF12-L1 F2 (P0): 300 root-keyIds — Python structure_ok=false, Rust Schwelle erfuellt.
+        let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES + 1);
+        let e = verify_trust_pack_threshold(&env)
+            .expect_err("ein Trust Pack ueber der Zeugenschranke wurde geprueft");
+        assert!(e.contains("witnesses"), "falsche Dimension: {e}");
+    }
+
+    #[test]
+    fn genau_die_zeugenschranke_bleibt_erlaubt() {
+        let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES);
+        let r = verify_trust_pack_threshold(&env).expect("an der Schranke wurde verweigert");
+        assert!(!r.0, "eine Junk-Signatur darf die Schwelle nicht erfuellen");
+    }
+
+    #[test]
+    fn string_len_zaehlt_zeichen_wie_python() {
+        // LAUF12-L1 F3 (P1): 1.000.000 Codepoints eines Zwei-Byte-Zeichens sind 2.000.000 Bytes und
+        // genau EIN Zeichen unter der Grenze plus eins. Python zaehlt Zeichen; hier ebenso.
+        let an_der_grenze = "\u{e9}".repeat(BUDGET_STRING_LEN);
+        assert!(wert(&format!("{{\"a\":\"{an_der_grenze}\"}}")).is_ok(),
+                "ein Feld mit genau string_len Zeichen (aber mehr Bytes) wurde abgewiesen");
+        let drueber = "\u{e9}".repeat(BUDGET_STRING_LEN + 1);
+        let e = wert(&format!("{{\"a\":\"{drueber}\"}}")).expect_err("ein Zeichen zu viel ging durch");
+        assert!(e.contains(&format!("string_len = {}", BUDGET_STRING_LEN + 1)),
+                "die Meldung zaehlt nicht in Zeichen: {e}");
+    }
+
+    #[test]
+    fn read_file_liest_keine_nicht_regulaere_datei() {
+        // LAUF12-L1 F5 (P1): eine FIFO traegt die stat-Groesse 0 und passierte die Metadaten-
+        // Vorpruefung. Ein Verzeichnis ist die naechste Nicht-Regulaerdatei, die ein Test ohne
+        // Sonderrechte anlegen kann; die Eigenschaft (`is_file`) ist dieselbe.
+        let d = std::env::temp_dir();
+        let e = read_file_begrenzt(d.to_str().expect("utf-8")).expect_err("ein Verzeichnis wurde gelesen");
+        assert!(e.contains("not a regular file"), "unerwartete Meldung: {e}");
+    }
+
+    #[test]
+    fn read_file_kappt_das_lesen_selbst() {
+        let d = std::env::temp_dir().join(format!("pb_verify_rs_lesekappe_{}", std::process::id()));
+        std::fs::create_dir_all(&d).expect("tmp");
+        let gross = d.join("gross.json");
+        std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
+        let e = read_file_begrenzt(gross.to_str().expect("utf-8")).expect_err("ueber der Schranke gelesen");
+        assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
+        let klein = d.join("klein.json");
+        std::fs::write(&klein, b"{\"a\":1}").expect("write");
+        assert_eq!(read_file_begrenzt(klein.to_str().expect("utf-8")).expect("klein"), b"{\"a\":1}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

@@ -166,14 +166,41 @@ class TestWerkzeugschichtDekodiertNichtSelbst(unittest.TestCase):
 
     def test_anti_tautologie_der_geblendete_scanner_faellt_still(self):
         """Die andere Richtung, und sie macht die erste erst aussagekraeftig: findet der geblendete
-        Scanner dieselbe Pflanzung weiter, kam der Fang nicht aus dem Scan."""
+        Scanner dieselbe Pflanzung weiter, kam der Fang nicht aus dem Scan. Die Blendung ist seit
+        LAUF12-L2 der PFAD des Wrappers, nicht sein Name: eine gepflanzte Datei, die nur so HEISST wie
+        der Wrapper, wird weiter gemeldet; erst die Ausnahme auf genau diesen Pfad macht still."""
         with tempfile.TemporaryDirectory() as d:
             fremd = Path(d) / "werkzeug"
             fremd.mkdir(parents=True)
-            (fremd / _wbs.DER_WRAPPER).write_text(
+            gepflanzt = fremd / _wbs.DER_WRAPPER
+            gepflanzt.write_text(
                 "import base64\ndef lies(s):\n    return base64.b64decode(s, validate=True)\n")
-            self.assertEqual(laxe_dekodierstellen(fremd), [],
+            self.assertEqual(len(laxe_dekodierstellen(fremd)), 1,
+                             "eine Datei, die nur den NAMEN des Wrappers traegt, wurde ausgenommen — "
+                             "die Ausnahme bindet an die Schreibweise, nicht an das eine Modul")
+            self.assertEqual(laxe_dekodierstellen(fremd, wrapper=gepflanzt), [],
                              "der geblendete Scanner meldet weiter — dann beweist der Fang oben nichts")
+
+    def test_meta_binascii_und_codecs_und_aliasse_sind_dieselbe_eigenschaft(self):
+        """LAUF12-L2 (P1, Gate-Blindheit ausgefuehrt): der Riegel band an drei Namen. Ein Werkzeug,
+        das `binascii.a2b_base64`, `codecs.decode(x, "base64")` oder einen Alias ruft, erreicht
+        dieselbe Laxheit und blieb unsichtbar. Jede Form einzeln gepflanzt: genau eine Meldung."""
+        formen = (
+            "import binascii\ndef f(s):\n    return binascii.a2b_base64(s)\n",
+            "import codecs\ndef f(s):\n    return codecs.decode(s, 'base64')\n",
+            "import base64 as b\ndef f(s):\n    return b.b64decode(s)\n",
+            "from base64 import b64decode as dec\ndef f(s):\n    return dec(s)\n",
+            "import base64\ndec = base64.b64decode\ndef f(s):\n    return dec(s)\n",
+            "import base64\ndef f(s):\n    return getattr(base64, 'b64decode')(s)\n",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            for i, quelle in enumerate(formen):
+                einzeln = Path(d) / f"form{i}"
+                einzeln.mkdir()
+                (einzeln / "werkzeug.py").write_text(quelle)
+                with self.subTest(form=quelle.splitlines()[-1].strip()):
+                    self.assertEqual(len(laxe_dekodierstellen(einzeln)), 1,
+                                     f"Form nicht genau einmal gefangen: {laxe_dekodierstellen(einzeln)}")
 
 
 if __name__ == "__main__":

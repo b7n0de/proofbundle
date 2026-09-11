@@ -31,11 +31,21 @@ rejected at ANY depth.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Union
 
 from .errors import BundleFormatError
 
 __all__ = ["loads_strict", "enforce_structural_budget"]
+
+#: Ein einsames Surrogat (U+D800..U+DFFF ohne Partner). RFC 7493 (I-JSON) §2.1: ein Dokument DARF es
+#: nicht enthalten; RFC 8785 kann es nicht kanonisieren; serde_json weist es beim Parsen ab. Python
+#: `json` nimmt es an — und damit verifizierte ein DSSE-Umschlag mit `keyid = "\\ud800"` in Python
+#: (`verify_envelope -> True`), waehrend der Rust-Zweitverifizierer exit 2 meldete: dieselbe Datei,
+#: zwei Urteile (Gegenlesung un_turbov1 zu Lauf 13, 11.09.2026, Stelle 6; P1 der L1-Klasse). Ein
+#: gueltiges Paar dekodiert `json` zu EINEM Nicht-Surrogat-Codepoint, also ist jedes Surrogat, das
+#: nach dem Parsen noch in einem str steht, einsam.
+_EINSAMES_SURROGAT = re.compile("[\ud800-\udfff]")
 
 
 def _reject_duplicate_keys(pairs: list) -> dict:
@@ -97,6 +107,10 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
             # abgewiesen wurde. Die Achse ist dieselbe, also ist es dieselbe Schranke.
             if len(cur) > string_len:
                 raise BudgetExceeded("string_len", len(cur), string_len)
+            if isinstance(cur, str) and _EINSAMES_SURROGAT.search(cur) is not None:
+                raise BundleFormatError(
+                    "JSON string contains a lone surrogate code point (not I-JSON, RFC 7493 section 2.1; "
+                    "not canonicalizable under RFC 8785) — rejected fail-closed so both verifiers agree")
         elif isinstance(cur, dict):
             count += len(cur)
             if count > json_nodes:

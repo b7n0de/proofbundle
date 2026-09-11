@@ -96,6 +96,7 @@
     "relation/statement-retracts-verified-blocked",
     "relation/statement-retracts-verified-visible",
     "relation/statement-supersedes-verified",
+    "relation/statement-supersedes-verified-blocked",
     "relation/t1-canonical-invalid-signature",
     "relation/target-subject-ambiguous",
     "relation/target-subject-correct-pass",

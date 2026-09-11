@@ -110,6 +110,17 @@ def _run(*args: str) -> tuple[int, str]:
     return p.returncode, (p.stdout or "").strip()
 
 
+def _run_mit_grund(*args: str) -> tuple[int, str]:
+    """Exit-Code und die GANZE Ausgabe, stdout UND stderr.
+
+    LAUF12-L4 (P2, aus dem Verdikt): `_run` gibt nur stdout zurueck, und `fatal()` schreibt den Grund
+    einer Ablehnung nach stderr. Der Budget-Vektor unten sah damit nur `code == 0` und konnte "beide
+    lehnen ab" nicht von "beide lehnen aus demselben Grund ab" unterscheiden — eine Ablehnung wegen
+    eines Parse-Fehlers haette denselben Vergleich bestanden."""
+    p = subprocess.run([str(BIN), *args], capture_output=True, text=True)
+    return p.returncode, ((p.stdout or "") + "\n" + (p.stderr or "")).strip()
+
+
 def _relation_argv_common(case: dict, cdir: pathlib.Path) -> list[str]:
     argv: list[str] = []
     for rel in case.get("related", []) or []:
@@ -241,19 +252,121 @@ def main() -> int:
         py_budget_ok, py_budget_grund = False, f"{type(exc).__name__}: {exc}"
     else:
         py_budget_grund = "accepted"
-    code, out = _run("verify-dsse", str(tmp / "env_budget.json"), pub)
+    code, out = _run_mit_grund("verify-dsse", str(tmp / "env_budget.json"), pub)
     rust_budget_ok = code == 0
     if py_budget_ok != rust_budget_ok:
         failures.append(
             f"budget axis: python_ok={py_budget_ok} ({py_budget_grund}) but rust exit={code} "
             f"({out}) — one verifier accepts a target the other refuses to even parse; the "
             f"independent instance is then not a second opinion but a second door")
+    elif "budget" not in out.lower():
+        # LAUF12-L4: gleiches Urteil, anderer Grund, ist keine Uebereinstimmung.
+        failures.append(f"budget axis (string_len): rust refuses, but not for the budget: {out!r}")
     if py_budget_ok:
         failures.append(f"budget fixture bug: python should refuse a field over string_len, "
                         f"got {py_budget_grund}")
+    # EHRLICH BENANNT (LAUF12-L4, Verdikt): der Vektor oben reisst `string_len` ueber das AEUSSERE
+    # Base64-Feld — 1.333.380 ist die Laenge von `payload`, nicht des inneren Strings. Das ist fuer
+    # DSSE richtig so (SPEC.md: der Payload ist opak, er wird nie geparst), aber es heisst: der Vektor
+    # prueft die Huelle, und die Erfolgszeile unten sagt genau das.
+
+    # (4c) LAUF12-L1 F1 (P0, ausgefuehrt): die `signatures`-Achse. Lauf 12 fuhr ein gueltig
+    # signiertes Ziel plus 600 Muell-Eintraege: Python fail-closed ("signatures = 601 > limit 512"),
+    # Rust OK/exit 0 — dasselbe Muster wie Lauf 11 auf string_len, eine Achse weiter. Eine
+    # Nachbildung, die nur die beim ersten Fund gemessenen Achsen kennt, ist selbst eine Stichprobe.
+    env_s = dict(env)
+    env_s["signatures"] = list(env["signatures"]) + [{"sig": "AA=="}] * DEFAULT_BUDGET.signatures
+    (tmp / "env_signatures.json").write_text(json.dumps(env_s))
+    try:
+        py_sig_ok = bool(_verify_env(env_s, decode_b64(pub)))
+        py_sig_grund = "accepted"
+    except Exception as exc:  # noqa: BLE001
+        py_sig_ok, py_sig_grund = False, f"{type(exc).__name__}: {exc}"
+    code, out = _run_mit_grund("verify-dsse", str(tmp / "env_signatures.json"), pub)
+    if py_sig_ok:
+        failures.append(f"budget fixture bug (signatures): python accepted "
+                        f"{len(env_s['signatures'])} signatures: {py_sig_grund}")
+    if code == 0:
+        failures.append(f"budget axis (signatures): python refuses ({py_sig_grund}) but rust "
+                        f"verifies exit 0 — the P0 of Lauf 12, still open")
+    elif "signatures" not in out.lower():
+        failures.append(f"budget axis (signatures): rust refuses, but not on the signatures axis: {out!r}")
+
+    # (4d) LAUF12-L1 F2 (P0, ausgefuehrt): die `witnesses`-Achse auf dem Trust-Pack-Pfad. 300
+    # root-keyIds (Limit 256): Python structure_ok=false, Rust root_threshold_met=true.
+    from proofbundle.dsse import pae as _pae  # noqa: PLC0415
+    from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE as _ITT  # noqa: PLC0415
+    from proofbundle.trust_pack import _rfc8785_bytes as _jcs  # noqa: PLC0415
+    from proofbundle.trust_pack import STATEMENT_TYPE as _STT  # noqa: PLC0415
+    from proofbundle.trust_pack import TRUST_PACK_PREDICATE_TYPE as _TPT  # noqa: PLC0415
+    from proofbundle.trust_pack import verify_trust_pack as _verify_tp  # noqa: PLC0415
+    _w = DEFAULT_BUDGET.witnesses + 1
+    # 257 VERSCHIEDENE Schluessel, von Hand signiert: `sign_trust_pack` weist das Pack selbst ab
+    # (Budget + Sybil), die Referenz kann den Vektor also nicht erzeugen — nur pruefen.
+    _signer_w = [generate_signer() for _ in range(_w)]
+    _pub_w = {f"w{i}": base64.b64encode(s.public_key().public_bytes_raw()).decode()
+              for i, s in enumerate(_signer_w)}
+    _exp = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _pred_w = {
+        "schemaVersion": "0.1.0", "trustPackId": "tp-witnesses", "version": 1,
+        "expires": _exp, "prevVersionDigest": None,
+        "roles": {"root": {"keyIds": list(_pub_w), "threshold": 2}},
+        "keys": {kid: {"publicKey": pk} for kid, pk in _pub_w.items()},
+        "nonClaims": ["budget vector: more root keyIds than the witnesses budget admits"],
+    }
+    _stmt_w = {"_type": _STT,
+               "subject": [{"name": "trust-pack:tp-witnesses:v1",
+                            "digest": {"sha256": hashlib.sha256(_jcs(_pred_w)).hexdigest()}}],
+               "predicateType": _TPT, "predicate": _pred_w}   # build_trust_pack_statement validiert und wirft
+    _body_w = _jcs(_stmt_w)
+    _msg_w = _pae(_ITT, _body_w)
+    _env_w = {"payload": base64.b64encode(_body_w).decode("ascii"), "payloadType": _ITT,
+              "signatures": [{"keyid": f"w{i}", "sig": base64.b64encode(_signer_w[i].sign(_msg_w)).decode("ascii")}
+                             for i in (0, 1)]}
+    (tmp / "tp_witnesses.json").write_text(json.dumps(_env_w))
+    try:
+        _py_w = _verify_tp(_env_w)
+        py_w_ok = bool(_py_w.get("root_threshold_met")) and bool(_py_w.get("structure_ok", True))
+        py_w_grund = "; ".join(map(str, (_py_w.get("detail") or [])[:2])) or str(_py_w)[:160]
+    except Exception as exc:  # noqa: BLE001
+        py_w_ok, py_w_grund = False, f"{type(exc).__name__}: {exc}"
+    code, out = _run_mit_grund("verify-trust-pack-threshold", str(tmp / "tp_witnesses.json"))
+    if py_w_ok:
+        failures.append(f"budget fixture bug (witnesses): python accepted {_w} root keyIds: {py_w_grund}")
+    if code == 0:
+        failures.append(f"budget axis (witnesses): python refuses ({py_w_grund}) but rust reports "
+                        f"root_threshold_met=true — the second P0 of Lauf 12, still open")
+    elif "witnesses" not in out.lower():
+        failures.append(f"budget axis (witnesses): rust refuses, but not on the witnesses axis: {out!r}")
+
+    # (4e) Lauf 13, Gegenlesung un_turbov1 Stelle 6 (P1, ausgefuehrt): ein EINSAMES Surrogat. Python
+    # `json` nahm `"\\ud800"` als ein Zeichen und verify_envelope verifizierte den Umschlag, Rust
+    # (serde_json) wies ihn beim Parsen ab — dieselbe Datei, zwei Urteile, die Akzeptanz-Achse.
+    from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
+    _sur = b'{"a":"\\ud800"}'
+    (tmp / "surrogat.json").write_bytes(_sur)
+    try:
+        _loads_strict(_sur)
+        failures.append("lone surrogate: python accepts a lone surrogate code point — Rust refuses it at parse time")
+    except Exception:  # noqa: BLE001 — die typisierte Abweisung ist das erwartete Urteil
+        pass
+    code, out = _run_mit_grund("strict-parse", str(tmp / "surrogat.json"))
+    if code == 0:
+        failures.append("lone surrogate: rust accepts a lone surrogate code point — Python refuses it")
+    _paar = b'{"a":"\\ud83d\\ude00"}'
+    (tmp / "paar.json").write_bytes(_paar)
+    try:
+        _loads_strict(_paar)
+    except Exception as exc:  # noqa: BLE001
+        failures.append(f"surrogate pair: python refuses a VALID pair: {exc}")
+    code, out = _run_mit_grund("strict-parse", str(tmp / "paar.json"))
+    if code != 0:
+        failures.append(f"surrogate pair: rust refuses a VALID pair: {out!r}")
 
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
+    budget_geteilt: list[str] = []
+    budget_nur_python: list[str] = []
     code, out = _run("budget")
     if code != 0:
         failures.append(f"the rust verifier does not report its budget (exit {code}: {out}) — a "
@@ -272,6 +385,18 @@ def main() -> int:
                     failures.append(f"budget drift on {dim}: rust={wert} python={py_wert} — the "
                                     f"same document gets two verdicts depending on which verifier "
                                     f"reads it")
+            # DIE MENGE, nicht nur die Werte (LAUF12-L1): jede Achse, die Python auf einem Pfad
+            # durchsetzt, den dieser Binary AUCH faehrt, muss er kennen. Die uebrigen Python-Achsen
+            # sind Pfade ohne Rust-Entsprechung (Renewal, SD-JWT, Merkle-Pfadlaenge ist durch die
+            # Rekonstruktion selbst begrenzt) — benannt, nicht verschwiegen.
+            _geteilt = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"}
+            _fehlt = sorted(_geteilt - set(rust_budget))
+            if _fehlt:
+                failures.append(f"budget axes missing in rust on a shared path: {_fehlt} — a target "
+                                f"over that limit gets two verdicts")
+            budget_geteilt = sorted(_geteilt & set(rust_budget))
+            budget_nur_python = sorted(
+                d for d in vars(DEFAULT_BUDGET) if d not in rust_budget)
 
     # (5) RFC 6962 Merkle head
     la = hashlib.sha256(b"leafA").hexdigest()
@@ -472,8 +597,14 @@ def main() -> int:
         print(f"NOT RUN DIFFERENTIALLY: {n_offen} of {total} corpus case(s), by kind — "
               + "; ".join(f"{k} ({len(v)}): {_NICHT_DIFFERENTIELL.get(k, 'siehe Zweig oben')}"
                           for k, v in sorted(nicht_gedeckt.items())))
+    # DIE ERFOLGSZEILE NENNT, WAS GEMESSEN WURDE — nicht mehr. Lauf 12 (L4, P2) las hier "budget axis
+    # (over-limit refused by both)" und hielt die ganze Budget-Flaeche fuer gedeckt; gemessen war eine
+    # Achse ueber die Huelle und nur der Exit-Code. Jetzt stehen die Achsen und die Grenze daneben.
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
-          "budget axis (over-limit refused by both, schedules identical), "
+          "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection (over-limit "
+          "refused by both WITH the budget reason; schedules identical on "
+          f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
+          f"{', '.join(budget_nur_python)}), "
           "trust-pack root-threshold (met+unmet) agree; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage)"

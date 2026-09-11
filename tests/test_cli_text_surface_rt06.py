@@ -135,13 +135,20 @@ class ShowEvalHostileFields(unittest.TestCase):
             fx = _Fixtures(d)
             for name, hostile in HOSTILE_STRINGS.items():
                 rc, out, err = _cli("show-eval", fx.receipt(hostile))
+                if name == "surrogate":
+                    # SEIT LAUF 13 (11.09.2026, Gegenlesung un_turbov1, Stelle 6): ein einsames Surrogat
+                    # ist FEHLGEFORMTE Eingabe (RFC 7493 I-JSON; serde_json weist es ab, rfc8785 kann es
+                    # nicht kanonisieren) und wird vom strikten Parser abgewiesen, damit beide Verifizierer
+                    # dasselbe Urteil faellen. Die RT-06-Eigenschaft bleibt: ein Verdikt mit dokumentiertem
+                    # Exit-Code, kein Traceback, nichts Gefaelschtes — nur ist das Verdikt jetzt FAILED.
+                    _no_traceback(self, rc, out, err, {1})
+                    self.assertIn("=> FAILED", out + err, name)
+                    continue
                 _no_traceback(self, rc, out, err, {0})
                 self.assertIn("=> OK", out, name)
                 self.assertEqual(_forged_rows(out), 0, name)
                 suite_lines = [ln for ln in out.splitlines() if ln.startswith("suite ")]
                 self.assertEqual(len(suite_lines), 1, (name, out))
-                if name == "surrogate":
-                    self.assertIn("\\ud800", suite_lines[0])          # escaped form, not a dead process
                 if name in ("newline_forged_pass", "ansi", "nul"):
                     self.assertNotIn("\x1b", out)
                     self.assertNotIn("\x00", out)
@@ -150,7 +157,7 @@ class ShowEvalHostileFields(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             fx = _Fixtures(d)
             rc, out, err = _cli("show-eval", fx.receipt("\ud800x"), env={"PYTHONUTF8": "1"})
-            _no_traceback(self, rc, out, err, {0})
+            _no_traceback(self, rc, out, err, {1})   # seit Lauf 13 abgewiesen, nicht angezeigt (s.o.)
 
 
 class VerifyTextCheckRows(unittest.TestCase):
@@ -162,7 +169,9 @@ class VerifyTextCheckRows(unittest.TestCase):
             rc, out, err = _cli("verify", fx.sd_bundle("\ud800"))
             _no_traceback(self, rc, out, err, {1})
             self.assertIn("CRYPTO: FAILED", out)
-            self.assertIn("\\ud800", out)
+            # Seit Lauf 13 weist der strikte Parser das Surrogat ab, bevor es einen Text erreicht: die
+            # sd-jwt-Zeile ist FAIL, der Wert wird nicht mehr (escaped) angezeigt.
+            self.assertTrue(any(ln.startswith("[FAIL] sd-jwt") for ln in out.splitlines()), out)
 
     def test_newline_in_sd_alg_cannot_forge_a_pass_row(self):
         with tempfile.TemporaryDirectory() as d:
