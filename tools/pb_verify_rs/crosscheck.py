@@ -363,6 +363,37 @@ def main() -> int:
     if code != 0:
         failures.append(f"surrogate pair: rust refuses a VALID pair: {out!r}")
 
+    # (4f) Lauf 13, Linse L4 F1 (P0 unter der alten Regel; Owner 11.09.: kommt in denselben Kopf vor Lauf 14):
+    # eine Policy mit Tippfehler im Top-Level-Schluessel ("relatoins") — Python load_policy exit 2
+    # fail-closed, Rust ignorierte die ganze Policy und verifizierte mit exit 0. Beide muessen sie
+    # VERWEIGERN, mit dem Grund "unknown field".
+    _fall = ROOT / "conformance" / "relation" / "statement-supersedes-verified-blocked"
+    if (_fall / "case.json").is_file():
+        _case = json.loads((_fall / "case.json").read_text(encoding="utf-8"))
+        _pub = (_fall / "pub.b64").read_text(encoding="utf-8").strip()
+        _pol = json.loads((_fall / "policy.json").read_text(encoding="utf-8"))
+        _pol["relatoins"] = _pol.pop("relations")
+        (tmp / "policy_typo.json").write_text(json.dumps(_pol))
+        _common = _relation_argv_common(_case, _fall)
+        _common[_common.index("--policy") + 1] = str(tmp / "policy_typo.json")
+        _py_rc, _ = _python_relation_label("relation-statement", str(_fall / "receipt.json"), _pub, _common)
+        _rs_rc, _rs_out = _run_mit_grund("verify-relation-statement", str(_fall / "receipt.json"), _pub, *_common)
+        if _py_rc != 2:
+            failures.append(f"policy typo: python exit {_py_rc}, expected 2 (fail-closed unknown field)")
+        if _rs_rc == 0:
+            failures.append("policy typo: rust verifies with exit 0 — the policy was silently ignored (Lauf 13 L4 F1)")
+        elif "unknown field" not in _rs_out.lower():
+            failures.append(f"policy typo: rust refuses, but not for the unknown field: {_rs_out!r}")
+        # Pflichtfeld fehlt (policy_id) — ebenfalls beide exit 2
+        _pol2 = json.loads((_fall / "policy.json").read_text(encoding="utf-8"))
+        _pol2.pop("policy_id")
+        (tmp / "policy_ohne_id.json").write_text(json.dumps(_pol2))
+        _common[_common.index("--policy") + 1] = str(tmp / "policy_ohne_id.json")
+        _py_rc2, _ = _python_relation_label("relation-statement", str(_fall / "receipt.json"), _pub, _common)
+        _rs_rc2, _rs_out2 = _run_mit_grund("verify-relation-statement", str(_fall / "receipt.json"), _pub, *_common)
+        if _py_rc2 != 2 or _rs_rc2 != 2:
+            failures.append(f"policy without policy_id: python exit {_py_rc2}, rust exit {_rs_rc2} — expected 2 in both")
+
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
     budget_geteilt: list[str] = []
@@ -601,7 +632,7 @@ def main() -> int:
     # (over-limit refused by both)" und hielt die ganze Budget-Flaeche fuer gedeckt; gemessen war eine
     # Achse ueber die Huelle und nur der Exit-Code. Jetzt stehen die Achsen und die Grenze daneben.
     print("CROSS-IMPL OK: content-root, DSSE verify (real+tampered), dup-key reject, RFC6962 merkle, "
-          "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection (over-limit "
+          "budget axes string_len (via the outer payload field), signatures, witnesses, lone-surrogate rejection, policy-typo refusal (over-limit "
           "refused by both WITH the budget reason; schedules identical on "
           f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
           f"{', '.join(budget_nur_python)}), "

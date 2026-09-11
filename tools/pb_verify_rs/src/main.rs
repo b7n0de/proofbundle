@@ -1994,7 +1994,14 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
         }
     };
     let policy = policy_path.as_ref().map(|p| {
-        strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")))
+        let pol = strict_parse(&read_file(p)).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
+        // Lauf 13 (Linse L4, F1, P0): bis hierher wurde die Policy nur GEPARST und dann nach dem
+        // hartkodierten Schluessel "relations" befragt — ein Tippfehler ("relatoins") liess Rust die
+        // ganze Policy still ignorieren (exit 0), waehrend Python fail-closed exit 2 meldet. Dieselben
+        // Bytes, zwei Urteile, Accept gegen Refuse. Die Huelle wird jetzt wie in policy.load_policy
+        // geprueft, BEVOR eine Sektion gelesen wird.
+        policy_huelle_pruefen(&pol).unwrap_or_else(|e| fatal(&format!("bad --policy: {e}")));
+        pol
     });
     let (code, lineage) = run_verify_relation(
         &env,
@@ -2050,6 +2057,61 @@ fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
         return Err(budget_ueberschritten("input_bytes", buf.len(), BUDGET_INPUT_BYTES));
     }
     Ok(buf)
+}
+
+const POLICY_SCHEMA_V01: &str = "proofbundle/trust-policy/v0.1";
+const POLICY_SCHEMA_V02: &str = "proofbundle/trust-policy/v0.2";
+/// Spiegel von policy._TOP_KEYS — jedes andere Feld auf oberster Ebene ist fail-closed ein Fehler.
+const POLICY_TOP_KEYS: &[&str] = &[
+    "schema", "policy_id", "allowed_schema_versions", "allowed_issuers", "signature", "merkle",
+    "sd_jwt", "status", "assurance", "decision_receipt", "anchors", "relations", "deploymentReady",
+    "requiresIdentityOverlay", "valid_until", "valid_from", "policyPurpose", "generatedFromTemplate",
+];
+/// Spiegel von policy._RELATIONS_KEYS.
+const POLICY_RELATIONS_KEYS: &[&str] = &[
+    "require_relation_resolution", "reject_superseded", "reject_retracted", "relation_signer",
+    "require_relation_target",
+];
+
+/// Spiegel der Huellen-Pruefung von `proofbundle.policy.load_policy`: Schema aus der bekannten
+/// Menge, kein unbekanntes Feld auf oberster Ebene, `policy_id` nichtleer, `relations` und
+/// `decision_receipt` nur unter v0.2, und in `relations` kein unbekanntes Feld. Was Python darueber
+/// hinaus je Sektion tief prueft (merkle, sd_jwt, anchors, ...), liest dieser Verifizierer nicht —
+/// die Huelle und die Sektion, die er auswertet, muessen aber dasselbe Urteil bekommen.
+fn policy_huelle_pruefen(pol: &serde_json::Value) -> Result<(), String> {
+    let obj = pol.as_object().ok_or("trust policy must be a JSON object")?;
+    let schema = obj.get("schema").and_then(|v| v.as_str()).unwrap_or("");
+    if schema != POLICY_SCHEMA_V01 && schema != POLICY_SCHEMA_V02 {
+        return Err(format!(
+            "unsupported trust policy schema {:?}, expected one of [{POLICY_SCHEMA_V01:?}, {POLICY_SCHEMA_V02:?}]",
+            obj.get("schema")
+        ));
+    }
+    let mut fremd: Vec<&str> = obj.keys().map(|k| k.as_str()).filter(|k| !POLICY_TOP_KEYS.contains(k)).collect();
+    if !fremd.is_empty() {
+        fremd.sort_unstable();
+        return Err(format!("unknown field(s) in trust policy: {fremd:?} (trust policy is fail-closed)"));
+    }
+    match obj.get("policy_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => {}
+        _ => return Err("trust policy requires a non-empty string policy_id".to_string()),
+    }
+    if obj.contains_key("decision_receipt") && schema != POLICY_SCHEMA_V02 {
+        return Err(format!("decision_receipt section requires schema {POLICY_SCHEMA_V02}"));
+    }
+    if let Some(rel) = obj.get("relations") {
+        if schema != POLICY_SCHEMA_V02 {
+            return Err(format!("relations section requires schema {POLICY_SCHEMA_V02}"));
+        }
+        let rel = rel.as_object().ok_or("relations must be a JSON object")?;
+        let mut fremd: Vec<&str> =
+            rel.keys().map(|k| k.as_str()).filter(|k| !POLICY_RELATIONS_KEYS.contains(k)).collect();
+        if !fremd.is_empty() {
+            fremd.sort_unstable();
+            return Err(format!("unknown field(s) in relations: {fremd:?} (trust policy is fail-closed)"));
+        }
+    }
+    Ok(())
 }
 
 fn fatal(msg: &str) -> ! {
@@ -2356,6 +2418,37 @@ mod tests {
             budget_ueberschritten("string_len", 1_333_724, 1_000_000),
             "verification budget exceeded: string_len = 1333724 > limit 1000000"
         );
+    }
+
+    fn _policy(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).expect("test policy parses")
+    }
+
+    #[test]
+    fn eine_policy_mit_tippfehler_wird_abgewiesen_statt_still_ignoriert() {
+        // Lauf 13 L4 F1 (P0): "relatoins" statt "relations" — Python exit 2, Rust verifizierte mit exit 0.
+        let ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_superseded":true}}"#);
+        assert!(policy_huelle_pruefen(&ok).is_ok(), "gueltige Policy abgewiesen");
+        let typo = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relatoins":{"reject_superseded":true}}"#);
+        let e = policy_huelle_pruefen(&typo).expect_err("Tippfehler angenommen");
+        assert!(e.contains("unknown field") && e.contains("relatoins"), "{e}");
+        let typo_innen = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2","policy_id":"p","relations":{"reject_supersede":true}}"#);
+        let e = policy_huelle_pruefen(&typo_innen).expect_err("Tippfehler in relations angenommen");
+        assert!(e.contains("unknown field(s) in relations"), "{e}");
+    }
+
+    #[test]
+    fn schema_und_policy_id_sind_pflicht_relations_nur_unter_v02() {
+        let ohne_schema = _policy(r#"{"policy_id":"p","relations":{}}"#);
+        assert!(policy_huelle_pruefen(&ohne_schema).expect_err("ohne schema").contains("unsupported trust policy schema"));
+        let v01_rel = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p","relations":{}}"#);
+        assert!(policy_huelle_pruefen(&v01_rel).expect_err("relations unter v0.1").contains("requires schema"));
+        let v01_ok = _policy(r#"{"schema":"proofbundle/trust-policy/v0.1","policy_id":"p"}"#);
+        assert!(policy_huelle_pruefen(&v01_ok).is_ok(), "v0.1 ohne relations ist gueltig");
+        let ohne_id = _policy(r#"{"schema":"proofbundle/trust-policy/v0.2"}"#);
+        assert!(policy_huelle_pruefen(&ohne_id).expect_err("ohne policy_id").contains("policy_id"));
+        let kein_objekt = serde_json::json!([1, 2]);
+        assert!(policy_huelle_pruefen(&kein_objekt).is_err(), "Liste als Policy angenommen");
     }
 
     #[test]

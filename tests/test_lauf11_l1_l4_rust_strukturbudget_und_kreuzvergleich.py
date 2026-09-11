@@ -323,6 +323,41 @@ class TestBudgetParitaet(unittest.TestCase):
 class TestKreuzvergleichHatEinenNegativenVektor(unittest.TestCase):
     """L4: der Kreuzvergleich muss die Fläche kennen, über die er urteilt."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.rust = _binary()
+        if cls.rust is None:
+            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs fehlt oder cargo ist nicht da")
+
+    def test_eine_policy_mit_tippfehler_wird_von_BEIDEN_verweigert(self):
+        """Lauf 13 (Linse L4, F1, ausgefuehrt; Owner 11.09.: in denselben Kopf vor Lauf 14): `relatoins`
+        statt `relations` — Python load_policy exit 2, Rust ignorierte die Policy und verifizierte mit
+        exit 0. Beide muessen verweigern; ein fehlendes Pflichtfeld (policy_id) ebenso."""
+        import contextlib
+        import io
+        from proofbundle.cli import main as cli
+        fall = REPO / "conformance" / "relation" / "statement-supersedes-verified-blocked"
+        pub = (fall / "pub.b64").read_text(encoding="utf-8").strip()
+        basis = json.loads((fall / "policy.json").read_text(encoding="utf-8"))
+        typo = dict(basis)
+        typo["relatoins"] = typo.pop("relations")
+        ohne_id = {k: v for k, v in basis.items() if k != "policy_id"}
+        for name, pol in (("tippfehler", typo), ("ohne_policy_id", ohne_id)):
+            with tempfile.TemporaryDirectory() as d:
+                pp = Path(d) / "policy.json"
+                pp.write_text(json.dumps(pol), encoding="utf-8")
+                argv = ["relation-statement", "verify", str(fall / "receipt.json"), "--pub", pub, "--json",
+                        "--with-related", str(fall / "related_t.json"), "--related-pub", pub, "--policy", str(pp)]
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    py_rc = cli(argv)
+                p = subprocess.run([str(self.rust), "verify-relation-statement", str(fall / "receipt.json"), pub,  # noqa: S603
+                                    "--with-related", str(fall / "related_t.json"), "--related-pub", pub, "--policy", str(pp)],
+                                   capture_output=True, text=True, timeout=120)
+            with self.subTest(fall=name):
+                self.assertEqual(py_rc, 2, f"Python nimmt die Policy ({name}) an")
+                self.assertEqual(p.returncode, 2, f"Rust: exit {p.returncode} {(p.stdout + p.stderr).strip()!r} — die Policy ({name}) wurde nicht verweigert")
+                self.assertIn("bad --policy", p.stderr)
+
     def test_crosscheck_traegt_einen_budget_vektor(self):
         """Ein Kreuzvergleich ohne Vektor für eine Fläche schweigt über sie — gemessen in Lauf 11
         an einer eingepflanzten Regression, die `CROSS-IMPL OK` überlebte. Der Vektor ist der
