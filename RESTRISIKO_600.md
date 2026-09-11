@@ -5031,3 +5031,10 @@ einen Workflow-Lauf voraussetzte), oder doch ein Workflow-Lauf über den finalen
 Lauf 15"). C12.1 (Vorab-Quittung, `pre_tag_receipt.py --emit-payload`, braucht keine Gate-Zeile) und C12.2
 (signiertes Register, 20 Einträge vom 06.09., Version 6.0.0 gebunden, 0 offene P0/P1) sind davon nicht
 betroffen.
+
+**Entschieden 11.09.2026 15:23Z, Owner-Karte `OA-d29083cead`, Option A:** die drei Zeilen bleiben am Tag rot und
+werden so ausgewiesen. Nach dem Tag: zuerst Weg C der Monotonie-Karte (`OA-38a920587f`: echte replaybare Belegknoten für
+die herabgestuften Klassen — gemessen 15:2xZ meldet der Pre-Sweep sechs nicht monotone Klassen, nicht zwei), dann der
+deep-gate-v4-Workflow am getaggten Kopf. Grün: C6.2, C6.3, C8.2 emittieren, signieren, als Nachtrag zum Release
+veröffentlichen, S120 durch Messung schließen. Rot: 6.0.1-Fund. Kein Lauf 15 vor der Signatur. Diese Zeile ist damit
+kein offener Entscheid mehr, sondern ein benannter Nachzug mit Bedingung (Tag).

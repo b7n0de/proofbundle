@@ -439,7 +439,11 @@ learn them; each has its row in [`RESTRISIKO_600.md`](RESTRISIKO_600.md).
   and the candidate matrix accepts only `WITHSTANDS_DEEPGATE` there. Rounds 10 to 14 ran as
   lens-and-jury rounds outside that workflow, and the owner closed the round series after round 14;
   at the time of writing no workflow verdict over this head exists, so those three rows stay red
-  until the owner decides how they are closed (register row S120).
+  as known, signature-bound rows (register row S120; owner decision `OA-d29083cead`, 2026-09-11, option A).
+  The closing path is decided, not open: after the tag, the two classes of the ordered ledger correction get
+  real replayable proof nodes, then the deep-gate v4 *workflow* runs over the tagged head. Green: `C6.2`,
+  `C6.3` and `C8.2` are emitted, signed and published as an addendum to this release and S120 is closed by
+  measurement. Red: a 6.0.1 finding. No round 15 before the signature.
 - **One mutation operator is recorded as NOT MEASURABLE, not as killed (N20).** On the round-11
   fix head `e8a7f8e`, the sharded mutation run `mutation (6)` killed 9 of its 10 operators; operator
   90 (`budget: data_digests` ceiling practically removed, `2_000 -> 2_000_000_000`) left no balance
