@@ -5307,3 +5307,46 @@ und L3 (P1, `HARTER_LASTDECKEL` deckt eine von sieben Dimensionen).
 **Nichts davon ist gefixt** — Owner-Anweisung vom 11.09.: kritischer Pfad allein, keine
 Werkzeugarbeit. Die Funde stehen in der Befund-Queue als `LAUF11-L1…L5`. **Nach 6.0.1**, die
 Entscheidung über L1 liegt beim Owner, weil sie den Kandidaten betrifft.
+
+## S100 — Die required Versionsmatrix faehrt `unittest discover` und sieht ein Drittel der Suite nicht
+
+Gefunden von Linse 6 (Gate-Meta-Test) in Lauf 11, **von mir unabhaengig nachgemessen**, nicht
+uebernommen. `.github/workflows/ci.yml:89` faehrt in den fuenf Matrix-Jobs (Python 3.10–3.14):
+
+```yaml
+      - name: Test
+        run: python -m unittest discover -s tests -v
+```
+
+Eigene Messung am Kandidatenkopf `e95e72f`:
+
+    unittest.TestLoader().discover('tests')  ->  2711 Tests / 209 Module
+    Vollsuite unter pytest (eigener Lauf)    ->  4080 Tests (4055 passed + 25 skipped)
+    Luecke                                    ->  1369 Tests / 71 Module
+
+`unittest discover` sammelt nur `TestCase`-Klassen; eine Testdatei aus reinen pytest-Funktionen ist
+dort **unsichtbar**. Betroffen sind unter anderem `test_renewal*.py`,
+`test_budget_kostenkurve.py`, `test_audit_candidate_ready_logic.py`,
+`test_audit_matrix_version_pin_binding.py`, `test_freigabe_evidenz_provenienz_l5_g7_02.py`,
+`test_ausfuehrung_aus_quelltext_l5_g7_04.py` — also die **Freigabeflaeche selbst**. Der
+Fangnachweis der Linse: ein eingepflanzter B2-Defekt in `hashalg.py:111` macht
+`tests/test_hashalg.py` unter pytest rot (`14 passed` -> `3 failed, 11 passed`); dieselbe Datei
+hat **0** `unittest`-Importzeilen und laeuft auf den vier Matrix-Jobs ausser 3.12 nie.
+
+**Die Gegenrichtung, gemessen, und sie begrenzt die Schwere:** `coverage` ist ein required Check
+(`ci.yml:114`: *„ruleset protect-main requires guard, coverage and the five test matrix jobs"*) und
+faehrt `python -m coverage run --source=src/proofbundle -m pytest -q` auf Python 3.12. **Das Gate
+als Ganzes faengt den Defekt.** Die Luecke ist keine Blindheit, sondern **Einfach- statt
+Fuenffachabdeckung** fuer 1369 Tests: ein Defekt, der nur auf 3.10 oder 3.14 auftritt und dort
+sitzt, kaeme durch. Fuer ein Release, das 3.10–3.14 verspricht, ist das real.
+
+**Der Zustand ist bekannt und steht im Code.** `ci.yml:171` sagt es im eigenen Kommentar — *„the
+unittest-discover CI job runs only TestCase classes, so this counts the pytest-function tests
+too"* —, und `scripts/test_manifest_gate.py` schreibt *„pytest is the normative runner"*. Der
+normative Runner laeuft auf einer Version; fuenf Pflicht-Jobs fahren einen anderen. Das ist die
+Klasse dieses Registers in ihrer CI-Auspraegung: **eine Pruefung bindet an die FORM** (der Job
+heisst „Test" und ist required) **statt an die EIGENSCHAFT** (misst er, was der normative Runner
+misst?).
+
+**Nach 6.0.1.** Die Aenderung ist klein — die fuenf Matrix-Jobs auf `pytest -q` ziehen —, aber sie
+aendert die Wanduhr aller fuenf Pflicht-Jobs und gehoert deshalb nicht in eine Release-Nacht.
