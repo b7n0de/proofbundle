@@ -440,8 +440,10 @@ learn them; each has its row in [`RESTRISIKO_600.md`](RESTRISIKO_600.md).
   lens-and-jury rounds outside that workflow, and the owner closed the round series after round 14;
   at the time of writing no workflow verdict over this head exists, so those three rows stay red
   as known, signature-bound rows (register row S120; owner decision `OA-d29083cead`, 2026-09-11, option A).
-  The closing path is decided, not open: after the tag, the two classes of the ordered ledger correction get
-  real replayable proof nodes, then the deep-gate v4 *workflow* runs over the tagged head. Green: `C6.2`,
+  The closing path is decided, not open: after the tag, the classes of the ordered ledger correction get real
+  replayable proof nodes (the owner's decision named two; the pre-sweep of 2026-09-11 15:24Z measures six
+  non-monotone classes, and the measured number is the one that counts), then the deep-gate v4 *workflow*
+  runs over the tagged head. Green: `C6.2`,
   `C6.3` and `C8.2` are emitted, signed and published as an addendum to this release and S120 is closed by
   measurement. Red: a 6.0.1 finding. No round 15 before the signature.
 - **One mutation operator is recorded as NOT MEASURABLE, not as killed (N20).** On the round-11
