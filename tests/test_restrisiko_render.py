@@ -278,6 +278,90 @@ class TestRegelnDerAbnahmetabelle(Basis):
         self.assertFalse(rr.pruefung_sprache("this text is plain English throughout"))
 
 
+class TestFundeDerFremdfamilie(Basis):
+    """Four holes a foreign-family lens (qwen3.8:27b) found in this generator on 2026-09-12.
+
+    All four were reproduced with a real input before being fixed, and all four are the same
+    shape: a case distinction without an else. The lens is recorded because the cases exist
+    BECAUSE of it — none of them came from my own review.
+    """
+
+    def test_EIN_ZYKLUS_DER_LAENGE_ZWEI_wird_gefangen(self):
+        """The sharpest of the four: the first version checked only self-loops.
+
+        A -> B -> A passes both `ziel == i` and `ziel not in ids`. "A cycle of length 1" is
+        the FORM of the rule; "the graph has a cycle" is its property.
+        """
+        r = copy.deepcopy(self.sauber)
+        r["entries"][0]["related_records"] = [{"relation": "corrects", "target": "N91"}]
+        r["entries"][1]["related_records"] = [{"relation": "corrects", "target": "N90"}]
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_EIN_ZYKLUS_DER_LAENGE_DREI_wird_ebenfalls_gefangen(self):
+        """Length 2 fixed as an instance would leave length 3 open. The walk has no length."""
+        r = copy.deepcopy(self.sauber)
+        r["entries"][0]["related_records"] = [{"relation": "corrects", "target": "N91"}]
+        r["entries"][1]["related_records"] = [{"relation": "corrects", "target": "N92"}]
+        r["entries"][2]["related_records"] = [{"relation": "corrects", "target": "N90"}]
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_eine_KETTE_ohne_zyklus_bleibt_erlaubt(self):
+        """The counter-direction: a walk that refuses every graph would also be green here."""
+        r = copy.deepcopy(self.sauber)
+        r["entries"][0]["related_records"] = [{"relation": "corrects", "target": "N91"}]
+        r["entries"][1]["related_records"] = [{"relation": "corrects", "target": "N92"}]
+        self.assertEqual(self.lauf(r), rr.EXIT_OK)
+
+    def test_ein_UNBEKANNTER_vex_status_wird_abgewiesen(self):
+        """Before the fix only `affected` and `not_affected` were examined at all."""
+        r = copy.deepcopy(self.sauber)
+        r["entries"][1]["vex_statements"][0]["status"] = "maybe_affected"
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_eine_UNBEKANNTE_vex_begruendung_wird_abgewiesen(self):
+        r = copy.deepcopy(self.sauber)
+        r["entries"][1]["vex_statements"][0]["justification"] = "we_thought_about_it"
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_EIN_FALSCHER_FELDTYP_ergibt_ein_URTEIL_keinen_absturz(self):
+        """A validator that crashes has not judged. The gate checked presence, not type."""
+        r = copy.deepcopy(self.sauber)
+        r["entries"][0]["evidence"] = "see attached report"
+        try:
+            rc = self.lauf(r)
+        except AttributeError as exc:
+            self.fail(f"crashed instead of judging: {exc}")
+        self.assertEqual(rc, rr.EXIT_REFUSED)
+
+    def test_record_revision_als_boolean_wird_abgewiesen(self):
+        """`True` is an int in Python. A type check that forgets this accepts a flag."""
+        r = copy.deepcopy(self.sauber)
+        r["entries"][0]["record_revision"] = True
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_ein_ZU_GROSSER_beleg_wird_abgewiesen_statt_eingelesen(self):
+        """No timeout, no chunking, no bound was the state before. A bound nobody sees is none."""
+        gross = self.wurzel / "evidence" / "huge.bin"
+        gross.write_bytes(b"\0" * 16)
+        echte_grenze = rr.MAX_BELEG_BYTES
+        try:
+            rr.MAX_BELEG_BYTES = 8          # smaller than the file we just wrote
+            with self.assertRaises(ValueError) as ctx:
+                rr.sha256_of(gross)
+            self.assertIn("larger than", str(ctx.exception))
+        finally:
+            rr.MAX_BELEG_BYTES = echte_grenze
+
+    def test_eine_NICHT_REGULAERE_datei_wird_abgewiesen_statt_gelesen(self):
+        """read_bytes() on a FIFO blocks until a writer appears — forever, in a validator."""
+        import os
+        fifo = self.wurzel / "evidence" / "pipe"
+        if not fifo.exists():
+            os.mkfifo(fifo)
+        with self.assertRaises((ValueError, OSError)):
+            rr.sha256_of(fifo)
+
+
 class TestKeineTeilveroeffentlichung(Basis):
     """A half-renewed output set is worse than none: it looks current."""
 

@@ -52,8 +52,29 @@ def identifiers_in_prose(text: str) -> set[str]:
     return set(ID_HEADING.findall(text)) | set(ID_ROW.findall(text))
 
 
+# An evidence file larger than this is refused rather than read. Named because a bound
+# nobody can see is a bound nobody can check.
+MAX_BELEG_BYTES = 64 * 1024 * 1024
+
+
 def sha256_of(p: Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+    """Hash in chunks, with a size bound and a regular-file check.
+
+    `read_bytes()` on a FIFO blocks until a writer appears, and on a multi-gigabyte file it
+    loads the whole thing into memory — in both cases the validator stops producing a
+    verdict, which is worse than producing a wrong one. Both were named by a foreign-family
+    lens; neither had occurred.
+    """
+    st = p.stat()
+    if not p.is_file():
+        raise ValueError(f"not a regular file: {p}")
+    if st.st_size > MAX_BELEG_BYTES:
+        raise ValueError(f"evidence larger than {MAX_BELEG_BYTES} bytes: {p} ({st.st_size})")
+    h = hashlib.sha256()
+    with p.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def _normalise(s: str) -> str:
@@ -79,11 +100,27 @@ def pruefung_profil(reg: dict) -> list[str]:
     if not reg.get("policy_refs"):
         f.append("document: policy_refs must name the rules this register judges by")
     gesehen: dict[str, int] = {}
+    # Presence AND type. This function is the gate for every later rule (`if not fehler`),
+    # so a wrong type slipping through here does not produce a verdict further down — it
+    # produces an AttributeError. A validator that crashes has not judged.
+    TYPEN = {"id": str, "record_revision": int, "title": str, "record_role": str,
+             "kind": str, "severity": str, "funnel": dict, "remediation": dict,
+             "evidence": list}
     for e in reg.get("entries", []):
-        for k in ("id", "record_revision", "title", "record_role", "kind",
-                  "severity", "funnel", "remediation", "evidence"):
+        if not isinstance(e, dict):
+            f.append(f"entries: an entry is {type(e).__name__}, not an object")
+            continue
+        for k, typ in TYPEN.items():
             if k not in e:
                 f.append(f"{e.get('id', '?')}: mandatory field missing: {k}")
+            elif not isinstance(e[k], typ) or (typ is int and isinstance(e[k], bool)):
+                f.append(f"{e.get('id', '?')}: field {k} is {type(e[k]).__name__}, "
+                         f"expected {typ.__name__}")
+        for k, typ in (("vex_statements", list), ("quality_assessments", list),
+                       ("related_records", list), ("measurement_state", dict)):
+            if k in e and not isinstance(e[k], typ):
+                f.append(f"{e.get('id', '?')}: field {k} is {type(e[k]).__name__}, "
+                         f"expected {typ.__name__}")
         gesehen[e.get("id", "?")] = gesehen.get(e.get("id", "?"), 0) + 1
         if e.get("severity") not in ("P0", "P1", "P2", "P3"):
             f.append(f"{e.get('id')}: severity {e.get('severity')!r} is outside the house rule")
@@ -117,7 +154,20 @@ def pruefung_semantik(reg: dict) -> list[str]:
             f.append(f"{i}: quality finding without a quality assessment")
         if kind == "security" and not vex:
             f.append(f"{i}: security finding without a VEX statement")
+        VEX_STATUS = {"not_affected", "affected", "fixed", "under_investigation"}
         for s in vex:
+            # The whole set, not two special cases. Asking "is it one of the two I check?"
+            # binds the FORM; asking "is it a valid status?" binds the property — and an
+            # unknown status was silently accepted before a foreign-family lens named it.
+            if s.get("status") not in VEX_STATUS:
+                f.append(f"{i}: OpenVEX status {s.get('status')!r} is not one of "
+                         f"{sorted(VEX_STATUS)}")
+            if s.get("justification") and s.get("justification") not in {
+                    "component_not_present", "vulnerable_code_not_present",
+                    "vulnerable_code_not_in_execute_path",
+                    "vulnerable_code_cannot_be_controlled_by_adversary",
+                    "inline_mitigations_already_exist"}:
+                f.append(f"{i}: OpenVEX justification {s.get('justification')!r} unknown")
             if s.get("status") == "affected" and not (s.get("action_statement") or "").strip():
                 f.append(f"{i}: OpenVEX `affected` requires an action_statement")
             if s.get("status") == "not_affected" and not (
@@ -257,6 +307,35 @@ def pruefung_beziehungen(reg: dict) -> list[str]:
             elif ziel not in ids and not (r.get("target_sha256") or r.get("target_revision")):
                 f.append(f"{i}: relation target {ziel!r} is neither in this register nor "
                          "pinned by revision or digest")
+
+    # Cycles of ANY length, not only self-loops.
+    #
+    # The first version checked `ziel == i` and called that the cycle rule. A
+    # foreign-family lens named the gap with one input: A -> B -> A passes both conditions
+    # and walks straight through. A cycle of length 2 is a cycle, not a special case, and
+    # "a cycle of length 1" is the FORM of the rule where "the graph has a cycle" is its
+    # property. So: a real walk over the whole graph.
+    kanten: dict[str, list[str]] = {}
+    for e in reg.get("entries", []):
+        kanten[e.get("id")] = [r.get("target") for r in (e.get("related_records") or [])
+                               if r.get("target") in ids]
+    WEISS, GRAU, SCHWARZ = 0, 1, 2
+    farbe = {k: WEISS for k in kanten}
+
+    def wandere(knoten: str, pfad: list[str]) -> None:
+        farbe[knoten] = GRAU
+        for nachbar in kanten.get(knoten, []):
+            if farbe.get(nachbar) == GRAU:          # back edge: the cycle closes here
+                ring = pfad[pfad.index(nachbar):] + [nachbar] if nachbar in pfad else \
+                       [nachbar, knoten, nachbar]
+                f.append(f"relation cycle: {' -> '.join(ring)}")
+            elif farbe.get(nachbar) == WEISS:
+                wandere(nachbar, pfad + [nachbar])
+        farbe[knoten] = SCHWARZ
+
+    for k in list(kanten):
+        if farbe[k] == WEISS:
+            wandere(k, [k])
     return f
 
 

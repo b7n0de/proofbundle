@@ -323,7 +323,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "1fba1e7cb20dafeb430667231c627ed39b4d42981a109cbd79a40281fc680d81",
+          "sha256": "65b5c6b4c279a2db936f2b6b95b6f0c38133f878c4865c87331c1b7fd9e891e2",
           "role": "catch_proof"
         }
       ],
@@ -372,7 +372,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "1fba1e7cb20dafeb430667231c627ed39b4d42981a109cbd79a40281fc680d81",
+          "sha256": "65b5c6b4c279a2db936f2b6b95b6f0c38133f878c4865c87331c1b7fd9e891e2",
           "role": "catch_proof"
         }
       ],
