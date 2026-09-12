@@ -22,6 +22,8 @@
       "N": 21,
       "A": 4
     },
+    "series_counts_source": "RESTRISIKO_600.md@v6.0.0",
+    "series_counts_note": "The counts are of the PUBLISHED state at the tag. The same file on arbeit/601-nachzug carries S86-S101 instead of S102-S120 and therefore 104 S identifiers, 140 in total including the four subordinate ones; measured 2026-09-12 with the generator's own reader over both states. Both figures are correct and they are about different trees — which is why the source is named here rather than inferred from the file name.",
     "subordinate_identifiers": {
       "S58": [
         "Z2",
@@ -323,7 +325,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "65b5c6b4c279a2db936f2b6b95b6f0c38133f878c4865c87331c1b7fd9e891e2",
+          "sha256": "c53f4ceebc0c1567043b6ff59ccbb128f7ba87853e52001ab5b31ad9bb2b6f47",
           "role": "catch_proof"
         }
       ],
@@ -372,7 +374,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "65b5c6b4c279a2db936f2b6b95b6f0c38133f878c4865c87331c1b7fd9e891e2",
+          "sha256": "c53f4ceebc0c1567043b6ff59ccbb128f7ba87853e52001ab5b31ad9bb2b6f47",
           "role": "catch_proof"
         }
       ],

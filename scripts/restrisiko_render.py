@@ -52,6 +52,96 @@ def identifiers_in_prose(text: str) -> set[str]:
     return set(ID_HEADING.findall(text)) | set(ID_ROW.findall(text))
 
 
+# Areas the identifier check and the language check do NOT judge — each with its ground and the
+# decision that granted it. Owner order 20260911T2233Z, decision one, item three, and its
+# prohibition: "no silent exception in the identifier check, every exempt path stands with its
+# reason in the configuration".
+#
+# Why this list exists at all, stated because the honest version is less flattering than the
+# claim it replaces: two outward texts already SAID the archive was "an explicitly stated exempt
+# area, stated with its reason in the generator's configuration". The generator had no such
+# configuration. The archive was out of scope by accident of architecture — the checks only ever
+# saw the generated text and never walked a tree — which is the definition of a silent exception,
+# not the opposite of one. An exemption that nothing consults is decoration; this one is read on
+# every run, and every area it actually takes effect on is printed with this reason.
+AUSGENOMMENE_BEREICHE = (
+    {
+        "path": "audit_artifacts/600/restrisiko",
+        "reason": "archive of byte-identical excerpts from the published 6.0.0 record. It carries "
+                  "the older vocabulary and internal identifiers ON PURPOSE: the owner decision "
+                  "binds it byte-for-byte, so judging it could only ever demand a change that the "
+                  "same decision forbids. The generated English surface stands beside it and "
+                  "points at it; it contains none of its bytes.",
+        "decision": "owner order 20260911T2233Z, decision one, item three",
+    },
+)
+
+
+def pruefung_ausnahmen(bereiche=AUSGENOMMENE_BEREICHE) -> list[str]:
+    """The exemption list judged by the same standard it grants: no area without a ground.
+
+    A configuration entry is only worth more than a sentence in a README if something refuses a
+    bad one. An area without a reason, or one whose path could swallow the tree, would turn the
+    list from a declaration into a way out.
+    """
+    f = []
+    for b in bereiche:
+        pfad = (b.get("path") or "").strip()
+        if not pfad:
+            f.append("exempt area without a path")
+        elif pfad.startswith("/") or ".." in Path(pfad).parts:
+            f.append(f"exempt area is absolute or escapes upwards: {pfad!r}")
+        elif pfad in (".", ""):
+            f.append("exempt area covers the whole tree — that is not an exception, that is an end")
+        if not (b.get("reason") or "").strip():
+            f.append(f"exempt area {pfad!r} without a reason — the order forbids a silent exception")
+        if not (b.get("decision") or "").strip():
+            f.append(f"exempt area {pfad!r} names no decision that granted it")
+    return f
+
+
+def ausgenommen_durch(p: Path, wurzel: Path, bereiche=AUSGENOMMENE_BEREICHE) -> dict | None:
+    """The declared area covering this path, or None. Compared on resolved paths, not on text.
+
+    A string prefix would let `…/restrisiko_other` inherit the exemption of `…/restrisiko`, and a
+    symlink would let anything inherit it. `is_relative_to` on resolved paths asks the question
+    that matters: does this file LIE in the area.
+    """
+    try:
+        ziel = p.resolve()
+    except OSError:
+        return None
+    for b in bereiche:
+        bereich = (wurzel / b["path"]).resolve()
+        if ziel == bereich or ziel.is_relative_to(bereich):
+            return b
+    return None
+
+
+# Which files count as a text the checks may judge. Named rather than guessed: a binary read as
+# UTF-8 either raises or produces noise, and noise in a checker produces findings about itself.
+TEXT_ENDUNGEN = {".md", ".txt", ".json", ".rst", ".html", ".csv", ".yaml", ".yml"}
+
+
+def sammle_neue_texte(ziele, wurzel: Path,
+                      bereiche=AUSGENOMMENE_BEREICHE) -> tuple[list[Path], list[tuple[Path, dict]]]:
+    """Split the named new texts into (judged, exempted-with-its-area).
+
+    The second list is the point. A checker that simply skipped the archive would be indistinguish-
+    able from one that never looked — and that is exactly the state this replaces.
+    """
+    geprueft: list[Path] = []
+    ausgenommen: list[tuple[Path, dict]] = []
+    for ziel in ziele:
+        kandidaten = ([ziel] if ziel.is_file()
+                      else sorted(q for q in ziel.rglob("*")
+                                  if q.is_file() and q.suffix.lower() in TEXT_ENDUNGEN))
+        for k in kandidaten:
+            b = ausgenommen_durch(k, wurzel, bereiche)
+            (ausgenommen.append((k, b)) if b else geprueft.append(k))
+    return geprueft, ausgenommen
+
+
 # An evidence file larger than this is refused rather than read. Named because a bound
 # nobody can see is a bound nobody can check.
 MAX_BELEG_BYTES = 64 * 1024 * 1024
@@ -280,6 +370,20 @@ def pruefung_inventar(reg: dict, wurzel: Path) -> list[str]:
     if reihen and sum(reihen.values()) != inv.get("source_identifiers_total"):
         f.append(f"inventory: series counts sum to {sum(reihen.values())} but total says "
                  f"{inv.get('source_identifiers_total')}")
+    # A count without a named source is a number about an unknown file. The sum rule above cannot
+    # substitute for this: it compares two declared numbers with each other, so it holds for any
+    # pair that adds up and says nothing about the tree either of them came from. Measured on this
+    # register: the counts describe the tag state, the coverage run reads the branch state, and
+    # both were right about different files.
+    if reihen:
+        quelle = (inv.get("series_counts_source") or "").strip()
+        pfade = {q.get("path") for q in (inv.get("sources") or [])}
+        if not quelle:
+            f.append("inventory: series_counts without series_counts_source — a count belongs to "
+                     "the tree it was taken in, and this one names none")
+        elif quelle not in pfade:
+            f.append(f"inventory: series_counts_source {quelle!r} is not one of the declared "
+                     f"sources {sorted(x for x in pfade if x)}")
     for g in inv.get("coverage_gaps") or []:
         if g.get("state") not in GAP_WORDS:
             f.append(f"inventory: gap state {g.get('state')!r} is not one of the three words")
@@ -347,16 +451,41 @@ def pruefung_sprache(text: str) -> list[str]:
 
 
 def pruefung_deckung(reg: dict, prosa_dateien: list[Path]) -> list[str]:
-    """No identifier may live only in the prose — including subordinate ones."""
+    """No identifier may live only in the prose — including subordinate ones.
+
+    And: the prose actually read must be a source state the inventory NAMES. Measured 12.09.2026
+    on this very register, which is why the rule exists rather than being imagined. The inventory
+    declares three sources; two of them are the same file name at two states:
+
+        RESTRISIKO_600.md@v6.0.0            R7 S107 N21 A4 + 4 subordinate = 143 identifiers
+        RESTRISIKO_600.md@arbeit/601-nachzug R7 S104 N21 A4 + 4 subordinate = 140
+
+    `series_counts` totals 139 main identifiers — the TAG state. The coverage run reads the file
+    in the working tree, which is the BRANCH state. Both numbers are right; they belong to
+    different trees, and nothing said which one was being counted. `pruefung_inventar` cannot
+    catch this: it skips every `@`-pinned source, so the digests it does not check are exactly the
+    ones that distinguish the two states, and its own rule compares the series sum against the
+    declared total — arithmetic that is true of any pair of numbers that add up.
+
+    So the file that is actually read is hashed and matched against the declared sources. An
+    unnamed state is refused, with both digests printed: a coverage figure measured against a tree
+    nobody named is a figure about an unknown file.
+    """
     traeger = {e.get("id") for e in reg.get("entries", [])}
     unter = set()
     for liste in (reg.get("inventory", {}).get("subordinate_identifiers") or {}).values():
         unter.update(liste)
+    bekannt = {q.get("sha256"): q.get("path") for q in (reg.get("inventory", {}).get("sources") or [])}
     f = []
     for d in prosa_dateien:
         if not d.is_file():
             f.append(f"prose file named for coverage does not exist: {d}")
             continue
+        ist = sha256_of(d)
+        if bekannt and ist not in bekannt:
+            f.append(f"{d.name}: coverage was measured against a source state the inventory does "
+                     f"not name (measured {ist[:12]}…; declared: "
+                     f"{', '.join(f'{v} {str(k)[:12]}…' for k, v in bekannt.items())})")
         nur = identifiers_in_prose(d.read_text(encoding="utf-8")) - traeger - unter
         f += [f"{d.name}: {x} appears in the prose with no carrier entry" for x in sorted(nur)]
     return f
@@ -511,6 +640,10 @@ def main(argv=None) -> int:
     p.add_argument("--evidence-root", type=Path, default=REPO)
     p.add_argument("--identifier-list", type=Path)
     p.add_argument("--also-cover", type=Path, nargs="*", default=[])
+    p.add_argument("--also-check", type=Path, nargs="*", default=[],
+                   help="new texts the identifier and language checks judge as well (files or "
+                        "directories). Declared exempt areas are skipped AND named with their "
+                        "reason — owner order 20260911T2233Z, decision one, item three")
     p.add_argument("--check-only", action="store_true")
     p.add_argument("--refresh-evidence-digests", action="store_true",
                    help="re-measure evidence digests and rewrite the register. DELIBERATELY a "
@@ -550,6 +683,9 @@ def main(argv=None) -> int:
         return EXIT_OK
 
     fehler: list[str] = []
+    # The exemption list is judged BEFORE it exempts anything. An area without a ground would
+    # otherwise be a way out that only the next reader discovers.
+    fehler += pruefung_ausnahmen()
     fehler += pruefung_profil(reg)
     if not fehler:                       # later rules assume the shape holds
         fehler += pruefung_semantik(reg)
@@ -584,7 +720,36 @@ def main(argv=None) -> int:
             print(f"  {s}", file=sys.stderr)
         return EXIT_REFUSED
 
-    zusammen = "\n".join(t for _, t in flaechen) + (openvex_text or "")
+    # New texts, judged by the same two checks as the generated surfaces — and the archive is
+    # skipped by the DECLARED area, out loud. Owner order 20260911T2233Z, decision one, item three:
+    # "they know the archive path as an exempt area, explicitly and with a ground, not as a silent
+    # exception." Printing it is what makes the difference between the two.
+    neue_texte, uebergangen = sammle_neue_texte(list(a.also_check), a.evidence_root)
+    for datei, bereich in uebergangen:
+        print(f"EXEMPT AREA — not judged: {datei}\n"
+              f"    area:   {bereich['path']}\n"
+              f"    ground: {bereich['reason']}\n"
+              f"    by:     {bereich['decision']}")
+    neuer_text = ""
+    for datei in neue_texte:
+        try:
+            inhalt = datei.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"REFUSED — named for checking but unreadable as text: {datei} "
+                  f"({type(exc).__name__})", file=sys.stderr)
+            return EXIT_REFUSED
+        neu_sprache = pruefung_sprache(inhalt)
+        if neu_sprache:
+            print(f"REFUSED — {datei} carries terms an outward text must not:", file=sys.stderr)
+            for sf in sorted(set(neu_sprache)):
+                print(f"  {sf}", file=sys.stderr)
+            return EXIT_REFUSED
+        neuer_text += "\n" + inhalt
+    if neue_texte:
+        print(f"checked {len(neue_texte)} new text(s); {len(uebergangen)} file(s) in a declared "
+              f"exempt area")
+
+    zusammen = "\n".join(t for _, t in flaechen) + (openvex_text or "") + neuer_text
     treffer, lage = check_identifiers(zusammen, a.identifier_list)
     if treffer:
         print(f"IDENTIFIER CHECK FAILED ({lage}) — nothing was written:", file=sys.stderr)

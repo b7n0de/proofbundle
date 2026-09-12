@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance conformance-crossimpl all coverage
+.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance conformance-crossimpl all coverage restrisiko restrisiko-deckung restrisiko-render
 
 PYTHON ?= python3
 
@@ -67,5 +67,44 @@ conformance-crossimpl:  ## cross-impl acceptance gate: the independent Rust seco
 		( cd tools/pb_verify_rs && cargo build --release ) && \
 		PYTHONPATH=src $(PYTHON) tools/pb_verify_rs/crosscheck.py; \
 	else $(CHECKOUT_FEHLT); fi
+
+# THE INVOCATION, NAMED — because a generator nobody calls is a generator nobody can trust.
+#
+# GEMESSEN 12.09.2026: `restrisiko_render.py` had ZERO callers. No make target, no CI step, no
+# document naming the command. Its three surfaces (KNOWN_ISSUES_610.md, RESTRISIKO_610.md,
+# openvex_610.json) existed from a hand-run, so they could drift from the register with nothing
+# to notice — the register is the source, and a rendering that nobody re-derives is a copy.
+#
+# The identifier list lives OUTSIDE the repository on purpose (a list of names that must not ship
+# cannot itself ship), so it is a variable and not a path. Without it the identifier state is
+# NOT_MEASURED and the run says so — that is the honest state, not a failure.
+IDENTIFIER_LIST ?=
+REGISTER ?= audit_artifacts/findings_register_610.json
+#
+# COVER is EMPTY by default, and that is a statement, not a convenience. Handing it
+# `RESTRISIKO_600.md` makes the run refuse with 119 lines of `appears in the prose with no
+# carrier entry` — which is finding N26 verbatim, not a broken target. So the prose-coverage run
+# has its own name below: it is the finish line of the migration, and it is SUPPOSED to be red
+# until the migration is done. A gate that is red by design does not belong in the default path,
+# and a gate that would be green only because nobody points it at the prose does not belong
+# anywhere.
+COVER ?=
+RESTRISIKO_ARGS = --register $(REGISTER) \
+	--also-check audit_artifacts/600/restrisiko \
+	$(if $(COVER),--also-cover $(COVER),) \
+	$(if $(IDENTIFIER_LIST),--identifier-list $(IDENTIFIER_LIST),)
+
+restrisiko:  ## validate the findings register and report which areas are exempt (writes nothing)
+	$(PYTHON) scripts/restrisiko_render.py $(RESTRISIKO_ARGS) --check-only
+
+restrisiko-deckung:  ## N26 finish line: every identifier in the published prose must have a carrier entry (RED until the migration is done)
+	$(PYTHON) scripts/restrisiko_render.py $(RESTRISIKO_ARGS) --check-only \
+		--also-cover RESTRISIKO_600.md
+
+restrisiko-render:  ## re-derive the three outward surfaces FROM the register (overwrites them)
+	$(PYTHON) scripts/restrisiko_render.py $(RESTRISIKO_ARGS) \
+		--out-summary KNOWN_ISSUES_610.md \
+		--out-full RESTRISIKO_610.md \
+		--out-openvex audit_artifacts/restrisiko_610/openvex_610.json
 
 all: lint typecheck test  ## needs ruff + mypy; from the shipped package run `make test` alone

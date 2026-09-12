@@ -68,6 +68,7 @@ class Basis(unittest.TestCase):
                 "source_identifiers_total": 3,
                 "series_counts": {"N": 3},
                 "sources": [{"path": "evidence/measured.txt", "sha256": _sha(cls.beleg)}],
+                "series_counts_source": "evidence/measured.txt",
                 "coverage_gaps": [],
             },
             "policy_refs": [{"name": "severity", "version": "1",
@@ -413,6 +414,196 @@ class TestBezeichner(Basis):
         self.assertIn("NOT_MEASURED", lage)
 
 
+class TestDeckungBindetDenBaum(Basis):
+    """A coverage figure belongs to the tree it was measured in.
+
+    Measured 12.09.2026 on the shipped register: the inventory declares RESTRISIKO_600.md at two
+    states, the tag (R7 S107 N21 A4) and the work branch (S104). `series_counts` totals the TAG
+    state; the coverage run reads the working tree, which is the BRANCH state. Both figures are
+    correct and they are about different files. Nothing said which — and the sum rule that does
+    exist compares the series against the declared total, which is arithmetic, not a measurement
+    of the source.
+    """
+
+    def _prosa(self, name: str, text: str) -> Path:
+        d = self.wurzel / name
+        d.write_text(text, encoding="utf-8")
+        return d
+
+    def test_eine_UNGENANNTE_quellfassung_wird_abgewiesen(self):
+        datei = self._prosa("prose_unknown_state.md", "## N90 covered\n")
+        f = rr.pruefung_deckung(self.sauber, [datei])
+        self.assertTrue(any("does not name" in x for x in f),
+                        "coverage against an unnamed tree passed silently")
+
+    def test_die_GENANNTE_quellfassung_besteht(self):
+        """The counter-direction: a rule that refuses every file would also be red above."""
+        datei = self._prosa("prose_known_state.md", "## N90 covered\n")
+        r = copy.deepcopy(self.sauber)
+        r["inventory"]["sources"] = [{"path": "prose_known_state.md@someref",
+                                      "sha256": _sha(datei)}]
+        self.assertEqual(rr.pruefung_deckung(r, [datei]), [])
+
+    def test_eine_prosa_only_kennung_wird_weiterhin_gemeldet(self):
+        """The older rule must survive the new one — both findings, not one instead of the other."""
+        datei = self._prosa("prose_with_orphan.md", "## S77 only in the prose\n")
+        r = copy.deepcopy(self.sauber)
+        r["inventory"]["sources"] = [{"path": "prose_with_orphan.md@someref",
+                                      "sha256": _sha(datei)}]
+        f = rr.pruefung_deckung(r, [datei])
+        self.assertTrue(any("S77" in x and "no carrier entry" in x for x in f))
+
+    def test_META_ohne_den_digest_vergleich_kommt_eine_fremde_fassung_durch(self):
+        quelle = SCRIPT.read_text(encoding="utf-8")
+        alt = "        if bekannt and ist not in bekannt:"
+        self.assertIn(alt, quelle, "the mutation template no longer matches the source")
+        ns = {"__name__": "rr_mut_deckung", "__file__": str(SCRIPT)}
+        exec(compile(quelle.replace(alt, "        if False:"),
+                     "<mutiert: deckung>", "exec"), ns)
+        datei = self._prosa("prose_unknown_state2.md", "## N90 covered\n")
+        self.assertEqual(ns["pruefung_deckung"](self.sauber, [datei]), [],
+                         "removing the digest comparison changed nothing — it never bound a tree")
+
+
+class TestReihenzaehlungNenntIhrenBaum(Basis):
+    """`series_counts` without a named source is a number about an unknown file."""
+
+    def test_eine_reihenzaehlung_OHNE_quelle_wird_abgewiesen(self):
+        r = copy.deepcopy(self.sauber)
+        del r["inventory"]["series_counts_source"]
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_eine_quelle_die_NICHT_DEKLARIERT_ist_wird_abgewiesen(self):
+        r = copy.deepcopy(self.sauber)
+        r["inventory"]["series_counts_source"] = "some/other/file.md@v9"
+        self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
+
+    def test_META_die_summenregel_faengt_das_NICHT(self):
+        """Why the new rule is not redundant, measured instead of asserted.
+
+        The sum rule compares two declared numbers with each other. It is green for any pair that
+        adds up, whatever tree either number came from — so it cannot be the check that binds the
+        source, and a reader who takes it for one is reassured by arithmetic.
+        """
+        r = copy.deepcopy(self.sauber)
+        del r["inventory"]["series_counts_source"]
+        self.assertEqual(sum(r["inventory"]["series_counts"].values()),
+                         r["inventory"]["source_identifiers_total"],
+                         "the fixture must be arithmetically consistent for this case to mean anything")
+        quelle = SCRIPT.read_text(encoding="utf-8")
+        alt = '        quelle = (inv.get("series_counts_source") or "").strip()'
+        self.assertIn(alt, quelle, "the mutation template no longer matches the source")
+        ns = {"__name__": "rr_mut_reihen", "__file__": str(SCRIPT)}
+        exec(compile(quelle.replace(alt, '        quelle = "evidence/measured.txt"'),
+                     "<mutiert: reihen>", "exec"), ns)
+        self.assertEqual(ns["pruefung_inventar"](r, self.wurzel), [],
+                         "without the new rule the missing source passes — the sum rule never saw it")
+
+
+class TestAusgenommeneBereiche(Basis):
+    """Owner order 20260911T2233Z, decision one, item three, and its prohibition.
+
+    "The identifier check and the language check run over the generated surfaces and over new
+    texts, not over the archive, and they know the archive path as an exempt area, explicitly and
+    with a ground, not as a silent exception." Prohibition: "no silent exception in the identifier
+    check, every exempt path stands with its reason in the configuration."
+
+    The state before these cases is worth recording, because it was the more flattering one: two
+    outward texts already CLAIMED this configuration existed. It did not. The archive went
+    unjudged because the checks only ever saw the generated string and never walked a tree — which
+    is a silent exception wearing the words of the opposite. What follows measures the difference:
+    an exemption that takes effect and is named, against one that nothing consults.
+    """
+
+    def _archiv(self) -> Path:
+        d = self.wurzel / "audit_artifacts" / "600" / "restrisiko"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _liste(self, wort: str) -> Path:
+        liste = self.tmp / "identifiers_outside.txt"
+        liste.write_text(wort + "\n", encoding="utf-8")
+        return liste
+
+    def _lauf_mit_texten(self, *texte: Path, wort: str = "zzkennungzz"):
+        import contextlib
+        import io
+        reg = self.tmp / "reg_ausnahme.json"
+        reg.write_text(json.dumps(self.sauber), encoding="utf-8")
+        puffer = io.StringIO()
+        with contextlib.redirect_stdout(puffer):
+            rc = rr.main(["--register", str(reg), "--check-only",
+                          "--evidence-root", str(self.wurzel),
+                          "--identifier-list", str(self._liste(wort)),
+                          "--also-check", *[str(t) for t in texte]])
+        return rc, puffer.getvalue()
+
+    # ---- the two halves of the catch-proof named in the finding -------------------------------
+
+    def test_ein_bezeichner_IM_ARCHIV_wird_nicht_gemeldet(self):
+        datei = self._archiv() / "S13_excerpt.md"
+        datei.write_text("historical excerpt mentioning zzkennungzz\n", encoding="utf-8")
+        rc, aus = self._lauf_mit_texten(datei)
+        self.assertEqual(rc, rr.EXIT_OK, "the archive must not be judged")
+        self.assertIn("EXEMPT AREA", aus, "the exception was silent — the order forbids exactly that")
+        self.assertIn("owner order 20260911T2233Z", aus, "the granting decision is not named")
+        self.assertIn("byte-identical excerpts", aus, "the ground is not named")
+
+    def test_DERSELBE_bezeichner_AUSSERHALB_wird_gemeldet(self):
+        """The other half. Without it, a checker that reports nothing at all would pass above."""
+        datei = self.wurzel / "a_new_outward_text.md"
+        datei.write_text("a new outward text mentioning zzkennungzz\n", encoding="utf-8")
+        rc, _ = self._lauf_mit_texten(datei)
+        self.assertEqual(rc, rr.EXIT_IDENTIFIER)
+
+    def test_ein_praefix_erbt_die_ausnahme_NICHT(self):
+        """`…/restrisiko_other` is not `…/restrisiko`. A string prefix would say it is."""
+        d = self.wurzel / "audit_artifacts" / "600" / "restrisiko_other"
+        d.mkdir(parents=True, exist_ok=True)
+        datei = d / "not_the_archive.md"
+        datei.write_text("mentions zzkennungzz\n", encoding="utf-8")
+        rc, _ = self._lauf_mit_texten(datei)
+        self.assertEqual(rc, rr.EXIT_IDENTIFIER)
+
+    def test_der_sprachpruefer_laeuft_auch_ueber_neue_texte(self):
+        datei = self.wurzel / "another_new_text.md"
+        datei.write_text("this new text mentions a Fangnachweis\n", encoding="utf-8")
+        rc, _ = self._lauf_mit_texten(datei)
+        self.assertEqual(rc, rr.EXIT_REFUSED)
+
+    def test_der_sprachpruefer_laesst_das_archiv_in_ruhe(self):
+        """The archive carries the older vocabulary ON PURPOSE and is bound byte-for-byte."""
+        datei = self._archiv() / "S22_excerpt.md"
+        datei.write_text("historischer Ausschnitt mit Fangnachweis und gemessen\n",
+                         encoding="utf-8")
+        rc, aus = self._lauf_mit_texten(datei)
+        self.assertEqual(rc, rr.EXIT_OK)
+        self.assertIn("EXEMPT AREA", aus)
+
+    # ---- the exemption list judged by its own standard ----------------------------------------
+
+    def test_eine_ausnahme_OHNE_GRUND_wird_abgewiesen(self):
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "decision": "someone said so"},))
+        self.assertTrue(any("without a reason" in x for x in f))
+
+    def test_eine_ausnahme_OHNE_ENTSCHEID_wird_abgewiesen(self):
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "a real ground, stated"},))
+        self.assertTrue(any("names no decision" in x for x in f))
+
+    def test_eine_ausnahme_DIE_DEN_GANZEN_BAUM_DECKT_wird_abgewiesen(self):
+        f = rr.pruefung_ausnahmen(({"path": ".", "reason": "r", "decision": "d"},))
+        self.assertTrue(f, "an area covering everything is an end, not an exception")
+
+    def test_eine_ausnahme_DIE_NACH_OBEN_ENTWEICHT_wird_abgewiesen(self):
+        f = rr.pruefung_ausnahmen(({"path": "../../etc", "reason": "r", "decision": "d"},))
+        self.assertTrue(any("escapes upwards" in x for x in f))
+
+    def test_die_AUSGELIEFERTE_liste_besteht_ihre_eigene_pruefung(self):
+        """The configuration this branch ships, not only a fixture of one."""
+        self.assertEqual(rr.pruefung_ausnahmen(), [])
+        self.assertTrue(rr.AUSGENOMMENE_BEREICHE, "the declared list is empty")
+
+
 class TestSchutzAbschalten(Basis):
     """The third of the review's three steps, and the one that decides.
 
@@ -472,6 +663,69 @@ class TestSchutzAbschalten(Basis):
         self.assertEqual(self.lauf(r), rr.EXIT_REFUSED)
         ns = self._mutiert_laden("        fehler += pruefung_beziehungen(reg)\n", "")
         self.assertEqual(self._lauf_mit(ns, r), 0)
+
+    def _lauf_mit_texten_mutiert(self, ns, *texte, wort="zzkennungzz"):
+        import contextlib
+        import io
+        reg = self.tmp / "reg_mut_ausnahme.json"
+        reg.write_text(json.dumps(self.sauber), encoding="utf-8")
+        liste = self.tmp / "identifiers_outside_mut.txt"
+        liste.write_text(wort + "\n", encoding="utf-8")
+        puffer = io.StringIO()
+        with contextlib.redirect_stdout(puffer):
+            rc = ns["main"](["--register", str(reg), "--check-only",
+                             "--evidence-root", str(self.wurzel),
+                             "--identifier-list", str(liste),
+                             "--also-check", *[str(t) for t in texte]])
+        return rc, puffer.getvalue()
+
+    def test_META_ohne_die_ausnahme_wird_das_archiv_gemeldet(self):
+        """The exemption must TAKE EFFECT, not merely be declared.
+
+        This is the case the finding asked for by name: the same planted identifier, once inside
+        the archive and once outside. Above it must stay silent; here, with the consultation cut
+        out, it must be reported — otherwise the exemption was never load-bearing and the
+        configuration entry would be one more sentence about a mechanism nobody consults.
+        """
+        d = self.wurzel / "audit_artifacts" / "600" / "restrisiko"
+        d.mkdir(parents=True, exist_ok=True)
+        datei = d / "S31_excerpt.md"
+        datei.write_text("historical excerpt mentioning zzkennungzz\n", encoding="utf-8")
+        ns = self._mutiert_laden(
+            "            (ausgenommen.append((k, b)) if b else geprueft.append(k))",
+            "            geprueft.append(k)")
+        rc, _ = self._lauf_mit_texten_mutiert(ns, datei)
+        self.assertEqual(rc, rr.EXIT_IDENTIFIER,
+                         "cutting out the exemption changed nothing — it never exempted anything")
+
+    def test_META_ohne_den_neuen_text_kommt_ein_bezeichner_durch(self):
+        """The other direction: the new-text scan must reach the identifier check."""
+        datei = self.wurzel / "a_third_new_text.md"
+        datei.write_text("a new outward text mentioning zzkennungzz\n", encoding="utf-8")
+        ns = self._mutiert_laden(
+            '    zusammen = "\\n".join(t for _, t in flaechen) + (openvex_text or "") + neuer_text',
+            '    zusammen = "\\n".join(t for _, t in flaechen) + (openvex_text or "")')
+        rc, _ = self._lauf_mit_texten_mutiert(ns, datei)
+        self.assertEqual(rc, rr.EXIT_OK,
+                         "the scan was not what carried the new text into the check")
+
+    def test_META_ohne_die_meldung_ist_die_ausnahme_wieder_still(self):
+        """"Not a silent exception" is a property of the OUTPUT, so it is measured there.
+
+        Silencing the report leaves the verdict untouched — which is precisely why the verdict
+        cannot be the measurement for it. Before this branch the archive was skipped and nothing
+        said so; that state is reproduced here on purpose and must be distinguishable.
+        """
+        d = self.wurzel / "audit_artifacts" / "600" / "restrisiko"
+        d.mkdir(parents=True, exist_ok=True)
+        datei = d / "S44_excerpt.md"
+        datei.write_text("historical excerpt mentioning zzkennungzz\n", encoding="utf-8")
+        ns = self._mutiert_laden("    for datei, bereich in uebergangen:",
+                                 "    for datei, bereich in []:")
+        rc, aus = self._lauf_mit_texten_mutiert(ns, datei)
+        self.assertEqual(rc, rr.EXIT_OK, "the verdict is unchanged — that is the point")
+        self.assertNotIn("EXEMPT AREA", aus,
+                         "the mutation did not actually silence the report; the case proves nothing")
 
     def test_META_ohne_inventarpruefung_kommt_eine_unbelegte_luecke_durch(self):
         r = copy.deepcopy(self.sauber)
