@@ -516,11 +516,53 @@ def _zusicherungen(text: str, records: list) -> list:
     }]
 
 
+def pruefe_belege_auf_platte(doc, repo) -> list[str]:
+    """Die Datei unter `path` oeffnen und gegen `sha256` halten. Leer heisst gruen.
+
+    WARUM ES DIESE FUNKTION GIBT, gemessen 13.09.2026 beim Nachmessen von Feld 5 des
+    Zitatpakets G1 (Auftrag `20260912T1242Z`): `pruefe_v2` rechnete den Digest gegen
+    `quelle[von:bis]` und OEFFNETE DIE DATEI NIE, die der Traeger unter `path` nennt. Ein
+    geloeschter oder veraenderter Beleg blieb gruen. Und weil `schreibe_v2` der Datei einen
+    Herkunftskopf voranstellte, stimmte `sha256sum <path>` bei KEINEM der 145 Belege mit
+    dem Feld daneben — 145 von 145 gemessen. Der Owner-Auftrag verlangt das Gegenteil:
+    "Der Digest muss nach der Veroeffentlichung mit 6.1 von jedem nachrechenbar sein, ohne
+    dass wir ihm erklaeren muessen, was wir gehasht haben."
+
+    Deshalb traegt die Belegdatei jetzt GENAU die Bytes ihres Bereichs und nichts sonst.
+    Die Herkunft steht im Traeger — in `source_path`, `source_sha256`, `byte_range` und
+    `fundart` —, wo sie ohnehin schon stand. Zwei Traeger derselben Angabe driften; einer,
+    der sich nachrechnen laesst, tut es nicht.
+    """
+    import hashlib  # noqa: PLC0415
+    fehler = []
+    for r in doc["records"]:
+        for b in r.get("evidence", []):
+            p = repo / b["path"]
+            if not p.is_file():
+                fehler.append(f"{r['id']}, Belegdatei fehlt: {b['path']}")
+                continue
+            ist = hashlib.sha256(p.read_bytes()).hexdigest()
+            if ist != b["sha256"]:
+                fehler.append(
+                    f"{r['id']}, Belegdatei traegt einen anderen Digest als das Feld: "
+                    f"Feld {b['sha256'][:12]}, Datei {ist[:12]}")
+    return fehler
+
+
 def pruefe_v2(doc, repo) -> list[str]:
     """Die Regeln, die der Erzeuger erzwingt. Leer heisst, die Ausgabe darf entstehen.
 
     Uebernommen aus dem Strukturbeispiel vom 11.09. und um die Belegbindung erweitert: ein
     Beleg zaehlt nur, wenn seine Bytes noch die der Quelle sind — ein Byte genuegt.
+
+    NACHTRAG 13.09.2026, gemessen: der Bytebereich wurde NIE auf Plausibilitaet geprueft,
+    und Python schneidet klaglos. `roh[500:400]` und `roh[10_000_000:10_000_001]` ergeben
+    beide `b''`, dessen sha256 die feste Konstante e3b0c442… ist — beides gemessen, beides
+    ging durch diesen Pruefer OHNE Fehler. Ein Eintrag konnte damit einen Beleg fuehren,
+    der NULL Bytes der Quelle traegt, und dabei den Digest korrekt fuehren. Gefunden von
+    der Gegenlese-Linse vom 12.09., nachgemessen bevor er angenommen wurde. Im heutigen
+    Bestand kommt er NICHT vor (145 von 145 Bereiche sind gesund) — das ist die FAEHIGKEIT
+    eines falschen Bestehens, nicht sein Eintreten.
     """
     import hashlib  # noqa: PLC0415
     fehler = []
@@ -539,7 +581,17 @@ def pruefe_v2(doc, repo) -> list[str]:
             if hashlib.sha256(roh).hexdigest() != b["source_sha256"]:
                 fehler.append(f"{kid}, die Quelle hat sich seit dem Schnitt geaendert")
                 continue
-            von, bis = b["byte_range"]
+            br = b.get("byte_range")
+            if (not isinstance(br, list) or len(br) != 2
+                    or not all(isinstance(x, int) for x in br)):
+                fehler.append(f"{kid}, Bytebereich ist kein Paar ganzer Zahlen: {br!r}")
+                continue
+            von, bis = br
+            if not (0 <= von < bis <= len(roh)):
+                fehler.append(
+                    f"{kid}, Bytebereich unmoeglich: [{von}, {bis}] in einer Quelle von "
+                    f"{len(roh)} B — ein leerer oder umgedrehter Schnitt ist kein Beleg")
+                continue
             if hashlib.sha256(roh[von:bis]).hexdigest() != b["sha256"]:
                 fehler.append(f"{kid}, Beleg veraendert — der Bytebereich traegt andere Bytes")
         if r["kind"] is None:
@@ -691,12 +743,19 @@ def schreibe_v2(repo, generated_at: str, revision: int = 0) -> dict:
     for r in doc["records"]:
         b = r["evidence"][0]
         von, bis = b["byte_range"]
-        stueck = roh[von:bis]
-        kopf = (f"<!-- Ausschnitt aus {b['source_path']}, Bytes {von}..{bis}\n"
-                f"     Quelle sha256 {b['source_sha256']}\n"
-                f"     Ausschnitt sha256 {b['sha256']}\n"
-                f"     Fundart {b['fundart']} — byte-gleich, nicht umformatiert -->\n")
-        (ev / f"{r['id']}.md").write_bytes(kopf.encode() + stueck)
+        # GENAU die Bytes des Bereichs, nichts davor, nichts dahinter. Der fruehere
+        # Herkunftskopf machte `sha256sum <path>` bei allen 145 Belegen unbrauchbar.
+        (ev / f"{r['id']}.md").write_bytes(roh[von:bis])
+
+    # ERST GEGENRECHNEN, DANN DEN TRAEGER SCHREIBEN. Faellt das hier, entsteht kein
+    # Traeger, der auf Dateien zeigt, die etwas anderes tragen als er behauptet.
+    auf_platte = pruefe_belege_auf_platte(doc, repo)
+    if auf_platte:
+        for f in auf_platte:
+            print("ROT,", f)
+        raise SystemExit(
+            f"Erzeugung abgebrochen, {len(auf_platte)} Belege auf Platte weichen ab, "
+            f"kein Traeger geschrieben")
 
     (repo / V2_REL).parent.mkdir(parents=True, exist_ok=True)
     (repo / V2_REL).write_text(_json.dumps(doc, indent=2, ensure_ascii=False) + "\n",

@@ -1260,7 +1260,30 @@
     },
     "praefix_abweichungen_bei_den_140_gemeinsamen": 0,
     "_nachtrag_20260913": "Drei Kennungen S121-S123 sind nach der Gegenrechnung hinzugekommen (Auftrag 20260911T2132Z, die drei Registerzeilen fuer 6.1, Owner-Entscheid OA-fc7b230430 Option 1A). Die Fremdzaehlung vom 20260912T1316Z kennt sie nicht und kann sie nicht kennen — sie zaehlte einen frueheren Stand. Die Zahlen 140/0/2 gelten unveraendert FUER JENEN STAND; gegen den heutigen waeren es 140 gleich, 0 fehlt, 5 zu viel (G1, G2 und die drei neuen). Eine Fremdzaehlung altert, wenn der Bestand waechst — das ist keine Abweichung, sondern ihr Datum.",
-    "stand_der_fremdzaehlung": "vor S121-S123"
+    "stand_der_fremdzaehlung": "vor S121-S123",
+    "gegen_den_heutigen_bestand": {
+      "_warum": "Die Fremdzaehlung ist ein STAND vom 20260912T1316Z, kein Gesetz. Nach ihr kamen S121-S123 dazu (Auftrag 20260911T2132Z, Owner-Entscheid OA-fc7b230430 Option 1A). Bis zum 13.09. stand dieser Unterschied nur als Prosa im Feld `_nachtrag_20260913` — und der Vertrag `test_die_gegenrechnung_gegen_die_fremdzaehlung_ist_in_sich_stimmig` war deshalb seit Commit 1d4aa8c ROT, ohne dass es jemandem auffiel. Ein Urteil gehoert an einen Ort, nicht in einen Satz.",
+      "bestand_utc": "2026-09-13",
+      "eintraege_heute": 145,
+      "gleich": 140,
+      "fehlt": 0,
+      "zu_viel": 5,
+      "fehlt_welche": [],
+      "zu_viel_welche": [
+        "G1",
+        "G2",
+        "S121",
+        "S122",
+        "S123"
+      ],
+      "zu_viel_welche_grund": {
+        "G1": "benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht",
+        "G2": "benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht",
+        "S121": "nach der Fremdzaehlung angelegt (2132Z Registerzeile 1)",
+        "S122": "nach der Fremdzaehlung angelegt (2132Z Registerzeile 2)",
+        "S123": "nach der Fremdzaehlung angelegt (2132Z Registerzeile 3)"
+      }
+    }
   },
   "lose_treffer_die_die_regel_nicht_findet": {
     "_warum_getrennt_von_nicht_eigene_kennungen": "`nicht_eigene_kennungen` deckt Kennungen, die die Extraktionsregel im Register FINDET und die trotzdem nicht zaehlen (S7b/c/d — Fassungen desselben Fundes). Der Riegel test_jede_ausnahme_deckt_eine_kennung_die_die_regel_findet erzwingt genau das, damit die Ausnahmemenge nicht monoton waechst und irgendwann nichts mehr deckt. A5 und S101 findet die Regel GAR NICHT — sie stehen nur im Fliesstext. Sie hier einzutragen haette die Ausnahmemenge verwaessert; der Riegel hat es gefangen, und er hatte recht.",

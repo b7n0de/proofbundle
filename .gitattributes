@@ -1,3 +1,4 @@
 # Ankergebundene / zitierte Belegdateien: feste Bytes, keine Zeilentrenner-Umschrift.
 # Owner-Auflage 20260912T1143Z (verbindend) und Nachtrag 20260912T1242Z Punkt 3.
 docs/register/G1.md -text
+audit_artifacts/600/register_evidence/*.md -text

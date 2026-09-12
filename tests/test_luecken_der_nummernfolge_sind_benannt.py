@@ -129,13 +129,39 @@ def test_die_gegenrechnung_gegen_die_fremdzaehlung_ist_in_sich_stimmig():
                "20260912T1317Z, drei Zahlen: gleich, fehlt, zu viel")
     assert re.fullmatch(r"[0-9a-f]{64}", str(g.get("sha256_der_sollliste") or "")), \
         "die Gegenrechnung nennt keinen sha256 der Fremdzaehlung — ohne ihn ist sie nicht nachrechenbar"
-    gleich, fehlt, zu_viel = g.get("gleich"), g.get("fehlt"), g.get("zu_viel")
-    assert gleich + zu_viel == len(d["eintraege"]), (
-        f"gleich {gleich} + zu viel {zu_viel} != {len(d['eintraege'])} Eintraege")
-    welche = g.get("zu_viel_welche") or []
-    assert len(welche) == zu_viel, f"zu_viel={zu_viel}, aber {len(welche)} benannt"
+    # DIE FREMDZAEHLUNG IST EIN STAND, KEIN GESETZ. Ihre drei Zahlen gelten fuer den
+    # Bestand, gegen den sie gemessen wurden (hier: vor S121-S123). Gegen den HEUTIGEN
+    # Bestand braucht es eigene Zahlen — und die muessen an einem ORT stehen, nicht in
+    # einem Satz. Genau daran fiel dieser Vertrag: vom 12.09. (Commit 1d4aa8c) bis zum
+    # 13.09. war er ROT, weil drei neue Kennungen dazukamen und die Erklaerung dafuer nur
+    # als Prosafeld `_nachtrag_20260913` existierte. Ein Vertrag liest keine Prosa.
+    heute = g.get("gegen_den_heutigen_bestand")
+    assert heute, ("die Gegenrechnung nennt keinen Stand gegen den HEUTIGEN Bestand — "
+                   "eine Fremdzaehlung altert, und ihr Alter gehoert als Feld hin")
     vorhanden = {str(e["kennung"]) for e in d["eintraege"]}
-    assert set(welche) <= vorhanden, f"als ueberzaehlig benannt, aber nicht im Bestand: {set(welche)-vorhanden}"
+    assert heute.get("eintraege_heute") == len(d["eintraege"]), (
+        f"der heutige Block nennt {heute.get('eintraege_heute')} Eintraege, "
+        f"gezaehlt sind {len(d['eintraege'])}")
+    assert heute["gleich"] + heute["zu_viel"] == len(d["eintraege"]), (
+        f"gleich {heute['gleich']} + zu viel {heute['zu_viel']} != {len(d['eintraege'])}")
+    welche = heute.get("zu_viel_welche") or []
+    assert len(welche) == heute["zu_viel"], f"zu_viel={heute['zu_viel']}, {len(welche)} benannt"
+    assert set(welche) <= vorhanden, (
+        f"als ueberzaehlig benannt, aber nicht im Bestand: {set(welche) - vorhanden}")
+    gruende = heute.get("zu_viel_welche_grund") or {}
+    ohne = [k for k in welche if not gruende.get(k)]
+    assert not ohne, f"ueberzaehlige Kennungen ohne Grund: {ohne}"
+    if heute.get("fehlt"):
+        assert heute.get("fehlt_welche"), "fehlende Kennungen sind nicht benannt"
+
+    # Der HISTORISCHE Stand bleibt stehen, wie er gemessen wurde, und muss in sich
+    # stimmen: gleich + zu viel == die Zahl, die damals gezaehlt wurde.
+    gleich, fehlt, zu_viel = g.get("gleich"), g.get("fehlt"), g.get("zu_viel")
+    alt_welche = g.get("zu_viel_welche") or []
+    assert len(alt_welche) == zu_viel, f"historisch zu_viel={zu_viel}, {len(alt_welche)} benannt"
+    assert set(alt_welche) <= vorhanden
+    assert gleich <= heute["gleich"], (
+        "die Fremdzaehlung kann heute nicht MEHR Uebereinstimmungen haben als damals")
     if fehlt:
         assert g.get("fehlt_welche"), "fehlende Kennungen sind nicht benannt"
 
