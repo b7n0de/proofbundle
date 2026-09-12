@@ -6,16 +6,17 @@
  "regel_der_extraktion": "Kennung am Anfang einer Ueberschrift ODER in der ersten Tabellenspalte — die Regel aus der Owner-Karte, woertlich uebernommen.",
  "gemessen_an": {
   "datei": "RESTRISIKO_600.md",
-  "sha256": "73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc",
-  "baum": "origin/main @ 4e32e83b647235bfedf23b55cebe69fdf14fd6f5",
-  "utc": "2026-09-12T08:35:26Z"
+  "sha256": "f4457c61a928f3e36cde41bd1bd9a573b100ee653eb51a06f5abc8da70c4ce02",
+  "baum": "arbeit/registerzeilen-61-objektklassen, 5d10304 plus die Zeile G1",
+  "utc": "2026-09-12T10:0xZ (Zeile G1 angehaengt; der Stand davor war 73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc @ origin/main 4e32e83)"
  },
  "grundgesamtheit": {
-  "kennungen_gesamt": 140,
+  "kennungen_gesamt": 141,
   "funde": 129,
-  "keine_funde": 11,
+  "keine_funde": 12,
   "je_praefix": {
    "A": 4,
+   "G": 1,
    "N": 21,
    "R": 7,
    "S": 104,
@@ -47,6 +48,11 @@
    "name": "richtigstellung_einer_eigenen_aussage",
    "zaehlt_als_fund": false,
    "warum": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht."
+  },
+  "G": {
+   "name": "benannte_grenze",
+   "zaehlt_als_fund": false,
+   "warum": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist."
   }
  },
  "eintraege": [
@@ -1169,6 +1175,14 @@
    "zaehlt_als_fund": false,
    "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
    "titel_im_register": "— S51 haelt, mit zwei Praezisierungen"
+  },
+  {
+   "kennung": "G1",
+   "klasse": "benannte_grenze",
+   "praefix": "G",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist.",
+   "titel_im_register": "· Kein fremder Zeuge: die Erkennung einer Gabelung durch Dritte ist NICHT MESSBAR — gemessen 12.09.2026 (Messung 1 aus 20260912T0849Z, Auflage 3 aus 20260912T0927Z, benannte Grenze, KEIN Fund, Ziel 6.1)"
   }
  ]
 }
