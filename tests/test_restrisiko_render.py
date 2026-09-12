@@ -666,20 +666,88 @@ class TestAusgenommeneBereiche(Basis):
         self.assertIsNotNone(rr.ausgenommen_durch(datei, self.wurzel, weit),
                              "der gestrippte und der rohe Pfad meinen dieselbe Ausnahme")
 
-    def test_eine_UNBEKANNTE_ENDUNG_im_verzeichnis_wird_GENANNT(self):
-        """Nicht geprueft UND nicht ausgenommen darf nicht heissen: nicht erwaehnt.
+    def test_eine_UNBEKANNTE_ENDUNG_im_verzeichnis_wird_GEPRUEFT(self):
+        """Dieser Fall hat seine Antwort GEAENDERT, und das ist die Geschichte dazu.
 
-        Gemessen von einer Linse: eine .adoc im uebergebenen Verzeichnis fiel in keine der beiden
-        Listen, wurde nirgends gedruckt, und der Lauf endete OK — stiller als der Archivfall, gegen
-        den diese ganze Mechanik gebaut ist."""
+        Erste Fassung (Linse 1): eine .adoc im uebergebenen Verzeichnis fiel in keine Liste, wurde
+        nirgends gedruckt, der Lauf endete OK — stiller als der Archivfall, gegen den die Mechanik
+        gebaut ist. Abhilfe damals: eine eigene Rubrik NOT JUDGED, die sie NENNT.
+
+        Zweite Fassung (fremde Modellfamilie): genannt zu werden ist nicht geprueft zu werden. Eine
+        .adoc IST Text, und der Owner-Satz sagt, die Pruefer laufen ueber neue Texte. Seitdem
+        entscheidet der INHALT, nicht die Endung — und damit wird sie gefunden statt aufgezaehlt.
+
+        Der Test steht bewusst unter dem neuen Namen: er haette sonst das alte Verhalten
+        konserviert, das ausdruecklich falsch war."""
         d = self.wurzel / "neue_texte_gemischt"
         d.mkdir(exist_ok=True)
         (d / "gelesen.md").write_text("plain english\n", encoding="utf-8")
         (d / "ungelesen.adoc").write_text("mentions zzkennungzz\n", encoding="utf-8")
+        rc, _ = self._lauf_mit_texten(d)
+        self.assertEqual(rc, rr.EXIT_IDENTIFIER,
+                         "die .adoc wurde nicht geprueft — Text bleibt Text, egal wie er heisst")
+
+    def test_eine_PY_DATEI_im_verzeichnis_wird_GEPRUEFT(self):
+        """Gefunden von der FREMDEN Modellfamilie, nachdem drei Claude-Linsen und zwei
+        Claude-Juroren dieselbe Stelle gesehen und durchgewunken hatten.
+
+        Gemessen 12.09.2026: dieselbe .py mit einem deutschen Fachwort ergab IM VERZEICHNIS
+        Ausgang 0 (gemeldet als NOT JUDGED), DIREKT benannt aber Ausgang 1 mit REFUSED. Derselbe
+        Inhalt, zwei Urteile. Der Satz der alten Rubrik — 'they are simply not text' — war dabei
+        schlicht falsch: eine .py IST Text. `TEXT_ENDUNGEN` war eine Liste bekannter SCHREIBWEISEN,
+        wo die EIGENSCHAFT 'laesst sich als Text lesen' gemeint war."""
+        d = self.wurzel / "mit_py"
+        d.mkdir(exist_ok=True)
+        (d / "heimlich.py").write_text('def f():\n    """ein Riegel im Docstring"""\n',
+                                       encoding="utf-8")
+        rc, _ = self._lauf_mit_texten(d)
+        self.assertEqual(rc, rr.EXIT_REFUSED,
+                         "die .py im Verzeichnis wurde nicht geprueft — dieselbe Datei direkt "
+                         "benannt faellt sehr wohl")
+
+    def test_eine_BINAERDATEI_wird_nicht_geprueft_aber_GENANNT(self):
+        """Die Gegenrichtung: waere jede Datei Text, produzierte der Pruefer Funde ueber Rauschen."""
+        d = self.wurzel / "mit_binaer"
+        d.mkdir(exist_ok=True)
+        (d / "harmlos.md").write_text("plain english\n", encoding="utf-8")
+        (d / "bild.bin").write_bytes(bytes(range(256)) * 4)
         rc, aus = self._lauf_mit_texten(d)
         self.assertEqual(rc, rr.EXIT_OK)
-        self.assertIn("NOT JUDGED", aus, "die unbekannte Endung verschwand lautlos")
-        self.assertIn("ungelesen.adoc", aus)
+        self.assertIn("NOT JUDGED", aus, "die Binaerdatei verschwand lautlos")
+        self.assertIn("bild.bin", aus)
+
+    def test_ist_text_misst_den_INHALT_nicht_die_endung(self):
+        for name, inhalt, soll in (("ohne_endung", b"plain english\n", True),
+                                   ("skript.py", b"x = 1\n", True),
+                                   ("mit_nul.md", b"text\x00mehr", False),
+                                   ("kaputt.md", b"\xff\xfe\xff\xfe" * 40, False),
+                                   ("umlaut.md", "Gr\u00fc\u00dfe\n".encode("utf-8"), True)):
+            with self.subTest(name=name):
+                f = self.wurzel / name
+                f.write_bytes(inhalt)
+                self.assertEqual(rr.ist_text(f), soll)
+
+    def test_ein_abgeschnittenes_zeichen_am_probenrand_ist_kein_binaerbeleg(self):
+        """Sonst haengt das Urteil an der Probengroesse statt am Inhalt."""
+        f = self.wurzel / "lang_mit_umlaut.md"
+        f.write_bytes(b"a" * 8190 + "\u00fc".encode("utf-8") + b"weiter\n")
+        self.assertTrue(rr.ist_text(f, probe=8192),
+                        "ein am Rand abgeschnittenes Mehrbyte-Zeichen wurde als binaer gewertet")
+
+    def test_META_ohne_die_inhaltspruefung_faellt_die_py_wieder_durch(self):
+        quelle = MODUL.read_text(encoding="utf-8")
+        alt = "or k.suffix.lower() in TEXT_ENDUNGEN or ist_text(k)"
+        self.assertIn(alt, quelle, "die Mutationsvorlage passt nicht mehr zur Quelle")
+        ns = {"__name__": "rr_mut_text", "__file__": str(MODUL)}
+        exec(compile(quelle.replace(alt, "or k.suffix.lower() in TEXT_ENDUNGEN"),
+                     "<mutiert: ohne inhaltspruefung>", "exec"), ns)
+        d = self.wurzel / "mut_py"
+        d.mkdir(exist_ok=True)
+        (d / "heimlich.py").write_text("# ein Riegel\n", encoding="utf-8")
+        geprueft, _, unbekannt, _ = ns["sammle_neue_texte"]([d], self.wurzel)
+        self.assertEqual([q.name for q in geprueft], [])
+        self.assertEqual([q.name for q in unbekannt], ["heimlich.py"],
+                         "ohne die Inhaltspruefung muesste die .py wieder als ungeprueft gelten")
 
     def test_ein_NICHT_EXISTIERENDER_pfad_wird_abgewiesen(self):
         """Ein Tippfehler ergab dieselbe frohe OK-Meldung wie ein sauber gepruefter Baum."""

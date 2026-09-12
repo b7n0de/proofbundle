@@ -130,9 +130,49 @@ def ausgenommen_durch(p: Path, wurzel: Path, bereiche=AUSGENOMMENE_BEREICHE) -> 
     return None
 
 
-# Which files count as a text the checks may judge. Named rather than guessed: a binary read as
-# UTF-8 either raises or produces noise, and noise in a checker produces findings about itself.
+# WAS ALS TEXT ZAEHLT, WIRD AM INHALT ENTSCHIEDEN — NICHT AN DER ENDUNG.
+#
+# GEMESSEN 12.09.2026 von der FREMDEN Modellfamilie (qwen3.8:27b), nachdem drei Claude-Linsen und
+# zwei Claude-Juroren dieselbe Stelle gesehen und durchgewunken hatten: eine `.py` im uebergebenen
+# VERZEICHNIS wurde als "not text" gemeldet und NICHT geprueft — Ausgang 0. Dieselbe Datei DIREKT
+# benannt wurde geprueft und fiel mit REFUSED ('riegel'). Derselbe Inhalt, zwei Urteile.
+#
+# Der Satz in der alten Rubrik ("they are simply not text") war schlicht FALSCH: eine .py IST Text.
+# `TEXT_ENDUNGEN` war eine Liste bekannter SCHREIBWEISEN, wo die EIGENSCHAFT "laesst sich als Text
+# lesen" gemeint war — dieselbe Klasse, gegen die diese ganze Runde gebaut ist, nur eine Schicht
+# tiefer als der Fund, den sie behoben hat.
+#
+# Die Endungen bleiben als schneller Weg fuer den Normalfall; entscheidend ist jetzt der Inhalt.
 TEXT_ENDUNGEN = {".md", ".txt", ".json", ".rst", ".html", ".csv", ".yaml", ".yml"}
+
+
+def ist_text(p: Path, probe: int = 8192) -> bool:
+    """Laesst sich diese Datei als Text lesen? Am INHALT gemessen, nicht am Namen.
+
+    Zwei Merkmale, beide notwendig: keine NUL-Bytes (das sicherste Binaer-Kennzeichen) und eine
+    Probe, die als UTF-8 dekodiert. Die Probe ist begrenzt, damit eine Mehrgigabyte-Datei den
+    Pruefer nicht anhaelt — ein Pruefer, der nicht zurueckkehrt, hat nicht geurteilt.
+
+    Nicht lesbar heisst NICHT text: wer nicht zeigen kann, dass er Text ist, wird als solcher auch
+    nicht geprueft — aber gemeldet, nie stillschweigend uebergangen.
+    """
+    try:
+        with p.open("rb") as fh:
+            kopf = fh.read(probe)
+    except OSError:
+        return False
+    if b"\x00" in kopf:
+        return False
+    try:
+        kopf.decode("utf-8")
+    except UnicodeDecodeError:
+        # Ein abgeschnittenes Mehrbyte-Zeichen am Probenrand ist KEIN Binaerbeleg. Nur ein Fehler
+        # weit vor dem Rand zaehlt — sonst haengt das Urteil an der Probengroesse statt am Inhalt.
+        try:
+            kopf[:-4].decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+    return True
 
 
 def sammle_neue_texte(ziele, wurzel: Path,
@@ -163,7 +203,7 @@ def sammle_neue_texte(ziele, wurzel: Path,
             b = ausgenommen_durch(k, wurzel, bereiche)
             if b:
                 ausgenommen.append((k, b))
-            elif ziel.is_file() or k.suffix.lower() in TEXT_ENDUNGEN:
+            elif ziel.is_file() or k.suffix.lower() in TEXT_ENDUNGEN or ist_text(k):
                 geprueft.append(k)
             else:
                 unbekannt.append(k)
@@ -764,8 +804,8 @@ def main(argv=None) -> int:
     # Nicht ausgenommen, aber auch nicht geprueft: das ist KEINE Ausnahme (es gibt keinen Grund),
     # also bekommt es eine eigene Rubrik statt zu verschwinden.
     if unbekannt:
-        print(f"NOT JUDGED — {len(unbekannt)} file(s) of a type this check does not read "
-              f"(no declared reason, they are simply not text):")
+        print(f"NOT JUDGED — {len(unbekannt)} file(s) that are not readable as text "
+              f"(binary or undecodable; measured at the CONTENT, not at the extension):")
         for q in sorted(unbekannt):
             print(f"    {q.relative_to(a.evidence_root) if q.is_relative_to(a.evidence_root) else q}")
     # ONE block per AREA, not per file. The first version printed four lines for every skipped
