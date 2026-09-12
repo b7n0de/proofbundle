@@ -6,17 +6,17 @@
  "regel_der_extraktion": "Kennung am Anfang einer Ueberschrift ODER in der ersten Tabellenspalte — die Regel aus der Owner-Karte, woertlich uebernommen.",
  "gemessen_an": {
   "datei": "RESTRISIKO_600.md",
-  "sha256": "f4457c61a928f3e36cde41bd1bd9a573b100ee653eb51a06f5abc8da70c4ce02",
-  "baum": "arbeit/registerzeilen-61-objektklassen, 5d10304 plus die Zeile G1",
-  "utc": "2026-09-12T10:0xZ (Zeile G1 angehaengt; der Stand davor war 73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc @ origin/main 4e32e83)"
+  "sha256": "38e56bf64b171a04d94624e526d01953327b2dd9302670758cf6fb785d6b2067",
+  "baum": "arbeit/registerzeilen-61-objektklassen, 88834d3 plus die Zeile G2",
+  "utc": "2026-09-12T12:2xZ (Zeile G2 angehaengt, Owner-Beobachtung 20260912T1143Z)"
  },
  "grundgesamtheit": {
-  "kennungen_gesamt": 141,
+  "kennungen_gesamt": 142,
   "funde": 129,
-  "keine_funde": 12,
+  "keine_funde": 13,
   "je_praefix": {
    "A": 4,
-   "G": 1,
+   "G": 2,
    "N": 21,
    "R": 7,
    "S": 104,
