@@ -382,8 +382,23 @@ class TestKeineTeilveroeffentlichung(Basis):
 
 class TestBezeichner(Basis):
     def test_eine_liste_IM_repository_wird_verweigert(self):
-        drin = REPO / "identifier_list_must_never_live_here.txt"
-        drin.write_text("x\n", encoding="utf-8")
+        """Der Pfad wird zur LAUFZEIT gebildet, nicht als Literal genannt — und das ist kein Stil.
+
+        Gemessen 12.09.2026: `REPO / "identifier_list_must_never_live_here.txt"` ist ein Wurzelpfad,
+        den es nur WAEHREND dieses Tests gibt. `conftest.modul_ist_repo_kontext` liest die
+        Wurzelpfade eines Moduls und prueft ihre Existenz; ein dauerhaft fehlender liess das GANZE
+        Modul als repo-kontext gelten. Folge: aus dem sdist waere es uebersprungen worden, und
+        `test_sdist_selftest_derivation::test_im_echten_checkout_ist_die_ableitung_ein_no_op` wurde
+        rot — zu Recht, denn im Checkout existiert jeder Wurzelpfad.
+
+        Die geprueffte Eigenschaft bleibt dieselbe: die Liste liegt INNERHALB des Repositoriums.
+        NamedTemporaryFile(dir=REPO) stellt genau das her und raeumt selbst auf."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", dir=REPO, suffix=".txt", delete=False) as fh:
+            fh.write("x\n")
+            drin = Path(fh.name)
+        self.assertTrue(drin.resolve().is_relative_to(REPO.resolve()),
+                        "die Vorrichtung liegt nicht im Repositorium — dann misst der Fall nichts")
         try:
             with self.assertRaises(SystemExit) as ctx:
                 rr.check_identifiers("text", drin)

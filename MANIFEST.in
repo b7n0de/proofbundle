@@ -113,6 +113,27 @@ include scripts/shipped_docs_check.py
 include scripts/sign_readiness_artifact.py
 include scripts/test_manifest_gate.py
 include scripts/type_confusion_gate.py
+# NACHGETRAGEN 12.09.2026, gemessen. `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` war
+# schon am Zweigpunkt 52b2d18 ROT: fuenf Dateien standen auf keiner Zeile dieser Liste. Vier kamen
+# aus frueheren Commits desselben Tages, eine (restrisiko_archiv.py) aus dieser Runde.
+#
+# Die Liste entscheidet je Datei, und ihr Kriterium ist ein schluessel-LESENDER Codepfad. Per AST
+# gemessen: KEINE der fuenf traegt einen. Entscheidend fuer DRIN ist der zweite Grund, derselbe wie
+# bei PB-2026-0717-02: ihre Tests werden von `graft tests` ausgeliefert und laden das Skript auf
+# MODULEBENE (`spec.loader.exec_module`). Ohne die Datei bricht der Import im sdist, und die Suite
+# endet mit einem Collection-Error statt mit einem Urteil — ein Test ohne sein Skript ist kein Test.
+#   artifact_canonical_check.py  tests/test_artifact_canonical_check.py:26 exec_module
+#   markovian_submit.py          tests/test_markovian_submit.py:24         exec_module
+#   receipt_anchor.py            tests/test_receipt_anchor.py:24           exec_module
+#   restrisiko_render.py         tests/test_restrisiko_render.py           exec_module
+#   restrisiko_archiv.py         tests/test_restrisiko_archiv.py           exec_module
+# receipt_anchor.py importiert `urllib`; das ist hier KEIN Ausschlussgrund — das Kriterium dieser
+# Liste ist der Schluesselpfad, und die Offline-Eigenschaft wird dort geprueft, wo sie zugesagt wird.
+include scripts/artifact_canonical_check.py
+include scripts/markovian_submit.py
+include scripts/receipt_anchor.py
+include scripts/restrisiko_render.py
+include scripts/restrisiko_archiv.py
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
 prune tools
