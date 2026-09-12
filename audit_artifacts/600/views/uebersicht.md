@@ -157,8 +157,8 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | Z3 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z3.md | 249457..250968 |
 | Z4 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z4.md | 250968..252191 |
 | Z5 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z5.md | 252191..252618 |
-| S121 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S121.md | 361834..363764 |
-| S122 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S122.md | 363764..365097 |
-| S123 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S123.md | 365097..366364 |
+| S121 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S121.md | 361834..364543 |
+| S122 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S122.md | 364543..365876 |
+| S123 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S123.md | 365876..367143 |
 
 Generated from audit_artifacts/600/findings_register_v2.json. Do not edit by hand.

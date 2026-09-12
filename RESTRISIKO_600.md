@@ -5133,13 +5133,23 @@ CHANGELOG 5.1.0 beschreibt.
 (`receipt|quittung|verdict|readiness` als `.json`, ohne `tests/`, `conformance/`, `fixtures/`,
 `dist_pkgtest*`). Davon **0 mit einem Zeitanker-Feld**. Genau eine hat überhaupt einen
 `.ots`-Beweis daneben, `receipts/agent_review/inspect_ai_5141.r3.receipt.json.ots`, und der trägt
-**3 PendingAttestations bei 0 Blockbestätigungen** — er belegt eine Einreichung, keine verankerte
-Zeit. Von zehn `.ots` im Baum trägt keine eine Bestätigung.
+**`state: pending`**, `selfContained: false`, keine Bitcoin-Höhe — er belegt eine Einreichung
+bei drei Kalendern, keine verankerte Zeit.
 
 **Nicht die Fähigkeit fehlt, sondern ihr Gebrauch.** `tests/test_anchors_rfc3161.py`,
-`test_anchors_ots.py` und `test_anchor_target_trustedtime.py` prüfen beide Verfahren seit längerem.
-Ein erster Lauf über alle 70 Quittungs-Kandidaten meldete „1 mit Ankerfeld" — das war eine
-Test-Fixture. Wer Testmaterial mitzählt, misst die Fähigkeit statt ihren Gebrauch.
+`test_anchors_ots.py` und `test_anchor_target_trustedtime.py` tragen zusammen 46 Testfunktionen über
+beide Verfahren. Ein erster Lauf über alle 70 Quittungs-Kandidaten meldete „1 mit Ankerfeld" — das
+war eine Test-Fixture. Wer Testmaterial mitzählt, misst die Fähigkeit statt ihren Gebrauch.
+
+**Das Werkzeug kann nachweislich, was hier fehlt.** Mit `proofbundle anchor inspect` über alle zehn
+`.ots` des Baums gemessen: **drei sind `upgraded`, selbst-enthaltend, mit Bitcoin-Höhe**
+(`conformance/…/confirmed-anchor-lifecycle` 957504 mit drei Kalender-Operatoren,
+`conformance/…/schema-conformant` 958761, `tests/fixtures/ots/synthetic-upgraded-sha256` 800000).
+Sechs sind `pending`, eine ist `malformed`. **Alle drei bestätigten sind Fixtures.** Die einzige
+echte Hausquittung darunter — `inspect_ai_5141.r3.receipt.json.ots` — ist `pending`,
+`selfContained: false`, ohne Bitcoin-Höhe, bei drei belegten Kalendern und zwei Operatoren. Damit
+steht die Lücke schärfer da: nicht „wir können es nicht", sondern „wir tun es für unsere eigenen
+Quittungen nicht".
 
 **Wirkung.** Kein Nutzer des Pakets ist betroffen, keine Zusicherung ist falsch: die Quittungen
 behaupten keine belegte Existenzzeit. Es fehlt ein Beleg, der möglich wäre. Deshalb P3 und nicht
