@@ -1,7 +1,7 @@
 # Known remainders, proofbundle 6.0.0
 
 Tag v6.0.0, assessment cutoff 2026-09-12, register revision 0.
-Coverage, 142 of 142 identifiers carried in this register.
+Coverage, 145 of 145 identifiers carried in this register.
 
 Known gap, S86 bis S101, 16 identifiers, NOT MEASURED, Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: "Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102." Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.
 Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten.
@@ -20,7 +20,7 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | A3 | finding | fund_aussenflaeche | P3 | audit_artifacts/600/register_evidence/A3.md | 24635..24957 |
 | A4 | finding | fund_aussenflaeche | P1 | audit_artifacts/600/register_evidence/A4.md | 24958..25300 |
 | G1 | boundary | benannte_grenze | NOT MEASURED | audit_artifacts/600/register_evidence/G1.md | 355043..358713 |
-| G2 | boundary | benannte_grenze | NOT MEASURED | audit_artifacts/600/register_evidence/G2.md | 358713..361833 |
+| G2 | boundary | benannte_grenze | NOT MEASURED | audit_artifacts/600/register_evidence/G2.md | 358713..361834 |
 | N1 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N1.md | 8416..8661 |
 | N2 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N2.md | 8662..8839 |
 | N3 | finding | fund_nachtrag | P2 | audit_artifacts/600/register_evidence/N3.md | 8840..9187 |
@@ -157,5 +157,8 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | Z3 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z3.md | 249457..250968 |
 | Z4 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z4.md | 250968..252191 |
 | Z5 | boundary | richtigstellung_einer_eigenen_aussage | NOT MEASURED | audit_artifacts/600/register_evidence/Z5.md | 252191..252618 |
+| S121 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S121.md | 361834..363764 |
+| S122 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S122.md | 363764..365097 |
+| S123 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S123.md | 365097..366364 |
 
 Generated from audit_artifacts/600/findings_register_v2.json. Do not edit by hand.

@@ -11,15 +11,15 @@
     "utc": "2026-09-12T12:2xZ (Zeile G2 angehaengt, Owner-Beobachtung 20260912T1143Z)"
   },
   "grundgesamtheit": {
-    "kennungen_gesamt": 142,
-    "funde": 129,
+    "kennungen_gesamt": 145,
+    "funde": 132,
     "keine_funde": 13,
     "je_praefix": {
       "A": 4,
       "G": 2,
       "N": 21,
       "R": 7,
-      "S": 104,
+      "S": 107,
       "Z": 4
     }
   },
@@ -1191,6 +1191,30 @@
       "zaehlt_als_fund": false,
       "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
       "titel_im_register": "— S51 haelt, mit zwei Praezisierungen"
+    },
+    {
+      "kennung": "S121",
+      "klasse": "fund_sicherheit_und_korrektheit",
+      "praefix": "S",
+      "zaehlt_als_fund": true,
+      "warum_diese_klasse": "Ein Fund am Gegenstand: eine Faehigkeit, die das Werkzeug hat, wird fuer die eigenen Quittungen nicht gebraucht. Gemessen 0 von 20 echten Hausquittungen. Keine falsche Zusicherung, aber ein moeglicher Beleg, der fehlt — deshalb Fund und nicht benannte Grenze: eine Grenze hat kein Ziel-Update, diese Zeile hat 6.1.",
+      "titel_im_register": "Die eigenen Quittungen tragen keinen Zeitanker — Zusicherung ohne Beleg der Existenzzeit"
+    },
+    {
+      "kennung": "S122",
+      "klasse": "fund_sicherheit_und_korrektheit",
+      "praefix": "S",
+      "zaehlt_als_fund": true,
+      "warum_diese_klasse": "Wie S121: die Faehigkeit ist da (Fixtures proof_7271 und submit_7727), der Gebrauch fehlt. Gemessen 0 von 20. Ziel 6.1, Einreichung bleibt Owner-Tuer je Einreichung.",
+      "titel_im_register": "Keine Hausquittung ist im Markovian-Log registriert — Quittung ohne dritten Zeugen"
+    },
+    {
+      "kennung": "S123",
+      "klasse": "fund_sicherheit_und_korrektheit",
+      "praefix": "S",
+      "zaehlt_als_fund": true,
+      "warum_diese_klasse": "Ein Fund an der Anschlussfaehigkeit: ohne Abbildung auf ein gemeinsames Feldvokabular entsteht ein Eigenformat dort, wo ein Standard ein Feld hat. Ziel 6.1 als Abbildung, Bau erst nach Ratifizierung oder Owner-Wort.",
+      "titel_im_register": "Die zwoelf Bedingungen aus Blatt 20 sind nicht auf TRACE abgebildet"
     }
   ],
   "nicht_eigene_kennungen": {
@@ -1210,7 +1234,8 @@
       "anzahl": 1,
       "marke": "NOT MEASURED",
       "grund": "Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten."
-    }
+    },
+    "_nachtrag_20260913": "S121-S123 schliessen luecklos an S120 an. Die naechste freie Nummer wurde ueber ALLE Baeume abgeleitet, nicht ueber den sichtbaren: hoechste gefundene S-Nummer war S120 (auch auf arbeit/601-nachzug, wo die Luecke S86-S101 herkommt). Klasse EINE-NUMMER-DIE-ICH-VERGEBE-KANN-IN-EINEM-ANDEREN-BAUM-SCHON-WEG-SEIN."
   },
   "gegenrechnung_gegen_die_sollliste": {
     "_auflage": "Auftrag 20260912T1317Z: gegen die Fremdzaehlung rechnen, gleich/fehlt/zu viel je Kennung.",
@@ -1233,7 +1258,9 @@
       "Z": "4=4",
       "G": "0 gegen 2, erklaert"
     },
-    "praefix_abweichungen_bei_den_140_gemeinsamen": 0
+    "praefix_abweichungen_bei_den_140_gemeinsamen": 0,
+    "_nachtrag_20260913": "Drei Kennungen S121-S123 sind nach der Gegenrechnung hinzugekommen (Auftrag 20260911T2132Z, die drei Registerzeilen fuer 6.1, Owner-Entscheid OA-fc7b230430 Option 1A). Die Fremdzaehlung vom 20260912T1316Z kennt sie nicht und kann sie nicht kennen — sie zaehlte einen frueheren Stand. Die Zahlen 140/0/2 gelten unveraendert FUER JENEN STAND; gegen den heutigen waeren es 140 gleich, 0 fehlt, 5 zu viel (G1, G2 und die drei neuen). Eine Fremdzaehlung altert, wenn der Bestand waechst — das ist keine Abweichung, sondern ihr Datum.",
+    "stand_der_fremdzaehlung": "vor S121-S123"
   },
   "lose_treffer_die_die_regel_nicht_findet": {
     "_warum_getrennt_von_nicht_eigene_kennungen": "`nicht_eigene_kennungen` deckt Kennungen, die die Extraktionsregel im Register FINDET und die trotzdem nicht zaehlen (S7b/c/d — Fassungen desselben Fundes). Der Riegel test_jede_ausnahme_deckt_eine_kennung_die_die_regel_findet erzwingt genau das, damit die Ausnahmemenge nicht monoton waechst und irgendwann nichts mehr deckt. A5 und S101 findet die Regel GAR NICHT — sie stehen nur im Fliesstext. Sie hier einzutragen haette die Ausnahmemenge verwaessert; der Riegel hat es gefangen, und er hatte recht.",

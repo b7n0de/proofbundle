@@ -5121,3 +5121,72 @@ eine Zeile. Genau dafür gibt es die Objektklassen (`G` mit `zaehlt_als_fund: fa
 Sweep über die übrigen steht aus. Heute ausdrücklich nicht verlangt; die Auflage war, die Klasse zu benennen.
 
 **Schwere:** keine Fund-Schwere. `G` ist eine **benannte Grenze**.
+
+### S121 · Die eigenen Quittungen tragen keinen Zeitanker — Zusicherung ohne Beleg der Existenzzeit (P3, Ziel 6.1)
+
+**Bauart.** Jede Quittung, die das Haus über einen Release-Stand ausstellt — Vorab-Quittung,
+Gate-Verdikt, agent-review — soll einen RFC-3161-Token oder einen OpenTimestamps-Beweis über ihre
+kanonischen Bytes tragen, und der Verifier soll ihn auf der Signaturachse prüfen, wie es der
+CHANGELOG 5.1.0 beschreibt.
+
+**Gemessen 2026-09-13 am Kopf dieses Zweigs, je Datei.** 20 echte Hausquittungen im Baum
+(`receipt|quittung|verdict|readiness` als `.json`, ohne `tests/`, `conformance/`, `fixtures/`,
+`dist_pkgtest*`). Davon **0 mit einem Zeitanker-Feld**. Genau eine hat überhaupt einen
+`.ots`-Beweis daneben, `receipts/agent_review/inspect_ai_5141.r3.receipt.json.ots`, und der trägt
+**3 PendingAttestations bei 0 Blockbestätigungen** — er belegt eine Einreichung, keine verankerte
+Zeit. Von zehn `.ots` im Baum trägt keine eine Bestätigung.
+
+**Nicht die Fähigkeit fehlt, sondern ihr Gebrauch.** `tests/test_anchors_rfc3161.py`,
+`test_anchors_ots.py` und `test_anchor_target_trustedtime.py` prüfen beide Verfahren seit längerem.
+Ein erster Lauf über alle 70 Quittungs-Kandidaten meldete „1 mit Ankerfeld" — das war eine
+Test-Fixture. Wer Testmaterial mitzählt, misst die Fähigkeit statt ihren Gebrauch.
+
+**Wirkung.** Kein Nutzer des Pakets ist betroffen, keine Zusicherung ist falsch: die Quittungen
+behaupten keine belegte Existenzzeit. Es fehlt ein Beleg, der möglich wäre. Deshalb P3 und nicht
+höher — die Einstufung folgt der Wirkung, nicht dem Wunsch, die Zeile wichtig aussehen zu lassen.
+
+**Fertig-Bedingung als Beleg.** Ein Lauf, der eine Hausquittung nimmt, den Token oder Beweis holt,
+ihn daneben legt, und ein Verifier-Aufruf, der beide zusammen prüft — plus ein Fangnachweis mit
+einem manipulierten Token, der rot wird. Herkunft: Auftrag `20260911T2132Z`, Zeile eins.
+
+### S122 · Keine Hausquittung ist im Markovian-Log registriert — Quittung ohne dritten Zeugen (P3, Ziel 6.1)
+
+**Bauart.** Die Vorab-Quittung und die Release-Assets werden über den öffentlichen
+Einreichungspfad im Markovian-Log registriert, der Inklusionsbeweis liegt neben den Assets und
+wird mit eigenständigem RFC 6962 nachgerechnet — wie es die Fixture `submit_7727` für 5.1.0 zeigt.
+
+**Gemessen 2026-09-13, dieselbe Menge.** 0 von 20 echten Hausquittungen tragen ein Feld einer
+Log-Registrierung (`inclusion_proof`, `log_entry`, `log_index`, `tree_size`, `submission`).
+
+**Was das Werkzeug schon kann.** Es liest Beweise aus dem Markovian-Log (Fixture `proof_7271`) und
+hat in 5.1.0 einen eigenen Eintrag eingereicht, den Inklusionspfad mit eigenständigem RFC 6962
+nachgerechnet. Auch hier ist die Lücke der Gebrauch, nicht die Fähigkeit.
+
+**Wirkung.** P3 aus demselben Grund wie S121: eine fehlende Verstärkung, keine falsche Zusicherung.
+
+**Fertig-Bedingung als Beleg.** Ein trockener Lauf gegen die eingefrorene Fixture mit
+nachgerechnetem Inklusionspfad und festgelegter Ablageform neben den Release-Assets. **Die echte
+Einreichung ist Außenwirkung und bleibt eine eigene Owner-Tür je Einreichung** — diese Zeile
+bereitet vor und misst, sie reicht nicht ein. Herkunft: Auftrag `20260911T2132Z`, Zeile zwei.
+
+### S123 · Die zwölf Bedingungen aus Blatt 20 sind nicht auf TRACE abgebildet — kein gemeinsames Feldvokabular (P3, Ziel 6.1)
+
+**Bauart.** Die zwölf Bedingungen werden auf die Felder von TRACE abgebildet (Linux Foundation,
+seit 25.08.2026, Entwicklervorschau): Workload-Identität, Modell-ID, Policy-Hash,
+Werkzeugaufruf-Digests, drei Vertrauensstufen. Die Zeile nennt, welche Felder heute füllbar wären,
+welche eine Hardwareverankerung brauchen, und welche TRACE nicht kennt, die Blatt 20 aber verlangt.
+
+**Unser Stand ist Stufe null** — die Modellangabe stammt aus Antwortdaten, nicht aus einer
+attestierten Quelle.
+
+**Kein Eigenformat, wo TRACE ein Feld hat.** Das ist die Auflage des Auftrags und zugleich der
+Grund, warum diese Zeile eine Abbildung ist und kein Bau: gebaut wird nach Ratifizierung oder nach
+Owner-Wort, nicht vorher.
+
+**Wirkung.** P3. Eine fehlende Abbildung auf einen Standard in Entwicklervorschau; kein
+ausgeliefertes Verhalten hängt daran.
+
+**Fertig-Bedingung als Beleg.** Eine Abbildungstabelle in `docs/`, Blatt-20-Bedingung gegen
+TRACE-Feld, je mit Quelle und **Abrufdatum der TRACE-Fassung** — ohne Abrufdatum ist eine
+Abbildung auf einen bewegten Standard nicht nachprüfbar. Herkunft: Auftrag `20260911T2132Z`,
+Zeile drei.
