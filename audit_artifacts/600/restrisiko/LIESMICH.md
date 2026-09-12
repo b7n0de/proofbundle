@@ -11,4 +11,8 @@ EXEMPT AREA, stated with its reason in the generator's configuration, never a si
 exception. Whoever quotes from here into a new outward surface produces a derivation
 marked as such, and original and derivation are each bound.
 
+`MANIFEST.json` names, for every excerpt, the pinned source state, its digest and the
+byte range it was cut from; `make restrisiko-archiv-pruefen` re-derives every range from that
+state and compares byte for byte, so this directory can be checked rather than believed.
+
 The public generated edition contains no bytes from this directory. It points here.

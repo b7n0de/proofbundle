@@ -583,12 +583,79 @@ class TestAusgenommeneBereiche(Basis):
     # ---- the exemption list judged by its own standard ----------------------------------------
 
     def test_eine_ausnahme_OHNE_GRUND_wird_abgewiesen(self):
-        f = rr.pruefung_ausnahmen(({"path": "some/where", "decision": "someone said so"},))
-        self.assertTrue(any("without a reason" in x for x in f))
+        """An das FELD gebunden, nicht an den Satz: die erste Fassung pruefte den Wortlaut der
+        Meldung und wurde rot, als die Meldung praeziser wurde — ohne dass sich das Verhalten
+        aenderte. Ein Test, der die Formulierung festschreibt, blockt den naechsten Fix."""
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "decision": "an owner order of today"},))
+        self.assertTrue(any("reason" in x for x in f), f)
 
     def test_eine_ausnahme_OHNE_ENTSCHEID_wird_abgewiesen(self):
-        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "a real ground, stated"},))
-        self.assertTrue(any("names no decision" in x for x in f))
+        f = rr.pruefung_ausnahmen(({"path": "some/where",
+                                    "reason": "a real ground, stated at length"},))
+        self.assertTrue(any("decision" in x for x in f), f)
+
+    def test_ein_UNSICHTBARES_ZEICHEN_ist_keine_begruendung(self):
+        """U+200B ueberlebt .strip(). Ein Grund, den niemand sehen kann, ist keiner — gemessen
+        12.09.2026 von einer Linse an genau dieser Stelle."""
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "\u200b",
+                                    "decision": "\u200b"},))
+        self.assertTrue(any("reason" in x for x in f), f)
+        self.assertTrue(any("decision" in x for x in f), f)
+
+    def test_ein_EINZELNES_ZEICHEN_ist_keine_begruendung(self):
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "x", "decision": "y"},))
+        self.assertTrue(f, "a one-character ground passed")
+
+    def test_ein_pfad_mit_leerzeichen_wirkt_GENAUSO_wie_der_gestrippte(self):
+        """Zwei Stellen, die verschieden normalisieren, sind zwei Ausnahmen mit einem Namen."""
+        d = self._archiv()
+        datei = d / "S99_excerpt.md"
+        datei.write_text("historical\n", encoding="utf-8")
+        eng = ({"path": "audit_artifacts/600/restrisiko", "reason": "r" * 30, "decision": "d" * 10},)
+        weit = ({"path": " audit_artifacts/600/restrisiko ", "reason": "r" * 30,
+                 "decision": "d" * 10},)
+        self.assertIsNotNone(rr.ausgenommen_durch(datei, self.wurzel, eng))
+        self.assertIsNotNone(rr.ausgenommen_durch(datei, self.wurzel, weit),
+                             "der gestrippte und der rohe Pfad meinen dieselbe Ausnahme")
+
+    def test_eine_UNBEKANNTE_ENDUNG_im_verzeichnis_wird_GENANNT(self):
+        """Nicht geprueft UND nicht ausgenommen darf nicht heissen: nicht erwaehnt.
+
+        Gemessen von einer Linse: eine .adoc im uebergebenen Verzeichnis fiel in keine der beiden
+        Listen, wurde nirgends gedruckt, und der Lauf endete OK — stiller als der Archivfall, gegen
+        den diese ganze Mechanik gebaut ist."""
+        d = self.wurzel / "neue_texte_gemischt"
+        d.mkdir(exist_ok=True)
+        (d / "gelesen.md").write_text("plain english\n", encoding="utf-8")
+        (d / "ungelesen.adoc").write_text("mentions zzkennungzz\n", encoding="utf-8")
+        rc, aus = self._lauf_mit_texten(d)
+        self.assertEqual(rc, rr.EXIT_OK)
+        self.assertIn("NOT JUDGED", aus, "die unbekannte Endung verschwand lautlos")
+        self.assertIn("ungelesen.adoc", aus)
+
+    def test_ein_NICHT_EXISTIERENDER_pfad_wird_abgewiesen(self):
+        """Ein Tippfehler ergab dieselbe frohe OK-Meldung wie ein sauber gepruefter Baum."""
+        rc, _ = self._lauf_mit_texten(self.wurzel / "gibt_es_nicht_xyz")
+        self.assertEqual(rc, rr.EXIT_REFUSED)
+
+    def test_ZWEI_verletzende_texte_werden_BEIDE_gemeldet(self):
+        """Die erste Fassung kehrte beim ersten Treffer zurueck — wer so sucht, braucht so viele
+        Laeufe wie Fehler."""
+        import contextlib
+        import io
+        d = self.wurzel / "zwei_verletzer"
+        d.mkdir(exist_ok=True)
+        (d / "a_erste.md").write_text("this mentions a Riegel\n", encoding="utf-8")
+        (d / "b_zweite.md").write_text("this mentions a Fangnachweis\n", encoding="utf-8")
+        reg = self.tmp / "reg_zwei.json"
+        reg.write_text(json.dumps(self.sauber), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = rr.main(["--register", str(reg), "--check-only",
+                          "--evidence-root", str(self.wurzel), "--also-check", str(d)])
+        self.assertEqual(rc, rr.EXIT_REFUSED)
+        self.assertIn("a_erste.md", err.getvalue())
+        self.assertIn("b_zweite.md", err.getvalue(), "die zweite Datei blieb ungelesen")
 
     def test_eine_ausnahme_DIE_DEN_GANZEN_BAUM_DECKT_wird_abgewiesen(self):
         f = rr.pruefung_ausnahmen(({"path": ".", "reason": "r", "decision": "d"},))
@@ -691,9 +758,8 @@ class TestSchutzAbschalten(Basis):
         d.mkdir(parents=True, exist_ok=True)
         datei = d / "S31_excerpt.md"
         datei.write_text("historical excerpt mentioning zzkennungzz\n", encoding="utf-8")
-        ns = self._mutiert_laden(
-            "            (ausgenommen.append((k, b)) if b else geprueft.append(k))",
-            "            geprueft.append(k)")
+        ns = self._mutiert_laden("            b = ausgenommen_durch(k, wurzel, bereiche)",
+                                 "            b = None")
         rc, _ = self._lauf_mit_texten_mutiert(ns, datei)
         self.assertEqual(rc, rr.EXIT_IDENTIFIER,
                          "cutting out the exemption changed nothing — it never exempted anything")
@@ -720,8 +786,8 @@ class TestSchutzAbschalten(Basis):
         d.mkdir(parents=True, exist_ok=True)
         datei = d / "S44_excerpt.md"
         datei.write_text("historical excerpt mentioning zzkennungzz\n", encoding="utf-8")
-        ns = self._mutiert_laden("    for datei, bereich in uebergangen:",
-                                 "    for datei, bereich in []:")
+        ns = self._mutiert_laden("    for pfad, dateien in sorted(je_bereich.items()):",
+                                 "    for pfad, dateien in []:")
         rc, aus = self._lauf_mit_texten_mutiert(ns, datei)
         self.assertEqual(rc, rr.EXIT_OK, "the verdict is unchanged — that is the point")
         self.assertNotIn("EXEMPT AREA", aus,

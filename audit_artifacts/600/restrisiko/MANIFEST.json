@@ -1,0 +1,1909 @@
+{
+  "schema": "proofbundle.restrisiko_archiv.v1",
+  "source": {
+    "path": "RESTRISIKO_600.md@v6.0.0",
+    "sha256": "73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc",
+    "bytes": 355042
+  },
+  "rule": "heading: from the heading line to the byte before the next heading of the same or a higher level. row: the single table row including its newline. Ranges are UTF-8 byte offsets into the source named above.",
+  "excerpts": [
+    {
+      "id": "R1",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R1.md",
+      "byte_range": [
+        2403,
+        3443
+      ],
+      "bytes": 1040,
+      "sha256": "70dadc8f06e049866c0021ad3200f6cd162c0cc73d01fd0c2dfc2f65b2db7adf"
+    },
+    {
+      "id": "R2",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R2.md",
+      "byte_range": [
+        3443,
+        3930
+      ],
+      "bytes": 487,
+      "sha256": "718e25c9089a1dd81cce3b109f800e23335feaae4bc0b7f1a7eb89117dd4497b"
+    },
+    {
+      "id": "R3",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R3.md",
+      "byte_range": [
+        3930,
+        5160
+      ],
+      "bytes": 1230,
+      "sha256": "62fc354bae045c729e595c862de95c7ca90e2a86ac7da13c29aecd00bd5967fb"
+    },
+    {
+      "id": "R4",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R4.md",
+      "byte_range": [
+        5160,
+        5711
+      ],
+      "bytes": 551,
+      "sha256": "6f0189e8548b59273faa22a51d9539f8ac781a1941104a4e721519a29d57b8c4"
+    },
+    {
+      "id": "R5",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R5.md",
+      "byte_range": [
+        5711,
+        6156
+      ],
+      "bytes": 445,
+      "sha256": "5e5fcec79bcf561f17e8e0a515843a64e58f332e00f80409d530c7ced8c4e894"
+    },
+    {
+      "id": "R6",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R6.md",
+      "byte_range": [
+        6156,
+        6792
+      ],
+      "bytes": 636,
+      "sha256": "00cb1f7700016ed31ee0a4656e9cdaea017243ca382771f32b2c9b70e4836db9"
+    },
+    {
+      "id": "R7",
+      "part": "main",
+      "carrier": "heading",
+      "file": "R7.md",
+      "byte_range": [
+        6792,
+        8310
+      ],
+      "bytes": 1518,
+      "sha256": "14c636eec6861dee09a41f8bdef31a0449258fdbada09f35492061f30524f17f"
+    },
+    {
+      "id": "N1",
+      "part": "main",
+      "carrier": "row",
+      "file": "N1.md",
+      "byte_range": [
+        8416,
+        8662
+      ],
+      "bytes": 246,
+      "sha256": "5b8a8793fddbaa82ad7a9de042d475414d8a505b1e1fe6fa08d9d87f6620fc00"
+    },
+    {
+      "id": "N2",
+      "part": "main",
+      "carrier": "row",
+      "file": "N2.md",
+      "byte_range": [
+        8662,
+        8840
+      ],
+      "bytes": 178,
+      "sha256": "408dead232be202067de2f682074b10e777fadfc67a4ca08ca2b9fcb72446b6f"
+    },
+    {
+      "id": "N3",
+      "part": "main",
+      "carrier": "row",
+      "file": "N3.md",
+      "byte_range": [
+        8840,
+        9188
+      ],
+      "bytes": 348,
+      "sha256": "5158d772f772d67e1e0633bebde2b82b7fa233d00374f5d692a49d20e6165fe7"
+    },
+    {
+      "id": "N4",
+      "part": "main",
+      "carrier": "row",
+      "file": "N4.md",
+      "byte_range": [
+        9188,
+        9479
+      ],
+      "bytes": 291,
+      "sha256": "8c94bd240b9f670e107f863133a90a54f182e8d3551cd07b6c74fabbd4a05564"
+    },
+    {
+      "id": "N5",
+      "part": "main",
+      "carrier": "row",
+      "file": "N5.md",
+      "byte_range": [
+        9479,
+        9633
+      ],
+      "bytes": 154,
+      "sha256": "2e1b9afd69a692992c766500d0b44f22b67d38a0c48743fd4dc0425c2d84cb63"
+    },
+    {
+      "id": "N6",
+      "part": "main",
+      "carrier": "row",
+      "file": "N6.md",
+      "byte_range": [
+        9633,
+        9813
+      ],
+      "bytes": 180,
+      "sha256": "e3c9ef27705ec548efc08d711e8b64f2138f2cd840d9215a6f737bed813990b2"
+    },
+    {
+      "id": "N7",
+      "part": "main",
+      "carrier": "row",
+      "file": "N7.md",
+      "byte_range": [
+        9813,
+        10083
+      ],
+      "bytes": 270,
+      "sha256": "7e3f2df0a60b8be95dc75e0d72afb4a99621d188702755e4ab3bea500a18cd09"
+    },
+    {
+      "id": "N8",
+      "part": "main",
+      "carrier": "row",
+      "file": "N8.md",
+      "byte_range": [
+        10083,
+        10281
+      ],
+      "bytes": 198,
+      "sha256": "fd286f6f72d3b730d276e6524b1b47fba19a74674ff2545f0f886ab59e0e2877"
+    },
+    {
+      "id": "N9",
+      "part": "main",
+      "carrier": "row",
+      "file": "N9.md",
+      "byte_range": [
+        10281,
+        10571
+      ],
+      "bytes": 290,
+      "sha256": "4d70debb084751f988f2655e3fc4605ae094837689065f3f9cf9022c2ae33209"
+    },
+    {
+      "id": "N10",
+      "part": "main",
+      "carrier": "row",
+      "file": "N10.md",
+      "byte_range": [
+        10571,
+        10720
+      ],
+      "bytes": 149,
+      "sha256": "7322b19fd9288df090afbdc9b012de387d2e59f7b808becf91d0ed358224e171"
+    },
+    {
+      "id": "N11",
+      "part": "main",
+      "carrier": "row",
+      "file": "N11.md",
+      "byte_range": [
+        10720,
+        11230
+      ],
+      "bytes": 510,
+      "sha256": "751b4236c5aebbf20c1c79035a8a8d06f6eca0428b7b7834aff67a3e3628ff0a"
+    },
+    {
+      "id": "N12",
+      "part": "main",
+      "carrier": "row",
+      "file": "N12.md",
+      "byte_range": [
+        11230,
+        12017
+      ],
+      "bytes": 787,
+      "sha256": "ee3a2a445028661baca4a6be65cff6b5af8cf3e77d250e23ceaea0e99f3ddbc8"
+    },
+    {
+      "id": "N13",
+      "part": "main",
+      "carrier": "row",
+      "file": "N13.md",
+      "byte_range": [
+        12017,
+        12806
+      ],
+      "bytes": 789,
+      "sha256": "30735b045d26743eeaf7f308a09b1431fafa6f2b9adb324b63594816c3223ec4"
+    },
+    {
+      "id": "N14",
+      "part": "main",
+      "carrier": "row",
+      "file": "N14.md",
+      "byte_range": [
+        12806,
+        14284
+      ],
+      "bytes": 1478,
+      "sha256": "0eccaa63e532fda0cde752201ce7563d11b09e9c4af543c1c10a94f4c64be92f"
+    },
+    {
+      "id": "N15",
+      "part": "main",
+      "carrier": "row",
+      "file": "N15.md",
+      "byte_range": [
+        14284,
+        18135
+      ],
+      "bytes": 3851,
+      "sha256": "31cdd57ef840b53ae7c974827c196857360360356ddf97701b072059be5e56a1"
+    },
+    {
+      "id": "N16",
+      "part": "main",
+      "carrier": "row",
+      "file": "N16.md",
+      "byte_range": [
+        21539,
+        21815
+      ],
+      "bytes": 276,
+      "sha256": "affeda40a607db0db916e6dd76f454b24b3f90b6aab29cf9379713675afa1e0b"
+    },
+    {
+      "id": "N17",
+      "part": "main",
+      "carrier": "row",
+      "file": "N17.md",
+      "byte_range": [
+        21815,
+        22018
+      ],
+      "bytes": 203,
+      "sha256": "ce6e1df09dbf3f8794a633bdc543efb2284972687a213c7d902344600559d91e"
+    },
+    {
+      "id": "N18",
+      "part": "main",
+      "carrier": "row",
+      "file": "N18.md",
+      "byte_range": [
+        22018,
+        22208
+      ],
+      "bytes": 190,
+      "sha256": "b47a52cdd7423f7901ad79d16881d384852bcadd5810954a2fd1f457d26fe68f"
+    },
+    {
+      "id": "N19",
+      "part": "main",
+      "carrier": "row",
+      "file": "N19.md",
+      "byte_range": [
+        22208,
+        22643
+      ],
+      "bytes": 435,
+      "sha256": "95b80968d1adacd9cf523d7051fe8cf61e859f651f003235cbfe9d6a56c7b406"
+    },
+    {
+      "id": "N20",
+      "part": "main",
+      "carrier": "row",
+      "file": "N20.md",
+      "byte_range": [
+        22643,
+        22882
+      ],
+      "bytes": 239,
+      "sha256": "3355c03eee1819b18e44341745624245620f5cb585556039fbb1f2f5d388a3ba"
+    },
+    {
+      "id": "N21",
+      "part": "main",
+      "carrier": "row",
+      "file": "N21.md",
+      "byte_range": [
+        22882,
+        23518
+      ],
+      "bytes": 636,
+      "sha256": "506e08bf6258bc958fd7e32a5e7a06406d0e036e3b8743188f98870a12390895"
+    },
+    {
+      "id": "A1",
+      "part": "main",
+      "carrier": "row",
+      "file": "A1.md",
+      "byte_range": [
+        24034,
+        24341
+      ],
+      "bytes": 307,
+      "sha256": "3f72533c5863ff007cc64d39c047c04846da424f3676b07e67e8aa5e98b4c7db"
+    },
+    {
+      "id": "A2",
+      "part": "main",
+      "carrier": "row",
+      "file": "A2.md",
+      "byte_range": [
+        24341,
+        24635
+      ],
+      "bytes": 294,
+      "sha256": "23581b82d7f64c9d8233fe812555e5c9ad41a6768d3672c3d653a8135028b635"
+    },
+    {
+      "id": "A3",
+      "part": "main",
+      "carrier": "row",
+      "file": "A3.md",
+      "byte_range": [
+        24635,
+        24958
+      ],
+      "bytes": 323,
+      "sha256": "24a0f41b9a5fc08568fbc12393c759d0205e40e888b613362ef26784ba1a59f7"
+    },
+    {
+      "id": "A4",
+      "part": "main",
+      "carrier": "row",
+      "file": "A4.md",
+      "byte_range": [
+        24958,
+        25301
+      ],
+      "bytes": 343,
+      "sha256": "a72cfc3187483225c1482ba43d4ec43b3bc83cfa500e46a6d8e189d9cf22aa3f"
+    },
+    {
+      "id": "S1",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S1.md",
+      "byte_range": [
+        37578,
+        39860
+      ],
+      "bytes": 2282,
+      "sha256": "f66f3e47bdfc3a3ccfc6b7fb3cf6e5370f86ad8b03a90de4b05b22ebd44a3974"
+    },
+    {
+      "id": "S2",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S2.md",
+      "byte_range": [
+        39860,
+        41053
+      ],
+      "bytes": 1193,
+      "sha256": "99bc124b40978fa4f5608f34532b09260ced1f33a2dc54b28c2018759b0f04b2"
+    },
+    {
+      "id": "S3",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S3.md",
+      "byte_range": [
+        41053,
+        41802
+      ],
+      "bytes": 749,
+      "sha256": "75192cfe38815001f66851cb8aaea6833a8387729d4a226207abb25299181f20"
+    },
+    {
+      "id": "S4",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S4.md",
+      "byte_range": [
+        41802,
+        43919
+      ],
+      "bytes": 2117,
+      "sha256": "ec73c0b2ca9cf2e21344509d9f33f84dc11254d0ca6f704c565288185e79f5f0"
+    },
+    {
+      "id": "S5",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S5.md",
+      "byte_range": [
+        44610,
+        46718
+      ],
+      "bytes": 2108,
+      "sha256": "eb6d0cc886ea85825feb0d03c7a66d0e2dc9b0e248774dc991530534093a1e12"
+    },
+    {
+      "id": "S6",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S6.md",
+      "byte_range": [
+        47845,
+        51666
+      ],
+      "bytes": 3821,
+      "sha256": "858fe3a7d1d6f91985d855aa127298a28bfe841f32fc4a6a81ac472c5e7c8703"
+    },
+    {
+      "id": "S7",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S7.md",
+      "byte_range": [
+        51666,
+        53847
+      ],
+      "bytes": 2181,
+      "sha256": "6f0c9d522679e1c2a8d247c407fe716c338e44c630abb4b12d675c1a5e0b5a20"
+    },
+    {
+      "id": "S7b",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S7b.md",
+      "byte_range": [
+        53847,
+        57771
+      ],
+      "bytes": 3924,
+      "sha256": "16cdef19f49c9e611b7d1bb5faf4ff80146749f1dcb5d09058d4135e2112e811"
+    },
+    {
+      "id": "S7c",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S7c.md",
+      "byte_range": [
+        57771,
+        59322
+      ],
+      "bytes": 1551,
+      "sha256": "eb3749df82b64a05fe0f6ab160fb2e1edc6291f182d65c4d505a2dc1792dfc93"
+    },
+    {
+      "id": "S7d",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S7d.md",
+      "byte_range": [
+        59322,
+        61575
+      ],
+      "bytes": 2253,
+      "sha256": "a99ea2e57d0519c0aed1083460bbccbe5d258c1bc1dce5db20b4f228c57117f8"
+    },
+    {
+      "id": "S10",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S10.md",
+      "byte_range": [
+        61575,
+        64369
+      ],
+      "bytes": 2794,
+      "sha256": "71fb14f879a171832328eb698724e9b5306a864b6cce15f014de74431a227339"
+    },
+    {
+      "id": "S8",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S8.md",
+      "byte_range": [
+        64369,
+        66046
+      ],
+      "bytes": 1677,
+      "sha256": "1bb6fca628317e8da6d0350da979249b9ffc9cd64580b8a8303d1fc683e0304d"
+    },
+    {
+      "id": "S11",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S11.md",
+      "byte_range": [
+        66046,
+        68886
+      ],
+      "bytes": 2840,
+      "sha256": "61f4e5b0f6a62697b12742cc9374b43ed9e8fc5c475fc910d2b00459b78756c5"
+    },
+    {
+      "id": "S12",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S12.md",
+      "byte_range": [
+        68886,
+        71767
+      ],
+      "bytes": 2881,
+      "sha256": "cb11d94b614e7c653ed516decdfbe82f2905ba10d230c8c10a309e7dcafa442e"
+    },
+    {
+      "id": "S13",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S13.md",
+      "byte_range": [
+        71767,
+        75451
+      ],
+      "bytes": 3684,
+      "sha256": "066f39f6404d4f0499492ed93e41a4326440b7579b3dd5a026e6d3d614d4d13f"
+    },
+    {
+      "id": "S14",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S14.md",
+      "byte_range": [
+        75451,
+        79968
+      ],
+      "bytes": 4517,
+      "sha256": "5be09406380aa788b1ce2aae477af3ab07f50f6bc72fabb18a0339eae9225029"
+    },
+    {
+      "id": "S15",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S15.md",
+      "byte_range": [
+        79968,
+        82841
+      ],
+      "bytes": 2873,
+      "sha256": "dfb35a8965f0c4504a79bb2d2003db4ab0c4f7889e1d1d8dc307a162d3599915"
+    },
+    {
+      "id": "S16",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S16.md",
+      "byte_range": [
+        82841,
+        84468
+      ],
+      "bytes": 1627,
+      "sha256": "1ab7bf4c574fd8d8e45f5d10069b01e11c684a23b52286775375b4f376110e4f"
+    },
+    {
+      "id": "S17",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S17.md",
+      "byte_range": [
+        84468,
+        88062
+      ],
+      "bytes": 3594,
+      "sha256": "f95e8ecb1db0192787fb70deca5303aab3542bdeb6b13a36662cba79d701e61e"
+    },
+    {
+      "id": "S18",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S18.md",
+      "byte_range": [
+        88062,
+        90583
+      ],
+      "bytes": 2521,
+      "sha256": "55359ac41db76f8e00a481ede44c75f4636f404710967fcf9f4b10b86ed19784"
+    },
+    {
+      "id": "S19",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S19.md",
+      "byte_range": [
+        90583,
+        93010
+      ],
+      "bytes": 2427,
+      "sha256": "2a4ffb10fe059732b1e49e78089c6590d9584dc2e01931a05ffc5c9385b9326a"
+    },
+    {
+      "id": "S9",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S9.md",
+      "byte_range": [
+        93010,
+        93957
+      ],
+      "bytes": 947,
+      "sha256": "24aa4bfc7dcde8f756d326437c2cac8bf0fa74e5ac88d52c39c5e767f5d914a4"
+    },
+    {
+      "id": "S20",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S20.md",
+      "byte_range": [
+        102209,
+        104090
+      ],
+      "bytes": 1881,
+      "sha256": "da2fd94bcd8e741a994f5d249c52c6f749e76f856e824c86c564d768d4386173"
+    },
+    {
+      "id": "S21",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S21.md",
+      "byte_range": [
+        104090,
+        105021
+      ],
+      "bytes": 931,
+      "sha256": "7f95f810443403a7a73310121d85bd44e5d93081e75ffb5cdf44b6acf0563e23"
+    },
+    {
+      "id": "S22",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S22.md",
+      "byte_range": [
+        105021,
+        105936
+      ],
+      "bytes": 915,
+      "sha256": "f2ee932f09138479eeae4c819216ab5fa7797b69732fd80be30c0fe2cf2663dd"
+    },
+    {
+      "id": "S23",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S23.md",
+      "byte_range": [
+        105936,
+        108990
+      ],
+      "bytes": 3054,
+      "sha256": "2e1dedf6773b36f4f30f06759283fa9b9df79e876b656fb339320b9e3d77fa22"
+    },
+    {
+      "id": "S24",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S24.md",
+      "byte_range": [
+        108990,
+        114004
+      ],
+      "bytes": 5014,
+      "sha256": "79c34134513e9308a94b0b21772e03af5e27c4c178e50cacbf85272b96c0713f"
+    },
+    {
+      "id": "S22",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S22.addendum-1.md",
+      "byte_range": [
+        111734,
+        114004
+      ],
+      "bytes": 2270,
+      "sha256": "13dc3277adcb34f60f4346d6628264f37d2197a3a50256bf3c04f99c67abc8bd"
+    },
+    {
+      "id": "S25",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S25.md",
+      "byte_range": [
+        114004,
+        121724
+      ],
+      "bytes": 7720,
+      "sha256": "03453b6d3cada61df5048816b009bdbc602604613836316aaafe57aa85f7182f"
+    },
+    {
+      "id": "S26",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S26.md",
+      "byte_range": [
+        121724,
+        122965
+      ],
+      "bytes": 1241,
+      "sha256": "c11518fcc7581aa64f9db1261c13c4c04f56fa4a87586a0665d905ced762b245"
+    },
+    {
+      "id": "S27",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S27.md",
+      "byte_range": [
+        122965,
+        124058
+      ],
+      "bytes": 1093,
+      "sha256": "5bc0cd7deb4486f56a7c8f218bf9a312b7d482cf047b86ad1e2f82f49f04866d"
+    },
+    {
+      "id": "S28",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S28.md",
+      "byte_range": [
+        124058,
+        124609
+      ],
+      "bytes": 551,
+      "sha256": "5b3173c969ff504f78db9d52388a070610535331b7f953bfe8b833c0de8eb417"
+    },
+    {
+      "id": "S29",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S29.md",
+      "byte_range": [
+        124609,
+        126157
+      ],
+      "bytes": 1548,
+      "sha256": "b54ac8206faff7493c26afdd0b85cda0fb83d731044c25c348a85e05b8871c34"
+    },
+    {
+      "id": "S30",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S30.md",
+      "byte_range": [
+        126157,
+        131313
+      ],
+      "bytes": 5156,
+      "sha256": "a5ff9cf2e64a83506479b3e4650edeb73aca32117ecbbc291c79c0b1cf3a83a4"
+    },
+    {
+      "id": "S31",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S31.md",
+      "byte_range": [
+        131313,
+        133857
+      ],
+      "bytes": 2544,
+      "sha256": "9038edbfdb4dc686215de82f4a686efc77699abe75575e88435e175d37c614df"
+    },
+    {
+      "id": "S32",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S32.md",
+      "byte_range": [
+        133857,
+        136338
+      ],
+      "bytes": 2481,
+      "sha256": "de50b1897bd85ee358f44ee655e3f1f50c483eaadfded4bedd0781a0a6ec4b7a"
+    },
+    {
+      "id": "S33",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S33.md",
+      "byte_range": [
+        136338,
+        140060
+      ],
+      "bytes": 3722,
+      "sha256": "ffdef9b88428b79563f306a07126f584f89242ab88f4c6b61cf953a894808363"
+    },
+    {
+      "id": "S34",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S34.md",
+      "byte_range": [
+        140060,
+        150388
+      ],
+      "bytes": 10328,
+      "sha256": "470d305776294ec0103fe638fe144bb0967b9678da2470473b08bc23f20ea79a"
+    },
+    {
+      "id": "S34",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S34.addendum-1.md",
+      "byte_range": [
+        144156,
+        148326
+      ],
+      "bytes": 4170,
+      "sha256": "16235285e6399b3f38758248e40f9af77bda09c6935f3d8ec1668443f310cfe8"
+    },
+    {
+      "id": "S30",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S30.addendum-1.md",
+      "byte_range": [
+        148326,
+        150388
+      ],
+      "bytes": 2062,
+      "sha256": "6fb83a53ace61e39de5d8e612b45b39670c885ac0b3091fd6bda6b6262c263f9"
+    },
+    {
+      "id": "S35",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S35.md",
+      "byte_range": [
+        150388,
+        164044
+      ],
+      "bytes": 13656,
+      "sha256": "b715e856ba414ef5d8a5f40e6b95a1f855b6ea524fc7e12fef38e9998f355072"
+    },
+    {
+      "id": "S35",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S35.addendum-1.md",
+      "byte_range": [
+        157958,
+        161713
+      ],
+      "bytes": 3755,
+      "sha256": "dde383dcdd3ad5a12c4770f3ae56e535345c9c00ca8b69a4d268558c9d018517"
+    },
+    {
+      "id": "S35",
+      "part": "addendum-2",
+      "carrier": "heading",
+      "file": "S35.addendum-2.md",
+      "byte_range": [
+        161713,
+        164044
+      ],
+      "bytes": 2331,
+      "sha256": "c940d7f60a2b27aefcf23f9244e103439b2a24f00049f45e9717ea78b3151e89"
+    },
+    {
+      "id": "S36",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S36.md",
+      "byte_range": [
+        164044,
+        165910
+      ],
+      "bytes": 1866,
+      "sha256": "c33b0c14765c49ee5af4be35cd0bacce827438988151ef1387e1492475915140"
+    },
+    {
+      "id": "S37",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S37.md",
+      "byte_range": [
+        165910,
+        177869
+      ],
+      "bytes": 11959,
+      "sha256": "3aa8999d2a6f928030f070be208a61e5f0310608fb6b57e1f67a7819e90e41dc"
+    },
+    {
+      "id": "S36",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S36.addendum-1.md",
+      "byte_range": [
+        173660,
+        176196
+      ],
+      "bytes": 2536,
+      "sha256": "9f37068d8f510e549f10068e75a09d7378dcc259d2d228d614ded240cb81b339"
+    },
+    {
+      "id": "S38",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S38.md",
+      "byte_range": [
+        177869,
+        180609
+      ],
+      "bytes": 2740,
+      "sha256": "52808db61ea47981d77b45ca08f73b4542d976138fb325bd7991bd094b36000d"
+    },
+    {
+      "id": "S39",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S39.md",
+      "byte_range": [
+        180609,
+        183420
+      ],
+      "bytes": 2811,
+      "sha256": "1a121cc1cd4aaa0f444b36be340533d6f9c9117b78528284a73f136635f0029c"
+    },
+    {
+      "id": "S40",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S40.md",
+      "byte_range": [
+        183420,
+        186494
+      ],
+      "bytes": 3074,
+      "sha256": "7f18dacc848d6dedd8ef7a2d25bfd94368bbf687e8ef7daefd62abde1dc5ac24"
+    },
+    {
+      "id": "S41",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S41.md",
+      "byte_range": [
+        186494,
+        188682
+      ],
+      "bytes": 2188,
+      "sha256": "8ff5a37f19b440a6cbc1e1f402e8471daa1c00c2ecc938fea9fccc2ec2077e80"
+    },
+    {
+      "id": "S42",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S42.md",
+      "byte_range": [
+        188682,
+        195542
+      ],
+      "bytes": 6860,
+      "sha256": "4a9f7729389e0235ca9c90620222458148383b322d41ecad62921ec0e78c95ea"
+    },
+    {
+      "id": "S43",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S43.md",
+      "byte_range": [
+        195542,
+        197911
+      ],
+      "bytes": 2369,
+      "sha256": "c9a5cc10f51e72665250520726a9daadb766d2015113dbbbdaf9e2a9e013182e"
+    },
+    {
+      "id": "S44",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S44.md",
+      "byte_range": [
+        197911,
+        200629
+      ],
+      "bytes": 2718,
+      "sha256": "d1185752f55e899c8f408455ac3826e3f9b578418a21ab6823070cabda717e8c"
+    },
+    {
+      "id": "S45",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S45.md",
+      "byte_range": [
+        200629,
+        203351
+      ],
+      "bytes": 2722,
+      "sha256": "01fb5e9710ee6b0cde051d5efb4cc9366fce2e2b99a499145053926b666c569c"
+    },
+    {
+      "id": "S46",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S46.md",
+      "byte_range": [
+        203351,
+        205847
+      ],
+      "bytes": 2496,
+      "sha256": "b0bfe53e64d24bbdef12285b5e36d169dc641f1e41741e9394a259d4049c6101"
+    },
+    {
+      "id": "S47",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S47.md",
+      "byte_range": [
+        205847,
+        208504
+      ],
+      "bytes": 2657,
+      "sha256": "1b13f74d735b87ccdaf195e0aad9789c9cc06b71a62a494e68d364577898b2cb"
+    },
+    {
+      "id": "S48",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S48.md",
+      "byte_range": [
+        208504,
+        212114
+      ],
+      "bytes": 3610,
+      "sha256": "4f5c98fcc35d5a55cfa995cddee7556f44e79f4d9bdb6b0916331e84d628d391"
+    },
+    {
+      "id": "S49",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S49.md",
+      "byte_range": [
+        212114,
+        219058
+      ],
+      "bytes": 6944,
+      "sha256": "b0e1fae0abad7a9e37d5a05f6cd369bac39fd958f7337bfb5971ec7907901133"
+    },
+    {
+      "id": "S50",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S50.md",
+      "byte_range": [
+        219058,
+        221375
+      ],
+      "bytes": 2317,
+      "sha256": "80cbbe6a293f8bf912bf683d5780cb625b3445d098000c0ccc6d083b7e18029e"
+    },
+    {
+      "id": "S51",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S51.md",
+      "byte_range": [
+        221375,
+        225644
+      ],
+      "bytes": 4269,
+      "sha256": "12400ab79a02aabdea15062cd78f51f85e1ea34897754bf4192c3d39b46ee207"
+    },
+    {
+      "id": "S50",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S50.addendum-1.md",
+      "byte_range": [
+        223814,
+        225644
+      ],
+      "bytes": 1830,
+      "sha256": "516ede61721555dc154d3d0a47c527659711b6e00b6223e165d7ec050844349c"
+    },
+    {
+      "id": "S52",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S52.md",
+      "byte_range": [
+        225644,
+        228850
+      ],
+      "bytes": 3206,
+      "sha256": "7cc54ff66c93e9a5f0e7fea8d07045f23622eda75b50c3434b8922652a3c7654"
+    },
+    {
+      "id": "S53",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S53.md",
+      "byte_range": [
+        228850,
+        231724
+      ],
+      "bytes": 2874,
+      "sha256": "d1a4b4a10c4b79347dbb55a0401420a2fd828a8f13169a7cdb158476454c6daf"
+    },
+    {
+      "id": "S54",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S54.md",
+      "byte_range": [
+        231724,
+        232463
+      ],
+      "bytes": 739,
+      "sha256": "b4af88cb39623088db623f0e1797c490d8d94be32e0c6661cb5ed23fb6c344ac"
+    },
+    {
+      "id": "S55",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S55.md",
+      "byte_range": [
+        232463,
+        234762
+      ],
+      "bytes": 2299,
+      "sha256": "caaba3031a8f3c2707f75a37a4dc02bcd5e8006b4b2fbb204baa4030e0b7c80f"
+    },
+    {
+      "id": "S56",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S56.md",
+      "byte_range": [
+        234762,
+        237227
+      ],
+      "bytes": 2465,
+      "sha256": "db33f1f937cab23434c36ba677436e5e0ed8f9420fef136a044157f4ee78b63d"
+    },
+    {
+      "id": "S57",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S57.md",
+      "byte_range": [
+        242648,
+        246695
+      ],
+      "bytes": 4047,
+      "sha256": "0b4c191a6d542a7338a8beaa0d468652e2b29f09be060b8c7372b7924a07fc31"
+    },
+    {
+      "id": "S58",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S58.md",
+      "byte_range": [
+        246695,
+        252988
+      ],
+      "bytes": 6293,
+      "sha256": "62fd3147cfe4ab2bbe6ded8d391de7f4a86918aa26f75563232cc6987ae03a53"
+    },
+    {
+      "id": "Z2",
+      "part": "main",
+      "carrier": "heading",
+      "file": "Z2.md",
+      "byte_range": [
+        247244,
+        249457
+      ],
+      "bytes": 2213,
+      "sha256": "eef986d9d0d69133e9f1a2b4bff7ce1c2f53b9fd9bbab142f32b161ab10d0b1d"
+    },
+    {
+      "id": "Z3",
+      "part": "main",
+      "carrier": "heading",
+      "file": "Z3.md",
+      "byte_range": [
+        249457,
+        250968
+      ],
+      "bytes": 1511,
+      "sha256": "929bc9ce636d5ed187697afd3d802e886028d93a8cd3d6b3e3f2783efffbcb63"
+    },
+    {
+      "id": "Z4",
+      "part": "main",
+      "carrier": "heading",
+      "file": "Z4.md",
+      "byte_range": [
+        250968,
+        252191
+      ],
+      "bytes": 1223,
+      "sha256": "5f86948e8fefb4be5917c9e518d04ff6b379accf72f3715bb7cc2bfdaf10e09a"
+    },
+    {
+      "id": "Z5",
+      "part": "main",
+      "carrier": "heading",
+      "file": "Z5.md",
+      "byte_range": [
+        252191,
+        252618
+      ],
+      "bytes": 427,
+      "sha256": "67f45f9f71e0832583947f6b9fd6d7b24f06143bc094d670d2951ea8fe4916a7"
+    },
+    {
+      "id": "S59",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S59.md",
+      "byte_range": [
+        252988,
+        257816
+      ],
+      "bytes": 4828,
+      "sha256": "ccaeabd9ec5a2f7c4c708b0b3a0f4e53ae404f87e2f39d42b4bef1c943d984d0"
+    },
+    {
+      "id": "S60",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S60.md",
+      "byte_range": [
+        257816,
+        260188
+      ],
+      "bytes": 2372,
+      "sha256": "d9a5bf7de9f6a061abea8983e4a4f7f2439d3b67fb709b2cd27c3d83a244b903"
+    },
+    {
+      "id": "S61",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S61.md",
+      "byte_range": [
+        260188,
+        263471
+      ],
+      "bytes": 3283,
+      "sha256": "80ab9b584300d55ea1e59d16585f57eb9fc92054ef1ab112ebfa5e79a6bf98a4"
+    },
+    {
+      "id": "S62",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S62.md",
+      "byte_range": [
+        263471,
+        265417
+      ],
+      "bytes": 1946,
+      "sha256": "ab4fe7b6009fc757988f22b09769d025c66ed2eebf603125fb09a8e67e71c313"
+    },
+    {
+      "id": "S63",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S63.md",
+      "byte_range": [
+        265417,
+        268202
+      ],
+      "bytes": 2785,
+      "sha256": "9f9c1c85e2d815e0f6d3b8b6cd8774b5eab1a0b75bfbbd7ac2a7e9a3fb1d3ddd"
+    },
+    {
+      "id": "S64",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S64.md",
+      "byte_range": [
+        268202,
+        270929
+      ],
+      "bytes": 2727,
+      "sha256": "67cbfaf8930d182892a98feeab019728a1040387c81a26c4711183b6d3870b14"
+    },
+    {
+      "id": "S65",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S65.md",
+      "byte_range": [
+        270929,
+        274788
+      ],
+      "bytes": 3859,
+      "sha256": "9ad7ab9ccebb84b3b3c2ccf28c9404fefeb5595f3b718d22dbac7bf5272ac5cd"
+    },
+    {
+      "id": "S61",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S61.addendum-1.md",
+      "byte_range": [
+        284057,
+        285608
+      ],
+      "bytes": 1551,
+      "sha256": "974da452d405cdf3c8e993ba61be75f2daf141a343d529c37bd55ed938222f9c"
+    },
+    {
+      "id": "S61",
+      "part": "addendum-2",
+      "carrier": "heading",
+      "file": "S61.addendum-2.md",
+      "byte_range": [
+        285608,
+        288350
+      ],
+      "bytes": 2742,
+      "sha256": "06273ad62e2560e4a0e3d9e4afcdf1818dca114ca1e0bd52564a7f26329e7b2b"
+    },
+    {
+      "id": "S61",
+      "part": "addendum-3",
+      "carrier": "heading",
+      "file": "S61.addendum-3.md",
+      "byte_range": [
+        288350,
+        291046
+      ],
+      "bytes": 2696,
+      "sha256": "5f182616d767ebb485b1d15db11cd1519336390c67989e9ed54e20f704716fd9"
+    },
+    {
+      "id": "S66",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S66.md",
+      "byte_range": [
+        291046,
+        297202
+      ],
+      "bytes": 6156,
+      "sha256": "b26cc0d13373ed8b370ac0ee65f3361a4dd2942bab1ee2108d283a332a729932"
+    },
+    {
+      "id": "S66",
+      "part": "addendum-1",
+      "carrier": "heading",
+      "file": "S66.addendum-1.md",
+      "byte_range": [
+        294199,
+        297202
+      ],
+      "bytes": 3003,
+      "sha256": "73e093e8d9eec840331091908d943b13988307938d589bd1e57caae0fc21ce88"
+    },
+    {
+      "id": "S67",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S67.md",
+      "byte_range": [
+        297202,
+        299033
+      ],
+      "bytes": 1831,
+      "sha256": "52f1b96c617c09f43cbdda1ac8ee3470846a7880123b8936347d4b5ed1092986"
+    },
+    {
+      "id": "S68",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S68.md",
+      "byte_range": [
+        299033,
+        301652
+      ],
+      "bytes": 2619,
+      "sha256": "c890920964f567eca388e01eb288e591862ab8cebfd43c2850d9c4f72c0afdf4"
+    },
+    {
+      "id": "S69",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S69.md",
+      "byte_range": [
+        301652,
+        304098
+      ],
+      "bytes": 2446,
+      "sha256": "2d36fdd790eeac4a6298fa849de01a64058b6570b7a0f3be55a1623c08c10c5b"
+    },
+    {
+      "id": "S70",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S70.md",
+      "byte_range": [
+        304098,
+        305714
+      ],
+      "bytes": 1616,
+      "sha256": "ad063bc52cc1f1188588ef7b32683bbf40f7646d50cae71fd164cbbb80bf56b0"
+    },
+    {
+      "id": "S71",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S71.md",
+      "byte_range": [
+        305714,
+        308034
+      ],
+      "bytes": 2320,
+      "sha256": "28d201fba59ec14b5f5db03060888a3566121cc174f3ec61b71fa45d96e83067"
+    },
+    {
+      "id": "S72",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S72.md",
+      "byte_range": [
+        308034,
+        311030
+      ],
+      "bytes": 2996,
+      "sha256": "b2e87f1e6a30cf4c23d7334835703034a8db593ca0427ae2453531f315a836cf"
+    },
+    {
+      "id": "S73",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S73.md",
+      "byte_range": [
+        311030,
+        315198
+      ],
+      "bytes": 4168,
+      "sha256": "24dec63da67d476ad9578f665fadce2369077e1babe6d59f920fa1c2f1018962"
+    },
+    {
+      "id": "S74",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S74.md",
+      "byte_range": [
+        315198,
+        317626
+      ],
+      "bytes": 2428,
+      "sha256": "7c116c8040252136f2205c728983dfff6ea4d8b9aa6a631445a078709739f51c"
+    },
+    {
+      "id": "S75",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S75.md",
+      "byte_range": [
+        317626,
+        321988
+      ],
+      "bytes": 4362,
+      "sha256": "9b591b94fa617836c7f2bb1322751db916aa8bb0974a7fe4cda7533479ee8e7c"
+    },
+    {
+      "id": "S76",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S76.md",
+      "byte_range": [
+        321988,
+        324303
+      ],
+      "bytes": 2315,
+      "sha256": "8fcac954f903fadd8fce7c832b657c06c57933d9ed0209c4cdf1506bfb6c7361"
+    },
+    {
+      "id": "S77",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S77.md",
+      "byte_range": [
+        324303,
+        327457
+      ],
+      "bytes": 3154,
+      "sha256": "e77c299c1e3eab7be1d8aadaa91ac53a8a94fc2c153afdf0623eb6c64782ece2"
+    },
+    {
+      "id": "S78",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S78.md",
+      "byte_range": [
+        327457,
+        329982
+      ],
+      "bytes": 2525,
+      "sha256": "9669a224ebf66f486752b94959559a02e11270c1a6927a5b1922b52e9f0b2d07"
+    },
+    {
+      "id": "S79",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S79.md",
+      "byte_range": [
+        329982,
+        331158
+      ],
+      "bytes": 1176,
+      "sha256": "51ce7f6cbc1e17fbb34320ce900d8ee844720e9568fb0f743918763624a54a9c"
+    },
+    {
+      "id": "S80",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S80.md",
+      "byte_range": [
+        331158,
+        332145
+      ],
+      "bytes": 987,
+      "sha256": "4e8be1b918070b249676811e51aa5a8e26ce5d5e648dcde0c2be227fc3485808"
+    },
+    {
+      "id": "S81",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S81.md",
+      "byte_range": [
+        332145,
+        332977
+      ],
+      "bytes": 832,
+      "sha256": "bbbfa06efd453087af78c7403f6b0d425dfd02928464aeaa13acd3bdd17d74e5"
+    },
+    {
+      "id": "S82",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S82.md",
+      "byte_range": [
+        332977,
+        334310
+      ],
+      "bytes": 1333,
+      "sha256": "441e671eb263f09cbfd5d9751e1ffa65f0fbafd5deaf2ac8e439fb65588ee626"
+    },
+    {
+      "id": "S83",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S83.md",
+      "byte_range": [
+        334310,
+        335554
+      ],
+      "bytes": 1244,
+      "sha256": "625d4dae0528f5547fe390d3920a648970270fbd2b5e4cfd996a9ae7af4fde2c"
+    },
+    {
+      "id": "S84",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S84.md",
+      "byte_range": [
+        335554,
+        336294
+      ],
+      "bytes": 740,
+      "sha256": "a1cf885dc11fa172e4aa9e96d1ed4835e7c9e0ba6bfe4036b59f8538e984a302"
+    },
+    {
+      "id": "S85",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S85.md",
+      "byte_range": [
+        336294,
+        337673
+      ],
+      "bytes": 1379,
+      "sha256": "7ccdefe5d30e4e214c6654b36eaed799b32ae35e0e629b1fff764d0d74612968"
+    },
+    {
+      "id": "S102",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S102.md",
+      "byte_range": [
+        339141,
+        340244
+      ],
+      "bytes": 1103,
+      "sha256": "571411f77f7f19797dcf7c648c16adc8b977fdd089b7cc3a9fceac97769e04ba"
+    },
+    {
+      "id": "S103",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S103.md",
+      "byte_range": [
+        340244,
+        341101
+      ],
+      "bytes": 857,
+      "sha256": "b9521dc74be6b57bafc51d31a4b6afc9eeede6f1d923a6f1347cfbaf1f4c0a38"
+    },
+    {
+      "id": "S104",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S104.md",
+      "byte_range": [
+        341101,
+        341818
+      ],
+      "bytes": 717,
+      "sha256": "142f180b9fefd55030cf78cd90b37861940d974e473fbe3c7e2a603b6173c2a5"
+    },
+    {
+      "id": "S105",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S105.md",
+      "byte_range": [
+        341818,
+        342187
+      ],
+      "bytes": 369,
+      "sha256": "bef4ea12b601c2838a0d6dba498cfa0ecb81aed7ca9a614f05bd4ddbeb95eb79"
+    },
+    {
+      "id": "S106",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S106.md",
+      "byte_range": [
+        342187,
+        342850
+      ],
+      "bytes": 663,
+      "sha256": "2b819085dae7fa11d648a8f6f23e8adbc4ed4178523a2982c5256e769872b3cc"
+    },
+    {
+      "id": "S107",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S107.md",
+      "byte_range": [
+        342850,
+        343651
+      ],
+      "bytes": 801,
+      "sha256": "316cc3edc1465b4991a1215272549ef144bdcd96473f71c2d65dfdc28a6f0468"
+    },
+    {
+      "id": "S108",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S108.md",
+      "byte_range": [
+        343651,
+        344325
+      ],
+      "bytes": 674,
+      "sha256": "24bb74e141c228acf0d02cd91f9ad09bd46f3d5c6fa6fe68fcaa0948cbd43416"
+    },
+    {
+      "id": "S109",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S109.md",
+      "byte_range": [
+        344325,
+        344850
+      ],
+      "bytes": 525,
+      "sha256": "96c2c44000e30800867c3d4af549d9352ba5de0da2b1227e0ddc41adabd9551e"
+    },
+    {
+      "id": "S110",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S110.md",
+      "byte_range": [
+        344850,
+        345357
+      ],
+      "bytes": 507,
+      "sha256": "11c9e74f552fa9d772f57737205c01319ee5ec71befb547b144cb3122ac0d6f8"
+    },
+    {
+      "id": "S111",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S111.md",
+      "byte_range": [
+        345357,
+        346674
+      ],
+      "bytes": 1317,
+      "sha256": "b3506ac5b8658d8d487f3c106b37b0cfe9394fef428971d5ba19ed664d7ec29e"
+    },
+    {
+      "id": "S112",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S112.md",
+      "byte_range": [
+        346674,
+        347847
+      ],
+      "bytes": 1173,
+      "sha256": "c52f04e4bc9398d22e9909505014eb6908569ee8c476bc369279758e66afc6ec"
+    },
+    {
+      "id": "S113",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S113.md",
+      "byte_range": [
+        347847,
+        348784
+      ],
+      "bytes": 937,
+      "sha256": "b9934be98a13d3f2768716509cb146ab799c0cddd14b9bb085d3c6507ec12a65"
+    },
+    {
+      "id": "S114",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S114.md",
+      "byte_range": [
+        348784,
+        349669
+      ],
+      "bytes": 885,
+      "sha256": "e2aac4b193dd3192d44fa765105b253cf16ec1549f4ed82659a8ffe0630bdf95"
+    },
+    {
+      "id": "S115",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S115.md",
+      "byte_range": [
+        349669,
+        350324
+      ],
+      "bytes": 655,
+      "sha256": "775bca8dcf08d429f9dcef647da84c4bd9b30ef956ef439137864525fed219f1"
+    },
+    {
+      "id": "S116",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S116.md",
+      "byte_range": [
+        350324,
+        350822
+      ],
+      "bytes": 498,
+      "sha256": "218d763588a21ba552269eaeee40854f6c1f697efa9ab7170bfb4440d838c10b"
+    },
+    {
+      "id": "S117",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S117.md",
+      "byte_range": [
+        350822,
+        351498
+      ],
+      "bytes": 676,
+      "sha256": "b15c0ca5c04de7471bf52623cc27f344a63860c045b393a4911e33bf574f6e68"
+    },
+    {
+      "id": "S118",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S118.md",
+      "byte_range": [
+        351498,
+        352058
+      ],
+      "bytes": 560,
+      "sha256": "6cd524a616afa893805d21d5e6af445c78a2145927bd49cba323661b4a10e55e"
+    },
+    {
+      "id": "S119",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S119.md",
+      "byte_range": [
+        352058,
+        352335
+      ],
+      "bytes": 277,
+      "sha256": "fd9faa8da1f1b76bb3affa32197fada581bfffe50fbed62b37802b8bc4d25e4c"
+    },
+    {
+      "id": "S120",
+      "part": "main",
+      "carrier": "heading",
+      "file": "S120.md",
+      "byte_range": [
+        352335,
+        355042
+      ],
+      "bytes": 2707,
+      "sha256": "c166fdc94795f2d4867930f8e6ca7733ee82901f448c76401fb001815367d5bb"
+    }
+  ],
+  "overlaps": [
+    [
+      "S24.md",
+      "S22.addendum-1.md"
+    ],
+    [
+      "S34.md",
+      "S30.addendum-1.md"
+    ],
+    [
+      "S34.md",
+      "S34.addendum-1.md"
+    ],
+    [
+      "S35.md",
+      "S35.addendum-1.md"
+    ],
+    [
+      "S35.md",
+      "S35.addendum-2.md"
+    ],
+    [
+      "S37.md",
+      "S36.addendum-1.md"
+    ],
+    [
+      "S51.md",
+      "S50.addendum-1.md"
+    ],
+    [
+      "S58.md",
+      "Z2.md"
+    ],
+    [
+      "S58.md",
+      "Z3.md"
+    ],
+    [
+      "S58.md",
+      "Z4.md"
+    ],
+    [
+      "S58.md",
+      "Z5.md"
+    ],
+    [
+      "S66.md",
+      "S66.addendum-1.md"
+    ]
+  ]
+}

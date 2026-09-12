@@ -87,16 +87,26 @@ def pruefung_ausnahmen(bereiche=AUSGENOMMENE_BEREICHE) -> list[str]:
     f = []
     for b in bereiche:
         pfad = (b.get("path") or "").strip()
+        # `.strip()` allein reicht NICHT: U+200B (zero width space) ueberlebt es, und ein Grund aus
+        # einem unsichtbaren Zeichen ist beim Lesen von keinem Grund zu unterscheiden. Gemessen
+        # 12.09.2026 von einer Linse. Die Mindestlaenge ist dieselbe, die `pruefung_inventar` fuer
+        # einen Lueckengrund schon verlangt — das Muster stand da, es war nur nicht uebernommen.
+        # Das ist ausdruecklich KEINE Qualitaetspruefung der Begruendung (ein Stellvertreter, den
+        # ich bewusst nicht baue) — es ist die Frage, ob ueberhaupt etwas Lesbares dasteht.
         if not pfad:
             f.append("exempt area without a path")
         elif pfad.startswith("/") or ".." in Path(pfad).parts:
             f.append(f"exempt area is absolute or escapes upwards: {pfad!r}")
         elif pfad in (".", ""):
             f.append("exempt area covers the whole tree — that is not an exception, that is an end")
-        if not (b.get("reason") or "").strip():
-            f.append(f"exempt area {pfad!r} without a reason — the order forbids a silent exception")
-        if not (b.get("decision") or "").strip():
-            f.append(f"exempt area {pfad!r} names no decision that granted it")
+        for feld, mindest in (("reason", 20), ("decision", 8)):
+            wert = "".join(c for c in (b.get(feld) or "") if c.isprintable() and not c.isspace())
+            if not wert:
+                f.append(f"exempt area {pfad!r}: {feld} carries nothing readable — the order "
+                         f"forbids a silent exception, and an invisible character is silent")
+            elif len(wert) < mindest:
+                f.append(f"exempt area {pfad!r}: {feld} has {len(wert)} readable characters, "
+                         f"fewer than the {mindest} this register already demands of a gap note")
     return f
 
 
@@ -112,7 +122,9 @@ def ausgenommen_durch(p: Path, wurzel: Path, bereiche=AUSGENOMMENE_BEREICHE) -> 
     except OSError:
         return None
     for b in bereiche:
-        bereich = (wurzel / b["path"]).resolve()
+        # Der GESTRIPPTE Pfad — `pruefung_ausnahmen` prueft ihn gestrippt, und zwei Stellen, die
+        # verschieden normalisieren, sind zwei verschiedene Ausnahmen mit einem Namen.
+        bereich = (wurzel / (b.get("path") or "").strip()).resolve()
         if ziel == bereich or ziel.is_relative_to(bereich):
             return b
     return None
@@ -124,22 +136,38 @@ TEXT_ENDUNGEN = {".md", ".txt", ".json", ".rst", ".html", ".csv", ".yaml", ".yml
 
 
 def sammle_neue_texte(ziele, wurzel: Path,
-                      bereiche=AUSGENOMMENE_BEREICHE) -> tuple[list[Path], list[tuple[Path, dict]]]:
-    """Split the named new texts into (judged, exempted-with-its-area).
+                      bereiche=AUSGENOMMENE_BEREICHE) -> tuple[list[Path], list[tuple[Path, dict]],
+                                                               list[Path], list[Path]]:
+    """Split the named new texts into (judged, exempted-with-its-area, unknown-type, missing).
 
-    The second list is the point. A checker that simply skipped the archive would be indistinguish-
-    able from one that never looked — and that is exactly the state this replaces.
+    The three lists after the first are the point, and the last two were added because a lens
+    measured that they were MISSING. A checker that simply skips something is indistinguishable
+    from one that never looked — and that was exactly the state this whole change replaces.
+
+    Measured 12.09.2026: a `.adoc`, `.markdown` or extension-less file inside a named DIRECTORY
+    appeared in neither list. It was not checked, not exempt, not mentioned, and the run ended
+    OK — silenter than the archive case this was built against, because for the archive there is
+    at least a declared reason. The same file handed over DIRECTLY was checked and refused.
+    A non-existent path produced the same cheerful OK as a clean tree.
     """
     geprueft: list[Path] = []
     ausgenommen: list[tuple[Path, dict]] = []
+    unbekannt: list[Path] = []
+    fehlend: list[Path] = []
     for ziel in ziele:
-        kandidaten = ([ziel] if ziel.is_file()
-                      else sorted(q for q in ziel.rglob("*")
-                                  if q.is_file() and q.suffix.lower() in TEXT_ENDUNGEN))
+        if not ziel.exists():
+            fehlend.append(ziel)
+            continue
+        kandidaten = [ziel] if ziel.is_file() else sorted(q for q in ziel.rglob("*") if q.is_file())
         for k in kandidaten:
             b = ausgenommen_durch(k, wurzel, bereiche)
-            (ausgenommen.append((k, b)) if b else geprueft.append(k))
-    return geprueft, ausgenommen
+            if b:
+                ausgenommen.append((k, b))
+            elif ziel.is_file() or k.suffix.lower() in TEXT_ENDUNGEN:
+                geprueft.append(k)
+            else:
+                unbekannt.append(k)
+    return geprueft, ausgenommen, unbekannt, fehlend
 
 
 # An evidence file larger than this is refused rather than read. Named because a bound
@@ -724,27 +752,60 @@ def main(argv=None) -> int:
     # skipped by the DECLARED area, out loud. Owner order 20260911T2233Z, decision one, item three:
     # "they know the archive path as an exempt area, explicitly and with a ground, not as a silent
     # exception." Printing it is what makes the difference between the two.
-    neue_texte, uebergangen = sammle_neue_texte(list(a.also_check), a.evidence_root)
+    neue_texte, uebergangen, unbekannt, fehlend = sammle_neue_texte(list(a.also_check),
+                                                                    a.evidence_root)
+    # Ein genannter Pfad, den es nicht gibt, ist ein Tippfehler oder eine falsche Annahme — nie ein
+    # sauber geprueftes Nichts. Fail-closed, weil beides gleich aussieht und nur eines harmlos ist.
+    if fehlend:
+        print("REFUSED — named for checking but not present:", file=sys.stderr)
+        for q in fehlend:
+            print(f"  {q}", file=sys.stderr)
+        return EXIT_REFUSED
+    # Nicht ausgenommen, aber auch nicht geprueft: das ist KEINE Ausnahme (es gibt keinen Grund),
+    # also bekommt es eine eigene Rubrik statt zu verschwinden.
+    if unbekannt:
+        print(f"NOT JUDGED — {len(unbekannt)} file(s) of a type this check does not read "
+              f"(no declared reason, they are simply not text):")
+        for q in sorted(unbekannt):
+            print(f"    {q.relative_to(a.evidence_root) if q.is_relative_to(a.evidence_root) else q}")
+    # ONE block per AREA, not per file. The first version printed four lines for every skipped
+    # file; against the real archive that is 156 blocks, and a reader scrolls past a wall of text
+    # exactly as reliably as past silence. The area, its ground and the granting decision are
+    # named once, and every skipped file is still listed by name — what must not happen is that
+    # a skip goes unmentioned, not that it gets its own paragraph.
+    je_bereich: dict[str, list[Path]] = {}
+    gruende: dict[str, dict] = {}
     for datei, bereich in uebergangen:
-        print(f"EXEMPT AREA — not judged: {datei}\n"
-              f"    area:   {bereich['path']}\n"
-              f"    ground: {bereich['reason']}\n"
-              f"    by:     {bereich['decision']}")
+        je_bereich.setdefault(bereich["path"], []).append(datei)
+        gruende[bereich["path"]] = bereich
+    for pfad, dateien in sorted(je_bereich.items()):
+        b = gruende[pfad]
+        print(f"EXEMPT AREA — {len(dateien)} file(s) not judged\n"
+              f"    area:   {pfad}\n"
+              f"    ground: {b['reason']}\n"
+              f"    by:     {b['decision']}\n"
+              f"    files:  {', '.join(sorted(q.name for q in dateien))}")
+    # Vollstaendig sammeln, dann urteilen — dasselbe Prinzip wie fuer die Registerregeln oben
+    # ("validation runs to completion"). Die erste Fassung kehrte beim ERSTEN sprachlichen Treffer
+    # zurueck, sodass eine zweite verletzende Datei im selben Lauf ungelesen blieb; wer sie
+    # nacheinander findet, braucht so viele Laeufe wie Fehler.
     neuer_text = ""
+    sprachfunde: list[str] = []
+    unlesbar: list[str] = []
     for datei in neue_texte:
         try:
             inhalt = datei.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            print(f"REFUSED — named for checking but unreadable as text: {datei} "
-                  f"({type(exc).__name__})", file=sys.stderr)
-            return EXIT_REFUSED
-        neu_sprache = pruefung_sprache(inhalt)
-        if neu_sprache:
-            print(f"REFUSED — {datei} carries terms an outward text must not:", file=sys.stderr)
-            for sf in sorted(set(neu_sprache)):
-                print(f"  {sf}", file=sys.stderr)
-            return EXIT_REFUSED
+            unlesbar.append(f"{datei} ({type(exc).__name__})")
+            continue
+        sprachfunde += [f"{datei}: {sf}" for sf in sorted(set(pruefung_sprache(inhalt)))]
         neuer_text += "\n" + inhalt
+    if unlesbar or sprachfunde:
+        print(f"REFUSED — {len(sprachfunde)} language finding(s) in new texts, "
+              f"{len(unlesbar)} unreadable:", file=sys.stderr)
+        for x in unlesbar + sprachfunde:
+            print(f"  {x}", file=sys.stderr)
+        return EXIT_REFUSED
     if neue_texte:
         print(f"checked {len(neue_texte)} new text(s); {len(uebergangen)} file(s) in a declared "
               f"exempt area")

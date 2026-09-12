@@ -127,7 +127,7 @@ The coverage check is built and refuses a prose-only identifier; the migration o
 **Evidence**
 
 * `audit_artifacts/restrisiko_610/traeger_deckung.txt` — measurement, sha256 `7cc48bf4358913a5…`
-* `tests/test_restrisiko_render.py` — catch_proof, sha256 `c53f4ceebc0c1567…`
+* `tests/test_restrisiko_render.py` — catch_proof, sha256 `e1fa949831e97ba2…`
 
 *first seen 2026-09-11 · last measured 2026-09-12 · revision 1*
 
@@ -152,7 +152,7 @@ The generator carries the check; the word list is read from OUTSIDE the reposito
 **Evidence**
 
 * `audit_artifacts/restrisiko_610/bezeichner_zahl.txt` — measurement, sha256 `57d72ac8fa9114b1…`
-* `tests/test_restrisiko_render.py` — catch_proof, sha256 `c53f4ceebc0c1567…`
+* `tests/test_restrisiko_render.py` — catch_proof, sha256 `e1fa949831e97ba2…`
 
 *first seen 2026-09-11 · last measured 2026-09-12 · revision 1*
 

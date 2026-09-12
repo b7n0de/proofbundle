@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance conformance-crossimpl all coverage restrisiko restrisiko-deckung restrisiko-render
+.PHONY: test lint typecheck demo tamper-demo persample-demo full-demo mutation examples conformance conformance-crossimpl all coverage restrisiko restrisiko-deckung restrisiko-render restrisiko-archiv-pruefen restrisiko-archiv-schreiben
 
 PYTHON ?= python3
 
@@ -106,5 +106,25 @@ restrisiko-render:  ## re-derive the three outward surfaces FROM the register (o
 		--out-summary KNOWN_ISSUES_610.md \
 		--out-full RESTRISIKO_610.md \
 		--out-openvex audit_artifacts/restrisiko_610/openvex_610.json
+
+# The archive of byte-identical excerpts. The PINNED state is handed to the tool as a file —
+# it never fetches what it verifies, because a tool that chooses its own input is judging its own
+# choice. ARCHIV_REF names the state; changing it is a decision, not a default.
+ARCHIV_REF ?= v6.0.0
+
+restrisiko-archiv-pruefen:  ## re-derive every excerpt from the pinned record and compare byte for byte
+	@if git rev-parse -q --verify $(ARCHIV_REF) >/dev/null; then \
+		t=$$(mktemp) && git show $(ARCHIV_REF):RESTRISIKO_600.md > $$t && \
+		$(PYTHON) scripts/restrisiko_archiv.py --quelle $$t \
+			--quell-pfad "RESTRISIKO_600.md@$(ARCHIV_REF)" --pruefen; rc=$$?; rm -f $$t; exit $$rc; \
+	else echo "== $@: skipped — the pinned state $(ARCHIV_REF) is not in this clone."; fi
+
+restrisiko-archiv-schreiben:  ## cut the excerpts again from the pinned record (overwrites them)
+	@if git rev-parse -q --verify $(ARCHIV_REF) >/dev/null; then \
+		t=$$(mktemp) && git show $(ARCHIV_REF):RESTRISIKO_600.md > $$t && \
+		$(PYTHON) scripts/restrisiko_archiv.py --quelle $$t \
+			--quell-pfad "RESTRISIKO_600.md@$(ARCHIV_REF)" --schreiben --pruefen; rc=$$?; \
+		rm -f $$t; exit $$rc; \
+	else echo "== $@: skipped — the pinned state $(ARCHIV_REF) is not in this clone."; fi
 
 all: lint typecheck test  ## needs ruff + mypy; from the shipped package run `make test` alone
