@@ -197,6 +197,82 @@ class TestCodebloeckeSindKeinMarkup(Basis):
                          "removing the masking changed nothing — it never masked anything")
 
 
+class TestAusgezeichneteSammelueberschriften(Basis):
+    """Von Juror A reproduziert (12.09.2026), nachdem die Sammelueberschrift bereits als behoben galt.
+
+    `## **S102** bis S114 — …` liess `BEREICHSWORT` nicht greifen: der Rest nach der Kennung beginnt
+    mit `**`, nicht mit Leerraum. Folge: die Sammlung galt wieder als Fund, und weil sie flacher
+    steht als `### S102`, verschluckte ihr Ausschnitt S103 und S104 — genau der Fehler, den der
+    Docstring als behoben beschreibt. Gemessen wurde byte_range [10, 217], also der ganze Abschnitt.
+
+    Im Bestand steht heute keine fett gesetzte Sammelueberschrift. Latent im BESTAND ist nicht
+    behoben in der REGEL — deshalb diese Faelle.
+
+    Zwei Haertungen waren noetig, und die zweite lag nicht an der Auszeichnung:
+      * `[*_]*` statt `\**` in beiden Mustern — Markdown zeichnet mit BEIDEN Zeichen aus, und eine
+        Haertung an einer von zwei Stellen laesst die andere offen.
+      * `(?![A-Za-z0-9])` statt `\b` nach der Kennung — `_` IST ein Wortzeichen, zwischen `S102` und
+        dem schliessenden `__` steht also gar keine Wortgrenze. `\b` griff dort nie.
+    """
+
+    def _ist_sammlung(self, kopf: str) -> bool:
+        m = ra.ID_UEBERSCHRIFT_VOLL.match(kopf)
+        return bool(m and ra.BEREICHSWORT.match(m.group(3)))
+
+    def test_eine_AUSGEZEICHNETE_sammelueberschrift_gilt_als_sammlung(self):
+        for kopf in ("## **S102** bis S114 — Sammelfund",
+                     "## __S102__ bis S114 — Sammelfund",
+                     "## *S102* bis S114",
+                     "## _S102_ bis S114",
+                     "## S102 bis S114 — ohne Auszeichnung"):
+            with self.subTest(kopf=kopf[:40]):
+                self.assertTrue(self._ist_sammlung(kopf), f"nicht als Sammlung erkannt: {kopf}")
+
+    def test_ein_GEVIERTSTRICH_macht_aus_einem_fund_keine_sammlung(self):
+        """Die Gegenrichtung, und sie entscheidet: der Geviertstrich ist die uebliche Titeltrennung.
+
+        Wer ihn in die Zeichenklasse aufnaehme, machte aus `### Z5 — S51 haelt …` eine Sammlung und
+        loeschte damit Z5s eigenen Abschnitt. Eine Haertung, die jede Ueberschrift zur Sammlung
+        macht, ist keine Haertung."""
+        for kopf in ("### Z5 — S51 haelt, mit zwei Praezisierungen",
+                     "## S22 — Rohmatrix und signiertes Differential-Artefakt",
+                     "### S102 · Ein AST-Scanner sieht keine dynamische Form",
+                     "## S7b — eine Kennung mit Buchstabensuffix"):
+            with self.subTest(kopf=kopf[:40]):
+                self.assertFalse(self._ist_sammlung(kopf), f"faelschlich Sammlung: {kopf}")
+
+    def test_eine_AUSGEZEICHNETE_kennung_wird_ueberhaupt_erkannt(self):
+        """Vor der zweiten Haertung fiel `## __S102__ …` GANZ aus der Erkennung — nicht als
+        Sammlung, sondern gar nicht. Ein Fund, den kein Muster sieht, hat keinen Ausschnitt."""
+        for kopf, soll in (("## __S102__ bis S114", "S102"), ("## **S22** — Titel", "S22"),
+                           ("## _S7b_ — Titel", "S7b")):
+            with self.subTest(kopf=kopf):
+                m = ra.ID_UEBERSCHRIFT_VOLL.match(kopf)
+                self.assertIsNotNone(m, f"Kennung nicht erkannt: {kopf}")
+                self.assertEqual(m.group(2), soll)
+
+    def test_die_haertung_aendert_den_ECHTEN_bestand_NICHT(self):
+        """Eine Regelaenderung, die den ausgelieferten Bestand verschiebt, waere ein zweiter Fund.
+
+        Gemessen: 154 Ausschnitte vorher wie nachher, null geaenderte Bereiche."""
+        import json
+        import subprocess
+        man_p = ARCHIV / "MANIFEST.json"
+        if not man_p.is_file():
+            self.skipTest("Archiv nicht in diesem Baum")
+        man = json.loads(man_p.read_text(encoding="utf-8"))
+        ref = man["source"]["path"].split("@")[-1]
+        r = subprocess.run(["git", "show", f"{ref}:RESTRISIKO_600.md"], cwd=str(REPO),
+                           capture_output=True)
+        if r.returncode:
+            self.skipTest(f"der gepinnte Stand {ref} ist in diesem Klon nicht da")
+        neu = {e["file"]: e["byte_range"] for e in ra.bereiche(r.stdout.decode("utf-8"))}
+        alt = {e["file"]: e["byte_range"] for e in man["excerpts"]}
+        self.assertEqual(sorted(neu), sorted(alt), "die Menge der Ausschnitte hat sich geaendert")
+        self.assertEqual([k for k in alt if alt[k] != neu[k]], [],
+                         "die Haertung hat Bereiche im ausgelieferten Bestand verschoben")
+
+
 class TestDiePruefungFaengtEinGeaendertesByte(Basis):
     def test_EIN_BYTE_im_ausschnitt_laesst_die_pruefung_scheitern(self):
         d = self.frisch()

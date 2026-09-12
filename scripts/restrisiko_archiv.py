@@ -34,12 +34,30 @@ import sys
 from pathlib import Path
 
 SCHEMA = "proofbundle.restrisiko_archiv.v1"
-ID_UEBERSCHRIFT_VOLL = re.compile(r"^(#{2,4})\s+(?:↳\s*)?\**\s*([A-Z]\d+[a-z]?)\b(.*)$", re.M)
+# `[*_]*` statt `\**`, und `(?![A-Za-z0-9])` statt `\b`. Beides gemessen 12.09.2026, nachdem ein
+# Juror die Sammelueberschrift trotz vorhandener Regel reproduziert hatte:
+#   * Markdown zeichnet mit STERNCHEN UND UNTERSTRICH aus. Die erste Fassung kannte nur Sternchen,
+#     also fiel `## __S102__ bis S114` GANZ aus der Erkennung — nicht als Sammlung, sondern gar
+#     nicht. Ein Fund, den kein Muster sieht, hat keinen Ausschnitt.
+#   * `_` IST ein Wortzeichen. Zwischen `S102` und dem schliessenden `__` steht damit gar keine
+#     Wortgrenze; `\b` griff dort nie. Die zweite Haertung lag also an einer Eigenschaft der
+#     Zeichenklasse, nicht an der Auszeichnung — und ohne sie blieb die erste wirkungslos.
+ID_UEBERSCHRIFT_VOLL = re.compile(
+    r"^(#{2,4})\s+(?:↳\s*)?[*_]*\s*([A-Z]\d+[a-z]?)(?![A-Za-z0-9])(.*)$", re.M)
 # The ONE shape that means "this heading is about a RANGE of findings, not about one".
 # Measured: exactly one heading in the record at v6.0.0 matches it (`## S102 bis S114 — …`).
 # Deliberately NOT "the heading mentions a second identifier": `### Z5 — S51 haelt, mit zwei
 # Praezisierungen` mentions one and is Z5's own section.
-BEREICHSWORT = re.compile(r"^\s*(bis|to|through|\.\.+)\s*[A-Z]?\d", re.I)
+# Zwischen Kennung und Bereichswort duerfen SCHLIESSENDE Auszeichnungen stehen. Von Juror A an
+# `## **S102** bis S114 — …` reproduziert: der Rest beginnt mit `**`, nicht mit Leerraum, das
+# Muster griff nicht, die Sammlung galt wieder als Fund — und weil sie flacher steht als
+# `### S102`, verschluckte ihr Ausschnitt S103 und S104 (byte_range [10, 217] im gestellten Fall).
+# Genau der Fehler, den der Docstring oben als behoben beschreibt. Im Bestand steht heute keine
+# solche Ueberschrift: latent im BESTAND ist nicht behoben in der REGEL.
+# Der Geviertstrich bleibt DRAUSSEN — sonst wuerde `### Z5 — S51 haelt …` zur Sammlung und Z5
+# verloere seinen eigenen Abschnitt. Eine Haertung, die jede Ueberschrift zur Sammlung macht, ist
+# keine.
+BEREICHSWORT = re.compile(r"^[\s*_]*(bis|to|through|\.\.+)\s*[A-Z]?\d", re.I)
 ID_ROW = re.compile(r"^\|\s*([A-Z]\d+[a-z]?)\s*\|", re.M)
 ALLE_UEBERSCHRIFTEN = re.compile(r"^(#{1,6})\s", re.M)
 
