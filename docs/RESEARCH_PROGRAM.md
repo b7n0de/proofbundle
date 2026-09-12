@@ -94,3 +94,87 @@ and **the state**. Only one has evidence in the tree today.
 starting position to be improved before it is shown. The five `NOT MEASURED` lines each name the
 measurement that would decide them — which is the useful part: they are falsifiable, and none of
 them is waiting on an opinion.
+
+---
+
+## Contribution candidates
+
+Six candidates from sections 10–15 of the external note. Each carries exactly four lines: **Claim**,
+**Non-claim**, **Evidence in tree** with path and head, **State of external review**. The head is
+`origin/main` = `27c17fcf2d5a42dd8949c94337065cc89f346a39` unless the line says otherwise.
+
+**The non-claim line is not decoration.** Every one of these candidates has a neighbouring statement
+that the evidence does *not* support, and naming it is what keeps the claim falsifiable.
+
+### C1 — Evidence taxonomy
+
+- **Claim:** the statements derivable from a receipt are separable into named classes, and the code
+  keeps them separate rather than collapsing them into one verdict.
+- **Non-claim:** that the class set is complete, or that the separation has been shown to be the
+  *right* one. Twelve classes are proposed in the note; the tree does not carry twelve.
+- **Evidence in tree:** `src/proofbundle/assurance.py` (231 lines) · `tests/test_assurance.py`
+  (193 lines) · `SPEC.md` (787 lines).
+- **State of external review:** `NOT MEASURED`. No external party has reviewed the class separation.
+
+### C2 — Portable AI eval evidence
+
+- **Claim:** an evaluation result can be emitted as a receipt that a third party verifies offline,
+  without the model or the dataset.
+- **Non-claim:** that the receipt says anything about the *semantic truth* of the evaluation. It
+  binds authorship and integrity, not correctness — and that limit is stated in the shipped text.
+- **Evidence in tree:** `src/proofbundle/evalclaim.py` (618 lines) · `tests/test_evalclaim.py`
+  (224 lines) · `src/proofbundle/emit.py` (143 lines) · `paper.md` (129 lines).
+- **State of external review:** `NOT MEASURED`. The in-toto predicate PR is open and unmerged; no
+  unmodified external consumer has been measured against it.
+
+### C3 — Verifier assurance
+
+- **Claim:** the defect classes a verifier claims to catch can be shown empirically to be caught —
+  by planted defects, mutation, negative conformance vectors and a never-raise contract.
+- **Non-claim:** that the measured detection rate generalises to *unknown* attacks. A planted defect
+  proves sensitivity to its own class and to nothing beyond it.
+- **Evidence in tree:** `conformance/run_conformance.py` (874 lines) · `scripts/mutation_check.py`
+  (1273 lines) · `tests/test_never_raise_surface_family_property.py` (654 lines) ·
+  `tests/test_rust_parity_gate.py` (462 lines) · `THREAT_MODEL.md` (160 lines).
+- **State of external review:** `NOT MEASURED`. The strongest candidate of the six by volume of
+  evidence, and the one with no external reading at all.
+
+### C4 — Evidence evolution
+
+- **Claim:** a later change of knowledge can be expressed without mutating a historical receipt —
+  through typed relations rather than edits.
+- **Non-claim:** that the relation vocabulary is complete, or that consumers are obliged to follow
+  it. A relation a reader ignores changes nothing for that reader.
+- **Evidence in tree:** `src/proofbundle/relation.py` (758 lines) ·
+  `tests/test_relation_profile.py` (736 lines) · `src/proofbundle/renewal.py` (1178 lines).
+- **State of external review:** `NOT MEASURED`.
+
+### C5 — Multi-party evidence
+
+- **Claim:** attestations by parties other than the producer change what a receipt supports, and the
+  code keeps the parties distinguishable.
+- **Non-claim:** that more signatures mean a stronger statement. Which combinations actually
+  strengthen a claim is exactly the open question; the tree carries the mechanism, not the model.
+- **Evidence in tree:** `src/proofbundle/public_transparency.py` (343 lines) ·
+  `src/proofbundle/checkpoint.py` (1065 lines) · `src/proofbundle/trust_pack.py` (648 lines) ·
+  `src/proofbundle/experimental/attested_inference.py` (334 lines).
+- **State of external review:** `NOT MEASURED`.
+
+### C6 — Coverage
+
+- **Claim:** a verifier can distinguish *fully checked*, *partially checked* and *not checked at
+  all*, and can say which of the unchecked remainder is deliberately out of scope.
+- **Non-claim:** that this distinction is available in the shipped tree today. It is not.
+- **Evidence in tree:** **NOT MEASURED at `origin/main`.** `src/proofbundle/cap1.py`,
+  `tests/test_cap1_regeln.py` and `tests/test_cap1_im_predicate.py` exist **only** on the unmerged
+  branch `feat/cap1-abdeckung` (`bda71b2158b08e78e678940acea4f63ebe6bbece`); measured 2026-09-12,
+  that head is **not** an ancestor of `origin/main`. A claim resting on an unmerged branch is not a
+  claim about the tree.
+- **State of external review:** `NOT MEASURED`.
+
+### What the six lines say together
+
+**Six candidates, six times `NOT MEASURED` for external review.** Five have substantial evidence in
+the tree; one (C6) has none at the measured head. The volume of code is not the finding here — the
+finding is that nothing in this list has been read by anyone outside this project, and that is a
+single, nameable gap rather than six separate ones.
