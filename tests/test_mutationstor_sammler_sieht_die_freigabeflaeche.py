@@ -759,6 +759,103 @@ def test_die_BANNERFORM_faengt_auch_ein_schmales_banner(monkeypatch, tmp_path):
         "Eigenschaft des Abbruchs.")
 
 
+#: Die Breiten, ueber die der Fangnachweis unten ECHTES pytest faehrt. Vier statt einer, weil
+#: `TerminalWriter.sep` die Fuellbreite als `max((breite - len(titel) - 2) // 2, 1)` rechnet — sie
+#: haengt an ZWEI Groessen, und eine Messung an EINER Breite kann keine davon ausschliessen.
+_BANNER_BREITEN = (40, 80, 120, 200)
+
+#: Zwei Titellaengen, weil die Fuellbreite an beiden Groessen haengt. Der lange Grund ist der, der
+#: in diesem Tor wirklich vorkommt (`pytest.exit` mit ausgeschriebener Begruendung).
+_BANNER_GRUENDE = {
+    "langer_grund": ("abgebrochen, weil der Mutant die Umgebung unbrauchbar gemacht hat und "
+                     "nichts mehr messbar ist"),
+    "kurzer_grund": "kurz",
+}
+
+
+def _echte_banner(tmp_path) -> dict[tuple[int, str], str]:
+    """ECHTES pytest ueber mehrere Breiten fahren und die Bannerzeilen einsammeln.
+
+    Der bestehende Fall daneben prueft eine HANDGESCHRIEBENE Zeile mit einem `!`. Das ist eine
+    Annahme ueber pytest, keine Messung — aendert pytest sein Bannerformat, bleibt sie gruen und
+    der Riegel ist blind. Hier entsteht die Zeichenkette dort, wo sie im Betrieb entsteht.
+    """
+    import os
+    import re as _re
+    gefunden: dict[tuple[int, str], str] = {}
+    muster = _re.compile(r"^!+ .* !+$", _re.M)
+    for name, grund in _BANNER_GRUENDE.items():
+        datei = tmp_path / f"test_{name}.py"
+        datei.write_text(
+            "import pytest\n"
+            "def test_a(): assert True\n"
+            f"def test_b(): pytest.exit({grund!r})\n", encoding="utf-8")
+        for breite in _BANNER_BREITEN:
+            umgebung = dict(os.environ, COLUMNS=str(breite))
+            aus = subprocess.run([sys.executable, "-m", "pytest", str(datei), "-q",
+                                  "-p", "no:cacheprovider"],
+                                 cwd=str(tmp_path), env=umgebung, capture_output=True,
+                                 text=True, timeout=120)
+            treffer = muster.search(aus.stdout + aus.stderr)
+            if treffer:
+                gefunden[(breite, name)] = treffer.group(0)
+    return gefunden
+
+
+def test_die_BANNERFORM_faengt_JEDE_breite_die_pytest_wirklich_schreibt(tmp_path):
+    """POSTEN 136: der Fangnachweis misst ueber MEHRERE BREITEN, an echter pytest-Ausgabe.
+
+    GEMESSEN 2026-09-12 ueber vier Breiten und zwei Titellaengen: die Fuellbreite schwankt zwischen
+    EINEM und 85 Ausrufezeichen je Seite. Die alte Schranke `!{5,}` haette vier der acht Laeufe
+    verfehlt — und ein verfehltes Abbruch-Banner heisst, dass `_rote_aus_lauf` die Bilanz eines
+    abgebrochenen Laufs als gemessene Zahl liest und eine ueberlebende Mutante als getoetet bucht.
+
+    Drei Zusicherungen, und die zweite und dritte sind der Grund, warum der Fall etwas taugt:
+      (1) jedes ECHT erzeugte Banner wird vom Riegel getroffen;
+      (2) die Breiten sind wirklich VERSCHIEDEN — sonst hiesse der Fall zu Unrecht 'ueber mehrere
+          Breiten' und misst eine;
+      (3) mindestens eines liegt UNTER fuenf — sonst waere die alte Schranke hier unauffaellig
+          gruen geblieben und der Fall haette keine Unterscheidungskraft.
+    """
+    m = _mutation_check_modul()
+    banner = _echte_banner(tmp_path)
+    erwartet = len(_BANNER_BREITEN) * len(_BANNER_GRUENDE)
+    assert len(banner) == erwartet, (
+        f"nur {len(banner)} von {erwartet} Laeufen haben ueberhaupt ein Banner erzeugt — dann misst "
+        f"dieser Fall nicht, was er zu messen vorgibt (gefunden: {sorted(banner)})")
+
+    nicht_gefangen = {k: v[:60] for k, v in banner.items() if not m._ABBRUCH_BANNER.search(v)}
+    assert nicht_gefangen == {}, (
+        f"der Riegel verfehlt echte pytest-Banner: {nicht_gefangen}. Eine Fuellbreite ist eine "
+        "Funktion von Terminalbreite und Titel-Laenge, keine Eigenschaft des Abbruchs.")
+
+    fuellungen = {k: len(v) - len(v.lstrip("!")) for k, v in banner.items()}
+    assert len(set(fuellungen.values())) > 1, (
+        f"alle Laeufe ergaben dieselbe Fuellbreite {set(fuellungen.values())} — dann ist dies eine "
+        "Messung an EINER Breite mit vier Namen")
+    assert min(fuellungen.values()) < 5, (
+        f"keine Fuellbreite unter fuenf (gemessen: {sorted(set(fuellungen.values()))}) — die alte "
+        "Schranke `!{5,}` waere hier gruen geblieben, der Fall unterscheidet also nichts")
+
+
+def test_ANTI_PARITAET_die_alte_schranke_faellt_an_denselben_echten_bannern(tmp_path):
+    """PLANT-AND-MUST-CATCH an ECHTEN Ausgaben statt an einer erfundenen Zeile.
+
+    Der Fall daneben ist nur dann eine Zusicherung, wenn die ALTE Fassung an derselben Menge
+    scheitert. Ohne diese Kontrolle bliebe offen, ob `!+` ueberhaupt mehr faengt als `!{5,}` — und
+    genau diese Frage hat die Gegenlesung vom 07.09. mit einer falschen Begruendung gestellt (sie
+    sagte 'vier Ausrufezeichen'; gemessen ist es die Breite mal die Titel-Laenge).
+    """
+    import re as _re
+    banner = _echte_banner(tmp_path)
+    alt = _re.compile(r"^!{5,} .* !{5,}$", _re.M)
+    verfehlt = {k: len(v) - len(v.lstrip("!")) for k, v in banner.items() if not alt.search(v)}
+    assert verfehlt, (
+        "die alte Schranke `!{5,}` faengt ALLE echten Banner — dann war die Weitung auf `!+` "
+        "folgenlos und dieser Testsatz misst nichts. Gemessen 12.09.2026 verfehlte sie vier von "
+        "acht Laeufen.")
+
+
 def test_der_RUECKGABEWERT_traegt_das_urteil_auch_ohne_jedes_banner(monkeypatch, tmp_path):
     """Die eigentliche Haertung, isoliert: OHNE Bannerzeile im Text traegt allein der rc.
 
