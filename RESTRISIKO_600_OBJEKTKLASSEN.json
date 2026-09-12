@@ -1197,5 +1197,48 @@
     "S7b": "Fassung desselben Fundes S7, im Register als eigener Unterabschnitt geschrieben (die erste Fassung des S7-Fixes wurde widerlegt). Keine eigene Kennung: wer sie mitzaehlt, zaehlt denselben Fund viermal — dieselbe Begruendung, aus der R-Kennungen nicht als Funde zaehlen. Die Fremdzaehlung der Beilage 20260912T1316Z zaehlt sie ebenfalls nicht (S 104).",
     "S7c": "wie S7b — dritte Fassung desselben Fundes S7.",
     "S7d": "wie S7b — vierte Fassung desselben Fundes S7."
+  },
+  "luecken_in_der_nummernfolge": {
+    "_warum_hier": "Eine Quelle der Grundgesamtheit, die ihre eigenen Luecken verschweigt, ist unvollstaendig. Wer spaeter S86 sucht und nichts findet, kann nicht unterscheiden zwischen 'gibt es nicht' und 'wurde nicht gemessen'. Auflage aus Auftrag 20260912T1317Z: die Luecke traegt GENAU EINE Zeile mit Grund, nicht sechzehn leere.",
+    "S86_bis_S101": {
+      "anzahl": 16,
+      "marke": "NOT MEASURED",
+      "grund": "Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: \"Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102.\" Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.",
+      "klasse": "EINE-NUMMER-DIE-ICH-VERGEBE-KANN-IN-EINEM-ANDEREN-BAUM-SCHON-WEG-SEIN — die hoechste Nummer, die EIN Baum sieht, ist eine Stichprobe seines Leseverlaufs."
+    },
+    "Z1": {
+      "anzahl": 1,
+      "marke": "NOT MEASURED",
+      "grund": "Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten."
+    }
+  },
+  "gegenrechnung_gegen_die_sollliste": {
+    "_auflage": "Auftrag 20260912T1317Z: gegen die Fremdzaehlung rechnen, gleich/fehlt/zu viel je Kennung.",
+    "quelle": "globe/staging/incoming/20260912T1317Z__beilage__SOLLLISTE_kennungen_register_600_20260912T1316Z.json",
+    "sha256_der_sollliste": "fbc0b9ed09327cb4b3a845ce1e952fc842956333a88feceec53591f640c058fc",
+    "gemessen_utc": "2026-09-12T22:0xZ",
+    "gleich": 140,
+    "fehlt": 0,
+    "zu_viel": 2,
+    "zu_viel_welche": [
+      "G1",
+      "G2"
+    ],
+    "warum_zu_viel_kein_befund": "G1 und G2 sind benannte Grenzen, nicht Funde (zaehlt_als_fund=false). Die Fremdzaehlung zaehlt nur Funde und kennt das Praefix G nicht. Beide Zahlen sind richtig, sie zaehlen verschiedene Mengen: 140 Funde, 142 Kennungen.",
+    "praefix_vergleich": {
+      "A": "4=4",
+      "N": "21=21",
+      "R": "7=7",
+      "S": "104=104",
+      "Z": "4=4",
+      "G": "0 gegen 2, erklaert"
+    },
+    "praefix_abweichungen_bei_den_140_gemeinsamen": 0
+  },
+  "lose_treffer_die_die_regel_nicht_findet": {
+    "_warum_getrennt_von_nicht_eigene_kennungen": "`nicht_eigene_kennungen` deckt Kennungen, die die Extraktionsregel im Register FINDET und die trotzdem nicht zaehlen (S7b/c/d — Fassungen desselben Fundes). Der Riegel test_jede_ausnahme_deckt_eine_kennung_die_die_regel_findet erzwingt genau das, damit die Ausnahmemenge nicht monoton waechst und irgendwann nichts mehr deckt. A5 und S101 findet die Regel GAR NICHT — sie stehen nur im Fliesstext. Sie hier einzutragen haette die Ausnahmemenge verwaessert; der Riegel hat es gefangen, und er hatte recht.",
+    "A5": "Name eines Korpus-Tests, keine Registerkennung. Die Fremdzaehlung der Beilage 20260912T1316Z fuehrt A5 ausdruecklich als losen Treffer und zaehlt ihn nicht.",
+    "S101": "Nur im Fliesstext als Stand eines Zweigs genannt (arbeit/601-nachzug), keine eigene Registerzeile in diesem Register. Fremdzaehlung 20260912T1316Z ebenso: loser Treffer.",
+    "_quelle": "Fremdzaehlung 20260912T1316Z, Feld lose_treffer_nicht_gezaehlt — beide ebenso nicht gezaehlt."
   }
 }
