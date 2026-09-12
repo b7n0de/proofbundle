@@ -309,3 +309,60 @@ def test_die_klasse_folgt_der_HERKUNFT_nicht_dem_ausnahmetyp():
         "die beiden Herkuenfte duerfen nie dieselbe Klasse ergeben — sonst ordnet die Klasse nichts"
     )
     assert r_frozen.get("reason_code") != r_rp.get("reason_code"), (r_frozen, r_rp)
+
+
+# ---------------------------------------------------------------------------
+# SCHRITT 10 DER ZWOELF: die noch fachlich gueltigen Tests des alten Zweigs
+# (fix/verifier-zweischicht-vertrag-20260823, tests/test_verifier_total_boundary_contract.py) auf
+# frischem main NEU FORMULIERT — nicht gemerged. Fuenf seiner sieben Faelle deckt diese Datei
+# bereits ab; die zwei hier fehlten.
+# ---------------------------------------------------------------------------
+def test_ein_falsch_zurueckgebender_verifier_sieht_aus_wie_ein_werfender():
+    """DIE VERTRAGSEIGENSCHAFT des alten Zweigs, uebernommen und PRAEZISIERT.
+
+    Beide sind derselbe Fehlerfall — der Verifier hat sich nicht an die Zusage gehalten — und eine
+    totale Grenze schuldet ihren Konsumenten, dass sie gleich AUSSEHEN. Der alte Test prueste
+    `ok`, `status` und die Feldmenge.
+
+    PRAEZISIERT gegenueber dem Zweig: seit Schritt 7 tragen beide dieselbe `outcome_class`
+    (internal_error), aber VERSCHIEDENE `reason_code`. Das ist eine Verfeinerung und kein Bruch —
+    die Klasse ist die Aussage nach aussen, der reason_code die Diagnose. Waeren auch die Klassen
+    verschieden, waere die Eigenschaft verloren; waeren auch die reason_codes gleich, waere die
+    Diagnose aermer als noetig. Beides steht deshalb hier."""
+    anchors.register_anchor_type("vergleich-zurueck", lambda p, c, *, frozen, now: None)
+
+    def wirft(p, c, *, frozen, now):
+        raise RuntimeError("boom")
+
+    anchors.register_anchor_type("vergleich-wirft", wirft)
+    zurueck = _verify(_anker("vergleich-zurueck"))
+    geworfen = _verify(_anker("vergleich-wirft"))
+
+    assert zurueck["ok"] == geworfen["ok"] is False
+    assert zurueck["status"] == geworfen["status"] == "fail"
+    assert set(zurueck) == set(geworfen), "die beiden Verdikte tragen verschiedene Felder"
+    assert zurueck["outcome_class"] == geworfen["outcome_class"] == "internal_error"
+    assert zurueck["reason_code"] != geworfen["reason_code"], (
+        "die Diagnose darf die beiden unterscheiden, auch wenn die Klasse es nicht tut")
+
+
+def test_ein_mappingproxy_als_RUECKGABE_wird_akzeptiert():
+    """Dieselbe Mapping-statt-dict-Regel auf der RUECKGABE-Seite. Ein Verifier, der ein
+    unveraenderliches Mapping liefert, verhaelt sich vorbildlich und darf dafuer nicht als
+    fehlerhaft gelten.
+
+    Diese Richtung fehlte in meiner eigenen Arbeit: ich hatte MappingProxyType nur als EINGABE
+    (frozen) geprueft. Gefunden beim Neuformulieren der Zweigtests, nicht durch einen Fehlschlag."""
+    anchors.register_anchor_type("proxy-rueckgabe", lambda p, c, *, frozen, now: MappingProxyType({"ok": True}))
+    r = _verify(_anker("proxy-rueckgabe"))
+    assert r["ok"] is True, r
+    assert r.get("outcome_class") in (None, "verified"), r
+
+
+def test_ein_gueltiger_verifier_behaelt_sein_eigenes_detail():
+    """ANTI-TAUTOLOGIE aus dem alten Zweig, hier unverzichtbar: eine Grenze, die ALLES auf fail
+    abbildet, bestuende jeden Test darueber und waere trotzdem kaputt."""
+    anchors.register_anchor_type("gut-detail", lambda p, c, *, frozen, now: {"ok": False, "detail": "schlechter Beweis"})
+    r = _verify(_anker("gut-detail"))
+    assert r["ok"] is False and r["detail"] == "schlechter Beweis", (
+        "das detail des Verifiers wurde ueberschrieben — dann geht die Diagnose verloren")
