@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "restrisiko_render.py"
 ECHTES_REGISTER = REPO / "audit_artifacts" / "findings_register_610.json"
 
+MODUL = SCRIPT
 spec = importlib.util.spec_from_file_location("restrisiko_render_ut", SCRIPT)
 rr = importlib.util.module_from_spec(spec)
 sys.modules["restrisiko_render_ut"] = rr
@@ -610,12 +611,44 @@ class TestAusgenommeneBereiche(Basis):
         self.assertTrue(any("decision" in x for x in f), f)
 
     def test_ein_UNSICHTBARES_ZEICHEN_ist_keine_begruendung(self):
-        """U+200B ueberlebt .strip(). Ein Grund, den niemand sehen kann, ist keiner — gemessen
-        12.09.2026 von einer Linse an genau dieser Stelle."""
-        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "\u200b",
-                                    "decision": "\u200b"},))
-        self.assertTrue(any("reason" in x for x in f), f)
-        self.assertTrue(any("decision" in x for x in f), f)
+        """U+200B ueberlebt .strip(). Ein Grund, den niemand sehen kann, ist keiner.
+
+        DIE LAENGE IST HIER DER GANZE FALL, und die erste Fassung hatte sie falsch. Sie nannte EIN
+        U+200B — und ein Zeichen faengt schon die Mindestlaenge (20 bzw. 8), ganz ohne den
+        Sichtbarkeits-Filter. Gemessen 12.09.2026 von Juror B: ersetzt man `isprintable()` durch
+        schlichtes `.strip()`, bleiben trotzdem ALLE Tests gruen. Der Fall bestand also aus dem
+        falschen Grund — er band die Laenge, nicht die Sichtbarkeit.
+
+        Nachgemessen an der mutierten Fassung: 1x U+200B wird gefangen (ueber die Laenge),
+        25x U+200B kommt DURCH (0 Befunde). Deshalb steht hier eine Zeichenfolge, die die
+        Mindestlaenge UEBERSCHREITET und trotzdem unsichtbar ist — nur so kann der Fall den
+        Filter ueberhaupt erreichen."""
+        unsichtbar = "\u200b" * 25
+        self.assertGreater(len(unsichtbar), 20,
+                           "kuerzer als die Mindestlaenge — dann misst der Fall die Laenge, nicht die Sichtbarkeit")
+        f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": unsichtbar,
+                                    "decision": unsichtbar},))
+        self.assertTrue(any("reason" in x and "nothing readable" in x for x in f), f)
+        self.assertTrue(any("decision" in x and "nothing readable" in x for x in f), f)
+
+    def test_META_ohne_den_sichtbarkeits_filter_kommt_die_lange_unsichtbare_form_durch(self):
+        """Der Gegenbeweis, dass genau DIESE Zeile traegt — und dass der Fall sie erreicht."""
+        quelle = MODUL.read_text(encoding="utf-8")
+        alt = ('            wert = "".join(c for c in (b.get(feld) or "") '
+               'if c.isprintable() and not c.isspace())')
+        self.assertIn(alt, quelle, "die Mutationsvorlage passt nicht mehr zur Quelle")
+        ns = {"__name__": "rr_mut_sicht", "__file__": str(MODUL)}
+        exec(compile(quelle.replace(alt, '            wert = (b.get(feld) or "").strip()'),
+                     "<mutiert: sichtbarkeit>", "exec"), ns)
+        lang = "\u200b" * 25
+        self.assertEqual(ns["pruefung_ausnahmen"](({"path": "a/b", "reason": lang,
+                                                    "decision": lang},)), [],
+                         "ohne den Filter muesste die lange unsichtbare Form durchkommen")
+        kurz = "\u200b"
+        self.assertTrue(ns["pruefung_ausnahmen"](({"path": "a/b", "reason": kurz,
+                                                   "decision": kurz},)),
+                        "die KURZE Form faengt schon die Mindestlaenge — genau deshalb taugte sie "
+                        "nicht als Fall fuer den Filter")
 
     def test_ein_EINZELNES_ZEICHEN_ist_keine_begruendung(self):
         f = rr.pruefung_ausnahmen(({"path": "some/where", "reason": "x", "decision": "y"},))

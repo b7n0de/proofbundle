@@ -325,7 +325,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "8a78cdce5614f42107d6ed74c21a32d05492ef77eafa641997bfad56addc6515",
+          "sha256": "0ab4baed801831edf86575c6468be3c6cb34d2571407b6e8fb9919d7634af948",
           "role": "catch_proof"
         }
       ],
@@ -374,7 +374,7 @@
         },
         {
           "path": "tests/test_restrisiko_render.py",
-          "sha256": "8a78cdce5614f42107d6ed74c21a32d05492ef77eafa641997bfad56addc6515",
+          "sha256": "0ab4baed801831edf86575c6468be3c6cb34d2571407b6e8fb9919d7634af948",
           "role": "catch_proof"
         }
       ],
