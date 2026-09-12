@@ -221,6 +221,56 @@ class TestDiePruefungFaengtEinGeaendertesByte(Basis):
         (d / "S2.md").unlink()
         self.assertTrue(any("missing" in x for x in ra.pruefen(QUELLE, d)))
 
+    def test_ein_VERSCHOBENER_bereich_wird_gefangen_auch_wenn_datei_und_digest_stimmen(self):
+        """Der Angreifer faelscht Manifest UND Datei zusammen — gefunden von Linse 3 (Mutation M12).
+
+        Die bis dahin einzige Absicherung war `ist != soll`: sie vergleicht die Datei auf der
+        Platte mit dem Schnitt AUS DEM MANIFEST-BEREICH. Wer den Bereich im Manifest mitverschiebt,
+        die Datei mit den Bytes des neuen Bereichs fuellt und Digest und Laenge nachzieht, ist in
+        sich stimmig — und das Werkzeug sagte OK. Gemessen: mit herausmutiertem Bereichsvergleich
+        meldete `pruefen()` eine leere Fundliste, obwohl S1.md den Inhalt von S2 trug.
+
+        Der Bereichsvergleich ist also die Stelle, die den Bezug zur QUELLE haelt. Ohne Test war er
+        eine Zusage ohne Deckung — genau die Klasse, gegen die dieses Werkzeug gebaut ist.
+        """
+        d = self.frisch()
+        man = json.loads((d / "MANIFEST.json").read_text(encoding="utf-8"))
+        roh = QUELLE.encode("utf-8")
+        eins = next(e for e in man["excerpts"] if e["file"] == "S1.md")
+        zwei = next(e for e in man["excerpts"] if e["file"] == "S2.md")
+        fremd = roh[zwei["byte_range"][0]:zwei["byte_range"][1]]
+        eins["byte_range"] = list(zwei["byte_range"])
+        eins["bytes"] = len(fremd)
+        eins["sha256"] = hashlib.sha256(fremd).hexdigest()
+        (d / "S1.md").write_bytes(fremd)
+        (d / "MANIFEST.json").write_text(json.dumps(man, indent=2, ensure_ascii=False) + "\n",
+                                         encoding="utf-8")
+        fehler = ra.pruefen(QUELLE, d)
+        self.assertTrue(any("range moved" in x for x in fehler),
+                        f"in sich stimmige Faelschung kam durch: {fehler}")
+
+    def test_META_ohne_den_bereichsvergleich_kommt_die_faelschung_durch(self):
+        """Und der Gegenbeweis, dass genau DIESE Zeile es traegt."""
+        quelle = SCRIPT.read_text(encoding="utf-8")
+        alt = '        if frisch[kid]["byte_range"] != e["byte_range"]:'
+        self.assertIn(alt, quelle, "the mutation template no longer matches the source")
+        ns = {"__name__": "ra_mut_range", "__file__": str(SCRIPT)}
+        exec(compile(quelle.replace(alt, "        if False:"), "<mutiert: range>", "exec"), ns)
+        d = self.frisch()
+        man = json.loads((d / "MANIFEST.json").read_text(encoding="utf-8"))
+        roh = QUELLE.encode("utf-8")
+        eins = next(e for e in man["excerpts"] if e["file"] == "S1.md")
+        zwei = next(e for e in man["excerpts"] if e["file"] == "S2.md")
+        fremd = roh[zwei["byte_range"][0]:zwei["byte_range"][1]]
+        eins["byte_range"] = list(zwei["byte_range"])
+        eins["bytes"] = len(fremd)
+        eins["sha256"] = hashlib.sha256(fremd).hexdigest()
+        (d / "S1.md").write_bytes(fremd)
+        (d / "MANIFEST.json").write_text(json.dumps(man, indent=2, ensure_ascii=False) + "\n",
+                                         encoding="utf-8")
+        self.assertEqual([x for x in ns["pruefen"](QUELLE, d) if "range moved" in x], [],
+                         "ohne die Zeile muesste die Faelschung durchkommen — sonst misst der Fall etwas anderes")
+
     def test_META_ohne_den_byte_vergleich_kommt_ein_geaendertes_byte_durch(self):
         quelle = SCRIPT.read_text(encoding="utf-8")
         alt = "        if ist != soll:"
