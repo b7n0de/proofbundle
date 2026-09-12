@@ -1,0 +1,1174 @@
+{
+ "schema": "b7n0de.registerform_61_objektklassen.v1",
+ "zweck": "Die Objektklassen der Registerform 6.1 als MASCHINENLESBARE Quelle. Owner-Entscheid 20260912T0756Z Tuer 4 und 20260912T0734Z Karte 1: bis ein Erzeuger steht, traegt diese Datei die Deklaration; das Register bleibt die Ansicht in Prosa.",
+ "ab_jetzt_die_quelle": "Ab dem Tag, an dem diese Datei existiert, ist SIE die Quelle der Grundgesamtheit. Jede Zahl nach aussen nennt sie. In Prosa wird nicht mehr gezaehlt (Owner-Wortlaut).",
+ "warum_es_sie_gibt": "Drei Zahlen waren im Umlauf — 139, 140, 143 — und keine war falsch gezaehlt. Das Register MISCHT Objektklassen: S, N und A sind Funde, R1-R7 sind nachgemessene Fassungen EINER Runde, Z2-Z5 sind Richtigstellungen an eigenen Aussagen. Solange das nicht deklariert ist, liefert jede Extraktionsregel eine andere Zahl.",
+ "regel_der_extraktion": "Kennung am Anfang einer Ueberschrift ODER in der ersten Tabellenspalte — die Regel aus der Owner-Karte, woertlich uebernommen.",
+ "gemessen_an": {
+  "datei": "RESTRISIKO_600.md",
+  "sha256": "73560fc43debc1fb865b16cdeed4f87847db05196f598a14a7cc9fee73fc72bc",
+  "baum": "origin/main @ 4e32e83b647235bfedf23b55cebe69fdf14fd6f5",
+  "utc": "2026-09-12T08:35:26Z"
+ },
+ "grundgesamtheit": {
+  "kennungen_gesamt": 140,
+  "funde": 129,
+  "keine_funde": 11,
+  "je_praefix": {
+   "A": 4,
+   "N": 21,
+   "R": 7,
+   "S": 104,
+   "Z": 4
+  }
+ },
+ "klassen": {
+  "S": {
+   "name": "fund_sicherheit_und_korrektheit",
+   "zaehlt_als_fund": true,
+   "warum": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor."
+  },
+  "N": {
+   "name": "fund_nachtrag",
+   "zaehlt_als_fund": true,
+   "warum": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S."
+  },
+  "A": {
+   "name": "fund_aussenflaeche",
+   "zaehlt_als_fund": true,
+   "warum": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N."
+  },
+  "R": {
+   "name": "nachgemessene_fassung_einer_runde",
+   "zaehlt_als_fund": false,
+   "warum": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach."
+  },
+  "Z": {
+   "name": "richtigstellung_einer_eigenen_aussage",
+   "zaehlt_als_fund": false,
+   "warum": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht."
+  }
+ },
+ "eintraege": [
+  {
+   "kennung": "A1",
+   "klasse": "fund_aussenflaeche",
+   "praefix": "A",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
+   "titel_im_register": "P2  Candidate binding: the readiness artifacts bind a trust_anchor_digest  The trust anchor lives in audit_artifacts/, the one directory the subject t"
+  },
+  {
+   "kennung": "A2",
+   "klasse": "fund_aussenflaeche",
+   "praefix": "A",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
+   "titel_im_register": "P2  C4.1/C4.2: completeness of the population they rule over  Both read their result without reading the population_complete bound — the same shape as"
+  },
+  {
+   "kennung": "A3",
+   "klasse": "fund_aussenflaeche",
+   "praefix": "A",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
+   "titel_im_register": "P3  Evidence paths of the release-deciding checks  The evidence paths are hard-wired to audit_artifacts/360 instead of being derived from the version "
+  },
+  {
+   "kennung": "A4",
+   "klasse": "fund_aussenflaeche",
+   "praefix": "A",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
+   "titel_im_register": "P1  C12.2: which key may sign the register  not_after was never evaluated on the register path, so an expired anchor key kept the ability to sign the "
+  },
+  {
+   "kennung": "N1",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "Lens 2 on PR 185: the flip oracle of the A5 corpus test read one field; fixed to require ok (bc95dd6). The wider class — narrow-scope comparison oracl"
+  },
+  {
+   "kennung": "N2",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "Lens 2: the corpus input key serialised the whole params; fixed to the keys the runner reads, meta test both ways (bc95dd6)  test integrity  does not "
+  },
+  {
+   "kennung": "N3",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "Lens 3: the Receipt: line of a published disclosure block is the file hash, not receipt_digest(); documented in 6.0.0 rather than changed, because two"
+  },
+  {
+   "kennung": "N4",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "POLICY_NOT_EVALUATED and AGENT_REVIEW_LEGACY_V01 moved from reason_codes to advisory_codes; a consumer of an unpublished pre-6.0.0 build that branched"
+  },
+  {
+   "kennung": "N5",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "agent-review/v0.2 emits only selfDeclared assurance; a witness outside the agent workspace is not provided  scope  documented honest limit"
+  },
+  {
+   "kennung": "N6",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The time block of a policy file is new and evaluated only when present; the shipped standard policy carries none (time_policy_decision: null)  interfa"
+  },
+  {
+   "kennung": "N7",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The sibling-venv full run on PR 185 reported 3245 passed and 22 skipped; the skipped set was not enumerated. The audit run of the freeze (pytest -rs) "
+  },
+  {
+   "kennung": "N8",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "audit-candidate-matrix reports C12.1 as not applicable on a pull request and as absent on main until the signed 6.0.0 receipt exists — the gate at wor"
+  },
+  {
+   "kennung": "N9",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The relative CHANGELOG.md link in the new README section was dead in the sdist; fixed to an absolute URL (72c21e7). Class: links on surfaces without a"
+  },
+  {
+   "kennung": "N10",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "CAP-1 coverage (feat/cap1-abdeckung, target 6.1.0) is not part of 6.0.0 by decision; the branch is not in the frozen tree  scope  none"
+  },
+  {
+   "kennung": "N11",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The canonical full mutation run (scripts/mutation_check.py, docs/PRE_TAG_AUDIT.md: \"a tag is never cut on a sharded run alone\") was started on 658ed06"
+  },
+  {
+   "kennung": "N12",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The learned-class ledger replay that gates the round cannot finish inside the fixed 240 s window its runner carries as a default: the 182 nodes measur"
+  },
+  {
+   "kennung": "N13",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The same replay set contains at least one node whose result depends on runtime state OUTSIDE the tree under test: tests/test_warte_riegel.py::test_l2i"
+  },
+  {
+   "kennung": "N14",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "Class: a signing path in the shipped tree. INSTANCE scripts/sign_readiness_artifact.py is CLOSED — the inline --privkey-file mode is gone and, measure"
+  },
+  {
+   "kennung": "N15",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "Both distributions of 6.0.0 are bit-reproducible as shipped, and this section states the property with the path to recompute it rather than a digest, "
+  },
+  {
+   "kennung": "N16",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The published composite action interpolates two untrusted inputs straight into a run: shell body; byte-identical to the public v1.0.0 tag, so 6.0.0 ne"
+  },
+  {
+   "kennung": "N17",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The parity gate swallows an unparseable source file and then rules from the ABSENCE of complaints over what is left; on this candidate the population "
+  },
+  {
+   "kennung": "N18",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "pip install <sdist> && pytest without the [test] extras is RED, not skipped, while pyproject.toml promises \"clean skips\"  follow-up release: honour th"
+  },
+  {
+   "kennung": "N19",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The mutation gate collects with unittest discover and therefore measures 2537 of 3702 tests, measured at 59d0679; 59 of 252 test files are invisible t"
+  },
+  {
+   "kennung": "N20",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "One mutation operator is NOT MEASURABLE rather than killed or survived — it removes the resource ceiling under test and the run reached 111 GiB reside"
+  },
+  {
+   "kennung": "N21",
+   "klasse": "fund_nachtrag",
+   "praefix": "N",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+   "titel_im_register": "The release-deciding check C12.2 flips PASS to FAIL on 2027-09-07 by design. The closing-round fix makes an expired anchor key authorise nothing now, "
+  },
+  {
+   "kennung": "R1",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· A shipped specification artefact contradicts the shipped code — open, re-measured"
+  },
+  {
+   "kennung": "R2",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· A subfield reads safer than before, against the invariant the round enforced — open, NOT re-measured"
+  },
+  {
+   "kennung": "R3",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· resolve_receipt_chain raises a raw exception on a non-mapping envelope — open, re-measured"
+  },
+  {
+   "kennung": "R4",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· Verify sites report an internal error for a truthy non-list — open, re-measured in count only"
+  },
+  {
+   "kennung": "R5",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· The guard that should catch changelog omissions is blind to content — open, unchanged by design"
+  },
+  {
+   "kennung": "R6",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· The witness cannot see the lenses of a round run in a foreign repository — open, unchanged"
+  },
+  {
+   "kennung": "R7",
+   "klasse": "nachgemessene_fassung_einer_runde",
+   "praefix": "R",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "R-Kennungen sind KEINE Funde: sie sind nachgemessene Fassungen EINER Runde. Wer sie mitzaehlt, zaehlt dieselbe Runde mehrfach.",
+   "titel_im_register": "· Three numbers in shipped artefacts are wrong, each already wrong when written — open, re-measured"
+  },
+  {
+   "kennung": "S1",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Budget call sites — five are unreachable, the sixth was a real P1 and is now CLOSED"
+  },
+  {
+   "kennung": "S2",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The package-guard skip assertion — CLOSED, and the deferral reason was wrong"
+  },
+  {
+   "kennung": "S3",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· pre_tag_audit_gate first-candidate acceptance — NO FINDING, measured in both directions"
+  },
+  {
+   "kennung": "S4",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· A shipped prose document drifted from the corpus it describes — CLOSED, and the deferral was again too cautious"
+  },
+  {
+   "kennung": "S5",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The two new riegel are bound one at a time, never together — open, named by the cross-family lens"
+  },
+  {
+   "kennung": "S6",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· A REQUIRED check is red because a wall-clock ceiling is a number from one machine — open, calibrated, not yet measured in CI"
+  },
+  {
+   "kennung": "S7",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The calibration's own machine factor was frozen on its first measurement — CLOSED, caught by a lens on the fix itself"
+  },
+  {
+   "kennung": "S8",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The reference load measures sha256 only, and six of the twelve axes are not hash-bound — open, NOT measurable on one machine"
+  },
+  {
+   "kennung": "S9",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The one-second budget is a declared policy, not a derived number — open by design, named because it is load-bearing"
+  },
+  {
+   "kennung": "S10",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Four lines of the advisory matrix are red because three evidence artefacts bind a tree the candidate has overtaken — open, owner-gated on the signat"
+  },
+  {
+   "kennung": "S11",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The reference load now measures TWO cost families, and the choice between them abstains — S8's loosening direction is closed, its magnitude still is"
+  },
+  {
+   "kennung": "S12",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· A calibration that scales a BOUND does not protect a SLOPE — found by a load probe, root cause in the estimator's own repetition policy"
+  },
+  {
+   "kennung": "S13",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The cap was derived from the SAME measurement it judged — so it fell exactly when it was needed, and coverage went green by twelve abstentions"
+  },
+  {
+   "kennung": "S14",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Three guards were bound to the EXCEPTION their removal throws, not to the property they enforce — found by a foreign-family lens that refuted my own"
+  },
+  {
+   "kennung": "S15",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Two of the cap's own guard tests went blind when I migrated the cap's source — found by review, not by the suite, and my sweep of the previous secti"
+  },
+  {
+   "kennung": "S16",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The combination surface still judged in seconds while the single axes judged in reference units"
+  },
+  {
+   "kennung": "S17",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The machine factor was measured in a different time window than the costs it scales — and a real threefold regression walked through the gap, past a"
+  },
+  {
+   "kennung": "S18",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Four of my own repairs each produced a new fault of the same class — and the only thing that improved was how loudly they failed"
+  },
+  {
+   "kennung": "S19",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· The owner decision was made executable — and building it showed it would have decided nothing"
+  },
+  {
+   "kennung": "S20",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Ein Tor, dessen rote Zeilen der Kandidat selbst wegerklaeren darf"
+  },
+  {
+   "kennung": "S21",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— C6.3 verlangt einen 24-Stunden-Soak, den es zum Kandidatenkopf nicht gibt"
+  },
+  {
+   "kennung": "S22",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Rohmatrix und signiertes Differential-Artefakt tragen verschiedene Zahlen"
+  },
+  {
+   "kennung": "S23",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Zwei Zweig-Commits, die der Kandidat NICHT hat, bringen ihm nichts — gemessen statt vermutet"
+  },
+  {
+   "kennung": "S24",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— C12.1 gehoert NICHT zu den drei Bindungsluecken, und meine Kettenbeschreibung war zu grob"
+  },
+  {
+   "kennung": "S25",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— GESCHLOSSEN (Owner-Entscheid 2026-09-08): die still unterdrueckte Ruecknahme"
+  },
+  {
+   "kennung": "S26",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— contentRootAlg: ein vorhandener, aber unregistrierter Wert faellt still auf LEGACY zurueck"
+  },
+  {
+   "kennung": "S27",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der sdist-Bau traegt einen Cache, der eine gestrichene Zeile ueberlebt"
+  },
+  {
+   "kennung": "S28",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Klassen-Ledger des Gates lief ueber 48,5 % seiner Klassen"
+  },
+  {
+   "kennung": "S29",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Wegwerfbaum der Zahlenbindung stellt seine eigene Vorbedingung her"
+  },
+  {
+   "kennung": "S30",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Zwei Grenzen des Import-Riegels, die am Artefakt nicht entscheidbar sind"
+  },
+  {
+   "kennung": "S31",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Riegel „stammt der Korpus aus seinem Generator\" deckt EINEN der zwei Korpusse"
+  },
+  {
+   "kennung": "S32",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— errorContains prueft nur EINE der beiden Implementierungen, und der Korpus sieht aus, als pruefe es beide"
+  },
+  {
+   "kennung": "S33",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Vollstaendigkeits-Check des Budget-Belegs vergleicht sich mit sich selbst"
+  },
+  {
+   "kennung": "S34",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Zwei einzeln korrekte Riegel schliessen zusammen die Tuer zur Signatur"
+  },
+  {
+   "kennung": "S35",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Meine Owner-Frage stand auf einer zu schmalen Messung: es sind drei Waende, nicht eine"
+  },
+  {
+   "kennung": "S36",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Pre-Sweep des Tores reisst sein eigenes Zeitlimit, und der Zustand dafuer heisst „Umgebung\""
+  },
+  {
+   "kennung": "S37",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Korrektur in EINEM Zug: die drei Waende sind eine UND-Kette, und ich habe den dritten Weg nie angeboten"
+  },
+  {
+   "kennung": "S38",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Kopf, an den die Owner-Karte die vier Bereitschaftsartefakte bindet, ist ueberholt"
+  },
+  {
+   "kennung": "S39",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Distributionen am jetzigen Kopf, beide Haelften des Byte-Freeze gruen"
+  },
+  {
+   "kennung": "S40",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Familien-Floor ist fuer S37-S39 NICHT erfuellt, und das gehoert an die Abschnitte selbst"
+  },
+  {
+   "kennung": "S41",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— probe/gatezeile-in-kandidat traegt nichts, was der Release-Linie fehlt"
+  },
+  {
+   "kennung": "S42",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Wand 2 ist KEINE Owner-Entscheidung: ich habe dieselbe Klasse begangen, die ich eine Seite vorher benannt habe"
+  },
+  {
+   "kennung": "S43",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Vorab-Quittung ist GUELTIG, sie bindet nur den falschen Baum"
+  },
+  {
+   "kennung": "S44",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Fuer die Neuausstellung der Vorab-Quittung gibt es einen schluessellosen Weg, und er ist genau fuer diese Auflage gebaut"
+  },
+  {
+   "kennung": "S45",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der laufende Soak bindet einen 30 Commits alten Kopf, und das ist gemessen folgenlos"
+  },
+  {
+   "kennung": "S46",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der CI-Stand am Fernkopf, selbst gemessen: zwei von sechs rot, und der rote ist der bekannte P0"
+  },
+  {
+   "kennung": "S47",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Schritt 5 der Anweisung ist nicht erreichbar: schon das EMITTIEREN verlangt die Gate-Zeile"
+  },
+  {
+   "kennung": "S48",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Meine vier Claude-Linsen dieser Nacht waren adversarial und liefen auf Sonnet; der Standard verlangt Opus"
+  },
+  {
+   "kennung": "S49",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— S42 ist widerlegt: ich habe den Erzeuger der Gate-Zeile nie gemessen, sondern einen Nachbarn"
+  },
+  {
+   "kennung": "S50",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die drei lokalen Zweige sind ueberholt, und ich haette daraus fast einen Befund gegen die Release-Linie gemacht"
+  },
+  {
+   "kennung": "S51",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Ein Zweig-Push loest hier GAR KEINE Pruefung aus; die CI haengt am Pull Request"
+  },
+  {
+   "kennung": "S52",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der P0 ist weg, und was jetzt rot ist, ist mein eigener Riegel vom Vorabend"
+  },
+  {
+   "kennung": "S53",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die un-Gegenlesung sagte REJECT, einer ihrer fuenf Punkte traf, und er zeigte auf den Zweig, den ich selbst eingebaut hatte"
+  },
+  {
+   "kennung": "S54",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der P0 L6-600-01 ist auf der entscheidenden Flaeche GRUEN"
+  },
+  {
+   "kennung": "S55",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Abschluss-Zeuge laesst sich auf dieses Repo richten, und sein Verdikt ist PARTIAL — aus genau den Gruenden aus S35"
+  },
+  {
+   "kennung": "S56",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Das advisory Tor am Kandidaten selbst gefahren: 28 PASS, 1 EXTERNAL, 4 FAIL — und die vier sind die bekannten vier"
+  },
+  {
+   "kennung": "S57",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die zweite Opus-Linse sagte REJECT zu S54/S55, und drei ihrer fuenf Punkte treffen"
+  },
+  {
+   "kennung": "S58",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die dritte Opus-Linse hat den schwersten Fehler der ganzen Nacht gefunden: ich habe dem Owner eine Entscheidung ZUGESCHRIEBEN"
+  },
+  {
+   "kennung": "S59",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die erste Opus-Linse hat meinen Fangnachweis entwertet: er stellt den Zustand her, statt den Pfad zu gehen"
+  },
+  {
+   "kennung": "S60",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Klassen-Nachbar aus S59 gemessen: er traegt die Pfadform, laeuft in der Auslieferung aber nicht"
+  },
+  {
+   "kennung": "S61",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— coverage ist rot, die Suite ist gruen, und der Grund ist ein DATEINAME aus meinem eigenen Meta-Test"
+  },
+  {
+   "kennung": "S62",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Kein einziger Workflow hat eine concurrency-Gruppe, und das erklaert den alten mutation-Abbruch"
+  },
+  {
+   "kennung": "S63",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Dreimal gemessen, dreimal dasselbe: der Zeuge kann ueber einem proofbundle-Commit nie FULL werden"
+  },
+  {
+   "kennung": "S64",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Klassen-Ledger hat meine zwei Eintraege ABGELEHNT, und alle fuenf Gruende treffen"
+  },
+  {
+   "kennung": "S65",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Nach-dem-Tag-Liste an EINER Stelle, mit den Schritten statt der Absicht"
+  },
+  {
+   "kennung": "S66",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Nach-dem-Tag-Punkt 1 ist gebaut und belegt: der neue Baum-Riegel, 5 von 5 mit ECHTEN Baeumen"
+  },
+  {
+   "kennung": "S67",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— coverage ist GRUEN am Kandidaten, gegen die Stale-Falle geprueft"
+  },
+  {
+   "kennung": "S68",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Nach-dem-Tag-Punkt 3 ist geprueft, und der Patch braucht eine Ausnahme, die ich beinahe uebersehen haette"
+  },
+  {
+   "kennung": "S69",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Nach-dem-Tag-Punkt 4 vorbereitet: der Tausch erhaelt die Absicht des Originals, gemessen"
+  },
+  {
+   "kennung": "S70",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Soak-Bindung neu gemessen, weil der Kandidat weitergewandert ist"
+  },
+  {
+   "kennung": "S71",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Korrektur an S50: mein Suchfenster war zu schmal, und 0aca175 ist selbst Vorfahre der Release-Linie"
+  },
+  {
+   "kennung": "S72",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Das Mutationstor kann still gruen werden: die Kette ist jetzt an BEIDEN Enden gemessen"
+  },
+  {
+   "kennung": "S73",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Der Fix sitzt, die Shell ist am TATORT gemessen, und meine Wartebegruendung aus S72 war schon widerlegt, als ich sie schrieb"
+  },
+  {
+   "kennung": "S74",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Fuenf test-Jobs und crypto-floor rot, Ursache: EIN Wort in meinem eigenen Registertext"
+  },
+  {
+   "kennung": "S75",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— pipefail rettet die echo-Huelle nicht, und der Riegel dagegen sah die Datei gar nicht an"
+  },
+  {
+   "kennung": "S76",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Korrektur der AS-SHIPPED-Zahl aus b048829, am gebauten Artefakt gemessen"
+  },
+  {
+   "kennung": "S77",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— reject_superseded war auf der Statement-Flaeche wirkungslos: Python endete 0, wo Rust 3 endet"
+  },
+  {
+   "kennung": "S78",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Die Strukturschranke band einen TYP statt der EIGENSCHAFT, und der Tupel-Fix aus Lauf 3 war die Instanz davon"
+  },
+  {
+   "kennung": "S79",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "— Deep-Gate Lauf 8 endet FIX_FIRST: fuenf Funde, vier davon EINE Klasse, einer davon meiner"
+  },
+  {
+   "kennung": "S80",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "Schluessel-Achse  mein Schluss-Arm schloss die WERT-Achse, die SCHLUESSEL-Achse blieb Aufzaehlung"
+  },
+  {
+   "kennung": "S81",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "Byte gegen Zeichen  die Schranke heisst input_bytes und zaehlt Codepoints"
+  },
+  {
+   "kennung": "S82",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "Aufloeser  isinstance(..., dict) ohne Sonst — ein unlesbares Praedikat war Schweigen"
+  },
+  {
+   "kennung": "S83",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "C2SP-Padding  eine benannte Ausnahme deckt EINE Abweichung, der Mechanismus liess ZWEI durch"
+  },
+  {
+   "kennung": "S84",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "sdist-Waechter  \"hier wurzelt ein git-Baum\" statt \"das ist DIESES Projekts Checkout\""
+  },
+  {
+   "kennung": "S85",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "maskierter Nachbar  EIN Flag traegt ZWEI Bedeutungen, ein Konsument liest die falsche"
+  },
+  {
+   "kennung": "S102",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "bis S114 — Deep-Gate Läufe 12 bis 14 unter der geschärften Schwereregel (Owner-Entscheid 11.09.2026)"
+  },
+  {
+   "kennung": "S103",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· EACCES/ELOOP beim Artefaktleser fallen als MALFORMED, obwohl Auflage C2 sie zur Umgebung zählt — gemessen 11.09.2026 (Lauf 12 L5, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S104",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· sd-jwt meldet jede BundleFormatError als „duplicate JSON key\" — der Text nennt nicht den Grund, gemessen 11.09.2026 (Lauf 13/14, P3, 6.0.1)"
+  },
+  {
+   "kennung": "S105",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· _anker_pubkey_ok wirft TypeError bei einem Nicht-str — heute unerreichbar, gemessen 11.09.2026 (Lauf 12 L2, P3, 6.0.1)"
+  },
+  {
+   "kennung": "S106",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· signatures: [] bekommt in Python und Rust zwei Klassifikationen — gemessen 11.09.2026 (Lauf 13 L1, P3, 6.1)"
+  },
+  {
+   "kennung": "S107",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Die Scanwurzeln des L2-Riegels sind src/, scripts/, tools/ — conformance/ fehlt, gemessen 11.09.2026 (Lauf 13 L2, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S108",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Fünf Err(_)-Verwürfe in main.rs nennen keinen Grund — gemessen 11.09.2026 (Lauf 13 L4, P2, 6.1)"
+  },
+  {
+   "kennung": "S109",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· _artifact_verdict(..., absent=FAIL) trägt einen ungetesteten Vorgabewert — gemessen 11.09.2026 (Lauf 13 L5, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S110",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· FIFO, Symlink auf ein Gerät und Verzeichnis werden vom Artefaktleser als absent gemeldet — gemessen 11.09.2026 (Lauf 13 L5, P3, 6.0.1)"
+  },
+  {
+   "kennung": "S111",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Acht emit-seitige CLI-Pfade öffnen einen Pfad ohne Stat-Guard — ein schreiberloses FIFO hängt den Prozess, gemessen 11.09.2026 (Lauf 14 L3, P2, 6.0."
+  },
+  {
+   "kennung": "S112",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· --json liefert auf dem exit-2-Pfad von neun Subkommandos leeres stdout statt eines Fehlerobjekts — gemessen 11.09.2026 (Lauf 14 L5, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S113",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· rfc8785 ist seit 3.6.1 Core-Dependency, über zehn Docstrings und Fehlermeldungen sagen weiter „install proofbundle[eval]\" — gemessen 11.09.2026 (Lau"
+  },
+  {
+   "kennung": "S114",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· SUPPORT.md sagt „the current line is 3.x\", RELEASE.md „the 5.x line\" — der Versions-Riegel kennt die Form nicht, gemessen 11.09.2026 (Lauf 14 L6, P2"
+  },
+  {
+   "kennung": "S115",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· addopts --ignore=… in pyproject.toml verengt die Sammlung, und Riegel wie Manifest-Gate vergleichen zwei Messungen aus derselben Quelle — gemessen 1"
+  },
+  {
+   "kennung": "S116",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Die starken Pflichtjob-Prüfungen sind an den Job test hartcodiert; -k in der coverage-Zeile bleibt unentdeckt — gemessen 11.09.2026 (Lauf 13 L6, P2,"
+  },
+  {
+   "kennung": "S117",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Der Zeitexponent der Kostenkurve ist unter Last flaky — gemessen 11.09.2026 (Lauf 13 L6 und Lauf 12 Vollsuite, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S118",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· _gesammelt() liest nur die letzte collected-Zeile und kennt das deselected-Format nicht — gemessen 11.09.2026 (Lauf 13 L6, P2, 6.0.1)"
+  },
+  {
+   "kennung": "S119",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· --ff/--failed-first ordnet nur um, steht aber in _VERENGENDE_OPTIONEN — gemessen 11.09.2026 (Lauf 13 L6, P3, 6.0.1)"
+  },
+  {
+   "kennung": "S120",
+   "klasse": "fund_sicherheit_und_korrektheit",
+   "praefix": "S",
+   "zaehlt_als_fund": true,
+   "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+   "titel_im_register": "· Ohne Workflow-Verdikt keine Gate-Zeile, ohne Gate-Zeile keine Bytes für C6.2/C6.3/C8.2 — gemessen 11.09.2026, Lage vor der Signaturkarte"
+  },
+  {
+   "kennung": "Z2",
+   "klasse": "richtigstellung_einer_eigenen_aussage",
+   "praefix": "Z",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
+   "titel_im_register": "— die Owner-Karte sagt etwas anderes, als ich ihr zugeschrieben habe"
+  },
+  {
+   "kennung": "Z3",
+   "klasse": "richtigstellung_einer_eigenen_aussage",
+   "praefix": "Z",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
+   "titel_im_register": "— „drei Laufergebnisse im ganzen System\" war eine Menge nach DATEINAMEN"
+  },
+  {
+   "kennung": "Z4",
+   "klasse": "richtigstellung_einer_eigenen_aussage",
+   "praefix": "Z",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
+   "titel_im_register": "— „strikt staerker\" ist eine Dominanzbehauptung, und sie ist widerlegt"
+  },
+  {
+   "kennung": "Z5",
+   "klasse": "richtigstellung_einer_eigenen_aussage",
+   "praefix": "Z",
+   "zaehlt_als_fund": false,
+   "warum_diese_klasse": "Z-Kennungen sind KEINE Funde: sie stellen eine frueher von uns selbst getroffene Aussage richtig. Ein korrigierter Satz ist kein Befund am Gegenstand, sondern einer am Bericht.",
+   "titel_im_register": "— S51 haelt, mit zwei Praezisierungen"
+  }
+ ]
+}
