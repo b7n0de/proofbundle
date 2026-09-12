@@ -168,9 +168,19 @@ SHAPES: dict[str, dict] = {
     "tampered_signature": {"grund": "does not verify over the canonical",
                            "nach_dem_signieren": lambda rc: rc.__setitem__(
                                "signature", base64.b64encode(b"\x00" * 64).decode())},
+    # ZWEI Faelle, weil die Stufe an der ZEICHENZAHL haengt und nicht an der Gueltigkeit
+    # (Fremdfamilien-Gegenlesung 12.09.2026, Fund 1 — halb zutreffend, hier nachgemessen):
+    # `base64.b64decode` verwirft Nicht-Alphabet-Zeichen still. `'!!!kein-base64!!!'` behaelt zehn
+    # gueltige Zeichen und wirft `Incorrect padding` (Stufe 11); `'!!!!'` behaelt null und wirft
+    # NICHT — die Signatur ist dann leer und faellt erst an Stufe 12. Ein Fall allein liesse
+    # offen, welche der beiden Stufen er misst, und ein Zeichen mehr oder weniger verschoebe ihn
+    # still auf die andere.
     "signatur_ist_kein_base64": {"grund": "signature check errored",
                                  "nach_dem_signieren": lambda rc: rc.__setitem__(
                                      "signature", "!!!kein-base64!!!")},
+    "signatur_leer_nach_dem_saeubern": {"grund": "does not verify over the canonical",
+                                        "nach_dem_signieren": lambda rc: rc.__setitem__(
+                                            "signature", "!!!!")},
 }
 
 #: Stellen, die ueber `pre_tag_audit_gate.evaluate` NICHT erreichbar sind — mit Grund, nie stumm.
@@ -182,6 +192,67 @@ AUSGENOMMEN: dict[str, str] = {
         "faehrt die vorgelagerte Pruefung und belegt, dass der Kandidat nicht stumm uebersprungen "
         "wird."),
 }
+
+
+def _statischer_text(knoten) -> str:
+    """Nur die KONSTANTEN Teile eines Grundes — Platzhalter tragen keine Zusicherung."""
+    return " ".join(k.value for k in ast.walk(knoten)
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str))
+
+
+def _ablehnungsstellen(quelle: str, fname: str) -> tuple[list[tuple[int, str]], list[str]]:
+    """Jede Stelle, an der `fname` ablehnt — plus die Ausgaenge, die dieser Zaehler NICHT lesen kann.
+
+    ZWEI Rueckgaben, und die zweite ist der Fix zu Fund 2 der Gegenlesung: die erste Fassung
+    matchte ausschliesslich `return False, "<text>"` INNERHALB der Funktion. Gemessen mit drei
+    gepflanzten Formen — `raise`, `r = (False, ...); return r`, und eine ausgelagerte
+    Modul-Hilfsfunktion — blieb sie dreimal gruen, weil sie die Stellen schlicht nicht sah.
+    Ein Zaehler, der eine Form nicht kennt, meldet sie als NICHT VORHANDEN; das ist derselbe
+    Fehler wie „nicht gemessen heisst in Ordnung".
+
+    Gezaehlt wird jetzt ueber `verify_receipt` UND jede Modulfunktion, die es ruft. Jeder Ausgang,
+    der kein `return True, ...` und keine lesbare `return False, "<text>"`-Form ist, landet in der
+    zweiten Liste und macht den Riegel rot.
+    """
+    baum = ast.parse(quelle)
+    nach_name = {n.name: n for n in baum.body if isinstance(n, ast.FunctionDef)}
+    fn = nach_name[fname]
+    # WELCHE gerufene Funktion ist eine PRUEFSTUFE? Die, die ein URTEIL zurueckgibt — also
+    # irgendwo `return <bool>, <...>`. `canonical_bytes` wird auch gerufen, serialisiert aber nur
+    # und wirft bei kaputter Eingabe; ihr `raise` ist kein Ablehnungsgrund, sondern der Fehlerpfad,
+    # den `verify_receipt` in seinem try/except zu Stufe 11 macht. Die erste Fassung dieses Fixes
+    # zog sie mit hinein und wurde sofort rot — an einer Stelle, die keine Pruefung ist.
+    # Gemessen an der EIGENSCHAFT, nicht an der Aufrufbeziehung.
+    def _faellt_ein_urteil(knoten) -> bool:
+        return any(isinstance(r, ast.Return) and isinstance(r.value, ast.Tuple)
+                   and len(r.value.elts) == 2 and isinstance(r.value.elts[0], ast.Constant)
+                   and isinstance(r.value.elts[0].value, bool)
+                   for r in ast.walk(knoten))
+
+    gerufen = {k.func.id for k in ast.walk(fn)
+               if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id in nach_name
+               and _faellt_ein_urteil(nach_name[k.func.id])}
+    stellen: list[tuple[int, str]] = []
+    unlesbar: list[str] = []
+    for name in [fname, *sorted(gerufen)]:
+        ziel = nach_name[name]
+        for node in ast.walk(ziel):
+            if isinstance(node, ast.Raise):
+                unlesbar.append(f"{name}:{node.lineno} raise")
+                continue
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            wert = node.value
+            if not isinstance(wert, ast.Tuple) or len(wert.elts) != 2:
+                unlesbar.append(f"{name}:{node.lineno} return {type(wert).__name__}")
+                continue
+            erst = wert.elts[0]
+            if not isinstance(erst, ast.Constant) or not isinstance(erst.value, bool):
+                unlesbar.append(f"{name}:{node.lineno} return ({type(erst).__name__}, ...)")
+                continue
+            if erst.value is False:
+                stellen.append((node.lineno, _statischer_text(wert.elts[1])))
+    return stellen, unlesbar
 
 
 class TheGateReportsATypedState(unittest.TestCase):
@@ -266,41 +337,44 @@ class TheGateReportsATypedState(unittest.TestCase):
         gruen aus dem falschen Grund.
         """
         quelle = (REPO / "scripts" / "pre_tag_receipt_lib.py").read_text(encoding="utf-8")
-        fn = next(n for n in ast.walk(ast.parse(quelle))
-                  if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
-
-        def statischer_text(knoten) -> str:
-            """Nur die KONSTANTEN Teile eines Grundes — Platzhalter tragen keine Zusicherung."""
-            teile: list[str] = []
-            for k in ast.walk(knoten):
-                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                    teile.append(k.value)
-            return " ".join(teile)
-
-        stellen: list[tuple[int, str]] = []
-        for node in ast.walk(fn):
-            if (isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple)
-                    and len(node.value.elts) == 2
-                    and isinstance(node.value.elts[0], ast.Constant)
-                    and node.value.elts[0].value is False):
-                stellen.append((node.lineno, statischer_text(node.value.elts[1])))
+        stellen, unanalysierbar = _ablehnungsstellen(quelle, "verify_receipt")
         self.assertGreaterEqual(len(stellen), 12,
                                 f"nur {len(stellen)} Ablehnungsstellen gefunden — misst der Zaehler "
                                 "ueberhaupt noch die richtige Funktion?")
+        # FAIL-CLOSED AUF DIE FORM, die der Zaehler NICHT lesen kann (Fremdfamilien-Gegenlesung
+        # 12.09.2026, Fund 2, P1 — nachgemessen mit drei gepflanzten Formen, alle drei blieben
+        # gruen). Ein Ausgang, den der Riegel nicht analysieren kann, ist NICHT dasselbe wie kein
+        # Ausgang: er wird gemeldet, statt still zu fehlen.
+        self.assertEqual(unanalysierbar, [],
+                         f"Ausgaenge, die dieser Zaehler nicht lesen kann: {unanalysierbar}. Ein "
+                         "raise, eine Rueckgabe ueber eine Variable oder eine ausgelagerte "
+                         "Pruefung ist eine Ablehnungsstelle wie jede andere — sie braucht "
+                         "entweder eine lesbare Form oder einen eigenen Fall.")
 
-        gruende = [f["grund"] for f in SHAPES.values()]
+        gruende = {label: f["grund"] for label, f in SHAPES.items()}
         ungedeckt = [(zeile, text[:70]) for zeile, text in stellen
-                     if not any(g in text for g in gruende)
+                     if not any(g in text for g in gruende.values())
                      and not any(a in text for a in AUSGENOMMEN)]
         self.assertEqual(ungedeckt, [],
                          "Ablehnungsstellen ohne gefahrenen Fall und ohne begruendete Ausnahme — "
                          f"{ungedeckt}. Jede neue Pruefung in verify_receipt braucht eine Form in "
                          "SHAPES, sonst ist sie ungemessen.")
-        blind = [g for g in gruende if not any(g in text for _z, text in stellen)
+        blind = [g for g in gruende.values() if not any(g in text for _z, text in stellen)
                  and g not in ("unreadable", "not a JSON object")]
         self.assertEqual(blind, [],
                          f"diese Grund-Stuecke treffen KEINE Stelle in verify_receipt: {blind} — "
                          "ein Fall, der ins Leere zielt, ist gruen aus dem falschen Grund")
+        # DIE ZUORDNUNG MUSS EINDEUTIG SEIN (Gegenlesung Fund 3, P2 — nachgemessen: eine zweite
+        # Stelle mit demselben Teilstueck galt als gedeckt, ohne dass sie je gefahren wurde).
+        # Ein Teilstring-Treffer auf ZWEI Stellen heisst: ein Fall deckt eine Stelle ab, die er
+        # nie betritt. Deshalb zaehlt hier, WIE VIELE Stellen jedes Stueck trifft.
+        mehrdeutig = {label: [z for z, text in stellen if g in text]
+                      for label, g in gruende.items()
+                      if len([z for z, text in stellen if g in text]) > 1}
+        self.assertEqual(mehrdeutig, {},
+                         f"diese Grund-Stuecke treffen MEHRERE Stellen: {mehrdeutig} — dann gilt "
+                         "eine ungefahrene Stelle als gedeckt, weil eine andere denselben Wortlaut "
+                         "traegt. Das Stueck muss die Stelle eindeutig benennen.")
 
     def test_META_eine_neue_pruefstufe_ohne_fall_wird_gefangen(self):
         """PLANT-AND-MUST-CATCH fuer den Riegel selbst: eine gepflanzte Ablehnungsstelle, die kein

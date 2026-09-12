@@ -830,12 +830,50 @@ def test_die_BANNERFORM_faengt_JEDE_breite_die_pytest_wirklich_schreibt(tmp_path
         "Funktion von Terminalbreite und Titel-Laenge, keine Eigenschaft des Abbruchs.")
 
     fuellungen = {k: len(v) - len(v.lstrip("!")) for k, v in banner.items()}
-    assert len(set(fuellungen.values())) > 1, (
-        f"alle Laeufe ergaben dieselbe Fuellbreite {set(fuellungen.values())} — dann ist dies eine "
-        "Messung an EINER Breite mit vier Namen")
     assert min(fuellungen.values()) < 5, (
         f"keine Fuellbreite unter fuenf (gemessen: {sorted(set(fuellungen.values()))}) — die alte "
         "Schranke `!{5,}` waere hier gruen geblieben, der Fall unterscheidet also nichts")
+
+    # DIE VARIATION MUSS VON DER BREITE KOMMEN, und das ist eine Korrektur an meiner eigenen
+    # Zusicherung (Fremdfamilien-Gegenlesung 12.09.2026, Fund 4, P1). Hier stand
+    # `len(set(fuellungen.values())) > 1` ueber ALLE Laeufe — und die zwei Titellaengen erfuellen
+    # das schon bei EINER Breite. Wuerde pytest COLUMNS ignorieren, waeren alle vier Laeufe je
+    # Titel gleich, die Menge ueber alle trotzdem zweielementig, und der Fall bliebe gruen,
+    # obwohl er genau das Gegenteil behauptet. Dieselbe Klasse wie der Fall selbst: eine Zahl,
+    # die eine GRENZE meint, aus einer Groesse gelesen, die etwas anderes misst.
+    for name in _BANNER_GRUENDE:
+        je_breite = {b: fuellungen[(b, name)] for b in _BANNER_BREITEN}
+        assert len(set(je_breite.values())) > 1, (
+            f"Titel {name!r}: alle vier Breiten liefern dieselbe Fuellbreite {set(je_breite.values())} "
+            f"({je_breite}) — COLUMNS wirkt hier NICHT, und dieser Fall misst eine Breite unter vier "
+            "Namen. Ohne diese Zeile waere er gruen aus dem falschen Grund.")
+
+
+def test_der_bannerriegel_liest_GEWOEHNLICHE_zeilen_NICHT_als_abbruch(tmp_path):
+    """DIE GEGENRICHTUNG, und ohne sie ueberlebt die schlimmste Mutation (Gegenlesung Fund 5).
+
+    GEMESSEN 12.09.2026: `_ABBRUCH_BANNER = re.compile(r".*", re.M)` laesst BEIDE Bannerfaelle und
+    die Anti-Paritaets-Kontrolle gruen — jedes echte Banner wird getroffen, und die alte Schranke
+    verfehlt weiterhin welche. Ein Riegel, der ALLES fuer ein Abbruchbanner haelt, erklaert jeden
+    Lauf fuer nicht messbar; das Tor koennte dann nichts mehr toeten und waere stumm. Eine
+    Zusicherung, die nur das Treffen prueft, kann die Ueberdehnung nie sehen.
+
+    Die Zeilen hier sind echte pytest-Ausgaben aus gewoehnlichen Laeufen dieses Repos.
+    """
+    m = _mutation_check_modul()
+    gewoehnlich = [
+        "3 failed, 3820 passed in 900.0s",
+        "3836 passed, 25 skipped in 1193.0s",
+        "=========================== short test summary info ============================",
+        "FAILED tests/test_x.py::test_y - AssertionError: erwartet 3, gemessen 2",
+        "tests/test_x.py::test_y PASSED",
+        "collected 3935 items",
+        "! Ausschlusseintrag 'test_audit_candidate_360' hat in diesem Baum kein Ziel",
+    ]
+    getroffen = [z for z in gewoehnlich if m._ABBRUCH_BANNER.search(z)]
+    assert getroffen == [], (
+        f"der Bannerriegel haelt gewoehnliche Ausgabezeilen fuer einen Abbruch: {getroffen}. Dann "
+        "ist JEDER Lauf 'nicht messbar', das Tor toetet nichts mehr und meldet trotzdem gruen.")
 
 
 def test_ANTI_PARITAET_die_alte_schranke_faellt_an_denselben_echten_bannern(tmp_path):
