@@ -54,6 +54,81 @@ from proofbundle import canonical  # noqa: E402
 
 REGISTER_REL = "audit_artifacts/findings_register_361.json"
 
+# ── REGISTERFORM 6.1 (v2), Owner-Entscheid OA-714de2fcdd vom 2026-09-12 ────────────────────
+#
+# "1A, zusammen mit 3C als Grundlage … die v2-Form wird auf scripts/gen_findings_register.py
+#  gebaut und nicht daneben, die vorhandene Mechanik bleibt … Ausdrueckliches Verbot, kein
+#  zweiter Erzeuger, zwei Werkzeuge fuer dieselbe Frage driften."
+#
+# Deshalb steht die v2-Form HIER und nicht in einer neuen Datei. Die v1-Mechanik darunter
+# bleibt unberuehrt: derselbe emit/assemble-Weg, dieselbe JCS-Kanonisierung, derselbe
+# Grundsatz, dass der private Schluessel am Mac bleibt.
+
+RESTRISIKO_REL = "RESTRISIKO_600.md"
+OBJEKTKLASSEN_REL = "RESTRISIKO_600_OBJEKTKLASSEN.json"
+EVIDENZ_REL = "audit_artifacts/600/register_evidence"
+V2_REL = "audit_artifacts/600/findings_register_v2.json"
+ANSICHTEN_REL = "audit_artifacts/600/views"
+
+LUECKENWOERTER = {"NOT MEASURED", "NOT MEASURABLE", "NOT APPLICABLE"}
+VEX_STATUS = {"affected", "not_affected", "fixed", "under_investigation"}
+QUAL_STATUS = {"open", "fixed", "not_a_defect", "under_investigation"}
+ABHILFE = {"none_available", "vendor_fix", "workaround", "no_fix_planned"}
+PLANUNG = {"planned", "deferred", "undecided", None}
+BELEGROLLE = {"historical_record", "measurement", "catch_proof", "decision"}
+
+_KENNUNG_KOPF = None  # lazy, siehe _kopf_muster()
+
+
+def _kopf_muster():
+    global _KENNUNG_KOPF
+    if _KENNUNG_KOPF is None:
+        import re  # noqa: PLC0415
+        _KENNUNG_KOPF = re.compile(r"^(#{2,4}) ([A-Z]\d+)(?![0-9A-Za-z])", re.M)
+    return _KENNUNG_KOPF
+
+
+def schneide_beleg(text: str, kennung: str):
+    """Der byte-genaue Bereich der Fundstelle EINER Kennung. -> (von, bis, fundart) | None.
+
+    DREI FASSUNGEN, und die ersten beiden waren falsch — beide nur durch Messen gefunden:
+
+      1. Die erste nahm die ERSTE gefundene Ueberschriftenebene. Fuer S102 traf sie den
+         Sammelkopf "## S102 bis S114" und schnitt 24160 B mit DREIZEHN Kennungen darin.
+         Ein Beleg, der dreizehn Funde enthaelt, belegt keinen.
+      2. Die zweite nahm die engste Ebene, endete aber erst an der naechsten Ueberschrift
+         GLEICHER oder hoeherer Ebene — und schnitt damit den Nachtrag einer FREMDEN
+         Kennung mit: "### S22, Nachtrag" liegt innerhalb von "## S24", "### Z2" in
+         "## S58". Vier Belege trugen so einen fremden Fund. Gemessen ueber alle 142.
+      3. Diese endet an der naechsten Ueberschrift, die eine ANDERE Kennung eroeffnet,
+         auch wenn die tiefer liegt. Ergebnis ueber alle 142: null Ueberlappungen,
+         Median 1627 B, groesster Schnitt 7750 B.
+
+    Zwei Fundarten, wie RESTRISIKO_600_OBJEKTKLASSEN.json sie deklariert: Ueberschrift
+    (S/R/G/Z) und Tabellenzeile mit der Kennung in Spalte 1 (N/A).
+    """
+    import re  # noqa: PLC0415
+    for ebene in (4, 3, 2):
+        m = re.search(rf"^({'#' * ebene}) {re.escape(kennung)}(?![0-9A-Za-z])", text, re.M)
+        if not m:
+            continue
+        ende = len(text)
+        for n in _kopf_muster().finditer(text, m.end()):
+            if len(n.group(1)) <= ebene or n.group(2) != kennung:
+                ende = n.start()
+                break
+        tiefer = re.search(rf"^#{{2,{ebene}}} ", text[m.end():], re.M)
+        if tiefer:
+            ende = min(ende, m.end() + tiefer.start())
+        return (len(text[:m.start()].encode()), len(text[:ende].encode()), "ueberschrift")
+    m = re.search(rf"^\|\s*{re.escape(kennung)}\s*\|", text, re.M)
+    if m:
+        ze = text.find("\n", m.start())
+        ze = len(text) if ze == -1 else ze
+        return (len(text[:m.start()].encode()), len(text[:ze].encode()), "tabelle_spalte1")
+    return None
+
+
 #: Die Fassung, ueber die dieses Register spricht. Sie MUSS der ausliefernden Identitaet
 #: entsprechen — `findings_register._version_binding_error` weist alles andere fail-closed ab, und
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
@@ -227,6 +302,273 @@ FINDINGS = [
              "of a validity window, not a defect of the candidate. Closing action: rotate the key "
              "before 2027-09-06, or accept the red"},
 ]
+
+
+# ── DER v2-TRAEGER: aus gemessenen Groessen, nicht aus dem Gedaechtnis ─────────────────────
+
+def _tabellenkopf(text: str, byte_von: int) -> list[str]:
+    """Die Spaltennamen der Tabelle, in der eine Zeile steht — nach oben gesucht.
+
+    GEMESSEN: die Quelle fuehrt DREI Tabellenformate, nicht eines.
+        | Id | Finding | Class | Funnel verdict |              (N-Funde)
+        | Id | In one line | Closed where |                    (Nachtragsliste)
+        | Id | Severity | Assurance touched | What it is | State |   (A-Funde)
+    Die erste Fassung nahm blind Spalte 2 und gab A1 den Titel "P2" — das ist dort die
+    SCHWERE. Wer eine Spalte nach Position liest statt nach Namen, liest irgendwann die
+    falsche.
+    """
+    vor = text.encode()[:byte_von].decode("utf-8", errors="ignore")
+    for zeile in reversed(vor.splitlines()):
+        z = zeile.strip()
+        if z.startswith("|") and "Id" in z:
+            return [t.strip() for t in z.strip("|").split("|")]
+        if z.startswith("#"):
+            break
+    return []
+
+
+#: Spaltennamen, die den Titel eines Fundes tragen — nach Namen, nicht nach Position.
+_TITELSPALTEN = ("Finding", "In one line", "What it is", "Title")
+
+
+def _titel(stueck: str, kennung: str, fundart: str, kopf: list[str] | None = None) -> str:
+    """Der Titel EINER Fundstelle, aus ihren eigenen Bytes."""
+    import re  # noqa: PLC0415
+    zeilen = stueck.splitlines()
+    erste = zeilen[0] if zeilen else ""
+    if fundart == "tabelle_spalte1":
+        spalten = [t.strip() for t in erste.strip().strip("|").split("|")]
+        if kopf:
+            for name in _TITELSPALTEN:
+                if name in kopf:
+                    i = kopf.index(name)
+                    if i < len(spalten):
+                        return spalten[i][:200]
+        return (spalten[1] if len(spalten) > 1 else "")[:200]
+    k = re.sub(rf"^#+\s*{re.escape(kennung)}\s*", "", erste).strip()
+    return re.sub(r"^[·\-—,:]\s*", "", k)[:200]
+
+
+def _severity_aus_tabelle(stueck: str, kopf: list[str]) -> str | None:
+    """Eine Schwere, die in der Tabelle STEHT — messbar, nicht geraten."""
+    import re  # noqa: PLC0415
+    if not kopf or "Severity" not in kopf:
+        return None
+    spalten = [t.strip() for t in stueck.splitlines()[0].strip().strip("|").split("|")]
+    i = kopf.index("Severity")
+    if i < len(spalten) and re.fullmatch(r"P[0-3]", spalten[i]):
+        return spalten[i]
+    return None
+
+
+def _severity(kennung: str, aus_tabelle: str | None = None) -> dict:
+    """Schwere nur, wo sie STEHT: im signierten v1-Register oder in der Severity-Spalte der
+    Quelle. Sonst eine Luecke MIT Grund — nie eine geratene Einstufung, denn der Gate liest
+    {P0,P1} als freigabeentscheidend, und ein herabgestufter Fund waere genau der falsche
+    PASS, gegen den dieses Register gebaut ist."""
+    for f in FINDINGS:
+        if f["id"] == kennung:
+            return {"value": f["severity"], "source": "findings_register v1, signiert"}
+    if aus_tabelle:
+        return {"value": aus_tabelle, "source": f"Severity-Spalte in {RESTRISIKO_REL}"}
+    return {"value": None, "state": "NOT MEASURED",
+            "reason": ("diese Kennung steht weder im signierten v1-Register noch in einer "
+                       "Tabelle mit Severity-Spalte; eine Schwere hier zu setzen waere eine "
+                       "Einstufung ohne Beleg")}
+
+
+def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
+    """Der Traeger der Registerform 6.1 aus drei gemessenen Quellen.
+
+    MIGRATION NACH 1A (Owner-Entscheid OA-3c501b246f/OA-714de2fcdd): echte Artefakte
+    wandern, der Rest traegt NOT MEASURED MIT GRUND. Was hier steht, ist entweder aus der
+    Quelle geschnitten, aus dem signierten v1-Register uebernommen oder als Luecke benannt.
+    Nichts wird erfunden, damit eine Spalte voll aussieht.
+    """
+    import hashlib, json as _json  # noqa: PLC0415
+    quelle = repo / RESTRISIKO_REL
+    roh = quelle.read_bytes()
+    text = roh.decode("utf-8")
+    qd = hashlib.sha256(roh).hexdigest()
+    ok = _json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+
+    records, ohne_fundstelle = [], []
+    for e in ok["eintraege"]:
+        k = e["kennung"]
+        t = schneide_beleg(text, k)
+        if t is None:
+            ohne_fundstelle.append(k)
+            continue
+        von, bis, fundart = t
+        stueck = roh[von:bis]
+        kopf = _tabellenkopf(text, von) if fundart == "tabelle_spalte1" else []
+        records.append({
+            "id": k,
+            "record_revision": revision,
+            "record_role": "finding" if e.get("zaehlt_als_fund") else "boundary",
+            # ART NICHT GERATEN. Die Objektklassen unterscheiden nach HERKUNFT
+            # (S/N/A/R/Z/G), nicht nach security/quality: `fund_sicherheit_und_korrektheit`
+            # mischt beides, `fund_nachtrag` sagt ueber die Art nichts. Die erste Fassung
+            # leitete `kind` daraus ab und machte N16 — eine Shell-Injection — zu `quality`.
+            # Nach 1A wandert, was gemessen ist; der Rest traegt NOT MEASURED mit Grund.
+            "kind": None,
+            "kind_state": "NOT MEASURED",
+            "kind_reason": ("die Objektklassen trennen nach Herkunft, nicht nach Art; eine "
+                            "security/quality-Zuordnung liegt in keiner Quelle vor und wird "
+                            "je Fund entschieden, nicht abgeleitet"),
+            "title": _titel(stueck.decode("utf-8"), k, fundart, kopf),
+            "class_id": None,
+            "class_state": "NOT MEASURED",
+            "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
+            "objektklasse": e.get("klasse"),
+            "objektklasse_begruendung": e.get("warum_diese_klasse"),
+            "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
+                                  if fundart == "tabelle_spalte1" else None),
+            "evidence": [{
+                "path": f"{EVIDENZ_REL}/{k}.md",
+                "sha256": hashlib.sha256(stueck).hexdigest(),
+                "role": "historical_record",
+                "source_path": RESTRISIKO_REL,
+                "source_sha256": qd,
+                "byte_range": [von, bis],
+                "fundart": fundart,
+            }],
+            "last_measured": None,
+            "last_measured_state": "NOT MEASURED",
+            "last_measured_reason": ("die Quelle nennt den Tag ihrer Erzeugung, nicht den "
+                                     "Zeitpunkt der letzten Messung je Fund"),
+        })
+
+    luecken = []
+    for name, g in (ok.get("luecken_in_der_nummernfolge") or {}).items():
+        if name.startswith("_") or not isinstance(g, dict):
+            continue
+        luecken.append({"range": name.replace("_bis_", " bis "), "count": g.get("anzahl"),
+                        "state": g.get("marke"), "reason": g.get("grund")})
+
+    return {
+        "schema": "proofbundle.findings_register.v2",
+        "profile_version": "0.1",
+        "document_id": f"urn:b7n0de:findings-register:{VERSION.replace('.', '')}",
+        "register_revision": revision,
+        "issuer": "b7n0de",
+        "language": "en",
+        "issued_at": generated_at[:10],
+        "generated_at": generated_at,
+        "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
+        "assessment_cutoff": generated_at[:10],
+        "inventory": {
+            "source_documents": [{"path": RESTRISIKO_REL, "sha256": qd,
+                                  "identifiers": len(ok["eintraege"])},
+                                 {"path": OBJEKTKLASSEN_REL,
+                                  "sha256": hashlib.sha256(
+                                      (repo / OBJEKTKLASSEN_REL).read_bytes()).hexdigest(),
+                                  "identifiers": len(ok["eintraege"])}],
+            "identifiers_total": len(ok["eintraege"]),
+            "identifiers_in_this_register": len(records),
+            "identifiers_without_evidence": ohne_fundstelle,
+            "coverage_gaps": luecken,
+            "cross_count": ok.get("gegenrechnung_gegen_die_sollliste"),
+            "assurance_checks": _zusicherungen(text, records),
+        },
+        "records": records,
+        "signature": {"state": "NOT APPLICABLE",
+                      "reason": ("dieser Traeger wird ueber den emit/assemble-Weg signiert; "
+                                 "die private Schluesselhaelfte liegt am Mac")},
+    }
+
+
+def _zusicherungen(text: str, records: list) -> list:
+    """Die Zusicherungen der Quelle gegen ihre eigenen Daten gerechnet.
+
+    WOZU. Die Prosa sagt ueber der A-Tabelle: "None of them changes the assurance
+    0 open P0/P1: that count speaks about P0 and P1, and EVERY ENTRY HERE IS P2 OR P3."
+    Gemessen an derselben Tabelle: A4 traegt P1. Die Zusicherung STIMMT — der einzige P1
+    der ganzen Quelle ist `closed` —, aber ihre BEGRUENDUNG ist von der eigenen Tabelle
+    drei Zeilen darunter widerlegt. Wuerde A4 je wieder geoeffnet, bliebe der Satz stehen
+    und waere dann doppelt falsch: die Begruendung schon heute, die Zusicherung dann auch.
+
+    Deshalb wird die Zusicherung hier GERECHNET statt zitiert, mit der Prosa-Begruendung
+    als eigenem Feld daneben.
+    """
+    import re  # noqa: PLC0415
+    hoch = []
+    for m in re.finditer(r"^\|\s*([A-Z]\d+)\s*\|\s*(P[01])\s*\|([^\n]*)", text, re.M):
+        zustand = [t.strip() for t in m.group(3).strip().strip("|").split("|")][-1]
+        hoch.append({"id": m.group(1), "severity": m.group(2), "state": zustand[:60]})
+    offen = [h for h in hoch if not h["state"].lower().startswith("closed")]
+    anmerkung = None
+    if re.search(r"every entry here is P2 or P3", text) and hoch:
+        anmerkung = ("die Prosa ueber der Severity-Tabelle begruendet '0 open P0/P1' mit "
+                     "'every entry here is P2 or P3'. Gemessen an derselben Tabelle: "
+                     + ", ".join(f"{h['id']} traegt {h['severity']}" for h in hoch)
+                     + ". Die Zusicherung haelt, weil dieser Eintrag geschlossen ist — nicht "
+                       "aus dem Grund, den der Satz nennt. Ein Satz, der eine wahre Aussage "
+                       "mit einer falschen Praemisse begruendet, ueberlebt die Aenderung, die "
+                       "ihn falsch macht.")
+    return [{
+        "claim": "0 open P0/P1",
+        "computed": {"p0_p1_total": len(hoch), "p0_p1_open": len(offen),
+                     "entries": hoch, "open_entries": [h["id"] for h in offen]},
+        "holds": not offen,
+        "prose_rationale_state": "REFUTED" if anmerkung else "NOT MEASURED",
+        "prose_rationale_note": anmerkung,
+    }]
+
+
+def pruefe_v2(doc, repo) -> list[str]:
+    """Die Regeln, die der Erzeuger erzwingt. Leer heisst, die Ausgabe darf entstehen.
+
+    Uebernommen aus dem Strukturbeispiel vom 11.09. und um die Belegbindung erweitert: ein
+    Beleg zaehlt nur, wenn seine Bytes noch die der Quelle sind — ein Byte genuegt.
+    """
+    import hashlib  # noqa: PLC0415
+    fehler = []
+    for r in doc["records"]:
+        kid = r["id"]
+        if not r.get("evidence"):
+            fehler.append(f"{kid}, kein Beleg")
+        for b in r.get("evidence", []):
+            if b.get("role") not in BELEGROLLE:
+                fehler.append(f"{kid}, Belegrolle unbekannt: {b.get('role')!r}")
+            q = repo / b["source_path"]
+            if not q.is_file():
+                fehler.append(f"{kid}, Quelle fehlt: {b['source_path']}")
+                continue
+            roh = q.read_bytes()
+            if hashlib.sha256(roh).hexdigest() != b["source_sha256"]:
+                fehler.append(f"{kid}, die Quelle hat sich seit dem Schnitt geaendert")
+                continue
+            von, bis = b["byte_range"]
+            if hashlib.sha256(roh[von:bis]).hexdigest() != b["sha256"]:
+                fehler.append(f"{kid}, Beleg veraendert — der Bytebereich traegt andere Bytes")
+        if r["kind"] is None:
+            if r.get("kind_state") not in LUECKENWOERTER:
+                fehler.append(f"{kid}, Art fehlt ohne Lueckenwort")
+            elif not r.get("kind_reason"):
+                fehler.append(f"{kid}, Lueckenwort bei der Art ohne Grund")
+        elif r["kind"] not in {"security", "quality"}:
+            fehler.append(f"{kid}, Art unbekannt: {r['kind']!r}")
+        if r["kind"] == "quality" and r.get("vex_statements"):
+            fehler.append(f"{kid}, Qualitaetsfund mit VEX-Aussage")
+        sev = r.get("severity") or {}
+        if sev.get("value") is None and sev.get("state") not in LUECKENWOERTER:
+            fehler.append(f"{kid}, Schwere fehlt ohne Lueckenwort")
+        if sev.get("state") in LUECKENWOERTER and not sev.get("reason"):
+            fehler.append(f"{kid}, Lueckenwort ohne Grund bei der Schwere")
+        for feld in ("class_state", "last_measured_state"):
+            if r.get(feld) and r[feld] not in LUECKENWOERTER:
+                fehler.append(f"{kid}, {feld} ist kein Lueckenwort: {r[feld]!r}")
+    inv = doc["inventory"]
+    if inv["identifiers_in_this_register"] + len(inv["identifiers_without_evidence"]) \
+            != inv["identifiers_total"]:
+        fehler.append("Inventar: getragen + ohne Beleg != gesamt")
+    for g in inv["coverage_gaps"]:
+        if g["state"] not in LUECKENWOERTER:
+            fehler.append(f"Luecke {g['range']}: Zustand ist kein Lueckenwort")
+        if not g.get("reason"):
+            fehler.append(f"Luecke {g['range']}: ohne Grund")
+    return fehler
 
 
 def build_register(generated_at: str) -> dict:
