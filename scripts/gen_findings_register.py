@@ -571,6 +571,148 @@ def pruefe_v2(doc, repo) -> list[str]:
     return fehler
 
 
+# ── DIE ANSICHTEN: erzeugt, nie von Hand geschrieben ───────────────────────────────────────
+
+def _offen(r) -> bool:
+    sev = (r.get("severity") or {}).get("value")
+    for f in FINDINGS:
+        if f["id"] == r["id"]:
+            return f["status"] == "open"
+    return bool(sev) and r.get("record_role") == "finding"
+
+
+def ansicht_uebersicht(doc) -> str:
+    sub, inv = doc["release_subject"], doc["inventory"]
+    z = [f"# Known remainders, {sub['name']} {sub['version']}", "",
+         f"Tag {sub['tag']}, assessment cutoff {doc['assessment_cutoff']}, "
+         f"register revision {doc['register_revision']}.",
+         f"Coverage, {inv['identifiers_in_this_register']} of {inv['identifiers_total']} "
+         f"identifiers carried in this register.", ""]
+    for g in inv["coverage_gaps"]:
+        z.append(f"Known gap, {g['range']}, {g['count']} identifiers, {g['state']}, {g['reason']}")
+    cc = inv.get("cross_count") or {}
+    if cc:
+        z += ["", f"Cross-count against the independent tally: {cc.get('gleich')} equal, "
+                  f"{cc.get('fehlt')} missing, {cc.get('zu_viel')} extra "
+                  f"({', '.join(cc.get('zu_viel_welche') or [])} — named boundaries, not findings)."]
+    for a in inv.get("assurance_checks") or []:
+        z += ["", f"Assurance `{a['claim']}`: **{'holds' if a['holds'] else 'DOES NOT HOLD'}**, "
+                  f"computed — {a['computed']['p0_p1_total']} P0/P1 in the source, "
+                  f"{a['computed']['p0_p1_open']} open."]
+        if a.get("prose_rationale_state") == "REFUTED":
+            z.append(f"  The prose rationale in the source is REFUTED by the source's own table; "
+                     f"the claim is carried here because it is COMPUTED, not quoted.")
+    z += ["", "## All records", "",
+          "| Id | Role | Class | Severity | Evidence | Bytes |", "|---|---|---|---|---|---|"]
+    for r in doc["records"]:
+        sev = r["severity"].get("value") or r["severity"].get("state")
+        b = r["evidence"][0]
+        z.append(f"| {r['id']} | {r['record_role']} | {r.get('objektklasse','')} | {sev} "
+                 f"| {b['path']} | {b['byte_range'][0]}..{b['byte_range'][1]} |")
+    z += ["", f"Generated from {V2_REL}. Do not edit by hand.", ""]
+    return "\n".join(z)
+
+
+def ansicht_known_issues(doc) -> str:
+    z = [f"### Known issues, {doc['release_subject']['version']}", ""]
+    for r in doc["records"]:
+        if not _offen(r):
+            continue
+        sev = r["severity"].get("value") or r["severity"].get("state")
+        z.append(f"* {r['id']} ({sev}), {r['title'][:160]}")
+    z += ["", "Generated from the findings register. The register carries the rest.", ""]
+    return "\n".join(z)
+
+
+def ansicht_html(doc) -> str:
+    import html as _h  # noqa: PLC0415
+    sub, inv = doc["release_subject"], doc["inventory"]
+    zeilen = []
+    for r in doc["records"]:
+        sev = r["severity"].get("value") or r["severity"].get("state")
+        b = r["evidence"][0]
+        klasse = "gap" if sev and sev.startswith("NOT") else "val"
+        zeilen.append(
+            f"<tr><td class=id>{_h.escape(r['id'])}</td>"
+            f"<td>{_h.escape(r['record_role'])}</td>"
+            f"<td>{_h.escape(str(r.get('objektklasse') or ''))}</td>"
+            f"<td class={klasse}>{_h.escape(str(sev))}</td>"
+            f"<td class=t>{_h.escape(r['title'][:150])}</td>"
+            f"<td class=n>{b['byte_range'][0]}..{b['byte_range'][1]}</td></tr>")
+    luecken = "".join(
+        f"<li><b>{_h.escape(g['range'])}</b> ({g['count']}) — <span class=gap>{_h.escape(g['state'])}</span>: "
+        f"{_h.escape(g['reason'][:300])}</li>" for g in inv["coverage_gaps"])
+    zus = ""
+    for a in inv.get("assurance_checks") or []:
+        marke = "holds" if a["holds"] else "DOES NOT HOLD"
+        zus += (f"<p>Assurance <code>{_h.escape(a['claim'])}</code>: <b>{marke}</b>, computed — "
+                f"{a['computed']['p0_p1_total']} P0/P1 in the source, {a['computed']['p0_p1_open']} open.</p>")
+        if a.get("prose_rationale_note"):
+            zus += f"<p class=warn>{_h.escape(a['prose_rationale_note'])}</p>"
+    return f"""<!doctype html><meta charset=utf-8>
+<title>Findings register {_h.escape(sub['name'])} {_h.escape(sub['version'])}</title>
+<style>
+ body{{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:72rem;padding:0 1rem;color:#111}}
+ h1{{font-size:1.4rem;margin:0 0 .3rem}} .sub{{color:#666;margin:0 0 1.5rem}}
+ table{{border-collapse:collapse;width:100%;font-size:13px}}
+ th,td{{border-bottom:1px solid #e5e5e5;padding:.4rem .5rem;text-align:left;vertical-align:top}}
+ th{{background:#fafafa;position:sticky;top:0}} .id{{font-family:ui-monospace,monospace;white-space:nowrap}}
+ .n{{font-family:ui-monospace,monospace;color:#666;white-space:nowrap}} .t{{max-width:40rem}}
+ .gap{{color:#8a6d00;background:#fff8e1;padding:0 .3rem;border-radius:3px;white-space:nowrap}}
+ .val{{font-weight:600}} .warn{{background:#fff4f4;border-left:3px solid #c33;padding:.6rem .8rem}}
+ ul{{padding-left:1.2rem}} code{{background:#f4f4f4;padding:0 .25rem;border-radius:3px}}
+</style>
+<h1>Known remainders — {_h.escape(sub['name'])} {_h.escape(sub['version'])}</h1>
+<p class=sub>Tag {_h.escape(sub['tag'])} · cutoff {_h.escape(doc['assessment_cutoff'])} ·
+ revision {doc['register_revision']} ·
+ {inv['identifiers_in_this_register']} of {inv['identifiers_total']} identifiers carried</p>
+{zus}
+<h2>Known gaps</h2><ul>{luecken}</ul>
+<h2>All records</h2>
+<table><thead><tr><th>Id<th>Role<th>Class<th>Severity<th>Title<th>Bytes</tr></thead>
+<tbody>{''.join(zeilen)}</tbody></table>
+<p class=sub>Generated from {_h.escape(V2_REL)}. Do not edit by hand.</p>
+"""
+
+
+def schreibe_v2(repo, generated_at: str, revision: int = 0) -> dict:
+    """Prueft erst, schreibt dann. Bei einem Verstoss KEINE Teilausgabe."""
+    import hashlib, json as _json  # noqa: PLC0415
+    doc = baue_v2(repo, generated_at, revision)
+    fehler = pruefe_v2(doc, repo)
+    if fehler:
+        for f in fehler:
+            print("ROT,", f)
+        raise SystemExit(f"Erzeugung abgebrochen, {len(fehler)} Verstoesse, keine Teilausgabe")
+
+    roh = (repo / RESTRISIKO_REL).read_bytes()
+    ev = repo / EVIDENZ_REL
+    ev.mkdir(parents=True, exist_ok=True)
+    for r in doc["records"]:
+        b = r["evidence"][0]
+        von, bis = b["byte_range"]
+        stueck = roh[von:bis]
+        kopf = (f"<!-- Ausschnitt aus {b['source_path']}, Bytes {von}..{bis}\n"
+                f"     Quelle sha256 {b['source_sha256']}\n"
+                f"     Ausschnitt sha256 {b['sha256']}\n"
+                f"     Fundart {b['fundart']} — byte-gleich, nicht umformatiert -->\n")
+        (ev / f"{r['id']}.md").write_bytes(kopf.encode() + stueck)
+
+    (repo / V2_REL).parent.mkdir(parents=True, exist_ok=True)
+    (repo / V2_REL).write_text(_json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
+                               encoding="utf-8")
+    an = repo / ANSICHTEN_REL
+    an.mkdir(parents=True, exist_ok=True)
+    (an / "uebersicht.md").write_text(ansicht_uebersicht(doc), encoding="utf-8")
+    (an / "known_issues.md").write_text(ansicht_known_issues(doc), encoding="utf-8")
+    (an / "uebersicht.html").write_text(ansicht_html(doc), encoding="utf-8")
+    print(f"gruen, {len(doc['records'])} Eintraege")
+    print(f"  Traeger   -> {V2_REL}")
+    print(f"  Belege    -> {EVIDENZ_REL}/ ({len(doc['records'])} Dateien)")
+    print(f"  Ansichten -> {ANSICHTEN_REL}/ (uebersicht.md, known_issues.md, uebersicht.html)")
+    return doc
+
+
 def build_register(generated_at: str) -> dict:
     return {
         "schema": "proofbundle.findings_register.v1",
@@ -621,7 +763,17 @@ def main(argv=None) -> int:
     p.add_argument("--sig-file", type=Path, default=None)
     p.add_argument("--signer-pubkey", default=None)
     p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--v2", action="store_true",
+                   help="Registerform 6.1: Traeger, Belege und Ansichten erzeugen")
+    p.add_argument("--revision", type=int, default=0)
     a = p.parse_args(argv)
+
+    if a.v2:
+        if a.generated_at is None:
+            from datetime import datetime, timezone  # noqa: PLC0415
+            a.generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        schreibe_v2(REPO, a.generated_at, a.revision)
+        return 0
 
     if a.assemble:
         fehlt = [n for n in ("context_in", "sig_file", "signer_pubkey", "out")
