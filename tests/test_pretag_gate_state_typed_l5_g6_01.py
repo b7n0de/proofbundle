@@ -28,6 +28,7 @@ is wrong. What is asserted here is behaviour, over all four rejected shapes.
 """
 from __future__ import annotations
 
+import ast
 import base64
 import importlib.util
 import json
@@ -54,7 +55,7 @@ def _load(name: str, rel: str):
     return mod
 
 
-def _tree(version: str = "6.0.0", anker: str | None = None) -> pathlib.Path:
+def _tree(version: str = "6.0.0", anker: str | None = None, *, git: bool = True) -> pathlib.Path:
     """Ein MESSBARER Baum: ein echtes git-Repo mit einem Commit, nicht nur ein Ordner.
 
     WARUM DAS SEIT 2026-09-07 NOETIG IST, und es ist eine Entwertung, die ICH verursacht habe.
@@ -76,6 +77,11 @@ def _tree(version: str = "6.0.0", anker: str | None = None) -> pathlib.Path:
         (d / "audit_artifacts").mkdir(parents=True, exist_ok=True)
         (d / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(anker + "\n",
                                                                           encoding="utf-8")
+    if not git:
+        # OHNE git kann das Tor den Baum nicht messen und setzt `unknown` ein. Genau dieser Fall
+        # gehoert in die Matrix: der Ersatzwert darf nicht bindbar sein (Gegenlesung 2026-09-07,
+        # Fund 1) — und ohne einen Fall, der ihn faehrt, ist der Riegel dagegen ungemessen.
+        return d
     for args in (["init", "-q"], ["add", "-A"],
                  ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "basis"]):
         subprocess.run(["git", "-C", str(d), *args], check=True, capture_output=True, timeout=60)
@@ -110,6 +116,72 @@ def _signed_receipt(priv=None, **over) -> str:
     rc["signer_pubkey"] = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
     rc["signature"] = base64.b64encode(priv.sign(canonical_bytes(rc))).decode()
     return json.dumps(rc)
+
+
+#: JEDER ABLEHNUNGSGRUND VON `verify_receipt` BEKOMMT EINEN FALL — und ein Riegel haelt das
+#: fest (``test_jede_ablehnungsstelle_hat_einen_fall``). Die Tabelle stand bis zum 12.09.2026
+#: INNERHALB der Testmethode und trug fuenf Formen; gemessen hat `verify_receipt` ZWOELF Stellen,
+#: die mit ``return False`` enden. Vier davon waren gefahren.
+#:
+#: DAS IST DIE KLASSE, NICHT DIE INSTANZ (Posten 72, Bahn proofbundle): der Auftrag nannte drei
+#: fehlende Formen (``wrong_exit_code``, ``wrong_schema``, ``stale_gate_source_digest``). Gemessen
+#: fehlten ACHT. Wer nur die drei nachtraegt, hat die Aufzaehlung verlaengert und die Luecke
+#: gelassen — die naechste neue Pruefstufe in `verify_receipt` waere wieder ungedeckt, und niemand
+#: wuerde es bemerken. Deshalb zaehlt der Riegel die Stellen an der QUELLE und verlangt je Stelle
+#: einen Fall oder eine ausgeschriebene Ausnahme.
+#:
+#: REIHENFOLGE IST DIE HALBE MIETE. `verify_receipt` prueft: Digest-Form -> Schema -> Version ->
+#: Baum -> Gate-Quelle -> audit_exit -> Anker -> Signierer -> Signatur. Damit ein Fall an SEINER
+#: Eigenschaft faellt, muss alles DAVOR stimmen — deshalb tragen die spaeten Faelle echte Digests
+#: und den Ankerschluessel.
+SHAPES: dict[str, dict] = {
+    # — vor `verify_receipt`, im Lader des Tors ————————————————————————————————————————————————
+    "unreadable_json": {"roh": "{ this is not json", "grund": "unreadable", "anker": "KEIN"},
+    "not_an_object": {"roh": "[1, 2, 3]", "grund": "not a JSON object", "anker": "KEIN"},
+    # — Digest-Form: der Ersatzwert eines nicht messbaren Baums darf nicht bindbar sein ——————————
+    "gate_kann_baum_nicht_messen": {"grund": "is not a sha256", "git": False,
+                                    "echte_digests": False},
+    # — Schema —————————————————————————————————————————————————————————————————————————————————
+    "wrong_schema": {"grund": "unknown schema", "echte_digests": False,
+                     "felder": {"schema": "b7n0de.fremdes_schema.v9"}},
+    # — Version ————————————————————————————————————————————————————————————————————————————————
+    "wrong_version": {"grund": "!= release", "echte_digests": False,
+                      "felder": {"version": "5.0.0"}},
+    # — Baumbindung ————————————————————————————————————————————————————————————————————————————
+    "wrong_tree_digest": {"grund": "does not bind THIS tree",
+                          "nach_dem_signieren": lambda rc: rc.__setitem__(
+                              "subject_tree_digest", "a" * 64)},
+    # — Gate-Quelle ————————————————————————————————————————————————————————————————————————————
+    "stale_gate_source_digest": {"grund": "gate_source_digest does not match",
+                                 "nach_dem_signieren": lambda rc: rc.__setitem__(
+                                     "gate_source_digest", "b" * 64)},
+    # — Ausgang des Audits —————————————————————————————————————————————————————————————————————
+    "wrong_exit_code": {"grund": "did not succeed",
+                        "felder": {"audit_exit_code": 1}},
+    # — Vertrauensanker: ohne Anker faellt es HIER, nicht am Signierer ——————————————————————————
+    "kein_vertrauensanker": {"grund": "no trusted signing key pinned", "anker": "KEIN"},
+    # — Signierer ——————————————————————————————————————————————————————————————————————————————
+    "untrusted_signer": {"grund": "not in the trusted set", "fremder_signierer": True},
+    # — Signatur: drei Formen, drei Gruende —————————————————————————————————————————————————————
+    "keine_signatur": {"grund": "carries no signature",
+                       "nach_dem_signieren": lambda rc: rc.pop("signature", None)},
+    "tampered_signature": {"grund": "does not verify over the canonical",
+                           "nach_dem_signieren": lambda rc: rc.__setitem__(
+                               "signature", base64.b64encode(b"\x00" * 64).decode())},
+    "signatur_ist_kein_base64": {"grund": "signature check errored",
+                                 "nach_dem_signieren": lambda rc: rc.__setitem__(
+                                     "signature", "!!!kein-base64!!!")},
+}
+
+#: Stellen, die ueber `pre_tag_audit_gate.evaluate` NICHT erreichbar sind — mit Grund, nie stumm.
+AUSGENOMMEN: dict[str, str] = {
+    "receipt is not an object": (
+        "Das Tor prueft die Objektform SELBST, bevor es `verify_receipt` ruft, und meldet dabei "
+        "'not a JSON object'. Diese Stelle ist damit eine zweite Verteidigung fuer einen "
+        "Direktaufruf der Bibliothek, ueber das Tor aber unerreichbar — der Fall `not_an_object` "
+        "faehrt die vorgelagerte Pruefung und belegt, dass der Kandidat nicht stumm uebersprungen "
+        "wird."),
+}
 
 
 class TheGateReportsATypedState(unittest.TestCase):
@@ -147,28 +219,24 @@ class TheGateReportsATypedState(unittest.TestCase):
         # muss alles DAVOR stimmen. `untrusted_signer` braucht deshalb den echten Baum- und
         # Gate-Digest; `wrong_version` nicht, weil die Version vor beiden geprueft wird.
         gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
-        shapes = {
-            "unreadable_json": ("{ this is not json", "unreadable", None, False),
-            "not_an_object": ("[1, 2, 3]", "not a JSON object", None, False),
-            "untrusted_signer": (None, "not in the trusted set", pub, True),
-            "wrong_version": (None, "version", pub, False),
-            # FUENFTER FALL, nachgetragen 2026-09-07: ohne ihn ueberlebt die Mutation, die die
-            # Vertrauensanker-Pruefung ganz stilllegt — gemessen. `untrusted_signer` faellt am
-            # SIGNIERER, und der wird NACH dem Anker geprueft; ein Baum mit Anker erreicht die
-            # Ankerpruefung also nie im Fehlerfall. Der Fall ohne Anker schliesst die Luecke.
-            "kein_vertrauensanker": (None, "no trusted signing key pinned", None, True),
-        }
-        for label, (content, grundstueck, anker, echte_digests) in shapes.items():
+        for label, fall in SHAPES.items():
             with self.subTest(shape=label):
-                d = _tree(anker=anker)
+                grundstueck = fall["grund"]
+                d = _tree(anker=fall.get("anker", pub) if fall.get("anker") != "KEIN" else None,
+                          git=fall.get("git", True))
+                content = fall.get("roh")
                 if content is None:
-                    ueber = {"version": "5.0.0"} if label == "wrong_version" else {}
-                    if echte_digests:
+                    ueber = dict(fall.get("felder") or {})
+                    if fall.get("echte_digests", True):
                         ueber["subject_tree_digest"] = subject_tree_digest(d)
                         ueber["gate_source_digest"] = gate_src
-                    # untrusted_signer: FREMDER Schluessel bei gesetztem Anker; wrong_version: der
-                    # Ankerschluessel selbst, damit die Version der erste Fehlschlag ist.
-                    content = _signed_receipt(None if echte_digests else priv, **ueber)
+                    # untrusted_signer: FREMDER Schluessel bei gesetztem Anker; alle anderen der
+                    # Ankerschluessel selbst, damit der Fall an SEINER Stufe faellt und an keiner davor.
+                    content = _signed_receipt(None if fall.get("fremder_signierer") else priv, **ueber)
+                    if fall.get("nach_dem_signieren"):
+                        rc = json.loads(content)
+                        fall["nach_dem_signieren"](rc)
+                        content = json.dumps(rc)
                 _plant(d, "600", "receipt.json", content)
                 r = self.pta.evaluate(d, "6.0.0")
                 self.assertEqual(r["state"], "rejected",
@@ -180,6 +248,77 @@ class TheGateReportsATypedState(unittest.TestCase):
                 self.assertIn(grundstueck, gruende,
                               f"{label}: abgelehnt, aber NICHT an der eigenen Eigenschaft — "
                               f"erwartet ein Grund mit {grundstueck!r}, bekommen: {gruende[:200]}")
+
+    def test_jede_ablehnungsstelle_hat_einen_fall(self):
+        """DER KLASSEN-RIEGEL: die Grundgesamtheit kommt aus der QUELLE, nicht aus dieser Datei.
+
+        Ein Testsatz, der eine Liste von Formen aufzaehlt, ist genau so vollstaendig wie die Liste
+        — und die veraltet still, sobald jemand `verify_receipt` um eine Pruefung erweitert. Diese
+        Methode zaehlt deshalb per `ast` jede Stelle, die mit ``return False, <grund>`` endet, und
+        verlangt je Stelle entweder einen gefahrenen Fall (sein ``grund``-Stueck kommt im
+        statischen Text vor) oder einen Eintrag in `AUSGENOMMEN` mit ausgeschriebener Begruendung.
+
+        Gemessen am 12.09.2026: ZWOELF Stellen, vier gefahren. Der Auftrag nannte drei fehlende;
+        es waren acht. Genau deshalb steht hier eine Messung und keine Liste.
+
+        Die Gegenrichtung wird mitgeprueft: ein ``grund``-Stueck, das auf KEINE Stelle passt,
+        beschreibt eine Pruefung, die es nicht (mehr) gibt — ein Fall, der ins Leere zielt, ist
+        gruen aus dem falschen Grund.
+        """
+        quelle = (REPO / "scripts" / "pre_tag_receipt_lib.py").read_text(encoding="utf-8")
+        fn = next(n for n in ast.walk(ast.parse(quelle))
+                  if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
+
+        def statischer_text(knoten) -> str:
+            """Nur die KONSTANTEN Teile eines Grundes — Platzhalter tragen keine Zusicherung."""
+            teile: list[str] = []
+            for k in ast.walk(knoten):
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    teile.append(k.value)
+            return " ".join(teile)
+
+        stellen: list[tuple[int, str]] = []
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple)
+                    and len(node.value.elts) == 2
+                    and isinstance(node.value.elts[0], ast.Constant)
+                    and node.value.elts[0].value is False):
+                stellen.append((node.lineno, statischer_text(node.value.elts[1])))
+        self.assertGreaterEqual(len(stellen), 12,
+                                f"nur {len(stellen)} Ablehnungsstellen gefunden — misst der Zaehler "
+                                "ueberhaupt noch die richtige Funktion?")
+
+        gruende = [f["grund"] for f in SHAPES.values()]
+        ungedeckt = [(zeile, text[:70]) for zeile, text in stellen
+                     if not any(g in text for g in gruende)
+                     and not any(a in text for a in AUSGENOMMEN)]
+        self.assertEqual(ungedeckt, [],
+                         "Ablehnungsstellen ohne gefahrenen Fall und ohne begruendete Ausnahme — "
+                         f"{ungedeckt}. Jede neue Pruefung in verify_receipt braucht eine Form in "
+                         "SHAPES, sonst ist sie ungemessen.")
+        blind = [g for g in gruende if not any(g in text for _z, text in stellen)
+                 and g not in ("unreadable", "not a JSON object")]
+        self.assertEqual(blind, [],
+                         f"diese Grund-Stuecke treffen KEINE Stelle in verify_receipt: {blind} — "
+                         "ein Fall, der ins Leere zielt, ist gruen aus dem falschen Grund")
+
+    def test_META_eine_neue_pruefstufe_ohne_fall_wird_gefangen(self):
+        """PLANT-AND-MUST-CATCH fuer den Riegel selbst: eine gepflanzte Ablehnungsstelle, die kein
+        Fall faehrt, MUSS auffallen. Ohne diese Probe waere der Riegel oben gruen, weil er nichts
+        findet — und das ist von 'er findet nichts Falsches' nicht zu unterscheiden."""
+        gepflanzt = 'return False, "eine brandneue Pruefung, die niemand faehrt"'
+        fn = ast.parse("def verify_receipt():\n    " + gepflanzt + "\n").body[0]
+        gruende = [f["grund"] for f in SHAPES.values()]
+        texte = []
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple)
+                    and isinstance(node.value.elts[0], ast.Constant)
+                    and node.value.elts[0].value is False):
+                texte.append(node.value.elts[1].value)
+        self.assertTrue(texte, "die Pflanzprobe hat selbst nichts erzeugt")
+        self.assertFalse(any(g in texte[0] for g in gruende),
+                         "die gepflanzte Stufe waere von einem bestehenden Fall gedeckt — dann "
+                         "misst der Riegel oben nicht, was er zu messen vorgibt")
 
     def test_an_unreadable_candidate_is_named_not_skipped(self):
         """The specific hole: `continue` past an unparseable file left `rejected_receipts` EMPTY, so the
