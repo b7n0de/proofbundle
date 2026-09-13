@@ -80,10 +80,61 @@ def test_kaputtes_archiv_ist_nicht_messbar_und_nicht_frei(tmp_path):
 
 
 def test_der_riegel_faengt_sich_nicht_selbst(tmp_path):
-    """Die eine benannte Ausnahme: die Musterdatei selbst traegt die Muster."""
+    """KEINE Ausnahme mehr, sondern eine EIGENSCHAFT — und das ist der Unterschied.
+
+    Die frueherere Fassung nahm diese eine Datei ganz vom Scan aus, weil sie die Muster traegt und
+    sich zu fangen SCHIEN. GEMESSEN 14.09.2026 ueber die eigene Quelle: null Treffer in allen drei
+    Sorten. Die Definitionen sind zusammengesetzt und die Token-Muster sind Regexe, keine Vorkommen.
+    Die Verteidigung wurde also nie gebraucht — und seit MANIFEST.in die Datei ausliefert, war sie
+    ein Loch. Dieser Fall haelt fest, dass sie unnoetig BLEIBT: wer ein Muster kuenftig als LITERAL
+    schreibt, faellt hier und nicht erst beim Nutzer.
+    """
     eigen = (HIER.parent / "scripts" / "b7_paketinhalt_ohne_schluesselmaterial.py").read_bytes()
-    e = riegel.pruefe(_sdist(tmp_path, {riegel.EIGENER_PFAD: eigen, "src/a.py": b"x=1\n"}))
-    assert e["bau_erlaubt"] is True, "die Ausnahme gilt genau fuer diese eine Datei"
+    for sorte, muster in riegel.MUSTER.items():
+        treffend = [m.pattern[:60] for m in muster if m.search(eigen)]
+        assert not treffend, (
+            f"die Quelle des Riegels trifft ihr eigenes Muster der Sorte {sorte}: {treffend} — "
+            "dann muss die Definition ausweichen (zusammensetzen), nicht der Riegel")
+    e = riegel.pruefe(_sdist(tmp_path, {"scripts/b7_paketinhalt_ohne_schluesselmaterial.py": eigen, "src/a.py": b"x=1\n"}))
+    assert e["bau_erlaubt"] is True, "die eigene Quelle ist sauber, also darf der Bau laufen"
+
+
+def test_ein_zugangsdatum_IN_der_riegeldatei_wird_gefunden(tmp_path):
+    """Der Ruecknahme-Nachweis fuer die entfernte Ausnahme, und der Fall, den sie verdeckte.
+
+    MANIFEST.in liefert diese Datei ausdruecklich aus. Mit der alten Ganzdatei-Ausnahme kam ein hier
+    abgelegtes Zugangsdatum an einem Riegel vorbei, dessen erklaerte Eigenschaft "JEDER Treffer
+    bricht ab" lautet. Gefunden von der Codex-Runde eins an PR 200.
+    """
+    eigen = (HIER.parent / "scripts" / "b7_paketinhalt_ohne_schluesselmaterial.py").read_bytes()
+    vergiftet = eigen + b"\n# " + b"AKIA" + b"B" * 16 + b"\n"
+    e = riegel.pruefe(_sdist(tmp_path, {"scripts/b7_paketinhalt_ohne_schluesselmaterial.py": vergiftet, "src/a.py": b"x=1\n"}))
+    assert e["bau_erlaubt"] is False and "T" in e["treffer"], (
+        "ein Zugangsdatum in der Riegeldatei selbst muss den Bau abbrechen wie ueberall sonst")
+
+
+def test_ein_feingranulares_github_token_wird_gefunden(tmp_path):
+    """Seit 2022 die zweite und heute empfohlene Form. Die Aufzaehlung kannte nur `gh[pousr]_`."""
+    last = b"github" + b"_pat_" + b"A" * 82 + b"\n"
+    e = riegel.pruefe(_sdist(tmp_path, {"deploy/env.txt": last}))
+    assert e["bau_erlaubt"] is False and "T" in e["treffer"]
+
+
+def test_ein_benanntes_privates_schluesselfeld_wird_gefunden(tmp_path):
+    """Die Sorte K faengt die PEM-RAHMUNG. Dasselbe Material ohne Rahmen, als benanntes Feld, lief
+    durch — obwohl diese Datei den privaten Schluessel als ihre Grenze fuehrt."""
+    last = b"SIGNING_PRIVATE" + b"_KEY=" + b"c" * 44 + b"\n"
+    e = riegel.pruefe(_sdist(tmp_path, {"conf/settings.py": last}))
+    assert e["bau_erlaubt"] is False and "T" in e["treffer"]
+
+
+def test_ANTI_die_drei_neuen_muster_machen_keinen_fehlalarm(tmp_path):
+    """Gegenrichtung: gewoehnlicher Code mit denselben WOERTERN, aber ohne Wert, bleibt gruen."""
+    harmlos = (b"# der Ablauf liest github_pat aus der Umgebung\n"
+               b"private_key_path = os.environ['KEY_PATH']\n"
+               b"def lies_private_key(pfad):\n    return pfad\n")
+    e = riegel.pruefe(_sdist(tmp_path, {"src/a.py": harmlos}))
+    assert e["urteil"] == "SAUBER" and e["bau_erlaubt"] is True
 
 
 def test_wheel_wird_genauso_geprueft(tmp_path):

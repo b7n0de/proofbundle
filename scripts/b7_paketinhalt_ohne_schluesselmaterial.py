@@ -94,17 +94,33 @@ MUSTER: dict[str, list[re.Pattern[bytes]]] = {
     "T": [
         re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
         re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+        # FEINGRANULAR, seit 2022 die zweite Form und heute die empfohlene. Gefunden von der
+        # Codex-Runde eins an PR 200, gegengeprueft: `github_pat_` + 82 alphanumerische Zeichen
+        # lief durch, weil die Aufzaehlung nur die klassischen `gh[pousr]_`-Praefixe kannte.
+        re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),
         re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
         re.compile(rb"(?i)" + _PRAEFIX
-                   + rb"(api[_-]?key|secret[_-]?key|access[_-]?token|password)"
+                   # `private[_-]?key` fehlte, obwohl die Datei den privaten Schluessel als ihre
+                   # Grenze fuehrt: die Sorte K faengt nur die PEM-RAHMUNG. Ein Feld
+                   # `SIGNING_PRIVATE_KEY=<44 Zeichen base64>` traegt dasselbe Material ohne Rahmen
+                   # und lief durch. Codex-Runde eins an PR 200, am Muster gegengeprueft.
+                   + rb"(api[_-]?key|secret[_-]?key|access[_-]?token|password"
+                     rb"|private[_-]?key)"
                    rb"\s*[:=]\s*(?:" + _WERT + rb")"),
     ],
 }
 
-# Diese Datei SELBST traegt die Muster und wuerde sich sonst fangen. Das ist kein Schoenheitsfehler,
-# sondern der Grund, warum die Ausnahme HIER steht und nicht als Pfadliste in einer Konfiguration:
-# genau EINE Datei ist ausgenommen, sie ist benannt, und die Ausnahme ist im Riegel lesbar.
-EIGENER_PFAD = "scripts/b7_paketinhalt_ohne_schluesselmaterial.py"
+# KEINE SELBST-AUSNAHME MEHR, und der Grund ist eine Messung statt einer Sorge. Eine frueherere
+# Fassung nahm diese Datei GANZ vom Scan aus, weil sie die Muster traegt und sich zu fangen schien.
+# GEMESSEN 14.09.2026 ueber die eigene Quelle: NULL Treffer in allen drei Sorten. Die Definitionen
+# sind zusammengesetzt (`_PEM + rb"..."`) und die Token-Muster sind Regexe, keine Vorkommen — die
+# Datei trifft sich nie selbst.
+#
+# Die Ausnahme war also nie noetig, UND sie war das Loch: seit MANIFEST.in diese Datei ausdruecklich
+# ausliefert, waere ein hier abgelegtes Zugangsdatum an einem Riegel vorbeigekommen, dessen erklaerte
+# Eigenschaft "JEDER Treffer bricht ab" lautet. Gefunden von der Codex-Runde eins an PR 200. Eine
+# Verteidigung, die nie gebraucht wurde und eine Luecke oeffnet, ist kein Schutz, sondern Kosten.
+# Dass sie unnoetig BLEIBT, haelt `test_der_riegel_faengt_sich_selbst_nicht` fest.
 
 
 def _dateien_sdist(pfad: str):
@@ -135,8 +151,6 @@ def pruefe(pfad: str) -> dict:
         for name, roh in lade(pfad):
             gelesen += 1
             kurz = name.split("/", 1)[-1] if "/" in name else name
-            if kurz == EIGENER_PFAD:
-                continue
             for sorte, muster in MUSTER.items():
                 if any(m.search(roh) for m in muster):
                     treffer.setdefault(sorte, [])
