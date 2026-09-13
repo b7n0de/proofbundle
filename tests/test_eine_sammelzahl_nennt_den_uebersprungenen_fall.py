@@ -50,8 +50,15 @@ _SAMMELZAHL = re.compile(r"\b(\d+)\s+passed,\s*(\d+)\s+skipped\b")
 _BEHAUPTET_GEMESSEN = re.compile(r"\*\*State:\*\*.*?\bMEASURED\b", re.S)
 _NICHT_GEMESSEN = re.compile(r"\*\*State:\*\*[^\n]*?\bNOT\s+MEASURED\b")
 
-#: Ein Testname, wie pytest ihn meldet.
-_TESTNAME = re.compile(r"\btest_[A-Za-z0-9_]+\b")
+#: Ein Testname, wie pytest ihn meldet — MIT seinem Parameter, falls er einen traegt.
+#:
+#: ZWEITE FASSUNG, Fund der Fremdfamilie (Codex r3999991254) gegen diesen Riegel selbst. Die erste
+#: schnitt den Parameter ab: `test_first[a]` und `test_first[b]` wurden beide zu `test_first`, die
+#: Menge fiel auf EINS zusammen, und ein Abschnitt, der BEIDE uebersprungenen Faelle ordentlich
+#: benennt, wurde zu Unrecht gemeldet. Eine Stueckpflicht, die Stuecke zusammenfasst, ist keine.
+#: In pytest ist der parametrierte Fall der Fall; `test_first` ohne Parameter ist kein Knoten,
+#: sondern seine Familie.
+_TESTNAME = re.compile(r"\btest_[A-Za-z0-9_]+(?:\[[^\]\s`]*\])?")
 
 #: Ein Satz, der vom Ueberspringen handelt. Satzgrenze ist Punkt oder Zeilenumbruch.
 _SKIP_SATZ = re.compile(r"[^.\n]*\bskip(?:ped)?\b[^.\n]*", re.I)
@@ -244,3 +251,18 @@ def test_FANG_zwei_sammelzahlen_und_nur_eine_erklaert_wird_gemeldet():
     text = ("### TC\n\n- **State:** **MEASURED**.\n\n  First run: **10 passed, 1 skipped**, "
             "`test_a` skipped.\n  Second run: **12 passed, 1 skipped**.\n")
     assert stumme_sammelzahlen(text), "zwei Laeufe, eine Erklaerung, das genuegt nicht"
+
+
+def test_FANG_zwei_PARAMETRIERTE_faelle_beide_benannt_ist_gruen():
+    """[ZAEHLT] Der Fund von Codex, auf das Kleinste eingedampft."""
+    text = ("### TP\n\n- **State:** **MEASURED**.\n\n  Run: **22 passed, 2 skipped**.\n"
+            "  Skipped were `test_first[a]` and `test_first[b]`, both for the same reason.\n")
+    assert stumme_sammelzahlen(text) == [], (
+        "zwei parametrierte Faelle, beide benannt, duerfen nicht gemeldet werden")
+
+
+def test_FANG_zwei_parametrierte_und_nur_EINER_benannt_bleibt_rot():
+    """[ZAEHLT] Gegenrichtung: der Fix darf die Stueckpflicht nicht aufweichen."""
+    text = ("### TQ\n\n- **State:** **MEASURED**.\n\n  Run: **22 passed, 2 skipped**.\n"
+            "  One of them, `test_first[a]`, was skipped because the binary is absent.\n")
+    assert stumme_sammelzahlen(text), "eine von zwei benannt genuegt weiterhin nicht"
