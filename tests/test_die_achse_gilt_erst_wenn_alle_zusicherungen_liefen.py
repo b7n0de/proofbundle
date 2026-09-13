@@ -89,3 +89,33 @@ def test_das_einzelurteil_steht_im_beleg_und_nicht_nur_die_summe():
     """Ohne die Aufschluesselung ist das Urteil behauptet statt nachrechenbar."""
     _, _, einzeln = bam._alle_ausgaenge(_Attrappe(), bam.zusicherungen_je_fall(_Attrappe, 2), (object(),))
     assert len(einzeln) == 2 and set(einzeln) == set(bam.zusicherungen_je_fall(_Attrappe, 2))
+
+
+# ── Nachtrag: was eine UEBERSPRUNGENE Zusicherung mit der Achse macht ────────────────────────────
+
+class _AttrappeSpringt:
+    def test_kosten_am_limit_unter_der_obergrenze(self, dim):
+        return None
+
+    def test_speicher_am_limit_unter_der_grenze(self, dim):
+        import pytest
+        pytest.skip("kein psutil auf dieser Maschine")
+
+
+def test_eine_uebersprungene_zusicherung_macht_die_achse_nicht_bestanden():
+    """Die Frage kam aus der Gegenlesung und stand dort als UNKNOWN, weil der Diff `_ausgang` nicht
+    zeigte. Hier ist sie gemessen und damit eine ENTSCHEIDUNG statt eines Zufalls.
+
+    Springt eine Zusicherung, ist die Achse weder bestanden noch gerissen, sondern UEBERSPRUNGEN —
+    also NICHT VOLLSTAENDIG GEMESSEN. Das ist der ehrliche dritte Zustand: vier gehaltene
+    Zusicherungen und eine ungemessene ergeben kein Bestanden, und sie ergeben auch keinen
+    Fehlschlag. Die Aufschluesselung bleibt erhalten, damit sichtbar ist, WAS gehalten hat.
+    """
+    namen = bam.zusicherungen_je_fall(_AttrappeSpringt, 2)
+    urteil, meldung, einzeln = bam._alle_ausgaenge(_AttrappeSpringt(), namen, (object(),))
+    assert urteil == "UEBERSPRUNGEN", (
+        f"eine ungemessene Zusicherung darf die Achse nicht bestehen lassen, Urteil war {urteil}")
+    assert "test_speicher_am_limit_unter_der_grenze" in meldung
+    assert einzeln["test_kosten_am_limit_unter_der_obergrenze"] == "BESTANDEN", (
+        "die gehaltene Zusicherung verschwindet aus der Aufschluesselung — dann sagt das Urteil "
+        "nicht mehr, was gemessen wurde")
