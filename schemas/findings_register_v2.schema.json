@@ -127,6 +127,8 @@
           },
           "kind": {"enum": ["security", "quality"]},
           "class_id": {"type": ["string", "null"], "description": "public class key with a checkable ledger reference"},
+          "bezug": {"type": ["string", "null"],
+                    "description": "optional: the id of a line this one supplements without replacing it \u2014 the supplemented line and its digest stay untouched. Not a correction (related_records.relation=corrects) and not a replacement (supersedes)"},
           "origin": {"type": ["string", "null"],
                      "description": "measured run or lens identifier — never an invented model identity"},
           "severity": {"enum": ["P0", "P1", "P2", "P3"]},
