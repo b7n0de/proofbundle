@@ -6,7 +6,7 @@
   "issuer": "b7n0de",
   "language": "en",
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T15:35:00Z",
+  "generated_at": "2026-09-13T15:48:00Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -22,7 +22,7 @@
       },
       {
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
-        "sha256": "a33ae7007e27f6236b87ca5e08f0b2d62f083d8229418317dceeb00cf6bbe387",
+        "sha256": "370de638f9b3ebe2e119293f2aadf9f2273b26eeb9e384e3f76483882a6f4d0e",
         "identifiers": 145
       }
     ],
@@ -83,6 +83,12 @@
       "zweiter_leser": {
         "zustand": "EINIG",
         "abweichende_felder": null
+      },
+      "herkunft_der_sollliste": {
+        "zustand": "NICHT MESSBAR",
+        "quelle": "globe/staging/incoming/20260912T1317Z__beilage__SOLLLISTE_kennungen_register_600_20260912T1316Z.json",
+        "erwartet": "fbc0b9ed09327cb4b3a845ce1e952fc842956333a88feceec53591f640c058fc",
+        "grund": "die genannte Quelle ist von diesem Repository aus nicht erreichbar; der Digest wird DESHALB nicht als geprueft ausgewiesen, sondern als ungeprueft weitergegeben"
       }
     },
     "assurance_checks": [
@@ -1381,7 +1387,7 @@
     {
       "id": "S3",
       "record_revision": 0,
-      "record_role": "finding",
+      "record_role": "boundary",
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
@@ -1390,7 +1396,7 @@
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
       "objektklasse": "fund_sicherheit_und_korrektheit",
-      "objektklasse_begruendung": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
+      "objektklasse_begruendung": "Praefix S, also Klasse fund_sicherheit_und_korrektheit — aber mit DEKLARIERTER Ausnahme. Die Ueberschrift der Quelle weist den Eintrag selbst als Nicht-Fund aus: 'NO FINDING, measured in both directions'. Siehe ausnahmen_von_der_klasse.",
       "severity": {
         "value": null,
         "state": "NOT MEASURED",

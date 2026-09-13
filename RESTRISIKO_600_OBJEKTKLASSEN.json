@@ -26,8 +26,8 @@
   },
   "grundgesamtheit": {
     "kennungen_gesamt": 145,
-    "funde": 132,
-    "keine_funde": 13,
+    "funde": 131,
+    "keine_funde": 14,
     "je_praefix": {
       "A": 4,
       "G": 2,
@@ -67,6 +67,20 @@
       "name": "benannte_grenze",
       "zaehlt_als_fund": false,
       "warum": "G-Kennungen sind KEINE Funde: sie benennen eine Grenze des Gegenstands, die wir nirgends bestreiten. Ein benanntes Nicht-Koennen ist kein Defekt. Wuerde eine solche Zeile als Fund zaehlen, wuechse die Grundgesamtheit der Funde um eine Zeile, die gar keinen Defekt beschreibt — genau der Zahlensalat, gegen den diese Datei gebaut ist."
+    }
+  },
+  "ausnahmen_von_der_klasse": {
+    "_warum_es_diesen_block_gibt": "Die Klassendeklaration leitet zaehlt_als_fund aus dem PRAEFIX ab, und der Vertrag verlangt zu Recht, dass kein Eintrag seine eigene Klasse still ueberstimmt. Damit konnte das Modell einen gemessenen NICHT-Fund gar nicht ausdruecken: S3 traegt in seiner eigenen Quellueberschrift 'NO FINDING, measured in both directions' und wurde trotzdem als Fund gezaehlt. Gefunden von der Fremdfamilie (Codex r3999944594, 13.09.2026). Eine Ausnahme wird deshalb nicht erschlichen, sondern DEKLARIERT, mit Beleg und Grund. Gemessen ueber alle 145 Eintraege und 132 Ueberschriften ist dies die EINZIGE Ueberschrift, die sich selbst als Nicht-Fund ausweist.",
+    "_regel": "Ein Eintrag darf von zaehlt_als_fund seiner Klasse nur abweichen, wenn er hier gefuehrt ist. Jeder Eintrag hier nennt die Kennung, den abweichenden Wert, die Belegstelle in der Quelle und den Grund.",
+    "messung_ohne_fund": {
+      "zaehlt_als_fund": false,
+      "warum": "Eine Messung, die ergibt dass nichts vorliegt, ist ein Beleg, aber kein Fund. Sie bleibt im Register, weil ihre Abwesenheit selbst eine Aussage ist, und sie wird nicht in die Fundzahl gezaehlt, die nach aussen geht.",
+      "kennungen": [
+        "S3"
+      ],
+      "beleg": {
+        "S3": "RESTRISIKO_600.md, Ueberschrift '### S3 · `pre_tag_audit_gate` first-candidate acceptance — NO FINDING, measured in both directions'"
+      }
     }
   },
   "eintraege": [
@@ -362,9 +376,10 @@
       "kennung": "S3",
       "klasse": "fund_sicherheit_und_korrektheit",
       "praefix": "S",
-      "zaehlt_als_fund": true,
-      "warum_diese_klasse": "S-Kennungen sind FUNDE: je ein eigenstaendiger Befund am Gegenstand des Release, aufgenommen als Restrisiko vor dem Abschlusstor.",
-      "titel_im_register": "· pre_tag_audit_gate first-candidate acceptance — NO FINDING, measured in both directions"
+      "zaehlt_als_fund": false,
+      "warum_diese_klasse": "Praefix S, also Klasse fund_sicherheit_und_korrektheit — aber mit DEKLARIERTER Ausnahme. Die Ueberschrift der Quelle weist den Eintrag selbst als Nicht-Fund aus: 'NO FINDING, measured in both directions'. Siehe ausnahmen_von_der_klasse.",
+      "titel_im_register": "· pre_tag_audit_gate first-candidate acceptance — NO FINDING, measured in both directions",
+      "ausnahme_von_der_klasse": "messung_ohne_fund"
     },
     {
       "kennung": "S4",

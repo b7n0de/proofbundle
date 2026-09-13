@@ -139,15 +139,63 @@ def test_jeder_eintrag_traegt_eine_deklarierte_klasse():
     assert not fremd, f"Eintraege mit einer Klasse, die `klassen` nicht deklariert: {fremd}"
 
 
+def _erlaubte_ausnahmen(d) -> dict:
+    """Kennung -> abweichender `zaehlt_als_fund`, aus dem DEKLARIERTEN Ausnahmeblock.
+
+    Eintraege ohne Beleg und ohne Grund zaehlen NICHT als erlaubt: eine Ausnahme, die sich selbst
+    genehmigt, ist keine.
+    """
+    raus = {}
+    for name, a in (d.get("ausnahmen_von_der_klasse") or {}).items():
+        if name.startswith("_") or not isinstance(a, dict):
+            continue
+        if not a.get("warum") or not a.get("beleg"):
+            continue
+        for k in a.get("kennungen") or []:
+            if (a.get("beleg") or {}).get(k):
+                raus[str(k)] = bool(a.get("zaehlt_als_fund"))
+    return raus
+
+
 def test_zaehlt_als_fund_stimmt_mit_der_klassendeklaration():
-    """Ein Eintrag darf seine eigene Klasse nicht ueberstimmen — sonst ist die Deklaration Zierde."""
+    """Ein Eintrag darf seine eigene Klasse nicht STILL ueberstimmen.
+
+    ERWEITERT AM 13.09.2026, und die Eigenschaft wird dabei staerker, nicht schwaecher. Die erste
+    Fassung liess GAR KEINE Abweichung zu, und dadurch konnte das Modell einen gemessenen
+    NICHT-Fund nicht ausdruecken: S3 traegt in seiner eigenen Quellueberschrift "NO FINDING,
+    measured in both directions" und wurde trotzdem als Fund gezaehlt, weil sein Praefix es so
+    vorsah (Codex r3999944594). Der Vertrag war erfuellt und die Aussage falsch.
+    Eine Abweichung ist jetzt zulaessig, wenn sie im Block `ausnahmen_von_der_klasse` steht, MIT
+    Grund und MIT Belegstelle. Was dort nicht steht, faellt weiter um.
+    """
     d = _daten()
     nach_name = {str(v["name"]): bool(v["zaehlt_als_fund"]) for v in d["klassen"].values()}
-    abweichend = [e["kennung"] for e in d["eintraege"]
-                  if bool(e.get("zaehlt_als_fund")) != nach_name.get(str(e["klasse"]))]
+    ausnahmen = _erlaubte_ausnahmen(d)
+    abweichend = []
+    for e in d["eintraege"]:
+        ist, soll = bool(e.get("zaehlt_als_fund")), nach_name.get(str(e["klasse"]))
+        if ist == soll:
+            continue
+        if ausnahmen.get(str(e["kennung"])) == ist:
+            continue                      # deklariert, mit Grund und Beleg
+        abweichend.append(e["kennung"])
     assert not abweichend, (
-        f"Diese Eintraege widersprechen der `zaehlt_als_fund`-Deklaration ihrer eigenen Klasse: "
-        f"{abweichend}")
+        f"Diese Eintraege widersprechen der `zaehlt_als_fund`-Deklaration ihrer eigenen Klasse, "
+        f"ohne im Block `ausnahmen_von_der_klasse` mit Grund und Beleg zu stehen: {abweichend}")
+
+
+def test_eine_ausnahme_OHNE_grund_oder_beleg_zaehlt_NICHT_als_deklariert():
+    """MUSS-FEHLSCHLAG: sonst genehmigt sich eine Ausnahme selbst, indem sie bloss existiert."""
+    for fehlt in ("warum", "beleg"):
+        block = {"probe": {"zaehlt_als_fund": False, "kennungen": ["X1"],
+                           "warum": "ein Grund", "beleg": {"X1": "eine Stelle"}}}
+        del block["probe"][fehlt]
+        assert _erlaubte_ausnahmen({"ausnahmen_von_der_klasse": block}) == {}, (
+            f"eine Ausnahme ohne {fehlt} darf nicht als deklariert gelten")
+    ohne_beleg_fuer_die_kennung = {"probe": {"zaehlt_als_fund": False, "kennungen": ["X1", "X2"],
+                                             "warum": "ein Grund", "beleg": {"X1": "eine Stelle"}}}
+    assert _erlaubte_ausnahmen({"ausnahmen_von_der_klasse": ohne_beleg_fuer_die_kennung}) == {"X1": False}, (
+        "eine Kennung ohne eigene Belegstelle darf nicht mitlaufen")
 
 
 # ── Frage 2: die Datei gegen ihren Gegenstand ─────────────────────────────────────────────────

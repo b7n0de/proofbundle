@@ -493,7 +493,7 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "identifiers_in_this_register": len(records),
             "identifiers_without_evidence": ohne_fundstelle,
             "coverage_gaps": luecken,
-            "cross_count": _gegenrechnung(ok, records),
+            "cross_count": _gegenrechnung(ok, records, repo),
             "assurance_checks": _zusicherungen(text, records),
         },
         "records": records,
@@ -541,7 +541,7 @@ def _zusicherungen(text: str, records: list) -> list:
     }]
 
 
-def _gegenrechnung(ok: dict, records: list) -> dict:
+def _gegenrechnung(ok: dict, records: list, repo=None) -> dict:
     """Die Fremdzaehlung GERECHNET — und gegen die Handzaehlung derselben Datei gehalten.
 
     DER DEFEKT, gemessen 2026-09-13. ``RESTRISIKO_600_OBJEKTKLASSEN.json`` traegt ZWEI
@@ -602,6 +602,36 @@ def _gegenrechnung(ok: dict, records: list) -> dict:
                 "reason": (f"{len(fremd)} Kennung(en) sind keine Zeichenketten "
                            f"({[type(x).__name__ for x in fremd[:4]]}); eine Gegenrechnung ueber "
                            f"gemischte Typen ist keine Messung, sondern ein Zufall der Sortierung")}
+    # DER DIGEST DER SOLLLISTE WURDE DURCHGEREICHT, NIE GEPRUEFT (Codex r3999944593). Der Block
+    # nennt `quelle` und `sha256_der_sollliste` nebeneinander, und beides las sich wie eine
+    # gepruefte Herkunft. Gemessen: die Funktion oeffnet keine Datei. Wer die eingebettete Liste
+    # aendert und den Digest stehen laesst, bekommt eine gruene Herkunftsaussage ueber Bytes, die
+    # niemand gesehen hat.
+    #
+    # EHRLICH IST HIER DREI ZUSTAENDE, nicht zwei. Die genannte Quelle liegt in einem ANDEREN
+    # Repository (globe/staging/incoming/… des Hauses), von hier aus also nicht erreichbar. Eine
+    # Pruefung, die nicht stattfinden kann, darf nicht wie eine bestandene aussehen: liegt die
+    # Datei vor, wird gerechnet; liegt sie nicht vor, steht NICHT MESSBAR mit Grund; weicht sie ab,
+    # ist es ein Fehler.
+    import hashlib as _h  # noqa: PLC0415
+    _quelle = ein.get("quelle")
+    _soll_digest = ein.get("sha256_der_sollliste")
+    _p = (repo / _quelle) if (repo is not None and _quelle) else None
+    if not _soll_digest:
+        herkunft = {"zustand": "NICHT MESSBAR",
+                    "grund": "der Eingabeblock nennt keinen sha256_der_sollliste"}
+    elif _p is None or not _p.is_file():
+        herkunft = {"zustand": "NICHT MESSBAR", "quelle": _quelle, "erwartet": _soll_digest,
+                    "grund": ("die genannte Quelle ist von diesem Repository aus nicht erreichbar; "
+                              "der Digest wird DESHALB nicht als geprueft ausgewiesen, sondern als "
+                              "ungeprueft weitergegeben")}
+    else:
+        _ist = _h.sha256(_p.read_bytes()).hexdigest()
+        herkunft = ({"zustand": "GEPRUEFT", "quelle": _quelle, "sha256": _ist}
+                    if _ist == _soll_digest else
+                    {"zustand": "ABWEICHEND", "quelle": _quelle,
+                     "erwartet": _soll_digest, "gemessen": _ist,
+                     "grund": "die genannte Quelle traegt andere Bytes als der Block behauptet"})
     soll_ids, reg_ids = set(soll), {r["id"] for r in records}
     zu_viel, fehlt = sorted(reg_ids - soll_ids), sorted(soll_ids - reg_ids)
     gruende = hand.get("zu_viel_welche_grund") or {}
@@ -635,7 +665,7 @@ def _gegenrechnung(ok: dict, records: list) -> dict:
                    "grund": "gerechnet und handgezaehlt sagen Verschiedenes"}
     else:
         zweiter = {"zustand": "EINIG", "abweichende_felder": None}
-    return {**kopf, **gerechnet, "zweiter_leser": zweiter}
+    return {**kopf, **gerechnet, "zweiter_leser": zweiter, "herkunft_der_sollliste": herkunft}
 
 
 def pruefe_belege_auf_platte(doc, repo) -> list[str]:
@@ -744,6 +774,23 @@ def pruefe_v2(doc, repo) -> list[str]:
             if r.get(feld) and r[feld] not in LUECKENWOERTER:
                 fehler.append(f"{kid}, {feld} ist kein Lueckenwort: {r[feld]!r}")
     inv = doc["inventory"]
+    # DIE QUELL-DIGESTS DES INVENTARS WURDEN NIE NACHGERECHNET (Codex r3999918378, P1). Die
+    # Belegeintraege tragen je einen `source_sha256`, und DER wird geprueft — aber
+    # `inventory.source_documents[]` fuehrt eine ZWEITE Digestangabe ueber dieselben Dateien, und
+    # sie stand in keiner Pruefung. Gemessen am Kopf d6b24ef war genau das eingetreten: der Traeger
+    # nannte fuer RESTRISIKO_600_OBJEKTKLASSEN.json einen Digest, den die Datei nicht mehr trug,
+    # und `pruefe_v2` meldete null Fehler. Zwei Angaben ueber dieselbe Sache, von denen nur eine
+    # geprueft wird, driften — und die ungeprueftere ist die, die ein Leser zuerst sieht.
+    for q in inv.get("source_documents") or []:
+        p = repo / q.get("path", "")
+        if not p.is_file():
+            fehler.append(f"Inventar: Quelle fehlt: {q.get('path')!r}")
+            continue
+        ist = hashlib.sha256(p.read_bytes()).hexdigest()
+        if ist != q.get("sha256"):
+            fehler.append(
+                f"Inventar: {q.get('path')} traegt {ist[:12]}, der Traeger nennt "
+                f"{str(q.get('sha256'))[:12]} — der Traeger ist nicht neu erzeugt worden")
     if inv["identifiers_in_this_register"] + len(inv["identifiers_without_evidence"]) \
             != inv["identifiers_total"]:
         fehler.append("Inventar: getragen + ohne Beleg != gesamt")
@@ -864,7 +911,7 @@ def pruefe_v2(doc, repo) -> list[str]:
             # der zweite Ort war der, der die Datei selbst laedt.
             if not isinstance(_ok, dict):
                 raise TypeError(f"Toplevel ist {type(_ok).__name__}, erwartet ein Objekt")
-            _neu = _gegenrechnung(_ok, doc["records"])
+            _neu = _gegenrechnung(_ok, doc["records"], repo)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             fehler.append(f"[GR-NEUABLEITUNG] nicht neu ableitbar ({type(e).__name__}: {e}) — "
                           f"ohne Neuableitung ist der Block eine Behauptung")

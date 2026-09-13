@@ -57,7 +57,7 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | R7 | boundary | nachgemessene_fassung_einer_runde | NOT MEASURED | audit_artifacts/600/register_evidence/R7.md | 6792..8310 |
 | S1 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S1.md | 37578..39860 |
 | S2 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S2.md | 39860..41053 |
-| S3 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S3.md | 41053..41802 |
+| S3 | boundary | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S3.md | 41053..41802 |
 | S4 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S4.md | 41802..43919 |
 | S5 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S5.md | 44610..46718 |
 | S6 | finding | fund_sicherheit_und_korrektheit | NOT MEASURED | audit_artifacts/600/register_evidence/S6.md | 47845..51666 |
