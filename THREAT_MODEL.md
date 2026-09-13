@@ -59,6 +59,18 @@ not *correctness of the computation*.)
   benchmark resists gaming). **A fix that claimed to SOLVE benchmark-hacking would itself be a No-Overclaim
   violation** — crypto authenticates bytes, it cannot adjudicate benchmark design; that judgement stays
   human, exactly like "whether the suite measures what it claims" above.
+- **Double issuance by the ISSUER — equivocation, not a split view by the log operator**
+  (`LIMIT_ANCHOR_EXISTENCE_NOT_UNIQUENESS`). The "Split view by the log operator" row above covers a
+  witnessed checkpoint whose quorum is stuffed by one key under many names. It does not cover the
+  simpler case: an issuer signs — and anchors — TWO intact, divergent receipts for the same study and
+  presents each to a different reader. Both verify, both are `confirmed`, and neither reader can see the
+  other's copy. An external anchor does not close this: it proves existence-before-a-time, never
+  uniqueness. What closes it is a reference the issuer does not control alone — an independent witness
+  quorum (`SPEC.md` §7d), a public transparency log (`INTEROP.md` assigns non-equivocation to Rekor,
+  not to us), or two readers who compare notes (RFC 9162 §1.1.6, gossip). Today no independent witness
+  is deployed for this project, so third-party fork detection is out of reach here — that is a
+  DEPLOYMENT property, not a missing code path, and `docs/TRUST_ANCHORS.md` already says a bundle
+  without witness keys has "no split-view resistance".
 - **Forced random sub-sampling of individual samples.** proofbundle binds at the *claim* level (the reported
   metrics + sample count), not per-sample. A verifier-forced random sample check would need a per-sample
   Merkle binding: **shipped in v1.5** (``samples`` commitment + opening/audit protocol, SPEC §7g).

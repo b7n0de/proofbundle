@@ -45,5 +45,14 @@ tamper-resistance, and it is the property AuditWeave asks a ledger to document.
 - **The anchor's own trust roots must be distributed and trusted** — that is `OPEN_QUESTIONS.md`
   Q1_ANCHOR_TRUST_ROOT_DISTRIBUTION, an item for the external review, not something the code closes on
   its own.
+- **An anchor proves existence-before-a-time, not UNIQUENESS** (`LIMIT_ANCHOR_EXISTENCE_NOT_UNIQUENESS`).
+  Nothing stops an issuer from anchoring *two* divergent but internally intact receipts for the same
+  study — in the same Bitcoin chain, with the same TSA — and showing each to a different reader. Both
+  verify. Both report `confirmed`. A lone receipt tree cannot detect that it has a sibling, because an
+  external reference answers *when*, never *how many*. Closing it needs a reference the issuer does not
+  control alone: an independent witness quorum (`SPEC.md` §7d), a public transparency log
+  (Rekor / CT, `INTEROP.md`), or two readers who compare notes (RFC 9162 §1.1.6). This is the same limit
+  `docs/predicates/run-ledger.md` states for the Run Ledger; what was missing here is that it applies to
+  the ANCHOR too, which is the surface an auditor reads first.
 - **Primitive hardness and side-channels are out of scope** for both the anchor story and the formal
   model (IACR 2025/980) — external-audit terrain, `OPEN_QUESTIONS.md` Q2/Q3.

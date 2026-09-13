@@ -8,6 +8,17 @@
       "id": "C1_INTEGRITY_IS_ANCHORED_RESISTANCE_NOT_ONLY_EVIDENCE",
       "statement": "A verified receipt is tamper-EVIDENT and, when anchored, tamper-RESISTANT: the chain head is bound to an external append-only reference so a storage-controlling actor cannot silently recompute it.",
       "closes_external_open_problem": "AuditWeave open problem (a): 'tamper-evident, not resistant — actors controlling storage could recompute chains'.",
+      "does_not_close": {
+        "id": "LIMIT_ANCHOR_EXISTENCE_NOT_UNIQUENESS",
+        "statement": "An external anchor proves existence-before-a-time, not UNIQUENESS. An issuer can anchor two divergent but internally intact receipts for the same study and show each to a different reader; both verify and both report confirmed. A lone receipt tree cannot detect that it has a sibling. Closing it needs a reference the issuer does not control alone (an independent witness quorum, SPEC.md 7d; a public transparency log, INTEROP.md) or two readers who compare notes (RFC 9162 1.1.6). No independent witness is deployed for this project today, so third-party fork detection is a deployment property, not a code path this repo can close.",
+        "why_this_field_exists": "The prose twin docs/readiness_pack/tamper_resistance.md listed four honest limits and not this one, and this machine-readable entry listed none at all while asserting that the AuditWeave open problem is closed. An auditor who reads only the JSON saw a closure without its boundary.",
+        "stated_in": [
+          "docs/readiness_pack/tamper_resistance.md",
+          "THREAT_MODEL.md",
+          "docs/predicates/run-ledger.md",
+          "docs/TRUST_ANCHORS.md"
+        ]
+      },
       "evidence_ordered": [
         {
           "ref": "docs/readiness_pack/tamper_resistance.md",
