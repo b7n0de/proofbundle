@@ -23,37 +23,48 @@ from __future__ import annotations
 
 import hashlib
 import json
+import importlib.util
 import pathlib
 import subprocess
 
 import pytest
+
+# DIE PFADFORM, NICHT DER BLANKE NAME — und das ist ein Fund des eigenen Riegels von heute
+# frueh: `scripts/` wird NICHT ausgeliefert (MANIFEST.in kennt kein `graft scripts`, gemessen an
+# SOURCES.txt). Ein blanker `from b7_historie import ...` auf Modulebene braeche im entpackten
+# sdist das SAMMELN und mit ihm die ganze Suite. Die Pfadform nennt ein Verzeichnis, und `conftest`
+# macht daraus ein ehrliches SKIP statt eines Abbruchs.
+_HIST_PFAD = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "b7_historie.py"
+_HIST_SPEC = importlib.util.spec_from_file_location("b7_historie", _HIST_PFAD)
+_HIST = importlib.util.module_from_spec(_HIST_SPEC)
+_HIST_SPEC.loader.exec_module(_HIST)
+_letzte_abweichende = _HIST.letzte_abweichende_fassung
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 DATEI = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
 
 
 def letzte_abweichende_fassung():
-    """(commit, bytes) der letzten Fassung, die sich vom heutigen Inhalt unterscheidet."""
-    if not DATEI.is_file() or not (REPO / ".git").exists():
-        return None
-    jetzt = hashlib.sha256(DATEI.read_bytes()).hexdigest()
-    log = subprocess.run(["git", "-C", str(REPO), "log", "--format=%H", "--", DATEI.name],
-                         capture_output=True, text=True, timeout=60)
-    if log.returncode != 0:
-        return None
-    for commit in log.stdout.split():
-        b = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:{DATEI.name}"],
-                           capture_output=True, timeout=60)
-        if b.returncode == 0 and hashlib.sha256(b.stdout).hexdigest() != jetzt:
-            return commit, b.stdout
-    return None
+    """(commit, bytes) der letzten abweichenden Fassung, oder `(None, grund)` mit dem GRUND.
+
+    NACHGEZOGEN AUF DEN EINEN ERZEUGER (Codex 4000088153). Diese Funktion hatte ihre eigene Suche
+    und gab bei jedem Misserfolg `None` zurueck — ein Wort fuer "es gibt keine" und fuer "ich kann
+    hier nicht nachsehen". Beides fuehrte zu demselben Skip-Text, und der nannte den falschen
+    Grund. Gesucht wird jetzt dort, wo die Frage EINMAL beantwortet wird.
+    """
+    if not DATEI.is_file():
+        return None, "die Objektklassen-Datei liegt hier nicht"
+    zustand, commit, roh, grund = _letzte_abweichende(REPO, DATEI.name, DATEI.read_bytes())
+    if zustand != "GEFUNDEN":
+        return None, grund
+    return (commit, roh), ""
 
 
 def test_die_vorfassung_ist_NICHT_der_heutige_inhalt():
     """[ZAEHLT] Der Kern des Fundes: der Vergleichsgegenstand muss ein ANDERER sein."""
-    v = letzte_abweichende_fassung()
+    v, grund = letzte_abweichende_fassung()
     if v is None:
-        pytest.skip("NICHT MESSBAR: kein git-Baum oder keine abweichende Vorfassung")
+        pytest.skip(f"NICHT MESSBAR: {grund} — das ist KEIN Bestehen")
     commit, roh = v
     assert hashlib.sha256(roh).hexdigest() != hashlib.sha256(DATEI.read_bytes()).hexdigest(), (
         f"die gewaehlte Vorfassung aus {commit[:12]} ist byte-gleich mit dem heutigen Inhalt — "
@@ -80,9 +91,9 @@ def test_FANG_eine_UMGESCHRIEBENE_kette_wuerde_auffallen():
     lautet: die heutige Kette beginnt mit der alten. Eine verdrehte alte Kette darf deshalb NICHT
     mehr Praefix sein.
     """
-    v = letzte_abweichende_fassung()
+    v, grund = letzte_abweichende_fassung()
     if v is None:
-        pytest.skip("NICHT MESSBAR: keine abweichende Vorfassung")
+        pytest.skip(f"NICHT MESSBAR: {grund} — das ist KEIN Bestehen")
     _, roh = v
     alt_kette = (json.loads(roh.decode("utf-8")).get("gemessen_an") or {}).get("_kette") or []
     if not alt_kette:

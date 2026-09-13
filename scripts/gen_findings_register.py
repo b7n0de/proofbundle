@@ -568,18 +568,27 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "language": "en",
         "language_scope": {
             "generated_prose": "en",
-            "quoted_from_source": {
-                "language": "de",
-                "source": RESTRISIKO_REL,
-                "fields": ["records[].title", "records[].objektklasse_begruendung",
-                           "inventory.coverage_gaps[].reason",
-                           "inventory.cross_count._auflage",
-                           "inventory.cross_count.warum_zu_viel_je_kennung.*",
-                           "inventory.assurance_checks[].prose_rationale_note"],
-                "why": ("these carry bytes cut verbatim from the source register, whose evidence "
-                        "files are byte pinned and digest checked; translating them would falsify "
-                        "the evidence they are there to reproduce"),
-            },
+            # JE QUELLE EIN EINTRAG, und das ist eine Korrektur an der ersten Fassung dieses
+            # Blocks. Sie nannte EINE Quelle fuer Felder aus ZWEI Dateien — gemessen kommen 145
+            # Titel aus dem Quellregister und 153 weitere Zeichenketten aus der
+            # Objektklassen-Datei. Eine Herkunftsangabe, die auf die falsche Datei zeigt, ist
+            # nicht nachrechenbar, und nachrechenbar ist der ganze Zweck dieses Blocks.
+            # `tests/test_die_sprachangabe_deckt_was_sie_sagt.py` rechnet ihn jetzt nach: jedes
+            # als zitiert deklarierte Feld MUSS in seiner genannten Quelle woertlich vorkommen.
+            "quoted_from_source": [
+                {"language": "de", "source": RESTRISIKO_REL,
+                 "fields": ["records[].title"],
+                 "why": ("headings cut verbatim out of the source register; the evidence files "
+                         "are byte pinned and digest checked, so translating them would falsify "
+                         "the evidence they exist to reproduce")},
+                {"language": "de", "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+                 "fields": ["records[].objektklasse_begruendung",
+                            "inventory.coverage_gaps[].reason",
+                            "inventory.cross_count._auflage",
+                            "inventory.cross_count.warum_zu_viel_je_kennung.*"],
+                 "why": ("reasons carried over verbatim from the object class file, which is "
+                         "itself digest bound to the source register")},
+            ],
         },
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
@@ -659,13 +668,17 @@ def _zusicherungen(text: str, records: list) -> list:
     offen = [h for h in hoch if h["state"] != "closed"]
     anmerkung = None
     if re.search(r"every entry here is P2 or P3", text) and hoch:
-        anmerkung = ("die Prosa ueber der Severity-Tabelle begruendet '0 open P0/P1' mit "
-                     "'every entry here is P2 or P3'. Gemessen an derselben Tabelle: "
-                     + ", ".join(f"{h['id']} traegt {h['severity']}" for h in hoch)
-                     + ". Die Zusicherung haelt, weil dieser Eintrag geschlossen ist — nicht "
-                       "aus dem Grund, den der Satz nennt. Ein Satz, der eine wahre Aussage "
-                       "mit einer falschen Praemisse begruendet, ueberlebt die Aenderung, die "
-                       "ihn falsch macht.")
+        # ERZEUGTE PROSA, ALSO IN DER DEKLARIERTEN SPRACHE — und dieses Feld war der eine
+        # Rueckstand der Sprachrunde. Es stand als ZITAT deklariert, war aber selbst geschrieben;
+        # eine Deklaration, die mehr behauptet, als sie traegt, ist genau die Klasse, gegen die
+        # der Sprachblock gebaut wurde. Gemessen: 153 der 154 deutschen Zeichenketten sind
+        # woertliche Zitate, diese eine nicht.
+        anmerkung = ("the prose above the severity table justifies '0 open P0/P1' with "
+                     "'every entry here is P2 or P3'. Measured against that same table: "
+                     + ", ".join(f"{h['id']} carries {h['severity']}" for h in hoch)
+                     + ". The assurance holds because that entry is closed, not for the reason "
+                       "the sentence gives. A sentence that justifies a true statement with a "
+                       "false premise survives the change that makes it false.")
     return [{
         "claim": "0 open P0/P1",
         "computed": {"p0_p1_total": len(hoch), "p0_p1_open": len(offen),

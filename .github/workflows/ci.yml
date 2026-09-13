@@ -71,6 +71,15 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # VOLLE HISTORIE, WEIL DIE PFLICHTFLAECHE SIE BRAUCHT (Codex 4000088153). Die
+          # Voreinstellung ist Tiefe 1. Die Herkunfts-Zusicherungen brauchen die Geschichte einer
+          # Datei; ohne sie UEBERSPRINGEN sie — und ein Skip in der Pflichtmatrix liest sich wie
+          # ein Bestehen. Der Fix auf der Testseite sorgt dafuer, dass sie nicht mehr FALSCH ROT
+          # melden; dieser Schalter sorgt dafuer, dass sie ueberhaupt MESSEN. Beides gehoert
+          # zusammen: das eine nimmt das falsche Rot, das andere den blinden Fleck.
+          # Zwei weitere Jobs in dieser Datei tun es aus demselben Grund bereits.
+          fetch-depth: 0
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:

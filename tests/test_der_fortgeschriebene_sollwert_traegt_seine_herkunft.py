@@ -24,12 +24,26 @@ liefern kann, ohne dass es auffällt:
 """
 from __future__ import annotations
 
-import hashlib
 import json
+import importlib.util
 import pathlib
-import subprocess
 
 import pytest
+
+# DER ERZEUGER LIEGT IN scripts/, WEIL IHN AUCH PRODUKTIONSCODE RUFT: die Frage "liegt die
+# Historie hier ueberhaupt vor" stellt sich audit_candidate_matrix.py genauso. Zwei Werkzeuge
+# fuer dieselbe Frage driften (OA-714de2fcdd), also gibt es nur eines.
+# DIE PFADFORM, NICHT DER BLANKE NAME — und das ist ein Fund des eigenen Riegels von heute
+# frueh: `scripts/` wird NICHT ausgeliefert (MANIFEST.in kennt kein `graft scripts`, gemessen an
+# SOURCES.txt). Ein blanker `from b7_historie import ...` auf Modulebene braeche im entpackten
+# sdist das SAMMELN und mit ihm die ganze Suite. Die Pfadform nennt ein Verzeichnis, und `conftest`
+# macht daraus ein ehrliches SKIP statt eines Abbruchs.
+_HIST_PFAD = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "b7_historie.py"
+_HIST_SPEC = importlib.util.spec_from_file_location("b7_historie", _HIST_PFAD)
+_HIST = importlib.util.module_from_spec(_HIST_SPEC)
+_HIST_SPEC.loader.exec_module(_HIST)
+digest_in_historie = _HIST.digest_in_historie
+letzte_abweichende_fassung = _HIST.letzte_abweichende_fassung
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 OBJEKTKLASSEN = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
@@ -145,7 +159,6 @@ def test_die_kette_setzt_die_COMMITTETE_kette_fort():
     der seinen blinden Fleck benennt, ist etwas anderes als einer, der wie Bestehen aussieht.
     """
     import json as _json
-    import subprocess as _sp
 
     g = _gemessen_an()
     kette = g.get("_kette")
@@ -169,25 +182,18 @@ def test_die_kette_setzt_die_COMMITTETE_kette_fort():
     # vom heutigen Inhalt UNTERSCHEIDET. Das haelt beide Lagen richtig: im dirty Worktree ist das
     # HEAD, im sauberen Checkout die Fassung davor. Der Skip-Text dieser Funktion behauptet diese
     # Eigenschaft seit jeher — jetzt misst sie sie auch.
-    jetzt_roh = OBJEKTKLASSEN.read_bytes()
-    jetzt_digest = hashlib.sha256(jetzt_roh).hexdigest()
-    log = _sp.run(["git", "-C", str(REPO), "log", "--format=%H", "--", OBJEKTKLASSEN.name],
-                  capture_output=True, text=True, timeout=60)
-    if log.returncode != 0:
-        pytest.skip(f"git log fehlgeschlagen ({log.stderr.strip()[:80]})")
-    vorfassung = None
-    for commit in log.stdout.split():
-        b = _sp.run(["git", "-C", str(REPO), "show", f"{commit}:{OBJEKTKLASSEN.name}"],
-                    capture_output=True, timeout=60)
-        if b.returncode != 0:
-            continue
-        if hashlib.sha256(b.stdout).hexdigest() != jetzt_digest:
-            vorfassung = (commit, b.stdout)
-            break
-    if vorfassung is None:
+    # DREI ZUSTAENDE, NICHT ZWEI (Codex 4000088153). Die Vorgaengerfassung deutete jedes
+    # Nicht-Finden als Erstaufnahme. Im flachen Klon ist das falsch: es gibt eine Vorfassung, sie
+    # ist nur nicht abrufbar. "nicht gefunden" und "nicht nachsehbar" duerfen nicht dasselbe Wort
+    # tragen — der Erzeuger trennt sie, dieser Fall nennt den Grund, den er bekommt.
+    zustand, vor_commit, vor_bytes, grund = letzte_abweichende_fassung(
+        REPO, OBJEKTKLASSEN.name, OBJEKTKLASSEN.read_bytes())
+    if zustand == "NICHT MESSBAR":
+        pytest.skip(f"UNGEPRUEFT: {grund}. Ob die Kette die committete Vorfassung FORTSETZT, ist "
+                    f"hier nicht entscheidbar. Das ist ausdruecklich KEIN Bestehen.")
+    if zustand == "ERSTAUFNAHME":
         pytest.skip("keine abweichende Vorfassung in der Historie — Erstaufnahme, es gibt nichts "
                     "fortzusetzen. Das ist ausdruecklich KEIN Bestehen der Fortsetzungspruefung.")
-    vor_commit, vor_bytes = vorfassung
     alt = (_json.loads(vor_bytes.decode("utf-8")).get("gemessen_an") or {})
     alt_kette = alt.get("_kette") or []
 
@@ -214,16 +220,16 @@ def test_der_genannte_vorgaenger_stand_wirklich_einmal_in_der_datei():
     if not (REPO / ".git").exists():
         pytest.skip("kein git-Baum (sdist) — die Historie ist hier nicht lesbar")
 
-    r = subprocess.run(["git", "-C", str(REPO), "log", "--format=%H", "--", QUELLE_REL],
-                       capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, f"git log fehlgeschlagen: {r.stderr[:200]}"
-    gesucht = vor["sha256"]
-    for commit in r.stdout.split():
-        b = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:{QUELLE_REL}"],
-                           capture_output=True, timeout=60)
-        if b.returncode == 0 and hashlib.sha256(b.stdout).hexdigest() == gesucht:
-            return
-    pytest.fail(
-        f"der als `_vorheriger_stand` genannte Digest {gesucht[:16]}… gehört zu KEINER Fassung "
-        f"von {QUELLE_REL} in der Historie dieses Baums. Eine Herkunft, die es nie gab, ist "
-        f"keine Herkunft — sie ist die Behauptung einer.")
+    # HIER SASS DAS FALSCHE ROT (Codex 4000088153). Die Vorgaengerfassung lief los, sobald `.git`
+    # dastand, und deutete jedes Nicht-Finden als erfundene Herkunft. Gemessen in einem Klon mit
+    # Tiefe 1 — und so checkt die Pflichtmatrix aus — meldete sie "eine Herkunft, die es nie gab"
+    # ueber eine Herkunft, die es gibt. Ein Riegel, der in seiner eigenen Pflichtumgebung falsch
+    # anschlaegt, wird abgeschaltet, und dann ist auch der echte Fall wieder frei.
+    zustand, grund = digest_in_historie(REPO, QUELLE_REL, vor["sha256"])
+    if zustand == "NICHT MESSBAR":
+        pytest.skip(f"UNGEPRUEFT: {grund}. Ob der genannte Vorgaenger wirklich einmal in der Datei "
+                    f"stand, ist hier nicht entscheidbar — das ist KEIN Bestehen.")
+    assert zustand == "GEFUNDEN", (
+        f"der als `_vorheriger_stand` genannte Digest {vor['sha256'][:16]}… gehört zu KEINER "
+        f"Fassung von {QUELLE_REL} in der Historie dieses Baums ({grund}). Eine Herkunft, die es "
+        f"nie gab, ist keine Herkunft — sie ist die Behauptung einer.")

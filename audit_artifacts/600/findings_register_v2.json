@@ -7,22 +7,30 @@
   "language": "en",
   "language_scope": {
     "generated_prose": "en",
-    "quoted_from_source": {
-      "language": "de",
-      "source": "RESTRISIKO_600.md",
-      "fields": [
-        "records[].title",
-        "records[].objektklasse_begruendung",
-        "inventory.coverage_gaps[].reason",
-        "inventory.cross_count._auflage",
-        "inventory.cross_count.warum_zu_viel_je_kennung.*",
-        "inventory.assurance_checks[].prose_rationale_note"
-      ],
-      "why": "these carry bytes cut verbatim from the source register, whose evidence files are byte pinned and digest checked; translating them would falsify the evidence they are there to reproduce"
-    }
+    "quoted_from_source": [
+      {
+        "language": "de",
+        "source": "RESTRISIKO_600.md",
+        "fields": [
+          "records[].title"
+        ],
+        "why": "headings cut verbatim out of the source register; the evidence files are byte pinned and digest checked, so translating them would falsify the evidence they exist to reproduce"
+      },
+      {
+        "language": "de",
+        "source": "RESTRISIKO_600_OBJEKTKLASSEN.json",
+        "fields": [
+          "records[].objektklasse_begruendung",
+          "inventory.coverage_gaps[].reason",
+          "inventory.cross_count._auflage",
+          "inventory.cross_count.warum_zu_viel_je_kennung.*"
+        ],
+        "why": "reasons carried over verbatim from the object class file, which is itself digest bound to the source register"
+      }
+    ]
   },
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T16:28:11Z",
+  "generated_at": "2026-09-13T16:55:00Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -125,7 +133,7 @@
         },
         "holds": true,
         "prose_rationale_state": "REFUTED",
-        "prose_rationale_note": "die Prosa ueber der Severity-Tabelle begruendet '0 open P0/P1' mit 'every entry here is P2 or P3'. Gemessen an derselben Tabelle: A4 traegt P1. Die Zusicherung haelt, weil dieser Eintrag geschlossen ist — nicht aus dem Grund, den der Satz nennt. Ein Satz, der eine wahre Aussage mit einer falschen Praemisse begruendet, ueberlebt die Aenderung, die ihn falsch macht."
+        "prose_rationale_note": "the prose above the severity table justifies '0 open P0/P1' with 'every entry here is P2 or P3'. Measured against that same table: A4 carries P1. The assurance holds because that entry is closed, not for the reason the sentence gives. A sentence that justifies a true statement with a false premise survives the change that makes it false."
       }
     ]
   },

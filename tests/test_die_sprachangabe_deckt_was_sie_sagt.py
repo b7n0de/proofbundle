@@ -44,8 +44,9 @@ def _doc():
     return json.loads(TRAEGER.read_text(encoding="utf-8"))
 
 
-def _deutsche_felder(doc) -> dict:
-    raus: dict[str, int] = {}
+def _alle_strings(doc) -> list[tuple[str, str]]:
+    """Jede Zeichenkette des Traegers mit ihrem Pfad. EIN Sammler fuer beide Fragen."""
+    raus: list[tuple[str, str]] = []
 
     def geh(o, pfad=""):
         if isinstance(o, dict):
@@ -54,9 +55,77 @@ def _deutsche_felder(doc) -> dict:
         elif isinstance(o, list):
             for v in o:
                 geh(v, f"{pfad}[]")
-        elif isinstance(o, str) and _DEUTSCH.search(o):
-            raus[pfad] = raus.get(pfad, 0) + 1
+        elif isinstance(o, str):
+            raus.append((pfad, o))
     geh(doc)
+    return raus
+
+
+def _deutsche_felder(doc) -> dict:
+    raus: dict[str, int] = {}
+    for pfad, wert in _alle_strings(doc):
+        if _DEUTSCH.search(wert):
+            raus[pfad] = raus.get(pfad, 0) + 1
+    return raus
+
+
+def _gruppen(doc) -> list:
+    """Die Zitatgruppen, je Quelle eine. Die alte Ein-Quellen-Form ist ausdruecklich KEIN Treffer."""
+    q = (doc.get("language_scope") or {}).get("quoted_from_source")
+    assert isinstance(q, list), (
+        f"`quoted_from_source` ist keine Liste von Gruppen ({type(q).__name__}). Die erste Fassung "
+        f"nannte EINE Quelle fuer Felder aus ZWEI Dateien — eine Herkunftsangabe, die auf die "
+        f"falsche Datei zeigt, ist nicht nachrechenbar.")
+    return q
+
+
+def _quellwerte(repo: pathlib.Path, quelle: str):
+    """Die zitierbaren Bytes einer Quelle. JSON wird GEPARST, nicht als Rohtext gelesen.
+
+    WARUM GEPARST: die erste Fassung dieser Messung verglich geparste Zeichenketten gegen den
+    ROHTEXT der JSON — jeder Wert mit einem Anfuehrungszeichen darin scheiterte an der
+    Maskierung und galt faelschlich als erzeugt. An der Eigenschaft messen, nicht an der
+    Schreibweise; das galt hier fuer das Messwerkzeug selbst.
+    """
+    p = repo / quelle
+    if not p.is_file():
+        return None
+    roh = p.read_text(encoding="utf-8")
+    if not quelle.endswith(".json"):
+        return roh
+    werte: set[str] = set()
+
+    def sammle(x):
+        if isinstance(x, str):
+            werte.add(x.strip())
+        elif isinstance(x, dict):
+            for v in x.values():
+                sammle(v)
+        elif isinstance(x, list):
+            for v in x:
+                sammle(v)
+    sammle(json.loads(roh))
+    return werte
+
+
+def nicht_woertlich(doc, repo: pathlib.Path) -> list[str]:
+    """Welche als ZITAT deklarierten Werte stehen NICHT woertlich in ihrer genannten Quelle?"""
+    raus = []
+    for g in _gruppen(doc):
+        quelle = g.get("source")
+        vorrat = _quellwerte(repo, quelle or "")
+        if vorrat is None:
+            raus.append(f"{quelle}: die genannte Quelle fehlt")
+            continue
+        muster = g.get("fields") or []
+        for pfad, wert in _alle_strings(doc):
+            if "language_scope" in pfad or not wert.strip():
+                continue
+            if not any(fnmatch.fnmatch(pfad.lstrip("."), m) for m in muster):
+                continue
+            drin = wert.strip() in vorrat if isinstance(vorrat, set) else wert.strip() in vorrat
+            if not drin:
+                raus.append(f"{pfad} steht nicht woertlich in {quelle}: {wert[:70]!r}")
     return raus
 
 
@@ -65,15 +134,17 @@ def test_der_traeger_nennt_einen_geltungsbereich():
     ls = _doc().get("language_scope")
     assert ls, "der Traeger fuehrt keinen language_scope"
     assert ls.get("generated_prose"), "die Sprache der erzeugten Prosa ist nicht genannt"
-    q = ls.get("quoted_from_source") or {}
-    for feld in ("language", "source", "fields", "why"):
-        assert q.get(feld), f"quoted_from_source nennt {feld!r} nicht"
+    gruppen = _gruppen(_doc())
+    assert gruppen, "der Geltungsbereich nennt keine einzige Zitatgruppe"
+    for g in gruppen:
+        for feld in ("language", "source", "fields", "why"):
+            assert g.get(feld), f"eine Zitatgruppe nennt {feld!r} nicht: {g}"
 
 
 def test_jedes_deutsche_feld_liegt_im_geltungsbereich():
     """[ZAEHLT] Der Fund selbst, ueber den ganzen Traeger."""
     doc = _doc()
-    muster = (doc.get("language_scope", {}).get("quoted_from_source", {}) or {}).get("fields") or []
+    muster = [m for g in _gruppen(doc) for m in (g.get("fields") or [])]
     offen = [p for p in _deutsche_felder(doc)
              if "language_scope" not in p
              and not any(fnmatch.fnmatch(p.lstrip("."), m) for m in muster)]
@@ -85,13 +156,12 @@ def test_jedes_deutsche_feld_liegt_im_geltungsbereich():
 def test_die_zitierte_quelle_existiert_und_ist_die_gepinnte():
     """[ZAEHLT] Ein Geltungsbereich, der auf eine Datei zeigt, die es nicht gibt, deckt nichts."""
     doc = _doc()
-    q = doc["language_scope"]["quoted_from_source"]
-    p = REPO / q["source"]
-    assert p.is_file(), f"die genannte Quelle fehlt: {q['source']!r}"
     genannt = {s["path"] for s in doc["inventory"]["source_documents"]}
-    assert q["source"] in genannt, (
-        f"die zitierte Quelle {q['source']!r} steht nicht im Inventar — dann ist ihr Digest nicht "
-        f"gebunden, und das Zitat nicht nachrechenbar")
+    for g in _gruppen(doc):
+        assert (REPO / g["source"]).is_file(), f"die genannte Quelle fehlt: {g['source']!r}"
+        assert g["source"] in genannt, (
+            f"die zitierte Quelle {g['source']!r} steht nicht im Inventar — dann ist ihr Digest "
+            f"nicht gebunden, und das Zitat nicht nachrechenbar")
 
 
 def test_die_erzeugten_gruende_sind_in_der_deklarierten_sprache():
@@ -128,3 +198,40 @@ def test_die_grenze_der_messung_steht_im_text():
     q = pathlib.Path(__file__).read_text(encoding="utf-8")
     assert "EHRLICHE GRENZE" in q
     assert "Untergrenze der Messung" in q
+
+
+# ── DIE DEKLARATION WIRD NACHGERECHNET, NICHT GEGLAUBT ────────────────────────────────────
+#
+# ZWEITE RUNDE AN DER EIGENEN ARBEIT, selbst gefunden am 13.09.2026. Der Geltungsbereich der
+# ersten Fassung fuehrte `inventory.assurance_checks[].prose_rationale_note` als ZITAT — das Feld
+# ist aber selbst geschrieben. Damit deckte die Ausnahme etwas, das gar nicht zitiert ist, und
+# genau das ist die Klasse, gegen die dieser Traeger gebaut wurde: eine Angabe, die mehr behauptet,
+# als sie traegt. Ein Geltungsbereich, den niemand nachrechnet, ist eine zweite Erzaehlung neben
+# der ersten.
+
+def test_jedes_als_zitat_deklarierte_feld_steht_woertlich_in_seiner_quelle():
+    """[ZAEHLT] Der Fund an der eigenen Ausnahme: deklariert ist nicht dasselbe wie zitiert."""
+    offen = nicht_woertlich(_doc(), REPO)
+    assert not offen, (
+        f"{len(offen)} als Zitat deklarierte Wert(e) stehen nicht woertlich in ihrer genannten "
+        f"Quelle — dann ist die Ausnahme eine Behauptung: {offen[:4]}")
+
+
+def test_FANG_ein_deklariertes_aber_ERZEUGTES_feld_faellt_auf():
+    """[ZAEHLT] Gegenrichtung rot: genau die Lage, die in der ersten Fassung gruen war."""
+    import copy  # noqa: PLC0415
+    doc = copy.deepcopy(_doc())
+    gruppen = _gruppen(doc)
+    assert gruppen, "keine Gruppe zu erweitern"
+    # Ein Feld, dessen Wert der Erzeuger selbst schreibt, in den Geltungsbereich schmuggeln.
+    gruppen[0].setdefault("fields", []).append("inventory.assurance_checks[].prose_rationale_note")
+    for a in doc["inventory"]["assurance_checks"]:
+        a["prose_rationale_note"] = "die Zusicherung haelt, und dieser Satz steht in keiner Quelle"
+    offen = nicht_woertlich(doc, REPO)
+    assert any("prose_rationale_note" in x for x in offen), (
+        f"ein erzeugtes Feld wurde als Zitat deklariert und faellt NICHT auf: {offen[:3]}")
+
+
+def test_ANTI_der_echte_traeger_bleibt_ohne_befund():
+    """[ZAEHLT] Ein Riegel, der alles meldet, misst nichts."""
+    assert nicht_woertlich(_doc(), REPO) == []
