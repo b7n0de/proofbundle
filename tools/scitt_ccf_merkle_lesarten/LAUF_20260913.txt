@@ -1,0 +1,15 @@
+Quelle : draft-ietf-scitt-receipts-ccf-profile-04, Abschnitte 2.1/2.2 und 3.2
+CBOR   : git -C /home/konrad/proofbundle show 4e32e83b647235bfedf23b55cebe69fdf14fd6f5:tools/scitt_ccf_datahash_vector/cbor_min.py
+
+GEGENPROBE: BESTANDEN -- gleich-Fall und ungleich-Fall beide richtig
+
+ n  Wurzel Lesart 2.1                                                   Wurzel Lesart 3.2                                                   Urteil
+ 0  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855    gleich (3.2 kennt keinen leeren Baum -- NICHT ANWENDBAR)
+ 1  8ddf769be748acf5e0c2e33e42c93aba7731837e918f5f1795bf8e94a100b7f2    a5f385d91bafccc641350beb91e091ad0dabbfad922679d3d24c0092432f5ecd    WEICHT AB
+ 2  13a179f27706e6c8c72a511ba21816fc7c7bf24ce42d54e4857a63d2d1198b0a    19368153659ed653f8f9557244119387c5845077ed305c13eaf7c5c407c223f6    WEICHT AB
+ 3  3ee77e02ae577ea58a7344fff508d8f69c8c03eeb80948830240395d556da10c    90526cd541619ab3c6f0d14245680508555b96dbef1113856aee5cc27ca4d869    WEICHT AB
+ 4  2b25e229dbb531cc04adc74343de5f1335e1d88050173dc61c8107f22fbcdcc4    bbf260dd9c6c2748d0d5c255c7d7594b7d8b0dae94dbb36ec5c2f40d25cf28d8    WEICHT AB
+ 5  e5de0dd32f2f602229a7f4413f315503cb09a4d2360d4e94c953201c45fed873    56ccd63e18f2c0a4cd42cdb7374cc9b40f2b8bbaf9fbc736819994cad77a8a5b    WEICHT AB
+
+ERGEBNIS: 5 von 6 Faellen weichen ab (n=0 bis n=5).
+Der Unterschied sitzt ausschliesslich im Blatt-Urbild; die Knotenregel HASH(links || rechts) ist in beiden Lesarten dieselbe.
