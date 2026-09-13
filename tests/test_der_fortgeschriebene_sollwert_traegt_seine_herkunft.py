@@ -157,15 +157,43 @@ def test_die_kette_setzt_die_COMMITTETE_kette_fort():
             "genannte Vorgänger der UNMITTELBARE war, ist ohne Historie nicht entscheidbar. "
             "Die Konsistenz der Kette in sich wurde geprüft, ihre Echtheit nicht.")
 
-    r = _sp.run(["git", "-C", str(REPO), "show", f"HEAD:{OBJEKTKLASSEN.name}"],
-                capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        pytest.skip(f"die Datei liegt in HEAD nicht vor ({r.stderr.strip()[:80]}) — Erstaufnahme")
-    alt = (_json.loads(r.stdout).get("gemessen_an") or {})
+    # GEGEN DIE LETZTE ABWEICHENDE FASSUNG, NICHT GEGEN HEAD (Codex r3999796582).
+    #
+    # Die Vorgaengerfassung las den Arbeitsbaum und verglich ihn gegen `git show HEAD:` DERSELBEN
+    # Datei. In einem sauberen Checkout — und das ist jeder CI-Lauf — sind beide byte-gleich. Die
+    # Zusicherung "die Kette setzt die committete fort" verglich damit die Kette mit sich selbst
+    # und war trivial wahr. Ein Umschreiben oder Kuerzen der Kette blieb gruen, sobald es committet
+    # war, und genau das ist der Fall, gegen den dieser Test steht.
+    #
+    # Gefragt ist die UNMITTELBARE Vorfassung, und die ist die letzte in der Historie, die sich
+    # vom heutigen Inhalt UNTERSCHEIDET. Das haelt beide Lagen richtig: im dirty Worktree ist das
+    # HEAD, im sauberen Checkout die Fassung davor. Der Skip-Text dieser Funktion behauptet diese
+    # Eigenschaft seit jeher — jetzt misst sie sie auch.
+    jetzt_roh = OBJEKTKLASSEN.read_bytes()
+    jetzt_digest = hashlib.sha256(jetzt_roh).hexdigest()
+    log = _sp.run(["git", "-C", str(REPO), "log", "--format=%H", "--", OBJEKTKLASSEN.name],
+                  capture_output=True, text=True, timeout=60)
+    if log.returncode != 0:
+        pytest.skip(f"git log fehlgeschlagen ({log.stderr.strip()[:80]})")
+    vorfassung = None
+    for commit in log.stdout.split():
+        b = _sp.run(["git", "-C", str(REPO), "show", f"{commit}:{OBJEKTKLASSEN.name}"],
+                    capture_output=True, timeout=60)
+        if b.returncode != 0:
+            continue
+        if hashlib.sha256(b.stdout).hexdigest() != jetzt_digest:
+            vorfassung = (commit, b.stdout)
+            break
+    if vorfassung is None:
+        pytest.skip("keine abweichende Vorfassung in der Historie — Erstaufnahme, es gibt nichts "
+                    "fortzusetzen. Das ist ausdruecklich KEIN Bestehen der Fortsetzungspruefung.")
+    vor_commit, vor_bytes = vorfassung
+    alt = (_json.loads(vor_bytes.decode("utf-8")).get("gemessen_an") or {})
     alt_kette = alt.get("_kette") or []
 
     assert kette[:len(alt_kette)] == alt_kette, (
-        f"die Kette setzt die committete NICHT fort: committet {[k.get('sha256','')[:12] for k in alt_kette]}, "
+        f"die Kette setzt die Vorfassung aus {vor_commit[:12]} NICHT fort: dort "
+        f"{[k.get('sha256','')[:12] for k in alt_kette]}, "
         f"jetzt {[k.get('sha256','')[:12] for k in kette]}. Glieder werden ANGEHÄNGT, nie "
         f"umgeschrieben — sonst ist die Kette eine Erzählung mit Rückwirkung.")
 
