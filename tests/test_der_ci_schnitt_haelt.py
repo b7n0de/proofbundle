@@ -406,3 +406,87 @@ def test_fangnachweis_ein_fehlendes_budget_wird_gefunden():
 def test_fangnachweis_ein_ausreichendes_budget_wird_NICHT_gemeldet():
     gebaut = {"x.yml": {"jobs": {"test": {"runs-on": "u", "timeout-minutes": 50}}}}
     assert _zu_knappe_budgets(gebaut, {"test": 30}) == []
+
+
+# ── Runde zwei, 14.09.2026: cancel-in-progress prueft den ANKOMMENDEN, die Gruppe bestimmt das OPFER ──
+
+def _gruppe_ohne_ereignis(wfs: dict) -> list[str]:
+    """Gruppen, die das Ereignis NICHT enthalten.
+
+    DIE KLASSE, in einem Satz: `cancel-in-progress` wird am ANKOMMENDEN Lauf ausgewertet, die Gruppe
+    bestimmt aber, WER stirbt. Ein Ausdruck, der nur auf `push` und `pull_request` wahr wird, schuetzt
+    deshalb nicht den geplanten oder von Hand ausgeloesten Lauf — er raeumt ihn ab, sobald jemand auf
+    denselben Ref pusht. GEMESSEN am 14.09.2026: ci.yml traegt `workflow_dispatch` neben `push`, und
+    codeql, demo-reproducible, published-artifact-gate und scorecard tragen `schedule` daneben; alle
+    fuenf teilten sich mit dem Push eine Gruppe. Das Ereignis IN der Gruppe trennt sie.
+    """
+    ohne = []
+    for n, d in sorted(wfs.items()):
+        c = (d or {}).get("concurrency") or {}
+        g = str(c.get("group") or "")
+        if g and "github.event_name" not in g:
+            ohne.append(n)
+    return ohne
+
+
+def _kann_eine_veroeffentlichung_abbrechen(wfs: dict) -> list[str]:
+    """Workflows, die auf TAG-Pushes laufen und trotzdem abbrechen duerfen."""
+    schlecht = []
+    for n, d in sorted(wfs.items()):
+        on = ((d or {}).get(True) or (d or {}).get("on") or {})
+        push = on.get("push") if isinstance(on, dict) else None
+        if not (isinstance(push, dict) and push.get("tags")):
+            continue
+        c = (d or {}).get("concurrency") or {}
+        if c.get("cancel-in-progress") is not False:
+            schlecht.append(f"{n} (cancel-in-progress={c.get('cancel-in-progress')!r})")
+    return schlecht
+
+
+def test_keine_gruppe_vermischt_zwei_ereignisarten():
+    assert _gruppe_ohne_ereignis(_workflows()) == []
+
+
+def test_ein_lauf_auf_einem_tag_wird_nie_abgebrochen():
+    """Die Auflage stand im eigenen Restrisiko-Blatt, bevor der Schnitt sie verletzte:
+    `RESTRISIKO_600.md`, Abschnitt "Die Ausnahme: release.yml darf NICHT abgebrochen werden", sagt
+    woertlich "release.yml bekommt cancel-in-progress: false". Der bedingte Ausdruck ist dort IMMER
+    wahr, weil der einzige Trigger ein Push ist — ein zweimal gepushter Tag haette den laufenden
+    Release zwischen Entwurf, Upload und Veroeffentlichung abgebrochen."""
+    assert _kann_eine_veroeffentlichung_abbrechen(_workflows()) == []
+
+
+def test_ein_label_praedikat_verlangt_auch_das_entfernen():
+    """Ein Praedikat auf `landung` braucht beide Richtungen. Ohne `unlabeled` laeuft die schwere
+    Schicht weiter, nachdem das Label abgenommen wurde — die Ereignis-Momentaufnahme des laufenden
+    Laufs kennt die Abnahme nicht, und kein neuer Lauf betritt die Gruppe, der sie abloesen koennte."""
+    for n, d in _workflows().items():
+        if "labels.*.name, 'landung'" not in str((d or {}).get("jobs") or {}):
+            continue
+        on = (d.get(True) or d.get("on") or {})
+        typen = (on.get("pull_request") or {}).get("types") if isinstance(on, dict) else None
+        assert typen and "unlabeled" in typen, f"{n} abonniert kein `unlabeled` (types={typen})"
+
+
+def test_fangnachweis_eine_gruppe_ohne_ereignis_wird_gefunden():
+    gebaut = {"x.yml": {"concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}"}}}
+    assert _gruppe_ohne_ereignis(gebaut) == ["x.yml"]
+    heil = {"x.yml": {"concurrency": {
+        "group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}"}}}
+    assert _gruppe_ohne_ereignis(heil) == []
+
+
+def test_fangnachweis_ein_abbrechbarer_tag_lauf_wird_gefunden():
+    gebaut = {"r.yml": {"on": {"push": {"tags": ["v*"]}},
+                        "concurrency": {"group": "g", "cancel-in-progress": True}}}
+    assert _kann_eine_veroeffentlichung_abbrechen(gebaut) == ["r.yml (cancel-in-progress=True)"]
+    bedingt = {"r.yml": {"on": {"push": {"tags": ["v*"]}},
+                         "concurrency": {"group": "g",
+                                         "cancel-in-progress": "${{ github.event_name == 'push' }}"}}}
+    assert _kann_eine_veroeffentlichung_abbrechen(bedingt) == [
+        "r.yml (cancel-in-progress=\"${{ github.event_name == 'push' }}\")"], (
+        "ein BEDINGTER Ausdruck ist hier keine Entwarnung: auf einem Workflow, dessen einziger "
+        "Trigger ein Push ist, ist er immer wahr")
+    heil = {"r.yml": {"on": {"push": {"tags": ["v*"]}},
+                      "concurrency": {"group": "g", "cancel-in-progress": False}}}
+    assert _kann_eine_veroeffentlichung_abbrechen(heil) == []

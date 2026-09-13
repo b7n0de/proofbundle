@@ -10,7 +10,7 @@ on:
     # einem ruhenden PR loeste damit GAR KEINEN Lauf aus, und die vier zusaetzlichen
     # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
     # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:        # Landetrigger (Nachtrag 1, B3): die volle Schicht von Hand
 
 # NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
@@ -22,7 +22,7 @@ on:
 # Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
 # dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:

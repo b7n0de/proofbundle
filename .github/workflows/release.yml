@@ -32,8 +32,15 @@ on:
 # Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
 # dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # FALSE, und das ist eine AUFLAGE aus dem eigenen Restrisiko-Blatt, nicht eine Meinung:
+  # RESTRISIKO_600.md, Abschnitt "Die Ausnahme: release.yml darf NICHT abgebrochen werden",
+  # sagt woertlich "release.yml bekommt cancel-in-progress: false". Der bedingte Ausdruck, den
+  # der Schnitt zuerst ueberall einsetzte, ist HIER IMMER WAHR: dieser Workflow hat genau einen
+  # Trigger, `push` auf Tags. Ein zweimal gepushter gleicher Tag haette damit den laufenden
+  # Release abgebrochen — im schlimmsten Fall zwischen Entwurf, PyPI-Upload und Veroeffentlichung.
+  # Gefunden von der Codex-Runde zwei an PR 202; die Auflage stand da schon geschrieben.
+  cancel-in-progress: false
 
 permissions:
   contents: read
