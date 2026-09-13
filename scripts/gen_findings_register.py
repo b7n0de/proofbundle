@@ -717,9 +717,26 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "assurance_checks": _zusicherungen(text, records),
         },
         "records": records,
-        "signature": {"state": "NOT APPLICABLE",
-                      "reason": ("this carrier is signed through the emit and assemble path; "
-                                 "the private half of the key stays with the owner")},
+        # NICHT ANWENDBAR WAR DAS FALSCHE WORT (Codex 3999796576). Es liest sich wie "eine Signatur
+        # ist hier ohne Bedeutung", und genau das Gegenteil stimmt: dieser Traeger IST fuer den
+        # Signierweg gebaut, er ist nur noch nicht durch ihn gegangen. GEMESSEN: der `--v2`-Lauf
+        # schreibt Traeger und Ansichten und endet mit 0, ohne `emit` oder `assemble` je zu rufen.
+        # Ein Leser konnte den Aussteller damit nicht pruefen und las im selben Feld, das sei
+        # bauartbedingt so.
+        #
+        # DER ZUSTAND HEISST JETZT, WAS ER IST, und er sagt beides: was FEHLT und was es BRAEUCHTE.
+        # Signieren selbst bleibt eine Owner-Tuer — der private Schluesselteil liegt beim Owner, und
+        # diese Sitzung hat ihn nicht. Was in ihrer Macht steht, ist die ehrliche Auskunft.
+        "signature": {"state": "UNSIGNED",
+                      "reason": ("this carrier has NOT been through the signing path; it was "
+                                 "written by the generator alone, so the issuer named above is "
+                                 "asserted by the document and not attested by anyone"),
+                      "what_would_change_it": ("running the emit and assemble path over the "
+                                               "canonical bytes of this body, with the private "
+                                               "half of the key that stays with the owner"),
+                      "consequence_for_the_reader": ("treat this as an unauthenticated record; a "
+                                                     "coordinated change of register and evidence "
+                                                     "cannot be detected from the document alone")},
     }
 
 
@@ -1119,6 +1136,24 @@ def pruefe_v2(doc, repo) -> list[str]:
                        f"scripts/findings_register.py traegt den Pruefer, er ist hier nicht ladbar")
     if _zeitfehler:
         fehler.append(f"Zeitmarke: {_zeitfehler}")
+    # DIE ECHTHEITSAUSKUNFT GEHT INS URTEIL EIN (Codex 3999796576). Ein Block, der nur
+    # dasteht, ist eine Notiz; gefordert ist ein BEKANNTER Zustand mit Grund, und wenn eine
+    # Signatur behauptet wird, muessen ihre Teile auch da sein.
+    _sig = doc.get("signature")
+    if not isinstance(_sig, dict) or not _sig:
+        fehler.append("Signatur: der Traeger sagt ueber seine Echtheit gar nichts")
+    elif _sig.get("sig_b64"):
+        if not (_sig.get("alg") and _sig.get("public_key_b64")):
+            fehler.append("Signatur: eine Signatur ohne Verfahren oder oeffentlichen Schluessel "
+                          "ist nicht pruefbar")
+    else:
+        if _sig.get("state") not in ("UNSIGNED", *LUECKENWOERTER):
+            fehler.append(f"Signatur: unbekannter Zustand ({_sig.get('state')!r})")
+        if not _sig.get("reason"):
+            fehler.append("Signatur: ein Zustand ohne Grund ist eine leere Marke")
+        if _sig.get("state") == "UNSIGNED" and not _sig.get("consequence_for_the_reader"):
+            fehler.append("Signatur: UNSIGNED ohne die Folge fuer den Leser — wer die Einschraenkung "
+                          "nicht nennt, veroeffentlicht sie auch nicht")
     _bg = doc.get("assessment_cutoff")
     if isinstance(_bg, dict):
         if _bg.get("state") not in LUECKENWOERTER or not _bg.get("reason"):
@@ -1366,13 +1401,29 @@ def _grenze_als_text(bg) -> str:
     return str(bg)
 
 
+def _signaturzeile(doc) -> str:
+    """Eine Zeile ueber die Echtheit — in BEIDEN Ansichten, aus EINER Quelle.
+
+    Ein Leser, der nur die Ansicht sieht, konnte bisher nicht wissen, dass der Traeger
+    unsigniert ist. Eine Herkunftsangabe, die nur im Rohdokument steht, erreicht ihn nicht.
+    """
+    s = doc.get("signature") or {}
+    if s.get("sig_b64"):
+        return f"Signed, {s.get('alg', 'unknown algorithm')}."
+    zustand = s.get("state") or "UNKNOWN"
+    grund = s.get("reason") or "no reason given"
+    folge = s.get("consequence_for_the_reader")
+    return f"Signature, {zustand} — {grund}." + (f" {folge[0].upper()}{folge[1:]}." if folge else "")
+
+
 def ansicht_uebersicht(doc) -> str:
     sub, inv = doc["release_subject"], doc["inventory"]
     z = [f"# Known remainders, {sub['name']} {sub['version']}", "",
          f"Tag {sub['tag']}, assessment cutoff {_grenze_als_text(doc['assessment_cutoff'])}, "
          f"register revision {doc['register_revision']}.",
          f"Coverage, {inv['identifiers_in_this_register']} of {inv['identifiers_total']} "
-         f"identifiers carried in this register.", ""]
+         f"identifiers carried in this register.",
+         _signaturzeile(doc), ""]
     for g in inv["coverage_gaps"]:
         z.append(f"Known gap, {g['range']}, {g['count']} identifiers, {g['state']}, {g['reason']}")
     cc = inv.get("cross_count") or {}
@@ -1491,6 +1542,7 @@ def ansicht_html(doc) -> str:
 <p class=sub>Tag {_h.escape(sub['tag'])} · cutoff {_h.escape(_grenze_als_text(doc['assessment_cutoff']))} ·
  revision {doc['register_revision']} ·
  {inv['identifiers_in_this_register']} of {inv['identifiers_total']} identifiers carried</p>
+<p class=warn>{_h.escape(_signaturzeile(doc))}</p>
 {zus}
 <h2>Known gaps</h2><ul>{luecken}</ul>
 {kreuz}

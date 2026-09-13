@@ -31,7 +31,7 @@
     ]
   },
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T17:51:51Z",
+  "generated_at": "2026-09-13T18:00:17Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -6525,7 +6525,9 @@
     }
   ],
   "signature": {
-    "state": "NOT APPLICABLE",
-    "reason": "this carrier is signed through the emit and assemble path; the private half of the key stays with the owner"
+    "state": "UNSIGNED",
+    "reason": "this carrier has NOT been through the signing path; it was written by the generator alone, so the issuer named above is asserted by the document and not attested by anyone",
+    "what_would_change_it": "running the emit and assemble path over the canonical bytes of this body, with the private half of the key that stays with the owner",
+    "consequence_for_the_reader": "treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone"
   }
 }

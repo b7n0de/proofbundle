@@ -2,6 +2,7 @@
 
 Tag v6.0.0, assessment cutoff 2026-09-13, register revision 0.
 Coverage, 145 of 145 identifiers carried in this register.
+Signature, UNSIGNED — this carrier has NOT been through the signing path; it was written by the generator alone, so the issuer named above is asserted by the document and not attested by anyone. Treat this as an unauthenticated record; a coordinated change of register and evidence cannot be detected from the document alone.
 
 Known gap, S86 bis S101, 16 identifiers, NOT MEASURED, Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: "Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102." Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.
 Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten.
