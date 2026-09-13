@@ -398,18 +398,22 @@ def _severity(kennung: str, aus_tabelle: str | None = None) -> dict:
             # geblieben, die AUSSAGE darueber ist jetzt wahr: die Liste wird genannt, wie sie ist,
             # und ob sie mit dem signierten Register uebereinstimmt, prueft
             # tests/test_register_gegen_erzeuger.py als eigene Zusicherung — nicht dieses Etikett.
+            # ERZEUGTE PROSA, ALSO IN DER DEKLARIERTEN SPRACHE. Dieses Feld ist heute
+            # hinzugekommen und trug deutschen Text — derselbe Fund eine Runde spaeter am eigenen
+            # Zusatz. Was der Erzeuger selbst schreibt, folgt `language`; was er zitiert, behaelt
+            # seine Sprache und steht im `language_scope`.
             return {"value": f["severity"],
                     "source": "FINDINGS in scripts/gen_findings_register.py",
-                    "source_state": "NICHT GEGEN DAS SIGNIERTE ARTEFAKT GEPRUEFT",
-                    "source_reason": ("die Liste steht im Erzeuger, nicht im signierten Register; "
-                                      "ihre Uebereinstimmung damit ist eine eigene Zusicherung und "
-                                      "keine Eigenschaft dieses Feldes")}
+                    "source_state": "NOT CHECKED AGAINST THE SIGNED ARTIFACT",
+                    "source_reason": ("the list lives in the producer, not in the signed register; "
+                                      "their agreement is a separate assurance and not a property "
+                                      "of this field")}
     if aus_tabelle:
         return {"value": aus_tabelle, "source": f"Severity-Spalte in {RESTRISIKO_REL}"}
     return {"value": None, "state": "NOT MEASURED",
-            "reason": ("diese Kennung steht weder im signierten v1-Register noch in einer "
-                       "Tabelle mit Severity-Spalte; eine Schwere hier zu setzen waere eine "
-                       "Einstufung ohne Beleg")}
+            "reason": ("this identifier appears neither in the signed v1 register nor in a "
+                       "table with a severity column; setting a severity here would be a "
+                       "rating without evidence")}
 
 
 def _bewertungsgrenze(ok: dict):
@@ -425,9 +429,9 @@ def _bewertungsgrenze(ok: dict):
     if m:
         return m.group(1)
     return {"state": "NOT MEASURED",
-            "reason": ("die Objektklassen-Datei fuehrt unter `gemessen_an.utc` kein lesbares "
-                       "Kalenderdatum; die Bewertungsgrenze wird NICHT aus dem Zeitpunkt dieses "
-                       "Laufs abgeleitet, weil das den Stand vordatieren wuerde")}
+            "reason": ("the object class file carries no readable calendar date under "
+                       "`gemessen_an.utc`; the assessment boundary is NOT derived from the time "
+                       "of this run, because that would predate the measured state")}
 
 
 def _status_aus_tabelle(stueck: str, kopf: list) -> str | None:
@@ -459,8 +463,8 @@ def _status(kennung: str, aus_tabelle: str | None = None) -> dict:
         return {"value": "closed" if aus_tabelle.lower().startswith("closed") else "open",
                 "source": f"State-Spalte in {RESTRISIKO_REL}", "wortlaut": aus_tabelle}
     return {"value": None, "state": "NOT MEASURED",
-            "reason": ("diese Kennung steht weder in der Liste des Erzeugers noch in einer Tabelle "
-                       "mit Zustandsspalte; einen Zustand hier zu setzen waere geraten")}
+            "reason": ("this identifier appears neither in the producer list nor in a table "
+                       "with a state column; setting a state here would be a guess")}
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -500,13 +504,18 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             # Nach 1A wandert, was gemessen ist; der Rest traegt NOT MEASURED mit Grund.
             "kind": None,
             "kind_state": "NOT MEASURED",
-            "kind_reason": ("die Objektklassen trennen nach Herkunft, nicht nach Art; eine "
-                            "security/quality-Zuordnung liegt in keiner Quelle vor und wird "
-                            "je Fund entschieden, nicht abgeleitet"),
+            # DIE SPRACHE DES TRAEGERS IST DIE, DIE ER DEKLARIERT (Codex r3999621601). Er fuehrt
+            # `language: en` und trug hier deutsche Prosa. Gemessen waren es sechs Feldarten;
+            # eine davon rendert in zwei der drei Ansichten, fuenf in keiner — aber der Traeger
+            # selbst wird gelesen, also zaehlt jede. Wer ein Dokument nach seiner Sprachangabe
+            # auswaehlt, bekam etwas anderes, als die Angabe sagt.
+            "kind_reason": ("the object classes separate by origin, not by kind; no source "
+                            "carries a security or quality assignment, and it is decided per "
+                            "finding rather than derived"),
             "title": _titel(stueck.decode("utf-8"), k, fundart, kopf),
             "class_id": None,
             "class_state": "NOT MEASURED",
-            "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
+            "class_reason": "the source carries no class identifiers",
             "objektklasse": e.get("klasse"),
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
@@ -524,8 +533,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             }],
             "last_measured": None,
             "last_measured_state": "NOT MEASURED",
-            "last_measured_reason": ("die Quelle nennt den Tag ihrer Erzeugung, nicht den "
-                                     "Zeitpunkt der letzten Messung je Fund"),
+            "last_measured_reason": ("the source names the day it was produced, not the time "
+                                     "each finding was last measured"),
         })
 
     luecken = []
@@ -541,7 +550,37 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "document_id": f"urn:b7n0de:findings-register:{VERSION.replace('.', '')}",
         "register_revision": revision,
         "issuer": "b7n0de",
+        # DIE SPRACHANGABE WAR EINE HALBE WAHRHEIT (Codex r3999621601). Der Traeger fuehrte
+        # `language: en` und trug deutsche Prosa; wer ein Dokument nach dieser Angabe auswaehlt,
+        # bekam etwas anderes, als sie sagt.
+        #
+        # UEBERSETZEN IST HIER KEINE OPTION, und das ist der Kern. Gemessen stammen 79 Titel und
+        # 33 Klassenbegruendungen WORTWOERTLICH aus `RESTRISIKO_600.md`, einer deutschen Quelle,
+        # und die Belegdateien sind byte-gepinnt: `pruefe_v2` rechnet ihren Digest gegen genau
+        # diese Bytes. Eine Uebersetzung waere eine Faelschung der Evidenz. Ein Zitat behaelt seine
+        # Sprache; das ist keine Schwaeche des Dokuments, sondern die Bedingung dafuer, dass es
+        # nachrechenbar bleibt.
+        #
+        # Deshalb wird die Angabe WAHR gemacht statt der Inhalt passend: `language` beschreibt die
+        # ERZEUGTE Prosa dieses Traegers, und die ist jetzt durchgaengig englisch. Was zitiert ist,
+        # steht daneben mit seiner eigenen Sprache und seiner Quelle. Eine Angabe, die ihren
+        # Geltungsbereich nennt, sagt mehr als eine, die ihn verschweigt.
         "language": "en",
+        "language_scope": {
+            "generated_prose": "en",
+            "quoted_from_source": {
+                "language": "de",
+                "source": RESTRISIKO_REL,
+                "fields": ["records[].title", "records[].objektklasse_begruendung",
+                           "inventory.coverage_gaps[].reason",
+                           "inventory.cross_count._auflage",
+                           "inventory.cross_count.warum_zu_viel_je_kennung.*",
+                           "inventory.assurance_checks[].prose_rationale_note"],
+                "why": ("these carry bytes cut verbatim from the source register, whose evidence "
+                        "files are byte pinned and digest checked; translating them would falsify "
+                        "the evidence they are there to reproduce"),
+            },
+        },
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
         "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
@@ -571,8 +610,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         },
         "records": records,
         "signature": {"state": "NOT APPLICABLE",
-                      "reason": ("dieser Traeger wird ueber den emit/assemble-Weg signiert; "
-                                 "die private Schluesselhaelfte liegt am Mac")},
+                      "reason": ("this carrier is signed through the emit and assemble path; "
+                                 "the private half of the key stays with the owner")},
     }
 
 
@@ -715,19 +754,19 @@ def _gegenrechnung(ok: dict, records: list, repo=None) -> dict:
     _p = (repo / _quelle) if (repo is not None and _quelle) else None
     if not _soll_digest:
         herkunft = {"zustand": "NICHT MESSBAR",
-                    "grund": "der Eingabeblock nennt keinen sha256_der_sollliste"}
+                    "grund": "the input block names no sha256 for the tally list"}
     elif _p is None or not _p.is_file():
         herkunft = {"zustand": "NICHT MESSBAR", "quelle": _quelle, "erwartet": _soll_digest,
-                    "grund": ("die genannte Quelle ist von diesem Repository aus nicht erreichbar; "
-                              "der Digest wird DESHALB nicht als geprueft ausgewiesen, sondern als "
-                              "ungeprueft weitergegeben")}
+                    "grund": ("the named source is not reachable from this repository; the "
+                              "digest is therefore NOT presented as verified but passed on as "
+                              "unverified")}
     else:
         _ist = _h.sha256(_p.read_bytes()).hexdigest()
         herkunft = ({"zustand": "GEPRUEFT", "quelle": _quelle, "sha256": _ist}
                     if _ist == _soll_digest else
                     {"zustand": "ABWEICHEND", "quelle": _quelle,
                      "erwartet": _soll_digest, "gemessen": _ist,
-                     "grund": "die genannte Quelle traegt andere Bytes als der Block behauptet"})
+                     "grund": "the named source carries different bytes than the block claims"})
     soll_ids, reg_ids = set(soll), {r["id"] for r in records}
     zu_viel, fehlt = sorted(reg_ids - soll_ids), sorted(soll_ids - reg_ids)
     gruende = hand.get("zu_viel_welche_grund") or {}

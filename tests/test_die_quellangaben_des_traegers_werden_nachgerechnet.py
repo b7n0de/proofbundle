@@ -105,7 +105,16 @@ def test_der_heutige_zustand_ist_NICHT_MESSBAR_und_sagt_warum():
     """
     h = (_doc()["inventory"].get("cross_count") or {}).get("herkunft_der_sollliste") or {}
     assert h.get("zustand") == "NICHT MESSBAR", h
-    assert "nicht erreichbar" in (h.get("grund") or ""), h
+    # An der EIGENSCHAFT gemessen, nicht an der Wortfolge: die erste Fassung suchte "nicht
+    # erreichbar" im Grund und fiel um, als derselbe Grund auf Englisch stand (r3999621601).
+    # Ein Orakel, das an der Schreibweise haengt, prueft die Sprache und nicht die Sache.
+    grund = h.get("grund") or ""
+    assert grund, "ein nicht messbarer Zustand ohne Grund ist eine leere Marke"
+    quelle = h.get("quelle")
+    assert quelle, f"der Grund nennt keine Quelle: {h}"
+    assert not (REPO / quelle).exists(), (
+        f"die genannte Quelle {quelle!r} IST von hier aus da — dann ist der Zustand nicht "
+        f"NICHT MESSBAR, sondern GEPRUEFT oder ABWEICHEND")
 
 
 # ── DIE ANWESENHEIT DER INNEREN HERKUNFT, als eigene Zusicherung ──────────────────────────
