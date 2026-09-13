@@ -343,6 +343,15 @@ AUSGESCHLOSSEN = {
     # "tests/ liegt nicht im sdist" — war schlicht falsch: MANIFEST.in Zeile 1-10 liefert die
     # Tests mitsamt ihren Assets aus.)
     "budget_axis_measurement.py": "Freigabe-Beweismittel dieses Repos, nicht Paket-Faehigkeit",
+    # Derselbe Grund wie bei install_git_hooks.sh, eine Ebene hoeher: dieses Skript prueft die
+    # SPRACHE eines Pull-Request-Textes. Seine beiden Verbraucher sind der CI-Kanal und sein
+    # eigener Vertragstest — im installierten Paket gibt es keinen Pull Request, also auch keine
+    # Faehigkeit, die es dem Nutzer anbietet. Dass sein Test es auf Modulebene laedt, ist KEIN
+    # Grund, es auszuliefern: tests/conftest.py::_ModulDasFehlendeDateienEhrlichMeldet faengt
+    # genau diesen Import und meldet ihn ausserhalb eines Checkouts als N/A statt als Fehler —
+    # und es bleibt laut, wenn MANIFEST.in die Datei doch listet. Die Ausnahme ist also
+    # rueckgekoppelt und nicht bloss behauptet.
+    "pr_language_gate.py": "prueft PR-Texte; Verbraucher sind CI und sein Vertragstest, nicht das Paket",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
