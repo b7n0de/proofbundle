@@ -1,7 +1,7 @@
 {
   "schema": "proofbundle.findings_register.v1",
   "version": "6.0.0",
-  "generated_at": "2026-09-06T10:27:05Z",
+  "generated_at": "2026-09-13T11:42:15Z",
   "findings": [
     {
       "id": "N1",
@@ -122,11 +122,17 @@
       "severity": "P3",
       "status": "open",
       "note": "one mutation operator is NOT MEASURABLE rather than killed or survived: 'budget: data_digests-Schranke praktisch entfernt' removes the very resource ceiling under test, and the mutated run reached 116519388 kB RSS (111 GiB, 88.3 % of memory, 1 GiB free) before it was stopped deliberately rather than left to the OOM killer, whose choice of victim would not have been the same process. An earlier attempt ended at signal 9. Neither outcome is a test verdict — what stopped the run was the kernel, not an assertion — so it is counted in neither sort. This is evidence that the ceiling the operator removes does its job, not a defect of the candidate"
+    },
+    {
+      "id": "N21",
+      "severity": "P3",
+      "status": "open",
+      "note": "the release-deciding check C12.2 flips PASS to FAIL on 2027-09-07 BY DESIGN, and this line exists so that a gate which turns red on a calendar date is written down BEFORE it does, not explained afterwards. The closing-round fix makes an expired anchor key authorise nothing NOW, and the sole key carries not_after=2027-09-06; an empty authorised set is FAIL, not DATA_BLOCKED (only an unreadable anchor is the latter). From that day the audit matrix goes red until the key is rotated. Intended behaviour of a validity window, not a defect of the candidate. Closing action: rotate the key before 2027-09-06, or accept the red"
     }
   ],
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "e9rbNINEvPNjPAaR6MeY+tBI+d3BZlWJpsswmw6lEeElbB+XW2AxrTT94MD5H1s42RdyW44efnFI2jDloCdSCQ=="
+    "sig_b64": "R84oUA9ejlyWBzJJIR490SuC8Muwj8LviPyumt9GOvDypI8udayN8YZiM0IqLB7IjzYgCw5INAYeSjIFLpufAw=="
   }
 }
