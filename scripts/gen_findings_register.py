@@ -423,10 +423,31 @@ def _bewertungsgrenze(ok: dict):
     wie `2026-09-13T0?:??Z` zaehlt ausdruecklich als lesbar, soweit sein DATUMSteil es ist — die
     Stunde fehlt dort, der Tag nicht, und der Tag ist die Groesse, um die es hier geht.
     """
+    import datetime as _dt  # noqa: PLC0415
     import re  # noqa: PLC0415
     roh = str(((ok.get("gemessen_an") or {}).get("utc")) or "")
     m = re.match(r"(\d{4}-\d{2}-\d{2})", roh)
     if m:
+        # DIE ZIFFERNFORM IST NICHT DAS DATUM (Codex 4000140173). Der Ausdruck oben prueft vier
+        # Ziffern, zwei Ziffern, zwei Ziffern — mehr nicht. GEMESSEN: `gemessen_an.utc` auf
+        # "2026-99-99T00:00:00Z" gesetzt und neu gebaut endet mit 0, meldet gruen und schreibt
+        # `assessment_cutoff: "2026-99-99"`; `pruefe_v2` findet null Fehler, weil es dort nur
+        # gegen eine nichtleere Zeichenkette prueft. Monat 99, Tag 99 — eine Bewertungsgrenze,
+        # die es im Kalender nicht gibt, wurde als erfolgreich geprueft veroeffentlicht.
+        #
+        # GEPRUEFT WIRD MIT DEM KALENDER, nicht mit einem zweiten Ausdruck: `date.fromisoformat`
+        # kennt Schaltjahre und Monatslaengen, ein Regex kennt sie nie. Ein unmoegliches Datum ist
+        # danach NICHT MESSBAR mit Grund — nicht etwa die Uhr dieses Laufs, denn die wuerde den
+        # gemessenen Stand vordatieren.
+        try:
+            _dt.date.fromisoformat(m.group(1))
+        except ValueError:
+            return {"state": "NOT MEASURED",
+                    "value": None,
+                    "reason": (f"`gemessen_an.utc` starts with {m.group(1)!r}, which has the shape "
+                               f"of a date but is not one in the calendar; the assessment boundary "
+                               f"is NOT derived from the time of this run, because that would "
+                               f"predate the measured state")}
         return m.group(1)
     return {"state": "NOT MEASURED",
             "reason": ("the object class file carries no readable calendar date under "
@@ -996,6 +1017,17 @@ def pruefe_v2(doc, repo) -> list[str]:
             fehler.append("Bewertungsgrenze: Lueckenwort ohne Grund")
     elif not isinstance(_bg, str) or not _bg:
         fehler.append(f"Bewertungsgrenze: weder Datum noch Lueckenwort ({_bg!r})")
+    else:
+        # NICHTLEER IST KEIN DATUM (Codex 4000140173). Bis hierher genuegte eine nichtleere
+        # Zeichenkette, und damit kam "2026-99-99" durch den Pruefer wie durch den Erzeuger.
+        # Der Erzeuger prueft jetzt am Kalender; dieser Riegel tut es AUCH, denn er urteilt ueber
+        # einen fertigen Traeger, der nicht aus diesem Erzeuger stammen muss.
+        import datetime as _dt2  # noqa: PLC0415
+        try:
+            _dt2.date.fromisoformat(_bg)
+        except ValueError:
+            fehler.append(f"Bewertungsgrenze: {_bg!r} hat die Form eines Datums, ist aber keines "
+                          f"im Kalender")
     for q in inv.get("source_documents") or []:
         p = repo / q.get("path", "")
         if not p.is_file():
