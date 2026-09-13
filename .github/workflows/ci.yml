@@ -5,6 +5,19 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:        # Landetrigger (Nachtrag 1, B3): die volle Schicht von Hand
+
+# NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
+# auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
+# liefen 65 bis 255 Minuten mit 28 Mutations-Shards, waehrend test und coverage darin laengst rot
+# waren. Ursache war Saettigung durch eigene Last, kein Ausfall.
+#
+# cancel-in-progress ist BEDINGT, nicht pauschal: ein spaeterer Push auf denselben Zweig macht das
+# Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
+# dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
   contents: read
@@ -16,6 +29,7 @@ jobs:
     # (branch_base_check.py always exits 0); continue-on-error is belt-and-suspenders.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -40,6 +54,7 @@ jobs:
     # top of the script's own default exit-0 contract; --strict is used here (registry-integrity is a
     # real regression worth a red annotation) but the job itself never fails the build.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -65,10 +80,25 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # B3: FUENF Versionen nur am Landekandidaten, sonst EINE. Der Kontext-Name bleibt dabei
+        # "test (3.12)" fuer die schnelle Schicht — die Pflichtpruefungen des Regelsatzes
+        # protect-main verlangen test (3.10) bis (3.14), deshalb MUSS der Landekandidat alle fuenf
+        # fahren, und deshalb steht hier ein Ausdruck und keine feste Kuerzung.
+        python-version: >-
+          # DIE KLAMMER IST NOETIG, nicht Zierde: in GitHub-Ausdruecken bindet && staerker
+          # als ||. Ohne sie liest sich A || B || C || (D && voll) || eine, und bei wahrem A
+          # kaeme `true` statt einer JSON-Liste heraus. Beim Schreiben gefunden, nicht im Lauf.
+          ${{ fromJSON(
+            ( github.event_name == 'workflow_dispatch'
+              || startsWith(github.head_ref, 'release/')
+              || startsWith(github.ref_name, 'release/')
+              || contains(github.event.pull_request.labels.*.name, 'landung') )
+            && '["3.10","3.11","3.12","3.13","3.14"]'
+            || '["3.12"]' ) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python ${{ matrix.python-version }}
@@ -132,6 +162,7 @@ jobs:
     # build backend, so DATA_BLOCKED is expected in CI and must not fail the build (No-Fake). The
     # underlying obligations are each ALSO enforced by their own blocking gate/test elsewhere in CI.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -166,6 +197,7 @@ jobs:
     # A single surviving counter-proof withdraws the affected gate's release effect until it falls,
     # so this failing is meant to stop a merge, not to be silenced.
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -182,6 +214,7 @@ jobs:
     # flakiness from extras-dependent line counts; raise it over time. Runs the FULL pytest suite (the
     # unittest-discover CI job runs only TestCase classes, so this counts the pytest-function tests too).
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -199,6 +232,7 @@ jobs:
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
     # so a future floor bump can't silently break the trusted core.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -216,6 +250,22 @@ jobs:
         run: python -m proofbundle.cli demo
 
   mutation:
+    # B3 UND B4 aus Nachtrag 1 zu 20260913T2012Z, beide an derselben Stelle und beide gemessen
+    # begruendet.
+    #
+    # B4, `needs`: am 13.09.2026 liefen vier CI-Laeufe 65 bis 255 Minuten mit 28 Shards, waehrend
+    # test und coverage in ALLEN VIEREN laengst rot waren. Ein Shard, der nach einem roten Testjob
+    # noch rechnet, verbraucht einen Laeufer fuer ein Urteil, das niemand mehr braucht.
+    #
+    # B3, der Landekandidat: die volle Mutationsschicht gehoert an den Kandidaten, nicht an jeden
+    # WIP-Push. Drei Wege fuehren hinein und sie sind absichtlich verschieden — ein Label am PR,
+    # ein release/-Zweig, oder der Griff von Hand. Auf allem anderen laeuft die schnelle Schicht.
+    needs: [test, coverage]
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || startsWith(github.head_ref, 'release/')
+      || startsWith(github.ref_name, 'release/')
+      || contains(github.event.pull_request.labels.*.name, 'landung')
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
     #
@@ -232,6 +282,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Set up Python
@@ -352,6 +403,7 @@ jobs:
     needs: [mutation]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Download shard results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
@@ -485,6 +537,7 @@ jobs:
     # of the range scan is trusted. The same guard runs locally as a pre-commit hook
     # (scripts/install_git_hooks.sh), this job is the non-bypassable half.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -502,6 +555,7 @@ jobs:
     # rfc3161-client), so this job installs the extra and actually runs them. Offline: the fixture is
     # committed, no live TSA call in CI.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -520,6 +574,7 @@ jobs:
     # findings. Blocking: a known-vulnerable dependency should stop a merge. An accepted or currently-unfixable
     # advisory can be pinned here with `--ignore-vuln <ID>` plus a justification comment.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0

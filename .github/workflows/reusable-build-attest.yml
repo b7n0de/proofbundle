@@ -29,6 +29,18 @@ on:
         description: "sha256 of the reproducible sdist."
         value: ${{ jobs.build-attest.outputs.sdist-sha256 }}
 
+# NEBENLAEUFIGKEIT (Nachtrag 1 zu 20260913T2012Z, B1). Gemessen 13.09.2026 20:22Z: fuenf Pushes
+# auf EINEN Zweig zwischen 17:55Z und 18:07Z reihten 30 Laeufe ein; 119 warteten, vier CI-Laeufe
+# liefen 65 bis 255 Minuten mit 28 Mutations-Shards, waehrend test und coverage darin laengst rot
+# waren. Ursache war Saettigung durch eigene Last, kein Ausfall.
+#
+# cancel-in-progress ist BEDINGT, nicht pauschal: ein spaeterer Push auf denselben Zweig macht das
+# Urteil ueber den frueheren Kopf gegenstandslos, ein Nightly oder ein von Hand ausgeloester Lauf
+# dagegen soll durchlaufen. Genau das steht im Auftrag (B1) und genau das drueckt der Ausdruck aus.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
 permissions:
   contents: read
 
@@ -50,6 +62,7 @@ defaults:
 jobs:
   build-attest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write        # keyless OIDC for the build-provenance attestation (only used when not dry_run)
