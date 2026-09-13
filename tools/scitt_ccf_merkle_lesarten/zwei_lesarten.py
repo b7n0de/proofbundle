@@ -169,42 +169,75 @@ def wurzeln(n: int) -> tuple[bytes, bytes]:
 
 
 # --- Gegenprobe: der Vergleich MUSS auch "gleich" sagen koennen ------------------------
+def _durchgang(blatt_hash, blaetter, gleichwertig, verbogen) -> tuple[bool, bool, bytes]:
+    """EIN Durchgang einer Lesart. Gibt die BEFUNDE zurueck und faellt kein Urteil.
+
+    Ausgelagert, weil die Positivkontrolle weiter unten genau dieselbe Mechanik fahren
+    muss wie die echten Lesarten. Eine Kontrolle auf einem eigenen Pfad prueft sich selbst.
+    """
+    links = mth([blatt_hash(b) for b in blaetter])
+    rechts = mth([blatt_hash(b) for b in gleichwertig])
+    anders = mth([blatt_hash(b) for b in verbogen])
+    return links == rechts, anders != links, links + anders
+
+
+def _taube_lesart(b: dict) -> bytes:
+    """Liest ihren Eingang nicht. MUSS durchfallen -- daran haengt die Positivkontrolle."""
+    return H(b"konstant")
+
+
 def gegenprobe() -> tuple[bool, str, str]:
-    """Jede Lesart EINZELN auf gleich-Fall und ungleich-Fall pruefen.
+    """Jede Lesart EINZELN auf gleich-Fall und ungleich-Fall pruefen, mit Positivkontrolle.
 
     Ohne diese Faelle belegt ein durchgaengiges "weicht ab" nichts: es koennte ebenso gut
     heissen, dass der Vergleich immer ungleich meldet.
 
-    BEIDE LESARTEN, und das ist eine Haertung aus einer Gegenlesung: die erste Fassung fuhr
-    ausschliesslich blatt_hash_b. Wer blatt_hash_a durch eine KONSTANTE ersetzte, bekam
-    unveraendert "bestanden" und weiter "WEICHT AB" in jeder Zeile -- die Lesart, ueber die
-    das Ergebnis etwas aussagt, war selbst nie geprueft. Eine Gegenprobe, die nur EINE Seite
-    anfasst, ist gegen jeden Fehler blind, der NUR die andere trifft.
+    BEIDE LESARTEN: die erste Fassung fuhr ausschliesslich blatt_hash_b. Wer blatt_hash_a
+    durch eine KONSTANTE ersetzte, bekam unveraendert "bestanden" -- die Lesart, ueber die
+    das Ergebnis etwas aussagt, war selbst nie geprueft.
+
+    ZWEI WIDERLEGUNGEN AUS GEGENLESUNGEN STEHEN IN DIESER FASSUNG, beide gemessen:
+
+    1. Der gleich-Fall war eine Tautologie. `links` und `rechts` waren derselbe Ausdruck
+       auf denselben Daten; bei deterministischem H kann er nie ungleich melden. Gemessen:
+       der Zweig wurde in 0 von 9 Fassungen genommen. Jetzt steht auf der rechten Seite ein
+       UNABHAENGIG gebautes, inhaltsgleiches Blatt mit umgekehrter Schluesselreihenfolge --
+       damit prueft der Fall die kanonische Ordnung der Kodierung und nicht den Determinismus.
+
+    2. Die Spur band an die gerechneten Zwischenwerte, nicht an die Vergleichsergebnisse.
+       Wer die beiden if-Bloecke loeschte und alles andere stehen liess, aenderte kein Byte
+       der Spur: gemessen 0a87e1a7611f53dd vor wie nach dem Defekt, jedes Feld der
+       Messflaeche identisch. Deshalb gehen die BEFUNDE jetzt selbst in die Spur, und
+       deshalb steht am Ende eine Positivkontrolle: eine Lesart, die ihren Eingang nicht
+       liest, MUSS als nicht-unterscheidend auffallen. Ein entwaffneter Vergleich ist in
+       einem Lauf, in dem die Eigenschaft haelt, sonst nicht beobachtbar -- nur ein Fall,
+       der durchfallen MUSS, macht die Mechanik selbst messbar.
     """
     blaetter = [blatt(i) for i in range(4)]
-    verbogen = list(blaetter)
-    verbogen[0] = dict(verbogen[0], data_hash=H(b"dh-abweichend"))
+    gleichwertig = [dict(reversed(list(b.items()))) for b in blaetter]
+    verbogen = [dict(blaetter[0], data_hash=H(b"dh-abweichend"))] + blaetter[1:]
 
+    befunde = []
     spur = b""
     for name, blatt_hash in (("2.1", blatt_hash_a), ("3.2", blatt_hash_b)):
-        links = mth([blatt_hash(b) for b in blaetter])
-        rechts = mth([blatt_hash(b) for b in blaetter])
-        anders = mth([blatt_hash(b) for b in verbogen])
-        # DIE SPUR IST DER NACHWEIS, DASS DIESE ZEILEN LIEFEN. Eine zweite Gegenlesung hat
-        # gezeigt: wer ein frueheres `return True, "..."` einsetzt, legt die ganze Pruefung
-        # still, ohne dass irgendeine gemessene Groesse reagiert -- die Messflaeche las nur
-        # das MELDUNGSERGEBNIS. Ein Wert, der aus der Arbeit selbst faellt, laesst sich nicht
-        # behaupten, nur rechnen.
-        spur += links + anders
-        if links != rechts:
-            return False, "Lesart %s meldet ungleich, wo sie gleich melden muss" % name, ""
-        # Ein echter Unterschied MUSS durchkommen. Genau hier faellt eine Lesart auf, die
-        # ihren Eingang gar nicht liest (konstantes Blatt) -- die Wurzel bliebe dieselbe.
-        if anders == links:
-            return False, "Lesart %s meldet gleich, wo sie ungleich melden muss" % name, ""
+        gleich, ungleich, roh = _durchgang(blatt_hash, blaetter, gleichwertig, verbogen)
+        befunde.append((name, gleich, ungleich))
+        spur += roh + bytes([gleich, ungleich])
 
-    return True, "gleich-Fall und ungleich-Fall beide richtig", hx(H(spur))[:16]
+    _, taub_ungleich, taub_roh = _durchgang(_taube_lesart, blaetter, gleichwertig, verbogen)
+    mechanik = not taub_ungleich
+    spur += taub_roh + bytes([mechanik])
 
+    fehler = [
+        "Lesart %s: gleich-Fall %s, ungleich-Fall %s" % (n, g, u)
+        for n, g, u in befunde
+        if not (g and u)
+    ]
+    if not mechanik:
+        fehler.append("Positivkontrolle: eine taube Lesart galt als unterscheidend")
+    if fehler:
+        return False, "; ".join(fehler), hx(H(spur))[:16]
+    return True, "gleich-Fall, ungleich-Fall und Positivkontrolle richtig", hx(H(spur))[:16]
 
 def main() -> int:
     print("Quelle : draft-ietf-scitt-receipts-ccf-profile-04, Abschnitte 2.1/2.2 und 3.2")

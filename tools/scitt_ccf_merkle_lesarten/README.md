@@ -35,7 +35,10 @@ bytes in which the **middle** field is hashed separately first.
 
 ## What was measured
 
-    COUNTERCHECK: PASSED -- both the equal case and the unequal case are correct
+The program writes its output in German; the blocks below are translated. `RUNS.txt`
+carries the literal transcript, so every line here can be checked against it.
+
+    COUNTERCHECK: PASSED -- equal case, unequal case and positive control are correct
 
      n  verdict
      0  equal (3.2 has no empty tree -- NOT APPLICABLE)
@@ -98,9 +101,11 @@ not as a copy, because a copy drifts and a ref does not.
 
 ## The catch-proof, and how it refuted its own announcement
 
-`fangnachweis.py` plants six defects in `zwei_lesarten.py` and measures whether they
-show up. Each mutation carries a planting assertion (`assert new != original`): without
-it, `str.replace()` reports success silently when the pattern does not match.
+`fangnachweis.py` plants nine defects in `zwei_lesarten.py` and measures whether they
+show up. Each mutation requires its anchor to occur **exactly once**: a pattern that
+occurs zero times or several times is reported as *not planted* and counted separately,
+because `str.replace()` reports success silently in the first case and changes more than
+intended in the second.
 
 **First run: 4 announced as counting, 3 measured.** One defect — removing the inner
 `HASH(internal-evidence)` of reading 3.2 — slipped through. The reason is sharper than
@@ -114,7 +119,26 @@ care, and looking harder does not fix it.
 **The hardening is therefore not a stricter rule but a second, independent quantity:**
 the root values themselves belong to the measured surface. They bind the result to fixed
 bytes instead of to a comparison. Announcement before the second run: **6 of 6** —
-measured **6 of 6**. `RUNS.txt` carries the full protocol.
+measured **6 of 6**.
+
+**Then the first foreign model family refuted the result.** Three lenses of one family had
+read the code before; the first reader of a different family was asked whether the
+countercheck could still be disarmed. It named a defect: delete the two comparisons and
+leave the computation standing. Planted as A8 and measured — the trace came out
+**byte-identical** to the clean run (`0a87e1a7611f53dd` before and after), every field of
+the measured surface unchanged, **7 counted of 8**. The trace was bound to the values that
+were computed, not to the comparisons that were made.
+
+**The class behind it:** a disarmed check is, in a run where the property holds, not
+observable at all — every measured quantity is identical by construction. Only a case that
+**must fail** makes the mechanism itself measurable. The countercheck therefore ends with a
+positive control: a reading that does not read its input must be reported as
+non-distinguishing. The findings themselves now enter the trace, and the equal case
+compares an independently built, content-equal leaf with reversed key order instead of the
+same expression twice — measured, the old equal-case branch was taken in **0 of 9**
+versions and could not fire. Announcement before the third run: **9 of 9** — measured
+**9 of 9**, of which one is reported by the countercheck itself and one only by the return
+code. `RUNS.txt` carries the full protocol.
 
 **What remains NOT MEASURABLE, with reason:** whether these roots are the *correct*
 ones. The draft states no test vectors, and no foreign implementation is available here.
@@ -132,18 +156,23 @@ The countercheck runs **before** the result and aborts if it fails: without it, 
 "diverges" proves nothing, since it could equally mean the comparison always reports
 unequal.
 
-Two hardenings here came out of an adversarial re-read, and both are worth stating because
-the first version failed them:
+Three hardenings here came out of adversarial re-reads, and all three are worth stating
+because the version before each one failed it:
 
 - The countercheck exercises **each reading separately**. The first version ran only reading
   3.2 — replacing reading 2.1 with a constant left it reporting "passed" while every row
   still read "DIVERGES". A countercheck that touches only one side is blind to any fault
   that hits only the other.
-- The countercheck prints a **trace** derived from the roots it actually computed
-  (`[spur …]`). Before that, inserting an early `return True` turned the whole check into
-  dead code without changing a single measured quantity — the surface read the *reported
-  result*, not whether the work happened. A value that falls out of the work cannot be
-  asserted, only computed.
+- The countercheck prints a **trace** (`[spur …]`). Before that, inserting an early
+  `return True` turned the whole check into dead code without changing a single measured
+  quantity — the surface read the *reported result*, not whether the work happened. A value
+  that falls out of the work cannot be asserted, only computed.
+- The trace carries the **findings**, not only the computed values, and the countercheck
+  ends with a **positive control**. The first version of the trace was derived from the
+  roots alone, so deleting both comparisons left it byte-identical; that version proved
+  that the lines had run, not that anything had been decided. A check that is disarmed
+  while the property still holds cannot be seen in that run at all, which is why the
+  mechanism is exercised on a reading that must fail.
 
 ## Provenance of the document
 
@@ -159,5 +188,5 @@ the first version failed them:
 | file | |
 |---|---|
 | `zwei_lesarten.py` | the two readings and the shared tree rule; prints both roots per `n` |
-| `fangnachweis.py` | plants six defects and measures which of them the checker reports |
+| `fangnachweis.py` | plants nine defects and measures which of them the checker reports |
 | `RUNS.txt` | the output of both, as run |

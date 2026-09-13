@@ -57,8 +57,8 @@ DEFEKTE = [
     ),
     (
         "A4 Gegenprobe entschaerft",
-        '    return True, "gleich-Fall und ungleich-Fall beide richtig"',
-        '    return True, "immer gruen"',
+        '    return True, "gleich-Fall, ungleich-Fall und Positivkontrolle richtig", hx(H(spur))[:16]',
+        '    return True, "immer gruen", hx(H(spur))[:16]',
         "ZAEHLT",
         "Die Gegenprobe ist der einzige Schutz davor, dass 'weicht ab' bedeutungslos wird. "
         "Ihre Begruendungszeile steht in der Ausgabe; wird sie beliebig, ist das sichtbar.",
@@ -73,10 +73,33 @@ DEFEKTE = [
         "VERGLEICHT statt gegen feste Sollwerte zu pruefen. Benannter blinder Fleck.",
     ),
     (
+        "A8 Vergleichsergebnisse aus der Messgroesse entfernt",
+        "        spur += roh + bytes([gleich, ungleich])",
+        "        spur += roh",
+        "ZAEHLT",
+        "Die Widerlegung der ERSTEN FREMDEN Modellfamilie, in ihrer heutigen Form. Damals "
+        "hiess der Defekt 'beide if-Bloecke loeschen' und rutschte durch: die Spur fiel aus "
+        "den gerechneten ZWISCHENWERTEN, nicht aus den Vergleichsergebnissen, und blieb "
+        "byteweise dieselbe (0a87e1a7611f53dd vor wie nach). Seit die Befunde selbst in die "
+        "Spur gehen, ist das Entfernen dieser Bindung der aequivalente Defekt -- und er MUSS "
+        "auffallen, sonst ist die Haertung wieder nur behauptet.",
+    ),
+    (
+        "A9 Mechanik entwaffnet (Durchgang meldet feste Befunde)",
+        "    return links == rechts, anders != links, links + anders",
+        "    return True, True, links + anders",
+        "ZAEHLT",
+        "Der Fall, den es vorher NICHT gab: ein entwaffneter Vergleich ist in einem Lauf, in "
+        "dem die Eigenschaft haelt, grundsaetzlich unsichtbar -- jede Messgroesse ist "
+        "identisch. Sichtbar wird er nur an einem Fall, der DURCHFALLEN MUSS. Genau dafuer "
+        "steht die taube Lesart: meldet die Mechanik sie als unterscheidend, luegt sie. "
+        "Faengt dieser Defekt nicht, hat die Positivkontrolle keinen Wert.",
+    ),
+    (
         "A7 Gegenprobe stillgelegt (toter Code)",
-        '    blaetter = [blatt(i) for i in range(4)]\n    verbogen = list(blaetter)',
-        '    return True, "gleich-Fall und ungleich-Fall beide richtig", ""\n'
-        '    blaetter = [blatt(i) for i in range(4)]\n    verbogen = list(blaetter)',
+        '    blaetter = [blatt(i) for i in range(4)]\n    gleichwertig =',
+        '    return True, "gleich-Fall, ungleich-Fall und Positivkontrolle richtig", ""\n'
+        '    blaetter = [blatt(i) for i in range(4)]\n    gleichwertig =',
         "ZAEHLT",
         "Der Defekt, an dem eine Gegenlesung diesen Nachweis widerlegt hat: ein frueher "
         "return macht die ganze Pruefung zu totem Code. Vor der Spur blieb das unsichtbar, "
@@ -156,7 +179,7 @@ def main() -> int:
     print(f"ANGESAGT: {angesagt_zaehlt} ZAEHLT von {len(DEFEKTE)} gepflanzten Defekten.")
     print()
 
-    zaehlt = gegen = ungepflanzt = nur_absturz = 0
+    zaehlt = gegen = ungepflanzt = nur_absturz = angehalten_n = 0
     for name, alt, neu, klasse, warum in DEFEKTE:
         if alt not in orig:
             print(f"  {name:42s} NICHT GEPFLANZT — Muster nicht im Quelltext")
@@ -181,9 +204,15 @@ def main() -> int:
         # Merkmal ist NICHT `k == grund` — bei einem Absturz sind alle Felder None und damit
         # verschieden. Merkmal ist, dass die Ergebniszeile nie erschienen ist: dann hat die
         # Flaeche nur ABWESENHEIT gesehen, keinen gemessenen Unterschied.
-        nur_rc = k["abweichend"] is None
+        # DREI Ursachen, nicht zwei. Die erste Fassung hatte EIN Feld fuer zwei davon und
+        # nannte A9 "nur Absturz" -- dort war die Gegenprobe aber korrekt DURCHGEFALLEN und
+        # hat den Lauf angehalten. Das ist die staerkste Form des Fangens, nicht die
+        # schwaechste, und ein gemeinsames Etikett haette sie als die schwaechste gezaehlt.
+        angehalten = k["gegenprobe"] == "GEFALLEN"
+        nur_rc = k["abweichend"] is None and not angehalten
         sichtbar = (rc != rc0) or (k != grund)
-        urteil = ("GEFANGEN (nur Absturz)" if nur_rc
+        urteil = ("GEFANGEN (Gegenprobe faellt)" if angehalten
+                  else "GEFANGEN (Lauf brach ab)" if nur_rc
                   else "GEFANGEN" if sichtbar else "durchgerutscht")
         ist = "ZAEHLT" if sichtbar else "GEGEN"
         treffer = "ok" if ist == klasse else "ANDERS ALS ANGESAGT"
@@ -193,15 +222,18 @@ def main() -> int:
             gegen += 1
         if nur_rc:
             nur_absturz += 1
-        print(f"  {name:42s} {urteil:22s} angesagt={klasse:6s} gemessen={ist:6s} {treffer}")
+        if angehalten:
+            angehalten_n += 1
+        print(f"  {name:54s} {urteil:28s} angesagt={klasse:6s} gemessen={ist:6s} {treffer}")
         if k != grund:
             print(f"      {grund}  ->  {k}")
 
     print()
     print(f"GEMESSEN: {zaehlt} ZAEHLT · {gegen} GEGEN · {ungepflanzt} nicht gepflanzt "
           f"(von {len(DEFEKTE)})")
-    print(f"davon nur ueber den Rueckgabewert gefangen (Absturz, nicht Messflaeche): "
-          f"{nur_absturz}")
+    print(f"davon nur ueber den Rueckgabewert gefangen (Lauf brach ab, die Flaeche sah "
+          f"nur Abwesenheit): {nur_absturz}")
+    print(f"davon von der Gegenprobe selbst angehalten (sie MELDET den Defekt): {angehalten_n}")
     print(f"ANGESAGT war: {angesagt_zaehlt} ZAEHLT.")
     if zaehlt == angesagt_zaehlt:
         print("Die Ansage traf.")
