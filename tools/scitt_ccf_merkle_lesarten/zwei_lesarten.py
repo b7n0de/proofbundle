@@ -68,36 +68,51 @@ hx = lambda b: b.hex()                            # noqa: E731
 
 
 # --- die CBOR-Serialisierung kommt aus dem vorhandenen Werkzeug, nicht von hier -------
+def _repo_wurzel() -> pathlib.Path | None:
+    """Die Repo-Wurzel aus der Lage DIESER Datei ableiten, nicht aus $HOME.
+
+    Ein fester Pfad unter dem Heimatverzeichnis traegt den Benutzernamen nach
+    draussen und stimmt ausserdem nur auf einer Maschine.
+    """
+    for eltern in pathlib.Path(__file__).resolve().parents:
+        if (eltern / ".git").exists():
+            return eltern
+    return None
+
+
+REL = "tools/scitt_ccf_datahash_vector/cbor_min.py"
+
+
 def _lade_cbor_min():
     """cbor_min.schreibe() des Schwesterwerkzeugs, oder ein benannter Abbruch."""
     hier = pathlib.Path(__file__).resolve().parent
-    kandidaten = [
-        hier.parent / "scitt_ccf_datahash_vector" / "cbor_min.py",          # im Repo
-        pathlib.Path.home() / "proofbundle" / "tools" / "scitt_ccf_datahash_vector" / "cbor_min.py",
-    ]
+    wurzel = _repo_wurzel()
+    kandidaten = [hier.parent / "scitt_ccf_datahash_vector" / "cbor_min.py"]
+    if wurzel is not None:
+        kandidaten.append(wurzel / REL)
     for p in kandidaten:
         if p.is_file():
             spec = importlib.util.spec_from_file_location("cbor_min", p)
             m = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(m)
-            return m, p
+            return m, REL + " (Arbeitsbaum)"
 
     # Dritter Weg, fuer einen Lauf AUSSERHALB des Repos: aus dem festgenagelten Commit
     # lesen. Ausdruecklich keine Kopie -- eine Kopie driftet, ein Ref nicht.
     import subprocess
-    repo = pathlib.Path.home() / "proofbundle"
-    ziel = "%s:tools/scitt_ccf_datahash_vector/cbor_min.py" % CBOR_MIN_COMMIT
-    r = subprocess.run(["git", "show", ziel], capture_output=True, text=True, cwd=repo)
-    if r.returncode == 0 and r.stdout:
-        m = importlib.util.module_from_spec(
-            importlib.util.spec_from_loader("cbor_min", loader=None))
-        exec(compile(r.stdout, ziel, "exec"), m.__dict__)
-        return m, "git -C %s show %s" % (repo, ziel)
+    ziel = "%s:%s" % (CBOR_MIN_COMMIT, REL)
+    if wurzel is not None:
+        r = subprocess.run(["git", "show", ziel], capture_output=True, text=True, cwd=wurzel)
+        if r.returncode == 0 and r.stdout:
+            m = importlib.util.module_from_spec(
+                importlib.util.spec_from_loader("cbor_min", loader=None))
+            exec(compile(r.stdout, ziel, "exec"), m.__dict__)
+            return m, "git show %s" % ziel
 
     raise SystemExit(
-        "NICHT MESSBAR: cbor_min.py nicht gefunden. Gesucht in:\n  "
-        + "\n  ".join(str(p) for p in kandidaten)
-        + "\nGrund: die Serialisierung wird nicht neu geschrieben (kein zweiter Erzeuger)."
+        "NICHT MESSBAR: cbor_min.py nicht gefunden. Gesucht wurde neben diesem "
+        "Werkzeug und unter " + REL + ", danach im festgenagelten Commit.\n"
+        "Grund: die Serialisierung wird nicht neu geschrieben (kein zweiter Erzeuger)."
     )
 
 
@@ -154,23 +169,41 @@ def wurzeln(n: int) -> tuple[bytes, bytes]:
 
 
 # --- Gegenprobe: der Vergleich MUSS auch "gleich" sagen koennen ------------------------
-def gegenprobe() -> tuple[bool, str]:
-    """Beide Lesarten mit DEMSELBEN Blatturbild gefahren -- dann muessen sie gleich sein.
+def gegenprobe() -> tuple[bool, str, str]:
+    """Jede Lesart EINZELN auf gleich-Fall und ungleich-Fall pruefen.
 
-    Ohne diesen Fall belegt ein durchgaengiges "weicht ab" nichts: es koennte ebenso gut
+    Ohne diese Faelle belegt ein durchgaengiges "weicht ab" nichts: es koennte ebenso gut
     heissen, dass der Vergleich immer ungleich meldet.
+
+    BEIDE LESARTEN, und das ist eine Haertung aus einer Gegenlesung: die erste Fassung fuhr
+    ausschliesslich blatt_hash_b. Wer blatt_hash_a durch eine KONSTANTE ersetzte, bekam
+    unveraendert "bestanden" und weiter "WEICHT AB" in jeder Zeile -- die Lesart, ueber die
+    das Ergebnis etwas aussagt, war selbst nie geprueft. Eine Gegenprobe, die nur EINE Seite
+    anfasst, ist gegen jeden Fehler blind, der NUR die andere trifft.
     """
     blaetter = [blatt(i) for i in range(4)]
-    links = mth([blatt_hash_b(b) for b in blaetter])
-    rechts = mth([blatt_hash_b(b) for b in blaetter])
-    if links != rechts:
-        return False, "der Vergleich meldet ungleich, wo er gleich melden muss"
-    # und ein echter Unterschied MUSS als Unterschied durchkommen
     verbogen = list(blaetter)
     verbogen[0] = dict(verbogen[0], data_hash=H(b"dh-abweichend"))
-    if mth([blatt_hash_b(b) for b in verbogen]) == links:
-        return False, "der Vergleich meldet gleich, wo er ungleich melden muss"
-    return True, "gleich-Fall und ungleich-Fall beide richtig"
+
+    spur = b""
+    for name, blatt_hash in (("2.1", blatt_hash_a), ("3.2", blatt_hash_b)):
+        links = mth([blatt_hash(b) for b in blaetter])
+        rechts = mth([blatt_hash(b) for b in blaetter])
+        anders = mth([blatt_hash(b) for b in verbogen])
+        # DIE SPUR IST DER NACHWEIS, DASS DIESE ZEILEN LIEFEN. Eine zweite Gegenlesung hat
+        # gezeigt: wer ein frueheres `return True, "..."` einsetzt, legt die ganze Pruefung
+        # still, ohne dass irgendeine gemessene Groesse reagiert -- die Messflaeche las nur
+        # das MELDUNGSERGEBNIS. Ein Wert, der aus der Arbeit selbst faellt, laesst sich nicht
+        # behaupten, nur rechnen.
+        spur += links + anders
+        if links != rechts:
+            return False, "Lesart %s meldet ungleich, wo sie gleich melden muss" % name, ""
+        # Ein echter Unterschied MUSS durchkommen. Genau hier faellt eine Lesart auf, die
+        # ihren Eingang gar nicht liest (konstantes Blatt) -- die Wurzel bliebe dieselbe.
+        if anders == links:
+            return False, "Lesart %s meldet gleich, wo sie ungleich melden muss" % name, ""
+
+    return True, "gleich-Fall und ungleich-Fall beide richtig", hx(H(spur))[:16]
 
 
 def main() -> int:
@@ -178,8 +211,8 @@ def main() -> int:
     print("CBOR   :", CBOR_PFAD)
     print()
 
-    ok, grund = gegenprobe()
-    print(f"GEGENPROBE: {'BESTANDEN' if ok else 'GEFALLEN'} -- {grund}")
+    ok, grund, spur = gegenprobe()
+    print(f"GEGENPROBE: {'BESTANDEN' if ok else 'GEFALLEN'} -- {grund} [spur {spur}]")
     if not ok:
         print("Abbruch: ohne gueltige Gegenprobe ist jedes Ergebnis unten bedeutungslos.")
         return 2

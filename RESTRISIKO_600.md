@@ -96,7 +96,7 @@ it again. **Funnel: no user is affected.**
 ### R6 · The witness cannot see the lenses of a round run in a foreign repository — open, unchanged
 
 `scripts/b7_abschluss_beleg.py` counts lens artefacts under
-`office/governance/berkeley_gate/runs/lenses/<topic>` inside the tree it signs — this repository's
+`office/governance/deep gate_gate/runs/lenses/<topic>` inside the tree it signs — this repository's
 tree, which carries no such directory. The closing evidence record for 6.0.0 will therefore read
 `PARTIAL` with `0 of 6 lenses` as its named cause, exactly as the 5.1.0 record did, while the six
 lenses live in the operator's repository. **Funnel: no user is affected.** A witness that reads a
@@ -1849,7 +1849,7 @@ Dokument sehen koennen muss.
    Wort nur in einem Linsen-Verzeichnispfad, nicht als Feld.
 4. Die Belege des Zeugen tragen `notes` als reinen **String** ("Abschluss-Beleg, vom
    b7runner-Oracle ausgestellt..."), nie ein `gate_zeile`-Objekt. Nachgemessen am eigenen Lauf
-   `office/governance/berkeley_gate/runs/ce0bad546beabcef_20260908T230552Z.json`.
+   `office/governance/deep gate_gate/runs/ce0bad546beabcef_20260908T230552Z.json`.
 5. Und der Zeuge **kann** ueber einen proofbundle-Commit kein `WITHSTANDS_DEEPGATE` ausstellen:
    Pre-Sweep, Klassen-Ledger und Linsenablage liegen im Verwaltungsrepo, nicht in diesem Baum.
    Gemessen im Beleg zu diesem Kopf: 0 Linsen gegen einen Boden von 3, drei Komponenten
@@ -1992,7 +1992,7 @@ geprueft. **Vier Treffer, und es ist VIER MAL DIESELBE DATEI** (`gate_result_600
 einmal im Hauptbaum, dreimal in Worktrees). Ihre Zeile fuehrt 21 Felder, und `verdict` ist keines
 davon — sie faellt also schon an der Feldpruefung, nicht erst am Kopf-Vergleich.
 
-**Messung 2 — die Belege des Zeugen, alle.** `office/governance/berkeley_gate/runs/` fuehrt **412
+**Messung 2 — die Belege des Zeugen, alle.** `office/governance/deep gate_gate/runs/` fuehrt **412
 Belege, davon 145 mit `strength: FULL`**, die sechs juengsten aus dem Abend und der Nacht 08./09.09. (bis 00:11Z).
 **Null von 412 tragen `notes` als Objekt.** Alle tragen es als Zeichenkette („Abschluss-Beleg, vom
 b7runner-Oracle ausgestellt…"), und `verdict` ist auf allen `None`. Der Zeuge ist kein Erzeuger von
@@ -2039,8 +2039,8 @@ Test, der eine gegen die andere faehrt.
    auf ein Verdikt — und die ist eine Festlegung, keine Messung.
 3. **Fremd-Repo.** Erst hier greift, was S34 als einzige Wand beschrieb. Ueber
    `60bb6d935df15558…` (zwei Laeufe, beide PARTIAL) nennt der Beleg die Ursache woertlich, viermal
-   dieselbe Form: `scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum`,
-   `office/governance/berkeley_gate/class_ledger.jsonl fehlt im content-adressierten Baum`
+   dieselbe Form: `scripts/b7_deep gate_pre_sweep.py fehlt im content-adressierten Baum`,
+   `office/governance/deep gate_gate/class_ledger.jsonl fehlt im content-adressierten Baum`
    (zweimal, fuer Ledger-Replay und Anti-Tautologie-Probe), und `0 nicht-leere Linsen-Artefakte`
    gegen einen Boden von 3. Die Pfade sind feste Konstanten im Zeugen (`_PRE_SWEEP_REL`,
    `_LEDGER_REL`, `_LENS_ROOT_REL`), und dass sie aus dem BEURTEILTEN Baum gelesen werden, ist die
@@ -2140,7 +2140,7 @@ ist ein anderer, und es sind zwei:
 
 * **Heute moeglich:** die andere Bahn laedt `scripts/audit_candidate_matrix.py` per Pfad aus einem
   proofbundle-CHECKOUT. Den hat sie ohnehin — der Zeuge zieht seine Objekte aus
-  `/home/konrad/proofbundle`, und die Repo-Zuordnung dort nennt genau diesen Pfad. Das ist keine
+  `~/proofbundle`, und die Repo-Zuordnung dort nennt genau diesen Pfad. Das ist keine
   neue Abhaengigkeit, aber es bindet an einen Arbeitsbaum statt an eine Version.
 * **Sauber, und es ist MEINE Bahn, nach dem Tag:** der Vertrag (die sechs Feldnamen plus die
   Verdikt-Allowlist) wandert nach `src/proofbundle/`, wird damit ausgeliefert und ist versioniert
@@ -2265,8 +2265,8 @@ habe ihn selbst als Klassendefekt gebucht. Eine verletzte Vertragsinvariante IST
 Satz aus S34 gilt nur noch fuer das Zusammenspiel der beiden Riegel, nicht fuer die Mechanik als
 Ganzes; hiermit benannt statt stehen gelassen.
 
-**Die Grenze von „erschoepfend".** Die Durchsuchung lief mit `os.walk` ueber `/home/konrad/2bedone`,
-`/home/konrad/proofbundle` und `/mnt/bigstore/claude_scratch/pb_pushlinie`, ohne `.git`,
+**Die Grenze von „erschoepfend".** Die Durchsuchung lief mit `os.walk` ueber `~/2bedone`,
+`~/proofbundle` und `/mnt/bigstore/claude_scratch/pb_pushlinie`, ohne `.git`,
 `node_modules`, `__pycache__`, `.venv`, `venv`, `.mypy_cache`, `.pytest_cache`, und ohne Dateien
 ueber 8 MB. Worktrees UNTERHALB dieser Wurzeln waren eingeschlossen (drei der vier Treffer liegen
 in `.claude/worktrees/`), Worktrees ausserhalb nicht. Das ist die Menge, ueber die „vier Treffer"
@@ -2279,7 +2279,7 @@ gilt — nicht „das ganze System".
 python3 - <<'P'
 import json, glob
 b=[json.load(open(p)) for p in glob.glob(
-   "office/governance/berkeley_gate/runs/*.json")]
+   "office/governance/deep gate_gate/runs/*.json")]
 print(len(b), sum(1 for j in b if j.get("strength")=="FULL"),
       sum(1 for j in b if isinstance(j.get("notes"), dict)),
       sum(1 for j in b if str(j.get("head") or "").strip()),
@@ -2323,10 +2323,10 @@ Reserve aufgebraucht ist. Der Fund ist damit belastbar als **Trend**, nicht als 
 so gehoert er formuliert, in beiden Dokumenten.
 
 **Der zweite Teil von S36 ist von der Last voellig unberuehrt** und wurde von einer Gegenlesung an
-der Quelle bestaetigt: `scripts/b7_berkeley_class_ledger.py:182` gibt bei `TimeoutExpired` den Wert
+der Quelle bestaetigt: `scripts/b7_deep gate_class_ledger.py:182` gibt bei `TimeoutExpired` den Wert
 `"env"` zurueck, mit einem Text, der woertlich sagt *„NICHT die Umgebung"*;
-`b7_berkeley_pre_sweep.py:35` bildet `"env"` auf `env_blocked` ab; und
-`b7_berkeley_gate_receipt._measured_replay_problems` liest nur `status`. **Zwei verschiedene
+`b7_deep gate_pre_sweep.py:35` bildet `"env"` auf `env_blocked` ab; und
+`b7_deep gate_gate_receipt._measured_replay_problems` liest nur `status`. **Zwei verschiedene
 Ursachen — Station unvollstaendig, Station zu langsam — teilen ein Wort, und im signierten Beleg
 sind sie nicht mehr unterscheidbar.** Das ist ein Befund ueber die Mechanik, keine Aussage ueber
 eine Maschine, und er haengt an keiner Lastmessung.
@@ -2334,7 +2334,7 @@ eine Maschine, und er haengt an keiner Lastmessung.
 ### Der Beleg zu diesem Abschnitt ist an Wand 3 gescheitert — an genau dem Mechanismus, den er beschreibt
 
 Nach dem Schreiben von S37 habe ich fuer seine Kernaussage einen Abschluss-Beleg beim Zeugen geholt,
-korrekt gebunden (`--repo /home/konrad/proofbundle`, volle SHA `9906d91439e2ef5a…`). Vorher lagen
+korrekt gebunden (`--repo ~/proofbundle`, volle SHA `9906d91439e2ef5a…`). Vorher lagen
 drei Gegenlesungen als Linsen-Artefakte bereit, **committet** im Verwaltungsrepo (`71be4f2e5`), zwei
 Familien, Panel-Boden erreicht — `b7_linsen_ablage.py lage` meldete `reicht: true`.
 
@@ -2342,7 +2342,7 @@ Der Zeuge zaehlte **null**:
 
 ```
 strength: PARTIAL
-  deterministic_pre_sweep : scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum
+  deterministic_pre_sweep : scripts/b7_deep gate_pre_sweep.py fehlt im content-adressierten Baum
   class_ledger_replay     : .../class_ledger.jsonl fehlt im content-adressierten Baum
   anti_tautology_meta_test: .../class_ledger.jsonl fehlt im content-adressierten Baum
   jury                    : 0 nicht-leere Linsen-Artefakte gezaehlt, Boden 3
@@ -2435,7 +2435,7 @@ statt weggelassen.
 
 **Der Beleg dazu ist geholt und ist PARTIAL, aus demselben Grund wie der zu S37.**
 `office/governance/abschluss_belege/byte_freeze_beide_haelften_94a7a0faa45d.json`, gebunden an
-`94a7a0faa45d2311af7d192529fbbd8377349c85` mit `--repo /home/konrad/proofbundle`. Vier Gruende,
+`94a7a0faa45d2311af7d192529fbbd8377349c85` mit `--repo ~/proofbundle`. Vier Gruende,
 woertlich dieselben: Pre-Sweep, Klassen-Ledger (zweimal) und Linsenablage fehlen im
 content-adressierten Baum, 0 Linsen gegen Boden 3. **Das ist Wand 3 zum dritten Mal an einem
 eigenen Beleg** — und es heisst nicht, dass die Messung schlechter ist, sondern dass der Zeuge sie
@@ -2545,10 +2545,10 @@ gar kein Verdikt — also fehle eine Abbildung von `strength` auf ein Urteil, un
 
 ```
 Belege 416 · mit nicht-leerem verdict_tag: 414
-  WITHSTANDS_DEEPGATE 135 · PARTIAL_GATE_NO_WITHSTANDS 269 · WITHSTANDS_BERKELEY 6 · REFUTED 4
+  WITHSTANDS_DEEPGATE 135 · PARTIAL_GATE_NO_WITHSTANDS 269 · WITHSTANDS_deep gate 6 · REFUTED 4
 ```
 
-`b7_berkeley_gate_receipt.verdict_tag()` (Zeilen 384-411) **rechnet genau diese Abbildung** —
+`b7_deep gate_gate_receipt.verdict_tag()` (Zeilen 384-411) **rechnet genau diese Abbildung** —
 `strength != "FULL"` ergibt `PARTIAL_GATE_NO_WITHSTANDS[...]`, sonst
 `WITHSTANDS_DEEPGATE[v4/sc1/DEEP-6L7I/FULL]` — und schreibt sie in **jeden** Beleg.
 
@@ -2857,7 +2857,7 @@ standen in der Quelle, beide fehlten in meiner mitgetragenen Fassung. Registersc
 
 Nach dem Fund aus S42 („Anordnung aus der Zusammenfassung statt aus der Quelle") habe ich den
 Standard gelesen, den ich die ganze Nacht zitiert hatte, ohne ihn je zu oeffnen:
-`kraxo/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md`, 33 Zeilen, vollstaendig.
+`Betreiber/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md`, 33 Zeilen, vollstaendig.
 
 **Was mich entlastet, weil es geprueft ist.** Zeile 25 verlangt vier Tauglichkeitsproben VOR der
 ersten Anwendung von Sonnet. Sie liegen vor: `office/governance/linsen_tauglichkeit.jsonl` fuehrt
@@ -2920,7 +2920,7 @@ habe zwei Flaechen verglichen, die nie miteinander sprechen, und ihren Unterschi
 
 | Glied | Datei:Zeile | Was dort steht |
 |---|---|---|
-| Der Workflow spricht das Urteil | `deepgate_600_lauf3/berkeley_gate_workflow_600.js:312` | `verdict: {enum: ['WITHSTANDS_DEEPGATE','FIX_FIRST','BLOCKED']}` — **blank** |
+| Der Workflow spricht das Urteil | `deepgate_600_lauf3/deep gate_gate_workflow_600.js:312` | `verdict: {enum: ['WITHSTANDS_DEEPGATE','FIX_FIRST','BLOCKED']}` — **blank** |
 | Der Erzeuger uebernimmt es woertlich | `b7_deepgate_gate_zeile.py:250-258` | `if "verdict" in gj: z["verdict"] = roh` — und urteilt ausdruecklich NICHT |
 | Das Signaturwerkzeug kopiert die Zeile | `sign_readiness_artifact.py:193-208` | `notes.gate_zeile` **aus dem Verdikt-JSON**, „refusing to invent one" |
 | Der Pruefer liest sie | `audit_candidate_matrix.py:315` | `_GATE_VERDICTS_PASS = {"WITHSTANDS_DEEPGATE"}` — **blank** |
@@ -2959,7 +2959,7 @@ abgelehnt wird.
 | `workflow_sha256` | `workflow_digest` | vorhanden, Name driftet |
 | `head` | `verdikt_head` | vorhanden, Name driftet |
 
-Drei Namen, drei richtige Inhalte. Das ist genau die Vorgabe, die am 09.09. an un_echoXX ging
+Drei Namen, drei richtige Inhalte. Das ist genau die Vorgabe, die am 09.09. an Konto B ging
 (`20260909T0145Z__un_echoXX__gate_zeile_vorgabe_vier_felder_drei_drifts.md`) — **sie war richtig,
 und S42 hat sie hinterher falsch begruendet.**
 
@@ -2979,9 +2979,9 @@ sondern: **der Zeuge ist nicht der Erzeuger der Gate-Zeile, und ihn dazu zu mach
 entscheiden, dass ein Receipt-`FULL` als Workflow-`WITHSTANDS_DEEPGATE` gilt.** Die beiden Woerter
 sind nicht dasselbe:
 
-* Workflow-`WITHSTANDS_DEEPGATE` (`berkeley_gate_workflow_600.js:306`): **null bestaetigte Funde
+* Workflow-`WITHSTANDS_DEEPGATE` (`deep gate_gate_workflow_600.js:306`): **null bestaetigte Funde
   UND** RT-01..RT-04 je ausdruecklich angegriffen und fail-closed bestaetigt.
-* Zeugen-`strength: FULL` (`b7_berkeley_gate_receipt.py:83-87`): vier Komponenten plus Linsen-Boden
+* Zeugen-`strength: FULL` (`b7_deep gate_gate_receipt.py:83-87`): vier Komponenten plus Linsen-Boden
   — **kein RT-Ziel**. Gemessen: `rt_targets_confirmed` in **0 von 418** Belegen, `head` ebenso 0/418.
 
 Sie gleichzusetzen laesst die RT-Bedingung fallen und aendert die Zulassung **jeder**
@@ -3012,7 +3012,7 @@ den finalen Kopf `ad906a9` erst nach gruenem Schritt 50."*
 
 | | Was es ist | Wer |
 |---|---|---|
-| Wand 1 | drei Feldnamen im Erzeuger, Inhalte richtig | **un_echoXX** (2bedone-Quellcode, Vorgabe liegt) |
+| Wand 1 | drei Feldnamen im Erzeuger, Inhalte richtig | **Konto B** (2bedone-Quellcode, Vorgabe liegt) |
 | Wand 2 | keine Drift; die Festlegung ist getroffen (`OA-638966a598` Option A) | erledigt |
 | Wand 3 | darf die Pruefmechanik aus einem ANDEREN Baum gelesen werden als dem beurteilten? | **Owner** |
 | davor | **es existiert kein Workflow-Lauf ueber den Kandidatenkopf** | **ich, nach Schritt 50** |
@@ -3227,11 +3227,11 @@ Der Riegel verlangte fuer die Gruen-Aussage aus S54 einen signierten Beleg. In S
 `b7_abschluss_beleg.py` sei dafuer das falsche Werkzeug, weil es aus dem 2bedone-Repo fetcht. **Das
 war zu frueh geschlossen: das Werkzeug hat ein `--repo`.** Zwei Dinge waren wirklich noetig:
 
-1. **Der Zeuge kennt nur zwei Wurzeln** (`zeugen_lage.zuordnung`): `/home/konrad/2bedone` →
-   `sign.sock` und `/home/konrad/proofbundle` → `sign-pb.sock`. Ein **Worktree-Pfad** wie
+1. **Der Zeuge kennt nur zwei Wurzeln** (`zeugen_lage.zuordnung`): `~/2bedone` →
+   `sign.sock` und `~/proofbundle` → `sign-pb.sock`. Ein **Worktree-Pfad** wie
    `pb_pushlinie` ist ihm unbekannt — man muss die registrierte Wurzel nennen.
 2. **Er fetcht aus dem LOKALEN Klon, nicht von GitHub.** Solange
-   `/home/konrad/proofbundle` den Commit nicht hatte, kam `not our ref`. Ein
+   `~/proofbundle` den Commit nicht hatte, kam `not our ref`. Ein
    `git fetch origin <zweig>` in diesem Klon loeste es.
 
 **Der Beleg ist ausgestellt und signiert:**
@@ -3242,10 +3242,10 @@ Verdikt **`PARTIAL_GATE_NO_WITHSTANDS[v4/sc2/NORMAL-3L3I/strength=PARTIAL]`**.
 ausgefuehrt:**
 
 ```
-deterministic_pre_sweep: scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum
-class_ledger_replay:     office/governance/berkeley_gate/class_ledger.jsonl fehlt im Baum
+deterministic_pre_sweep: scripts/b7_deep gate_pre_sweep.py fehlt im content-adressierten Baum
+class_ledger_replay:     office/governance/deep gate_gate/class_ledger.jsonl fehlt im Baum
 anti_tautology_meta_test: dito
-jury: 0 nicht-leere Linsen-Artefakte in office/governance/berkeley_gate/runs/lenses/<topic>
+jury: 0 nicht-leere Linsen-Artefakte in office/governance/deep gate_gate/runs/lenses/<topic>
 ```
 
 Der Zeuge sucht seine Pruefmechanik an **2bedone-relativen Pfaden im BEURTEILTEN Baum**. Ueber einem
@@ -3727,8 +3727,8 @@ Koepfen, plus eine Gegenprobe mit einem dritten Topic. Alle drei sagen dasselbe.
 **Die vier Begruendungen sind jedes Mal identisch:**
 
 ```
-deterministic_pre_sweep    ran=False  scripts/b7_berkeley_pre_sweep.py fehlt im content-adressierten Baum
-class_ledger_replay        ran=False  office/governance/berkeley_gate/class_ledger.jsonl fehlt
+deterministic_pre_sweep    ran=False  scripts/b7_deep gate_pre_sweep.py fehlt im content-adressierten Baum
+class_ledger_replay        ran=False  office/governance/deep gate_gate/class_ledger.jsonl fehlt
 anti_tautology_meta_test   ran=False  dito
 jury                       ran=True   0 nicht-leere Linsen-Artefakte
 ```
@@ -3859,7 +3859,7 @@ einzigen Traeger ihrer Fassung sind, falls doch etwas daran haengt.
 
 Der Erzeuger `b7_deepgate_gate_zeile.py` liegt in einem **anderen Repo** und dort auf einem
 **nicht gemergten Zweig**. Die drei Feldnamen (`workflow_path` → `workflow_datei`,
-`workflow_digest` → `workflow_sha256`, `verdikt_head` → `head`) sind un_echoXX zugestellt. **Das
+`workflow_digest` → `workflow_sha256`, `verdikt_head` → `head`) sind Konto B zugestellt. **Das
 bleibt dort** — diese Bahn fasst keinen 2bedone-Quellcode an.
 
 ---
@@ -4535,13 +4535,13 @@ System-Python und meldete `Interrupted: 5 errors during collection` —
 reiner Umgebungsfehler. Der Ledger-Docstring, den ich zwei Minuten spaeter aus einem anderen Grund
 las, warnt woertlich davor: *„Mit dem System-Python (3.10) fielen 3 Tests, mit dem Repo-venv (3.11)
 liefen dieselben 12 gruen."* Richtig ist
-`PYTHONPATH=<baum>/src /home/konrad/proofbundle/.venv/bin/python -m pytest`.
+`PYTHONPATH=<baum>/src ~/proofbundle/.venv/bin/python -m pytest`.
 
 Registerschluessel `EIN-WORT-IM-REGISTER-FAERBTE-SECHS-PFLICHT-CHECKS-ROT-01`.
 
 ## S75 — `pipefail` rettet die `echo`-Huelle nicht, und der Riegel dagegen sah die Datei gar nicht an
 
-Uebernahme durch un_echoXX. Die Gegenlesung von un_deltaXX' Nacht-Commits kam nach der Abgabe
+Uebernahme durch Konto B. Die Gegenlesung von Konto B' Nacht-Commits kam nach der Abgabe
 zurueck und meldete einen P0 in `.github/workflows/reusable-build-attest.yml:73`:
 
 ```
@@ -5210,13 +5210,13 @@ des Werkzeugs, nicht eine Fehlklassifikation.
 
     TypeError: fabrik_mit_fenster.<locals>.fabrik.<locals>.mit_fenster()
                got an unexpected keyword argument 'timeout'
-    b7_berkeley_pre_sweep.py:458 -> lib.run_nodes_strict(nodes, repo=REPO, timeout=budget_s)
+    b7_deep gate_pre_sweep.py:458 -> lib.run_nodes_strict(nodes, repo=REPO, timeout=budget_s)
 
 **Der Wrapper hatte recht und ist trotzdem überholt.** Er entfernte den `timeout`-Parameter am
 05.09. bewusst, mit Begründung im Code: *„Befund WRAPPER-SIGNATUR-VERSPRICHT-EIN-TIMEOUT-DAS-SIE-
 VERWIRFT-01: die alte Signatur nahm eines entgegen und verwarf es still. Eine Signatur, die mehr
 verspricht als sie hält, ist eine Falle für den nächsten Aufrufer."* Sein Docstring nennt als
-Anlass `b7_berkeley_pre_sweep.py` **Zeile 214**, wo damals `run_nodes_strict(nodes, repo=REPO)`
+Anlass `b7_deep gate_pre_sweep.py` **Zeile 214**, wo damals `run_nodes_strict(nodes, repo=REPO)`
 **ohne** Timeout stand.
 
 Heute steht derselbe Aufruf in **Zeile 458** und übergibt `timeout=budget_s`. Das Original leitet
@@ -5236,15 +5236,15 @@ bleibt unangetastet, damit die Gate-Zeile von Lauf 4b ihren `presweep_wrapper_sh
 
 ## S98 — Der Pre-Sweep von Lauf 11 endet `regression`, und die Ursache liegt AUSSERHALB des Kandidaten
 
-Gemessen 2026-09-11 beim Start von Lauf 11, `scripts/b7_berkeley_pre_sweep.py` direkt (der
+Gemessen 2026-09-11 beim Start von Lauf 11, `scripts/b7_deep gate_pre_sweep.py` direkt (der
 Wrapper ist überholt, siehe S97):
 
     status                = "regression"
     failures              = 1
-    detail                = tests.test_standing_berkeley_gate_learns_anchor::
+    detail                = tests.test_standing_deep gate_gate_learns_anchor::
                             test_durable_baseline_seeded_and_complete
                             AssertionError: live-Ledger nicht monoton: [...]
-    interpreter           = /home/konrad/2bedone/.venv/bin/python
+    interpreter           = ~/2bedone/.venv/bin/python
     zeitbudget_s          = 480 (abgeleitet aus 194 Knoten)
     n_test_nodes_replayed = 194
 
@@ -5255,7 +5255,7 @@ selbst den einzigen Zustand, der hier nicht vorkommen darf: *„eine Deckungslü
 von einer vergessenen Klasse nicht zu unterscheiden."* Diese Zahl ist sauber.
 
 **Der rote Knoten misst 2bedone, nicht proofbundle.** Belege, gemessen statt angenommen: der
-Interpreter ist `/home/konrad/2bedone/.venv/bin/python` (nicht das proofbundle-venv, das die
+Interpreter ist `~/2bedone/.venv/bin/python` (nicht das proofbundle-venv, das die
 kanonische Messfläche des Kandidaten ist); der Test liegt in `2bedone/tests/`; und die zwei in
 der Assertion genannten Klassen **sind** im live-Ledger vorhanden (346 Zeilen, 283 eindeutige
 Klassen) — beanstandet wird ihre **Monotonie**, nicht ihr Fehlen. Eine
@@ -5278,7 +5278,7 @@ Maßgeblich ist **S98**.
 
 Lauf 11 (DEEP 6L/7I, Kopf `e95e72fd8cb11e35a946f9ad8289e60e72622f7d`) endet **FIX_FIRST** mit zwei
 P0 und drei P1; das Verdikt steht vollständig in
-`office/governance/berkeley_gate/runs/lauf11_600/VERDIKT_LAUF11_FIX_FIRST.md` (2bedone). Drei der
+`office/governance/deep gate_gate/runs/lauf11_600/VERDIKT_LAUF11_FIX_FIRST.md` (2bedone). Drei der
 fünf Funde treffen **Messgeräte** und gehören damit nach der Owner-Regel vom 11.09. hierher:
 
 * **L5 (P0) — `scripts/audit_candidate_matrix.py:748-755`: kanonisieren vor verifizieren.**
@@ -5366,7 +5366,7 @@ aendert die Wanduhr aller fuenf Pflicht-Jobs und gehoert deshalb nicht in eine R
 ## S101 — Der Abschluss-Beleg-Riegel trifft WOERTER, nicht Aussagen
 
 Gemessen 11.09.2026 ueber eine ganze Arbeitssitzung, an mir selbst. Der Stop-Riegel
-`berkeley_gate_receipt_enforcement_stop.py` beanstandet Saetze als „unbelegte
+`deep gate_gate_receipt_enforcement_stop.py` beanstandet Saetze als „unbelegte
 Zustandsbehauptung", wenn sie eines seiner Schluesselwoerter tragen — `gruen`, `geschlossen`,
 `fertig`, `haelt`, `alle`, `n_von_n`. Gemessene Fehlschlaege an eigenen Texten desselben Tages:
 

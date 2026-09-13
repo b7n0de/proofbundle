@@ -67,19 +67,19 @@
       "name": "release_600_autonom_fail_closed",
       "version": "2026-09",
       "sha256": "a7b8582f4d9a651955048983451a7efb289927c3ebd9afc3a8e9de2a8dca4985",
-      "path": "kraxo/00_standards_regeln/STANDARD_release_600_autonom_fail_closed_20260905.md"
+      "path": "Betreiber/00_standards_regeln/STANDARD_release_600_autonom_fail_closed_20260905.md"
     },
     {
       "name": "jeder_riegel_traegt_seinen_fangnachweis",
       "version": "2026-09",
       "sha256": "3b3c64097e98a647fd7611010c2309d8201b98fd5458af9d8692e21bcf72f2d2",
-      "path": "kraxo/00_standards_regeln/STANDARD_jeder_riegel_traegt_seinen_fangnachweis_20260906.md"
+      "path": "Betreiber/00_standards_regeln/STANDARD_jeder_riegel_traegt_seinen_fangnachweis_20260906.md"
     },
     {
       "name": "modellvielfalt_gate",
       "version": "2026-09",
       "sha256": "c4b7c1f8f6d97e3e3a8a7cc85b2e93e7d2beb98a2ff9c9e4152be0d2b29b543b",
-      "path": "kraxo/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md"
+      "path": "Betreiber/00_standards_regeln/STANDARD_modellvielfalt_gate_20260902.md"
     }
   ],
   "entries": [

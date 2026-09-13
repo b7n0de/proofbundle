@@ -73,6 +73,16 @@ DEFEKTE = [
         "VERGLEICHT statt gegen feste Sollwerte zu pruefen. Benannter blinder Fleck.",
     ),
     (
+        "A7 Gegenprobe stillgelegt (toter Code)",
+        '    blaetter = [blatt(i) for i in range(4)]\n    verbogen = list(blaetter)',
+        '    return True, "gleich-Fall und ungleich-Fall beide richtig", ""\n'
+        '    blaetter = [blatt(i) for i in range(4)]\n    verbogen = list(blaetter)',
+        "ZAEHLT",
+        "Der Defekt, an dem eine Gegenlesung diesen Nachweis widerlegt hat: ein frueher "
+        "return macht die ganze Pruefung zu totem Code. Vor der Spur blieb das unsichtbar, "
+        "weil die Messflaeche nur das MELDUNGSERGEBNIS las. Mit der Spur MUSS es auffallen.",
+    ),
+    (
         "A6 Reihenfolge der Verkettung gedreht",
         "    return H(mth(blatt_hashes[:k]) + mth(blatt_hashes[k:]))",
         "    return H(mth(blatt_hashes[k:]) + mth(blatt_hashes[:k]))",
@@ -84,7 +94,11 @@ DEFEKTE = [
 
 
 def lauf(quelltext: str) -> tuple[int, str]:
-    with tempfile.TemporaryDirectory() as d:
+    # Das Verzeichnis liegt NEBEN der Quelle, nicht in /tmp: zwei_lesarten.py leitet die
+    # Repo-Wurzel aus der Lage der eigenen Datei ab, und ausserhalb des Baums findet es
+    # cbor_min.py nicht mehr. Ein Kandidat, der am Ladefehler stirbt statt am gepflanzten
+    # Defekt, misst nichts -- genau das ist hier einmal passiert.
+    with tempfile.TemporaryDirectory(dir=str(QUELLE.parent)) as d:
         p = pathlib.Path(d) / "kandidat.py"
         p.write_text(quelltext, encoding="utf-8")
         r = subprocess.run([sys.executable, str(p)], capture_output=True, text=True, timeout=120)
@@ -103,7 +117,13 @@ def kennzahlen(ausgabe: str) -> dict:
     das Ergebnis an feste Bytes statt an einen Vergleich.
     """
     m = re.search(r"ERGEBNIS: (\d+) von (\d+) Faellen weichen ab", ausgabe)
-    g = re.search(r"GEGENPROBE: (\w+) -- (.*)", ausgabe)
+    g = re.search(r"GEGENPROBE: (\w+) -- (.*?)(?: \[spur [0-9a-f]*\])?$", ausgabe, re.M)
+    # SPUR: der Wert faellt aus der Rechnung der Gegenprobe. Ohne ihn war die Gegenprobe
+    # stilllegbar, ohne dass eine gemessene Groesse reagierte (Gegenlesung, Befund 1).
+    s = re.search(r"\[spur ([0-9a-f]*)\]", ausgabe)
+    # HERKUNFT: welcher Pfad die CBOR-Serialisierung geliefert hat. Stand vorher in keiner
+    # Regex, also war eine gefaelschte Herkunftszeile unsichtbar (Gegenlesung, Befund 4).
+    h = re.search(r"^CBOR\s*:\s*(.+)$", ausgabe, re.M)
     # je Zeile der Tabelle: n, Wurzel A, Wurzel B
     wurzeln = tuple(
         (int(a), b, c)
@@ -114,6 +134,8 @@ def kennzahlen(ausgabe: str) -> dict:
         "gesamt": int(m.group(2)) if m else None,
         "gegenprobe": g.group(1) if g else None,
         "gegenprobe_grund": g.group(2).strip() if g else None,
+        "gegenprobe_spur": s.group(1) if s else None,
+        "cbor_herkunft": h.group(1).strip() if h else None,
         "wurzeln": wurzeln,
     }
 
@@ -134,10 +156,18 @@ def main() -> int:
     print(f"ANGESAGT: {angesagt_zaehlt} ZAEHLT von {len(DEFEKTE)} gepflanzten Defekten.")
     print()
 
-    zaehlt = gegen = ungepflanzt = 0
+    zaehlt = gegen = ungepflanzt = nur_absturz = 0
     for name, alt, neu, klasse, warum in DEFEKTE:
         if alt not in orig:
             print(f"  {name:42s} NICHT GEPFLANZT — Muster nicht im Quelltext")
+            ungepflanzt += 1
+            continue
+        # EINDEUTIGKEIT ZUERST (Gegenlesung, Befund 5): `assert kandidat != orig` belegt nur,
+        # dass sich IRGENDETWAS geaendert hat -- nie, dass die GEMEINTE Stelle getroffen wurde.
+        # Kommt das Muster mehrfach vor, trifft replace(..., 1) still die erste Fundstelle.
+        anzahl = orig.count(alt)
+        if anzahl != 1:
+            print(f"  {name:42s} MEHRDEUTIG — Muster kommt {anzahl}x vor, nicht gepflanzt")
             ungepflanzt += 1
             continue
         kandidat = orig.replace(alt, neu, 1)
@@ -146,21 +176,32 @@ def main() -> int:
 
         rc, aus = lauf(kandidat)
         k = kennzahlen(aus)
+        # WORAN der Fang haengt, getrennt (Gegenlesung, Befund 3): ein Absturz wird von
+        # jedem rc-Test gefangen und belegt NICHT, dass die Messflaeche etwas gesehen hat.
+        # Merkmal ist NICHT `k == grund` — bei einem Absturz sind alle Felder None und damit
+        # verschieden. Merkmal ist, dass die Ergebniszeile nie erschienen ist: dann hat die
+        # Flaeche nur ABWESENHEIT gesehen, keinen gemessenen Unterschied.
+        nur_rc = k["abweichend"] is None
         sichtbar = (rc != rc0) or (k != grund)
-        urteil = "GEFANGEN" if sichtbar else "durchgerutscht"
+        urteil = ("GEFANGEN (nur Absturz)" if nur_rc
+                  else "GEFANGEN" if sichtbar else "durchgerutscht")
         ist = "ZAEHLT" if sichtbar else "GEGEN"
         treffer = "ok" if ist == klasse else "ANDERS ALS ANGESAGT"
         if sichtbar:
             zaehlt += 1
         else:
             gegen += 1
-        print(f"  {name:42s} {urteil:14s} angesagt={klasse:6s} gemessen={ist:6s} {treffer}")
+        if nur_rc:
+            nur_absturz += 1
+        print(f"  {name:42s} {urteil:22s} angesagt={klasse:6s} gemessen={ist:6s} {treffer}")
         if k != grund:
             print(f"      {grund}  ->  {k}")
 
     print()
     print(f"GEMESSEN: {zaehlt} ZAEHLT · {gegen} GEGEN · {ungepflanzt} nicht gepflanzt "
           f"(von {len(DEFEKTE)})")
+    print(f"davon nur ueber den Rueckgabewert gefangen (Absturz, nicht Messflaeche): "
+          f"{nur_absturz}")
     print(f"ANGESAGT war: {angesagt_zaehlt} ZAEHLT.")
     if zaehlt == angesagt_zaehlt:
         print("Die Ansage traf.")
