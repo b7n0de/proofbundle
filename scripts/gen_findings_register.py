@@ -916,6 +916,28 @@ def pruefe_v2(doc, repo) -> list[str]:
                         f"Herkunft: {_d} traegt {_ist[:12]}, `gemessen_an.sha256` nennt "
                         f"{str(_s)[:12]} — die Objektklassen-Datei widerspricht sich ueber ihre "
                         f"eigene Quelle")
+    # DIE ZEITMARKE WURDE NIE GEPRUEFT (Codex r3999621598). Gemessen: `--generated-at x` endet mit
+    # 0 und meldet gruen, und der Traeger fuehrt danach `issued_at`, `generated_at` und
+    # `assessment_cutoff` je als "x". Auch `2026-13-45T99:99:99Z` kommt durch — Monat 13, Tag 45,
+    # Stunde 99. Eine strukturell ungueltige Registerform wird damit als erfolgreich geprueft
+    # veroeffentlicht.
+    #
+    # GEPRUEFT WIRD MIT DEM VORHANDENEN PRUEFER, NICHT MIT EINEM ZWEITEN. `findings_register.py`
+    # traegt `_freshness_error` seit Langem: Form, Zukunft und Alter in einer Funktion, mit dem
+    # stabilen Code REGISTER_STALE. Ihn hier nachzubauen waere ein zweiter Erzeuger fuer dieselbe
+    # Frage — genau die Klasse, die dieses Haus ausdruecklich verbietet, und ich bin ihr in dieser
+    # Sitzung schon einmal aufgesessen. Deshalb importiert statt getippt.
+    try:
+        import importlib.util as _iu  # noqa: PLC0415
+        _s = _iu.spec_from_file_location("_fr_frische", REPO / "scripts" / "findings_register.py")
+        _fr = _iu.module_from_spec(_s)
+        _s.loader.exec_module(_fr)
+        _zeitfehler = _fr._freshness_error({"generated_at": doc.get("generated_at")})
+    except Exception as e:  # noqa: BLE001 — ohne Pruefer kein Urteil, und das ist keine Freigabe
+        _zeitfehler = (f"die Zeitmarke ist NICHT PRUEFBAR ({type(e).__name__}: {e}) — "
+                       f"scripts/findings_register.py traegt den Pruefer, er ist hier nicht ladbar")
+    if _zeitfehler:
+        fehler.append(f"Zeitmarke: {_zeitfehler}")
     _bg = doc.get("assessment_cutoff")
     if isinstance(_bg, dict):
         if _bg.get("state") not in LUECKENWOERTER or not _bg.get("reason"):
