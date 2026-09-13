@@ -1195,6 +1195,33 @@ def pruefe_v2(doc, repo) -> list[str]:
             fehler.append(
                 f"Gegenrechnung: {cc['zu_viel']} ueberzaehlige Kennungen, aber das Feld "
                 f"`warum_zu_viel_je_kennung` fehlt GANZ — keine leere Antwort, sondern keine")
+        # EIN GESCHRIEBENER WIDERSPRUCH IST KEINE ERLEDIGTE PRUEFUNG (Codex 4000140176).
+        #
+        # GEMESSEN am 13.09.2026: liegen an der genannten Sollliste andere Bytes, schreibt dieser
+        # Block sauber `zustand: ABWEICHEND` in den Traeger — und `schreibe_v2` endet trotzdem mit
+        # 0, meldet "gruen", schreibt Traeger UND Ansichten, und `pruefe_v2` gibt null Fehler
+        # zurueck. Die Herkunft war damit nachweislich gebrochen und die Veroeffentlichung trotzdem
+        # erfolgreich. Ein Zustand, der nur SERIALISIERT wird, ohne in das Urteil einzugehen, ist
+        # eine Notiz, kein Riegel.
+        #
+        # DIE DREI ZUSTAENDE BLEIBEN DREI, und nur EINER ist ein Fehler: GEPRUEFT ist gut,
+        # NICHT MESSBAR ist ein deklarierter blinder Fleck MIT Grund (die Quelle liegt in einem
+        # anderen Repository und ist von hier aus nicht erreichbar), ABWEICHEND dagegen heisst:
+        # die Quelle IST da und sagt etwas anderes. Genau dieser eine Fall bricht.
+        h = cc.get("herkunft_der_sollliste") or {}
+        hz = h.get("zustand")
+        if hz == "ABWEICHEND":
+            fehler.append(
+                f"[GR-HERKUNFT] die genannte Sollliste {h.get('quelle')!r} ist erreichbar und "
+                f"traegt ANDERE Bytes als der Block behauptet (erwartet "
+                f"{str(h.get('erwartet'))[:12]}…, gemessen {str(h.get('gemessen'))[:12]}…) — eine "
+                f"gebrochene Herkunft faehrt nicht als Randnotiz in einer erfolgreichen "
+                f"Veroeffentlichung mit")
+        elif hz not in ("GEPRUEFT", "NICHT MESSBAR"):
+            fehler.append(f"[GR-HERKUNFT] die Herkunft der Sollliste traegt keinen bekannten "
+                          f"Zustand ({hz!r})")
+        elif hz == "NICHT MESSBAR" and not h.get("grund"):
+            fehler.append("[GR-HERKUNFT] NICHT MESSBAR ohne Grund ist eine leere Marke")
     return fehler
 
 
