@@ -101,6 +101,65 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(claim["provenance"]["scored_samples"], 1)
         self.assertEqual(claim["provenance"]["unscored_samples"], 1)
 
+    def _inspect_log(self):
+        """Das echte Fixture, frisch gelesen und kopiert — mutiert wird nur die Kopie."""
+        try:
+            from inspect_ai.log import read_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        return deepcopy(read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval"),
+                                      header_only=True))
+
+    def test_inspect_ai_bindet_die_vollstaendigkeit_des_laufs(self):
+        """Die drei Felder, die `EvalResults` traegt und der Adapter bis 14.09.2026 nicht las."""
+        log = self._inspect_log()
+        log.results.total_samples = 10
+        log.results.completed_samples = 10
+        log.results.early_stopping = False
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        self.assertEqual(claim["provenance"]["total_samples"], 10)
+        self.assertEqual(claim["provenance"]["completed_samples"], 10)
+        self.assertIs(claim["provenance"]["early_stopping"], False)
+
+    def test_inspect_ai_ein_frueh_gestoppter_lauf_ist_vom_vollstaendigen_unterscheidbar(self):
+        """DER FALL, um den es geht, und er ist der Fangnachweis zugleich.
+
+        Zwei Laeufe mit IDENTISCHEN Stichprobenzahlen — gleiche `scored_samples`, gleiche
+        `unscored_samples`, gleiches `n` — und einer davon wurde frueh gestoppt. Vor dem Fix waren
+        ihre signierten Belege ununterscheidbar; genau das war der Fund. Faellt diese Zusicherung,
+        ist der Unterschied wieder aus der Signatur verschwunden.
+        """
+        gemein = dict(comparator=">=", threshold="0.00", timestamp=TS,
+                      model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        ganz = self._inspect_log()
+        ganz.results.total_samples = 2
+        ganz.results.completed_samples = 2
+        ganz.results.early_stopping = False
+        frueh = deepcopy(ganz)
+        frueh.results.early_stopping = True
+        a, _ = from_inspect_ai_log(ganz, "accuracy", **gemein)
+        b, _ = from_inspect_ai_log(frueh, "accuracy", **gemein)
+        self.assertEqual(a["n"], b["n"], "die Vorbedingung des Falls: gleiche Stichprobenzahl")
+        self.assertEqual(a["provenance"]["scored_samples"], b["provenance"]["scored_samples"])
+        self.assertNotEqual(a["provenance"], b["provenance"],
+                            "ein frueh gestoppter Lauf sieht im Beleg aus wie ein vollstaendiger")
+        self.assertIs(b["provenance"]["early_stopping"], True)
+
+    def test_inspect_ai_erfindet_keine_vollstaendigkeit_wo_das_log_keine_traegt(self):
+        """Die Gegenrichtung: fehlende Felder werden NICHT als Nullen oder als False erfunden — ein
+        erfundener Wert waere schlimmer als ein fehlender, weil er wie eine Messung aussieht."""
+        log = self._inspect_log()
+        for feld in ("total_samples", "completed_samples", "early_stopping"):
+            try:
+                delattr(log.results, feld)
+            except AttributeError:
+                setattr(log.results, feld, None)
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        for feld in ("completed_samples", "early_stopping"):
+            self.assertNotIn(feld, claim["provenance"])
+
     def test_inspect_ai_scorer_change_changes_signed_provenance(self):
         try:
             from inspect_ai.log import read_eval_log

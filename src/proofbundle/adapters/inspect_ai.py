@@ -121,6 +121,28 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     for name, count in (("scored_samples", scored_samples), ("unscored_samples", unscored_samples)):
         if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
             provenance[name] = count
+    # VOLLSTAENDIGKEIT DES LAUFS, gebunden statt weggelassen. Gefunden von der Codex-Runde eins an
+    # PR 195 (14.09.2026) und hier gegen den Code UND die installierte Bibliothek nachgemessen.
+    #
+    # Was schon hielt, weshalb die starke Form des Fundes nicht stimmt: `n` ist `scored_samples`,
+    # nicht `total_samples` (siehe die Begruendung weiter unten), und `unscored_samples` steht
+    # daneben. Ein Lauf, der 50 von 100 aufloeste, signierte also nie ein vollstaendiges 100.
+    #
+    # Was fehlte: der Fall, der ohne diese drei Felder vollstaendig AUSSIEHT — ein Lauf, der frueh
+    # gestoppt wurde und alles Versuchte auch gescort hat. Dann ist `unscored_samples` null, und
+    # nichts sagt, dass die beabsichtigte Menge groesser war. `early_stopping` sagt genau das.
+    #
+    # UND DIE LUECKE IST AELTER ALS DER ANLASS: gemessen traegt `EvalResults` diese Felder bereits in
+    # inspect_ai 0.3.244, also unterhalb der Versionsdecke, deren Anhebung den Fund ausloeste. Die
+    # Decke tiefer zu halten haette ihn deshalb nicht geschlossen.
+    for _feld in ("total_samples", "completed_samples"):
+        _wert = getattr(results, _feld, None)
+        if isinstance(_wert, int) and not isinstance(_wert, bool) and _wert >= 0:
+            provenance[_feld] = _wert
+    _frueh = getattr(results, "early_stopping", None)
+    if isinstance(_frueh, bool):
+        provenance["early_stopping"] = _frueh
+
     params = getattr(matched_score, "params", None)
     if isinstance(params, dict) and params:
         from ._provenance import config_hash
