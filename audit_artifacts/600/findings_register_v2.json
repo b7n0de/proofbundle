@@ -6,7 +6,7 @@
   "issuer": "b7n0de",
   "language": "en",
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T15:52:00Z",
+  "generated_at": "2026-09-13T16:05:00Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -22,7 +22,7 @@
       },
       {
         "path": "RESTRISIKO_600_OBJEKTKLASSEN.json",
-        "sha256": "370de638f9b3ebe2e119293f2aadf9f2273b26eeb9e384e3f76483882a6f4d0e",
+        "sha256": "836a2e99e96b994e8fa70b17e800a46797a9726fe7669b5cdbe4a4774019b3e7",
         "identifiers": 145
       }
     ],
@@ -646,7 +646,7 @@
     {
       "id": "N8",
       "record_revision": 0,
-      "record_role": "finding",
+      "record_role": "boundary",
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
@@ -655,7 +655,7 @@
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
       "objektklasse": "fund_nachtrag",
-      "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+      "objektklasse_begruendung": "Praefix N, Klasse fund_nachtrag — mit DEKLARIERTER Ausnahme. Die Quelle weist den Eintrag in seiner eigenen Tabellenzeile als Nicht-Fund aus. Siehe ausnahmen_von_der_klasse.",
       "severity": {
         "value": "P3",
         "source": "FINDINGS in scripts/gen_findings_register.py",
@@ -1179,7 +1179,7 @@
     {
       "id": "N21",
       "record_revision": 0,
-      "record_role": "finding",
+      "record_role": "boundary",
       "kind": null,
       "kind_state": "NOT MEASURED",
       "kind_reason": "die Objektklassen trennen nach Herkunft, nicht nach Art; eine security/quality-Zuordnung liegt in keiner Quelle vor und wird je Fund entschieden, nicht abgeleitet",
@@ -1188,7 +1188,7 @@
       "class_state": "NOT MEASURED",
       "class_reason": "Klassenkennungen liegen in der Quelle nicht vor",
       "objektklasse": "fund_nachtrag",
-      "objektklasse_begruendung": "N-Kennungen sind FUNDE: Nachtraege, die nach der ersten Aufnahme hinzukamen, aber denselben Gegenstand betreffen wie S.",
+      "objektklasse_begruendung": "Praefix N, Klasse fund_nachtrag — mit DEKLARIERTER Ausnahme. Die Quelle weist den Eintrag in seiner eigenen Tabellenzeile als Nicht-Fund aus. Siehe ausnahmen_von_der_klasse.",
       "severity": {
         "value": "P3",
         "source": "FINDINGS in scripts/gen_findings_register.py",

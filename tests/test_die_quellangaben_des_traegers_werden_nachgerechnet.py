@@ -106,3 +106,41 @@ def test_der_heutige_zustand_ist_NICHT_MESSBAR_und_sagt_warum():
     h = (_doc()["inventory"].get("cross_count") or {}).get("herkunft_der_sollliste") or {}
     assert h.get("zustand") == "NICHT MESSBAR", h
     assert "nicht erreichbar" in (h.get("grund") or ""), h
+
+
+# ── DIE ANWESENHEIT DER INNEREN HERKUNFT, als eigene Zusicherung ──────────────────────────
+
+def test_der_echte_bestand_FUEHRT_eine_innere_herkunftsangabe():
+    """[ZAEHLT] Sie darf nicht still verschwinden, nur weil ihr Fehlen kein Widerspruch ist.
+
+    `pruefe_v2` fragt die WIDERSPRUCHSFREIHEIT einer vorhandenen Angabe; fehlt sie ganz, gibt es
+    nichts zu widerlegen, und ein minimaler Wegwerf-Baum darf sie deshalb weglassen. Damit sie im
+    echten Bestand nicht unbemerkt herausfaellt, steht ihre ANWESENHEIT hier.
+    """
+    k = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
+    if not k.is_file():
+        pytest.skip(f"NICHT MESSBAR: {k} fehlt")
+    g = json.loads(k.read_text(encoding="utf-8")).get("gemessen_an")
+    assert isinstance(g, dict), "die Objektklassen-Datei fuehrt keinen Block `gemessen_an`"
+    assert g.get("datei") and g.get("sha256"), f"halbe Herkunftsangabe: {g!r}"
+    p = REPO / g["datei"]
+    assert p.is_file(), f"`gemessen_an.datei` zeigt ins Leere: {g['datei']!r}"
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == g["sha256"], (
+        "die Objektklassen-Datei widerspricht sich ueber ihre eigene Quelle")
+
+
+def test_FANG_eine_HALBE_herkunftsangabe_wird_gemeldet(tmp_path):
+    """[ZAEHLT] Gegenrichtung: vorhanden aber unvollstaendig ist NICHT dasselbe wie abwesend."""
+    g, doc = _gen(), _doc()
+    import copy  # noqa: PLC0415
+    k = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
+    sicher = k.read_bytes()
+    try:
+        d = json.loads(sicher.decode("utf-8"))
+        d["gemessen_an"] = {"datei": "RESTRISIKO_600.md"}          # Digest fehlt
+        k.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        f = g.pruefe_v2(copy.deepcopy(doc), REPO)
+        assert any("halbe Angabe" in x for x in f), f"gemessen {f[:2]}"
+    finally:
+        k.write_bytes(sicher)
+    assert k.read_bytes() == sicher, "die Datei wurde nicht byte-gleich wiederhergestellt"

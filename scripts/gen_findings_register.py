@@ -412,6 +412,24 @@ def _severity(kennung: str, aus_tabelle: str | None = None) -> dict:
                        "Einstufung ohne Beleg")}
 
 
+def _bewertungsgrenze(ok: dict):
+    """Der Tag, bis zu dem der Bestand GEMESSEN ist — aus der Quelle, nie aus der Uhr des Laufs.
+
+    Drei Zustaende. Ein lesbares Kalenderdatum; sonst ein Lueckenwort MIT Grund. Ein Platzhalter
+    wie `2026-09-13T0?:??Z` zaehlt ausdruecklich als lesbar, soweit sein DATUMSteil es ist — die
+    Stunde fehlt dort, der Tag nicht, und der Tag ist die Groesse, um die es hier geht.
+    """
+    import re  # noqa: PLC0415
+    roh = str(((ok.get("gemessen_an") or {}).get("utc")) or "")
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", roh)
+    if m:
+        return m.group(1)
+    return {"state": "NOT MEASURED",
+            "reason": ("die Objektklassen-Datei fuehrt unter `gemessen_an.utc` kein lesbares "
+                       "Kalenderdatum; die Bewertungsgrenze wird NICHT aus dem Zeitpunkt dieses "
+                       "Laufs abgeleitet, weil das den Stand vordatieren wuerde")}
+
+
 def _status_aus_tabelle(stueck: str, kopf: list) -> str | None:
     """Ein Zustand, der in der Tabelle STEHT. Spalte nach NAMEN, nicht nach Position."""
     if not kopf or "State" not in kopf:
@@ -527,7 +545,16 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
         "issued_at": generated_at[:10],
         "generated_at": generated_at,
         "release_subject": {"name": "proofbundle", "version": VERSION, "tag": f"v{VERSION}"},
-        "assessment_cutoff": generated_at[:10],
+        # DIE BEWERTUNGSGRENZE IST KEINE EIGENSCHAFT DES ERZEUGUNGSLAUFS (Codex r4000054881).
+        # Sie stand auf `generated_at`, also auf dem Zeitpunkt, an dem dieser Befehl lief. Gemessen:
+        # `baue_v2(..., "2099-01-01T00:00:00Z")` meldet null Fehler und laesst beide Ansichten eine
+        # Bewertungsgrenze von 2099 behaupten, obwohl kein Eintrag in 2099 nachgemessen wurde. Ein
+        # spaeteres Neuerzeugen haette die oeffentliche Grenze allein durch das Datum vorgerueckt.
+        #
+        # Sie kommt jetzt aus dem Stand, ueber den das Register spricht: dem Messzeitpunkt der
+        # Quelle, wie die Objektklassen-Datei ihn fuehrt. Laesst er sich nicht lesen, steht NOT
+        # MEASURED mit Grund — nie ein Rueckfall auf die Uhr des Laufs, denn das war der Fehler.
+        "assessment_cutoff": _bewertungsgrenze(ok),
         "inventory": {
             "source_documents": [{"path": RESTRISIKO_REL, "sha256": qd,
                                   "identifiers": len(ok["eintraege"])},
@@ -850,6 +877,51 @@ def pruefe_v2(doc, repo) -> list[str]:
     # nannte fuer RESTRISIKO_600_OBJEKTKLASSEN.json einen Digest, den die Datei nicht mehr trug,
     # und `pruefe_v2` meldete null Fehler. Zwei Angaben ueber dieselbe Sache, von denen nur eine
     # geprueft wird, driften — und die ungeprueftere ist die, die ein Leser zuerst sieht.
+    # DIE INNERE HERKUNFTSANGABE WURDE NIE GEPRUEFT (Codex r4000054882). Der Erzeuger hasht die
+    # Objektklassen-Datei als GANZES und uebernimmt ihre Aussage ueber die Bytes von
+    # RESTRISIKO_600.md ungeprueft. Gemessen: 64 Nullen in `gemessen_an.sha256`, und der Lauf endet
+    # mit 0 und meldet gruen — ein in sich widerspruechlicher Herkunftspfad mit gutem Urteil.
+    # Eine Herkunft, die auf eine zweite Herkunft zeigt, ist erst geprueft, wenn beide es sind.
+    try:
+        _ok_h = json.loads((repo / OBJEKTKLASSEN_REL).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        fehler.append(f"Herkunft: {OBJEKTKLASSEN_REL} nicht lesbar ({type(e).__name__})")
+        _ok_h = None
+    if isinstance(_ok_h, dict):
+        # KEINE AUSSAGE IST NICHT DASSELBE WIE EINE FALSCHE AUSSAGE, und die erste Fassung dieses
+        # Riegels hat beides verwechselt. Sie verlangte den Block unbedingt und brach damit zwei
+        # Vertraege, die einen MINIMALEN Wegwerf-Baum bauen, um eine ganz andere Eigenschaft zu
+        # messen — deren Objektklassen-Datei fuehrt zu Recht nur `eintraege`. Die zwei roten Tests
+        # hatten recht.
+        #
+        # Gefragt ist hier die WIDERSPRUCHSFREIHEIT einer vorhandenen Herkunftsangabe. Fehlt sie
+        # ganz, gibt es nichts zu widerlegen. Dass der ECHTE Bestand sie fuehrt, ist eine eigene
+        # Zusicherung und steht in tests/test_die_quellangaben_des_traegers_werden_nachgerechnet.py;
+        # so kann sie weder hier still verschwinden noch dort unbemerkt falsch werden.
+        _ga = _ok_h.get("gemessen_an")
+        _d, _s = (_ga or {}).get("datei"), (_ga or {}).get("sha256")
+        if _ga is None:
+            pass                          # keine Herkunftsangabe, also keine widerspruechliche
+        elif not _d or not _s:
+            fehler.append("Herkunft: `gemessen_an` steht da, nennt aber keine Datei oder keinen "
+                          "Digest — eine halbe Angabe ist nicht pruefbar")
+        else:
+            _p = repo / _d
+            if not _p.is_file():
+                fehler.append(f"Herkunft: `gemessen_an.datei` fehlt: {_d!r}")
+            else:
+                _ist = hashlib.sha256(_p.read_bytes()).hexdigest()
+                if _ist != _s:
+                    fehler.append(
+                        f"Herkunft: {_d} traegt {_ist[:12]}, `gemessen_an.sha256` nennt "
+                        f"{str(_s)[:12]} — die Objektklassen-Datei widerspricht sich ueber ihre "
+                        f"eigene Quelle")
+    _bg = doc.get("assessment_cutoff")
+    if isinstance(_bg, dict):
+        if _bg.get("state") not in LUECKENWOERTER or not _bg.get("reason"):
+            fehler.append("Bewertungsgrenze: Lueckenwort ohne Grund")
+    elif not isinstance(_bg, str) or not _bg:
+        fehler.append(f"Bewertungsgrenze: weder Datum noch Lueckenwort ({_bg!r})")
     for q in inv.get("source_documents") or []:
         p = repo / q.get("path", "")
         if not p.is_file():
@@ -1034,10 +1106,24 @@ def _offen(r) -> bool:
     return False
 
 
+def _grenze_als_text(bg) -> str:
+    """Die Bewertungsgrenze fuer eine Ansicht — ein Lueckenwort wird ANGEZEIGT, nicht verschwiegen.
+
+    Die erste Fassung reichte den Wert ungeprueft an die Ansichten weiter und liess sie mit einem
+    AttributeError platzen, sobald er das Lueckenwort war. Gefunden von zwei bestehenden Vertraegen,
+    die einen minimalen Baum ohne Herkunftsangabe bauen. Ein Lueckenwort, das eine Ansicht zum
+    Absturz bringt, ist schlechter als eine falsche Zahl: es macht den ehrlichen Zustand
+    unbenutzbar und draengt zurueck zur Uhr des Laufs.
+    """
+    if isinstance(bg, dict):
+        return f"{bg.get('state', 'NOT MEASURED')} ({bg.get('reason', '')[:120]})"
+    return str(bg)
+
+
 def ansicht_uebersicht(doc) -> str:
     sub, inv = doc["release_subject"], doc["inventory"]
     z = [f"# Known remainders, {sub['name']} {sub['version']}", "",
-         f"Tag {sub['tag']}, assessment cutoff {doc['assessment_cutoff']}, "
+         f"Tag {sub['tag']}, assessment cutoff {_grenze_als_text(doc['assessment_cutoff'])}, "
          f"register revision {doc['register_revision']}.",
          f"Coverage, {inv['identifiers_in_this_register']} of {inv['identifiers_total']} "
          f"identifiers carried in this register.", ""]
@@ -1153,7 +1239,7 @@ def ansicht_html(doc) -> str:
  ul{{padding-left:1.2rem}} code{{background:#f4f4f4;padding:0 .25rem;border-radius:3px}}
 </style>
 <h1>Known remainders — {_h.escape(sub['name'])} {_h.escape(sub['version'])}</h1>
-<p class=sub>Tag {_h.escape(sub['tag'])} · cutoff {_h.escape(doc['assessment_cutoff'])} ·
+<p class=sub>Tag {_h.escape(sub['tag'])} · cutoff {_h.escape(_grenze_als_text(doc['assessment_cutoff']))} ·
  revision {doc['register_revision']} ·
  {inv['identifiers_in_this_register']} of {inv['identifiers_total']} identifiers carried</p>
 {zus}

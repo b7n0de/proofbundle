@@ -34,7 +34,7 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | N5 | finding | fund_nachtrag | P2 | audit_artifacts/600/register_evidence/N5.md | 9479..9632 |
 | N6 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N6.md | 9633..9812 |
 | N7 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N7.md | 9813..10082 |
-| N8 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N8.md | 10083..10280 |
+| N8 | boundary | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N8.md | 10083..10280 |
 | N9 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N9.md | 10281..10570 |
 | N10 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N10.md | 10571..10719 |
 | N11 | finding | fund_nachtrag | P2 | audit_artifacts/600/register_evidence/N11.md | 10720..11229 |
@@ -47,7 +47,7 @@ Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
 | N18 | finding | fund_nachtrag | P2 | audit_artifacts/600/register_evidence/N18.md | 22018..22207 |
 | N19 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N19.md | 22208..22642 |
 | N20 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N20.md | 22643..22881 |
-| N21 | finding | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N21.md | 22882..23517 |
+| N21 | boundary | fund_nachtrag | P3 | audit_artifacts/600/register_evidence/N21.md | 22882..23517 |
 | R1 | boundary | nachgemessene_fassung_einer_runde | NOT MEASURED | audit_artifacts/600/register_evidence/R1.md | 2403..3443 |
 | R2 | boundary | nachgemessene_fassung_einer_runde | NOT MEASURED | audit_artifacts/600/register_evidence/R2.md | 3443..3930 |
 | R3 | boundary | nachgemessene_fassung_einer_runde | NOT MEASURED | audit_artifacts/600/register_evidence/R3.md | 3930..5160 |

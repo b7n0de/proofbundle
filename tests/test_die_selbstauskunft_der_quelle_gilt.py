@@ -36,9 +36,26 @@ _KEIN_FUND = re.compile(r"\b(?:NO FINDING|KEIN FUND|kein Fund|not a defect)\b")
 _KOPF = re.compile(r"^(#{2,4}) ([A-Z]\d+)(?![0-9A-Za-z])([^\n]*)$", re.M)
 
 
+#: Eine Tabellenzeile, deren erste Spalte eine Kennung traegt.
+_ZEILE = re.compile(r"^\|\s*([A-Z]\d+)\s*\|([^\n]*)$", re.M)
+
+
 def selbst_als_nicht_fund() -> list[str]:
+    """Kennungen, deren Quelle sie SELBST als Nicht-Fund ausweist, in BEIDEN Formen.
+
+    ZWEITE FASSUNG, und der Fund kam wieder von der Fremdfamilie (Codex r4000054883), diesmal
+    gegen diesen Riegel selbst, elf Minuten nach seinem Bau. Die erste Fassung sah nur
+    UEBERSCHRIFTEN. Ihre ehrliche Grenze war als solche benannt — und sie hatte gemessen zwei
+    Instanzen: N8 und N21 tragen "not a defect" in ihrer TABELLENZEILE und zaehlten trotzdem als
+    Fund. Eine deklarierte Grenze entschuldigt keinen Fund, sie benennt ihn nur vorher.
+
+    Das Register fuehrt seine Kennungen in zwei Formen, Ueberschrift und Tabellenzeile. Ein
+    Riegel, der eine davon prueft, prueft die Haelfte.
+    """
     text = QUELLE.read_text(encoding="utf-8")
-    return [m.group(2) for m in _KOPF.finditer(text) if _KEIN_FUND.search(m.group(3))]
+    aus_koepfen = [m.group(2) for m in _KOPF.finditer(text) if _KEIN_FUND.search(m.group(3))]
+    aus_zeilen = [m.group(1) for m in _ZEILE.finditer(text) if _KEIN_FUND.search(m.group(2))]
+    return sorted(set(aus_koepfen) | set(aus_zeilen))
 
 
 def _eintraege() -> dict:
@@ -65,9 +82,9 @@ def test_die_menge_der_selbsterklaerten_nicht_funde_ist_gemessen():
     """
     if not QUELLE.is_file():
         pytest.skip("NICHT MESSBAR: Quelle fehlt")
-    assert selbst_als_nicht_fund() == ["S3"], (
-        f"gemessen {selbst_als_nicht_fund()}, erwartet genau ['S3'] — eine neue Selbstauskunft "
-        f"braucht eine Entscheidung")
+    assert selbst_als_nicht_fund() == ["N21", "N8", "S3"], (
+        f"gemessen {selbst_als_nicht_fund()}, erwartet genau ['N21', 'N8', 'S3'] — eine neue "
+        f"Selbstauskunft braucht eine Entscheidung, kein stilles Mitzaehlen")
 
 
 def test_S3_traegt_die_entscheidung_MIT_begruendung():
