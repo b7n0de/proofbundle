@@ -45,6 +45,25 @@ import zipfile
 _PEM = b"-" * 5 + b"BEGIN "
 _ENDE = b"-" * 5
 
+# EINE ZUWEISUNG BRAUCHT KEINE ANFUEHRUNGSZEICHEN (Codex 3999892825, P1). Die erste Fassung
+# verlangte als erstes Wertbyte ein Anfuehrungszeichen. Gemessen 13.09.2026: ein sdist mit nur
+# einer Datei, die `API_KEY=<24 Zeichen>` OHNE Anfuehrungszeichen traegt, kam mit SAUBER und
+# Rueckgabewert 0 durch — und dieselbe Luecke stand bei Seed und Passphrase. Genau die Form, in der
+# eine .env-Datei geschrieben wird, war die eine Form, die der Riegel nicht sah.
+#
+# DIE NACKTE FORM IST ENG GEFASST, und das ist Absicht. Der Wert muss bis zum Zeilenende (oder bis
+# zu einem Trenner) aus Zeichen bestehen, die in einem Bezeichner-Ausdruck nicht vorkommen: ein
+# Punkt beendet die Menge, also faellt `api_key = os.environ.get("X")` NICHT hinein. GEMESSEN ueber
+# den ganzen Baum, 1181 Dateien: genau EIN Treffer, und der liegt in einer __pycache__-Datei, die
+# kein Paket ausliefert. Ein fail-closed Riegel mit Fehlalarmen wird beim ersten Zeitdruck
+# abgeschaltet — dann ist auch der echte Fall wieder frei.
+#
+# EHRLICHE GRENZE, benannt statt verschwiegen: ein Wert mit einem Punkt darin (etwa ein JWT mit
+# seinen drei Abschnitten) faellt in der NACKTEN Form durch diese Maschen. Gequotet wird er
+# gefangen, nackt nicht.
+_WERT = (rb"['\"][^'\"]{12,}"            # gequotet, wie bisher
+         rb"|[A-Za-z0-9_\-+/=]{12,}(?=[\s#;,]|$)")   # nackt, bis Zeilenende oder Trenner
+
 MUSTER: dict[str, list[re.Pattern[bytes]]] = {
     # ZUSAMMENGESETZT, nicht getippt: eine Zeile, die die Kopfzeile woertlich traegt, ist fuer
     # jeden Bezeichner-Pruefer eine INSTANZ und nicht eine DEFINITION. Gemessen 13.09.2026: die
@@ -57,13 +76,14 @@ MUSTER: dict[str, list[re.Pattern[bytes]]] = {
         re.compile(_PEM + rb"PGP PRIVATE KEY BLOCK" + _ENDE),
     ],
     "S": [
-        re.compile(rb"(?i)\b(seed|passphrase|mnemonic)\s*[:=]\s*['\"][^'\"]{12,}"),
+        re.compile(rb"(?i)\b(seed|passphrase|mnemonic)\s*[:=]\s*(?:" + _WERT + rb")"),
     ],
     "T": [
         re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
         re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
         re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
-        re.compile(rb"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password)\s*[:=]\s*['\"][^'\"]{12,}"),
+        re.compile(rb"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password)"
+                   rb"\s*[:=]\s*(?:" + _WERT + rb")"),
     ],
 }
 

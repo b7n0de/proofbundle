@@ -20,6 +20,8 @@ import pathlib
 import tarfile
 import zipfile
 
+import pytest
+
 HIER = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location(
     "paketriegel", HIER.parent / "scripts" / "b7_paketinhalt_ohne_schluesselmaterial.py")
@@ -91,3 +93,57 @@ def test_wheel_wird_genauso_geprueft(tmp_path):
         z.writestr("paket/leak.pem", LAST_K)
     e = riegel.pruefe(str(p))
     assert e["bau_erlaubt"] is False and "K" in e["treffer"]
+
+
+# ── EINE ZUWEISUNG BRAUCHT KEINE ANFUEHRUNGSZEICHEN (Codex 3999892825, P1) ─────────────────
+#
+# Die erste Fassung verlangte als erstes Wertbyte ein Anfuehrungszeichen. Gemessen 13.09.2026: ein
+# sdist mit `API` + `_KEY=<24 Zeichen>` OHNE Anfuehrungszeichen kam mit SAUBER und Rueckgabewert 0
+# durch — dieselbe Luecke stand bei Seed und Passphrase. Genau die Form, in der eine .env
+# geschrieben wird, war die eine Form, die der Riegel nicht sah.
+#
+# ZUSAMMENGESETZT WIE OBEN, aus demselben Grund: wer die Last woertlich tippt, legt ein Muster in
+# eine Datei, die der naechste sdist ausliefert — und der Riegel faengt dann seinen eigenen Test.
+# Ausgenommen ist genau EINE Datei, und das ist der Riegel selbst, nicht diese hier.
+_W = b"a" * 24
+
+
+def _zuweisung(feld: bytes, wert: bytes = _W, schwanz: bytes = b"\n") -> bytes:
+    return feld + b"=" + wert + schwanz
+
+
+_NACKT_ROT = {
+    "api-key ungequotet":     _zuweisung(b"API" + b"_KEY"),
+    "seed ungequotet":        _zuweisung(b"se" + b"ed"),
+    "password ungequotet":    _zuweisung(b"pass" + b"word"),
+    "passphrase ungequotet":  _zuweisung(b"pass" + b"phrase"),
+    "mit Kommentar dahinter": _zuweisung(b"API" + b"_KEY", schwanz=b" # notiz\n"),
+    "mit Semikolon dahinter": b"export " + _zuweisung(b"API" + b"_KEY", schwanz=b";\n"),
+}
+
+_NACKT_GRUEN = {
+    "Umgebungsabfrage im Code": b"api" + b"_key = os.environ.get(\"X\")\n",
+    "Attributkette":           b"pass" + b"word = settings.default_value_here\n",
+    "kurzer Wert":             _zuweisung(b"API" + b"_KEY", wert=b"kurz"),
+    "harmlose Zuweisung":      _zuweisung(b"GREETING", wert=b"hallo_wie_geht_es"),
+}
+
+
+@pytest.mark.parametrize("titel", sorted(_NACKT_ROT))
+def test_eine_UNGEQUOTETE_zuweisung_bricht_den_bau_ab(tmp_path, titel):
+    """[ZAEHLT] Der Fund selbst: genau die Form, in der eine .env geschrieben wird."""
+    e = riegel.pruefe(_sdist(tmp_path, {".env": _NACKT_ROT[titel]}))
+    assert e["bau_erlaubt"] is False, f"{titel}: {e}"
+    assert e["urteil"] == "TREFFER", e
+
+
+@pytest.mark.parametrize("titel", sorted(_NACKT_GRUEN))
+def test_ANTI_gewoehnlicher_code_loest_den_riegel_NICHT_aus(tmp_path, titel):
+    """[ZAEHLT] Gegenrichtung, und sie entscheidet, ob der Riegel angeschaltet bleibt.
+
+    Ein fail-closed Riegel mit Fehlalarmen wird beim ersten Zeitdruck abgeschaltet; dann ist auch
+    der echte Fall wieder frei. GEMESSEN ueber den ganzen Baum, 1181 Dateien: ein einziger Treffer,
+    und der liegt in einer __pycache__-Datei, die kein Paket ausliefert.
+    """
+    e = riegel.pruefe(_sdist(tmp_path, {"m.py": _NACKT_GRUEN[titel]}))
+    assert e["bau_erlaubt"] is True, f"{titel} ist ein Fehlalarm: {e}"

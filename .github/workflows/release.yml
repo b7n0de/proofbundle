@@ -147,6 +147,18 @@ jobs:
           # null inhaltlichen Unterschieden. Der Bauhost stand damit im ausgelieferten Artefakt.
           python scripts/build_reproducible.py --outdir dist --with-wheel
 
+      # DER RIEGEL GEHOERT AUF DEN WEG, DER VEROEFFENTLICHT (Codex 3999892822, P1). Er stand nur
+      # in published-artifact-gate.yml, und der laeuft bei Push auf main, bei PRs und nach Plan —
+      # NICHT bei einem Tag `v*`. Dieser Ablauf hier baut sdist und wheel selbst und haengt sie
+      # danach an das Release. Ein Tag mit Schluesselmaterial im Paket haette beide
+      # veroeffentlicht, waehrend die zugesagte Eigenschaft "der Paketbau bricht ab" auf einem
+      # anderen Weg gruen leuchtete. Ein Tor, das nicht an der Tuer steht, ist kein Tor.
+      #
+      # BEIDE ARTEFAKTE, nicht nur das sdist: der andere Ablauf baut gar kein wheel, dieser schon.
+      # VOR dem Digest-Schritt, damit nichts attestiert wird, was nicht gemessen wurde.
+      - name: Published bytes — no key material in sdist OR wheel (fail-closed, OA-7186ff7a75)
+        run: python scripts/b7_paketinhalt_ohne_schluesselmaterial.py dist/*.tar.gz dist/*.whl
+
       - name: Record artifact digests (the attested subjects)
         id: digests
         run: |
