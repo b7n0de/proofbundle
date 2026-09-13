@@ -29,6 +29,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ._membership import is_member
+
 __all__ = [
     "CAP1_PROFILE", "DISPOSITIONS", "BASIS_KINDS", "HARD_DISPOSITIONS", "RULE_IDS", "RULES",
     "check_cap1_document", "is_conformant", "load_cap1_document",
@@ -130,7 +132,7 @@ def _r2_closed_disposition(doc: dict, f) -> None:
                 continue
             if not isinstance(u.get("unit"), str) or not u.get("unit"):
                 f("R2-closed-disposition", f"{_sid(s)}[{i}]: keine Einheit benannt (unit)")
-            if u.get("disposition") not in DISPOSITIONS:
+            if not is_member(u.get("disposition"), DISPOSITIONS):
                 f("R2-closed-disposition",
                   f"{_sid(s)}[{i}]: disposition {u.get('disposition')!r} steht nicht im geschlossenen Vokabular")
 
@@ -153,7 +155,7 @@ def _r4_denominator_basis(doc: dict, f) -> None:
             f("R4-denominator-basis", f"{_sid(s)}: kein basis-Objekt")
             continue
         kind = basis.get("kind")
-        if kind not in BASIS_KINDS:
+        if not is_member(kind, BASIS_KINDS):
             f("R4-denominator-basis", f"{_sid(s)}: basis.kind {kind!r} ist nicht aus der geschlossenen Menge")
             continue
         if kind == "catalogue" and not _is_digest(basis.get("catalogue_digest")):
@@ -199,7 +201,8 @@ def _r7_incomplete_not_clean(doc: dict, f) -> None:
     """R7: eine Einheit mit failed / resource_exhausted / unavailable schliesst complete=true aus;
     bei complete=false nennt capped_to den Verdikt, auf den ein Leser sich stuetzen darf."""
     integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
-    hart = any(u.get("disposition") in HARD_DISPOSITIONS for s in _strata(doc) for u in _unexamined(s))
+    hart = any(is_member(u.get("disposition"), HARD_DISPOSITIONS)
+               for s in _strata(doc) for u in _unexamined(s))
     complete = integrity.get("complete")
     if hart and complete is True:
         f("R7-incomplete-not-clean",
