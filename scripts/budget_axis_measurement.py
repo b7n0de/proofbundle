@@ -75,6 +75,46 @@ def _ausgang(ruf) -> tuple[str, str]:
     return "BESTANDEN", ""
 
 
+def zusicherungen_je_fall(klasse, stellen: int) -> list[str]:
+    """Alle Zusicherungen einer Testklasse, die mit `stellen` Argumenten urteilen — ABGELEITET.
+
+    WARUM ABGELEITET UND NICHT GENANNT. Bis zum 14.09.2026 fuhr `messe()` je Dimension GENAU EINE
+    Zusicherung, `test_kosten_am_limit_unter_der_obergrenze`, und schrieb deren Ergebnis als Urteil
+    der ACHSE. Die Klasse fuehrt aber fuenf, darunter "die Last erreicht das Limit wirklich" und die
+    Speichergrenze. Ein Lastgenerator, der auf eine winzige Eingabe zurueckfaellt, laesst jene
+    fallen — und die CPU-Zusicherung bleibt schnell und meldet BESTANDEN. Der Beleg haette
+    `ok: true` fuer eine Budget-Suite ausgewiesen, die rot ist. Gefunden von der Codex-Runde eins an
+    PR 199, an der Klasse gegengeprueft.
+    """
+    import inspect                                            # noqa: PLC0415
+    raus = []
+    for name in sorted(dir(klasse)):
+        if not name.startswith("test_"):
+            continue
+        fn = getattr(klasse, name)
+        if not callable(fn):
+            continue
+        if len(inspect.signature(fn).parameters) == stellen:
+            raus.append(name)
+    return raus
+
+
+def _alle_ausgaenge(fall, namen: list[str], args: tuple) -> tuple[str, str, dict]:
+    """Jede Zusicherung fahren und ZUSAMMENFASSEN. Bestanden heisst: alle bestanden.
+
+    Die erste nicht bestandene bestimmt das Urteil und traegt ihren NAMEN in die Meldung — ohne den
+    Namen sagt ein `GERISSEN` nicht, WAS gerissen ist.
+    """
+    einzeln: dict[str, str] = {}
+    urteil, meldung = "BESTANDEN", ""
+    for name in namen:
+        u, m = _ausgang(lambda n=name: getattr(fall, n)(*args))
+        einzeln[name] = u
+        if u != "BESTANDEN" and urteil == "BESTANDEN":
+            urteil, meldung = u, f"{name}: {m}"
+    return urteil, meldung, einzeln
+
+
 def messe() -> dict:
     t = _testmodul()
     marke = t._bauhost()
@@ -86,7 +126,8 @@ def messe() -> dict:
                   else t._faktor_spanne(klammer)[0])
         _deckel = t._faktor_deckel(ausser=dim.name)
         fall = t.TestObergrenzeAmGroesstenZugelassenenWert()
-        urteil, meldung = _ausgang(lambda d=dim: fall.test_kosten_am_limit_unter_der_obergrenze(d))
+        namen = zusicherungen_je_fall(t.TestObergrenzeAmGroesstenZugelassenenWert, 2)
+        urteil, meldung, einzelurteile = _alle_ausgaenge(fall, namen, (dim,))
         achsen.append({
             "name": dim.name,
             "flaeche": dim.was,
@@ -112,19 +153,25 @@ def messe() -> dict:
             "speicher_peak_bytes": m["speicher_peak_am_limit"],
             "urteil": urteil,
             "meldung": meldung,
+            # JE ZUSICHERUNG, damit das Urteil nachrechenbar ist statt behauptet.
+            "zusicherungen": einzelurteile,
         })
     kombis = []
     for name, n_achsen, bau in t.KOMBIS:
         m = t._kombi_messung(name, bau)
         fall = t.TestKombinierteAchsen()
-        urteil, meldung = _ausgang(
-            lambda n=name, a=n_achsen, b=bau: fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(n, a, b))
+        # DIESELBE LUECKE wie bei den Achsen, eine Zeile tiefer: die Schleife fuhr nur die
+        # Summen-Zusicherung und liess "erreicht jede benannte Dimension" sowie die Speichergrenze
+        # aus. Codex-Runde eins an PR 199 nennt beide ausdruecklich als Geschwister des Fundes.
+        k_namen = zusicherungen_je_fall(t.TestKombinierteAchsen, 4)
+        urteil, meldung, k_einzeln = _alle_ausgaenge(fall, k_namen, (name, n_achsen, bau))
         kombis.append({
             "name": name, "eingabeachsen": n_achsen,
             "dauer_max_s": round(m["dauer_max"], 6),
             "erreicht": m["erreicht"],
             "speicher_peak_bytes": m["speicher_peak"],
             "urteil": urteil, "meldung": meldung,
+            "zusicherungen": k_einzeln,
         })
     hier = list(t._REFERENZ_HIER) or t._referenz_werte()
     return {
