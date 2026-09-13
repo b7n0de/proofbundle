@@ -1,12 +1,18 @@
 # Known remainders, proofbundle 6.0.0
 
-Tag v6.0.0, assessment cutoff 2026-09-12, register revision 0.
+Tag v6.0.0, assessment cutoff 2026-09-13, register revision 0.
 Coverage, 145 of 145 identifiers carried in this register.
 
 Known gap, S86 bis S101, 16 identifiers, NOT MEASURED, Anderswo vergeben. Quelle 05_QUELLE_RESTRISIKO_600_neutralisiert.md Zeile 4877 woertlich: "Die Nummern sind ueber beide Baeume abgeleitet, die dieses Register fuehren (Kandidat: S85; arbeit/601-nachzug: S101), und beginnen deshalb bei S102." Der Bestand des Zweigs arbeit/601-nachzug liegt in DIESEM Register nicht vor; die Nummern sind dort belegt, ihre Inhalte hier nicht messbar.
 Known gap, Z1, 1 identifiers, NOT MEASURED, Z1 kommt in der Quelle nicht vor; vorhanden sind Z2 bis Z5. Warum bei Z2 begonnen wurde, ist aus der Quelle nicht ableitbar — gemessen, nicht erraten.
 
-Cross-count against the independent tally: 140 equal, 0 missing, 2 extra (G1, G2 — named boundaries, not findings).
+Cross-count against the independent tally, computed: 140 equal, 0 missing, 5 extra.
+  extra `G1`: benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht
+  extra `G2`: benannte Grenze, kein Fund — die Fremdzaehlung kennt das Praefix G nicht
+  extra `S121`: nach der Fremdzaehlung angelegt (2132Z Registerzeile 1)
+  extra `S122`: nach der Fremdzaehlung angelegt (2132Z Registerzeile 2)
+  extra `S123`: nach der Fremdzaehlung angelegt (2132Z Registerzeile 3)
+  Second reader (hand tally in the same file): agrees.
 
 Assurance `0 open P0/P1`: **holds**, computed — 1 P0/P1 in the source, 0 open.
   The prose rationale in the source is REFUTED by the source's own table; the claim is carried here because it is COMPUTED, not quoted.
