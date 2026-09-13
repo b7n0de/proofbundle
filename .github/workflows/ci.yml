@@ -88,10 +88,20 @@ jobs:
         # "test (3.12)" fuer die schnelle Schicht — die Pflichtpruefungen des Regelsatzes
         # protect-main verlangen test (3.10) bis (3.14), deshalb MUSS der Landekandidat alle fuenf
         # fahren, und deshalb steht hier ein Ausdruck und keine feste Kuerzung.
+        # B3: FUENF Versionen nur am Landekandidaten, sonst EINE. Der Regelsatz protect-main
+        # verlangt test (3.10) bis (3.14) als Pflichtkontexte, deshalb MUSS der Landekandidat alle
+        # fuenf fahren — hier steht ein Ausdruck und keine feste Kuerzung.
+        #
+        # DIE KLAMMER UM DIE ODER-KETTE IST NOETIG: in GitHub-Ausdruecken bindet && staerker als ||.
+        # Ohne sie liest sich A || B || C || (D && voll) || eine, und bei wahrem A kaeme `true`
+        # statt einer JSON-Liste heraus.
+        #
+        # UND DIESE KOMMENTARE STEHEN AUSSERHALB DES SKALARS, nicht darin. Die erste Fassung hatte
+        # sie INNERHALB des gefalteten `>-` — dort ist `#` kein Kommentar, sondern Text. GitHub bekam
+        # damit eine Zeichenkette statt einer Liste, die Matrix war leer, und der Job `test` entstand
+        # GAR NICHT. Gemessen an PR 202: neun Jobs statt zwoelf, kein einziger test-Kontext, und die
+        # fuenf Pflichtpruefungen haetten nie gemeldet.
         python-version: >-
-          # DIE KLAMMER IST NOETIG, nicht Zierde: in GitHub-Ausdruecken bindet && staerker
-          # als ||. Ohne sie liest sich A || B || C || (D && voll) || eine, und bei wahrem A
-          # kaeme `true` statt einer JSON-Liste heraus. Beim Schreiben gefunden, nicht im Lauf.
           ${{ fromJSON(
             ( github.event_name == 'workflow_dispatch'
               || startsWith(github.head_ref, 'release/')

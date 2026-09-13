@@ -217,3 +217,36 @@ def test_fangnachweis_die_klammerpruefung_faellt_ohne_klammer():
     assert _bedingung_ist_geklammert(mit), "die Pruefung erkennt die richtige Form nicht"
     # Und die dritte Richtung: ohne fromJSON ist es keine Ausdrucksmatrix
     assert not _bedingung_ist_geklammert("[\"3.12\"]")
+
+def test_die_versionsmatrix_ist_ein_REINER_ausdruck():
+    """DER FUND VOM 13.09.2026, an PR 202 gemessen, und die Luecke im Vertrag darueber.
+
+    Die erste Fassung trug die begruendenden Kommentare INNERHALB des gefalteten Skalars `>-`.
+    Dort ist `#` kein Kommentar, sondern Text. Der Wert der Matrix war damit eine ZEICHENKETTE,
+    die mit Prosa beginnt und den Ausdruck nur enthaelt — GitHub bekam keine Liste, die Matrix war
+    leer, und der Job `test` ENTSTAND GAR NICHT. Gemessen: neun Jobs statt zwoelf im Lauf zu
+    PR 202, kein einziger test-Kontext, und die fuenf Pflichtpruefungen des Regelsatzes
+    protect-main haetten NIE gemeldet. Ein PR waere dauerhaft unmergebar gewesen.
+
+    DIE ALTE ZUSICHERUNG WAR GRUEN DABEI. Sie prueft, ob `fromJSON` VORKOMMT und ob die Klammer
+    sitzt — beides stimmte auch mit dem Prosa-Vorspann. Sie mass den INHALT, nicht die FORM.
+    Diese hier misst die Form: der Wert muss der Ausdruck sein, nicht ihn enthalten.
+    """
+    v = str(_workflows()["ci.yml"]["jobs"]["test"]["strategy"]["matrix"]["python-version"]).strip()
+    assert v.startswith("${{"), (
+        f"die Matrix ist kein reiner Ausdruck, sie beginnt mit {v[:60]!r} — steht ein Kommentar im "
+        "gefalteten Skalar, wird er Teil des Wertes und die Matrix bleibt leer")
+    assert v.endswith("}}"), f"die Matrix endet nicht mit }}}}: {v[-60:]!r}"
+
+
+def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
+    """Die Gegenrichtung: genau die kaputte Form von PR 202 muss auffallen."""
+    kaputt = "# ein Kommentar im Skalar ${{ fromJSON( ( a || b ) && 'x' || 'y' ) }}"
+    heil = "${{ fromJSON( ( a || b ) && 'x' || 'y' ) }}"
+    def ist_rein(s: str) -> bool:
+        s = s.strip()
+        return s.startswith("${{") and s.endswith("}}")
+    assert not ist_rein(kaputt), "der Fangnachweis erkennt den Prosa-Vorspann nicht"
+    assert ist_rein(heil)
+    # und die alte, unzureichende Pruefung waere bei BEIDEN gruen gewesen:
+    assert "fromJSON" in kaputt and "fromJSON" in heil
