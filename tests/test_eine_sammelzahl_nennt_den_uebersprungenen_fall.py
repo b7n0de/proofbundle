@@ -57,6 +57,30 @@ _TESTNAME = re.compile(r"\btest_[A-Za-z0-9_]+\b")
 _SKIP_SATZ = re.compile(r"[^.\n]*\bskip(?:ped)?\b[^.\n]*", re.I)
 
 
+def benannte_uebersprungene(rumpf: str) -> set[str]:
+    """Die Testnamen, die der Abschnitt AUSDRUECKLICH als uebersprungen ausweist.
+
+    Gefragt ist die VERBINDUNG, nicht die Erwaehnung: ein Satz, der vom Ueberspringen handelt UND
+    einen Testnamen traegt. Die Sammelzahl selbst zaehlt nicht als solcher Satz, sonst genuegte
+    `1 skipped` sich selbst.
+    """
+    namen: set[str] = set()
+    for m in _SKIP_SATZ.finditer(rumpf):
+        satz = m.group(0)
+        gefunden = set(_TESTNAME.findall(satz))
+        if not gefunden:
+            continue
+        if _SAMMELZAHL.search(satz) and not gefunden:
+            continue
+        namen |= gefunden
+    return namen
+
+
+def uebersprungene_gesamt(rumpf: str) -> int:
+    """Die Summe ALLER uebersprungenen Faelle des Abschnitts, ueber alle zitierten Laeufe."""
+    return sum(int(m.group(2)) for m in _SAMMELZAHL.finditer(rumpf))
+
+
 def nennt_den_uebersprungenen_fall(rumpf: str) -> bool:
     """Sagt der Abschnitt, WELCHER Fall uebersprungen wurde?
 
@@ -66,17 +90,19 @@ def nennt_den_uebersprungenen_fall(rumpf: str) -> bool:
     dafuer, dass das Differential „agrees". Genau dieser Test war der uebersprungene. Die Erwaehnung
     war also nicht nur kein Gegenbeweis, sie war Teil des Fehlers.
 
-    Eine ERWAEHNUNG ist nicht die Eigenschaft. Gefragt ist die VERBINDUNG: ein Satz, der vom
-    Ueberspringen handelt UND einen Testnamen traegt. Die Sammelzahl selbst zaehlt dabei nicht als
-    solcher Satz, sonst genuegte `1 skipped` sich selbst.
+    DRITTE FASSUNG, und diesmal kam der Fund von der Fremdfamilie (Codex r3999958440, am Kopf
+    af0d6f9, also an GENAU DIESER Datei). Die zweite Fassung fragte, ob EIN Satz ueber das
+    Ueberspringen einen Testnamen traegt — und liess damit einen Abschnitt durch, der
+    `22 passed, 2 skipped` zitiert und nur EINEN der beiden erklaert. Die Pflicht gilt JE
+    UEBERSPRUNGENEM FALL, nicht je Abschnitt. Nachgemessen reichte der Fund weiter als der
+    Kommentar sagte: auch ein Abschnitt mit ZWEI Sammelzahlen, von denen nur eine aufgeschluesselt
+    ist, kam durch. Gezaehlt wird deshalb jetzt: benannte uebersprungene Faelle gegen die SUMME
+    aller uebersprungenen Faelle des Abschnitts.
+
+    Dreimal dieselbe Klasse an derselben Funktion, und jedes Mal eine Ebene feiner: Erwaehnung,
+    dann Verbindung, jetzt Abdeckung. Eine Existenzpruefung erfuellt keine Stueckpflicht.
     """
-    for m in _SKIP_SATZ.finditer(rumpf):
-        satz = m.group(0)
-        if _SAMMELZAHL.search(satz) and not _TESTNAME.search(satz):
-            continue                      # das ist die Sammelzahl, nicht ihre Aufschluesselung
-        if _TESTNAME.search(satz):
-            return True
-    return False
+    return len(benannte_uebersprungene(rumpf)) >= uebersprungene_gesamt(rumpf)
 
 
 def abschnitte(text: str) -> list[tuple[str, str]]:
@@ -105,8 +131,11 @@ def stumme_sammelzahlen(text: str) -> list[str]:
             continue                      # keine Messbehauptung, keine Pflicht
         if nennt_den_uebersprungenen_fall(rumpf):
             continue                      # der uebersprungene Fall ist benannt
-        for m in zahlen:
-            funde.append(f"{titel[:70]}: zitiert `{m.group(0)}` und nennt keinen Testnamen")
+        soll = uebersprungene_gesamt(rumpf)
+        ist = benannte_uebersprungene(rumpf)
+        funde.append(
+            f"{titel[:70]}: zitiert {soll} uebersprungene(n) Fall/Faelle, benannt sind "
+            f"{len(ist)} ({sorted(ist) or 'keiner'})")
     return funde
 
 
@@ -128,7 +157,12 @@ def test_knoten1_der_stand_vor_dem_fix_wird_GEFANGEN():
     assert funde, (
         "der Riegel faengt den Stand von vor dem Fix NICHT — dann prueft er nicht das, wofuer er "
         "gebaut ist. Erwartet war ein Fund fuer T5 mit `23 passed, 1 skipped`.")
-    assert any("23 passed, 1 skipped" in f for f in funde), funde
+    # AM GEGENSTAND, NICHT AM MELDUNGSTEXT. Die erste Fassung dieser Zeile prueft, ob der String
+    # "23 passed, 1 skipped" in der Meldung vorkommt — und fiel um, sobald die Meldung praeziser
+    # wurde (sie nennt jetzt Zahlen statt der zitierten Zeile). Ein Orakel, das an der Prosa seines
+    # Gegenstands haengt, misst dessen Schreibweise. Genau die Klasse, gegen die diese Datei steht.
+    assert any(f.startswith("### T5") for f in funde), funde
+    assert all("benannt sind 0" in f for f in funde if f.startswith("### T5")), funde
 
 
 # ── KNOTEN 2, EIGENSCHAFT ─────────────────────────────────────────────────────────────────
@@ -183,3 +217,30 @@ def test_ANTI_eine_sammelzahl_OHNE_uebersprungene_wird_nicht_gemeldet():
     text = ("### TY — Probe\n\n- **State:** **MEASURED**.\n\n"
             "  Measured run, both files: **24 passed, 0 skipped**.\n")
     assert stumme_sammelzahlen(text) == []
+
+
+# ── DRITTE ITERATION, Fund der Fremdfamilie (Codex r3999958440) ───────────────────────────
+
+def test_FANG_zwei_uebersprungene_und_nur_EINER_benannt_wird_gemeldet():
+    """[ZAEHLT] Der Fund von Codex, auf das Kleinste eingedampft."""
+    text = ("### TA\n\n- **State:** **MEASURED**.\n\n  Run: **22 passed, 2 skipped**.\n"
+            "  One of them, `test_first`, was skipped because the binary is absent.\n")
+    assert stumme_sammelzahlen(text), "eine Stueckpflicht wird von einer Existenzpruefung nicht erfuellt"
+
+
+def test_FANG_zwei_uebersprungene_und_BEIDE_benannt_ist_gruen():
+    """[ZAEHLT] Gegenrichtung, sonst meldet der Riegel jeden Abschnitt mit mehreren Skips."""
+    text = ("### TB\n\n- **State:** **MEASURED**.\n\n  Run: **22 passed, 2 skipped**.\n"
+            "  Skipped were `test_first` and `test_second`, both for the same reason.\n")
+    assert stumme_sammelzahlen(text) == []
+
+
+def test_FANG_zwei_sammelzahlen_und_nur_eine_erklaert_wird_gemeldet():
+    """[ZAEHLT] Weiter als der Kommentar sagte, beim Nachmessen gefunden.
+
+    Der Kommentar nannte den Fall EIN Abschnitt mit EINER Sammelzahl und zwei Skips. Gemessen kam
+    auch ein Abschnitt mit ZWEI Sammelzahlen durch, von denen nur eine aufgeschluesselt ist.
+    """
+    text = ("### TC\n\n- **State:** **MEASURED**.\n\n  First run: **10 passed, 1 skipped**, "
+            "`test_a` skipped.\n  Second run: **12 passed, 1 skipped**.\n")
+    assert stumme_sammelzahlen(text), "zwei Laeufe, eine Erklaerung, das genuegt nicht"
