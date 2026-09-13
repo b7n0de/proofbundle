@@ -96,7 +96,7 @@ it again. **Funnel: no user is affected.**
 ### R6 · The witness cannot see the lenses of a round run in a foreign repository — open, unchanged
 
 `scripts/b7_abschluss_beleg.py` counts lens artefacts under
-`office/governance/berkeley_gate/runs/lenses/<topic>` inside the tree it signs — this repository's
+`office/governance/deep gate_gate/runs/lenses/<topic>` inside the tree it signs — this repository's
 tree, which carries no such directory. The closing evidence record for 6.0.0 will therefore read
 `PARTIAL` with `0 of 6 lenses` as its named cause, exactly as the 5.1.0 record did, while the six
 lenses live in the operator's repository. **Funnel: no user is affected.** A witness that reads a
@@ -1849,7 +1849,7 @@ Dokument sehen koennen muss.
    Wort nur in einem Linsen-Verzeichnispfad, nicht als Feld.
 4. Die Belege des Zeugen tragen `notes` als reinen **String** ("Abschluss-Beleg, vom
    b7runner-Oracle ausgestellt..."), nie ein `gate_zeile`-Objekt. Nachgemessen am eigenen Lauf
-   `office/governance/berkeley_gate/runs/ce0bad546beabcef_20260908T230552Z.json`.
+   `office/governance/deep gate_gate/runs/ce0bad546beabcef_20260908T230552Z.json`.
 5. Und der Zeuge **kann** ueber einen proofbundle-Commit kein `WITHSTANDS_DEEPGATE` ausstellen:
    Pre-Sweep, Klassen-Ledger und Linsenablage liegen im Verwaltungsrepo, nicht in diesem Baum.
    Gemessen im Beleg zu diesem Kopf: 0 Linsen gegen einen Boden von 3, drei Komponenten
