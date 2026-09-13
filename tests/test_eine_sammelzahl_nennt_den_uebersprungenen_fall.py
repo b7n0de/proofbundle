@@ -1,0 +1,185 @@
+"""Eine Sammelzahl aus bestanden und uebersprungen darf nicht sagen, die Eigenschaft sei gemessen.
+
+HERKUNFT, Codex-Kommentar r3999283100 in PR 197, gemessen am Kopf, den er nennt
+(`1d3ad78e928867f7d6770010d0222776d4ecb271`, `docs/RESEARCH_PROGRAM.md`, Zeile 65). Der Abschnitt
+T5 trug `**State:** **MEASURED, partially**` und belegte das mit `23 passed, 1 skipped`. Der EINE
+Uebersprungene war `test_crosscheck_relation_differential_green`, und er ist der einzige der 24,
+der Uebereinstimmung zwischen Python und Rust ueberhaupt misst. Die Tabelle daneben behauptete in
+derselben Zeile, das Differential „agrees". Keiner der 23 bestandenen Faelle stuetzt das.
+
+DIE KLASSE, und sie ist nicht auf dieses Dokument beschraenkt: **eine Sammelzahl verdeckt, WELCHER
+Fall uebersprungen wurde.** `23 passed, 1 skipped` liest sich wie ein guter Lauf. Ob der eine
+uebersprungene Fall der belanglose oder der entscheidende war, steht in der Zahl nicht. Dieselbe
+Form kann ueberall stehen, wo eine gemischte Bilanz als Beleg fuer eine Eigenschaft zitiert wird.
+
+ZWEI KNOTEN, wie das Fehlerbuch sie verlangt, und beide laufen VOR jeder Jury:
+
+  Knoten 1, REPRODUKTION. Gegen den EINGEFROHRENEN Text von vor dem Fix
+  (`tests/fixtures/t5_vor_dem_fix_1d3ad78e.md`, sha256 65451f47…, 1560 B, wortwoertlich aus
+  `git show 1d3ad78e:docs/RESEARCH_PROGRAM.md` geschnitten). Fester Sollwert, NICHT gegen frisch
+  erzeugte Ausgabe — eine Reproduktion, die ihren eigenen Gegenstand herstellt, reproduziert nichts.
+
+  Knoten 2, EIGENSCHAFT. Gegen das heutige Dokument im Baum. Wo eine Zustandszeile eine Messung
+  behauptet und im selben Abschnitt eine Sammelzahl mit Uebersprungenen zitiert wird, MUSS der
+  uebersprungene Fall beim Namen genannt sein.
+
+EHRLICHE GRENZE. Gemessen wird die Form `N passed, M skipped` und die Nennung eines Testnamens im
+selben Abschnitt. Ob der genannte Name der RICHTIGE ist, entscheidet dieser Riegel nicht — das
+kann er aus dem Text nicht. Er schliesst die stumme Sammelzahl aus, nicht die falsche Zuordnung.
+"""
+from __future__ import annotations
+
+import hashlib
+import pathlib
+import re
+
+import pytest
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
+DOKUMENT = REPO / "docs" / "RESEARCH_PROGRAM.md"
+EINGEFROREN = REPO / "tests" / "fixtures" / "t5_vor_dem_fix_1d3ad78e.md"
+
+#: Der Sollwert der eingefrorenen Grundlage. Aendert sich die Datei, ist der Beweis ein anderer,
+#: und das soll auffallen statt still durchzugehen.
+EINGEFROREN_SHA256 = "65451f47803abff81486517a1f4c0c07a241a5921f1dd9e4ffd4b9982cd5cee3"
+
+#: Eine Sammelzahl aus einem Testlauf, mit mindestens einem Uebersprungenen.
+_SAMMELZAHL = re.compile(r"\b(\d+)\s+passed,\s*(\d+)\s+skipped\b")
+
+#: Eine Zustandszeile, die eine Messung behauptet. `NOT MEASURED` ist ausdruecklich keine.
+_BEHAUPTET_GEMESSEN = re.compile(r"\*\*State:\*\*.*?\bMEASURED\b", re.S)
+_NICHT_GEMESSEN = re.compile(r"\*\*State:\*\*[^\n]*?\bNOT\s+MEASURED\b")
+
+#: Ein Testname, wie pytest ihn meldet.
+_TESTNAME = re.compile(r"\btest_[A-Za-z0-9_]+\b")
+
+#: Ein Satz, der vom Ueberspringen handelt. Satzgrenze ist Punkt oder Zeilenumbruch.
+_SKIP_SATZ = re.compile(r"[^.\n]*\bskip(?:ped)?\b[^.\n]*", re.I)
+
+
+def nennt_den_uebersprungenen_fall(rumpf: str) -> bool:
+    """Sagt der Abschnitt, WELCHER Fall uebersprungen wurde?
+
+    ERSTE FASSUNG WAR FALSCH, und der Reproduktionsknoten hat sie widerlegt, nicht ich. Sie fragte
+    `_TESTNAME.search(rumpf)` — ob irgendwo im Abschnitt ein Testname steht. Der Stand VOR dem Fix
+    nennt `test_crosscheck_relation_differential_green` sehr wohl: in der Tabelle, als Beleg
+    dafuer, dass das Differential „agrees". Genau dieser Test war der uebersprungene. Die Erwaehnung
+    war also nicht nur kein Gegenbeweis, sie war Teil des Fehlers.
+
+    Eine ERWAEHNUNG ist nicht die Eigenschaft. Gefragt ist die VERBINDUNG: ein Satz, der vom
+    Ueberspringen handelt UND einen Testnamen traegt. Die Sammelzahl selbst zaehlt dabei nicht als
+    solcher Satz, sonst genuegte `1 skipped` sich selbst.
+    """
+    for m in _SKIP_SATZ.finditer(rumpf):
+        satz = m.group(0)
+        if _SAMMELZAHL.search(satz) and not _TESTNAME.search(satz):
+            continue                      # das ist die Sammelzahl, nicht ihre Aufschluesselung
+        if _TESTNAME.search(satz):
+            return True
+    return False
+
+
+def abschnitte(text: str) -> list[tuple[str, str]]:
+    """Der Text in Abschnitte, je Ueberschrift der Ebene drei. -> [(Titel, Rumpf)]"""
+    teile = re.split(r"^(### .+)$", text, flags=re.M)
+    raus = []
+    for i in range(1, len(teile), 2):
+        raus.append((teile[i].strip(), teile[i + 1] if i + 1 < len(teile) else ""))
+    return raus or [("(ohne Ueberschrift)", text)]
+
+
+def stumme_sammelzahlen(text: str) -> list[str]:
+    """Abschnitte, die eine Messung behaupten und die Sammelzahl NICHT aufschluesseln.
+
+    Leer heisst gruen. Die Rueckgabe nennt je Fund den Abschnitt und die Zahl, damit die Meldung
+    sagt, WO etwas fehlt, statt nur DASS.
+    """
+    funde = []
+    for titel, rumpf in abschnitte(text):
+        zahlen = [m for m in _SAMMELZAHL.finditer(rumpf) if int(m.group(2)) > 0]
+        if not zahlen:
+            continue
+        if _NICHT_GEMESSEN.search(rumpf):
+            continue                      # der Abschnitt sagt selbst, dass nicht gemessen wurde
+        if not _BEHAUPTET_GEMESSEN.search(rumpf):
+            continue                      # keine Messbehauptung, keine Pflicht
+        if nennt_den_uebersprungenen_fall(rumpf):
+            continue                      # der uebersprungene Fall ist benannt
+        for m in zahlen:
+            funde.append(f"{titel[:70]}: zitiert `{m.group(0)}` und nennt keinen Testnamen")
+    return funde
+
+
+# ── KNOTEN 1, REPRODUKTION ────────────────────────────────────────────────────────────────
+
+def test_knoten1_die_eingefrorene_grundlage_ist_unveraendert():
+    """[ZAEHLT] Ein Beweis gegen eine Datei, die sich aendern darf, ist kein Beweis."""
+    if not EINGEFROREN.is_file():
+        pytest.fail(f"die eingefrorene Grundlage fehlt: {EINGEFROREN}")
+    ist = hashlib.sha256(EINGEFROREN.read_bytes()).hexdigest()
+    assert ist == EINGEFROREN_SHA256, (
+        f"die eingefrorene Grundlage traegt {ist[:16]}, erwartet {EINGEFROREN_SHA256[:16]}. "
+        f"Damit misst Knoten 1 einen anderen Gegenstand als den, den Codex gemessen hat.")
+
+
+def test_knoten1_der_stand_vor_dem_fix_wird_GEFANGEN():
+    """[ZAEHLT] Der Fund selbst, reproduziert. Rot am alten Stand, und das ist die Zusage."""
+    funde = stumme_sammelzahlen(EINGEFROREN.read_text(encoding="utf-8"))
+    assert funde, (
+        "der Riegel faengt den Stand von vor dem Fix NICHT — dann prueft er nicht das, wofuer er "
+        "gebaut ist. Erwartet war ein Fund fuer T5 mit `23 passed, 1 skipped`.")
+    assert any("23 passed, 1 skipped" in f for f in funde), funde
+
+
+# ── KNOTEN 2, EIGENSCHAFT ─────────────────────────────────────────────────────────────────
+
+def test_knoten2_das_heutige_dokument_haelt_die_eigenschaft():
+    """[ZAEHLT] Keine stumme Sammelzahl im Baum. Gruen am neuen Stand."""
+    if not DOKUMENT.is_file():
+        pytest.skip(f"NICHT MESSBAR: {DOKUMENT} liegt nicht im Baum")
+    funde = stumme_sammelzahlen(DOKUMENT.read_text(encoding="utf-8"))
+    assert not funde, "\n".join(
+        [f"{len(funde)} Zustandszeile(n) behaupten eine Messung und zitieren eine Sammelzahl mit "
+         f"Uebersprungenen, ohne den uebersprungenen Fall zu nennen:"] + funde)
+
+
+def test_knoten2_T5_nennt_den_uebersprungenen_fall_beim_namen():
+    """[ZAEHLT] Die Instanz, positiv formuliert statt nur als Abwesenheit eines Fundes."""
+    if not DOKUMENT.is_file():
+        pytest.skip(f"NICHT MESSBAR: {DOKUMENT} liegt nicht im Baum")
+    t5 = [r for t, r in abschnitte(DOKUMENT.read_text(encoding="utf-8")) if t.startswith("### T5")]
+    assert t5, "der Abschnitt T5 fehlt im Dokument"
+    rumpf = t5[0]
+    assert "test_crosscheck_relation_differential_green" in rumpf, (
+        "T5 nennt den uebersprungenen Fall nicht beim Namen")
+    assert "pb_verify_rs not cargo-built" in rumpf, (
+        "T5 nennt den GRUND des Ueberspringens nicht; ein Name ohne Grund laesst offen, ob der "
+        "Fall faellt oder nur nicht laufen konnte")
+
+
+# ── ANTI-PARITAET, damit der Riegel nicht alles meldet ────────────────────────────────────
+
+def test_ANTI_ein_abschnitt_der_NOT_MEASURED_sagt_wird_nicht_gemeldet():
+    """[ZAEHLT] Wer selbst sagt, er habe nicht gemessen, behauptet nichts Falsches."""
+    text = ("### TX — Probe\n\n- **State:** **NOT MEASURED** in the run cited below.\n\n"
+            "  Measured run, both files: **23 passed, 1 skipped**.\n")
+    assert stumme_sammelzahlen(text) == []
+
+
+def test_ANTI_ein_testname_OHNE_bezug_zum_ueberspringen_genuegt_NICHT():
+    """[ZAEHLT] Genau die Lage vor dem Fix, auf das Kleinste eingedampft.
+
+    Der Name steht da, aber als Beleg fuer das Gegenteil. Eine Fassung, die nur nach dem Namen
+    sucht, meldet hier nichts — und liesse den Fund durch, den Codex gefunden hat.
+    """
+    text = ("### TZ — Probe\n\n- **State:** **MEASURED, partially**.\n\n"
+            "  | `tests/a.py` | `test_crosscheck_relation_differential_green` agrees |\n\n"
+            "  Measured run, both files: **23 passed, 1 skipped**.\n")
+    assert stumme_sammelzahlen(text), "ein Name ohne Bezug zum Ueberspringen darf nicht genuegen"
+
+
+def test_ANTI_eine_sammelzahl_OHNE_uebersprungene_wird_nicht_gemeldet():
+    """[ZAEHLT] `24 passed, 0 skipped` verdeckt nichts, es gibt nichts zu verdecken."""
+    text = ("### TY — Probe\n\n- **State:** **MEASURED**.\n\n"
+            "  Measured run, both files: **24 passed, 0 skipped**.\n")
+    assert stumme_sammelzahlen(text) == []
