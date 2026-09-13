@@ -64,6 +64,19 @@ _ENDE = b"-" * 5
 _WERT = (rb"['\"][^'\"]{12,}"            # gequotet, wie bisher
          rb"|[A-Za-z0-9_\-+/=]{12,}(?=[\s#;,]|$)")   # nackt, bis Zeilenende oder Trenner
 
+# EIN NAME MIT PRAEFIX IST DERSELBE NAME (Codex 4000270134, P1). Die Muster begannen mit `\b`, und
+# eine Wortgrenze gibt es zwischen `_` und `A` NICHT — beide sind Wortzeichen. Gemessen 13.09.2026:
+# ein sdist mit `OPENAI` + `_API_KEY=<24 Zeichen>` kam mit SAUBER und Rueckgabewert 0 durch,
+# ebenso `STRIPE_SECRET_KEY`, `DATABASE_PASSWORD` und `WALLET_SEED`. Genau die Schreibweise, in der
+# solche Namen in der Praxis vorkommen, war die, die der Riegel nicht sah.
+#
+# STATT DER WORTGRENZE EIN AUSDRUECKLICHER PRAEFIX: keine, eine oder mehrere Namenssilben vor dem
+# Feldnamen. Der Anker bleibt, was er war — ein Zuweisungszeichen und ein langer Wert dahinter.
+# `API_KEYWORD=kurz` faellt weiterhin nicht hinein, weil nach dem Feldnamen kein `[:=]` steht.
+# GEMESSEN vor dem Einbau ueber 1198 Dateien des Baums: genau EIN Treffer, und der liegt in einer
+# __pycache__-Datei, die kein Paket ausliefert.
+_PRAEFIX = rb"(?:[A-Za-z0-9]+[_-])*"
+
 MUSTER: dict[str, list[re.Pattern[bytes]]] = {
     # ZUSAMMENGESETZT, nicht getippt: eine Zeile, die die Kopfzeile woertlich traegt, ist fuer
     # jeden Bezeichner-Pruefer eine INSTANZ und nicht eine DEFINITION. Gemessen 13.09.2026: die
@@ -76,13 +89,14 @@ MUSTER: dict[str, list[re.Pattern[bytes]]] = {
         re.compile(_PEM + rb"PGP PRIVATE KEY BLOCK" + _ENDE),
     ],
     "S": [
-        re.compile(rb"(?i)\b(seed|passphrase|mnemonic)\s*[:=]\s*(?:" + _WERT + rb")"),
+        re.compile(rb"(?i)" + _PRAEFIX + rb"(seed|passphrase|mnemonic)\s*[:=]\s*(?:" + _WERT + rb")"),
     ],
     "T": [
         re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
         re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
         re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
-        re.compile(rb"(?i)\b(api[_-]?key|secret[_-]?key|access[_-]?token|password)"
+        re.compile(rb"(?i)" + _PRAEFIX
+                   + rb"(api[_-]?key|secret[_-]?key|access[_-]?token|password)"
                    rb"\s*[:=]\s*(?:" + _WERT + rb")"),
     ],
 }

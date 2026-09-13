@@ -147,3 +147,50 @@ def test_ANTI_gewoehnlicher_code_loest_den_riegel_NICHT_aus(tmp_path, titel):
     """
     e = riegel.pruefe(_sdist(tmp_path, {"m.py": _NACKT_GRUEN[titel]}))
     assert e["bau_erlaubt"] is True, f"{titel} ist ein Fehlalarm: {e}"
+
+
+# ── EIN NAME MIT PRAEFIX IST DERSELBE NAME (Codex 4000270134, P1) ──────────────────────────
+#
+# Die Muster begannen mit `\b`, und eine Wortgrenze gibt es zwischen `_` und `A` NICHT — beide sind
+# Wortzeichen. GEMESSEN: ein sdist mit `OPENAI` + `_API_KEY=<24 Zeichen>` kam mit SAUBER und
+# Rueckgabewert 0 durch, ebenso `STRIPE_SECRET_KEY`, `DATABASE_PASSWORD` und `WALLET_SEED`. Genau
+# die Schreibweise, in der solche Namen in der Praxis vorkommen, war die, die der Riegel nicht sah.
+#
+# DIE KLASSE, zum zweiten Mal an derselben Datei: eine Formvorgabe am Muster (erst das
+# Anfuehrungszeichen im Wert, jetzt die Wortgrenze im Namen) schliesst die haeufigste Gestalt aus.
+# Beide Male sah der Riegel die kuenstliche Form und uebersah die echte.
+
+_PRAEFIX_ROT = {
+    "anbieter vor api-key":   b"OPENAI_" + b"API_KEY=" + _W + b"\n",
+    "anbieter vor secret":    b"STRIPE_" + b"SECRET_KEY=" + _W + b"\n",
+    "dienst vor password":    b"DATABASE_" + b"PASS" + b"WORD=" + _W + b"\n",
+    "dienst vor seed":        b"WALLET_" + b"SE" + b"ED=" + _W + b"\n",
+    "zwei silben praefix":    b"MY_APP_" + b"API_KEY=" + _W + b"\n",
+    "praefix und gequotet":   b"OPENAI_" + b'API_KEY="' + _W + b'"\n',
+}
+
+_PRAEFIX_GRUEN = {
+    "umgebungsabfrage":  b"openai_" + b"api_key = os.environ.get(\"X\")\n",
+    "attributkette":     b"db_" + b"pass" + b"word = settings.default_value_here\n",
+    "kurzer wert":       b"OPENAI_" + b"API_KEY=kurz\n",
+    "KEYWORD ist kein Feld": b"API" + b"_KEYWORD=" + _W + b"\n",
+}
+
+
+@pytest.mark.parametrize("titel", sorted(_PRAEFIX_ROT))
+def test_ein_praefixierter_name_bricht_den_bau_ab(tmp_path, titel):
+    """[ZAEHLT] Der Fund selbst, in den vier Gestalten, die der Bericht nennt, plus zwei."""
+    e = riegel.pruefe(_sdist(tmp_path, {".env": _PRAEFIX_ROT[titel]}))
+    assert e["bau_erlaubt"] is False, f"{titel}: {e}"
+
+
+@pytest.mark.parametrize("titel", sorted(_PRAEFIX_GRUEN))
+def test_ANTI_der_praefix_macht_keinen_fehlalarm(tmp_path, titel):
+    """[ZAEHLT] Gegenrichtung. `API_KEYWORD=` ist der Fall, der die Grenze zeigt.
+
+    Nach dem Feldnamen steht dort kein Zuweisungszeichen, sondern weiterer Name — der Anker haelt.
+    GEMESSEN ueber den ganzen Baum, 1198 Dateien: ein einziger Treffer, in einer __pycache__-Datei,
+    die kein Paket ausliefert.
+    """
+    e = riegel.pruefe(_sdist(tmp_path, {"m.py": _PRAEFIX_GRUEN[titel]}))
+    assert e["bau_erlaubt"] is True, f"{titel} ist ein Fehlalarm: {e}"
