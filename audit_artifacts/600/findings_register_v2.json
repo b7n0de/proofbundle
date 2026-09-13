@@ -30,7 +30,7 @@
     ]
   },
   "issued_at": "2026-09-13",
-  "generated_at": "2026-09-13T17:40:04Z",
+  "generated_at": "2026-09-13T17:46:32Z",
   "release_subject": {
     "name": "proofbundle",
     "version": "6.0.0",
@@ -126,7 +126,7 @@
               "id": "A4",
               "severity": "P1",
               "state": "closed",
-              "state_source": "State-Spalte in RESTRISIKO_600.md"
+              "state_source": "state column in RESTRISIKO_600.md"
             }
           ],
           "open_entries": [],
@@ -170,11 +170,11 @@
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
         "value": "P2",
-        "source": "Severity-Spalte in RESTRISIKO_600.md"
+        "source": "severity column in RESTRISIKO_600.md"
       },
       "status": {
         "value": "open",
-        "source": "State-Spalte in RESTRISIKO_600.md",
+        "source": "state column in RESTRISIKO_600.md",
         "wortlaut": "open; follow-up release"
       },
       "evidence": [
@@ -210,11 +210,11 @@
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
         "value": "P2",
-        "source": "Severity-Spalte in RESTRISIKO_600.md"
+        "source": "severity column in RESTRISIKO_600.md"
       },
       "status": {
         "value": "open",
-        "source": "State-Spalte in RESTRISIKO_600.md",
+        "source": "state column in RESTRISIKO_600.md",
         "wortlaut": "open; follow-up release"
       },
       "evidence": [
@@ -250,11 +250,11 @@
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
         "value": "P3",
-        "source": "Severity-Spalte in RESTRISIKO_600.md"
+        "source": "severity column in RESTRISIKO_600.md"
       },
       "status": {
         "value": "open",
-        "source": "State-Spalte in RESTRISIKO_600.md",
+        "source": "state column in RESTRISIKO_600.md",
         "wortlaut": "open; follow-up release"
       },
       "evidence": [
@@ -290,11 +290,11 @@
       "objektklasse_begruendung": "A-Kennungen sind FUNDE an der Aussenflaeche (Homepage, Paket, Sichtbarkeit) und damit gleichrangig zu S und N.",
       "severity": {
         "value": "P1",
-        "source": "Severity-Spalte in RESTRISIKO_600.md"
+        "source": "severity column in RESTRISIKO_600.md"
       },
       "status": {
         "value": "closed",
-        "source": "State-Spalte in RESTRISIKO_600.md",
+        "source": "state column in RESTRISIKO_600.md",
         "wortlaut": "closed"
       },
       "evidence": [
@@ -336,7 +336,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -377,7 +377,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -1277,9 +1277,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1318,9 +1317,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1359,9 +1357,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1400,9 +1397,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1441,9 +1437,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1482,9 +1477,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1523,9 +1517,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1566,7 +1559,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -1605,9 +1598,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "closed",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1648,7 +1640,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -1687,9 +1679,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "closed",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1728,9 +1719,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1769,9 +1759,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1810,9 +1799,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "closed",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1851,9 +1839,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1892,9 +1879,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1933,9 +1919,8 @@
         "reason": "this identifier appears neither in the signed v1 register nor in a table with a severity column; setting a severity here would be a rating without evidence"
       },
       "status": {
-        "value": null,
-        "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "value": "open",
+        "source": "state word in the heading in RESTRISIKO_600.md"
       },
       "evidence": [
         {
@@ -1976,7 +1961,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2017,7 +2002,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2058,7 +2043,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2099,7 +2084,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2140,7 +2125,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2181,7 +2166,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2222,7 +2207,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2263,7 +2248,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2304,7 +2289,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2345,7 +2330,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2386,7 +2371,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2427,7 +2412,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2468,7 +2453,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2509,7 +2494,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2550,7 +2535,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2591,7 +2576,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2632,7 +2617,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2673,7 +2658,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2714,7 +2699,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2755,7 +2740,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2796,7 +2781,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2837,7 +2822,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2878,7 +2863,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2919,7 +2904,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -2960,7 +2945,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3001,7 +2986,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3042,7 +3027,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3083,7 +3068,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3124,7 +3109,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3165,7 +3150,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3206,7 +3191,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3247,7 +3232,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3288,7 +3273,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3329,7 +3314,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3370,7 +3355,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3411,7 +3396,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3452,7 +3437,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3493,7 +3478,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3534,7 +3519,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3575,7 +3560,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3616,7 +3601,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3657,7 +3642,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3698,7 +3683,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3739,7 +3724,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3780,7 +3765,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3821,7 +3806,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3862,7 +3847,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3903,7 +3888,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3944,7 +3929,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -3985,7 +3970,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4026,7 +4011,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4067,7 +4052,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4108,7 +4093,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4149,7 +4134,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4190,7 +4175,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4231,7 +4216,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4272,7 +4257,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4313,7 +4298,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4354,7 +4339,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4395,7 +4380,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4436,7 +4421,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4477,7 +4462,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4518,7 +4503,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4559,7 +4544,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4600,7 +4585,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4641,7 +4626,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4682,7 +4667,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4723,7 +4708,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4764,7 +4749,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4805,7 +4790,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4846,7 +4831,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4887,7 +4872,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4928,7 +4913,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -4969,7 +4954,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5010,7 +4995,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5051,7 +5036,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5092,7 +5077,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5133,7 +5118,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5174,7 +5159,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5215,7 +5200,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5256,7 +5241,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5297,7 +5282,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5338,7 +5323,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5379,7 +5364,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5420,7 +5405,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5461,7 +5446,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5502,7 +5487,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5543,7 +5528,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5584,7 +5569,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5625,7 +5610,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5666,7 +5651,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5707,7 +5692,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5748,7 +5733,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5789,7 +5774,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5830,7 +5815,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5871,7 +5856,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5912,7 +5897,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5953,7 +5938,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -5994,7 +5979,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -6035,7 +6020,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {
@@ -6076,7 +6061,7 @@
       "status": {
         "value": null,
         "state": "NOT MEASURED",
-        "reason": "this identifier appears neither in the producer list nor in a table with a state column; setting a state here would be a guess"
+        "reason": "this identifier appears neither in the producer list, nor in a table with a state column, nor in a heading that names its state after a dash; setting a state here would be a guess"
       },
       "evidence": [
         {

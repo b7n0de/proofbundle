@@ -409,7 +409,7 @@ def _severity(kennung: str, aus_tabelle: str | None = None) -> dict:
                                       "their agreement is a separate assurance and not a property "
                                       "of this field")}
     if aus_tabelle:
-        return {"value": aus_tabelle, "source": f"Severity-Spalte in {RESTRISIKO_REL}"}
+        return {"value": aus_tabelle, "source": f"severity column in {RESTRISIKO_REL}"}
     return {"value": None, "state": "NOT MEASURED",
             "reason": ("this identifier appears neither in the signed v1 register nor in a "
                        "table with a severity column; setting a severity here would be a "
@@ -464,7 +464,40 @@ def _status_aus_tabelle(stueck: str, kopf: list) -> str | None:
     return spalten[i][:80] if i < len(spalten) and spalten[i] else None
 
 
-def _status(kennung: str, aus_tabelle: str | None = None) -> dict:
+#: DER ZUSTAND STEHT AUCH IN DER UEBERSCHRIFT (Codex 4000140162). Die Quelle fuehrt ihre Funde in
+#: ZWEI Gestalten: als Tabellenzeile mit Zustandsspalte und als Ueberschrift, deren Text den
+#: Zustand nach einem Gedankenstrich nennt ("… — open, reproduced …", "… — CLOSED, and …").
+#: Gelesen wurde nur die erste. GEMESSEN ueber die Quelle: 50 Ueberschriften tragen eine Kennung,
+#: 12 nennen darin `open`, 5 `closed`, 33 nennen nichts. Die 17 mit Zustand kamen als NOT MEASURED
+#: heraus und fielen damit aus `known_issues.md` — S5 steht in der Quelle ausdruecklich offen und
+#: fehlte in der Ansicht der offenen Punkte.
+#:
+#: ENG GEFASST, UND DIE GRENZE IST GEMESSEN: erkannt wird das Zustandswort NACH einem
+#: Gedankenstrich, also die Hausform der Ueberschrift. Das trifft 15 der 17. Die zwei uebrigen
+#: (S1, S11) tragen "CLOSED" mitten im Satz; sie bleiben NOT MEASURED, weil ein Muster, das jedes
+#: `open` irgendwo im Titel als Zustand liest, aus "opened the file" einen Fund macht. Lieber eine
+#: benannte Luecke als ein geratener Zustand — die zwei sind als eigener Posten vermerkt.
+#: `re` wird in dieser Datei bewusst LOKAL importiert; das Muster wird deshalb im Aufruf gebaut
+#: und nicht auf Modulebene. Es steht hier als Zeichenkette, damit die Form lesbar bleibt.
+_ZUSTAND_IN_UEBERSCHRIFT = r"[—–-]{1,2}\s*\**(open|closed)\b"
+
+
+def _status_aus_ueberschrift(stueck: str, kennung: str) -> str | None:
+    """Das Zustandswort aus der Ueberschrift DIESER Kennung — oder None."""
+    import re  # noqa: PLC0415
+    muster = re.compile(_ZUSTAND_IN_UEBERSCHRIFT, re.I)
+    for zeile in stueck.splitlines():
+        z = zeile.strip()
+        if not z.startswith("#") or kennung not in z:
+            continue
+        m = muster.search(z)
+        if m:
+            return m.group(1).lower()
+    return None
+
+
+def _status(kennung: str, aus_tabelle: str | None = None,
+            aus_ueberschrift: str | None = None) -> dict:
     """Der Zustand eines Fundes, GELESEN statt geraten.
 
     Codex r3999621596: `_offen` fiel fuer jede Kennung, die nicht in FINDINGS steht, auf
@@ -482,10 +515,14 @@ def _status(kennung: str, aus_tabelle: str | None = None) -> dict:
                     "source": "FINDINGS in scripts/gen_findings_register.py"}
     if aus_tabelle:
         return {"value": "closed" if aus_tabelle.lower().startswith("closed") else "open",
-                "source": f"State-Spalte in {RESTRISIKO_REL}", "wortlaut": aus_tabelle}
+                "source": f"state column in {RESTRISIKO_REL}", "wortlaut": aus_tabelle}
+    if aus_ueberschrift:
+        return {"value": aus_ueberschrift,
+                "source": f"state word in the heading in {RESTRISIKO_REL}"}
     return {"value": None, "state": "NOT MEASURED",
-            "reason": ("this identifier appears neither in the producer list nor in a table "
-                       "with a state column; setting a state here would be a guess")}
+            "reason": ("this identifier appears neither in the producer list, nor in a table with "
+                       "a state column, nor in a heading that names its state after a dash; "
+                       "setting a state here would be a guess")}
 
 
 def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
@@ -541,8 +578,10 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
             "objektklasse_begruendung": e.get("warum_diese_klasse"),
             "severity": _severity(k, _severity_aus_tabelle(stueck.decode("utf-8"), kopf)
                                   if fundart == "tabelle_spalte1" else None),
-            "status": _status(k, _status_aus_tabelle(stueck.decode("utf-8"), kopf)
-                              if fundart == "tabelle_spalte1" else None),
+            "status": _status(k,
+                              _status_aus_tabelle(stueck.decode("utf-8"), kopf)
+                              if fundart == "tabelle_spalte1" else None,
+                              _status_aus_ueberschrift(stueck.decode("utf-8"), k)),
             "evidence": [{
                 "path": f"{EVIDENZ_REL}/{k}.md",
                 "sha256": hashlib.sha256(stueck).hexdigest(),
