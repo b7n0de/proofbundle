@@ -34,14 +34,44 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 ANKER = REPO / "audit_artifacts" / "readiness_trusted_pubkeys.txt"
 REGISTER = REPO / "audit_artifacts" / "findings_register_361.json"
 
-#: Eine Zeile, die von C12.2 UND einem ISO-Datum spricht.
-_PROSA = re.compile(r"^.*\bC12\.2\b.*?(\d{4}-\d{2}-\d{2}).*$", re.M)
+#: Eine Zeile, die den KIPPTAG von C12.2 nennt — nicht bloss C12.2 und irgendein Datum.
+#:
+#: Die Verengung kam aus der eigenen Ableitung, nicht aus einer Idee. Die erste Fassung nahm jede
+#: Zeile mit `C12.2` und einem ISO-Datum; die abgeleitete Traegermenge meldete daraufhin
+#: scripts/gen_findings_register.py als abweichend, wegen des Satzes "genau daran fiel C12.2 am
+#: 2026-09-06" — einer RUECKSCHAU auf ein vergangenes Ereignis, keiner Fristaussage. Ein Muster, das
+#: beides gleich liest, misst die Schreibweise und nicht die Eigenschaft; dieselbe Datei traegt
+#: vier Zeilen weiter die echte Fristaussage.
+#:
+#: Verlangt wird deshalb ein Kipp-Verb in derselben Zeile. Alle vier echten Traeger fuehren eines:
+#: "flips PASS to FAIL", "turns red", "kippt ... von PASS auf FAIL".
+_PROSA = re.compile(
+    r"^.*\bC12\.2\b.*?\b(?:flips?|turns?\s+red|kippt)\b.*?(\d{4}-\d{2}-\d{2}).*$"
+    r"|^.*\bC12\.2\b.*?(?<![-\d])(\d{4}-\d{2}-\d{2})(?![-\d]).*?\b(?:flips?|turns?\s+red|kippt)\b.*$",
+    re.M | re.I)
 
 #: `not_after=YYYY-MM-DD` im Ankertext.
 _NOT_AFTER = re.compile(r"\bnot_after=(\d{4}-\d{2}-\d{2})\b")
 
-#: Die Dokumente, die den Kipptag fuehren duerfen.
-DOKUMENTE = ("docs/release_scope/6.1.0.md", "RESTRISIKO_600.md")
+#: KEINE handverlesene Liste mehr. Die Traegermenge wird ABGELEITET, und der Grund ist gemessen:
+#: die Vorgaengerfassung nannte zwei Dokumente, das Datum steht aber an VIER Stellen. CHANGELOG.md
+#: und scripts/gen_findings_register.py (der Erzeuger des SIGNIERTEN Registertextes) fehlten, und
+#: eine Aenderung der CHANGELOG-Zeile liess diese ganze Datei gruen. Ein Grenzwaechter, der eine
+#: Teilmenge der Orte prueft, an denen die Grenze steht, bewacht die Aufzaehlung statt der Grenze.
+#: Gefunden von der Codex-Runde eins an PR 197.
+#:
+#: Was ABSICHTLICH nicht mitzaehlt, je mit Grund — eine Ausschlussmenge ohne Grund ist eine Liste,
+#: auf die man schiebt, was gerade rot ist.
+NICHT_TRAEGER = {
+    # Diese Datei baut die Faelle, mit denen sie prueft; ihre eigenen Beispieldaten sind keine Prosa
+    # ueber den Kipptag, sondern das Werkzeug, das darueber urteilt.
+    "tests/test_der_kipptag_wird_abgeleitet_nicht_getippt.py":
+        "der Riegel selbst, seine Beispieldaten sind kein Traeger",
+}
+
+#: Wo gesucht wird. Prosa und Erzeuger, nicht der ganze Baum — ein Register, das den Satz als DATEN
+#: traegt, ist eine Ausgabe und keine Aussage.
+_SUCHRAUM = ("*.md", "docs/**/*.md", "scripts/*.py")
 
 
 #: Eine Ankerzeile: Schluessel, Rolle, Frist.
@@ -156,14 +186,30 @@ def kipptag() -> datetime.date | None:
     return f + datetime.timedelta(days=1) if grenze_ist_einschliessend() else f
 
 
+def traeger() -> list[str]:
+    """Jede Datei im Suchraum, die C12.2 mit einem Datum nennt — ABGELEITET, nicht getippt."""
+    raus = []
+    for muster in _SUCHRAUM:
+        for p in sorted(REPO.glob(muster)):
+            if not p.is_file():
+                continue
+            rel = str(p.relative_to(REPO))
+            if rel in NICHT_TRAEGER or rel in raus:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if _PROSA.search(text):
+                raus.append(rel)
+    return raus
+
+
 def prosa_stellen() -> list[tuple[str, str, str]]:
     """(Datei, Zeile, genanntes Datum) fuer jede Stelle, die C12.2 mit einem Datum nennt."""
     raus = []
-    for rel in DOKUMENTE:
-        p = REPO / rel
-        if not p.is_file():
-            continue
-        for m in _PROSA.finditer(p.read_text(encoding="utf-8")):
+    for rel in traeger():
+        for m in _PROSA.finditer((REPO / rel).read_text(encoding="utf-8")):
             raus.append((rel, m.group(0).strip()[:150], m.group(1)))
     return raus
 
@@ -295,3 +341,60 @@ def test_die_rollenzuordnung_der_produktion_ist_lesbar():
     """[ZAEHLT] Ohne sie gibt es kein Urteil, und das ist ein eigener Zustand."""
     r = _rollen_fuer(PRUEFUNG)
     assert r, f"keine Rolle deckt {PRUEFUNG} — dann ist der Kipptag nicht ableitbar"
+
+
+# ── Nachtrag 14.09.2026: die Traegermenge wird abgeleitet, nicht aufgezaehlt ─────────────────────
+
+def test_die_traegermenge_wird_abgeleitet_und_nicht_getippt():
+    """[ZAEHLT] Der Fund selbst: die Vorgaengerfassung nannte ZWEI Dokumente, das Datum steht an VIER.
+
+    Gemessen am 14.09.2026 im Baum: CHANGELOG.md und scripts/gen_findings_register.py fuehren den
+    Kipptag ebenfalls, und der zweite erzeugt den SIGNIERTEN Registertext. Ein Grenzwaechter, der
+    eine Teilmenge der Orte prueft, an denen die Grenze steht, bewacht die Aufzaehlung statt der
+    Grenze. Gefunden von der Codex-Runde eins an PR 197.
+    """
+    gefunden = set(traeger())
+    for pflicht in ("CHANGELOG.md", "RESTRISIKO_600.md",
+                    "docs/release_scope/6.1.0.md", "scripts/gen_findings_register.py"):
+        assert pflicht in gefunden, (
+            f"{pflicht} fuehrt den Kipptag, wird aber nicht als Traeger abgeleitet — "
+            f"abgeleitet: {sorted(gefunden)}")
+    assert len(gefunden) >= 4
+
+
+def test_eine_rueckschau_ist_keine_fristaussage():
+    """[ZAEHLT] Die Verengung, die die eigene Ableitung erzwungen hat.
+
+    `scripts/gen_findings_register.py` traegt BEIDES: den Satz "genau daran fiel C12.2 am
+    2026-09-06" — eine Rueckschau auf ein vergangenes Ereignis — und vier Zeilen weiter die echte
+    Fristaussage. Ein Muster, das jede Zeile mit C12.2 und einem Datum nimmt, meldet die Datei als
+    abweichend, obwohl sie richtig ist. Verlangt wird deshalb ein Kipp-Verb in derselben Zeile.
+    """
+    rueckschau = "#: genau daran fiel C12.2 am 2026-09-06: ein signiertes Register entschied ueber\n"
+    assert not _PROSA.search(rueckschau), "eine Rueckschau wird als Fristaussage gelesen"
+    for echt in ("`C12.2` turns red on 2027-09-07 by design",
+                 "check C12.2 flips PASS to FAIL on 2027-09-07",
+                 "`C12.2` kippt am **2027-09-07** von PASS auf FAIL"):
+        assert _PROSA.search(echt), f"eine echte Fristaussage wird nicht erkannt: {echt!r}"
+
+
+def test_fangnachweis_ein_falsches_datum_im_NEUEN_traeger_wird_gefunden(tmp_path, monkeypatch):
+    """[ZAEHLT] Der Ruecknahme-Nachweis, und er zielt genau auf die Luecke.
+
+    Gebaut wird ein Baum mit einer CHANGELOG-Zeile, die einen ANDEREN Kipptag nennt — die Datei, die
+    die alte Aufzaehlung nicht kannte. Faellt diese Zusicherung, ist die Ableitung wieder eine Liste.
+    """
+    import test_der_kipptag_wird_abgeleitet_nicht_getippt as selbst
+    baum = tmp_path / "baum"
+    (baum / "docs" / "release_scope").mkdir(parents=True)
+    (baum / "CHANGELOG.md").write_text(
+        "- **`C12.2` turns red on 2030-01-01 by design (N21):** the only anchor key\n", encoding="utf-8")
+    (baum / "docs" / "release_scope" / "6.1.0.md").write_text(
+        "| **N21** `C12.2` kippt am **2027-09-07** von PASS auf FAIL.\n", encoding="utf-8")
+    monkeypatch.setattr(selbst, "REPO", baum)
+    stellen = prosa_stellen()
+    genannt = {datum for _, _, datum in stellen}
+    assert "2030-01-01" in genannt, (
+        "die abgeleitete Menge sieht die CHANGELOG-Zeile nicht — genau die Datei fehlte der "
+        f"alten Aufzaehlung. Gefunden: {stellen}")
+    assert len(genannt) > 1, "zwei verschiedene Kipptage muessen als Abweichung sichtbar werden"
