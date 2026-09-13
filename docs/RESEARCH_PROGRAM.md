@@ -62,14 +62,28 @@ and **the state**. Only one has evidence in the tree today.
 
 - **Deciding measurement:** an independent second implementation runs the same negative vectors and
   agrees, plus an honesty gate that turns red when a coverage claim is not backed.
-- **State:** **MEASURED, partially** — the only thesis with evidence in the tree today.
+- **State:** **NOT MEASURED** in the run cited below, and this correction is the point:
+  the aggregate `23 passed, 1 skipped` hides which test was skipped, and the skipped one is
+  the only one that measures agreement. The thesis has the most machinery of any here, but
+  machinery is not a measurement.
 
   | Path (head `4e32e83b647235bfedf23b55cebe69fdf14fd6f5`, tag `v6.0.0`) | Lines | What it measures |
   |---|---|---|
-  | `tests/test_relation_statement_rust_parity.py` | 53 | `test_crosscheck_relation_differential_green` — the Python↔Rust differential **agrees**, on the relation surface |
+  | `tests/test_relation_statement_rust_parity.py` | 53 | `test_crosscheck_relation_differential_green` — the Python↔Rust differential on the relation surface. **Skipped unless `tools/pb_verify_rs` has been cargo-built**, and a standard checkout has not built it |
   | `tests/test_rust_parity_gate.py` | 462 | the **honesty of the coverage bookkeeping**: a claimed subcommand missing from `main.rs` or from the built binary is `stale`, an untracked Python verify function is `untracked`, an orphaned registry entry is `orphaned` |
 
-  Measured run, both files: **23 passed, 1 skipped**.
+  Measured run, both files, on a standard checkout: **23 passed, 1 skipped** — and the single
+  skip is `test_crosscheck_relation_differential_green`, with the reason
+  `pb_verify_rs not cargo-built`. None of the 23 passing cases measures Python-Rust
+  agreement, so that run does not support the claim.
+
+  Measured again after `cargo build --release` in `tools/pb_verify_rs` (toolchain 1.95.0, the
+  pinned channel): **24 passed, 0 skipped**. The agreement therefore holds when it is actually
+  run. What was missing was the evidence, not the property — and an aggregate that does not
+  name its skip cannot tell those two apart.
+
+  Origin of this correction: an automated review comment on the pull request that introduced
+  this section, reproduced here at the head before it was accepted.
 
   **What this does NOT show, and the distinction carries the thesis.** The two files measure
   different things. Agreement itself is measured on **one** surface (relation). The parity gate does
