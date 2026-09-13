@@ -63,7 +63,8 @@ def _luecken(nummern: list[int]) -> list[tuple[int, int]]:
         elif n == vorher + 1:
             vorher = n
         else:
-            luecken.append((start, vorher)); start = vorher = n
+            luecken.append((start, vorher))
+            start = vorher = n
     if start is not None:
         luecken.append((start, vorher))
     return luecken

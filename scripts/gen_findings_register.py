@@ -385,7 +385,8 @@ def baue_v2(repo, generated_at: str, revision: int = 0) -> dict:
     Quelle geschnitten, aus dem signierten v1-Register uebernommen oder als Luecke benannt.
     Nichts wird erfunden, damit eine Spalte voll aussieht.
     """
-    import hashlib, json as _json  # noqa: PLC0415
+    import hashlib
+    import json as _json  # noqa: PLC0415
     quelle = repo / RESTRISIKO_REL
     roh = quelle.read_bytes()
     text = roh.decode("utf-8")
@@ -920,8 +921,8 @@ def ansicht_uebersicht(doc) -> str:
                   f"computed — {a['computed']['p0_p1_total']} P0/P1 in the source, "
                   f"{a['computed']['p0_p1_open']} open."]
         if a.get("prose_rationale_state") == "REFUTED":
-            z.append(f"  The prose rationale in the source is REFUTED by the source's own table; "
-                     f"the claim is carried here because it is COMPUTED, not quoted.")
+            z.append("  The prose rationale in the source is REFUTED by the source's own table; "
+                     "the claim is carried here because it is COMPUTED, not quoted.")
     z += ["", "## All records", "",
           "| Id | Role | Class | Severity | Evidence | Bytes |", "|---|---|---|---|---|---|"]
     for r in doc["records"]:
@@ -1023,7 +1024,7 @@ def ansicht_html(doc) -> str:
 
 def schreibe_v2(repo, generated_at: str, revision: int = 0) -> dict:
     """Prueft erst, schreibt dann. Bei einem Verstoss KEINE Teilausgabe."""
-    import hashlib, json as _json  # noqa: PLC0415
+    import json as _json  # noqa: PLC0415
     doc = baue_v2(repo, generated_at, revision)
     fehler = pruefe_v2(doc, repo)
     if fehler:
