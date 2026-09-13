@@ -60,6 +60,11 @@ _NICHT_GEMESSEN = re.compile(r"\*\*State:\*\*[^\n]*?\bNOT\s+MEASURED\b")
 #: sondern seine Familie.
 _TESTNAME = re.compile(r"\btest_[A-Za-z0-9_]+(?:\[[^\]\s`]*\])?")
 
+#: Eine Zustandszeile als EIGENE Einheit. Der Fund 4000093152 haengt genau daran:
+#: wer den Abschnitt als Ganzes befreit, laesst mit der ehrlichen Luecke auch die
+#: unehrliche Behauptung daneben durch.
+_ZUSTANDSZEILEN = re.compile(r"^.*\bState\b.*$", re.M | re.I)
+
 #: Ein Satz, der vom Ueberspringen handelt. Satzgrenze ist Punkt oder Zeilenumbruch.
 _SKIP_SATZ = re.compile(r"[^.\n]*\bskip(?:ped)?\b[^.\n]*", re.I)
 
@@ -132,10 +137,21 @@ def stumme_sammelzahlen(text: str) -> list[str]:
         zahlen = [m for m in _SAMMELZAHL.finditer(rumpf) if int(m.group(2)) > 0]
         if not zahlen:
             continue
-        if _NICHT_GEMESSEN.search(rumpf):
-            continue                      # der Abschnitt sagt selbst, dass nicht gemessen wurde
-        if not _BEHAUPTET_GEMESSEN.search(rumpf):
-            continue                      # keine Messbehauptung, keine Pflicht
+        # EINE AUSNAHME GILT FUER IHRE EIGENE ZUSTANDSZEILE, NICHT FUER DEN ABSCHNITT
+        # (Codex 4000093152). Die Vorgaengerfassung fragte, ob IRGENDWO im Abschnitt ein
+        # `NOT MEASURED` steht, und liess dann den GANZEN Abschnitt aus. GEMESSEN: ein Abschnitt
+        # mit einer ehrlichen NOT-MEASURED-Zeile UND einer zweiten Zeile, die eine Messung
+        # behauptet, samt `9 passed, 1 skipped` ohne benannten Fall, kam als gruen durch. Eine
+        # ehrliche Luecke sprach damit eine fremde Behauptung frei.
+        #
+        # Gezaehlt wird jetzt je ZUSTANDSZEILE: gibt es mindestens eine, die eine Messung
+        # behauptet und NICHT selbst `NOT MEASURED` sagt, dann gilt die Pflicht — auch wenn
+        # daneben eine unmessbare steht. Nur wenn ALLE Zustandszeilen unmessbar sind, ruht sie.
+        behauptende = [z for z in _ZUSTANDSZEILEN.findall(rumpf)
+                       if _BEHAUPTET_GEMESSEN.search(z) and not _NICHT_GEMESSEN.search(z)]
+        if not behauptende:
+            if _NICHT_GEMESSEN.search(rumpf) or not _BEHAUPTET_GEMESSEN.search(rumpf):
+                continue                  # keine messende Behauptung in diesem Abschnitt
         if nennt_den_uebersprungenen_fall(rumpf):
             continue                      # der uebersprungene Fall ist benannt
         soll = uebersprungene_gesamt(rumpf)
@@ -266,3 +282,48 @@ def test_FANG_zwei_parametrierte_und_nur_EINER_benannt_bleibt_rot():
     text = ("### TQ\n\n- **State:** **MEASURED**.\n\n  Run: **22 passed, 2 skipped**.\n"
             "  One of them, `test_first[a]`, was skipped because the binary is absent.\n")
     assert stumme_sammelzahlen(text), "eine von zwei benannt genuegt weiterhin nicht"
+
+
+# ── EINE AUSNAHME GILT FUER IHRE EIGENE ZEILE (Codex 4000093152) ───────────────────────────
+#
+# Die Vorgaengerfassung fragte, ob IRGENDWO im Abschnitt ein `NOT MEASURED` steht, und liess dann
+# den GANZEN Abschnitt aus. GEMESSEN: ein Abschnitt mit einer ehrlichen NOT-MEASURED-Zeile UND
+# einer zweiten Zeile, die eine Messung behauptet, samt Sammelzahl ohne benannten Fall, kam als
+# gruen durch. Eine ehrliche Luecke sprach eine fremde Behauptung frei.
+#
+# DIE KLASSE: eine Befreiung wird auf der falschen EBENE angewendet — Abschnitt statt Behauptung.
+# Sie trifft dann Nachbarn, die sie nie gemeint hat. Dieselbe Form wie eine Ausnahme, die pro Repo
+# statt pro Zweig gilt.
+
+_MESSEND = "- **State:** **MEASURED** im Lauf unten.\n"
+_UNMESSBAR = "- **State:** **NOT MEASURED** hier.\n"
+
+
+def test_FANG_eine_unmessbare_zeile_befreit_die_messende_NEBENAN_nicht():
+    """[ZAEHLT] Der Fund selbst: genau die Lage, die vorher gruen war."""
+    text = f"### TX · zwei Zustaende\n\n{_UNMESSBAR}{_MESSEND}\n9 passed, 1 skipped\n"
+    assert stumme_sammelzahlen(text), (
+        "eine ehrliche NOT-MEASURED-Zeile hat die messende Behauptung daneben freigesprochen")
+
+
+def test_ANTI_ein_abschnitt_mit_NUR_unmessbaren_zeilen_bleibt_frei():
+    """[ZAEHLT] Gegenrichtung: die Verschaerfung darf die ehrliche Luecke nicht bestrafen."""
+    text = f"### TY · nur unmessbar\n\n{_UNMESSBAR}\n9 passed, 1 skipped\n"
+    assert stumme_sammelzahlen(text) == [], (
+        "ein Abschnitt, der nur eine unmessbare Zustandszeile traegt, schuldet keine Aufschluesselung")
+
+
+def test_eine_messende_zeile_ohne_benannten_fall_bleibt_ein_fund():
+    """[GETRENNT] Der Grundfall darf durch die Verengung nicht verloren gehen."""
+    text = f"### TZ · nur messend\n\n{_MESSEND}\n9 passed, 1 skipped\n"
+    assert stumme_sammelzahlen(text)
+
+
+def test_ANTI_parametrisierte_faelle_zaehlen_einzeln():
+    """[GETRENNT] Der frueher gemeldete Nachbar (3999991254) bleibt geschlossen.
+
+    Zwei uebersprungene Faelle derselben Funktion, beide benannt — das darf kein Fund sein.
+    """
+    text = (f"### TP · parametrisiert\n\n{_MESSEND}\n"
+            "22 passed, 2 skipped — uebersprungen: test_first[a] und test_first[b].\n")
+    assert stumme_sammelzahlen(text) == []

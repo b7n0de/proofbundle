@@ -32,6 +32,7 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 ANKER = REPO / "audit_artifacts" / "readiness_trusted_pubkeys.txt"
+REGISTER = REPO / "audit_artifacts" / "findings_register_361.json"
 
 #: Eine Zeile, die von C12.2 UND einem ISO-Datum spricht.
 _PROSA = re.compile(r"^.*\bC12\.2\b.*?(\d{4}-\d{2}-\d{2}).*$", re.M)
@@ -78,11 +79,41 @@ def _rollen_fuer(pruefung: str) -> set[str] | None:
     return {rolle for rolle, pruefungen in zuordnung.items() if pruefung in (pruefungen or ())}
 
 
-def frist_aus_dem_anker(anker: pathlib.Path | None = None) -> datetime.date | None:
-    """Die Frist des Schluessels, der fuer DIESE Pruefung signieren darf. None heisst NICHT MESSBAR.
+def signierschluessel(register: pathlib.Path | None = None) -> str | None:
+    """Der oeffentliche Schluessel, mit dem DIESES Register signiert ist — oder None.
 
-    Gibt es mehrere, gilt die SPAETESTE unter ihnen, denn solange einer von ihnen autorisiert ist,
-    kippt die Pruefung nicht. Gibt es keinen, ist die Frage nicht beantwortbar und nicht zu raten.
+    Auch das ist ein PARAMETER und kein Modulwert, aus demselben Grund wie beim Anker: ein
+    Fangnachweis, der seinen Gegenstand nicht stellen kann, misst nichts.
+    """
+    import json as _json  # noqa: PLC0415
+    register = register or REGISTER
+    if not register.is_file():
+        return None
+    try:
+        s = (_json.loads(register.read_text(encoding="utf-8")).get("signature") or {})
+    except ValueError:
+        return None
+    k = s.get("public_key_b64")
+    return k if isinstance(k, str) and k else None
+
+
+def frist_aus_dem_anker(anker: pathlib.Path | None = None,
+                        register: pathlib.Path | None = None) -> datetime.date | None:
+    """Die Frist DES Schluessels, der dieses Register signiert hat. None heisst NICHT MESSBAR.
+
+    ZWEITE RUNDE AN DIESER FUNKTION (Codex 4000093149, Nachfolge zu 3999991252). Die erste Fassung
+    nahm die spaeteste Frist ueber ALLE Schluessel mit der passenden Rolle. Der Gedanke war: solange
+    EINER autorisiert ist, kippt die Pruefung nicht. Gemessen stimmt das nicht — das Register ist von
+    genau EINEM Schluessel signiert, und wenn DESSEN Frist ablaeuft, weist die Produktion die
+    Signatur zurueck, ganz gleich wie viele andere Schluessel dieselbe Rolle tragen. Ein zweiter
+    Schluessel mit Frist 2099 haette hier 2099 ergeben, waehrend die Pruefung 2027 rot wird.
+
+    DIE KLASSE: eine Grenze wird aus einer OBERMENGE abgeleitet statt aus dem entscheidenden
+    Prinzipal. Erst war die Obermenge "alle Rollen", dann "alle Schluessel dieser Rolle" — zweimal
+    dieselbe Form, einmal enger. Entschieden wird jetzt am Schluessel, der IM REGISTER steht.
+
+    DREI ZUSTAENDE: die Frist dieses Schluessels; None, wenn das Register keinen Schluessel nennt;
+    None, wenn der genannte Schluessel im Anker nicht steht. Geraten wird nichts.
     """
     # DER ANKERPFAD IST EIN PARAMETER, kein Modulwert. Die erste Fassung des Fangnachweises
     # versuchte, ihn per monkeypatch an `globals()` zu tauschen, und fiel mit einem AttributeError
@@ -94,15 +125,17 @@ def frist_aus_dem_anker(anker: pathlib.Path | None = None) -> datetime.date | No
     rollen = _rollen_fuer(PRUEFUNG)
     if rollen is None:
         return None
-    tage = []
+    unterschreiber = signierschluessel(register)
+    if not unterschreiber:
+        return None                       # ohne genannten Schluessel ist die Frage nicht gestellt
     for m in _ANKERZEILE.finditer(anker.read_text(encoding="utf-8")):
-        if m.group(2) not in rollen:
-            continue                      # eine fremde Rolle entscheidet ueber diese Pruefung nicht
-        try:
-            tage.append(datetime.datetime.strptime(m.group(3), "%Y-%m-%d").date())
-        except ValueError:
+        if m.group(1) != unterschreiber or m.group(2) not in rollen:
             continue
-    return max(tage) if tage else None
+        try:
+            return datetime.datetime.strptime(m.group(3), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return None                           # der signierende Schluessel steht nicht im Anker
 
 
 def grenze_ist_einschliessend() -> bool:
@@ -192,16 +225,70 @@ def test_FANG_eine_FREMDE_rolle_verschiebt_die_frist_NICHT(tmp_path):
     if not rollen:
         pytest.skip("NICHT MESSBAR: die Rollenzuordnung der Produktion ist nicht lesbar")
     echte = sorted(rollen)[0]
+    reg = _register_mit(tmp_path, "AAAA")
     anker = tmp_path / "readiness_trusted_pubkeys.txt"
     anker.write_text(
         f"AAAA role={echte} not_after=2027-09-06\n"
         "BBBB role=eine_ganz_andere_rolle not_after=2099-12-31\n", encoding="utf-8")
-    assert frist_aus_dem_anker(anker) == datetime.date(2027, 9, 6), (
+    assert frist_aus_dem_anker(anker, reg) == datetime.date(2027, 9, 6), (
         "eine fremde Rolle darf die Frist nicht nach hinten schieben")
     nur_fremd = tmp_path / "nur_fremd.txt"
     nur_fremd.write_text("BBBB role=eine_ganz_andere_rolle not_after=2099-12-31\n", encoding="utf-8")
-    assert frist_aus_dem_anker(nur_fremd) is None, (
+    assert frist_aus_dem_anker(nur_fremd, reg) is None, (
         "ohne einen Schluessel der entscheidenden Rolle gibt es keine Frist, und keine geratene")
+
+
+def _register_mit(tmp_path, schluessel: str | None):
+    """Ein Wegwerf-Register, das genau diesen Schluessel als Unterschreiber nennt."""
+    import json as _json  # noqa: PLC0415
+    p = tmp_path / f"register_{schluessel or 'ohne'}.json"
+    inhalt = {"findings": []}
+    if schluessel:
+        inhalt["signature"] = {"alg": "ed25519", "public_key_b64": schluessel, "sig_b64": "x"}
+    p.write_text(_json.dumps(inhalt), encoding="utf-8")
+    return p
+
+
+def test_FANG_ein_ZWEITER_schluessel_DERSELBEN_rolle_verschiebt_die_frist_NICHT(tmp_path):
+    """[ZAEHLT] Der Nachfolge-Fund (Codex 4000093149), und er ueberholt den vorigen.
+
+    Die erste Fassung filterte nach Rolle und nahm dann die SPAETESTE Frist. Gemessen ist das
+    falsch: das Register traegt EINE Unterschrift, und laeuft DEREN Schluessel ab, weist die
+    Produktion sie zurueck — gleichgueltig, wie viele andere Schluessel dieselbe Rolle tragen.
+    """
+    rollen = _rollen_fuer(PRUEFUNG)
+    if not rollen:
+        pytest.skip("NICHT MESSBAR: die Rollenzuordnung der Produktion ist nicht lesbar")
+    echte = sorted(rollen)[0]
+    anker = tmp_path / "anker.txt"
+    anker.write_text(
+        f"AAAA role={echte} not_after=2027-09-06\n"
+        f"CCCC role={echte} not_after=2099-12-31\n", encoding="utf-8")
+    assert frist_aus_dem_anker(anker, _register_mit(tmp_path, "AAAA")) == datetime.date(2027, 9, 6), (
+        "ein zweiter Schluessel derselben Rolle hat die Frist nach hinten geschoben — dann "
+        "dokumentiert der Kipptag eine Rotationsgrenze, die fuer dieses Register nicht gilt")
+    # Und andersherum: signiert wirklich der spaete Schluessel, gilt auch dessen Frist.
+    assert frist_aus_dem_anker(anker, _register_mit(tmp_path, "CCCC")) == datetime.date(2099, 12, 31)
+
+
+def test_ohne_signatur_im_register_ist_die_frist_NICHT_MESSBAR(tmp_path):
+    """[ZAEHLT] Drei Zustaende: kein genannter Schluessel heisst nicht messbar, nicht 'irgendeiner'."""
+    rollen = _rollen_fuer(PRUEFUNG)
+    if not rollen:
+        pytest.skip("NICHT MESSBAR: die Rollenzuordnung der Produktion ist nicht lesbar")
+    anker = tmp_path / "anker2.txt"
+    anker.write_text(f"AAAA role={sorted(rollen)[0]} not_after=2027-09-06\n", encoding="utf-8")
+    assert frist_aus_dem_anker(anker, _register_mit(tmp_path, None)) is None
+
+
+def test_ein_signierender_schluessel_AUSSERHALB_des_ankers_ist_NICHT_MESSBAR(tmp_path):
+    """[ZAEHLT] Ein Schluessel, den der Anker nicht kennt, bekommt keine geratene Frist."""
+    rollen = _rollen_fuer(PRUEFUNG)
+    if not rollen:
+        pytest.skip("NICHT MESSBAR: die Rollenzuordnung der Produktion ist nicht lesbar")
+    anker = tmp_path / "anker3.txt"
+    anker.write_text(f"AAAA role={sorted(rollen)[0]} not_after=2027-09-06\n", encoding="utf-8")
+    assert frist_aus_dem_anker(anker, _register_mit(tmp_path, "FREMD")) is None
 
 
 def test_die_rollenzuordnung_der_produktion_ist_lesbar():
